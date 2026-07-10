@@ -1,4 +1,4 @@
-import { createContext, useContext, useEffect, useMemo, useState } from 'react';
+import React, { createContext, useContext, useEffect, useMemo, useState } from 'react';
 import { apiRequest } from './api';
 
 const STORAGE_KEY = 'dms_session';
@@ -45,8 +45,7 @@ export function AuthProvider({ children }) {
 
   async function login(username, password) {
     const data = await apiRequest('auth.login', { username, password });
-    localStorage.setItem(STORAGE_KEY, JSON.stringify({ sessionToken: data.sessionToken }));
-    setSessionToken(data.sessionToken);
+    persistSession(data.sessionToken);
     setUser(data.user);
     setPermissions(data.permissions || []);
     return data;
