@@ -1,7 +1,7 @@
 import React from 'react';
 import { Link, useLocation } from 'react-router-dom';
 import App from './App2';
-import BoletasApp from './Boletas';
+import BoletasApp from './BoletasEnhanced';
 import CatalogosApp from './Catalogos';
 import { useAuth } from './AuthContext';
 
