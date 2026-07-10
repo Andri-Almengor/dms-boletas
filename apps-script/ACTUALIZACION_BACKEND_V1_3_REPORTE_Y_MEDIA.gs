@@ -38,6 +38,7 @@ function generateBoletaArtifacts_(boleta, user) {
   const doc = DocumentApp.openById(docCopy.getId());
   const body = doc.getBody();
   const assigned = getAssignedUsers_(boleta.BoletaUID).map(function(item) { return item.NombreCompleto; }).join(', ');
+  const totalHours = calculateHoursTotalDms_(boleta.HorasTotales, boleta.HoraInicio, boleta.HoraFinal);
 
   const values = {
     'ID': boleta.BoletaID,
@@ -67,11 +68,14 @@ function generateBoletaArtifacts_(boleta, user) {
     'PruebasRealizadas': boleta.PruebasRealizadas,
     'Resultado': boleta.Resultado,
     'Recomendaciones': boleta.Recomendaciones,
+    'Recomendaciones ': boleta.Recomendaciones,
     'AsignadoA': assigned,
     'Asignado': assigned,
     'Hora de inicio': formatTimeDms_(boleta.HoraInicio),
     'Hora de finalización': formatTimeDms_(boleta.HoraFinal),
     'Hora de Finalización': formatTimeDms_(boleta.HoraFinal),
+    'HorasTotales': totalHours,
+    'Horas totales': totalHours,
     'Titulo': boleta.Titulo,
     'Título': boleta.Titulo,
     'TipoFalla': boleta.TipoFalla,
@@ -139,6 +143,34 @@ function formatTimeDms_(value) {
   return raw;
 }
 
+function calculateHoursTotalDms_(storedValue, startValue, endValue) {
+  const stored = Number(storedValue);
+  if (storedValue !== '' && storedValue !== null && storedValue !== undefined && !isNaN(stored) && stored > 0) {
+    return stored.toFixed(2);
+  }
+
+  function minutes(value) {
+    if (!value) return null;
+    if (Object.prototype.toString.call(value) === '[object Date]' && !isNaN(value.getTime())) {
+      return value.getHours() * 60 + value.getMinutes();
+    }
+    const raw = String(value).trim();
+    const match = raw.match(/^(\d{1,2}):(\d{2})/);
+    if (match) return Number(match[1]) * 60 + Number(match[2]);
+    const parsed = new Date(raw);
+    if (!isNaN(parsed.getTime())) return parsed.getHours() * 60 + parsed.getMinutes();
+    return null;
+  }
+
+  const start = minutes(startValue);
+  const end = minutes(endValue);
+  if (start === null || end === null) return '0.00';
+
+  let difference = end - start;
+  if (difference < 0) difference += 24 * 60;
+  return (difference / 60).toFixed(2);
+}
+
 function apiBoletaMediaGet_(ctx) {
   const p = ctx.payload || {};
   requireFields_(p, ['boletaUid', 'fileId']);
@@ -157,6 +189,7 @@ function sendBoletaEmail_(boleta, artifacts, evidences, payload, testMode) {
   const config = getConfigMap_();
   const subject = 'Reporte Técnico - ' + boleta.Titulo;
   const assigned = getAssignedUsers_(boleta.BoletaUID).map(function(item) { return item.NombreCompleto; }).join(', ');
+  const totalHours = calculateHoursTotalDms_(boleta.HorasTotales, boleta.HoraInicio, boleta.HoraFinal);
   let to = '';
   let cc = '';
   if (testMode) {
@@ -190,7 +223,7 @@ function sendBoletaEmail_(boleta, artifacts, evidences, payload, testMode) {
   });
 
   const rows = [
-    ['Fecha', formatDateApi_(boleta.Fecha, 'dd/MM/yyyy')], ['Cliente', boleta.Cliente], ['Categoría', boleta.Categoria], ['Tipo de falla', boleta.TipoFalla], ['Título', boleta.Titulo], ['Asignado a', assigned], ['Estado', 'Finalizado'], ['Hora de inicio', formatTimeDms_(boleta.HoraInicio)], ['Hora de finalización', formatTimeDms_(boleta.HoraFinal)], ['Horas totales', boleta.HorasTotales], ['Razón de visita', boleta.RazonVisita], ['Pruebas realizadas', boleta.PruebasRealizadas], ['Resultado', boleta.Resultado], ['Recomendaciones', boleta.Recomendaciones], ['Creado por', getUserEmailDms_(boleta.CreadoPor)], ['PDF', '<a href="' + artifacts.pdfUrl + '">Ver PDF en Drive</a>']
+    ['Fecha', formatDateApi_(boleta.Fecha, 'dd/MM/yyyy')], ['Cliente', boleta.Cliente], ['Categoría', boleta.Categoria], ['Tipo de falla', boleta.TipoFalla], ['Título', boleta.Titulo], ['Asignado a', assigned], ['Estado', 'Finalizado'], ['Hora de inicio', formatTimeDms_(boleta.HoraInicio)], ['Hora de finalización', formatTimeDms_(boleta.HoraFinal)], ['Horas totales', totalHours], ['Razón de visita', boleta.RazonVisita], ['Pruebas realizadas', boleta.PruebasRealizadas], ['Resultado', boleta.Resultado], ['Recomendaciones', boleta.Recomendaciones], ['Creado por', getUserEmailDms_(boleta.CreadoPor)], ['PDF', '<a href="' + artifacts.pdfUrl + '">Ver PDF en Drive</a>']
   ];
   const tableHtml = rows.map(function(row) { return '<tr><td style="width:28%;font-weight:bold;background:#f4f4f6;border:1px solid #d9dce1;padding:9px">' + escapeHtml_(row[0]) + '</td><td style="border:1px solid #d9dce1;padding:9px">' + (row[0] === 'PDF' ? row[1] : escapeHtml_(row[1])) + '</td></tr>'; }).join('');
   const htmlBody = '<div style="font-family:Arial,sans-serif;max-width:760px;margin:auto;border:1px solid #ddd"><div style="background:#242424;color:#fff;padding:22px"><h1 style="margin:0;font-size:24px">Reporte Técnico DMS</h1><p style="margin:12px 0 0">Boleta #' + escapeHtml_(boleta.BoletaID) + '</p></div><div style="padding:22px"><p>Estimado/a,</p><p>Adjunto encontrará el reporte técnico correspondiente a la gestión realizada.</p><table style="width:100%;border-collapse:collapse">' + tableHtml + '</table><h3 style="margin-top:24px">Evidencias</h3>' + (evidenceCards.length ? evidenceCards.join('') : '<p>No se registraron evidencias.</p>') + '</div></div>';
