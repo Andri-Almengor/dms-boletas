@@ -1,6 +1,6 @@
 import React from 'react';
 import { Link, useLocation } from 'react-router-dom';
-import App from './App';
+import App from './App2';
 import BoletasApp from './Boletas';
 import { useAuth } from './AuthContext';
 
