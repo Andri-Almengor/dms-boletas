@@ -15,7 +15,13 @@ function useCatalogs() {
   const { sessionToken } = useAuth();
   const [reloadToken, setReloadToken] = useState(0);
   const [data, setData] = useState({
-    clients: [], users: [], categories: [], deviceTypes: [], manufacturers: [], models: [],
+    clients: [],
+    users: [],
+    categories: [],
+    deviceTypes: [],
+    manufacturers: [],
+    models: [],
+    failureTypes: [],
   });
   const [error, setError] = useState('');
   const [loading, setLoading] = useState(true);
@@ -32,16 +38,18 @@ function useCatalogs() {
       apiRequest('catalog.deviceTypes.list', { page: 1, pageSize: 200, activo: true }, sessionToken),
       apiRequest('catalog.manufacturers.list', { page: 1, pageSize: 200, activo: true }, sessionToken),
       apiRequest('catalog.models.list', { page: 1, pageSize: 200, activo: true }, sessionToken),
+      apiRequest('catalog.failureTypes.list', { page: 1, pageSize: 200, activo: true, sortBy: 'Nombre', sortDir: 'asc' }, sessionToken),
     ])
-      .then(([clients, users, categories, deviceTypes, manufacturers, models]) => {
+      .then(([clients, users, categories, deviceTypes, manufacturers, models, failureTypes]) => {
         if (!active) return;
         setData({
           clients: clients.items || [],
-          users: (users.items || []).filter((u) => u.Estado === 'ACTIVO'),
+          users: (users.items || []).filter((user) => user.Estado === 'ACTIVO'),
           categories: categories.items || [],
           deviceTypes: deviceTypes.items || [],
           manufacturers: manufacturers.items || [],
           models: models.items || [],
+          failureTypes: failureTypes.items || [],
         });
       })
       .catch((err) => active && setError(err.message))
@@ -93,8 +101,15 @@ function BoletasList({ estado }) {
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState('');
   const [filters, setFilters] = useState({
-    search: '', clienteId: '', dateFrom: '', dateTo: '', asignadoUsuarioId: '',
-    categoriaId: '', tipoDispositivoId: '', fabricanteId: '', modeloId: '',
+    search: '',
+    clienteId: '',
+    dateFrom: '',
+    dateTo: '',
+    asignadoUsuarioId: '',
+    categoriaId: '',
+    tipoDispositivoId: '',
+    fabricanteId: '',
+    modeloId: '',
   });
 
   const filteredModels = useMemo(() => catalogs.models.filter((model) =>
@@ -151,6 +166,7 @@ function BoletasList({ estado }) {
   return (
     <main>
       <h1>Boletas {estado === 'FINALIZADO' ? 'finalizadas' : 'pendientes'}</h1>
+
       <form onSubmit={(event) => { event.preventDefault(); load(); }}>
         <div><label>Buscar por título, dispositivo, fabricante o modelo<br /><input name="search" value={filters.search} onChange={field} /></label></div>
         <div><label>Cliente<br /><select name="clienteId" value={filters.clienteId} onChange={field}><option value="">Todos</option>{catalogs.clients.map((client) => <option key={client.ClienteID} value={client.ClienteID}>{client.Nombre}</option>)}</select></label></div>
@@ -190,18 +206,38 @@ function BoletasList({ estado }) {
 }
 
 const EMPTY_FORM = {
-  titulo: '', estado: 'PENDIENTE', fecha: new Date().toISOString().slice(0, 10),
-  horaInicio: '', horaFinal: '', horasTotales: 0, clienteId: '', ubicacionId: '',
-  ubicacionEquipoId: '', supervisorId: '', correoCliente: '', correoSupervisor: '',
-  categoriaId: '', tipoDispositivoId: '', dispositivoId: '', fabricanteId: '', modeloId: '',
-  serie: '', razonVisita: '', descripcion: '', pruebasRealizadas: '', resultado: '',
-  recomendaciones: '', tipoFalla: '', asignados: [], enviarCorreoCliente: false, correosCC: '',
+  titulo: '',
+  estado: 'PENDIENTE',
+  fecha: new Date().toISOString().slice(0, 10),
+  horaInicio: '',
+  horaFinal: '',
+  horasTotales: 0,
+  clienteId: '',
+  ubicacionId: '',
+  ubicacionEquipoId: '',
+  supervisorId: '',
+  correoCliente: '',
+  correoSupervisor: '',
+  categoriaId: '',
+  tipoDispositivoId: '',
+  dispositivoId: '',
+  fabricanteId: '',
+  modeloId: '',
+  serie: '',
+  razonVisita: '',
+  descripcion: '',
+  pruebasRealizadas: '',
+  resultado: '',
+  recomendaciones: '',
+  tipoFalla: '',
+  asignados: [],
+  enviarCorreoCliente: false,
+  correosCC: '',
 };
 
 function SignaturePad({ existingSignatureUrl, onChange }) {
   const canvasRef = useRef(null);
   const drawingRef = useRef(false);
-  const dirtyRef = useRef(false);
 
   useEffect(() => {
     const canvas = canvasRef.current;
@@ -227,7 +263,6 @@ function SignaturePad({ existingSignatureUrl, onChange }) {
   function start(event) {
     event.preventDefault();
     drawingRef.current = true;
-    dirtyRef.current = true;
     const context = canvasRef.current.getContext('2d');
     const current = point(event);
     context.beginPath();
@@ -256,7 +291,6 @@ function SignaturePad({ existingSignatureUrl, onChange }) {
     context.clearRect(0, 0, canvas.width, canvas.height);
     context.fillStyle = '#ffffff';
     context.fillRect(0, 0, canvas.width, canvas.height);
-    dirtyRef.current = false;
     onChange('');
   }
 
@@ -371,6 +405,7 @@ function BoletaForm({ mode }) {
 
   function change(event) {
     const { name, value, type, checked, options } = event.target;
+
     if (name === 'asignados') {
       const selected = Array.from(options).filter((option) => option.selected).map((option) => option.value);
       setForm((current) => ({ ...current, asignados: selected }));
@@ -380,7 +415,12 @@ function BoletaForm({ mode }) {
     setForm((current) => ({
       ...current,
       [name]: type === 'checkbox' ? checked : value,
-      ...(name === 'clienteId' ? { ubicacionId: '', ubicacionEquipoId: '', supervisorId: '' } : {}),
+      ...(name === 'clienteId' ? {
+        ubicacionId: '',
+        ubicacionEquipoId: '',
+        supervisorId: '',
+        correoSupervisor: '',
+      } : {}),
       ...(name === 'ubicacionId' ? { ubicacionEquipoId: '' } : {}),
       ...(name === 'tipoDispositivoId' ? { modeloId: '' } : {}),
       ...(name === 'fabricanteId' ? { modeloId: '' } : {}),
@@ -388,20 +428,20 @@ function BoletaForm({ mode }) {
 
     if (name === 'supervisorId') {
       const selectedContact = contacts.find((contact) => contact.ContactoID === value);
-      if (selectedContact) {
-        setForm((current) => ({
-          ...current,
-          supervisorId: value,
-          correoSupervisor: selectedContact.Correo || '',
-        }));
-      }
+      setForm((current) => ({
+        ...current,
+        supervisorId: value,
+        correoSupervisor: selectedContact?.Correo || '',
+      }));
     }
 
     if (name === 'clienteId') {
       const selectedClient = catalogs.clients.find((client) => client.ClienteID === value);
-      if (selectedClient) {
-        setForm((current) => ({ ...current, correoCliente: selectedClient.CorreoGeneral || '' }));
-      }
+      setForm((current) => ({
+        ...current,
+        clienteId: value,
+        correoCliente: selectedClient?.CorreoGeneral || '',
+      }));
     }
   }
 
@@ -445,7 +485,8 @@ function BoletaForm({ mode }) {
     if (!form.clienteId) return setError('Seleccione primero un cliente.');
     const nombre = window.prompt('Nombre del nuevo supervisor');
     if (!nombre?.trim()) return;
-    const correo = window.prompt('Correo del supervisor') || '';
+    const correo = window.prompt('Correo del supervisor');
+    if (!correo?.trim()) return setError('El correo del supervisor es obligatorio.');
 
     try {
       const created = await apiRequest('contacts.create', {
@@ -456,11 +497,12 @@ function BoletaForm({ mode }) {
         recibeCorreo: true,
         activo: true,
       }, sessionToken);
+
       setContacts((current) => [...current, created]);
       setForm((current) => ({
         ...current,
         supervisorId: created.ContactoID,
-        correoSupervisor: created.Correo || '',
+        correoSupervisor: created.Correo || correo.trim(),
       }));
     } catch (err) {
       setError(err.message);
@@ -470,13 +512,9 @@ function BoletaForm({ mode }) {
   async function addDeviceType() {
     const nombre = window.prompt('Nombre del nuevo tipo de dispositivo');
     if (!nombre?.trim()) return;
-
     try {
-      const created = await apiRequest('catalog.deviceTypes.create', {
-        nombre: nombre.trim(),
-        activo: true,
-      }, sessionToken);
-      await catalogs.reload();
+      const created = await apiRequest('catalog.deviceTypes.create', { nombre: nombre.trim(), activo: true }, sessionToken);
+      catalogs.reload();
       setForm((current) => ({ ...current, tipoDispositivoId: created.TipoDispositivoID, modeloId: '' }));
     } catch (err) {
       setError(err.message);
@@ -486,13 +524,9 @@ function BoletaForm({ mode }) {
   async function addManufacturer() {
     const nombre = window.prompt('Nombre del nuevo fabricante');
     if (!nombre?.trim()) return;
-
     try {
-      const created = await apiRequest('catalog.manufacturers.create', {
-        nombre: nombre.trim(),
-        activo: true,
-      }, sessionToken);
-      await catalogs.reload();
+      const created = await apiRequest('catalog.manufacturers.create', { nombre: nombre.trim(), activo: true }, sessionToken);
+      catalogs.reload();
       setForm((current) => ({ ...current, fabricanteId: created.FabricanteID, modeloId: '' }));
     } catch (err) {
       setError(err.message);
@@ -502,7 +536,6 @@ function BoletaForm({ mode }) {
   async function addModel() {
     if (!form.tipoDispositivoId) return setError('Seleccione primero el tipo de dispositivo.');
     if (!form.fabricanteId) return setError('Seleccione primero el fabricante.');
-
     const nombre = window.prompt('Nombre del nuevo modelo');
     if (!nombre?.trim()) return;
 
@@ -513,8 +546,24 @@ function BoletaForm({ mode }) {
         nombre: nombre.trim(),
         activo: true,
       }, sessionToken);
-      await catalogs.reload();
+      catalogs.reload();
       setForm((current) => ({ ...current, modeloId: created.ModeloID }));
+    } catch (err) {
+      setError(err.message);
+    }
+  }
+
+  async function addFailureType() {
+    const nombre = window.prompt('Nombre del nuevo tipo de falla');
+    if (!nombre?.trim()) return;
+
+    try {
+      const created = await apiRequest('catalog.failureTypes.create', {
+        nombre: nombre.trim(),
+        activo: true,
+      }, sessionToken);
+      catalogs.reload();
+      setForm((current) => ({ ...current, tipoFalla: created.Nombre }));
     } catch (err) {
       setError(err.message);
     }
@@ -568,6 +617,7 @@ function BoletaForm({ mode }) {
     <main>
       <h1>{mode === 'create' ? 'Crear boleta' : 'Editar boleta'}</h1>
       <ErrorMessage message={catalogs.error || error} />
+
       <form onSubmit={submit}>
         <div><label>Título<br /><input name="titulo" value={form.titulo} onChange={change} required /></label></div>
         <div><label>Fecha<br /><input type="date" name="fecha" value={form.fecha} onChange={change} required /></label></div>
@@ -612,7 +662,7 @@ function BoletaForm({ mode }) {
         </div>
 
         <div><label>Correo del cliente<br /><input type="email" name="correoCliente" value={form.correoCliente} onChange={change} /></label></div>
-        <div><label>Correo del supervisor<br /><input type="email" name="correoSupervisor" value={form.correoSupervisor} onChange={change} /></label></div>
+        <div><label>Correo del supervisor<br /><input type="email" name="correoSupervisor" value={form.correoSupervisor} onChange={change} readOnly /></label></div>
 
         <div><label>Categoría<br /><select name="categoriaId" value={form.categoriaId} onChange={change}><option value="">Seleccione</option>{catalogs.categories.map((category) => <option key={category.CategoriaID} value={category.CategoriaID}>{category.Nombre}</option>)}</select></label></div>
 
@@ -648,7 +698,17 @@ function BoletaForm({ mode }) {
 
         <div><label>Dispositivo / identificador<br /><input name="dispositivoId" value={form.dispositivoId} onChange={change} /></label></div>
         <div><label>Serie<br /><input name="serie" value={form.serie} onChange={change} /></label></div>
-        <div><label>Tipo de falla<br /><input name="tipoFalla" value={form.tipoFalla} onChange={change} /></label></div>
+
+        <div>
+          <label>Tipo de falla<br />
+            <select name="tipoFalla" value={form.tipoFalla} onChange={change}>
+              <option value="">Seleccione</option>
+              {catalogs.failureTypes.map((failure) => <option key={failure.TipoFallaID} value={failure.Nombre}>{failure.Nombre}</option>)}
+            </select>
+          </label>{' '}
+          <button type="button" onClick={addFailureType}>Agregar tipo de falla</button>
+        </div>
+
         <div><label>Razón de visita<br /><textarea name="razonVisita" value={form.razonVisita} onChange={change} /></label></div>
         <div><label>Descripción<br /><textarea name="descripcion" value={form.descripcion} onChange={change} /></label></div>
         <div><label>Pruebas realizadas<br /><textarea name="pruebasRealizadas" value={form.pruebasRealizadas} onChange={change} /></label></div>
@@ -664,11 +724,16 @@ function BoletaForm({ mode }) {
               {catalogs.users.map((technician) => <option key={technician.UsuarioID} value={technician.UsuarioID}>{technician.NombreCompleto}</option>)}
             </select>
           </label>
-          <p>
-            <Link to="/usuarios/nuevo" target="_blank">Crear nuevo técnico</Link>{' | '}
-            <button type="button" onClick={catalogs.reload}>Actualizar lista de técnicos</button>
-          </p>
+          <p><button type="button" onClick={catalogs.reload}>Actualizar lista de técnicos</button></p>
         </div>
+
+        <div>
+          <label>
+            <input type="checkbox" name="enviarCorreoCliente" checked={form.enviarCorreoCliente} onChange={change} />
+            Enviar copia al correo del cliente
+          </label>
+        </div>
+        <div><label>Correos CC adicionales, separados por coma<br /><input name="correosCC" value={form.correosCC} onChange={change} /></label></div>
 
         <SignaturePad existingSignatureUrl={existingSignatureUrl} onChange={setSignatureData} />
 
@@ -686,6 +751,7 @@ function BoletaDetail() {
   const { sessionToken, hasPermission } = useAuth();
   const [data, setData] = useState(null);
   const [error, setError] = useState('');
+  const [processing, setProcessing] = useState(false);
 
   async function load() {
     try {
@@ -698,17 +764,53 @@ function BoletaDetail() {
 
   useEffect(() => { load(); }, [boletaUid, sessionToken]);
 
-  async function changeStatus() {
-    const target = data.boleta.Estado === 'FINALIZADO' ? 'PENDIENTE' : 'FINALIZADO';
+  async function finalize(testMode) {
+    const message = testMode
+      ? '¿Generar PDF y enviar únicamente al Chat y correo de prueba? La boleta seguirá pendiente.'
+      : '¿Finalizar la boleta, generar PDF y enviar correo y Google Chat?';
+
+    if (!window.confirm(message)) return;
+
+    setProcessing(true);
+    setError('');
     try {
-      await apiRequest('boletas.update', { boletaUid, estado: target }, sessionToken);
-      await load();
+      if (testMode) {
+        const result = await apiRequest('boletas.testFinalize', { boletaUid }, sessionToken);
+        window.alert(`Prueba enviada correctamente.\nPDF: ${result.artifacts?.pdfUrl || 'generado'}`);
+      } else {
+        const result = await apiRequest('boletas.finalize', {
+          boletaUid,
+          testMode: false,
+          sendClientCopy: Boolean(data.boleta.EnviarCorreoCliente),
+          cc: data.boleta.CorreosCC || '',
+        }, sessionToken);
+        if (!result.notification?.ok) {
+          setError(result.notification?.error || 'La boleta se finalizó, pero ocurrió un error de notificación.');
+        }
+        await load();
+      }
     } catch (err) {
       setError(err.message);
+    } finally {
+      setProcessing(false);
     }
   }
 
-  if (error) return <ErrorMessage message={error} />;
+  async function returnToPending() {
+    if (!window.confirm('¿Volver esta boleta a pendiente?')) return;
+    setProcessing(true);
+    setError('');
+    try {
+      await apiRequest('boletas.update', { boletaUid, estado: 'PENDIENTE' }, sessionToken);
+      await load();
+    } catch (err) {
+      setError(err.message);
+    } finally {
+      setProcessing(false);
+    }
+  }
+
+  if (error && !data) return <ErrorMessage message={error} />;
   if (!data) return <Loading />;
 
   const boleta = data.boleta;
@@ -716,15 +818,18 @@ function BoletaDetail() {
   return (
     <main>
       <h1>Boleta {boleta.BoletaID}: {boleta.Titulo}</h1>
+      <ErrorMessage message={error} />
       <p><strong>Estado:</strong> {boleta.Estado}</p>
       <p><strong>Fecha:</strong> {boleta.Fecha ? new Date(boleta.Fecha).toLocaleDateString() : ''}</p>
       <p><strong>Cliente:</strong> {boleta.Cliente}</p>
       <p><strong>Ubicación:</strong> {boleta.Ubicacion}</p>
       <p><strong>Ubicación del equipo:</strong> {boleta.UbicacionEquipo}</p>
       <p><strong>Supervisor:</strong> {boleta.Supervisor}</p>
+      <p><strong>Correo del supervisor:</strong> {boleta.CorreoSupervisor}</p>
       <p><strong>Asignados:</strong> {(data.asignados || []).map((assigned) => assigned.NombreCompleto).join(', ')}</p>
       <p><strong>Categoría:</strong> {boleta.Categoria}</p>
       <p><strong>Dispositivo:</strong> {[boleta.TipoDispositivo, boleta.Fabricante, boleta.Modelo].filter(Boolean).join(' - ')}</p>
+      <p><strong>Tipo de falla:</strong> {boleta.TipoFalla}</p>
       <p><strong>Serie:</strong> {boleta.Serie}</p>
       <p><strong>Razón de visita:</strong> {boleta.RazonVisita}</p>
       <p><strong>Descripción:</strong> {boleta.Descripcion}</p>
@@ -732,13 +837,32 @@ function BoletaDetail() {
       <p><strong>Resultado:</strong> {boleta.Resultado}</p>
       <p><strong>Recomendaciones:</strong> {boleta.Recomendaciones}</p>
       <p><strong>Firma:</strong> {boleta.FirmaURL ? <a href={boleta.FirmaURL} target="_blank" rel="noreferrer">Ver firma</a> : 'Sin firma'}</p>
+      {boleta.DocumentoURL && <p><strong>Documento:</strong> <a href={boleta.DocumentoURL} target="_blank" rel="noreferrer">Abrir documento</a></p>}
+      {boleta.PDFURL && <p><strong>PDF:</strong> <a href={boleta.PDFURL} target="_blank" rel="noreferrer">Abrir PDF</a></p>}
+      {boleta.CarpetaURL && <p><strong>Carpeta:</strong> <a href={boleta.CarpetaURL} target="_blank" rel="noreferrer">Abrir carpeta</a></p>}
 
       {hasPermission('BOLETAS_EDITAR') && (
         <p>
           <Link to={`/boletas/${boletaUid}/editar`}>Editar boleta</Link>{' | '}
-          <button type="button" onClick={changeStatus}>
-            {boleta.Estado === 'FINALIZADO' ? 'Volver a pendiente' : 'Marcar finalizada sin PDF'}
-          </button>
+          {boleta.Estado !== 'FINALIZADO' ? (
+            <>
+              <button type="button" disabled={processing} onClick={() => finalize(false)}>
+                {processing ? 'Procesando...' : 'Finalizar, generar PDF y enviar'}
+              </button>
+              {hasPermission('NOTIFICACIONES_PRUEBA') && (
+                <>
+                  {' | '}
+                  <button type="button" disabled={processing} onClick={() => finalize(true)}>
+                    Probar PDF, Chat y correo
+                  </button>
+                </>
+              )}
+            </>
+          ) : (
+            <button type="button" disabled={processing} onClick={returnToPending}>
+              Volver a pendiente
+            </button>
+          )}
         </p>
       )}
 
@@ -773,6 +897,7 @@ function EvidenceManager({ boletaUid, evidences, reload }) {
       setName('');
       setNote('');
       setFile(null);
+      event.target.reset();
       await reload();
     } catch (err) {
       setError(err.message);
@@ -786,7 +911,11 @@ function EvidenceManager({ boletaUid, evidences, reload }) {
     if (nota === null) return;
 
     try {
-      await apiRequest('boletas.evidence.update', { evidenciaId: item.EvidenciaID, nombre, nota }, sessionToken);
+      await apiRequest('boletas.evidence.update', {
+        evidenciaId: item.EvidenciaID,
+        nombre,
+        nota,
+      }, sessionToken);
       await reload();
     } catch (err) {
       setError(err.message);
@@ -807,14 +936,17 @@ function EvidenceManager({ boletaUid, evidences, reload }) {
     <section>
       <h2>Evidencias</h2>
       <ErrorMessage message={error} />
+
       {evidences.length === 0 ? <p>No hay evidencias.</p> : (
-        <ul>{evidences.map((evidence) => (
-          <li key={evidence.EvidenciaID}>
-            <a href={evidence.ArchivoURL} target="_blank" rel="noreferrer">{evidence.Nombre}</a>
-            {evidence.Nota ? ` - ${evidence.Nota}` : ''}
-            {canEdit && <>{' | '}<button onClick={() => edit(evidence)}>Editar</button>{' | '}<button onClick={() => remove(evidence)}>Eliminar</button></>}
-          </li>
-        ))}</ul>
+        <ul>
+          {evidences.map((evidence) => (
+            <li key={evidence.EvidenciaID}>
+              <a href={evidence.ArchivoURL} target="_blank" rel="noreferrer">{evidence.Nombre}</a>
+              {evidence.Nota ? ` - ${evidence.Nota}` : ''}
+              {canEdit && <>{' | '}<button type="button" onClick={() => edit(evidence)}>Editar</button>{' | '}<button type="button" onClick={() => remove(evidence)}>Eliminar</button></>}
+            </li>
+          ))}
+        </ul>
       )}
 
       {canEdit && (
