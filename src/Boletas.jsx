@@ -59,13 +59,13 @@ function BoletasLayout() {
       </header>
       <hr />
       <Routes>
-        <Route index element={<Navigate to="pendientes" replace />} />
-        <Route path="pendientes" element={<BoletasList estado="PENDIENTE" />} />
-        <Route path="finalizadas" element={<BoletasList estado="FINALIZADO" />} />
-        <Route path="nueva" element={<BoletaForm mode="create" />} />
-        <Route path=":boletaUid" element={<BoletaDetail />} />
-        <Route path=":boletaUid/editar" element={<BoletaForm mode="edit" />} />
-        <Route path="*" element={<Navigate to="pendientes" replace />} />
+        <Route path="/boletas" element={<Navigate to="/boletas/pendientes" replace />} />
+        <Route path="/boletas/pendientes" element={<BoletasList estado="PENDIENTE" />} />
+        <Route path="/boletas/finalizadas" element={<BoletasList estado="FINALIZADO" />} />
+        <Route path="/boletas/nueva" element={<BoletaForm mode="create" />} />
+        <Route path="/boletas/:boletaUid" element={<BoletaDetail />} />
+        <Route path="/boletas/:boletaUid/editar" element={<BoletaForm mode="edit" />} />
+        <Route path="*" element={<Navigate to="/boletas/pendientes" replace />} />
       </Routes>
     </>
   );
@@ -221,23 +221,20 @@ function BoletaForm({ mode }) {
       .then((x) => setEquipmentLocations(x.items || [])).catch((err) => setError(err.message));
   }, [form.ubicacionId, sessionToken]);
 
-  const filteredModels = catalogs.models.filter((m) =>
-    (!form.tipoDispositivoId || m.TipoDispositivoID === form.tipoDispositivoId) &&
-    (!form.fabricanteId || m.FabricanteID === form.fabricanteId)
-  );
-
   function change(event) {
-    const { name, value, type, checked } = event.target;
+    const { name, value, type, checked, options } = event.target;
+    if (name === 'asignados') {
+      const selected = Array.from(options).filter((o) => o.selected).map((o) => o.value);
+      setForm((current) => ({ ...current, asignados: selected }));
+      return;
+    }
     setForm((current) => ({ ...current, [name]: type === 'checkbox' ? checked : value }));
   }
 
-  function changeAssigned(event) {
-    setForm((current) => ({ ...current, asignados: Array.from(event.target.selectedOptions).map((o) => o.value) }));
-  }
-
-  async function save(event) {
+  async function submit(event) {
     event.preventDefault();
-    setSaving(true); setError('');
+    setSaving(true);
+    setError('');
     try {
       if (mode === 'create') {
         const result = await apiRequest('boletas.create', form, sessionToken);
@@ -246,45 +243,52 @@ function BoletaForm({ mode }) {
         await apiRequest('boletas.update', { boletaUid, ...form }, sessionToken);
         navigate(`/boletas/${boletaUid}`);
       }
-    } catch (err) { setError(err.message); } finally { setSaving(false); }
+    } catch (err) {
+      setError(err.message);
+    } finally {
+      setSaving(false);
+    }
   }
 
-  if (mode === 'create' && !hasPermission('BOLETAS_CREAR')) return <Navigate to="/boletas/pendientes" replace />;
-  if (mode === 'edit' && !hasPermission('BOLETAS_EDITAR')) return <Navigate to={`/boletas/${boletaUid}`} replace />;
+  const models = catalogs.models.filter((m) =>
+    (!form.tipoDispositivoId || m.TipoDispositivoID === form.tipoDispositivoId) &&
+    (!form.fabricanteId || m.FabricanteID === form.fabricanteId)
+  );
+
+  const canUseForm = mode === 'create' ? hasPermission('BOLETAS_CREAR') : hasPermission('BOLETAS_EDITAR');
+  if (!canUseForm) return <Navigate to="/boletas/pendientes" replace />;
 
   return (
     <main>
       <h1>{mode === 'create' ? 'Crear boleta' : 'Editar boleta'}</h1>
       <ErrorMessage message={catalogs.error || error} />
-      <form onSubmit={save}>
+      <form onSubmit={submit}>
         <div><label>Título<br /><input name="titulo" value={form.titulo} onChange={change} required /></label></div>
-        <div><label>Estado<br /><select name="estado" value={form.estado} onChange={change}><option value="BORRADOR">BORRADOR</option><option value="PENDIENTE">PENDIENTE</option><option value="FINALIZADO">FINALIZADO</option></select></label></div>
         <div><label>Fecha<br /><input type="date" name="fecha" value={form.fecha} onChange={change} required /></label></div>
-        <div><label>Hora inicio<br /><input type="time" name="horaInicio" value={form.horaInicio} onChange={change} /></label></div>
-        <div><label>Hora final<br /><input type="time" name="horaFinal" value={form.horaFinal} onChange={change} /></label></div>
-        <div><label>Horas totales<br /><input type="number" step="0.01" name="horasTotales" value={form.horasTotales} onChange={change} /></label></div>
-        <div><label>Cliente<br /><select name="clienteId" value={form.clienteId} onChange={change} required><option value="">Seleccione</option>{catalogs.clients.map((x) => <option key={x.ClienteID} value={x.ClienteID}>{x.Nombre}</option>)}</select></label></div>
+        <div><label>Cliente<br /><select name="clienteId" value={form.clienteId} onChange={change} required><option value="">Seleccione</option>{catalogs.clients.map((c) => <option key={c.ClienteID} value={c.ClienteID}>{c.Nombre}</option>)}</select></label></div>
         <div><label>Ubicación<br /><select name="ubicacionId" value={form.ubicacionId} onChange={change}><option value="">Seleccione</option>{locations.map((x) => <option key={x.UbicacionID} value={x.UbicacionID}>{x.Nombre}</option>)}</select></label></div>
         <div><label>Ubicación del equipo<br /><select name="ubicacionEquipoId" value={form.ubicacionEquipoId} onChange={change}><option value="">Seleccione</option>{equipmentLocations.map((x) => <option key={x.UbicacionEquipoID} value={x.UbicacionEquipoID}>{x.Nombre}</option>)}</select></label></div>
-        <div><label>Supervisor<br /><select name="supervisorId" value={form.supervisorId} onChange={change}><option value="">Seleccione</option>{contacts.filter((x) => x.EsSupervisor).map((x) => <option key={x.ContactoID} value={x.ContactoID}>{x.Nombre} - {x.Correo}</option>)}</select></label></div>
+        <div><label>Supervisor<br /><select name="supervisorId" value={form.supervisorId} onChange={change}><option value="">Seleccione</option>{contacts.map((x) => <option key={x.ContactoID} value={x.ContactoID}>{x.Nombre} - {x.Correo}</option>)}</select></label></div>
         <div><label>Correo del cliente<br /><input type="email" name="correoCliente" value={form.correoCliente} onChange={change} /></label></div>
         <div><label>Correo del supervisor<br /><input type="email" name="correoSupervisor" value={form.correoSupervisor} onChange={change} /></label></div>
         <div><label>Categoría<br /><select name="categoriaId" value={form.categoriaId} onChange={change}><option value="">Seleccione</option>{catalogs.categories.map((x) => <option key={x.CategoriaID} value={x.CategoriaID}>{x.Nombre}</option>)}</select></label></div>
         <div><label>Tipo de dispositivo<br /><select name="tipoDispositivoId" value={form.tipoDispositivoId} onChange={change}><option value="">Seleccione</option>{catalogs.deviceTypes.map((x) => <option key={x.TipoDispositivoID} value={x.TipoDispositivoID}>{x.Nombre}</option>)}</select></label></div>
-        <div><label>ID o nombre del dispositivo<br /><input name="dispositivoId" value={form.dispositivoId} onChange={change} /></label></div>
         <div><label>Fabricante<br /><select name="fabricanteId" value={form.fabricanteId} onChange={change}><option value="">Seleccione</option>{catalogs.manufacturers.map((x) => <option key={x.FabricanteID} value={x.FabricanteID}>{x.Nombre}</option>)}</select></label></div>
-        <div><label>Modelo<br /><select name="modeloId" value={form.modeloId} onChange={change}><option value="">Seleccione</option>{filteredModels.map((x) => <option key={x.ModeloID} value={x.ModeloID}>{x.Nombre}</option>)}</select></label></div>
+        <div><label>Modelo<br /><select name="modeloId" value={form.modeloId} onChange={change}><option value="">Seleccione</option>{models.map((x) => <option key={x.ModeloID} value={x.ModeloID}>{x.Nombre}</option>)}</select></label></div>
+        <div><label>Dispositivo / identificador<br /><input name="dispositivoId" value={form.dispositivoId} onChange={change} /></label></div>
         <div><label>Serie<br /><input name="serie" value={form.serie} onChange={change} /></label></div>
-        <div><label>Técnicos asignados<br /><select multiple size="6" value={form.asignados} onChange={changeAssigned} required>{catalogs.users.map((x) => <option key={x.UsuarioID} value={x.UsuarioID}>{x.NombreCompleto}</option>)}</select></label></div>
         <div><label>Tipo de falla<br /><input name="tipoFalla" value={form.tipoFalla} onChange={change} /></label></div>
         <div><label>Razón de visita<br /><textarea name="razonVisita" value={form.razonVisita} onChange={change} /></label></div>
         <div><label>Descripción<br /><textarea name="descripcion" value={form.descripcion} onChange={change} /></label></div>
         <div><label>Pruebas realizadas<br /><textarea name="pruebasRealizadas" value={form.pruebasRealizadas} onChange={change} /></label></div>
         <div><label>Resultado<br /><textarea name="resultado" value={form.resultado} onChange={change} /></label></div>
         <div><label>Recomendaciones<br /><textarea name="recomendaciones" value={form.recomendaciones} onChange={change} /></label></div>
-        <div><label><input type="checkbox" name="enviarCorreoCliente" checked={form.enviarCorreoCliente} onChange={change} /> Enviar copia al cliente posteriormente</label></div>
-        <div><label>Correos CC<br /><input name="correosCC" value={form.correosCC} onChange={change} /></label></div>
-        <button disabled={saving}>{saving ? 'Guardando...' : 'Guardar'}</button>{' '}<Link to="/boletas/pendientes">Cancelar</Link>
+        <div><label>Hora inicio<br /><input type="time" name="horaInicio" value={form.horaInicio} onChange={change} /></label></div>
+        <div><label>Hora final<br /><input type="time" name="horaFinal" value={form.horaFinal} onChange={change} /></label></div>
+        <div><label>Horas totales<br /><input type="number" step="0.01" name="horasTotales" value={form.horasTotales} onChange={change} /></label></div>
+        <div><label>Técnicos asignados<br /><select multiple name="asignados" value={form.asignados} onChange={change} size="6">{catalogs.users.map((u) => <option key={u.UsuarioID} value={u.UsuarioID}>{u.NombreCompleto}</option>)}</select></label></div>
+        <button disabled={saving}>{saving ? 'Guardando...' : 'Guardar'}</button>{' '}
+        <Link to="/boletas/pendientes">Cancelar</Link>
       </form>
     </main>
   );
@@ -295,83 +299,109 @@ function BoletaDetail() {
   const { sessionToken, hasPermission } = useAuth();
   const [data, setData] = useState(null);
   const [error, setError] = useState('');
-  const [upload, setUpload] = useState({ nombre: '', nota: '', file: null });
-  const [uploading, setUploading] = useState(false);
 
   async function load() {
-    try { setData(await apiRequest('boletas.get', { boletaUid }, sessionToken)); }
-    catch (err) { setError(err.message); }
+    try {
+      const result = await apiRequest('boletas.get', { boletaUid }, sessionToken);
+      setData(result);
+    } catch (err) {
+      setError(err.message);
+    }
   }
+
   useEffect(() => { load(); }, [boletaUid, sessionToken]);
 
-  async function uploadEvidence(event) {
-    event.preventDefault();
-    if (!upload.file) return;
-    setUploading(true); setError('');
+  async function changeStatus() {
+    const target = data.boleta.Estado === 'FINALIZADO' ? 'PENDIENTE' : 'FINALIZADO';
     try {
-      const base64 = await fileToBase64(upload.file);
-      await apiRequest('boletas.evidence.upload', {
-        boletaUid, nombre: upload.nombre || upload.file.name, nota: upload.nota,
-        fileName: upload.file.name, mimeType: upload.file.type || 'application/octet-stream', base64,
-      }, sessionToken);
-      setUpload({ nombre: '', nota: '', file: null });
-      event.target.reset();
+      await apiRequest('boletas.update', { boletaUid, estado: target }, sessionToken);
       await load();
-    } catch (err) { setError(err.message); } finally { setUploading(false); }
+    } catch (err) {
+      setError(err.message);
+    }
   }
 
-  async function editEvidence(item) {
-    const nombre = window.prompt('Nombre de la evidencia', item.Nombre || '');
-    if (nombre === null) return;
-    const nota = window.prompt('Nota', item.Nota || '');
-    if (nota === null) return;
-    try { await apiRequest('boletas.evidence.update', { evidenciaId: item.EvidenciaID, nombre, nota }, sessionToken); await load(); }
-    catch (err) { setError(err.message); }
-  }
+  if (error) return <ErrorMessage message={error} />;
+  if (!data) return <Loading />;
 
-  async function deleteEvidence(item) {
-    if (!window.confirm('¿Eliminar esta evidencia?')) return;
-    try { await apiRequest('boletas.evidence.delete', { evidenciaId: item.EvidenciaID }, sessionToken); await load(); }
-    catch (err) { setError(err.message); }
-  }
-
-  async function changeState(estado) {
-    try { await apiRequest('boletas.update', { boletaUid, estado }, sessionToken); await load(); }
-    catch (err) { setError(err.message); }
-  }
-
-  if (!data) return <><ErrorMessage message={error} /><Loading /></>;
   const b = data.boleta;
 
   return (
     <main>
       <h1>Boleta {b.BoletaID}: {b.Titulo}</h1>
-      <ErrorMessage message={error} />
-      <p><strong>Estado:</strong> {b.Estado}</p><p><strong>Fecha:</strong> {b.Fecha ? new Date(b.Fecha).toLocaleDateString() : ''}</p>
-      <p><strong>Cliente:</strong> {b.Cliente}</p><p><strong>Ubicación:</strong> {b.Ubicacion}</p><p><strong>Ubicación del equipo:</strong> {b.UbicacionEquipo}</p>
-      <p><strong>Supervisor:</strong> {b.Supervisor}</p><p><strong>Correos:</strong> {b.CorreoCliente} {b.CorreoSupervisor}</p>
-      <p><strong>Categoría:</strong> {b.Categoria}</p><p><strong>Dispositivo:</strong> {[b.TipoDispositivo, b.DispositivoID, b.Fabricante, b.Modelo, b.Serie].filter(Boolean).join(' - ')}</p>
+      <p><strong>Estado:</strong> {b.Estado}</p>
+      <p><strong>Fecha:</strong> {b.Fecha ? new Date(b.Fecha).toLocaleDateString() : ''}</p>
+      <p><strong>Cliente:</strong> {b.Cliente}</p>
+      <p><strong>Ubicación:</strong> {b.Ubicacion}</p>
+      <p><strong>Ubicación del equipo:</strong> {b.UbicacionEquipo}</p>
+      <p><strong>Supervisor:</strong> {b.Supervisor}</p>
       <p><strong>Asignados:</strong> {(data.asignados || []).map((x) => x.NombreCompleto).join(', ')}</p>
-      <p><strong>Razón de visita:</strong> {b.RazonVisita}</p><p><strong>Descripción:</strong> {b.Descripcion}</p>
-      <p><strong>Pruebas:</strong> {b.PruebasRealizadas}</p><p><strong>Resultado:</strong> {b.Resultado}</p><p><strong>Recomendaciones:</strong> {b.Recomendaciones}</p>
-      {hasPermission('BOLETAS_EDITAR') && <p><Link to={`/boletas/${boletaUid}/editar`}>Editar boleta</Link>{' | '}<button type="button" onClick={() => changeState(b.Estado === 'FINALIZADO' ? 'PENDIENTE' : 'FINALIZADO')}>{b.Estado === 'FINALIZADO' ? 'Volver a pendiente' : 'Marcar finalizada sin PDF'}</button></p>}
-      <h2>Evidencias</h2>
-      {(data.evidencias || []).length === 0 ? <p>No hay evidencias.</p> : <ul>{data.evidencias.map((e) => <li key={e.EvidenciaID}><a href={e.ArchivoURL} target="_blank" rel="noreferrer">{e.Nombre}</a> — {e.Nota} {hasPermission('BOLETAS_EVIDENCIAS') && <><button type="button" onClick={() => editEvidence(e)}>Editar</button><button type="button" onClick={() => deleteEvidence(e)}>Eliminar</button></>}</li>)}</ul>}
-      {hasPermission('BOLETAS_EVIDENCIAS') && <form onSubmit={uploadEvidence}><h3>Agregar evidencia</h3><div><label>Nombre<br /><input value={upload.nombre} onChange={(e) => setUpload((x) => ({ ...x, nombre: e.target.value }))} /></label></div><div><label>Nota<br /><textarea value={upload.nota} onChange={(e) => setUpload((x) => ({ ...x, nota: e.target.value }))} /></label></div><div><label>Archivo<br /><input type="file" onChange={(e) => setUpload((x) => ({ ...x, file: e.target.files?.[0] || null }))} required /></label></div><button disabled={uploading}>{uploading ? 'Subiendo...' : 'Agregar evidencia'}</button></form>}
+      <p><strong>Categoría:</strong> {b.Categoria}</p>
+      <p><strong>Dispositivo:</strong> {[b.TipoDispositivo, b.Fabricante, b.Modelo].filter(Boolean).join(' - ')}</p>
+      <p><strong>Serie:</strong> {b.Serie}</p>
+      <p><strong>Razón de visita:</strong> {b.RazonVisita}</p>
+      <p><strong>Descripción:</strong> {b.Descripcion}</p>
+      <p><strong>Pruebas realizadas:</strong> {b.PruebasRealizadas}</p>
+      <p><strong>Resultado:</strong> {b.Resultado}</p>
+      <p><strong>Recomendaciones:</strong> {b.Recomendaciones}</p>
+      {hasPermission('BOLETAS_EDITAR') && <p><Link to={`/boletas/${boletaUid}/editar`}>Editar boleta</Link>{' | '}<button type="button" onClick={changeStatus}>{b.Estado === 'FINALIZADO' ? 'Volver a pendiente' : 'Marcar finalizada sin PDF'}</button></p>}
+      <EvidenceManager boletaUid={boletaUid} evidences={data.evidencias || []} reload={load} />
       <p><Link to={b.Estado === 'FINALIZADO' ? '/boletas/finalizadas' : '/boletas/pendientes'}>Volver</Link></p>
     </main>
   );
 }
 
+function EvidenceManager({ boletaUid, evidences, reload }) {
+  const { sessionToken, hasPermission } = useAuth();
+  const [name, setName] = useState('');
+  const [note, setNote] = useState('');
+  const [file, setFile] = useState(null);
+  const [error, setError] = useState('');
+  const canEdit = hasPermission('BOLETAS_EVIDENCIAS');
+
+  async function upload(event) {
+    event.preventDefault();
+    if (!file) return setError('Seleccione un archivo.');
+    try {
+      const base64 = await fileToBase64(file);
+      await apiRequest('boletas.evidence.upload', {
+        boletaUid, nombre: name || file.name, nota: note, fileName: file.name, mimeType: file.type || 'application/octet-stream', base64,
+      }, sessionToken);
+      setName(''); setNote(''); setFile(null); await reload();
+    } catch (err) { setError(err.message); }
+  }
+
+  async function edit(item) {
+    const nombre = window.prompt('Nombre de la evidencia', item.Nombre || '');
+    if (nombre === null) return;
+    const nota = window.prompt('Nota', item.Nota || '');
+    if (nota === null) return;
+    try {
+      await apiRequest('boletas.evidence.update', { evidenciaId: item.EvidenciaID, nombre, nota }, sessionToken);
+      await reload();
+    } catch (err) { setError(err.message); }
+  }
+
+  async function remove(item) {
+    if (!window.confirm('¿Eliminar esta evidencia?')) return;
+    try {
+      await apiRequest('boletas.evidence.delete', { evidenciaId: item.EvidenciaID }, sessionToken);
+      await reload();
+    } catch (err) { setError(err.message); }
+  }
+
+  return <section><h2>Evidencias</h2><ErrorMessage message={error} />{evidences.length === 0 ? <p>No hay evidencias.</p> : <ul>{evidences.map((e) => <li key={e.EvidenciaID}><a href={e.ArchivoURL} target="_blank" rel="noreferrer">{e.Nombre}</a>{e.Nota ? ` - ${e.Nota}` : ''}{canEdit && <>{' | '}<button onClick={() => edit(e)}>Editar</button>{' | '}<button onClick={() => remove(e)}>Eliminar</button></>}</li>)}</ul>}{canEdit && <form onSubmit={upload}><div><label>Nombre<br /><input value={name} onChange={(e) => setName(e.target.value)} /></label></div><div><label>Nota<br /><textarea value={note} onChange={(e) => setNote(e.target.value)} /></label></div><div><label>Archivo<br /><input type="file" onChange={(e) => setFile(e.target.files?.[0] || null)} required /></label></div><button>Agregar evidencia</button></form>}</section>;
+}
+
 function fileToBase64(file) {
   return new Promise((resolve, reject) => {
     const reader = new FileReader();
-    reader.onload = () => resolve(String(reader.result).split(',')[1] || '');
+    reader.onload = () => resolve(String(reader.result).split(',')[1]);
     reader.onerror = reject;
     reader.readAsDataURL(file);
   });
 }
 
 export default function BoletasApp() {
-  return <Routes><Route path="/*" element={<BoletasLayout />} /></Routes>;
+  return <BoletasLayout />;
 }
