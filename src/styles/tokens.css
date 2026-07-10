@@ -1,0 +1,8 @@
+:root {
+  --surface:#fcf9f8; --surface-low:#f6f3f2; --surface-card:#fff; --surface-high:#eae7e7;
+  --surface-highest:#e5e2e1; --text:#1b1c1c; --text-muted:#5f5e5e; --outline:#8f6f6c;
+  --outline-soft:#e4beba; --primary:#af101a; --primary-hover:#d32f2f; --on-primary:#fff;
+  --error:#ba1a1a; --error-bg:#ffdad6; --success:#15803d; --warning:#b36b00;
+  --radius-sm:4px; --radius:8px; --radius-lg:12px; --radius-xl:16px;
+  --shadow:0 4px 12px rgba(0,0,0,.08); --touch:48px; --page:16px;
+}
