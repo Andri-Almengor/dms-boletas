@@ -1,83 +1,80 @@
-import React from 'react';
+import React, { useEffect, useMemo, useState } from 'react';
 import { Link } from 'react-router-dom';
 import { useAuth } from '../AuthContext';
 import Icon from '../components/common/Icon';
+import TicketCard from '../components/tickets/TicketCard';
+import { MODULE_ROUTES, normalizeItems, requestAvailable } from '../services/moduleApi';
+import { getTicketId, normalizeTicketStatus } from '../utils/tickets';
 
 function firstName(name = '') {
   return String(name).trim().split(/\s+/)[0] || 'Usuario';
 }
 
 export default function HomePage() {
-  const { user, permissions, hasPermission } = useAuth();
+  const { user, hasPermission, sessionToken } = useAuth();
+  const [tickets, setTickets] = useState([]);
+  const [loading, setLoading] = useState(true);
   const isAdmin = hasPermission('USUARIOS_GESTIONAR');
-  const canViewUsers = hasPermission('USUARIOS_VER');
+
+  useEffect(() => {
+    let active = true;
+    requestAvailable(MODULE_ROUTES.tickets.list, {
+      page: 1,
+      pageSize: 200,
+      sortBy: 'Fecha',
+      sortDir: 'desc',
+    }, sessionToken)
+      .then((data) => { if (active) setTickets(normalizeItems(data)); })
+      .catch(() => { if (active) setTickets([]); })
+      .finally(() => { if (active) setLoading(false); });
+    return () => { active = false; };
+  }, [sessionToken]);
+
+  const pending = useMemo(() => tickets.filter((ticket) => normalizeTicketStatus(ticket) === 'PENDIENTE'), [tickets]);
+  const finished = useMemo(() => tickets.filter((ticket) => normalizeTicketStatus(ticket) === 'FINALIZADA'), [tickets]);
+  const recent = useMemo(() => [...tickets].slice(0, 3), [tickets]);
 
   return (
     <div className="page page--home">
       <section className="welcome-block">
         <span className="eyebrow">Bienvenido</span>
         <h1>Hola, {firstName(user?.NombreCompleto)}</h1>
-        <p><Icon name={isAdmin ? 'admin_panel_settings' : 'engineering'} /> {isAdmin ? 'Administrador' : 'Técnico'}</p>
+        <p><Icon name={isAdmin ? 'admin_panel_settings' : 'engineering'} /> {isAdmin ? 'Administrador' : 'Técnico de campo'}</p>
       </section>
 
       <section className="stats-grid">
-        <article className="stat-card stat-card--warning">
-          <Icon name="verified_user" />
-          <strong>{permissions.length}</strong>
-          <span>Permisos habilitados</span>
-        </article>
-        <article className="stat-card stat-card--success">
+        <Link className="stat-card stat-card--warning" to="/boletas/pendientes">
+          <Icon name="pending_actions" />
+          <strong>{loading ? '—' : pending.length}</strong>
+          <span>Boletas pendientes</span>
+        </Link>
+        <Link className="stat-card stat-card--success" to="/boletas/finalizadas">
           <Icon name="task_alt" filled />
-          <strong>Activa</strong>
-          <span>Sesión del usuario</span>
-        </article>
+          <strong>{loading ? '—' : finished.length}</strong>
+          <span>Boletas finalizadas</span>
+        </Link>
       </section>
 
-      {isAdmin && (
-        <Link to="/usuarios/nuevo" className="primary-cta">
-          <Icon name="person_add" />
-          <span>Crear nuevo usuario</span>
-        </Link>
-      )}
+      <Link to="/boletas/nueva" className="primary-cta">
+        <Icon name="add_circle" />
+        <span>Crear nueva boleta</span>
+      </Link>
 
       <section className="section-block">
         <div className="section-heading">
-          <div>
-            <span className="eyebrow">Panel principal</span>
-            <h2>Accesos rápidos</h2>
+          <div><span className="eyebrow">Actividad reciente</span><h2>Últimas boletas asignadas</h2></div>
+          <Link to="/boletas/pendientes">Ver todas</Link>
+        </div>
+
+        {loading ? (
+          <div className="state-card state-card--loading"><Icon name="progress_activity" /><span>Cargando boletas...</span></div>
+        ) : recent.length ? (
+          <div className="ticket-stack">
+            {recent.map((ticket, index) => <TicketCard compact ticket={ticket} key={getTicketId(ticket, index)} />)}
           </div>
-        </div>
-
-        <div className="quick-grid">
-          {canViewUsers && (
-            <Link to="/usuarios" className="quick-card">
-              <span className="quick-card__icon"><Icon name="person_search" /></span>
-              <div><strong>Usuarios</strong><span>Consultar y administrar accesos</span></div>
-              <Icon name="chevron_right" />
-            </Link>
-          )}
-          <Link to="/cambiar-contrasena" className="quick-card">
-            <span className="quick-card__icon"><Icon name="lock_reset" /></span>
-            <div><strong>Cambiar contraseña</strong><span>Actualiza tus credenciales</span></div>
-            <Icon name="chevron_right" />
-          </Link>
-          <Link to="/mas" className="quick-card">
-            <span className="quick-card__icon"><Icon name="more_horiz" /></span>
-            <div><strong>Más opciones</strong><span>Perfil, módulos y sesión</span></div>
-            <Icon name="chevron_right" />
-          </Link>
-        </div>
-      </section>
-
-      <section className="profile-summary-card">
-        <div className="profile-summary-card__accent" />
-        <Icon name="account_circle" />
-        <div>
-          <span className="eyebrow">Usuario conectado</span>
-          <strong>{user?.NombreCompleto}</strong>
-          <span>{user?.Correo}</span>
-          <small>@{user?.NombreUsuario}</small>
-        </div>
+        ) : (
+          <div className="empty-state"><Icon name="assignment" /><h2>Todavía no hay boletas</h2><p>Las boletas recientes aparecerán en esta sección.</p></div>
+        )}
       </section>
     </div>
   );

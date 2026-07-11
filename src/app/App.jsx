@@ -5,6 +5,11 @@ import ChangePasswordPage from '../pages/ChangePasswordPage';
 import HomePage from '../pages/HomePage';
 import LoginPage from '../pages/LoginPage';
 import MorePage from '../pages/MorePage';
+import CategoriesPage from '../pages/admin/CategoriesPage';
+import ClientsPage from '../pages/admin/ClientsPage';
+import TicketDetailPage from '../pages/tickets/TicketDetailPage';
+import TicketFormPage from '../pages/tickets/TicketFormPage';
+import TicketListPage from '../pages/tickets/TicketListPage';
 import UserDetailPage from '../pages/users/UserDetailPage';
 import UserFormPage from '../pages/users/UserFormPage';
 import UsersPage from '../pages/users/UsersPage';
@@ -17,6 +22,13 @@ export default function App() {
       <Route path="/login" element={<LoginPage />} />
       <Route path="/" element={<ProtectedRoute><AppShell /></ProtectedRoute>}>
         <Route index element={<HomePage />} />
+        <Route path="boletas/pendientes" element={<TicketListPage status="PENDIENTE" />} />
+        <Route path="boletas/finalizadas" element={<TicketListPage status="FINALIZADA" />} />
+        <Route path="boletas/nueva" element={<TicketFormPage mode="create" />} />
+        <Route path="boletas/:boletaId" element={<TicketDetailPage />} />
+        <Route path="boletas/:boletaId/editar" element={<TicketFormPage mode="edit" />} />
+        <Route path="clientes" element={<ClientsPage />} />
+        <Route path="categorias" element={<CategoriesPage />} />
         <Route path="cambiar-contrasena" element={<ChangePasswordPage />} />
         <Route path="mas" element={<MorePage />} />
         <Route path="usuarios" element={<PermissionRoute permission="USUARIOS_VER"><UsersPage /></PermissionRoute>} />
