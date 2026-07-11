@@ -1,20 +1,27 @@
 # DMS Boletas
 
-Primera versión funcional en React + Vite conectada al backend de Google Apps Script.
+Aplicación React + Vite conectada al backend de Google Apps Script.
 
-## Funciones incluidas
+## Funciones conservadas
 
 - Login con usuario o correo y contraseña.
 - Sesión persistente en el navegador.
 - Cierre de sesión.
 - Cambio obligatorio de contraseña temporal.
-- Página Home con nombre y rol.
-- Lista y búsqueda de usuarios.
-- Creación de usuarios con contraseña temporal generada por el backend.
-- Detalle del usuario y permisos efectivos.
-- Edición de nombre, usuario, correo, rol y estado.
-- Eliminación lógica mediante estado INACTIVO.
+- Página de inicio con información del usuario.
+- Lista, búsqueda, creación, detalle y edición de usuarios.
+- Eliminación lógica de usuarios mediante estado INACTIVO.
 - Protección de rutas mediante permisos del backend.
+
+## Estructura
+
+- `src/app`: configuración principal y rutas.
+- `src/components`: componentes reutilizables y navegación.
+- `src/context`: autenticación y sesión.
+- `src/hooks`: hooks compartidos.
+- `src/pages`: pantallas de la aplicación.
+- `src/routes`: protección por sesión y permisos.
+- `src/styles`: sistema visual y estilos responsivos.
 
 ## Ejecutar
 
@@ -29,12 +36,4 @@ npm run dev
 npm run build
 ```
 
-## Backend
-
-La URL del Web App está configurada en `src/api.js`.
-
-Las solicitudes se envían como `text/plain;charset=utf-8` para evitar el preflight OPTIONS que Google Apps Script no procesa como una API tradicional.
-
-## Prueba inicial
-
-Use el usuario administrador y la contraseña temporal configurados durante la instalación del backend. En el primer acceso se solicitará cambiar la contraseña.
+La URL del Web App se mantiene en `src/api.js` y las rutas existentes del backend no fueron modificadas.
