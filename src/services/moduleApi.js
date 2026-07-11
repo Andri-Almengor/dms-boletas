@@ -6,18 +6,61 @@ export const MODULE_ROUTES = {
     get: ['boletas.get', 'tickets.get'],
     create: ['boletas.create', 'tickets.create'],
     update: ['boletas.update', 'tickets.update'],
-    finalize: ['boletas.finalize', 'tickets.finalize', 'boletas.update', 'tickets.update'],
+    autosave: ['boletas.autosave', 'boletas.update', 'tickets.update'],
+    finalize: ['boletas.finalize', 'tickets.finalize'],
+    testFinalize: ['boletas.testFinalize', 'tickets.testFinalize'],
+    generatePdf: ['boletas.generatePdf', 'tickets.generatePdf'],
+    returnPending: ['boletas.returnPending', 'boletas.update', 'tickets.update'],
+    annul: ['boletas.annul', 'boletas.update', 'tickets.update'],
+    evidenceUpload: ['boletas.evidence.upload', 'tickets.evidence.upload'],
+    evidenceUpdate: ['boletas.evidence.update', 'tickets.evidence.update'],
+    evidenceDelete: ['boletas.evidence.delete', 'tickets.evidence.delete'],
+    mediaGet: ['boletas.media.get', 'tickets.media.get'],
   },
   clients: {
     list: ['clients.list', 'clientes.list'],
+    get: ['clients.get', 'clientes.get'],
     create: ['clients.create', 'clientes.create'],
     update: ['clients.update', 'clientes.update'],
+    locationsList: ['clientLocations.list', 'clients.locations.list', 'clientes.ubicaciones.list', 'ubicacionesCliente.list'],
+    locationsCreate: ['clientLocations.create', 'clients.locations.create', 'clientes.ubicaciones.create', 'ubicacionesCliente.create'],
+    equipmentLocationsList: ['equipmentLocations.list', 'clients.equipmentLocations.list', 'clientes.ubicacionesEquipo.list', 'ubicacionesEquipo.list'],
+    equipmentLocationsCreate: ['equipmentLocations.create', 'clients.equipmentLocations.create', 'clientes.ubicacionesEquipo.create', 'ubicacionesEquipo.create'],
+    contactsList: ['contacts.list', 'clients.contacts.list', 'clientes.contactos.list', 'contactosCliente.list'],
+    contactsCreate: ['contacts.create', 'clients.contacts.create', 'clientes.contactos.create', 'contactosCliente.create'],
   },
   categories: {
-    list: ['categories.list', 'categorias.list'],
-    create: ['categories.create', 'categorias.create'],
-    update: ['categories.update', 'categorias.update'],
+    list: ['catalog.categories.list', 'categories.list', 'categorias.list'],
+    create: ['catalog.categories.create', 'categories.create', 'categorias.create'],
+    update: ['catalog.categories.update', 'categories.update', 'categorias.update'],
   },
+  deviceTypes: {
+    list: ['catalog.deviceTypes.list', 'deviceTypes.list', 'tiposDispositivo.list'],
+    create: ['catalog.deviceTypes.create', 'deviceTypes.create', 'tiposDispositivo.create'],
+    update: ['catalog.deviceTypes.update', 'deviceTypes.update', 'tiposDispositivo.update'],
+  },
+  manufacturers: {
+    list: ['catalog.manufacturers.list', 'manufacturers.list', 'fabricantes.list'],
+    create: ['catalog.manufacturers.create', 'manufacturers.create', 'fabricantes.create'],
+    update: ['catalog.manufacturers.update', 'manufacturers.update', 'fabricantes.update'],
+  },
+  models: {
+    list: ['catalog.models.list', 'models.list', 'modelos.list'],
+    create: ['catalog.models.create', 'models.create', 'modelos.create'],
+    update: ['catalog.models.update', 'models.update', 'modelos.update'],
+  },
+  failureTypes: {
+    list: ['catalog.failureTypes.list', 'failureTypes.list', 'tiposFalla.list'],
+    create: ['catalog.failureTypes.create', 'failureTypes.create', 'tiposFalla.create'],
+    update: ['catalog.failureTypes.update', 'failureTypes.update', 'tiposFalla.update'],
+  },
+  deviceManufacturers: {
+    list: ['catalog.deviceManufacturers.list', 'deviceManufacturers.list', 'tipoDispositivoFabricantes.list'],
+    create: ['catalog.deviceManufacturers.create', 'deviceManufacturers.create', 'tipoDispositivoFabricantes.create'],
+    update: ['catalog.deviceManufacturers.update', 'deviceManufacturers.update', 'tipoDispositivoFabricantes.update'],
+  },
+  users: { list: ['users.list'] },
+  config: { get: ['config.get', 'app.config.get'] },
 };
 
 export function normalizeItems(data) {
@@ -36,21 +79,28 @@ export function pick(object, keys, fallback = '') {
   return fallback;
 }
 
+export function toBoolean(value, fallback = false) {
+  if (value === undefined || value === null || value === '') return fallback;
+  if (typeof value === 'boolean') return value;
+  return ['true', '1', 'si', 'sí', 'yes', 'activo'].includes(String(value).trim().toLowerCase());
+}
+
+export function toOption(record, valueKeys, labelKeys) {
+  const value = pick(record, valueKeys);
+  const label = pick(record, labelKeys, value);
+  return value ? { value: String(value), label: String(label), record } : null;
+}
+
 function isMissingRouteError(error) {
   const text = `${error?.code || ''} ${error?.message || ''}`.toLowerCase();
-  return text.includes('route')
-    || text.includes('ruta')
-    || text.includes('not_found')
-    || text.includes('no encontrada')
-    || text.includes('unknown action');
+  return text.includes('route') || text.includes('ruta') || text.includes('not_found') || text.includes('no encontrada') || text.includes('unknown action') || text.includes('handler not found');
 }
 
 export async function requestAvailable(routes, payload = {}, sessionToken = '') {
   let lastError;
   for (const route of routes) {
-    try {
-      return await apiRequest(route, payload, sessionToken);
-    } catch (error) {
+    try { return await apiRequest(route, payload, sessionToken); }
+    catch (error) {
       lastError = error;
       if (!isMissingRouteError(error)) throw error;
     }
