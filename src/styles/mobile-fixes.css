@@ -1,0 +1,83 @@
+/* Ajustes visuales móviles detectados en pruebas reales */
+
+/* El selector anterior aplicaba el estilo de contador al icono Material. */
+.filter-trigger > .material-symbols-outlined {
+  position: static;
+  width: auto;
+  min-width: 0;
+  height: auto;
+  padding: 0;
+  border: 0;
+  border-radius: 0;
+  background: transparent;
+  color: currentColor;
+  font-size: 22px;
+  font-weight: 400;
+  display: inline-block;
+}
+
+.filter-trigger > span:not(.material-symbols-outlined) {
+  position: absolute;
+  right: -5px;
+  top: -5px;
+  min-width: 19px;
+  height: 19px;
+  padding: 0 5px;
+  border-radius: 999px;
+  background: #fff;
+  color: var(--primary);
+  border: 1px solid var(--primary);
+  font-size: .66rem;
+  font-weight: 800;
+  display: grid;
+  place-items: center;
+}
+
+.readonly-notice {
+  margin-bottom: 16px;
+  padding: 12px 14px;
+  border: 1px solid var(--outline-soft);
+  border-radius: var(--radius-md);
+  background: var(--surface-low);
+  color: var(--muted);
+  display: flex;
+  align-items: flex-start;
+  gap: 9px;
+  font-size: .8rem;
+  line-height: 1.45;
+}
+
+.readonly-notice .material-symbols-outlined {
+  color: var(--primary);
+  font-size: 20px;
+  flex: 0 0 auto;
+}
+
+@media (max-width: 560px) {
+  /* En móvil el icono de sección ocupaba una cuarta celda y empujaba el título. */
+  .ticket-detail-section summary {
+    min-height: 58px;
+    padding: 12px 14px;
+    grid-template-columns: 4px minmax(0, 1fr) 24px;
+    gap: 10px;
+  }
+
+  .ticket-detail-section summary > .section-marker + .material-symbols-outlined {
+    display: none;
+  }
+
+  .ticket-detail-section summary > strong {
+    min-width: 0;
+    overflow-wrap: anywhere;
+    line-height: 1.25;
+  }
+
+  .ticket-detail-section summary > .material-symbols-outlined:last-child {
+    grid-column: 3;
+    justify-self: end;
+  }
+
+  .ticket-detail-actions {
+    bottom: calc(var(--bottom-nav-height) + env(safe-area-inset-bottom) + 6px);
+  }
+}
