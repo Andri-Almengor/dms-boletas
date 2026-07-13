@@ -3,6 +3,7 @@
  *
  * Este archivo agrega:
  * - Lista segura de personal activo para los campos Asignado a/Responsables.
+ * - Rutas de catálogos limitadas a formularios operativos.
  * - Envío de credenciales temporales al crear un usuario.
  * - Configuración opcional del enlace de la aplicación para agregarlo después.
  *
@@ -10,7 +11,33 @@
  * sendNewUserCredentialsEmail_ con apiUsersCreate_.
  */
 
+function assertOperationalFormAccess_(ctx) {
+  if (!ctx || !ctx.user || !ctx.user.UsuarioID) {
+    throw apiError_('UNAUTHORIZED', 'Sesión requerida.', 401);
+  }
+
+  var permissions = getEffectivePermissions_(ctx.user.UsuarioID) || [];
+  var allowed = [
+    'BOLETAS_CREAR',
+    'BOLETAS_EDITAR',
+    'MANTENIMIENTOS_CREAR',
+    'MANTENIMIENTOS_EDITAR',
+    'CATALOGOS_GESTIONAR'
+  ].some(function(code) {
+    return permissions.indexOf(code) >= 0;
+  });
+
+  if (!allowed) {
+    throw apiError_(
+      'FORBIDDEN',
+      'No tiene permiso para consultar datos operativos.',
+      403
+    );
+  }
+}
+
 function apiAssignableUsersList_(ctx) {
+  assertOperationalFormAccess_(ctx);
   var payload = ctx && ctx.payload ? ctx.payload : {};
   var search = String(payload.search || payload.q || '').trim().toLowerCase();
   var items = getRows_('Usuarios')
@@ -18,7 +45,7 @@ function apiAssignableUsersList_(ctx) {
       return String(user.Estado || 'ACTIVO').toUpperCase() === 'ACTIVO';
     })
     .map(function(user) {
-      var safe = typeof sanitizeUser_ === 'function' ? sanitizeUser_(user) : {
+      return typeof sanitizeUser_ === 'function' ? sanitizeUser_(user) : {
         UsuarioID: user.UsuarioID,
         NombreCompleto: user.NombreCompleto,
         NombreUsuario: user.NombreUsuario,
@@ -26,7 +53,6 @@ function apiAssignableUsersList_(ctx) {
         Estado: user.Estado,
         RolID: user.RolID
       };
-      return safe;
     })
     .filter(function(user) {
       if (!search) return true;
@@ -46,6 +72,46 @@ function apiAssignableUsersList_(ctx) {
     page: 1,
     pageSize: items.length
   };
+}
+
+function apiOperationalCategoriesList_(ctx) {
+  assertOperationalFormAccess_(ctx);
+  return apiCategoriesList_(ctx);
+}
+
+function apiOperationalCategoriesCreate_(ctx) {
+  assertOperationalFormAccess_(ctx);
+  return apiCategoriesCreate_(ctx);
+}
+
+function apiOperationalFailureTypesList_(ctx) {
+  assertOperationalFormAccess_(ctx);
+  return apiFailureTypesList_(ctx);
+}
+
+function apiOperationalDeviceTypesList_(ctx) {
+  assertOperationalFormAccess_(ctx);
+  return apiDeviceTypesList_(ctx);
+}
+
+function apiOperationalManufacturersList_(ctx) {
+  assertOperationalFormAccess_(ctx);
+  return apiManufacturersList_(ctx);
+}
+
+function apiOperationalModelsList_(ctx) {
+  assertOperationalFormAccess_(ctx);
+  return apiModelsList_(ctx);
+}
+
+function apiOperationalDeviceManufacturersList_(ctx) {
+  assertOperationalFormAccess_(ctx);
+  return apiDeviceManufacturersList_(ctx);
+}
+
+function apiOperationalDeviceManufacturersCreate_(ctx) {
+  assertOperationalFormAccess_(ctx);
+  return apiDeviceManufacturersCreate_(ctx);
 }
 
 function sendNewUserCredentialsEmail_(user, temporaryPassword, createdByUserId) {
