@@ -15,6 +15,7 @@ export default function UserFormPage({ mode }) {
   const [error, setError] = useState('');
   const [saving, setSaving] = useState(false);
   const [temporaryPassword, setTemporaryPassword] = useState('');
+  const [invitationEmail, setInvitationEmail] = useState(null);
 
   useEffect(() => {
     if (mode !== 'edit') return;
@@ -48,6 +49,7 @@ export default function UserFormPage({ mode }) {
     try {
       if (mode === 'create') {
         const result = await apiRequest('users.create', form, sessionToken);
+        setInvitationEmail(result.invitationEmail || null);
         setTemporaryPassword(result.temporaryPassword);
       } else {
         await apiRequest('users.update', { usuarioId, ...form }, sessionToken);
@@ -66,8 +68,11 @@ export default function UserFormPage({ mode }) {
         <section className="success-card">
           <span className="success-card__icon"><Icon name="check_circle" filled /></span>
           <h1>Usuario creado</h1>
-          <p>Guarda la contraseña temporal ahora. El usuario deberá cambiarla al iniciar sesión.</p>
+          <p>La persona deberá cambiar la contraseña temporal al iniciar sesión.</p>
           <div className="temporary-password"><span>Contraseña temporal</span><code>{temporaryPassword}</code></div>
+          {invitationEmail?.sent && <div className="alert alert--success"><Icon name="mark_email_read" /><span>Las credenciales se enviaron a <strong>{invitationEmail.destination || form.correo}</strong>.</span></div>}
+          {invitationEmail && !invitationEmail.sent && <div className="alert alert--warning"><Icon name="warning" /><span>El usuario fue creado, pero el correo no se pudo enviar{invitationEmail.error ? `: ${invitationEmail.error}` : '.'} Conserva la contraseña temporal para compartirla de forma segura.</span></div>}
+          {!invitationEmail && <div className="info-box"><Icon name="info" /><p>El backend todavía no confirmó el envío del correo. Conserva la contraseña temporal hasta actualizar Google Apps Script.</p></div>}
           <Link to="/usuarios" className="button button--primary button--wide">Volver a usuarios</Link>
         </section>
       </div>
