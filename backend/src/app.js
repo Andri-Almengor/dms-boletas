@@ -67,8 +67,10 @@ app.use((_req, res) => {
 });
 
 app.use((error, _req, res, _next) => {
-  console.error(error);
   const status = error.status || error.statusCode || (error instanceof AppError ? error.status : 500);
+  if (status >= 500) console.error(error);
+  else console.warn(`[${error.code || 'REQUEST_ERROR'}] ${error.message}`);
+
   res.status(status).json({
     ok: false,
     error: {
