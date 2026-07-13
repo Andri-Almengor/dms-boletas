@@ -1,0 +1,25 @@
+.technical-writing-assistant {
+  align-items: flex-start;
+}
+
+.technical-writing-assistant > div {
+  flex: 1;
+  min-width: 0;
+}
+
+.technical-writing-assistant strong,
+.technical-writing-assistant small {
+  display: block;
+}
+
+.technical-writing-assistant .inline-actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.75rem;
+  margin-top: 0.85rem;
+}
+
+.technical-writing-assistant .field-error {
+  margin-top: 0.5rem;
+  font-weight: 600;
+}
