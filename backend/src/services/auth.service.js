@@ -1,11 +1,14 @@
 import { env } from '../config/env.js';
-import { appendRow, readTable, updateRow } from '../infra/sheets.repository.js';
+import { appendRow, readTable, readTables, updateRow } from '../infra/sheets.repository.js';
 import { AppError, unauthorized } from '../core/errors.js';
-import { getUserPermissions, safeUser } from './permissions.service.js';
+import { calculateUserPermissions, PERMISSION_TABLE_NAMES, safeUser } from './permissions.service.js';
 import { asBool, hashPassword, nowIso, randomToken, sha256, uuid, verifyPassword } from '../core/utils.js';
 
+const AUTH_TABLE_NAMES = ['Sesiones', 'Usuarios', ...PERMISSION_TABLE_NAMES];
+
 export async function login(username, password, requestMeta = {}) {
-  const users = await readTable('Usuarios');
+  const tables = await readTables(['Usuarios', ...PERMISSION_TABLE_NAMES]);
+  const users = tables.Usuarios;
   const key = String(username || '').trim().toLowerCase();
   const user = users.find((item) => [item.NombreUsuario, item.Correo].some((value) => String(value || '').trim().toLowerCase() === key));
   if (!user || String(user.Estado || '').toUpperCase() !== 'ACTIVO') throw new AppError('INVALID_CREDENTIALS', 'Usuario o contraseña incorrectos.', 401);
@@ -21,18 +24,17 @@ export async function login(username, password, requestMeta = {}) {
   const expires = new Date(Date.now() + env.sessionHours * 3600000).toISOString();
   await appendRow('Sesiones', { SesionID: uuid(), UsuarioID: user.UsuarioID, TokenHash: sha256(token), FechaInicio: nowIso(), FechaExpiracion: expires, Revocada: false, IP: requestMeta.ip || '', UserAgent: requestMeta.userAgent || '', FechaRevocacion: '' });
   await updateRow('Usuarios', user.UsuarioID, { IntentosFallidos: 0, BloqueadoHasta: '', UltimoAcceso: nowIso(), ActualizadoPor: user.UsuarioID, FechaActualizacion: nowIso() });
-  return { sessionToken: token, user: safeUser(user), permissions: await getUserPermissions(user), mustChangePassword: asBool(user.CambioPasswordObligatorio, false) };
+  return { sessionToken: token, user: safeUser(user), permissions: calculateUserPermissions(user, tables), mustChangePassword: asBool(user.CambioPasswordObligatorio, false) };
 }
 
 export async function authenticate(token) {
   if (!token) throw unauthorized();
-  const sessions = await readTable('Sesiones');
-  const session = sessions.find((item) => item.TokenHash === sha256(token) && !asBool(item.Revocada, false));
+  const tables = await readTables(AUTH_TABLE_NAMES);
+  const session = tables.Sesiones.find((item) => item.TokenHash === sha256(token) && !asBool(item.Revocada, false));
   if (!session || new Date(session.FechaExpiracion) <= new Date()) throw unauthorized();
-  const users = await readTable('Usuarios');
-  const user = users.find((item) => String(item.UsuarioID) === String(session.UsuarioID));
+  const user = tables.Usuarios.find((item) => String(item.UsuarioID) === String(session.UsuarioID));
   if (!user || String(user.Estado).toUpperCase() !== 'ACTIVO') throw unauthorized();
-  return { user, session, permissions: await getUserPermissions(user) };
+  return { user, session, permissions: calculateUserPermissions(user, tables) };
 }
 
 export async function logout(token) {
