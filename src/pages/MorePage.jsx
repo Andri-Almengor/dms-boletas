@@ -16,6 +16,7 @@ export default function MorePage() {
   const { user, logout, hasPermission } = useAuth();
   const navigate = useNavigate();
   const isAdmin = hasPermission('USUARIOS_GESTIONAR');
+  const canManageKnowledgeCategories = hasPermission('CONOCIMIENTO_CATEGORIAS_GESTIONAR') || isAdmin;
 
   async function handleLogout() { await logout(); navigate('/login', { replace: true }); }
 
@@ -23,7 +24,7 @@ export default function MorePage() {
     <section className="profile-card"><span className="profile-card__accent" /><div className="avatar avatar--xlarge">{initials(user?.NombreCompleto)}</div><div><h1>{user?.NombreCompleto}</h1><p>{isAdmin ? 'Administrador' : 'Técnico'}</p><span className="status-chip status-chip--active">{user?.Estado || 'ACTIVO'}</span></div></section>
     <section className="menu-section"><h2>Documentación</h2><div className="menu-list">
       <MenuRow to="/conocimiento" icon="menu_book" label="Base de conocimientos" note="Tutoriales, videos y procedimientos técnicos" />
-      {isAdmin && <MenuRow to="/conocimiento/categorias" icon="category" label="Categorías de conocimiento" note="Lenel, Milestone, Axis y otras tecnologías" />}
+      {canManageKnowledgeCategories && <MenuRow to="/conocimiento/categorias" icon="category" label="Categorías de conocimiento" note="Lenel, Milestone, Axis y otras tecnologías" />}
     </div></section>
     <section className="menu-section"><h2>Administración</h2><div className="menu-list">
       {hasPermission('CLIENTES_VER') && <MenuRow to="/clientes" icon="groups" label="Clientes" note="Clientes, ubicaciones y contactos" />}
