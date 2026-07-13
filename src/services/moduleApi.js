@@ -59,6 +59,21 @@ export const MODULE_ROUTES = {
     create: ['catalog.deviceManufacturers.create', 'deviceManufacturers.create', 'tipoDispositivoFabricantes.create'],
     update: ['catalog.deviceManufacturers.update', 'deviceManufacturers.update', 'tipoDispositivoFabricantes.update'],
   },
+  knowledge: {
+    list: ['knowledge.list', 'baseConocimientos.list', 'conocimiento.list', 'tutorials.list'],
+    get: ['knowledge.get', 'baseConocimientos.get', 'conocimiento.get', 'tutorials.get'],
+    create: ['knowledge.create', 'baseConocimientos.create', 'conocimiento.create', 'tutorials.create'],
+    update: ['knowledge.update', 'baseConocimientos.update', 'conocimiento.update', 'tutorials.update'],
+    delete: ['knowledge.delete', 'baseConocimientos.delete', 'conocimiento.delete', 'tutorials.delete'],
+    attachmentUpload: ['knowledge.attachments.upload', 'baseConocimientos.adjuntos.upload', 'conocimiento.adjuntos.upload'],
+    attachmentDelete: ['knowledge.attachments.delete', 'baseConocimientos.adjuntos.delete', 'conocimiento.adjuntos.delete'],
+    mediaGet: ['knowledge.media.get', 'baseConocimientos.media.get', 'conocimiento.media.get'],
+  },
+  knowledgeCategories: {
+    list: ['knowledge.categories.list', 'baseConocimientos.categorias.list', 'categoriasConocimiento.list'],
+    create: ['knowledge.categories.create', 'baseConocimientos.categorias.create', 'categoriasConocimiento.create'],
+    update: ['knowledge.categories.update', 'baseConocimientos.categorias.update', 'categoriasConocimiento.update'],
+  },
   users: { list: ['users.list'] },
   config: { get: ['config.get', 'app.config.get'] },
 };
