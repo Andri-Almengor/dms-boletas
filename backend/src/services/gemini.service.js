@@ -9,6 +9,12 @@ const FIELD_LABELS = {
   recomendaciones: 'Recomendaciones',
 };
 
+const RESPONSE_SCHEMA = {
+  type: 'object',
+  properties: Object.fromEntries(FIELD_KEYS.map((key) => [key, { type: 'string' }])),
+  required: FIELD_KEYS,
+};
+
 function clean(value, maxLength = 8000) {
   return String(value ?? '').trim().slice(0, maxLength);
 }
@@ -18,14 +24,61 @@ function parseJson(text) {
     .trim()
     .replace(/^```(?:json)?\s*/i, '')
     .replace(/\s*```$/i, '');
+
+  if (!normalized) {
+    throw new AppError('GEMINI_EMPTY_RESPONSE', 'Gemini no devolvió texto para procesar.', 502);
+  }
+
   try {
     return JSON.parse(normalized);
   } catch {
     const start = normalized.indexOf('{');
     const end = normalized.lastIndexOf('}');
-    if (start >= 0 && end > start) return JSON.parse(normalized.slice(start, end + 1));
+    if (start >= 0 && end > start) {
+      try {
+        return JSON.parse(normalized.slice(start, end + 1));
+      } catch {
+        // Se genera un error controlado abajo.
+      }
+    }
     throw new AppError('GEMINI_INVALID_RESPONSE', 'Gemini devolvió una respuesta que no se pudo interpretar.', 502);
   }
+}
+
+function extractInteractionText(data = {}) {
+  if (typeof data.output_text === 'string' && data.output_text.trim()) return data.output_text;
+
+  const stepTexts = Array.isArray(data.steps)
+    ? data.steps.flatMap((step) => {
+      if (step?.type !== 'model_output') return [];
+      const content = Array.isArray(step.content) ? step.content : [step.content];
+      return content
+        .filter((item) => item?.type === 'text' && typeof item.text === 'string')
+        .map((item) => item.text);
+    })
+    : [];
+  if (stepTexts.length) return stepTexts.join('\n');
+
+  const legacyTexts = Array.isArray(data.outputs)
+    ? data.outputs
+      .filter((item) => item?.type === 'text' && typeof item.text === 'string')
+      .map((item) => item.text)
+    : [];
+  if (legacyTexts.length) return legacyTexts.join('\n');
+
+  const candidateTexts = Array.isArray(data.candidates)
+    ? data.candidates.flatMap((candidate) => (candidate?.content?.parts || [])
+      .filter((part) => typeof part?.text === 'string')
+      .map((part) => part.text))
+    : [];
+  if (candidateTexts.length) return candidateTexts.join('\n');
+
+  throw new AppError(
+    'GEMINI_EMPTY_RESPONSE',
+    'Gemini respondió, pero no incluyó contenido de texto utilizable.',
+    502,
+    { responseKeys: Object.keys(data || {}) },
+  );
 }
 
 function buildPrompt(fields, context) {
@@ -39,7 +92,7 @@ function buildPrompt(fields, context) {
     '- Usa un tono objetivo de reporte técnico, preciso y comprensible para el cliente.',
     '- Mantén vacío cualquier campo que originalmente esté vacío.',
     '- No uses Markdown, encabezados ni listas con viñetas dentro de los valores.',
-    '- Devuelve únicamente un objeto JSON con estas claves exactas: razonVisita, descripcion, pruebasRealizadas, resultado, recomendaciones.',
+    '- Devuelve únicamente los cinco campos solicitados.',
     '',
     `Contexto del servicio: ${JSON.stringify(context)}`,
     `Texto original: ${JSON.stringify(original)}`,
@@ -88,6 +141,11 @@ export async function rewriteTechnicalReport(payload = {}) {
         store: false,
         system_instruction: 'Eres un redactor de informes de mantenimiento y soporte técnico. Debes mejorar la redacción sin agregar información que el técnico no haya proporcionado.',
         input: buildPrompt(fields, context),
+        response_format: {
+          type: 'text',
+          mime_type: 'application/json',
+          schema: RESPONSE_SCHEMA,
+        },
         generation_config: {
           temperature: 0.2,
           thinking_level: 'low',
@@ -108,7 +166,10 @@ export async function rewriteTechnicalReport(payload = {}) {
     throw new AppError(response.status === 429 ? 'GEMINI_QUOTA_EXCEEDED' : 'GEMINI_REQUEST_FAILED', message, status);
   }
 
-  const parsed = parseJson(data.output_text);
-  const improved = Object.fromEntries(FIELD_KEYS.map((key) => [key, fields[key] ? clean(parsed[key] ?? fields[key], 12000) : '']));
+  const parsed = parseJson(extractInteractionText(data));
+  const improved = Object.fromEntries(FIELD_KEYS.map((key) => [
+    key,
+    fields[key] ? clean(parsed[key] ?? fields[key], 12000) : '',
+  ]));
   return { fields: improved, model };
 }
