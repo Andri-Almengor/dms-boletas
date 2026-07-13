@@ -2,6 +2,7 @@ import React, { useEffect, useMemo, useState } from 'react';
 import { Link, useNavigate, useParams } from 'react-router-dom';
 import { useAuth } from '../../AuthContext';
 import Icon from '../../components/common/Icon';
+import MaintenanceEvidenceEditor from '../../components/maintenance/MaintenanceEvidenceEditor';
 import MaintenanceEvidenceImage from '../../components/maintenance/MaintenanceEvidenceImage';
 import MaintenanceEvidenceUploader from '../../components/maintenance/MaintenanceEvidenceUploader';
 import { getMaintenanceCategory } from '../../config/maintenanceCategories';
@@ -32,6 +33,8 @@ export default function MaintenanceDetailPage() {
   const [error, setError] = useState('');
   const [expandedCategories, setExpandedCategories] = useState([]);
   const [evidenceDevice, setEvidenceDevice] = useState(null);
+  const [quickEvidenceOpen, setQuickEvidenceOpen] = useState(false);
+  const [editingEvidence, setEditingEvidence] = useState(null);
 
   async function load({ silent = false } = {}) {
     if (!silent) setLoading(true);
@@ -140,16 +143,31 @@ export default function MaintenanceDetailPage() {
         </div>
       </section>
 
-      {isAdmin && (
-        <section className="maintenance-report-actions" aria-label="Reportes administrativos">
-          <button type="button" className="button button--secondary" onClick={() => action('sheet')} disabled={Boolean(working)}>
-            <Icon name="table_view" />{working === 'sheet' ? 'Generando...' : 'Crear Excel'}
-          </button>
-          <button type="button" className="button button--secondary" onClick={() => action('slides')} disabled={Boolean(working)}>
-            <Icon name="slideshow" />{working === 'slides' ? 'Generando...' : 'Crear presentación'}
-          </button>
-          {pick(row, ['SpreadsheetURL']) && <a className="button button--ghost" href={pick(row, ['SpreadsheetURL'])} target="_blank" rel="noreferrer"><Icon name="open_in_new" />Excel creado</a>}
-          {pick(row, ['SlidesURL']) && <a className="button button--ghost" href={pick(row, ['SlidesURL'])} target="_blank" rel="noreferrer"><Icon name="open_in_new" />Presentación creada</a>}
+      {(isAdmin || (status === 'PENDIENTE' && canEdit)) && (
+        <section className="maintenance-report-actions" aria-label="Acciones del mantenimiento">
+          {isAdmin && (
+            <>
+              <button type="button" className="button button--secondary" onClick={() => action('sheet')} disabled={Boolean(working)}>
+                <Icon name="table_view" />{working === 'sheet' ? 'Generando...' : 'Crear Excel'}
+              </button>
+              <button type="button" className="button button--secondary" onClick={() => action('slides')} disabled={Boolean(working)}>
+                <Icon name="slideshow" />{working === 'slides' ? 'Generando...' : 'Crear presentación'}
+              </button>
+            </>
+          )}
+          {status === 'PENDIENTE' && canEdit && (
+            <button
+              type="button"
+              className="button button--primary maintenance-quick-evidence-button"
+              onClick={() => setQuickEvidenceOpen(true)}
+              disabled={!devices.length || Boolean(working)}
+              title={devices.length ? 'Agregar evidencia a cualquier dispositivo' : 'Primero debe registrar al menos un dispositivo'}
+            >
+              <Icon name="add_a_photo" />Nueva evidencia
+            </button>
+          )}
+          {isAdmin && pick(row, ['SpreadsheetURL']) && <a className="button button--ghost" href={pick(row, ['SpreadsheetURL'])} target="_blank" rel="noreferrer"><Icon name="open_in_new" />Excel creado</a>}
+          {isAdmin && pick(row, ['SlidesURL']) && <a className="button button--ghost" href={pick(row, ['SlidesURL'])} target="_blank" rel="noreferrer"><Icon name="open_in_new" />Presentación creada</a>}
         </section>
       )}
 
@@ -219,9 +237,19 @@ export default function MaintenanceDetailPage() {
 
                         <div className="maintenance-detail-images">
                           {images.map((image) => (
-                            <figure key={pick(image, ['FotoDispositivoID', 'id'])}>
+                            <figure className="maintenance-evidence-card" key={pick(image, ['FotoDispositivoID', 'id'])}>
                               <MaintenanceEvidenceImage image={image} sessionToken={sessionToken} alt={pick(image, ['Nombre'], 'Evidencia')} />
                               <figcaption><strong>{pick(image, ['Tipo'], 'Evidencia')}</strong><span>{pick(image, ['Nota'], 'Sin nota')}</span></figcaption>
+                              {status === 'PENDIENTE' && canEdit && (
+                                <button
+                                  type="button"
+                                  className="maintenance-evidence-edit-button"
+                                  onClick={() => setEditingEvidence({ image, device })}
+                                  aria-label={`Editar evidencia de ${pick(device, ['NombreDispositivo'], 'dispositivo')}`}
+                                >
+                                  <Icon name="edit" />Editar
+                                </button>
+                              )}
                             </figure>
                           ))}
                           {!images.length && <div className="muted-copy">Sin fotografías.</div>}
@@ -253,6 +281,28 @@ export default function MaintenanceDetailPage() {
           sessionToken={sessionToken}
           onClose={() => setEvidenceDevice(null)}
           onUploaded={() => load({ silent: true })}
+        />
+      )}
+
+      {quickEvidenceOpen && (
+        <MaintenanceEvidenceUploader
+          devices={devices}
+          maintenanceId={maintenanceId}
+          sessionToken={sessionToken}
+          onClose={() => setQuickEvidenceOpen(false)}
+          onUploaded={() => load({ silent: true })}
+        />
+      )}
+
+      {editingEvidence && (
+        <MaintenanceEvidenceEditor
+          image={editingEvidence.image}
+          device={editingEvidence.device}
+          maintenanceId={maintenanceId}
+          sessionToken={sessionToken}
+          isAdmin={isAdmin}
+          onClose={() => setEditingEvidence(null)}
+          onUpdated={() => load({ silent: true })}
         />
       )}
     </div>

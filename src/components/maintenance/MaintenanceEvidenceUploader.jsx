@@ -1,4 +1,4 @@
-import React, { useEffect, useRef, useState } from 'react';
+import React, { useEffect, useMemo, useRef, useState } from 'react';
 import Icon from '../common/Icon';
 import { fileToBase64 } from '../../pages/maintenance/maintenanceFormData';
 import { MODULE_ROUTES, pick, requestAvailable } from '../../services/moduleApi';
@@ -15,12 +15,49 @@ function createPendingImage(file) {
   };
 }
 
-export default function MaintenanceEvidenceUploader({ device, maintenanceId, sessionToken, onClose, onUploaded }) {
-  const deviceId = String(pick(device, ['EvidenciaMantenimientoID', 'id']));
+function getDeviceId(device) {
+  return String(pick(device, ['EvidenciaMantenimientoID', 'id']));
+}
+
+export default function MaintenanceEvidenceUploader({
+  device,
+  devices = [],
+  maintenanceId,
+  sessionToken,
+  onClose,
+  onUploaded,
+}) {
+  const fixedDeviceId = device ? getDeviceId(device) : '';
+  const availableDevices = useMemo(() => {
+    const source = device ? [device, ...devices] : devices;
+    const seen = new Set();
+    return source.filter((item) => {
+      const id = getDeviceId(item);
+      if (!id || seen.has(id)) return false;
+      seen.add(id);
+      return true;
+    });
+  }, [device, devices]);
+  const [selectedDeviceId, setSelectedDeviceId] = useState(fixedDeviceId);
   const [images, setImages] = useState([]);
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState('');
   const imagesRef = useRef([]);
+
+  const selectedDevice = useMemo(
+    () => availableDevices.find((item) => getDeviceId(item) === selectedDeviceId) || null,
+    [availableDevices, selectedDeviceId],
+  );
+  const groupedDevices = useMemo(() => availableDevices.reduce((map, item) => {
+    const category = pick(item, ['Categoria'], 'Sin categoría');
+    if (!map[category]) map[category] = [];
+    map[category].push(item);
+    return map;
+  }, {}), [availableDevices]);
+
+  useEffect(() => {
+    if (fixedDeviceId) setSelectedDeviceId(fixedDeviceId);
+  }, [fixedDeviceId]);
 
   useEffect(() => {
     imagesRef.current = images;
@@ -33,6 +70,11 @@ export default function MaintenanceEvidenceUploader({ device, maintenanceId, ses
   function addFiles(event) {
     const selected = Array.from(event.target.files || []);
     event.target.value = '';
+
+    if (!selectedDeviceId) {
+      setError('Seleccione el dispositivo al que pertenecen las evidencias.');
+      return;
+    }
 
     const invalid = selected.find((file) => !String(file.type).startsWith('image/') || file.size > MAX_IMAGE_BYTES);
     if (invalid) {
@@ -59,6 +101,10 @@ export default function MaintenanceEvidenceUploader({ device, maintenanceId, ses
   }
 
   async function upload() {
+    if (!selectedDeviceId) {
+      setError('Seleccione el dispositivo al que pertenecen las evidencias.');
+      return;
+    }
     if (!images.length) {
       setError('Seleccione al menos una fotografía.');
       return;
@@ -72,8 +118,8 @@ export default function MaintenanceEvidenceUploader({ device, maintenanceId, ses
           MODULE_ROUTES.maintenance.imageUpload,
           {
             maintenanceId,
-            deviceId,
-            DispositivoMantenimientoRef: deviceId,
+            deviceId: selectedDeviceId,
+            DispositivoMantenimientoRef: selectedDeviceId,
             Tipo: image.type,
             Nota: image.note,
             fileName: image.file.name,
@@ -100,9 +146,11 @@ export default function MaintenanceEvidenceUploader({ device, maintenanceId, ses
       <section className="maintenance-evidence-modal__panel">
         <header>
           <div>
-            <span className="eyebrow">Agregar evidencias</span>
-            <h2>{pick(device, ['NombreDispositivo'], 'Dispositivo')}</h2>
-            <p>{pick(device, ['Categoria'])} · {pick(device, ['Zona'], 'Sin ubicación')}</p>
+            <span className="eyebrow">Nueva evidencia</span>
+            <h2>{selectedDevice ? pick(selectedDevice, ['NombreDispositivo'], 'Dispositivo') : 'Seleccione un dispositivo'}</h2>
+            <p>{selectedDevice
+              ? `${pick(selectedDevice, ['Categoria'], 'Sin categoría')} · ${pick(selectedDevice, ['Zona'], 'Sin ubicación')}`
+              : 'La evidencia quedará relacionada únicamente con el dispositivo elegido.'}</p>
           </div>
           <button className="icon-button" type="button" onClick={onClose} disabled={saving} aria-label="Cerrar">
             <Icon name="close" />
@@ -111,14 +159,39 @@ export default function MaintenanceEvidenceUploader({ device, maintenanceId, ses
 
         {error && <div className="alert alert--error"><Icon name="error" /><span>{error}</span></div>}
 
+        {!fixedDeviceId && (
+          <label className="field-group maintenance-evidence-device-select">
+            <span className="field-label">Dispositivo y categoría *</span>
+            <select
+              className="form-control"
+              value={selectedDeviceId}
+              onChange={(event) => {
+                setSelectedDeviceId(event.target.value);
+                setError('');
+              }}
+              disabled={saving}
+            >
+              <option value="">Seleccione una opción</option>
+              {Object.entries(groupedDevices).map(([category, rows]) => (
+                <optgroup label={category} key={category}>
+                  {rows.map((item) => {
+                    const id = getDeviceId(item);
+                    return <option value={id} key={id}>{pick(item, ['NombreDispositivo'], 'Dispositivo')} · {pick(item, ['Zona'], 'Sin ubicación')}</option>;
+                  })}
+                </optgroup>
+              ))}
+            </select>
+          </label>
+        )}
+
         <div className="maintenance-evidence-picker">
           <label className="button button--secondary">
             <Icon name="photo_camera" /> Tomar foto
-            <input type="file" accept="image/*" capture="environment" onChange={addFiles} disabled={saving} />
+            <input type="file" accept="image/*" capture="environment" onChange={addFiles} disabled={saving || !selectedDeviceId} />
           </label>
           <label className="button button--secondary">
             <Icon name="photo_library" /> Seleccionar imágenes
-            <input type="file" accept="image/*" multiple onChange={addFiles} disabled={saving} />
+            <input type="file" accept="image/*" multiple onChange={addFiles} disabled={saving || !selectedDeviceId} />
           </label>
         </div>
 
@@ -148,14 +221,14 @@ export default function MaintenanceEvidenceUploader({ device, maintenanceId, ses
             <div className="maintenance-evidence-pending-empty">
               <Icon name="add_a_photo" />
               <strong>Agregue fotografías</strong>
-              <span>Podrá clasificarlas como Antes o Después.</span>
+              <span>{selectedDeviceId ? 'Podrá clasificarlas como Antes o Después.' : 'Primero seleccione un dispositivo.'}</span>
             </div>
           )}
         </div>
 
         <footer>
           <button className="button button--ghost" type="button" onClick={onClose} disabled={saving}>Cancelar</button>
-          <button className="button button--primary" type="button" onClick={upload} disabled={saving || !images.length}>
+          <button className="button button--primary" type="button" onClick={upload} disabled={saving || !selectedDeviceId || !images.length}>
             <Icon name={saving ? 'progress_activity' : 'cloud_upload'} />
             {saving ? 'Guardando evidencias...' : `Guardar ${images.length || ''} evidencia${images.length === 1 ? '' : 's'}`}
           </button>
