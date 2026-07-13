@@ -1,5 +1,8 @@
 const APPS_SCRIPT_FALLBACK = 'https://script.google.com/macros/s/AKfycbzGZuFbXWJn3y4hbfSGRFeaJfWufu2xaDnoAb9dFZl4DklRXiuFU9-GSb-q2hnY7O6pmQ/exec';
 const SAME_ORIGIN_NODE_API = '/api/action';
+const READ_CACHE_MS = 4000;
+const pendingReads = new Map();
+const recentReads = new Map();
 
 export const API_URL = String(
   import.meta.env.VITE_API_URL
@@ -10,7 +13,21 @@ function isAppsScriptUrl(value) {
   return /^https:\/\/script\.google\.com\//i.test(String(value || ''));
 }
 
-export async function apiRequest(route, payload = {}, sessionToken = '') {
+function isReadRoute(route) {
+  const value = String(route || '').toLowerCase();
+  return value === 'auth.me'
+    || value === 'config.get'
+    || value === 'app.config.get'
+    || value.endsWith('.list')
+    || value.endsWith('.get')
+    || value.endsWith('.config');
+}
+
+function requestKey(route, payload, sessionToken) {
+  return `${String(route)}|${String(sessionToken)}|${JSON.stringify(payload || {})}`;
+}
+
+async function performRequest(route, payload, sessionToken) {
   if (!API_URL) throw new Error('Falta configurar VITE_API_URL.');
 
   const response = await fetch(API_URL, {
@@ -39,4 +56,29 @@ export async function apiRequest(route, payload = {}, sessionToken = '') {
   }
 
   return result.data;
+}
+
+export async function apiRequest(route, payload = {}, sessionToken = '') {
+  if (!isReadRoute(route)) {
+    recentReads.clear();
+    return performRequest(route, payload, sessionToken);
+  }
+
+  const key = requestKey(route, payload, sessionToken);
+  const cached = recentReads.get(key);
+  if (cached && cached.expiresAt > Date.now()) return cached.data;
+  if (cached) recentReads.delete(key);
+  if (pendingReads.has(key)) return pendingReads.get(key);
+
+  const request = performRequest(route, payload, sessionToken)
+    .then((data) => {
+      const entry = { data, expiresAt: Date.now() + READ_CACHE_MS };
+      recentReads.set(key, entry);
+      setTimeout(() => { if (recentReads.get(key) === entry) recentReads.delete(key); }, READ_CACHE_MS);
+      return data;
+    })
+    .finally(() => pendingReads.delete(key));
+
+  pendingReads.set(key, request);
+  return request;
 }
