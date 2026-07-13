@@ -1,0 +1,7 @@
+import React from 'react';
+import Icon from '../common/Icon';
+import { getMaintenanceCategory } from '../../config/maintenanceCategories';
+
+export default function MaintenanceDevicesStep({ devices, expectedTotal, disabled, canCreateEquipment, onAddEquipment, onAddDevice, onOpenDevice }) {
+  return <div className="stack-form"><div className="maintenance-device-summary"><div><strong>{devices.length}</strong><span>dispositivos registrados</span></div><div><strong>{expectedTotal}</strong><span>dispositivos esperados</span></div>{canCreateEquipment && <button className="button button--secondary button--compact" type="button" onClick={onAddEquipment} disabled={disabled}><Icon name="add_location_alt" />Nueva ubicación de equipo</button>}</div>{!disabled && <button className="button button--primary" type="button" onClick={onAddDevice}><Icon name="add" />Agregar dispositivo</button>}<div className="maintenance-device-list">{devices.map((device) => <button type="button" key={device.localId} onClick={() => onOpenDevice(device)}><span className="maintenance-device-list__icon"><Icon name={getMaintenanceCategory(device.categoria).icon} /></span><div><strong>{device.nombre || 'Dispositivo sin nombre'}</strong><span>{device.categoria} · {device.zona || 'Sin ubicación'}</span><small>{device.images.length + device.newImages.length} evidencias</small></div><Icon name="chevron_right" /></button>)}{!devices.length && <div className="empty-state"><Icon name="devices_other" /><h3>Sin dispositivos</h3><p>Agrega cada equipo que será revisado.</p></div>}</div></div>;
+}
