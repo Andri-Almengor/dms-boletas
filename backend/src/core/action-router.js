@@ -1,4 +1,5 @@
 import { forbidden } from './errors.js';
+import { asBool } from './utils.js';
 import { login, authenticate, logout, changePassword } from '../services/auth.service.js';
 import { safeUser } from '../services/permissions.service.js';
 import { usersHandlers } from '../modules/users.module.js';
@@ -13,11 +14,11 @@ const routes = new Map();
 function add(names, handler, permission = null, publicRoute = false) { for (const name of Array.isArray(names)?names:[names]) routes.set(name,{handler,permission,publicRoute}); }
 
 add('auth.login', async (ctx)=>login(ctx.payload.username||ctx.payload.nombreUsuario||ctx.payload.email,ctx.payload.password,{ip:ctx.ip,userAgent:ctx.userAgent}),null,true);
-add('auth.me', async (ctx)=>({user:safeUser(ctx.user),permissions:ctx.permissions,mustChangePassword:Boolean(ctx.user.CambioPasswordObligatorio)}));
+add('auth.me', async (ctx)=>({user:safeUser(ctx.user),permissions:ctx.permissions,mustChangePassword:asBool(ctx.user.CambioPasswordObligatorio,false)}));
 add('auth.logout', async (ctx)=>logout(ctx.sessionToken));
 add(['auth.changePassword','auth.change-password'], async (ctx)=>changePassword(ctx.user,ctx.payload.currentPassword||ctx.payload.passwordActual,ctx.payload.newPassword||ctx.payload.nuevaPassword));
 add('users.list',usersHandlers.list,'USUARIOS_VER');
-add('users.assignment.list',usersHandlers.assignable,['BOLETAS_CREAR','BOLETAS_EDITAR','MANTENIMIENTOS_GESTIONAR','MANTENIMIENTOS_VER']);
+add('users.assignment.list',usersHandlers.assignable,['BOLETAS_CREAR','BOLETAS_EDITAR','MANTENIMIENTOS_CREAR','MANTENIMIENTOS_EDITAR','MANTENIMIENTOS_GESTIONAR','MANTENIMIENTOS_VER']);
 add('users.get',usersHandlers.get,'USUARIOS_VER'); add('users.create',usersHandlers.create,'USUARIOS_GESTIONAR'); add('users.update',usersHandlers.update,'USUARIOS_GESTIONAR'); add('roles.list',usersHandlers.roles,'USUARIOS_VER');
 add(['config.get','app.config.get'],getConfig);
 
@@ -27,7 +28,7 @@ const crudRouteGroups = [
 ];
 for(const [key,prefixes] of crudRouteGroups){for(const prefix of prefixes){
   const operational=prefix.includes('.operational.');
-  const createPermission=operational?['BOLETAS_CREAR','BOLETAS_EDITAR','MANTENIMIENTOS_GESTIONAR']:(key==='clients'?'CLIENTES_CREAR':key.startsWith('client')||key==='contacts'?'CLIENTES_EDITAR':'CATALOGOS_GESTIONAR');
+  const createPermission=operational?['BOLETAS_CREAR','BOLETAS_EDITAR','MANTENIMIENTOS_CREAR','MANTENIMIENTOS_EDITAR','MANTENIMIENTOS_GESTIONAR']:(key==='clients'?'CLIENTES_CREAR':key.startsWith('client')||key==='contacts'?'CLIENTES_EDITAR':'CATALOGOS_GESTIONAR');
   add(`${prefix}.list`,c[key].list);add(`${prefix}.get`,c[key].get);add(`${prefix}.create`,c[key].create,createPermission);add(`${prefix}.update`,c[key].update,createPermission);
 }}
 
