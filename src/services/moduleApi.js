@@ -112,11 +112,35 @@ function isMissingRouteError(error) {
   return text.includes('route') || text.includes('ruta') || text.includes('not_found') || text.includes('no encontrada') || text.includes('unknown action') || text.includes('handler not found');
 }
 
+function isNetworkError(error) {
+  const text = `${error?.name || ''} ${error?.message || ''}`.toLowerCase();
+  return text.includes('failed to fetch') || text.includes('networkerror') || text.includes('network request failed') || text.includes('load failed');
+}
+
+function wait(milliseconds) {
+  return new Promise((resolve) => window.setTimeout(resolve, milliseconds));
+}
+
+async function requestRouteWithRetry(route, payload, sessionToken) {
+  let lastError;
+  for (let attempt = 0; attempt < 2; attempt += 1) {
+    try {
+      return await apiRequest(route, payload, sessionToken);
+    } catch (error) {
+      lastError = error;
+      if (!isNetworkError(error) || attempt === 1) throw error;
+      await wait(450);
+    }
+  }
+  throw lastError;
+}
+
 export async function requestAvailable(routes, payload = {}, sessionToken = '') {
   let lastError;
   for (const route of routes) {
-    try { return await apiRequest(route, payload, sessionToken); }
-    catch (error) {
+    try {
+      return await requestRouteWithRetry(route, payload, sessionToken);
+    } catch (error) {
       lastError = error;
       if (!isMissingRouteError(error)) throw error;
     }
