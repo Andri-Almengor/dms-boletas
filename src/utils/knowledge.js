@@ -42,10 +42,18 @@ export function normalizeKnowledge(record = {}) {
 }
 
 export function stripHtml(html = '') {
-  if (typeof document === 'undefined') return String(html).replace(/<[^>]+>/g, ' ').replace(/\s+/g, ' ').trim();
+  if (typeof document === 'undefined') {
+    const text = String(html).replace(/<[^>]+>/g, ' ').replace(/\s+/g, ' ').trim();
+    return text || (/\<img\b/i.test(String(html)) ? '[imagen]' : '');
+  }
   const wrapper = document.createElement('div');
   wrapper.innerHTML = html;
-  return (wrapper.textContent || '').replace(/\s+/g, ' ').trim();
+  const text = (wrapper.textContent || '').replace(/\s+/g, ' ').trim();
+  return text || (wrapper.querySelector('img[src]') ? '[imagen]' : '');
+}
+
+function isSafeKnowledgeImageSource(value = '') {
+  return /^(https?:\/\/|data:image\/(?:png|jpe?g|gif|webp|bmp);base64,)/i.test(String(value).trim());
 }
 
 export function sanitizeKnowledgeHtml(html = '') {
@@ -53,7 +61,7 @@ export function sanitizeKnowledgeHtml(html = '') {
   const parser = new DOMParser();
   const doc = parser.parseFromString(`<div>${html}</div>`, 'text/html');
   const root = doc.body.firstElementChild;
-  const allowedTags = new Set(['P', 'H1', 'H2', 'H3', 'H4', 'UL', 'OL', 'LI', 'STRONG', 'B', 'EM', 'I', 'U', 'S', 'BLOCKQUOTE', 'PRE', 'CODE', 'A', 'BR', 'HR', 'SPAN']);
+  const allowedTags = new Set(['P', 'H1', 'H2', 'H3', 'H4', 'UL', 'OL', 'LI', 'STRONG', 'B', 'EM', 'I', 'U', 'S', 'BLOCKQUOTE', 'PRE', 'CODE', 'A', 'BR', 'HR', 'SPAN', 'IMG']);
   const walker = doc.createTreeWalker(root, NodeFilter.SHOW_ELEMENT);
   const nodes = [];
   while (walker.nextNode()) nodes.push(walker.currentNode);
@@ -62,6 +70,23 @@ export function sanitizeKnowledgeHtml(html = '') {
       node.replaceWith(...node.childNodes);
       return;
     }
+
+    if (node.tagName === 'IMG') {
+      const src = node.getAttribute('src') || '';
+      if (!isSafeKnowledgeImageSource(src)) {
+        node.remove();
+        return;
+      }
+      [...node.attributes].forEach((attribute) => {
+        if (['src', 'alt', 'title', 'width', 'height'].includes(attribute.name.toLowerCase())) return;
+        node.removeAttribute(attribute.name);
+      });
+      node.setAttribute('loading', 'lazy');
+      node.setAttribute('decoding', 'async');
+      if (!node.getAttribute('alt')) node.setAttribute('alt', 'Imagen del tutorial');
+      return;
+    }
+
     [...node.attributes].forEach((attribute) => {
       if (node.tagName === 'A' && ['href', 'target', 'rel'].includes(attribute.name)) return;
       node.removeAttribute(attribute.name);
