@@ -1,22 +1,30 @@
-/* Ajustes visuales móviles detectados en pruebas reales */
+/* Ajustes visuales detectados en pruebas reales */
 
-/* El selector anterior aplicaba el estilo de contador al icono Material. */
-.filter-trigger > .material-symbols-outlined {
-  position: static;
-  width: auto;
-  min-width: 0;
-  height: auto;
-  padding: 0;
-  border: 0;
-  border-radius: 0;
-  background: transparent;
-  color: currentColor;
-  font-size: 22px;
-  font-weight: 400;
-  display: inline-block;
+/* Botón de filtros: el icono y el contador usan clases independientes. */
+.filter-trigger {
+  position: relative;
+  display: grid !important;
+  place-items: center;
+  overflow: visible;
 }
 
-.filter-trigger > span:not(.material-symbols-outlined) {
+.filter-trigger > .filter-trigger__glyph {
+  position: static !important;
+  width: 24px !important;
+  min-width: 24px !important;
+  height: 24px !important;
+  padding: 0 !important;
+  border: 0 !important;
+  border-radius: 0 !important;
+  background: transparent !important;
+  color: currentColor !important;
+  font-size: 22px !important;
+  font-weight: 400 !important;
+  display: grid !important;
+  place-items: center;
+}
+
+.filter-trigger > .filter-trigger__count {
   position: absolute;
   right: -5px;
   top: -5px;
@@ -31,6 +39,35 @@
   font-weight: 800;
   display: grid;
   place-items: center;
+  line-height: 1;
+}
+
+/* Lista de boletas: una columna en móvil y dos columnas fijas en escritorio. */
+.ticket-card-grid {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr);
+  gap: 26px 18px;
+}
+
+.ticket-grid-item {
+  min-width: 0;
+}
+
+.ticket-grid-item > h2 {
+  margin: 0 0 11px 4px;
+  color: var(--muted);
+  font-size: .74rem;
+  letter-spacing: .08em;
+  text-transform: uppercase;
+}
+
+.ticket-grid-item .ticket-card {
+  height: calc(100% - 26px);
+}
+
+/* Este panel ya no se renderiza; se mantiene oculto como protección. */
+.desktop-filter-panel {
+  display: none !important;
 }
 
 .readonly-notice {
@@ -51,6 +88,12 @@
   color: var(--primary);
   font-size: 20px;
   flex: 0 0 auto;
+}
+
+@media (min-width: 760px) {
+  .ticket-card-grid {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
 }
 
 @media (max-width: 560px) {
