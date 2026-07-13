@@ -19,7 +19,12 @@ function findById(rows, value, keys) {
 
 export default function MaintenanceDeviceCatalogFields({ device, onChange, disabled = false }) {
   const { sessionToken, hasPermission } = useAuth();
-  const manageCatalogs = hasPermission('CATALOGOS_GESTIONAR');
+  const manageCatalogs = hasPermission('CATALOGOS_GESTIONAR')
+    || hasPermission('MANTENIMIENTOS_CREAR')
+    || hasPermission('MANTENIMIENTOS_EDITAR')
+    || hasPermission('MANTENIMIENTOS_GESTIONAR')
+    || hasPermission('BOLETAS_CREAR')
+    || hasPermission('BOLETAS_EDITAR');
   const [catalogs, setCatalogs] = useState({ deviceTypes: [], manufacturers: [], models: [], relations: [] });
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState('');
