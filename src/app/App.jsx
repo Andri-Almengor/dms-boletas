@@ -11,6 +11,9 @@ import KnowledgeCategoriesPage from '../pages/knowledge/KnowledgeCategoriesPage'
 import KnowledgeDetailPage from '../pages/knowledge/KnowledgeDetailPage';
 import KnowledgeEditorPage from '../pages/knowledge/KnowledgeEditorPage';
 import KnowledgeListPage from '../pages/knowledge/KnowledgeListPage';
+import MaintenanceDetailPage from '../pages/maintenance/MaintenanceDetailPage';
+import MaintenanceFormPage from '../pages/maintenance/MaintenanceFormPage';
+import MaintenanceListPage from '../pages/maintenance/MaintenanceListPage';
 import TicketDetailPage from '../pages/tickets/TicketDetailPage';
 import TicketFormPage from '../pages/tickets/TicketFormPage';
 import TicketListPage from '../pages/tickets/TicketListPage';
@@ -30,6 +33,10 @@ export default function App() {
       <Route path="boletas/nueva" element={<PermissionRoute permission="BOLETAS_CREAR"><TicketFormPage mode="create" /></PermissionRoute>} />
       <Route path="boletas/:boletaUid" element={<PermissionRoute permission="BOLETAS_VER"><TicketDetailPage /></PermissionRoute>} />
       <Route path="boletas/:boletaUid/editar" element={<PermissionRoute permission="BOLETAS_EDITAR"><TicketFormPage mode="edit" /></PermissionRoute>} />
+      <Route path="mantenimientos" element={<MaintenanceListPage />} />
+      <Route path="mantenimientos/nuevo" element={<MaintenanceFormPage mode="create" />} />
+      <Route path="mantenimientos/:maintenanceId" element={<MaintenanceDetailPage />} />
+      <Route path="mantenimientos/:maintenanceId/editar" element={<MaintenanceFormPage mode="edit" />} />
       <Route path="conocimiento" element={<KnowledgeListPage />} />
       <Route path="conocimiento/nuevo" element={<KnowledgeEditorPage mode="create" />} />
       <Route path="conocimiento/categorias" element={<KnowledgeCategoriesPage />} />
