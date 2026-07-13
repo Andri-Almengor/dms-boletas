@@ -101,7 +101,8 @@ export function toBoolean(value, fallback = false) {
 }
 
 export function toOption(record, valueKeys, labelKeys) {
-  const value = pick(record, valueKeys);
+  const fallbackKeys = ['RowID', 'Row ID', 'rowId', 'rowID'];
+  const value = pick(record, [...valueKeys, ...fallbackKeys]);
   const label = pick(record, labelKeys, value);
   return value ? { value: String(value), label: String(label), record } : null;
 }
