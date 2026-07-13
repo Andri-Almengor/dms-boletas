@@ -48,11 +48,11 @@ export async function readTable(sheetName) {
   const { data } = await sheetsApi.spreadsheets.values.get({ spreadsheetId: env.sheetId, range: `${quote(sheetName)}!A:ZZ`, valueRenderOption: 'UNFORMATTED_VALUE', dateTimeRenderOption: 'SERIAL_NUMBER' });
   const rows = data.values || [];
   const headers = (rows.shift() || []).map(String);
-  return rows.filter((row) => row.some((value) => value !== '' && value !== null && value !== undefined)).map((row, rowIndex) => {
+  return rows.map((row, rowIndex) => {
     const record = { __rowNumber: rowIndex + 2 };
     headers.forEach((header, index) => { if (header) record[header] = normalizeValue(header, row[index]); });
-    return record;
-  });
+    return { record, hasData: row.some((value) => value !== '' && value !== null && value !== undefined) };
+  }).filter((item) => item.hasData).map((item) => item.record);
 }
 
 export async function findById(sheetName, idValue, idColumn = TABLES[sheetName]?.id) {
@@ -64,12 +64,14 @@ export async function findById(sheetName, idValue, idColumn = TABLES[sheetName]?
 
 export async function appendRow(sheetName, record) {
   const headers = await getHeaders(sheetName);
+  if (!headers.length) throw new Error(`La hoja ${sheetName} no tiene encabezados.`);
   await sheetsApi.spreadsheets.values.append({ spreadsheetId: env.sheetId, range: `${quote(sheetName)}!A1`, valueInputOption: 'USER_ENTERED', insertDataOption: 'INSERT_ROWS', requestBody: { values: [headers.map((header) => writable(record[header]))] } });
   return record;
 }
 
 export async function updateRow(sheetName, idValue, patch, idColumn = TABLES[sheetName]?.id) {
   const headers = await getHeaders(sheetName);
+  if (!headers.length) throw new Error(`La hoja ${sheetName} no tiene encabezados.`);
   const current = await findById(sheetName, idValue, idColumn);
   const merged = { ...current, ...patch };
   const end = columnLetter(headers.length - 1);
