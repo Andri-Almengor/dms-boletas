@@ -44,6 +44,7 @@
 .knowledge-document blockquote { margin:18px 0; padding:12px 16px; border-left:4px solid var(--primary); background:var(--surface-low); }
 .knowledge-document pre { padding:14px; border-radius:var(--radius-sm); background:#252525; color:white; overflow:auto; }
 .knowledge-document a { color:var(--primary); font-weight:700; text-decoration:underline; }
+.knowledge-document img, .knowledge-editor__document img { display:block; max-width:100%; max-height:72vh; height:auto; margin:18px auto; border:1px solid var(--outline-soft); border-radius:var(--radius-md); background:var(--surface-low); object-fit:contain; box-shadow:var(--shadow-sm); }
 .knowledge-resources-section { margin-top:25px; }
 .knowledge-video-grid { display:grid; grid-template-columns:repeat(2,minmax(0,1fr)); gap:13px; }
 .knowledge-video-card { min-height:230px; border:1px solid var(--outline-soft); border-radius:var(--radius-md); background:white; overflow:hidden; box-shadow:var(--shadow-sm); }
@@ -66,6 +67,9 @@
 .knowledge-editor__toolbar select { min-width:92px; padding:0 8px; }
 .knowledge-editor__toolbar button:hover { border-color:var(--primary); color:var(--primary); }
 .knowledge-editor__toolbar .material-symbols-outlined { font-size:20px; }
+.knowledge-editor__image-input { position:absolute; width:1px; height:1px; opacity:0; pointer-events:none; }
+.knowledge-editor__image-error { padding:9px 12px; border-bottom:1px solid rgba(175,16,26,.18); background:var(--primary-soft); color:var(--primary); display:flex; align-items:center; gap:7px; font-size:.76rem; font-weight:700; }
+.knowledge-editor__image-error .material-symbols-outlined { font-size:18px; }
 .knowledge-editor__document { min-height:520px; padding:clamp(20px,4vw,44px); outline:none; line-height:1.7; }
 .knowledge-editor__document:empty::before { content:attr(data-placeholder); color:var(--muted); pointer-events:none; }
 .knowledge-editor__document h1, .knowledge-editor__document h2, .knowledge-editor__document h3 { line-height:1.25; }
@@ -98,6 +102,7 @@
   .knowledge-basics-grid { grid-template-columns:1fr; }
   .knowledge-basics-grid .is-wide { grid-column:auto; }
   .knowledge-editor__document { min-height:420px; padding:20px; }
+  .knowledge-document img, .knowledge-editor__document img { max-height:58vh; margin:14px auto; }
   .knowledge-category-admin-grid > article { grid-template-columns:42px minmax(0,1fr) 42px; }
   .knowledge-category-admin-grid > article > .status-chip { grid-column:2; justify-self:start; }
   .knowledge-category-admin-grid > article > button { grid-column:3; grid-row:1; }
