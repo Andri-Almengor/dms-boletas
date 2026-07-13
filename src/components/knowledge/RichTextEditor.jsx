@@ -46,7 +46,7 @@ async function optimizeInlineImage(file) {
     let result = '';
 
     for (let attempt = 0; attempt < 12; attempt += 1) {
-      const width = Math.max(320, Math.round(image.naturalWidth * scale));
+      const width = Math.max(1, Math.round(image.naturalWidth * scale));
       const height = Math.max(1, Math.round(image.naturalHeight * scale));
       const canvas = document.createElement('canvas');
       canvas.width = width;
@@ -61,6 +61,9 @@ async function optimizeInlineImage(file) {
       else scale *= 0.78;
     }
 
+    if (result.length > 48000) {
+      throw new Error('La imagen es demasiado pesada para insertarla dentro del texto. Súbela en Documentos y archivos.');
+    }
     return result;
   } finally {
     URL.revokeObjectURL(url);
