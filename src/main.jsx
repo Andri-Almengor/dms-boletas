@@ -6,6 +6,24 @@ import './services/maintenanceRoutes';
 import App from './App';
 import './styles/index.css';
 
+if ('serviceWorker' in navigator && import.meta.env.PROD) {
+  window.addEventListener('load', () => {
+    navigator.serviceWorker.register('/sw.js').catch((error) => {
+      console.warn('No se pudo registrar el modo instalable:', error);
+    });
+  });
+}
+
+window.addEventListener('beforeinstallprompt', (event) => {
+  event.preventDefault();
+  window.__dmsInstallPrompt = event;
+  window.dispatchEvent(new CustomEvent('dms-install-available'));
+});
+
+window.addEventListener('appinstalled', () => {
+  window.__dmsInstallPrompt = null;
+});
+
 ReactDOM.createRoot(document.getElementById('root')).render(
   <React.StrictMode>
     <BrowserRouter>
