@@ -23,45 +23,46 @@ Agregue dentro del objeto `ROUTES` de `Code.gs`:
 
 ```javascript
 'users.assignment.list': {
-  handler: apiAssignableUsersList_,
-  permission: 'BOLETAS_CREAR'
+  handler: apiAssignableUsersList_
 },
 
 'catalog.operational.categories.list': {
-  handler: apiCategoriesList_,
-  permission: 'BOLETAS_CREAR'
+  handler: apiOperationalCategoriesList_
 },
 'catalog.operational.categories.create': {
-  handler: apiCategoriesCreate_,
-  permission: 'BOLETAS_CREAR'
+  handler: apiOperationalCategoriesCreate_
 },
 'catalog.operational.failureTypes.list': {
-  handler: apiFailureTypesList_,
-  permission: 'BOLETAS_CREAR'
+  handler: apiOperationalFailureTypesList_
 },
 'catalog.operational.deviceTypes.list': {
-  handler: apiDeviceTypesList_,
-  permission: 'BOLETAS_CREAR'
+  handler: apiOperationalDeviceTypesList_
 },
 'catalog.operational.manufacturers.list': {
-  handler: apiManufacturersList_,
-  permission: 'BOLETAS_CREAR'
+  handler: apiOperationalManufacturersList_
 },
 'catalog.operational.models.list': {
-  handler: apiModelsList_,
-  permission: 'BOLETAS_CREAR'
+  handler: apiOperationalModelsList_
 },
 'catalog.operational.deviceManufacturers.list': {
-  handler: apiDeviceManufacturersList_,
-  permission: 'BOLETAS_CREAR'
+  handler: apiOperationalDeviceManufacturersList_
 },
 'catalog.operational.deviceManufacturers.create': {
-  handler: apiDeviceManufacturersCreate_,
-  permission: 'BOLETAS_CREAR'
+  handler: apiOperationalDeviceManufacturersCreate_
 },
 ```
 
-Las dos últimas rutas deben reutilizar los mismos handlers que ya utiliza el backend para `catalog.deviceManufacturers.list` y `catalog.deviceManufacturers.create`. Si esos handlers tienen otro nombre en su proyecto, use los nombres existentes.
+No agregue `public: true`. Las rutas siguen exigiendo una sesión válida. Cada handler comprueba que la persona tenga al menos uno de estos permisos:
+
+```text
+BOLETAS_CREAR
+BOLETAS_EDITAR
+MANTENIMIENTOS_CREAR
+MANTENIMIENTOS_EDITAR
+CATALOGOS_GESTIONAR
+```
+
+Las funciones `apiOperationalDeviceManufacturersList_` y `apiOperationalDeviceManufacturersCreate_` reutilizan los handlers `apiDeviceManufacturersList_` y `apiDeviceManufacturersCreate_`. Si esos dos handlers tienen otro nombre en su backend, ajuste únicamente esas llamadas dentro de `OperationalAccessAndInvites.gs`.
 
 Estas rutas no permiten entrar a la pantalla administrativa de usuarios o catálogos. Solamente exponen los datos y altas necesarias dentro de boletas y mantenimientos.
 
