@@ -1,6 +1,7 @@
 import React, { useMemo, useState } from 'react';
 import { useAuth } from '../../AuthContext';
 import { requestAvailable } from '../../services/moduleApi';
+import '../../styles/technical-writing.css';
 import Icon from '../common/Icon';
 
 const FIELD_KEYS = ['razonVisita', 'descripcion', 'pruebasRealizadas', 'resultado', 'recomendaciones'];
