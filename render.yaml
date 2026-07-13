@@ -1,0 +1,39 @@
+services:
+  - type: web
+    name: dms-boletas
+    runtime: node
+    plan: free
+    region: oregon
+    buildCommand: npm install && npm run build && npm --prefix backend install
+    startCommand: npm --prefix backend start
+    healthCheckPath: /api/health
+    autoDeployTrigger: commit
+    envVars:
+      - key: NODE_ENV
+        value: production
+      - key: GOOGLE_SHEET_ID
+        value: 11u44CTxL2KWqwezF_p3Kkc4OoB71BKsQwIh-NLRFgm4
+      - key: GOOGLE_SERVICE_ACCOUNT_EMAIL
+        sync: false
+      - key: GOOGLE_SERVICE_ACCOUNT_PRIVATE_KEY
+        sync: false
+      - key: SESSION_HOURS
+        value: "12"
+      - key: FRONTEND_ORIGIN
+        value: "*"
+      - key: APP_PUBLIC_URL
+        sync: false
+      - key: SMTP_HOST
+        sync: false
+      - key: SMTP_PORT
+        value: "587"
+      - key: SMTP_SECURE
+        value: "false"
+      - key: SMTP_USER
+        sync: false
+      - key: SMTP_PASS
+        sync: false
+      - key: SMTP_FROM
+        sync: false
+      - key: GOOGLE_CHAT_WEBHOOK
+        sync: false

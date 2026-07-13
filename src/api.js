@@ -1,13 +1,25 @@
-const FALLBACK_API_URL = 'https://script.google.com/macros/s/AKfycbzGZuFbXWJn3y4hbfSGRFeaJfWufu2xaDnoAb9dFZl4DklRXiuFU9-GSb-q2hnY7O6pmQ/exec';
+const APPS_SCRIPT_FALLBACK = 'https://script.google.com/macros/s/AKfycbzGZuFbXWJn3y4hbfSGRFeaJfWufu2xaDnoAb9dFZl4DklRXiuFU9-GSb-q2hnY7O6pmQ/exec';
+const SAME_ORIGIN_NODE_API = '/api/action';
 
-export const API_URL = String(import.meta.env.VITE_API_URL || FALLBACK_API_URL).trim();
+export const API_URL = String(
+  import.meta.env.VITE_API_URL
+  || (import.meta.env.PROD ? SAME_ORIGIN_NODE_API : APPS_SCRIPT_FALLBACK),
+).trim();
+
+function isAppsScriptUrl(value) {
+  return /^https:\/\/script\.google\.com\//i.test(String(value || ''));
+}
 
 export async function apiRequest(route, payload = {}, sessionToken = '') {
   if (!API_URL) throw new Error('Falta configurar VITE_API_URL.');
 
   const response = await fetch(API_URL, {
     method: 'POST',
-    headers: { 'Content-Type': 'text/plain;charset=utf-8' },
+    headers: {
+      'Content-Type': isAppsScriptUrl(API_URL)
+        ? 'text/plain;charset=utf-8'
+        : 'application/json;charset=utf-8',
+    },
     body: JSON.stringify({ route, payload, sessionToken }),
   });
 
