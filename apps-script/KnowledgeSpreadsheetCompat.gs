@@ -43,25 +43,42 @@ function ss_() {
 }
 
 function tryKnowledgeSpreadsheetFunctions_() {
-  var functionNames = [
-    'getSpreadsheet_',
-    'spreadsheet_',
-    'openSpreadsheet_',
-    'getDatabaseSpreadsheet_',
-    'getDataSpreadsheet_'
-  ];
+  var spreadsheet = null;
 
-  for (var i = 0; i < functionNames.length; i += 1) {
-    var functionName = functionNames[i];
-    try {
-      var candidate = globalThis[functionName];
-      if (typeof candidate !== 'function') continue;
-      var spreadsheet = candidate();
+  try {
+    if (typeof getSpreadsheet_ === 'function') {
+      spreadsheet = getSpreadsheet_();
       if (isKnowledgeSpreadsheet_(spreadsheet)) return spreadsheet;
-    } catch (ignored) {
-      // Continúa con la siguiente estrategia.
     }
-  }
+  } catch (ignored) { /* Continúa. */ }
+
+  try {
+    if (typeof spreadsheet_ === 'function') {
+      spreadsheet = spreadsheet_();
+      if (isKnowledgeSpreadsheet_(spreadsheet)) return spreadsheet;
+    }
+  } catch (ignored) { /* Continúa. */ }
+
+  try {
+    if (typeof openSpreadsheet_ === 'function') {
+      spreadsheet = openSpreadsheet_();
+      if (isKnowledgeSpreadsheet_(spreadsheet)) return spreadsheet;
+    }
+  } catch (ignored) { /* Continúa. */ }
+
+  try {
+    if (typeof getDatabaseSpreadsheet_ === 'function') {
+      spreadsheet = getDatabaseSpreadsheet_();
+      if (isKnowledgeSpreadsheet_(spreadsheet)) return spreadsheet;
+    }
+  } catch (ignored) { /* Continúa. */ }
+
+  try {
+    if (typeof getDataSpreadsheet_ === 'function') {
+      spreadsheet = getDataSpreadsheet_();
+      if (isKnowledgeSpreadsheet_(spreadsheet)) return spreadsheet;
+    }
+  } catch (ignored) { /* Continúa. */ }
 
   return null;
 }
