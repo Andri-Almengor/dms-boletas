@@ -1,7 +1,7 @@
 import { env } from '../config/env.js';
 import { TABLES, DATE_FIELDS, TIME_FIELDS } from '../config/tables.js';
 import { sheetsApi } from './google.js';
-import { notFound } from '../core/errors.js';
+import { AppError, notFound } from '../core/errors.js';
 
 const headerCache = new Map();
 const cacheMs = 60_000;
@@ -32,6 +32,10 @@ function writable(value) {
   if (value === undefined || value === null) return '';
   if (typeof value === 'object') return JSON.stringify(value);
   return value;
+}
+function isProtectedRangeError(error) {
+  const text = `${error?.message || ''} ${error?.response?.data?.error?.message || ''}`.toLowerCase();
+  return text.includes('protected cell') || text.includes('protected range') || text.includes('protected object');
 }
 
 export async function getHeaders(sheetName, force = false) {
@@ -72,10 +76,46 @@ export async function appendRow(sheetName, record) {
 export async function updateRow(sheetName, idValue, patch, idColumn = TABLES[sheetName]?.id) {
   const headers = await getHeaders(sheetName);
   if (!headers.length) throw new Error(`La hoja ${sheetName} no tiene encabezados.`);
+
   const current = await findById(sheetName, idValue, idColumn);
   const merged = { ...current, ...patch };
-  const end = columnLetter(headers.length - 1);
-  await sheetsApi.spreadsheets.values.update({ spreadsheetId: env.sheetId, range: `${quote(sheetName)}!A${current.__rowNumber}:${end}${current.__rowNumber}`, valueInputOption: 'USER_ENTERED', requestBody: { values: [headers.map((header) => writable(merged[header]))] } });
+  const writableFields = Object.entries(patch || {})
+    .filter(([header]) => headers.includes(header));
+
+  if (writableFields.length) {
+    const data = writableFields.map(([header, value]) => {
+      const column = columnLetter(headers.indexOf(header));
+      return {
+        range: `${quote(sheetName)}!${column}${current.__rowNumber}`,
+        values: [[writable(value)]],
+      };
+    });
+
+    try {
+      await sheetsApi.spreadsheets.values.batchUpdate({
+        spreadsheetId: env.sheetId,
+        requestBody: {
+          valueInputOption: 'USER_ENTERED',
+          data,
+        },
+      });
+    } catch (error) {
+      if (isProtectedRangeError(error)) {
+        throw new AppError(
+          'SHEET_PROTECTED_RANGE',
+          `La cuenta de servicio no puede editar una o más columnas protegidas de la hoja ${sheetName}.`,
+          403,
+          {
+            sheetName,
+            rowNumber: current.__rowNumber,
+            columns: writableFields.map(([header]) => header),
+          },
+        );
+      }
+      throw error;
+    }
+  }
+
   delete merged.__rowNumber;
   return merged;
 }
