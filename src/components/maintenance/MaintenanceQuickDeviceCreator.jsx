@@ -111,6 +111,13 @@ export default function MaintenanceQuickDeviceCreator({
         deviceId = String(pick(saved, ['EvidenciaMantenimientoID', 'deviceId', 'id']));
         if (!deviceId) throw new Error('El servidor no devolvió el identificador del dispositivo.');
         setSavedDeviceId(deviceId);
+        setDevice((current) => ({ ...current, id: deviceId }));
+      } else {
+        await requestAvailable(
+          MODULE_ROUTES.maintenance.deviceUpdate,
+          maintenanceDevicePayload({ ...device, id: deviceId }, maintenanceId),
+          sessionToken,
+        );
       }
 
       const pendingImages = [...device.newImages];
