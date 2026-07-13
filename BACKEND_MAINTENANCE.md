@@ -41,10 +41,18 @@ El módulo reutiliza las rutas existentes de clientes, `ClienteUbicaciones` y `C
 ## Permisos
 
 - Técnicos: consultar, crear y editar mantenimientos pendientes; crear y editar dispositivos y evidencias.
-- Administradores: todo lo anterior, además de eliminar, reabrir mantenimientos y eliminar dispositivos o evidencias.
+- Administradores: todo lo anterior, además de eliminar, reabrir mantenimientos, eliminar dispositivos o evidencias y generar Excel o presentaciones.
 - Los mantenimientos finalizados quedan en modo consulta para técnicos.
+- Los handlers de reportes validan nuevamente que el usuario sea administrador. La ruta conserva `BOLETAS_VER` por compatibilidad con el enrutador actual, pero un técnico recibe `FORBIDDEN` dentro del handler.
+
+## Evidencias en el detalle
+
+- La pantalla de detalle permite agregar fotografías directamente a cada dispositivo mientras el mantenimiento esté pendiente.
+- Las imágenes intentan cargar primero desde la miniatura de Drive.
+- Si Drive no permite mostrar la miniatura directamente, React usa `maintenance.media.get` para obtener la imagen de forma autenticada mediante el `sessionToken`.
 
 ## Reportes
 
 - `maintenance.report.spreadsheet` crea un Google Sheet con resumen y una hoja por categoría. También devuelve un enlace de exportación `.xlsx`.
 - `maintenance.report.slides` crea una presentación de Google con portada, checklist y hasta cuatro fotografías por dispositivo.
+- Solo administradores pueden ejecutar ambas rutas.
