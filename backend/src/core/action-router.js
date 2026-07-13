@@ -2,6 +2,7 @@ import { forbidden } from './errors.js';
 import { asBool } from './utils.js';
 import { login, authenticate, logout, changePassword } from '../services/auth.service.js';
 import { safeUser } from '../services/permissions.service.js';
+import { rewriteTechnicalReport } from '../services/gemini.service.js';
 import { usersHandlers } from '../modules/users.module.js';
 import { crudHandlers } from '../modules/crud.module.js';
 import { ticketHandlers } from '../modules/tickets.module.js';
@@ -21,6 +22,7 @@ add('users.list',usersHandlers.list,'USUARIOS_VER');
 add('users.assignment.list',usersHandlers.assignable,['BOLETAS_CREAR','BOLETAS_EDITAR','MANTENIMIENTOS_CREAR','MANTENIMIENTOS_EDITAR','MANTENIMIENTOS_GESTIONAR','MANTENIMIENTOS_VER']);
 add('users.get',usersHandlers.get,'USUARIOS_VER'); add('users.create',usersHandlers.create,'USUARIOS_GESTIONAR'); add('users.update',usersHandlers.update,'USUARIOS_GESTIONAR'); add('roles.list',usersHandlers.roles,'USUARIOS_VER');
 add(['config.get','app.config.get'],getConfig);
+add(['ai.technicalRewrite','gemini.technicalRewrite','boletas.ai.rewrite'], async (ctx)=>rewriteTechnicalReport(ctx.payload), ['BOLETAS_CREAR','BOLETAS_EDITAR','MANTENIMIENTOS_CREAR','MANTENIMIENTOS_EDITAR','MANTENIMIENTOS_GESTIONAR']);
 
 const crudRouteGroups = [
   ['clients',['clients','clientes']],['clientLocations',['clientLocations','clients.locations','clientes.ubicaciones','ubicacionesCliente']],['equipmentLocations',['equipmentLocations','clients.equipmentLocations','clientes.ubicacionesEquipo','ubicacionesEquipo']],['contacts',['contacts','clients.contacts','clientes.contactos','contactosCliente']],
