@@ -1,8 +1,19 @@
 import { MODULE_ROUTES } from './moduleApi';
 
-// Los formularios operativos necesitan consultar personal activo sin conceder
-// acceso a la administración completa de usuarios.
-const assignmentRoute = 'users.assignment.list';
-if (!MODULE_ROUTES.users.list.includes(assignmentRoute)) {
-  MODULE_ROUTES.users.list = [assignmentRoute, ...MODULE_ROUTES.users.list];
+function prepend(routes, route) {
+  if (!routes.includes(route)) routes.unshift(route);
 }
+
+// Personal asignable: expone únicamente usuarios activos y saneados.
+prepend(MODULE_ROUTES.users.list, 'users.assignment.list');
+
+// Lectura y altas desde boletas/mantenimientos sin habilitar la pantalla
+// administrativa completa de catálogos para el técnico.
+prepend(MODULE_ROUTES.categories.list, 'catalog.operational.categories.list');
+prepend(MODULE_ROUTES.categories.create, 'catalog.operational.categories.create');
+prepend(MODULE_ROUTES.failureTypes.list, 'catalog.operational.failureTypes.list');
+prepend(MODULE_ROUTES.deviceTypes.list, 'catalog.operational.deviceTypes.list');
+prepend(MODULE_ROUTES.manufacturers.list, 'catalog.operational.manufacturers.list');
+prepend(MODULE_ROUTES.models.list, 'catalog.operational.models.list');
+prepend(MODULE_ROUTES.deviceManufacturers.list, 'catalog.operational.deviceManufacturers.list');
+prepend(MODULE_ROUTES.deviceManufacturers.create, 'catalog.operational.deviceManufacturers.create');
