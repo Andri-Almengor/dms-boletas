@@ -1,12 +1,17 @@
 {
   "name": "dms-boletas",
   "private": true,
-  "version": "0.1.0",
+  "version": "0.2.0",
   "type": "module",
+  "engines": { "node": ">=20" },
   "scripts": {
     "dev": "vite",
+    "dev:backend": "npm --prefix backend run dev",
     "build": "vite build",
-    "preview": "vite preview"
+    "preview": "vite preview",
+    "start": "npm --prefix backend start",
+    "install:all": "npm install && npm --prefix backend install",
+    "check:backend": "npm --prefix backend run check"
   },
   "dependencies": {
     "react": "^18.3.1",
