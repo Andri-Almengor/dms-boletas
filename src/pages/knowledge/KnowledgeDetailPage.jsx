@@ -57,7 +57,7 @@ export default function KnowledgeDetailPage() {
 
   const item = normalizeKnowledge(record);
   const currentUserId = String(pick(user, ['UsuarioID', 'id'], ''));
-  const canEdit = hasPermission('CONOCIMIENTO_GESTIONAR') || hasPermission('USUARIOS_GESTIONAR') || item.authorId === currentUserId;
+  const canEdit = hasPermission('CONOCIMIENTO_GESTIONAR') || hasPermission('USUARIOS_GESTIONAR') || Boolean(item.authorId && currentUserId && item.authorId === currentUserId);
 
   return <div className="page knowledge-detail-page">
     <div className="page-header knowledge-detail-header">
