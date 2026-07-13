@@ -10,6 +10,11 @@ function optional(name, fallback = '') {
   return String(process.env[name] ?? fallback).trim();
 }
 
+function optionalNumber(name, fallback, minimum = 0) {
+  const value = Number(optional(name, String(fallback)));
+  return Number.isFinite(value) ? Math.max(minimum, value) : fallback;
+}
+
 export const env = Object.freeze({
   nodeEnv: optional('NODE_ENV', 'development'),
   port: Number(optional('PORT', '10000')),
@@ -17,6 +22,10 @@ export const env = Object.freeze({
   googleClientEmail: required('GOOGLE_SERVICE_ACCOUNT_EMAIL'),
   googlePrivateKey: required('GOOGLE_SERVICE_ACCOUNT_PRIVATE_KEY').replace(/\\n/g, '\n'),
   sessionHours: Number(optional('SESSION_HOURS', '12')),
+  sheetsCacheTtlMs: optionalNumber('SHEETS_CACHE_TTL_MS', 15000),
+  sheetsBatchWindowMs: optionalNumber('SHEETS_BATCH_WINDOW_MS', 5),
+  sheetsQuotaRetries: optionalNumber('SHEETS_QUOTA_RETRIES', 4),
+  sheetsQuotaBackoffMs: optionalNumber('SHEETS_QUOTA_BACKOFF_MS', 750, 100),
   frontendOrigin: optional('FRONTEND_ORIGIN', '*'),
   appPublicUrl: optional('APP_PUBLIC_URL'),
   smtpHost: optional('SMTP_HOST'),
