@@ -47,8 +47,15 @@ export async function logout(token) {
 
 export async function changePassword(user, currentPassword, newPassword) {
   if (!verifyPassword(currentPassword, user.PasswordSalt, user.PasswordHash)) throw new AppError('INVALID_PASSWORD', 'La contraseña actual es incorrecta.', 400);
-  if (String(newPassword || '').length < 8) throw new AppError('WEAK_PASSWORD', 'La nueva contraseña debe tener al menos 8 caracteres.', 400);
-  const { salt, hash } = hashPassword(newPassword);
+  const next = String(newPassword || '');
+  if (next.length < 8) throw new AppError('WEAK_PASSWORD', 'La nueva contraseña debe tener al menos 8 caracteres.', 400);
+  if (!/[a-z]/.test(next) || !/[A-Z]/.test(next) || !/\d/.test(next)) {
+    throw new AppError('WEAK_PASSWORD', 'La nueva contraseña debe incluir una mayúscula, una minúscula y un número.', 400);
+  }
+  if (verifyPassword(next, user.PasswordSalt, user.PasswordHash)) {
+    throw new AppError('PASSWORD_REUSED', 'La nueva contraseña debe ser diferente de la contraseña actual.', 400);
+  }
+  const { salt, hash } = hashPassword(next);
   await updateRow('Usuarios', user.UsuarioID, { PasswordSalt: salt, PasswordHash: hash, CambioPasswordObligatorio: false, ActualizadoPor: user.UsuarioID, FechaActualizacion: nowIso() });
   return { changed: true };
 }
