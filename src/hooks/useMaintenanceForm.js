@@ -35,6 +35,25 @@ function uploadedImageView(row) {
   };
 }
 
+function deviceSignature(device) {
+  if (!device) return '';
+  const payload = maintenanceDevicePayload(device, '');
+  return JSON.stringify({
+    payload,
+    dirtyImages: (device.images || [])
+      .filter((image) => image.dirty)
+      .map((image) => ({ id: image.id, Tipo: image.Tipo, Nota: image.Nota })),
+    newImages: (device.newImages || []).map((image) => ({
+      localId: image.localId,
+      type: image.type,
+      note: image.note,
+      name: image.file?.name,
+      size: image.file?.size,
+      lastModified: image.file?.lastModified,
+    })),
+  });
+}
+
 export default function useMaintenanceForm({ editing, maintenanceId }) {
   const navigate = useNavigate();
   const { sessionToken, user, hasPermission } = useAuth();
@@ -62,6 +81,8 @@ export default function useMaintenanceForm({ editing, maintenanceId }) {
   const [deviceAutosaveStatus, setDeviceAutosaveStatus] = useState('idle');
   const [error, setError] = useState('');
   const deviceSavePromiseRef = useRef(null);
+  const lastSavedDeviceSignatureRef = useRef('');
+  const failedDeviceSignatureRef = useRef('');
   const draftConsumedRef = useRef(false);
 
   useEffect(() => {
@@ -115,6 +136,13 @@ export default function useMaintenanceForm({ editing, maintenanceId }) {
       : [...current, device]);
   }
 
+  function openDevice(device) {
+    lastSavedDeviceSignatureRef.current = device?.id ? deviceSignature(device) : '';
+    failedDeviceSignatureRef.current = '';
+    setDeviceAutosaveStatus(device?.id ? 'server' : 'idle');
+    setActiveDevice(device);
+  }
+
   const applySavedDevice = useCallback((snapshot, deviceId, uploadedImages = [], savedExistingImageIds = []) => {
     const merge = (current) => {
       if (!current || current.localId !== snapshot.localId) return current;
@@ -141,10 +169,13 @@ export default function useMaintenanceForm({ editing, maintenanceId }) {
   const commitActiveDevice = useCallback(async (device, { automatic = false, closeAfter = false } = {}) => {
     if (!device) return null;
     saveActiveDevice(device);
+    const snapshotSignature = deviceSignature(device);
+    if (!automatic) failedDeviceSignatureRef.current = '';
 
     const validForServer = Boolean(device.categoria && device.nombre?.trim() && device.zona?.trim());
     if (!editing || !maintenanceId) {
       try { localStorage.setItem(localDraftKey(maintenanceId), JSON.stringify(serializableDevice(device))); } catch { /* El borrador local es auxiliar. */ }
+      lastSavedDeviceSignatureRef.current = snapshotSignature;
       setDeviceAutosaveStatus('local');
       if (closeAfter) setActiveDevice(null);
       return device;
@@ -195,13 +226,30 @@ export default function useMaintenanceForm({ editing, maintenanceId }) {
           uploadedImages.push(uploadedImageView(uploaded));
         }
 
+        const savedSnapshot = {
+          ...device,
+          id: deviceId,
+          images: [
+            ...(device.images || []).map((image) => savedExistingImageIds.includes(image.id) ? { ...image, dirty: false } : image),
+            ...uploadedImages,
+          ],
+          newImages: [],
+        };
         applySavedDevice(device, deviceId, uploadedImages, savedExistingImageIds);
-        setDeviceAutosaveStatus('server');
+
+        if (saved?.throttled) {
+          setDeviceAutosaveStatus('local');
+        } else {
+          lastSavedDeviceSignatureRef.current = deviceSignature(savedSnapshot);
+          failedDeviceSignatureRef.current = '';
+          setDeviceAutosaveStatus('server');
+        }
         setError('');
         try { localStorage.removeItem(localDraftKey(maintenanceId)); } catch { /* Sin efecto sobre el guardado. */ }
-        if (closeAfter) setActiveDevice(null);
-        return { ...device, id: deviceId };
+        if (closeAfter && !saved?.throttled) setActiveDevice(null);
+        return savedSnapshot;
       } catch (err) {
+        if (automatic) failedDeviceSignatureRef.current = snapshotSignature;
         setDeviceAutosaveStatus('error');
         if (!automatic) setError(err.message);
         throw err;
@@ -217,11 +265,18 @@ export default function useMaintenanceForm({ editing, maintenanceId }) {
 
   useEffect(() => {
     if (!activeDevice || readOnly || saving || deviceSaving) return undefined;
+    const currentSignature = deviceSignature(activeDevice);
+    if (currentSignature === lastSavedDeviceSignatureRef.current) {
+      setDeviceAutosaveStatus(editing && maintenanceId ? 'server' : 'local');
+      return undefined;
+    }
+    if (currentSignature === failedDeviceSignatureRef.current) return undefined;
 
     if (!editing || !maintenanceId) {
       const timer = window.setTimeout(() => {
         try { localStorage.setItem(localDraftKey(maintenanceId), JSON.stringify(serializableDevice(activeDevice))); } catch { /* El formulario sigue funcionando. */ }
         saveActiveDevice(activeDevice);
+        lastSavedDeviceSignatureRef.current = currentSignature;
         setDeviceAutosaveStatus('local');
       }, 700);
       return () => window.clearTimeout(timer);
@@ -308,6 +363,7 @@ export default function useMaintenanceForm({ editing, maintenanceId }) {
     devices,
     activeDevice,
     setActiveDevice,
+    openDevice,
     clients,
     locations,
     equipment,
