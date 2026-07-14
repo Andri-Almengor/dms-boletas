@@ -7,7 +7,7 @@ import { MODULE_ROUTES, normalizeItems, pick, requestAvailable } from '../../ser
 import { normalizeKnowledge } from '../../utils/knowledge';
 
 function canCreateTutorial(hasPermission) {
-  return hasPermission('CONOCIMIENTO_CREAR') || hasPermission('BOLETAS_CREAR') || hasPermission('USUARIOS_GESTIONAR');
+  return hasPermission('CONOCIMIENTO_CREAR') || hasPermission('CONOCIMIENTO_GESTIONAR') || hasPermission('BOLETAS_CREAR') || hasPermission('USUARIOS_GESTIONAR');
 }
 
 export default function KnowledgeListPage() {
@@ -35,7 +35,7 @@ export default function KnowledgeListPage() {
           categoriaId: categoryId,
           autorUsuarioId: mineOnly ? pick(user, ['UsuarioID', 'id']) : '',
           includeDrafts: canManageAll || mineOnly,
-          sortBy: 'UpdatedAt',
+          sortBy: 'FechaActualizacion',
           sortDir: 'desc',
         }, sessionToken),
         requestAvailable(MODULE_ROUTES.knowledgeCategories.list, { page: 1, pageSize: 300, activo: true, sortBy: 'Nombre', sortDir: 'asc' }, sessionToken),
@@ -50,7 +50,7 @@ export default function KnowledgeListPage() {
     }
   }
 
-  useEffect(() => { load(); }, [sessionToken]);
+  useEffect(() => { load(); }, [sessionToken, categoryId, mineOnly]);
 
   const visibleItems = useMemo(() => {
     const query = search.trim().toLowerCase();
