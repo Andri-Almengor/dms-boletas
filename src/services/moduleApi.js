@@ -29,6 +29,8 @@ export const MODULE_ROUTES = {
     equipmentLocationsCreate: ['equipmentLocations.create', 'clients.equipmentLocations.create', 'clientes.ubicacionesEquipo.create', 'ubicacionesEquipo.create'],
     contactsList: ['contacts.list', 'clients.contacts.list', 'clientes.contactos.list', 'contactosCliente.list'],
     contactsCreate: ['contacts.create', 'clients.contacts.create', 'clientes.contactos.create', 'contactosCliente.create'],
+    contactsUpdate: ['contacts.update', 'clients.contacts.update', 'clientes.contactos.update', 'contactosCliente.update'],
+    contactsDelete: ['contacts.delete', 'clients.contacts.delete', 'clientes.contactos.delete', 'contactosCliente.delete'],
   },
   categories: {
     list: ['catalog.categories.list', 'categories.list', 'categorias.list'],
