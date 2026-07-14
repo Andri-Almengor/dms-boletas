@@ -10,6 +10,7 @@ MODULE_ROUTES.maintenance = {
   reopen: ['maintenance.reopen', 'mantenimientos.reopen'],
   deviceCreate: ['maintenance.devices.create', 'mantenimientos.dispositivos.create'],
   deviceUpdate: ['maintenance.devices.update', 'mantenimientos.dispositivos.update'],
+  deviceAutosave: ['maintenance.devices.autosave', 'mantenimientos.dispositivos.autosave'],
   deviceDelete: ['maintenance.devices.delete', 'mantenimientos.dispositivos.delete'],
   imageUpload: ['maintenance.images.upload', 'mantenimientos.imagenes.upload'],
   imageUpdate: ['maintenance.images.update', 'mantenimientos.imagenes.update'],
