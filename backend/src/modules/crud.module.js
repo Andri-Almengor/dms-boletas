@@ -1,4 +1,4 @@
-import { appendRow, filterRows, readTable, updateRow } from '../infra/sheets.repository.js';
+import { appendRow, filterRows, readTable, softDelete, updateRow } from '../infra/sheets.repository.js';
 import { audit } from '../services/audit.service.js';
 import { asBool, nowIso, pick, uuid } from '../core/utils.js';
 import { badRequest } from '../core/errors.js';
@@ -130,6 +130,15 @@ export function crudHandlers(definitionKey) {
         FechaActualizacion: nowIso(),
       };
       const after = await updateRow(def.table, id, patch); await audit(ctx, `EDITAR_${def.table.toUpperCase()}`, def.table, id, before, after); return after;
+    },
+    delete: async (ctx) => {
+      const id = pick(ctx.payload, [def.id,'id','clienteId','ubicacionId','contactoId']);
+      if (!id) throw badRequest('Falta el identificador.');
+      const before = (await readTable(def.table)).find((row) => String(row[def.id]) === String(id));
+      if (!before) throw badRequest('No se encontró el registro.');
+      const after = await softDelete(def.table, id, ctx.user.UsuarioID);
+      await audit(ctx, `ELIMINAR_${def.table.toUpperCase()}`, def.table, id, before, after);
+      return after;
     },
   };
 }
