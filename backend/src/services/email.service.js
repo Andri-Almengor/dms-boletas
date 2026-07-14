@@ -6,13 +6,16 @@ import { downloadFileBuffer, extractDriveFileId } from '../infra/drive.repositor
 
 let transporter;
 function getTransporter() {
-  if (!env.smtpHost) return null;
+  if (!env.smtpHost || !env.smtpUser || !env.smtpPass) return null;
   if (!transporter) {
     transporter = nodemailer.createTransport({
       host: env.smtpHost,
       port: env.smtpPort,
       secure: env.smtpSecure,
-      auth: env.smtpUser ? { user: env.smtpUser, pass: env.smtpPass } : undefined,
+      auth: { user: env.smtpUser, pass: env.smtpPass },
+      connectionTimeout: Number(process.env.SMTP_CONNECTION_TIMEOUT_MS || 15000),
+      greetingTimeout: Number(process.env.SMTP_GREETING_TIMEOUT_MS || 15000),
+      socketTimeout: Number(process.env.SMTP_SOCKET_TIMEOUT_MS || 45000),
     });
   }
   return transporter;
@@ -28,18 +31,25 @@ function nl2br(value) {
   return escapeHtml(value || '').replace(/\r?\n/g, '<br>');
 }
 
+function tableRow(label, value) {
+  return `<tr>
+    <td style="width:28%;padding:10px;border:1px solid #d9dde3;background:#f3f4f6;font-weight:700;vertical-align:top">${escapeHtml(label)}</td>
+    <td style="padding:10px;border:1px solid #d9dde3;vertical-align:top">${value || 'Sin especificar'}</td>
+  </tr>`;
+}
+
 function formatEvidenceRows(rows) {
   return rows.map((row, index) => `
     <tr>
-      <td style="padding:9px;border-bottom:1px solid #e5e7eb;vertical-align:top">${index + 1}</td>
-      <td style="padding:9px;border-bottom:1px solid #e5e7eb;vertical-align:top">
+      <td style="padding:10px;border:1px solid #d9dde3;vertical-align:top">${index + 1}</td>
+      <td style="padding:10px;border:1px solid #d9dde3;vertical-align:top">
         <strong>${escapeHtml(row.name)}</strong>
         ${row.note ? `<br><span style="color:#4b5563">${nl2br(row.note)}</span>` : ''}
-        ${row.inlineCid ? `<div style="margin-top:10px"><img src="cid:${row.inlineCid}" alt="${escapeHtml(row.name)}" style="display:block;max-width:100%;height:auto;border-radius:8px;border:1px solid #e5e7eb"></div>` : ''}
+        ${row.inlineCid ? `<div style="margin-top:10px"><img src="cid:${row.inlineCid}" alt="${escapeHtml(row.name)}" style="display:block;max-width:100%;height:auto;border-radius:6px;border:1px solid #d9dde3"></div>` : ''}
       </td>
-      <td style="padding:9px;border-bottom:1px solid #e5e7eb;vertical-align:top">
+      <td style="padding:10px;border:1px solid #d9dde3;vertical-align:top">
         ${row.url ? `<a href="${escapeHtml(row.url)}">Abrir en Drive</a>` : 'Sin enlace'}
-        ${row.attached ? '<br><small>Incluido como adjunto</small>' : ''}
+        ${row.attached ? '<br><small>Adjunta al correo</small>' : ''}
       </td>
     </tr>`).join('');
 }
@@ -62,21 +72,21 @@ export async function sendTemporaryCredentials(user, password) {
 export async function sendTicketReportEmail({ report, to, cc = [], testMode = false }) {
   const transport = getTransporter();
   if (!transport) {
-    throw new AppError('SMTP_NOT_CONFIGURED', 'El correo SMTP no está configurado en el backend.', 503);
+    throw new AppError(
+      'SMTP_NOT_CONFIGURED',
+      'Faltan SMTP_HOST, SMTP_USER o SMTP_PASS en el backend. El Chat puede funcionar aunque el correo no esté configurado.',
+      503,
+    );
   }
 
   const recipients = uniqueEmails(to);
   if (!recipients.length) {
-    throw new AppError('REPORT_EMAIL_MISSING', 'La boleta no tiene un correo de supervisor válido.', 400);
+    throw new AppError('REPORT_EMAIL_MISSING', 'No se encontró un correo válido del supervisor ni de los técnicos asignados.', 400);
   }
   const copyRecipients = testMode ? [] : uniqueEmails(cc).filter((email) => !recipients.includes(email));
   const ticket = report.ticket;
   const maxBytes = Math.max(1, Number(process.env.MAX_EMAIL_ATTACHMENT_MB || 20)) * 1024 * 1024;
-  const attachments = [{
-    filename: report.pdfName,
-    content: report.pdfBuffer,
-    contentType: 'application/pdf',
-  }];
+  const attachments = [{ filename: report.pdfName, content: report.pdfBuffer, contentType: 'application/pdf' }];
   let accumulatedBytes = report.pdfBuffer.length;
   const evidenceRows = [];
 
@@ -84,14 +94,7 @@ export async function sendTicketReportEmail({ report, to, cc = [], testMode = fa
     const evidence = report.evidences[index];
     const fileId = extractDriveFileId(evidence.ArchivoID || evidence.ArchivoURL);
     const name = String(evidence.Nombre || evidence.NombreArchivo || `Evidencia ${index + 1}`);
-    const item = {
-      name,
-      note: String(evidence.Nota || ''),
-      url: String(evidence.ArchivoURL || ''),
-      attached: false,
-      inlineCid: '',
-    };
-
+    const item = { name, note: String(evidence.Nota || ''), url: String(evidence.ArchivoURL || ''), attached: false, inlineCid: '' };
     if (fileId) {
       try {
         const file = await downloadFileBuffer(fileId, evidence.MimeType || 'application/octet-stream');
@@ -108,71 +111,96 @@ export async function sendTicketReportEmail({ report, to, cc = [], testMode = fa
           item.attached = true;
           item.inlineCid = cid || '';
         }
-      } catch {
-        // El correo conserva el enlace aunque un archivo individual no pueda descargarse.
+      } catch (error) {
+        console.warn(`[ticket-email] No se pudo adjuntar la evidencia ${name}: ${error.message}`);
       }
     }
     evidenceRows.push(item);
   }
 
   const assignedNames = report.assigned.map((item) => item.Nombre).filter(Boolean).join(', ');
-  const subject = `${testMode ? '[PRUEBA] ' : ''}Reporte técnico - Boleta #${ticket.BoletaID || ticket.BoletaUID} - ${ticket.Cliente || ''}`;
+  const creator = report.creator || {};
+  const creatorValue = creator.Correo
+    ? `<a href="mailto:${escapeHtml(creator.Correo)}">${escapeHtml(creator.Correo)}</a>`
+    : escapeHtml(creator.Nombre || creator.NombreCompleto || ticket.CreadoPor || '');
+  const subject = `${testMode ? '[PRUEBA] ' : ''}Reporte técnico DMS - Boleta #${ticket.BoletaID || ticket.BoletaUID}`;
   const evidenceHtml = formatEvidenceRows(evidenceRows);
-  const html = `
-  <div style="font-family:Arial,sans-serif;color:#1f2937;max-width:800px;margin:auto">
-    <div style="background:#af101a;color:#fff;padding:18px 22px;border-radius:10px 10px 0 0">
-      <h1 style="font-size:22px;margin:0">${testMode ? 'MODO PRUEBA · ' : ''}Reporte técnico DMS</h1>
-      <p style="margin:6px 0 0">Boleta #${escapeHtml(ticket.BoletaID || ticket.BoletaUID)}</p>
+  const rows = [
+    tableRow('Fecha', escapeHtml(ticket.Fecha || '')),
+    tableRow('Cliente', escapeHtml(ticket.Cliente || '')),
+    tableRow('Categoría', escapeHtml(ticket.Categoria || '')),
+    tableRow('Tipo de falla', escapeHtml(ticket.TipoFalla || '')),
+    tableRow('Título', escapeHtml(ticket.Titulo || '')),
+    tableRow('Asignado a', escapeHtml(assignedNames)),
+    tableRow('Estado', testMode ? 'Prueba' : 'Finalizado'),
+    tableRow('Hora de inicio', escapeHtml(ticket.HoraInicio || '')),
+    tableRow('Hora de finalización', escapeHtml(ticket.HoraFinal || '')),
+    tableRow('Horas totales', escapeHtml(ticket.HorasTotales || '0.00')),
+    tableRow('Razón de visita', nl2br(ticket.RazonVisita)),
+    tableRow('Descripción', nl2br(ticket.Descripcion)),
+    tableRow('Pruebas realizadas', nl2br(ticket.PruebasRealizadas)),
+    tableRow('Resultado', nl2br(ticket.Resultado)),
+    tableRow('Recomendaciones', nl2br(ticket.Recomendaciones)),
+    tableRow('Creado por', creatorValue),
+  ].join('');
+
+  const html = `<!doctype html>
+  <html><body style="margin:0;padding:0;background:#ffffff;font-family:Arial,sans-serif;color:#111827">
+    <div style="max-width:900px;margin:0 auto;border:1px solid #d9dde3">
+      <div style="background:#242424;color:#ffffff;padding:20px 16px">
+        <h1 style="font-size:24px;margin:0 0 12px">${testMode ? 'PRUEBA · ' : ''}Reporte Técnico DMS</h1>
+        <p style="margin:0;font-size:15px">Boleta #${escapeHtml(ticket.BoletaID || ticket.BoletaUID)}</p>
+      </div>
+      <div style="padding:26px 16px">
+        ${testMode ? '<p style="padding:10px;background:#fff7ed;border:1px solid #fdba74"><strong>Esta es una prueba.</strong> No se cambió el estado ni se notificó al cliente.</p>' : ''}
+        <p>Estimado/a,</p>
+        <p>Adjunto encontrará el reporte técnico correspondiente a la gestión realizada.</p>
+        <table style="width:100%;border-collapse:collapse;margin-top:18px">${rows}</table>
+        <p style="margin:20px 0">
+          <a href="${escapeHtml(report.pdfUrl)}">Abrir PDF</a> ·
+          <a href="${escapeHtml(report.documentUrl)}">Abrir documento</a> ·
+          <a href="${escapeHtml(report.folderUrl)}">Abrir carpeta</a>
+        </p>
+        <h2 style="font-size:19px;margin-top:28px">Evidencias fotográficas (${evidenceRows.length})</h2>
+        ${evidenceRows.length ? `<table style="width:100%;border-collapse:collapse"><thead><tr><th style="padding:10px;border:1px solid #d9dde3;text-align:left">#</th><th style="padding:10px;border:1px solid #d9dde3;text-align:left">Evidencia</th><th style="padding:10px;border:1px solid #d9dde3;text-align:left">Archivo</th></tr></thead><tbody>${evidenceHtml}</tbody></table>` : '<p>Sin evidencias.</p>'}
+        <p style="margin-top:22px;color:#6b7280;font-size:12px">El PDF y las evidencias permitidas por el límite del servidor se adjuntan al correo. Todos los archivos conservan su enlace de Drive.</p>
+      </div>
     </div>
-    <div style="border:1px solid #e5e7eb;border-top:0;padding:22px;border-radius:0 0 10px 10px">
-      ${testMode ? '<p style="padding:10px;background:#fff7ed;border:1px solid #fdba74;border-radius:8px"><strong>Esta es una prueba.</strong> No se cambió el estado de la boleta ni se notificó al cliente.</p>' : ''}
-      <h2 style="font-size:18px">${escapeHtml(ticket.Titulo || 'Reporte de visita')}</h2>
-      <table style="width:100%;border-collapse:collapse">
-        <tr><td style="padding:6px"><strong>Cliente</strong></td><td style="padding:6px">${escapeHtml(ticket.Cliente || '')}</td></tr>
-        <tr><td style="padding:6px"><strong>Ubicación</strong></td><td style="padding:6px">${escapeHtml(ticket.Ubicacion || '')}</td></tr>
-        <tr><td style="padding:6px"><strong>Ubicación del equipo</strong></td><td style="padding:6px">${escapeHtml(ticket.UbicacionEquipo || '')}</td></tr>
-        <tr><td style="padding:6px"><strong>Supervisor</strong></td><td style="padding:6px">${escapeHtml(ticket.Supervisor || '')}</td></tr>
-        <tr><td style="padding:6px"><strong>Fecha</strong></td><td style="padding:6px">${escapeHtml(ticket.Fecha || '')}</td></tr>
-        <tr><td style="padding:6px"><strong>Horario</strong></td><td style="padding:6px">${escapeHtml(ticket.HoraInicio || '')} - ${escapeHtml(ticket.HoraFinal || '')} (${escapeHtml(ticket.HorasTotales || '0.00')} h)</td></tr>
-        <tr><td style="padding:6px"><strong>Equipo</strong></td><td style="padding:6px">${escapeHtml([ticket.TipoDispositivo, ticket.Fabricante, ticket.Modelo, ticket.Serie].filter(Boolean).join(' · '))}</td></tr>
-        <tr><td style="padding:6px"><strong>Técnicos</strong></td><td style="padding:6px">${escapeHtml(assignedNames)}</td></tr>
-      </table>
-      <h3>Razón de visita</h3><p>${nl2br(ticket.RazonVisita)}</p>
-      <h3>Descripción</h3><p>${nl2br(ticket.Descripcion)}</p>
-      <h3>Pruebas realizadas</h3><p>${nl2br(ticket.PruebasRealizadas)}</p>
-      <h3>Resultado</h3><p>${nl2br(ticket.Resultado)}</p>
-      <h3>Recomendaciones</h3><p>${nl2br(ticket.Recomendaciones)}</p>
-      <p><a href="${escapeHtml(report.pdfUrl)}">Abrir PDF en Google Drive</a> · <a href="${escapeHtml(report.documentUrl)}">Abrir documento</a> · <a href="${escapeHtml(report.folderUrl)}">Abrir carpeta</a></p>
-      <h3>Evidencias (${evidenceRows.length})</h3>
-      ${evidenceRows.length ? `<table style="width:100%;border-collapse:collapse"><thead><tr><th style="text-align:left;padding:9px">#</th><th style="text-align:left;padding:9px">Evidencia</th><th style="text-align:left;padding:9px">Archivo</th></tr></thead><tbody>${evidenceHtml}</tbody></table>` : '<p>Sin evidencias.</p>'}
-      <p style="margin-top:22px;color:#6b7280;font-size:12px">El PDF se adjunta a este correo. Las evidencias se incluyen hasta el límite permitido por el servidor de correo; todas conservan su enlace de Drive.</p>
-    </div>
-  </div>`;
+  </body></html>`;
 
   const text = [
-    `${testMode ? 'MODO PRUEBA - ' : ''}Reporte técnico DMS`,
-    `Boleta: ${ticket.BoletaID || ticket.BoletaUID}`,
+    `${testMode ? 'PRUEBA - ' : ''}Reporte Técnico DMS`,
+    `Boleta #${ticket.BoletaID || ticket.BoletaUID}`,
     `Cliente: ${ticket.Cliente || ''}`,
-    `Supervisor: ${ticket.Supervisor || ''}`,
+    `Asignado a: ${assignedNames}`,
     `Resultado: ${ticket.Resultado || ''}`,
     `PDF: ${report.pdfUrl}`,
     `Evidencias: ${evidenceRows.length}`,
   ].join('\n');
 
-  const info = await transport.sendMail({
-    from: env.smtpFrom,
-    to: recipients.join(','),
-    cc: copyRecipients.join(',') || undefined,
-    subject,
-    text,
-    html,
-    attachments,
-  });
+  let info;
+  try {
+    info = await transport.sendMail({
+      from: env.smtpFrom || env.smtpUser,
+      to: recipients.join(','),
+      cc: copyRecipients.join(',') || undefined,
+      subject,
+      text,
+      html,
+      attachments,
+    });
+  } catch (error) {
+    throw new AppError('SMTP_SEND_FAILED', `No fue posible enviar el correo: ${error.message}`, 502);
+  }
+
+  if (!info.accepted?.length) {
+    throw new AppError('SMTP_REJECTED', `El servidor SMTP rechazó todos los destinatarios: ${(info.rejected || []).join(', ')}`, 502);
+  }
 
   return {
     sent: true,
     messageId: info.messageId,
-    accepted: info.accepted || recipients,
+    accepted: info.accepted,
     rejected: info.rejected || [],
     destination: recipients.join(','),
     cc: copyRecipients.join(','),
