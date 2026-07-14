@@ -15,6 +15,7 @@ export const MODULE_ROUTES = {
     evidenceUpload: ['boletas.evidence.upload', 'tickets.evidence.upload'],
     evidenceUpdate: ['boletas.evidence.update', 'tickets.evidence.update'],
     evidenceDelete: ['boletas.evidence.delete', 'tickets.evidence.delete'],
+    signatureUpload: ['boletas.signature.upload'],
     mediaGet: ['boletas.media.get', 'tickets.media.get'],
   },
   clients: {
