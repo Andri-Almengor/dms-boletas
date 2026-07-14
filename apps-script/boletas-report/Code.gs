@@ -170,6 +170,7 @@ function replaceMarkers_(body, ticket, assignedNames) {
     '<<[Ubicacion_equipo]>>': ticket.UbicacionEquipo || ticket.Ubicacion,
     '<<[Pruebas realizadas]>>': ticket.PruebasRealizadas,
     '<<[Resultado]>>': ticket.Resultado,
+    '<<[Recomendaciones]>>': ticket.Recomendaciones,
     '<<[Recomendaciones ]>>': ticket.Recomendaciones,
     '<<[AsignadoA]>>': assignedNames,
   };
