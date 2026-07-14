@@ -11,6 +11,8 @@ const config = {
   icon: 'corporate_fare',
   routes: MODULE_ROUTES.clients,
   sortBy: 'Nombre',
+  createPermissions: ['CLIENTES_CREAR'],
+  editPermissions: ['CLIENTES_EDITAR'],
   empty,
   emptyMessage: 'Crea el primer cliente para utilizarlo en las boletas.',
   fields: [
