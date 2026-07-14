@@ -39,16 +39,39 @@ const clientOperationalKeys = new Set(['clientLocations','equipmentLocations','c
 
 const crudRouteGroups = [
   ['clients',['clients','clientes']],['clientLocations',['clientLocations','clients.locations','clientes.ubicaciones','ubicacionesCliente']],['equipmentLocations',['equipmentLocations','clients.equipmentLocations','clientes.ubicacionesEquipo','ubicacionesEquipo']],['contacts',['contacts','clients.contacts','clientes.contactos','contactosCliente']],
-  ['categories',['catalog.categories','categories','categorias','catalog.operational.categories']],['deviceTypes',['catalog.deviceTypes','deviceTypes','tiposDispositivo','catalog.operational.deviceTypes']],['manufacturers',['catalog.manufacturers','manufacturers','fabricantes','catalog.operational.manufacturers']],['models',['catalog.models','models','modelos','catalog.operational.models']],['failureTypes',['catalog.failureTypes','failureTypes','tiposFalla','catalog.operational.failureTypes']],['deviceManufacturers',['catalog.deviceManufacturers','deviceManufacturers','tipoDispositivoFabricantes','catalog.operational.deviceManufacturers']],['knowledgeCategories',['knowledge.categories','baseConocimientos.categorias','categoriasConocimiento']]
+  ['categories',['catalog.categories','categories','categorias']],['deviceTypes',['catalog.deviceTypes','deviceTypes','tiposDispositivo']],['manufacturers',['catalog.manufacturers','manufacturers','fabricantes']],['models',['catalog.models','models','modelos']],['failureTypes',['catalog.failureTypes','failureTypes','tiposFalla']],['deviceManufacturers',['catalog.deviceManufacturers','deviceManufacturers','tipoDispositivoFabricantes']],['knowledgeCategories',['knowledge.categories','baseConocimientos.categorias','categoriasConocimiento']]
 ];
 for(const [key,prefixes] of crudRouteGroups){for(const prefix of prefixes){
-  const operational=prefix.includes('.operational.');
   let createPermission='CATALOGOS_GESTIONAR';
-  if(operational) createPermission=operationalCatalogPermissions;
-  else if(key==='clients') createPermission='CLIENTES_CREAR';
-  else if(clientOperationalKeys.has(key)) createPermission=operationalClientDataPermissions;
-  add(`${prefix}.list`,c[key].list);add(`${prefix}.get`,c[key].get);add(`${prefix}.create`,c[key].create,createPermission);add(`${prefix}.update`,c[key].update,createPermission);
+  let updatePermission='CATALOGOS_GESTIONAR';
+  if(key==='clients') {
+    createPermission='CLIENTES_CREAR';
+    updatePermission='CLIENTES_EDITAR';
+  } else if(clientOperationalKeys.has(key)) {
+    createPermission=operationalClientDataPermissions;
+    updatePermission=operationalClientDataPermissions;
+  } else if(key==='knowledgeCategories') {
+    createPermission='CONOCIMIENTO_CATEGORIAS_GESTIONAR';
+    updatePermission='CONOCIMIENTO_CATEGORIAS_GESTIONAR';
+  }
+  add(`${prefix}.list`,c[key].list);add(`${prefix}.get`,c[key].get);add(`${prefix}.create`,c[key].create,createPermission);add(`${prefix}.update`,c[key].update,updatePermission);
 }}
+
+for (const [key, prefixes] of [
+  ['categories',['catalog.operational.categories']],
+  ['deviceTypes',['catalog.operational.deviceTypes']],
+  ['manufacturers',['catalog.operational.manufacturers']],
+  ['models',['catalog.operational.models']],
+  ['failureTypes',['catalog.operational.failureTypes']],
+  ['deviceManufacturers',['catalog.operational.deviceManufacturers']],
+]) {
+  for (const prefix of prefixes) {
+    add(`${prefix}.list`,c[key].list);
+    add(`${prefix}.get`,c[key].get);
+    add(`${prefix}.create`,c[key].create,operationalCatalogPermissions);
+    add(`${prefix}.update`,c[key].update,operationalCatalogPermissions);
+  }
+}
 
 const ticketAliases={list:['boletas.list','tickets.list'],get:['boletas.get','tickets.get'],create:['boletas.create','tickets.create'],update:['boletas.update','tickets.update'],autosave:['boletas.autosave'],finalize:['boletas.finalize','tickets.finalize'],testFinalize:['boletas.testFinalize','tickets.testFinalize'],generatePdf:['boletas.generatePdf','tickets.generatePdf'],returnPending:['boletas.returnPending'],annul:['boletas.annul'],evidenceUpload:['boletas.evidence.upload','tickets.evidence.upload'],evidenceUpdate:['boletas.evidence.update','tickets.evidence.update'],evidenceDelete:['boletas.evidence.delete','tickets.evidence.delete'],mediaGet:['boletas.media.get','tickets.media.get'],signatureUpload:['boletas.signature.upload']};
 for(const [key,names] of Object.entries(ticketAliases)) {
@@ -76,7 +99,11 @@ for(const [key,names] of Object.entries(maintenanceAliases)) {
 }
 
 const knowledgeAliases={list:['knowledge.list','baseConocimientos.list','conocimiento.list','tutorials.list'],get:['knowledge.get','baseConocimientos.get','conocimiento.get','tutorials.get'],create:['knowledge.create','baseConocimientos.create','conocimiento.create','tutorials.create'],update:['knowledge.update','baseConocimientos.update','conocimiento.update','tutorials.update'],delete:['knowledge.delete','baseConocimientos.delete','conocimiento.delete','tutorials.delete'],attachmentUpload:['knowledge.attachments.upload','baseConocimientos.adjuntos.upload','conocimiento.adjuntos.upload'],attachmentDelete:['knowledge.attachments.delete','baseConocimientos.adjuntos.delete','conocimiento.adjuntos.delete'],mediaGet:['knowledge.media.get','baseConocimientos.media.get','conocimiento.media.get']};
-for(const [key,names] of Object.entries(knowledgeAliases)) add(names,knowledgeHandlers[key]);
+const knowledgeCreatePermissions=['CONOCIMIENTO_CREAR','CONOCIMIENTO_GESTIONAR','BOLETAS_CREAR'];
+for(const [key,names] of Object.entries(knowledgeAliases)) {
+  const permission = ['create','attachmentUpload'].includes(key) ? knowledgeCreatePermissions : null;
+  add(names,knowledgeHandlers[key],permission);
+}
 
 export async function dispatchAction({ route, payload={}, sessionToken='', ip='', userAgent='' }) {
   const entry=routes.get(route);
