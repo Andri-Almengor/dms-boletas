@@ -1,11 +1,34 @@
 import http from 'node:http';
 import { app } from './app.js';
 import { env } from './config/env.js';
-import { concurrencyMiddleware } from './middleware/concurrency.middleware.js';
+import { concurrencyMiddleware, concurrencySnapshot } from './middleware/concurrency.middleware.js';
+
+function mb(value) {
+  return Math.round((Number(value || 0) / 1024 / 1024) * 10) / 10;
+}
+
+function sendHealth(res) {
+  const memory = process.memoryUsage();
+  res.statusCode = 200;
+  res.setHeader('Content-Type', 'application/json; charset=utf-8');
+  res.setHeader('Cache-Control', 'no-store');
+  res.end(JSON.stringify({
+    ok: true,
+    service: 'dms-boletas-backend',
+    time: new Date().toISOString(),
+    uptimeSeconds: Math.round(process.uptime()),
+    memory: {
+      rssMb: mb(memory.rss),
+      heapUsedMb: mb(memory.heapUsed),
+      heapTotalMb: mb(memory.heapTotal),
+    },
+    concurrency: concurrencySnapshot(),
+  }));
+}
 
 function requestHandler(req, res) {
   if (String(req.url || '').startsWith('/api/health')) {
-    app(req, res);
+    sendHealth(res);
     return;
   }
 
