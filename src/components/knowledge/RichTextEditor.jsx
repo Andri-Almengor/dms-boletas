@@ -15,6 +15,7 @@ const TOOLS = [
 ];
 
 const INLINE_IMAGE_TARGET_LENGTH = 36000;
+const SAFE_LINK = /^(https?:\/\/|mailto:)/i;
 
 function escapeAttribute(value = '') {
   return String(value)
@@ -100,11 +101,22 @@ export default function RichTextEditor({ value, onChange, disabled = false }) {
     if (!editor || !selection) return;
     editor.focus();
     selection.removeAllRanges();
-    if (savedRangeRef.current) selection.addRange(savedRangeRef.current);
+    try {
+      if (savedRangeRef.current && editor.contains(savedRangeRef.current.commonAncestorContainer)) {
+        selection.addRange(savedRangeRef.current);
+        return;
+      }
+    } catch { /* La selección quedó desconectada después de modificar el contenido. */ }
+    const range = document.createRange();
+    range.selectNodeContents(editor);
+    range.collapse(false);
+    selection.addRange(range);
+    savedRangeRef.current = range.cloneRange();
   }
 
   function run(tool) {
     if (disabled) return;
+    setImageError('');
     restoreSelection();
     if (tool.startsWith('formatBlock:')) {
       document.execCommand('formatBlock', false, tool.split(':')[1]);
@@ -116,6 +128,8 @@ export default function RichTextEditor({ value, onChange, disabled = false }) {
   }
 
   function setHeading(event) {
+    if (disabled) return;
+    setImageError('');
     restoreSelection();
     document.execCommand('formatBlock', false, event.target.value || 'p');
     event.target.value = '';
@@ -126,8 +140,13 @@ export default function RichTextEditor({ value, onChange, disabled = false }) {
   function addLink() {
     if (disabled) return;
     rememberSelection();
-    const url = window.prompt('Pega el enlace que deseas insertar:');
+    const url = String(window.prompt('Pega el enlace que deseas insertar:') || '').trim();
     if (!url) return;
+    if (!SAFE_LINK.test(url)) {
+      setImageError('El enlace debe comenzar con https://, http:// o mailto:.');
+      return;
+    }
+    setImageError('');
     restoreSelection();
     document.execCommand('createLink', false, url);
     emit();
