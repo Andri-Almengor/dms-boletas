@@ -13,6 +13,10 @@ import {
   sanitizeKnowledgeHtml,
 } from '../../utils/knowledge';
 
+function isProtectedGoogleUrl(value = '') {
+  return /(?:drive|docs)\.google\.com|googleusercontent\.com/i.test(String(value || ''));
+}
+
 export default function KnowledgeDetailPage() {
   const { tutorialId } = useParams();
   const navigate = useNavigate();
@@ -38,15 +42,15 @@ export default function KnowledgeDetailPage() {
 
   async function openAttachment(attachment) {
     const directUrl = getAttachmentUrl(attachment);
-    if (directUrl) {
+    if (directUrl && !isProtectedGoogleUrl(directUrl)) {
       window.open(directUrl, '_blank', 'noopener,noreferrer');
       return;
     }
     try {
       const data = await requestAvailable(MODULE_ROUTES.knowledge.mediaGet, { tutorialId, adjuntoId: getAttachmentId(attachment) }, sessionToken);
-      const url = pick(data, ['url', 'URL', 'DriveURL']);
+      const url = pick(data, ['dataUrl', 'DataURL', 'url', 'URL', 'DriveURL']);
       if (url) window.open(url, '_blank', 'noopener,noreferrer');
-      else throw new Error('El backend no devolvió un enlace para el archivo.');
+      else throw new Error('El backend no devolvió el contenido del archivo.');
     } catch (err) {
       setError(err.message);
     }
@@ -83,6 +87,6 @@ export default function KnowledgeDetailPage() {
 
     {item.videos.length > 0 && <section className="knowledge-resources-section"><div className="section-heading"><div><span className="eyebrow">Material audiovisual</span><h2>Videos paso a paso</h2></div></div><div className="knowledge-video-grid">{item.videos.map((video, index) => { const url = typeof video === 'string' ? video : pick(video, ['URL', 'Url', 'url']); const embed = getVideoEmbedUrl(url); return <article className="knowledge-video-card" key={`${url}-${index}`}>{embed ? <iframe src={embed} title={`Video ${index + 1}: ${item.title}`} allow="accelerometer; autoplay; clipboard-write; encrypted-media; gyroscope; picture-in-picture" allowFullScreen /> : <a href={url} target="_blank" rel="noopener noreferrer"><Icon name="play_circle" /> Abrir video {index + 1}</a>}</article>; })}</div></section>}
 
-    {item.attachments.length > 0 && <section className="knowledge-resources-section"><div className="section-heading"><div><span className="eyebrow">Archivos relacionados</span><h2>Documentos adjuntos</h2></div></div><div className="knowledge-attachment-list">{item.attachments.map((attachment, index) => <button type="button" key={getAttachmentId(attachment) || index} onClick={() => openAttachment(attachment)}><span><Icon name="description" /></span><div><strong>{getAttachmentName(attachment)}</strong><small>{pick(attachment, ['MimeType', 'mimeType'], 'Documento')}</small></div><Icon name="open_in_new" /></button>)}</div></section>}
+    {item.attachments.length > 0 && <section className="knowledge-resources-section"><div className="section-heading"><div><span className="eyebrow">Archivos relacionados</span><h2>Documentos adjuntos</h2></div></div><div className="knowledge-attachment-list">{item.attachments.map((attachment, index) => <button type="button" key={getAttachmentId(attachment) || index} onClick={() => openAttachment(attachment)}><span><Icon name={String(pick(attachment, ['MimeType', 'mimeType'])).startsWith('image/') ? 'image' : 'description'} /></span><div><strong>{getAttachmentName(attachment)}</strong><small>{pick(attachment, ['MimeType', 'mimeType'], 'Documento')}</small></div><Icon name="open_in_new" /></button>)}</div></section>}
   </div>;
 }

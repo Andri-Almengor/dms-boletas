@@ -1,31 +1,31 @@
-import React, { useEffect, useState } from 'react';
+import React, { useEffect, useRef, useState } from 'react';
 import Icon from '../common/Icon';
 import { MODULE_ROUTES, pick, requestAvailable } from '../../services/moduleApi';
+
+function isProtectedGoogleUrl(value = '') {
+  return /(?:drive|docs)\.google\.com|googleusercontent\.com/i.test(String(value || ''));
+}
 
 export default function MaintenanceEvidenceImage({ image, sessionToken, alt = 'Evidencia' }) {
   const imageId = String(pick(image, ['FotoDispositivoID', 'id']));
   const initialSource = pick(image, ['PreviewURL', 'DriveURL', 'url']);
-  const [source, setSource] = useState(initialSource);
+  const initialDirectSource = imageId && isProtectedGoogleUrl(initialSource) ? '' : initialSource;
+  const attemptedRef = useRef(false);
+  const [source, setSource] = useState(initialDirectSource);
   const [loadingFallback, setLoadingFallback] = useState(false);
   const [failed, setFailed] = useState(false);
-  const [fallbackAttempted, setFallbackAttempted] = useState(false);
   const [open, setOpen] = useState(false);
 
-  useEffect(() => {
-    setSource(initialSource);
-    setFailed(false);
-    setFallbackAttempted(false);
-  }, [imageId, initialSource]);
-
   async function loadProtectedImage(force = false) {
-    if (!imageId || (!force && fallbackAttempted) || loadingFallback) {
-      setFailed(true);
+    if (!imageId || (!force && attemptedRef.current) || loadingFallback) {
+      if (!imageId) setFailed(true);
       return;
     }
 
-    setFallbackAttempted(true);
+    attemptedRef.current = true;
     setLoadingFallback(true);
-    setSource('');
+    setFailed(false);
+    if (isProtectedGoogleUrl(initialSource)) setSource('');
     try {
       const media = await requestAvailable(
         MODULE_ROUTES.maintenance.mediaGet,
@@ -38,23 +38,29 @@ export default function MaintenanceEvidenceImage({ image, sessionToken, alt = 'E
       setFailed(false);
     } catch {
       setFailed(true);
+      if (isProtectedGoogleUrl(initialSource)) setSource('');
     } finally {
       setLoadingFallback(false);
     }
   }
 
   useEffect(() => {
-    if (!initialSource && imageId) loadProtectedImage();
+    attemptedRef.current = false;
+    setFailed(false);
+    setOpen(false);
+    const directSource = imageId && isProtectedGoogleUrl(initialSource) ? '' : initialSource;
+    setSource(directSource);
+    if (imageId && (!initialSource || isProtectedGoogleUrl(initialSource))) loadProtectedImage();
     // Solo debe ejecutarse al cambiar de imagen.
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [imageId]);
+  }, [imageId, initialSource, sessionToken]);
 
-  if (failed) {
+  if (failed && !source) {
     return (
       <div className="maintenance-evidence-image maintenance-evidence-image--error">
         <Icon name="broken_image" />
         <span>No se pudo cargar</span>
-        <button type="button" onClick={() => { setFailed(false); loadProtectedImage(true); }}>
+        <button type="button" onClick={() => { attemptedRef.current = false; setFailed(false); loadProtectedImage(true); }}>
           Reintentar
         </button>
       </div>
@@ -70,9 +76,18 @@ export default function MaintenanceEvidenceImage({ image, sessionToken, alt = 'E
         aria-label="Abrir evidencia en tamaño completo"
       >
         {source ? (
-          <img src={source} alt={alt} loading="lazy" onError={() => loadProtectedImage(false)} />
+          <img
+            src={source}
+            alt={alt}
+            loading="lazy"
+            decoding="async"
+            onError={() => {
+              if (imageId && !attemptedRef.current) loadProtectedImage();
+              else setFailed(true);
+            }}
+          />
         ) : (
-          <span className="maintenance-evidence-image__loading"><Icon name="progress_activity" /> Cargando...</span>
+          <span className="maintenance-evidence-image__loading"><Icon name="progress_activity" /> {loadingFallback ? 'Cargando...' : 'Preparando imagen...'}</span>
         )}
         <span className="maintenance-evidence-image__zoom"><Icon name="zoom_in" /></span>
       </button>
