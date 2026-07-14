@@ -1,4 +1,4 @@
-import React, { useCallback, useEffect, useMemo, useState } from 'react';
+import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { createPortal } from 'react-dom';
 import Icon from '../common/Icon';
 
@@ -36,8 +36,11 @@ export default function MobileTimePickerBridge() {
   const [target, setTarget] = useState(null);
   const [hour, setHour] = useState('08');
   const [minute, setMinute] = useState('00');
+  const pendingInputRef = useRef(null);
+  const openTimerRef = useRef(null);
 
   const openFor = useCallback((input) => {
+    if (!input?.isConnected) return;
     const parts = currentParts(input.value);
     setHour(parts.hour);
     setMinute(parts.minute);
@@ -51,26 +54,50 @@ export default function MobileTimePickerBridge() {
       return window.matchMedia('(max-width: 760px)').matches ? input : null;
     }
 
-    function interceptPointer(event) {
-      const input = isMobileTimeInput(event.target);
-      if (!input) return;
+    function blockEvent(event) {
       event.preventDefault();
       event.stopPropagation();
+      event.stopImmediatePropagation?.();
+    }
+
+    function interceptPointerDown(event) {
+      const input = isMobileTimeInput(event.target);
+      if (!input) return;
+      blockEvent(event);
+      pendingInputRef.current = input;
+    }
+
+    function interceptPointerUp(event) {
+      const input = pendingInputRef.current || isMobileTimeInput(event.target);
+      if (!input) return;
+      blockEvent(event);
+      pendingInputRef.current = null;
       input.blur();
-      openFor(input);
+      window.clearTimeout(openTimerRef.current);
+      // Se abre después del click sintetizado del teléfono. Así ese mismo toque
+      // no cae sobre el fondo del modal y lo cierra inmediatamente.
+      openTimerRef.current = window.setTimeout(() => openFor(input), 0);
     }
 
     function interceptClick(event) {
       const input = isMobileTimeInput(event.target);
       if (!input) return;
-      event.preventDefault();
-      event.stopPropagation();
+      blockEvent(event);
     }
 
-    document.addEventListener('pointerdown', interceptPointer, true);
+    function cancelPointer() {
+      pendingInputRef.current = null;
+    }
+
+    document.addEventListener('pointerdown', interceptPointerDown, true);
+    document.addEventListener('pointerup', interceptPointerUp, true);
+    document.addEventListener('pointercancel', cancelPointer, true);
     document.addEventListener('click', interceptClick, true);
     return () => {
-      document.removeEventListener('pointerdown', interceptPointer, true);
+      window.clearTimeout(openTimerRef.current);
+      document.removeEventListener('pointerdown', interceptPointerDown, true);
+      document.removeEventListener('pointerup', interceptPointerUp, true);
+      document.removeEventListener('pointercancel', cancelPointer, true);
       document.removeEventListener('click', interceptClick, true);
     };
   }, [openFor]);
