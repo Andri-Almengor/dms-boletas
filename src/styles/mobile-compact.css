@@ -1,0 +1,524 @@
+/* Protección general contra el desplazamiento lateral accidental. */
+html,
+body,
+#root {
+  width: 100%;
+  max-width: 100%;
+  overflow-x: hidden;
+}
+
+html,
+body {
+  overscroll-behavior-x: none;
+}
+
+#root,
+.app-shell,
+.app-content,
+.page,
+.ticket-form-page,
+.form-card,
+.ticket-form-card,
+.stack-form,
+.field-group,
+.ticket-form-grid {
+  min-width: 0;
+}
+
+.app-shell,
+.app-content,
+.page {
+  max-width: 100%;
+}
+
+input,
+select,
+textarea,
+button {
+  min-width: 0;
+}
+
+/* Selector con búsqueda, usado automáticamente en el campo Cliente. */
+.searchable-select {
+  position: relative;
+  min-width: 0;
+}
+
+.searchable-select > .material-symbols-outlined:first-child {
+  position: absolute;
+  left: 13px;
+  top: 50%;
+  z-index: 2;
+  transform: translateY(-50%);
+  color: var(--muted);
+  pointer-events: none;
+}
+
+.searchable-select > .material-symbols-outlined:last-child {
+  position: absolute;
+  right: 13px;
+  top: 50%;
+  z-index: 2;
+  transform: translateY(-50%);
+  color: var(--muted);
+  pointer-events: none;
+}
+
+.searchable-select__input {
+  padding-left: 43px;
+  padding-right: 43px;
+  text-overflow: ellipsis;
+  -webkit-appearance: none;
+  appearance: none;
+}
+
+.searchable-select__input::-webkit-search-cancel-button {
+  display: none;
+}
+
+.searchable-select.is-open {
+  z-index: 85;
+}
+
+.searchable-select.is-open .searchable-select__input {
+  border-color: var(--primary);
+  box-shadow: 0 0 0 3px rgba(175, 16, 26, .11);
+}
+
+.searchable-select__clear {
+  position: absolute;
+  right: 5px;
+  top: 50%;
+  z-index: 3;
+  width: 36px;
+  height: 36px;
+  padding: 0;
+  border: 0;
+  border-radius: 999px;
+  transform: translateY(-50%);
+  background: transparent;
+  color: var(--muted);
+  display: grid;
+  place-items: center;
+}
+
+.searchable-select__clear:active {
+  background: var(--surface-container);
+}
+
+.searchable-select__clear .material-symbols-outlined {
+  font-size: 19px;
+}
+
+.searchable-select__menu {
+  position: absolute;
+  inset: calc(100% + 6px) 0 auto;
+  z-index: 90;
+  max-height: min(42vh, 320px);
+  padding: 6px;
+  overflow-y: auto;
+  overscroll-behavior: contain;
+  border: 1px solid var(--outline-soft);
+  border-radius: var(--radius-sm);
+  background: #fff;
+  box-shadow: var(--shadow-md);
+}
+
+.searchable-select__option {
+  width: 100%;
+  min-height: 44px;
+  padding: 9px 10px;
+  border: 0;
+  border-radius: 9px;
+  background: transparent;
+  color: var(--text);
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) 22px;
+  align-items: center;
+  gap: 8px;
+  text-align: left;
+}
+
+.searchable-select__option span:first-child {
+  overflow-wrap: anywhere;
+}
+
+.searchable-select__option:hover,
+.searchable-select__option:focus-visible,
+.searchable-select__option.is-selected {
+  background: var(--primary-soft);
+  color: var(--primary);
+  outline: none;
+}
+
+.searchable-select__option .material-symbols-outlined {
+  font-size: 19px;
+}
+
+.searchable-select__empty {
+  padding: 14px 11px;
+  color: var(--muted);
+  font-size: .8rem;
+  text-align: center;
+}
+
+/* Selector de hora compacto que sustituye al reloj nativo en teléfono. */
+.mobile-time-layer {
+  position: fixed;
+  inset: 0;
+  z-index: 250;
+  padding-top: env(safe-area-inset-top);
+  display: flex;
+  align-items: flex-end;
+  justify-content: center;
+}
+
+.mobile-time-backdrop {
+  position: absolute;
+  inset: 0;
+  width: 100%;
+  height: 100%;
+  padding: 0;
+  border: 0;
+  background: rgba(20, 20, 22, .56);
+}
+
+.mobile-time-picker {
+  position: relative;
+  z-index: 1;
+  width: min(100%, 430px);
+  padding: 17px 16px calc(16px + env(safe-area-inset-bottom));
+  border-radius: 22px 22px 0 0;
+  background: var(--surface);
+  box-shadow: 0 -12px 36px rgba(0, 0, 0, .2);
+}
+
+.mobile-time-picker__header {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) 40px;
+  align-items: start;
+  gap: 12px;
+}
+
+.mobile-time-picker__header h2 {
+  margin: 3px 0 0;
+  font-size: 1.05rem;
+}
+
+.mobile-time-picker__header .icon-button {
+  width: 40px;
+  height: 40px;
+}
+
+.mobile-time-picker__display {
+  margin: 13px 0;
+  color: var(--primary);
+  font-size: 2.15rem;
+  font-weight: 800;
+  line-height: 1;
+  letter-spacing: .04em;
+  text-align: center;
+}
+
+.mobile-time-picker__fields {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) 18px minmax(0, 1fr);
+  align-items: end;
+  gap: 8px;
+}
+
+.mobile-time-picker__fields label {
+  display: grid;
+  gap: 6px;
+}
+
+.mobile-time-picker__fields label > span {
+  color: var(--muted);
+  font-size: .72rem;
+  font-weight: 700;
+  text-align: center;
+}
+
+.mobile-time-picker__fields strong {
+  padding-bottom: 14px;
+  color: var(--muted);
+  font-size: 1.3rem;
+  text-align: center;
+}
+
+.mobile-time-picker__fields select {
+  width: 100%;
+  height: 52px;
+  padding: 0 10px;
+  border: 1px solid var(--outline);
+  border-radius: 12px;
+  background: #fff;
+  color: var(--text);
+  font-size: 1.05rem;
+  font-weight: 750;
+  text-align: center;
+  outline: none;
+}
+
+.mobile-time-picker__fields select:focus {
+  border-color: var(--primary);
+  box-shadow: 0 0 0 3px rgba(175, 16, 26, .11);
+}
+
+.mobile-time-picker__actions {
+  margin-top: 16px;
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 8px;
+}
+
+.mobile-time-picker__actions .button--primary {
+  grid-column: 1 / -1;
+}
+
+@media (min-width: 761px) {
+  .mobile-time-layer {
+    display: none;
+  }
+}
+
+@media (max-width: 560px) {
+  html {
+    font-size: 15px;
+  }
+
+  .page {
+    padding: 16px 12px 28px;
+  }
+
+  .app-shell--form .app-content {
+    padding-bottom: 82px;
+  }
+
+  .ticket-form-page {
+    padding-top: 12px;
+  }
+
+  .ticket-form-header {
+    grid-template-columns: 36px minmax(0, 1fr) !important;
+    gap: 8px;
+    margin: -12px -12px 12px !important;
+    padding: 10px 12px !important;
+  }
+
+  .ticket-form-header .icon-button {
+    width: 36px;
+    height: 36px;
+  }
+
+  .ticket-form-header h1 {
+    margin: 1px 0 0;
+    font-size: 1.28rem;
+    line-height: 1.14;
+  }
+
+  .ticket-form-header .eyebrow {
+    font-size: .62rem;
+  }
+
+  .ticket-form-header .autosave-indicator {
+    grid-column: 2;
+    min-height: 26px;
+    margin-top: -2px;
+    padding: 4px 8px;
+    font-size: .62rem;
+  }
+
+  .ticket-progress {
+    margin-bottom: 10px;
+  }
+
+  .ticket-progress > div:first-child {
+    margin-bottom: 5px;
+    font-size: .68rem;
+  }
+
+  .ticket-progress__track {
+    height: 5px;
+  }
+
+  .form-card,
+  .ticket-form-card {
+    padding: 14px;
+    border-radius: 14px;
+  }
+
+  .form-card__heading,
+  .detail-card__heading {
+    gap: 10px;
+    margin-bottom: 14px;
+  }
+
+  .form-card__heading h2,
+  .detail-card__heading h2 {
+    font-size: .98rem;
+  }
+
+  .form-card__heading p {
+    margin-top: 3px;
+    font-size: .74rem;
+    line-height: 1.35;
+  }
+
+  .section-marker {
+    width: 3px;
+    min-height: 25px;
+  }
+
+  .stack-form {
+    gap: 13px;
+  }
+
+  .ticket-form-grid,
+  .ticket-form-grid--three {
+    gap: 11px;
+  }
+
+  .field-group {
+    gap: 5px;
+  }
+
+  .field-label {
+    padding-left: 2px;
+    font-size: .76rem;
+  }
+
+  .field-label-row {
+    gap: 7px;
+  }
+
+  .field-add-button {
+    min-height: 30px;
+    padding: 0 3px;
+    font-size: .68rem;
+  }
+
+  .form-control {
+    min-height: 44px;
+    padding: 0 11px;
+    border-radius: 10px;
+    font-size: 16px;
+    line-height: 1.2;
+  }
+
+  .select-shell select {
+    padding-right: 38px;
+  }
+
+  .select-shell > .material-symbols-outlined {
+    right: 10px;
+  }
+
+  .searchable-select__input {
+    padding-left: 39px;
+    padding-right: 39px;
+  }
+
+  .searchable-select > .material-symbols-outlined:first-child {
+    left: 10px;
+    font-size: 20px;
+  }
+
+  .searchable-select > .material-symbols-outlined:last-child {
+    right: 10px;
+    font-size: 20px;
+  }
+
+  .searchable-select__clear {
+    right: 3px;
+  }
+
+  .searchable-select__menu {
+    max-height: min(45vh, 280px);
+  }
+
+  .searchable-select__option {
+    min-height: 42px;
+    padding: 8px 9px;
+    font-size: .82rem;
+  }
+
+  .ticket-textarea {
+    min-height: 86px;
+    padding-top: 10px;
+    padding-bottom: 10px;
+  }
+
+  .field-hint,
+  .muted-copy {
+    font-size: .67rem;
+  }
+
+  .ticket-form-page input[type='date'],
+  .ticket-form-page input[type='time'] {
+    width: 100%;
+    min-width: 0;
+    height: 44px;
+    line-height: normal;
+    text-align: left;
+  }
+
+  .button {
+    min-height: 44px;
+    padding: 0 13px;
+    gap: 6px;
+    font-size: .8rem;
+  }
+
+  .button .material-symbols-outlined {
+    font-size: 19px;
+  }
+
+  .ticket-form-actions {
+    bottom: calc(var(--bottom-nav-height) + env(safe-area-inset-bottom) + 5px);
+    padding: 8px;
+    gap: 7px;
+    border-radius: 14px;
+  }
+
+  .ticket-form-actions .button {
+    padding-inline: 8px;
+    font-size: .76rem;
+  }
+
+  .alert {
+    padding: 10px 11px;
+    font-size: .78rem;
+  }
+
+  .check-card,
+  .ticket-review-list div,
+  .info-box {
+    padding: 11px;
+  }
+
+  .ticket-camera-button,
+  .ticket-file-button {
+    min-height: 96px;
+  }
+
+  .inline-modal {
+    max-height: 88dvh;
+    padding: 16px 14px calc(14px + env(safe-area-inset-bottom));
+  }
+}
+
+@media (max-width: 360px) {
+  .ticket-form-actions {
+    grid-template-columns: .8fr 1.2fr;
+  }
+
+  .ticket-form-actions .button {
+    padding-inline: 6px;
+    font-size: .71rem;
+  }
+
+  .mobile-time-picker {
+    padding-inline: 12px;
+  }
+}
