@@ -7,6 +7,17 @@ function hasAny(object, keys) {
   return keys.some((key) => Object.prototype.hasOwnProperty.call(object || {}, key));
 }
 
+function canViewClientWebhook(ctx) {
+  return ctx.permissions?.includes('USUARIOS_GESTIONAR') || ctx.permissions?.includes('CLIENTES_EDITAR');
+}
+
+function sanitizeClientRow(row, ctx) {
+  if (canViewClientWebhook(ctx)) return row;
+  const configured = Boolean(row.ChatWebhook || row.ChatWebhookURL);
+  const { ChatWebhook: _chatWebhook, ChatWebhookURL: _chatWebhookUrl, ...safe } = row;
+  return { ...safe, ChatConfigurado: configured };
+}
+
 export const CRUD_DEFINITIONS = Object.freeze({
   clients: {
     table: 'Clientes',
@@ -41,18 +52,23 @@ export const CRUD_DEFINITIONS = Object.freeze({
 export function crudHandlers(definitionKey) {
   const def = CRUD_DEFINITIONS[definitionKey];
   return {
-    list: async ({ payload }) => {
+    list: async (ctx) => {
+      const { payload } = ctx;
       let rows = await readTable(def.table);
       rows = rows.filter((row) => String(row.Estado || 'ACTIVO').toUpperCase() !== 'INACTIVO' && row.Activo !== false);
       if (def.parent) {
         const parentValue = payload[def.parent] ?? payload[def.parent.charAt(0).toLowerCase() + def.parent.slice(1)] ?? payload.clienteId ?? payload.ubicacionId;
         if (parentValue) rows = rows.filter((row) => String(row[def.parent]) === String(parentValue));
       }
-      return filterRows(rows, payload, def.search);
+      const result = filterRows(rows, payload, def.search);
+      if (definitionKey === 'clients') result.items = result.items.map((row) => sanitizeClientRow(row, ctx));
+      return result;
     },
-    get: async ({ payload }) => {
+    get: async (ctx) => {
+      const { payload } = ctx;
       const rows = await readTable(def.table); const id = pick(payload, [def.id, 'id', 'clienteId', 'ubicacionId', 'contactoId']);
-      const row = rows.find((item) => String(item[def.id]) === String(id)); if (!row) throw badRequest('No se encontró el registro.'); return row;
+      const row = rows.find((item) => String(item[def.id]) === String(id)); if (!row) throw badRequest('No se encontró el registro.');
+      return definitionKey === 'clients' ? sanitizeClientRow(row, ctx) : row;
     },
     create: async (ctx) => {
       const mapped = def.map(ctx.payload);
