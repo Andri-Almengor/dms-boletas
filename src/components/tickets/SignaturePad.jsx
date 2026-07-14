@@ -1,22 +1,64 @@
-import React, { useEffect, useRef } from 'react';
+import React, { useEffect, useRef, useState } from 'react';
+import { useParams } from 'react-router-dom';
+import { useAuth } from '../../AuthContext';
+import { MODULE_ROUTES, requestAvailable } from '../../services/moduleApi';
 import Icon from '../common/Icon';
 
 export default function SignaturePad({ value, onChange }) {
+  const { boletaUid } = useParams();
+  const { sessionToken } = useAuth();
   const canvasRef = useRef(null);
   const drawingRef = useRef(false);
+  const storedSourceRef = useRef('');
+  const [existingSource, setExistingSource] = useState('');
+  const [existingStatus, setExistingStatus] = useState(boletaUid ? 'loading' : 'none');
 
   useEffect(() => {
-    if (!value) return;
+    let active = true;
+    if (!boletaUid) {
+      setExistingStatus('none');
+      return undefined;
+    }
+
+    setExistingStatus('loading');
+    requestAvailable(MODULE_ROUTES.tickets.mediaGet, { boletaUid, kind: 'signature' }, sessionToken)
+      .then((data) => {
+        if (!active) return;
+        const source = data?.dataUrl || data?.DataURL || '';
+        if (!source) throw new Error('El backend no devolvió la firma almacenada.');
+        storedSourceRef.current = source;
+        setExistingSource(source);
+        setExistingStatus('loaded');
+      })
+      .catch((error) => {
+        if (!active) return;
+        const text = String(error?.message || '').toLowerCase();
+        if (text.includes('no tiene una firma') || text.includes('no se encontró')) setExistingStatus('none');
+        else setExistingStatus('error');
+      });
+
+    return () => { active = false; };
+  }, [boletaUid, sessionToken]);
+
+  useEffect(() => {
     const canvas = canvasRef.current;
     const context = canvas?.getContext('2d');
-    if (!canvas || !context) return;
+    if (!canvas || !context) return undefined;
+
+    context.clearRect(0, 0, canvas.width, canvas.height);
+    const source = value || existingSource;
+    if (!source) return undefined;
+
+    let active = true;
     const image = new Image();
     image.onload = () => {
+      if (!active) return;
       context.clearRect(0, 0, canvas.width, canvas.height);
       context.drawImage(image, 0, 0, canvas.width, canvas.height);
     };
-    image.src = value;
-  }, []);
+    image.src = source;
+    return () => { active = false; };
+  }, [value, existingSource]);
 
   function pointFromEvent(event) {
     const canvas = canvasRef.current;
@@ -59,15 +101,36 @@ export default function SignaturePad({ value, onChange }) {
   function clearSignature() {
     const canvas = canvasRef.current;
     canvas.getContext('2d').clearRect(0, 0, canvas.width, canvas.height);
+    setExistingSource('');
     onChange('');
+  }
+
+  function restoreExistingSignature() {
+    if (!storedSourceRef.current) return;
+    onChange('');
+    setExistingSource(storedSourceRef.current);
+    setExistingStatus('loaded');
   }
 
   return (
     <div className="signature-pad">
       <div className="signature-pad__toolbar">
         <span><Icon name="draw" /> Firma en el recuadro</span>
-        <button type="button" className="button button--secondary button--compact" onClick={clearSignature}><Icon name="ink_eraser" /> Limpiar</button>
+        <div className="inline-actions">
+          {!value && !existingSource && storedSourceRef.current && (
+            <button type="button" className="button button--secondary button--compact" onClick={restoreExistingSignature}>
+              <Icon name="restore" /> Restaurar firma existente
+            </button>
+          )}
+          <button type="button" className="button button--secondary button--compact" onClick={clearSignature}>
+            <Icon name="ink_eraser" /> Limpiar
+          </button>
+        </div>
       </div>
+      {existingStatus === 'loading' && <small className="field-hint">Cargando la firma guardada...</small>}
+      {existingStatus === 'loaded' && !value && existingSource && <small className="field-hint">Firma existente cargada. Se conservará mientras no dibuje una firma nueva.</small>}
+      {existingStatus === 'error' && <small className="field-error">No se pudo mostrar la firma existente, pero el archivo almacenado no será eliminado al guardar.</small>}
+      {!value && !existingSource && storedSourceRef.current && <small className="field-hint">La vista fue limpiada. La firma almacenada sigue conservándose; puede restaurarla o dibujar una nueva.</small>}
       <canvas
         ref={canvasRef}
         width="900"
