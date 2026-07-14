@@ -8,13 +8,15 @@ import { audit } from '../services/audit.service.js';
 function normalizeUser(user) {
   const safe = safeUser(user);
   const displayName = String(pick(safe, ['NombreCompleto', 'Nombre', 'NombreUsuario', 'Correo'], '')).trim();
+  const status = String(safe.Estado || '').trim();
   return {
     ...safe,
     NombreCompleto: String(pick(safe, ['NombreCompleto', 'Nombre'], displayName)).trim(),
     Nombre: String(pick(safe, ['Nombre', 'NombreCompleto'], displayName)).trim(),
     NombreUsuario: String(safe.NombreUsuario || '').trim(),
     Correo: String(safe.Correo || '').trim(),
-    Estado: String(safe.Estado || '').trim(),
+    Estado: status,
+    Activo: safe.Activo === undefined || safe.Activo === '' ? status.toUpperCase() === 'ACTIVO' : safe.Activo,
   };
 }
 
