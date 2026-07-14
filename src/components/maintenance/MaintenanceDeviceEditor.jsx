@@ -1,11 +1,11 @@
-import React from 'react';
+import React, { useState } from 'react';
 import { useAuth } from '../../AuthContext';
 import AutosaveIndicator from '../feedback/AutosaveIndicator';
 import Icon from '../common/Icon';
 import MaintenanceDeviceCatalogFields from './MaintenanceDeviceCatalogFields';
 import MaintenanceEvidenceImage from './MaintenanceEvidenceImage';
 import { getMaintenanceCategory } from '../../config/maintenanceCategories';
-import { pick } from '../../services/moduleApi';
+import { MODULE_ROUTES, pick, requestAvailable } from '../../services/moduleApi';
 
 function Field({ label, multiline = false, ...props }) {
   return <label className="field-group"><span className="field-label">{label}</span>{multiline ? <textarea className="form-control ticket-textarea" rows="5" {...props} /> : <input className="form-control" {...props} />}</label>;
@@ -16,17 +16,50 @@ function Choice({ label, value, onChange, options = ['Sí', 'No'], disabled = fa
 }
 
 export default function MaintenanceDeviceEditor({ device, equipmentOptions = [], disabled, isAdmin, onChange, onClose, onDelete, onSubmit, submitLabel = 'Guardar dispositivo', submitting = false, autosaveStatus = 'idle' }) {
-  const { sessionToken } = useAuth();
+  const { sessionToken, hasPermission } = useAuth();
   const category = getMaintenanceCategory(device.categoria);
   const locked = disabled || submitting;
+  const canDeleteEvidence = isAdmin
+    || hasPermission('MANTENIMIENTOS_EDITAR')
+    || hasPermission('MANTENIMIENTOS_GESTIONAR')
+    || hasPermission('BOLETAS_EDITAR');
+  const [deletingImageId, setDeletingImageId] = useState('');
+  const [evidenceError, setEvidenceError] = useState('');
+
   function patch(values) { onChange({ ...device, ...values }); }
+
   function addFiles(event) {
     const files = Array.from(event.target.files || []);
     patch({ newImages: [...device.newImages, ...files.map((file) => ({ localId: crypto.randomUUID?.() || `${Date.now()}-${Math.random()}`, file, type: 'Antes', note: '', previewUrl: URL.createObjectURL(file) }))] });
     event.target.value = '';
   }
-  function updateNewImage(localId, values) { patch({ newImages: device.newImages.map((item) => item.localId === localId ? { ...item, ...values } : item) }); }
-  function updateExistingImage(id, values) { patch({ images: device.images.map((item) => item.id === id ? { ...item, ...values, dirty: true } : item) }); }
+
+  function updateNewImage(localId, values) {
+    patch({ newImages: device.newImages.map((item) => item.localId === localId ? { ...item, ...values } : item) });
+  }
+
+  function updateExistingImage(id, values) {
+    patch({ images: device.images.map((item) => item.id === id ? { ...item, ...values, dirty: true } : item) });
+  }
+
+  async function removeExistingImage(image) {
+    const imageId = String(image.id || image.FotoDispositivoID || '');
+    if (!canDeleteEvidence || !imageId || !window.confirm('¿Eliminar definitivamente esta fotografía?')) return;
+    setDeletingImageId(imageId);
+    setEvidenceError('');
+    try {
+      await requestAvailable(MODULE_ROUTES.maintenance.imageDelete, {
+        imageId,
+        FotoDispositivoID: imageId,
+        deviceId: device.id,
+      }, sessionToken);
+      patch({ images: device.images.filter((item) => String(item.id || item.FotoDispositivoID) !== imageId) });
+    } catch (error) {
+      setEvidenceError(error.message || 'No se pudo eliminar la fotografía.');
+    } finally {
+      setDeletingImageId('');
+    }
+  }
 
   return <div className="maintenance-device-editor">
     <div className="page-header maintenance-device-editor__header">
@@ -43,7 +76,23 @@ export default function MaintenanceDeviceEditor({ device, equipmentOptions = [],
       <Field label="Serie" value={device.serie} onChange={(event) => patch({ serie: event.target.value })} disabled={locked} />
       <div className="maintenance-checklist"><h3><Icon name={category.icon} /> Checklist de {category.key}</h3><Choice label="¿El dispositivo está funcionando correctamente?" value={device.funcionamiento} onChange={(value) => patch({ funcionamiento: value })} disabled={locked} /><Choice label="¿El dispositivo está en uso?" value={device.enUso} onChange={(value) => patch({ enUso: value })} options={['Sí, en uso', 'No, está guardado', 'No']} disabled={locked} />{category.questions.map(([key, label]) => <Choice key={key} label={label} value={device.respuestas[key] || ''} onChange={(value) => patch({ respuestas: { ...device.respuestas, [key]: value } })} disabled={locked} />)}{!category.questions.length && <div className="info-box"><Icon name="info" /><p>Este tipo no tiene preguntas específicas. Registre funcionamiento, uso, estado y observaciones.</p></div>}<Choice label="Estado" value={device.estado} onChange={(value) => patch({ estado: value })} options={['Correcto', 'Mal estado']} disabled={locked} /></div>
       <Field label="Observación" multiline value={device.observacion} onChange={(event) => patch({ observacion: event.target.value })} disabled={locked} />
-      <section className="maintenance-image-section"><div className="form-card__heading"><span className="section-marker" /><div><h3>Evidencias del dispositivo</h3><p>Las fotografías también se guardan automáticamente cuando el mantenimiento ya existe.</p></div></div>{!locked && <label className="knowledge-file-drop"><input type="file" accept="image/*" multiple onChange={addFiles} /><Icon name="add_a_photo" /><strong>Agregar fotografías</strong><span>Selecciona Antes o Después y agrega una nota.</span></label>}<div className="maintenance-image-grid">{device.images.map((image) => <article key={image.id}><MaintenanceEvidenceImage image={{ ...image, FotoDispositivoID: image.id || image.FotoDispositivoID }} sessionToken={sessionToken} alt={pick(image, ['Nombre'], 'Evidencia')} /><select value={pick(image, ['Tipo'], 'Antes')} onChange={(event) => updateExistingImage(image.id, { Tipo: event.target.value })} disabled={locked}><option>Antes</option><option>Despues</option></select><input value={pick(image, ['Nota'])} onChange={(event) => updateExistingImage(image.id, { Nota: event.target.value })} placeholder="Nota" disabled={locked} /></article>)}{device.newImages.map((image) => <article key={image.localId}><img src={image.previewUrl} alt={image.file.name} /><select value={image.type} onChange={(event) => updateNewImage(image.localId, { type: event.target.value })} disabled={locked}><option>Antes</option><option>Despues</option></select><input value={image.note} onChange={(event) => updateNewImage(image.localId, { note: event.target.value })} placeholder="Nota" disabled={locked} /><button type="button" className="icon-button icon-button--danger" onClick={() => patch({ newImages: device.newImages.filter((item) => item.localId !== image.localId) })} disabled={submitting}><Icon name="close" /></button></article>)}</div></section>
+      <section className="maintenance-image-section">
+        <div className="form-card__heading"><span className="section-marker" /><div><h3>Evidencias del dispositivo</h3><p>Las fotografías también se guardan automáticamente cuando el mantenimiento ya existe.</p></div></div>
+        {evidenceError && <div className="alert alert--error"><Icon name="error" /><span>{evidenceError}</span></div>}
+        {!locked && <label className="knowledge-file-drop"><input type="file" accept="image/*" multiple onChange={addFiles} /><Icon name="add_a_photo" /><strong>Agregar fotografías</strong><span>Selecciona Antes o Después y agrega una nota.</span></label>}
+        <div className="maintenance-image-grid">
+          {device.images.map((image) => {
+            const imageId = String(image.id || image.FotoDispositivoID || '');
+            return <article key={imageId}>
+              <MaintenanceEvidenceImage image={{ ...image, FotoDispositivoID: imageId }} sessionToken={sessionToken} alt={pick(image, ['Nombre'], 'Evidencia')} />
+              {canDeleteEvidence && !locked && <button type="button" className="maintenance-image-delete" onClick={() => removeExistingImage(image)} disabled={Boolean(deletingImageId)} aria-label="Eliminar fotografía"><Icon name={deletingImageId === imageId ? 'progress_activity' : 'delete'} /></button>}
+              <select value={pick(image, ['Tipo'], 'Antes')} onChange={(event) => updateExistingImage(image.id, { Tipo: event.target.value })} disabled={locked}><option>Antes</option><option>Despues</option></select>
+              <input value={pick(image, ['Nota'])} onChange={(event) => updateExistingImage(image.id, { Nota: event.target.value })} placeholder="Nota" disabled={locked} />
+            </article>;
+          })}
+          {device.newImages.map((image) => <article key={image.localId}><img src={image.previewUrl} alt={image.file.name} /><select value={image.type} onChange={(event) => updateNewImage(image.localId, { type: event.target.value })} disabled={locked}><option>Antes</option><option>Despues</option></select><input value={image.note} onChange={(event) => updateNewImage(image.localId, { note: event.target.value })} placeholder="Nota" disabled={locked} /><button type="button" className="icon-button icon-button--danger" onClick={() => patch({ newImages: device.newImages.filter((item) => item.localId !== image.localId) })} disabled={submitting}><Icon name="close" /></button></article>)}
+        </div>
+      </section>
       <button className="button button--primary" type="button" onClick={onSubmit || onClose} disabled={locked}><Icon name={submitting ? 'progress_activity' : 'check'} /> {submitting ? 'Guardando dispositivo...' : submitLabel}</button>
     </div>
   </div>;
