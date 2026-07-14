@@ -37,7 +37,7 @@ export default function MaintenanceFormPage({ mode = 'create' }) {
         isAdmin={state.isAdmin}
         onChange={state.setActiveDevice}
         onClose={state.closeActiveDevice}
-        onSubmit={() => state.commitActiveDevice(state.activeDevice, { automatic: false, closeAfter: true })}
+        onSubmit={state.closeActiveDevice}
         onDelete={() => state.removeDevice(state.activeDevice)}
         submitting={state.deviceSaving}
         autosaveStatus={state.deviceAutosaveStatus}
@@ -101,7 +101,7 @@ export default function MaintenanceFormPage({ mode = 'create' }) {
       {state.error && <div className="alert alert--error"><Icon name="error" /><span>{state.error}</span></div>}
       {step === 0 && <MaintenanceGeneralStep form={state.form} setForm={state.setForm} clients={state.clients} locations={state.locations} technicians={state.technicians} disabled={state.readOnly} canCreateLocation={state.canCreateLocation} onAddLocation={() => openModal('location')} />}
       {step === 1 && <MaintenanceCountsStep counts={state.form.counts} registered={state.registered} disabled={state.readOnly} onChange={state.updateCount} />}
-      {step === 2 && <MaintenanceDevicesStep devices={state.devices} expectedTotal={state.expectedTotal} disabled={state.readOnly} canCreateEquipment={state.canCreateLocation && Boolean(state.form.ubicacionId)} onAddEquipment={() => openModal('equipment')} onAddDevice={() => state.setActiveDevice(state.createDevice())} onOpenDevice={(device) => { state.setActiveDevice(device); }} />}
+      {step === 2 && <MaintenanceDevicesStep devices={state.devices} expectedTotal={state.expectedTotal} disabled={state.readOnly} canCreateEquipment={state.canCreateLocation && Boolean(state.form.ubicacionId)} onAddEquipment={() => openModal('equipment')} onAddDevice={() => state.openDevice(state.createDevice())} onOpenDevice={state.openDevice} />}
       {step === 3 && <MaintenanceReviewStep form={state.form} devices={state.devices} registered={state.registered} expectedTotal={state.expectedTotal} disabled={state.readOnly} saving={state.saving} onSave={() => state.persist('pending')} onFinalize={() => state.persist('finalize')} />}
     </section>
     <div className="ticket-form-actions">
