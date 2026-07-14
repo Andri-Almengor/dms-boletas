@@ -5,6 +5,9 @@ import { asArray, asBool, nowIso, pick, uuid } from '../core/utils.js';
 import { getConfig } from './config.module.js';
 import { audit } from '../services/audit.service.js';
 
+const autosaveWriteTimes = new Map();
+const AUTOSAVE_MIN_INTERVAL_MS = 6000;
+
 function userDisplayName(user, fallback = '') {
   return String(pick(user, ['NombreCompleto', 'Nombre', 'NombreUsuario', 'Correo'], fallback)).trim();
 }
@@ -58,7 +61,6 @@ async function replaceAssigned(ticketId, ids, ctx) {
   const active = rows.filter((item) => String(item.BoletaUID) === String(ticketId) && item.Activo !== false);
   const nextIds = normalizedIds(ids);
   if (sameIds(active.map((item) => item.UsuarioID), nextIds)) return false;
-
   for (const row of active) await updateRow('BoletaAsignados', row.BoletaAsignadoID, { Activo: false });
   const users = await readTable('Usuarios');
   for (const id of nextIds) {
@@ -123,10 +125,19 @@ export const ticketHandlers = {
     return enrichTicket(after);
   },
   autosave: async (ctx) => {
-    const id = pick(ctx.payload,['boletaUid','BoletaUID','id']); const before = await findById('Boletas', id); const patch = changedTicketPatch(before, ctx.payload, ctx.user.UsuarioID);
-    const after = Object.keys(patch).length ? await updateRow('Boletas', id, patch) : before;
-    if (hasAssignedPayload(ctx.payload)) await replaceAssigned(id, ctx.payload.AsignadoA || ctx.payload.asignados, ctx);
-    return { boleta: after, autosaved: true };
+    const id = String(pick(ctx.payload,['boletaUid','BoletaUID','id']));
+    const now = Date.now();
+    if (now - (autosaveWriteTimes.get(id) || 0) < AUTOSAVE_MIN_INTERVAL_MS) return { autosaved: false, throttled: true };
+    autosaveWriteTimes.set(id, now);
+    try {
+      const before = await findById('Boletas', id); const patch = changedTicketPatch(before, ctx.payload, ctx.user.UsuarioID);
+      const after = Object.keys(patch).length ? await updateRow('Boletas', id, patch) : before;
+      if (hasAssignedPayload(ctx.payload)) await replaceAssigned(id, ctx.payload.AsignadoA || ctx.payload.asignados, ctx);
+      return { boleta: after, autosaved: true };
+    } catch (error) {
+      autosaveWriteTimes.delete(id);
+      throw error;
+    }
   },
   finalize: async (ctx) => { const id = pick(ctx.payload,['boletaUid','BoletaUID']); const after = await updateRow('Boletas', id, { Estado:'FINALIZADA', FinalizadaEn:nowIso(), ActualizadoPor:ctx.user.UsuarioID, FechaActualizacion:nowIso() }); await audit(ctx,'FINALIZAR_BOLETA','Boletas',id,null,after); return enrichTicket(after); },
   returnPending: async (ctx) => ({ boleta: await updateRow('Boletas', pick(ctx.payload,['boletaUid','BoletaUID']), { Estado:'PENDIENTE', ActualizadoPor:ctx.user.UsuarioID, FechaActualizacion:nowIso() }) }),
