@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useState } from 'react';
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { useAuth } from '../AuthContext';
 import {
@@ -15,6 +15,25 @@ import { MODULE_ROUTES, normalizeItems, pick, requestAvailable } from '../servic
 const clientView = (row) => ({ id: String(pick(row, ['ClienteID', 'ID', 'RowID'])), name: pick(row, ['Nombre', 'Clientes', 'RazonSocial']) });
 const locationView = (row) => ({ id: String(pick(row, ['UbicacionID', 'id', 'RowID'])), name: pick(row, ['Nombre']) });
 const equipmentView = (row) => ({ id: String(pick(row, ['UbicacionEquipoID', 'id', 'RowID'])), name: pick(row, ['Nombre']) });
+const DEVICE_AUTOSAVE_DELAY_MS = 1800;
+
+function localDraftKey(maintenanceId) {
+  return `dms-maintenance-device-draft:${maintenanceId || 'new'}`;
+}
+
+function serializableDevice(device) {
+  if (!device) return null;
+  const { newImages: _newImages, ...rest } = device;
+  return { ...rest, images: (device.images || []).map(({ dataUrl: _dataUrl, ...image }) => image), newImages: [] };
+}
+
+function uploadedImageView(row) {
+  return {
+    ...row,
+    id: String(pick(row, ['FotoDispositivoID', 'id'])),
+    dirty: false,
+  };
+}
 
 export default function useMaintenanceForm({ editing, maintenanceId }) {
   const navigate = useNavigate();
@@ -22,7 +41,14 @@ export default function useMaintenanceForm({ editing, maintenanceId }) {
   const isAdmin = hasPermission('USUARIOS_GESTIONAR') || hasPermission('MANTENIMIENTOS_ELIMINAR');
   const canCreate = hasPermission('MANTENIMIENTOS_CREAR') || hasPermission('BOLETAS_CREAR');
   const canEdit = hasPermission('MANTENIMIENTOS_EDITAR') || hasPermission('BOLETAS_EDITAR');
-  const canCreateLocation = hasPermission('CLIENTES_DATOS_OPERATIVOS_CREAR') || hasPermission('CLIENTES_EDITAR');
+  const canCreateLocation = hasPermission('CLIENTES_DATOS_OPERATIVOS_CREAR')
+    || hasPermission('CLIENTES_EDITAR')
+    || hasPermission('MANTENIMIENTOS_CREAR')
+    || hasPermission('MANTENIMIENTOS_EDITAR')
+    || hasPermission('MANTENIMIENTOS_GESTIONAR')
+    || hasPermission('BOLETAS_CREAR')
+    || hasPermission('BOLETAS_EDITAR');
+
   const [form, setForm] = useState({ ...EMPTY_MAINTENANCE, responsables: user?.UsuarioID ? [String(user.UsuarioID)] : [] });
   const [devices, setDevices] = useState([]);
   const [activeDevice, setActiveDevice] = useState(null);
@@ -32,14 +58,18 @@ export default function useMaintenanceForm({ editing, maintenanceId }) {
   const [equipment, setEquipment] = useState([]);
   const [loading, setLoading] = useState(true);
   const [saving, setSaving] = useState(false);
+  const [deviceSaving, setDeviceSaving] = useState(false);
+  const [deviceAutosaveStatus, setDeviceAutosaveStatus] = useState('idle');
   const [error, setError] = useState('');
+  const deviceSavePromiseRef = useRef(null);
+  const draftConsumedRef = useRef(false);
 
   useEffect(() => {
     let active = true;
     setLoading(true);
     Promise.all([
       requestAvailable(MODULE_ROUTES.clients.list, { page: 1, pageSize: 1000, activo: true }, sessionToken),
-      requestAvailable(MODULE_ROUTES.users.list, { page: 1, pageSize: 1000 }, sessionToken),
+      requestAvailable(['users.assignment.list', 'users.list'], { page: 1, pageSize: 1000 }, sessionToken),
       editing ? requestAvailable(MODULE_ROUTES.maintenance.get, { maintenanceId }, sessionToken) : Promise.resolve(null),
     ]).then(([clientData, userData, maintenanceData]) => {
       if (!active) return;
@@ -85,6 +115,137 @@ export default function useMaintenanceForm({ editing, maintenanceId }) {
       : [...current, device]);
   }
 
+  const applySavedDevice = useCallback((snapshot, deviceId, uploadedImages = [], savedExistingImageIds = []) => {
+    const merge = (current) => {
+      if (!current || current.localId !== snapshot.localId) return current;
+      const uploadedLocalIds = new Set((snapshot.newImages || []).map((image) => image.localId));
+      const savedExisting = new Set(savedExistingImageIds);
+      const existingImages = (current.images || []).map((image) => savedExisting.has(image.id) ? { ...image, dirty: false } : image);
+      const knownIds = new Set(existingImages.map((image) => String(image.id)));
+      const additions = uploadedImages.filter((image) => image.id && !knownIds.has(String(image.id)));
+      return {
+        ...current,
+        id: deviceId || current.id,
+        images: [...existingImages, ...additions],
+        newImages: (current.newImages || []).filter((image) => !uploadedLocalIds.has(image.localId)),
+      };
+    };
+    setActiveDevice((current) => merge(current));
+    setDevices((current) => {
+      const found = current.some((item) => item.localId === snapshot.localId);
+      if (!found) return [...current, merge(snapshot)];
+      return current.map((item) => item.localId === snapshot.localId ? merge(item) : item);
+    });
+  }, []);
+
+  const commitActiveDevice = useCallback(async (device, { automatic = false, closeAfter = false } = {}) => {
+    if (!device) return null;
+    saveActiveDevice(device);
+
+    const validForServer = Boolean(device.categoria && device.nombre?.trim() && device.zona?.trim());
+    if (!editing || !maintenanceId) {
+      try { localStorage.setItem(localDraftKey(maintenanceId), JSON.stringify(serializableDevice(device))); } catch { /* El borrador local es auxiliar. */ }
+      setDeviceAutosaveStatus('local');
+      if (closeAfter) setActiveDevice(null);
+      return device;
+    }
+
+    if (!validForServer) {
+      setDeviceAutosaveStatus('local');
+      if (!automatic) setError('Categoría, nombre y ubicación específica son obligatorios para guardar el dispositivo.');
+      return null;
+    }
+
+    if (deviceSavePromiseRef.current) return deviceSavePromiseRef.current;
+
+    const task = (async () => {
+      setDeviceSaving(true);
+      setDeviceAutosaveStatus('saving');
+      try {
+        const route = device.id
+          ? (automatic ? MODULE_ROUTES.maintenance.deviceAutosave : MODULE_ROUTES.maintenance.deviceUpdate)
+          : MODULE_ROUTES.maintenance.deviceCreate;
+        const saved = await requestAvailable(route, maintenanceDevicePayload(device, maintenanceId), sessionToken);
+        const deviceId = String(pick(saved, ['EvidenciaMantenimientoID', 'deviceId', 'id'], device.id));
+        if (!deviceId) throw new Error('El backend no devolvió el identificador del dispositivo.');
+
+        const savedExistingImageIds = [];
+        for (const image of (device.images || []).filter((item) => item.dirty)) {
+          await requestAvailable(MODULE_ROUTES.maintenance.imageUpdate, {
+            maintenanceId,
+            deviceId,
+            imageId: image.id,
+            Tipo: image.Tipo,
+            Nota: image.Nota,
+          }, sessionToken);
+          savedExistingImageIds.push(image.id);
+        }
+
+        const uploadedImages = [];
+        for (const image of device.newImages || []) {
+          const uploaded = await requestAvailable(MODULE_ROUTES.maintenance.imageUpload, {
+            maintenanceId,
+            deviceId,
+            Tipo: image.type,
+            Nota: image.note,
+            fileName: image.file.name,
+            mimeType: image.file.type || 'image/jpeg',
+            base64: await fileToBase64(image.file),
+          }, sessionToken);
+          uploadedImages.push(uploadedImageView(uploaded));
+        }
+
+        applySavedDevice(device, deviceId, uploadedImages, savedExistingImageIds);
+        setDeviceAutosaveStatus('server');
+        setError('');
+        try { localStorage.removeItem(localDraftKey(maintenanceId)); } catch { /* Sin efecto sobre el guardado. */ }
+        if (closeAfter) setActiveDevice(null);
+        return { ...device, id: deviceId };
+      } catch (err) {
+        setDeviceAutosaveStatus('error');
+        if (!automatic) setError(err.message);
+        throw err;
+      } finally {
+        setDeviceSaving(false);
+        deviceSavePromiseRef.current = null;
+      }
+    })();
+
+    deviceSavePromiseRef.current = task;
+    return task;
+  }, [applySavedDevice, editing, maintenanceId, sessionToken]);
+
+  useEffect(() => {
+    if (!activeDevice || readOnly || saving || deviceSaving) return undefined;
+
+    if (!editing || !maintenanceId) {
+      const timer = window.setTimeout(() => {
+        try { localStorage.setItem(localDraftKey(maintenanceId), JSON.stringify(serializableDevice(activeDevice))); } catch { /* El formulario sigue funcionando. */ }
+        saveActiveDevice(activeDevice);
+        setDeviceAutosaveStatus('local');
+      }, 700);
+      return () => window.clearTimeout(timer);
+    }
+
+    if (!activeDevice.categoria || !activeDevice.nombre?.trim() || !activeDevice.zona?.trim()) {
+      setDeviceAutosaveStatus('local');
+      return undefined;
+    }
+
+    setDeviceAutosaveStatus('saving');
+    const timer = window.setTimeout(() => {
+      commitActiveDevice(activeDevice, { automatic: true }).catch(() => {});
+    }, DEVICE_AUTOSAVE_DELAY_MS);
+    return () => window.clearTimeout(timer);
+  }, [activeDevice, commitActiveDevice, deviceSaving, editing, maintenanceId, readOnly, saving]);
+
+  async function closeActiveDevice() {
+    if (!activeDevice) return;
+    try {
+      await commitActiveDevice(activeDevice, { automatic: false, closeAfter: true });
+    } catch { /* El editor permanece abierto para permitir reintentar. */ }
+  }
+
   async function removeDevice(device) {
     if (!isAdmin || !window.confirm('¿Eliminar este dispositivo y sus evidencias?')) return;
     try {
@@ -122,14 +283,51 @@ export default function useMaintenanceForm({ editing, maintenanceId }) {
         }
       }
       if (action === 'finalize') await requestAvailable(MODULE_ROUTES.maintenance.finalize, { maintenanceId: id }, sessionToken);
+      try { localStorage.removeItem(localDraftKey(maintenanceId)); } catch { /* Sin efecto sobre el guardado. */ }
       navigate(`/mantenimientos/${encodeURIComponent(id)}`);
     } catch (err) { setError(err.message); } finally { setSaving(false); }
   }
 
+  function createDeviceForForm() {
+    const fresh = createMaintenanceDevice();
+    if (editing || draftConsumedRef.current) return fresh;
+    draftConsumedRef.current = true;
+    try {
+      const stored = JSON.parse(localStorage.getItem(localDraftKey(maintenanceId)) || 'null');
+      if (stored) return { ...fresh, ...stored, localId: fresh.localId, id: '', images: [], newImages: [] };
+    } catch { /* Inicia un dispositivo limpio. */ }
+    return fresh;
+  }
+
   return {
-    allowed: editing ? canEdit : canCreate, isAdmin, canCreateLocation, form, setForm, devices,
-    activeDevice, setActiveDevice, clients, locations, equipment, technicians, loading, saving,
-    error, setError, readOnly, registered, expectedTotal, updateCount, saveActiveDevice,
-    removeDevice, persist, createDevice: () => createMaintenanceDevice(), sessionToken,
+    allowed: editing ? canEdit : canCreate,
+    isAdmin,
+    canCreateLocation,
+    form,
+    setForm,
+    devices,
+    activeDevice,
+    setActiveDevice,
+    clients,
+    locations,
+    equipment,
+    technicians,
+    loading,
+    saving,
+    deviceSaving,
+    deviceAutosaveStatus,
+    error,
+    setError,
+    readOnly,
+    registered,
+    expectedTotal,
+    updateCount,
+    saveActiveDevice,
+    commitActiveDevice,
+    closeActiveDevice,
+    removeDevice,
+    persist,
+    createDevice: createDeviceForForm,
+    sessionToken,
   };
 }
