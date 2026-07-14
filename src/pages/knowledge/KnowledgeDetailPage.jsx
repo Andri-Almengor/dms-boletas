@@ -37,17 +37,27 @@ export default function KnowledgeDetailPage() {
   useEffect(() => { load(); }, [tutorialId, sessionToken]);
 
   async function openAttachment(attachment) {
+    const attachmentId = getAttachmentId(attachment);
     const directUrl = getAttachmentUrl(attachment);
-    if (directUrl) {
-      window.open(directUrl, '_blank', 'noopener,noreferrer');
+    if (!attachmentId) {
+      if (directUrl) window.open(directUrl, '_blank', 'noopener,noreferrer');
+      else setError('El archivo no tiene un identificador o enlace válido.');
       return;
     }
+
+    const target = window.open('', '_blank');
     try {
-      const data = await requestAvailable(MODULE_ROUTES.knowledge.mediaGet, { tutorialId, adjuntoId: getAttachmentId(attachment) }, sessionToken);
-      const url = pick(data, ['url', 'URL', 'DriveURL']);
-      if (url) window.open(url, '_blank', 'noopener,noreferrer');
-      else throw new Error('El backend no devolvió un enlace para el archivo.');
+      const data = await requestAvailable(MODULE_ROUTES.knowledge.mediaGet, { tutorialId, adjuntoId: attachmentId }, sessionToken);
+      const url = pick(data, ['dataUrl', 'DataURL', 'url', 'URL', 'DriveURL'], directUrl);
+      if (!url) throw new Error('El backend no devolvió contenido para el archivo.');
+      if (target) {
+        target.opener = null;
+        target.location.href = url;
+      } else {
+        window.open(url, '_blank', 'noopener,noreferrer');
+      }
     } catch (err) {
+      target?.close();
       setError(err.message);
     }
   }

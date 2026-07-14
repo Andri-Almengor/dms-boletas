@@ -1,10 +1,16 @@
-import React, { useEffect, useState } from 'react';
+import React, { useEffect, useMemo, useState } from 'react';
 import Icon from '../common/Icon';
 import { MODULE_ROUTES, pick, requestAvailable } from '../../services/moduleApi';
 
+function isProtectedDriveUrl(value) {
+  const source = String(value || '').toLowerCase();
+  return source.includes('drive.google.com') || source.includes('docs.google.com');
+}
+
 export default function MaintenanceEvidenceImage({ image, sessionToken, alt = 'Evidencia' }) {
   const imageId = String(pick(image, ['FotoDispositivoID', 'id']));
-  const initialSource = pick(image, ['PreviewURL', 'DriveURL', 'url']);
+  const rawInitialSource = pick(image, ['PreviewURL', 'DriveURL', 'url']);
+  const initialSource = useMemo(() => isProtectedDriveUrl(rawInitialSource) ? '' : rawInitialSource, [rawInitialSource]);
   const [source, setSource] = useState(initialSource);
   const [loadingFallback, setLoadingFallback] = useState(false);
   const [failed, setFailed] = useState(false);
@@ -19,7 +25,7 @@ export default function MaintenanceEvidenceImage({ image, sessionToken, alt = 'E
 
   async function loadProtectedImage(force = false) {
     if (!imageId || (!force && fallbackAttempted) || loadingFallback) {
-      setFailed(true);
+      if (!loadingFallback) setFailed(true);
       return;
     }
 
@@ -44,17 +50,17 @@ export default function MaintenanceEvidenceImage({ image, sessionToken, alt = 'E
   }
 
   useEffect(() => {
-    if (!initialSource && imageId) loadProtectedImage();
+    if ((!initialSource || isProtectedDriveUrl(rawInitialSource)) && imageId) loadProtectedImage();
     // Solo debe ejecutarse al cambiar de imagen.
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [imageId]);
+  }, [imageId, initialSource, rawInitialSource]);
 
   if (failed) {
     return (
       <div className="maintenance-evidence-image maintenance-evidence-image--error">
         <Icon name="broken_image" />
         <span>No se pudo cargar</span>
-        <button type="button" onClick={() => { setFailed(false); loadProtectedImage(true); }}>
+        <button type="button" onClick={() => { setFailed(false); setFallbackAttempted(false); loadProtectedImage(true); }}>
           Reintentar
         </button>
       </div>
