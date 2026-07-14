@@ -3,8 +3,29 @@ import { audit } from '../services/audit.service.js';
 import { asBool, nowIso, pick, uuid } from '../core/utils.js';
 import { badRequest } from '../core/errors.js';
 
+function hasAny(object, keys) {
+  return keys.some((key) => Object.prototype.hasOwnProperty.call(object || {}, key));
+}
+
 export const CRUD_DEFINITIONS = Object.freeze({
-  clients: { table: 'Clientes', id: 'ClienteID', search: ['Nombre','RazonSocial','CorreoGeneral','Telefono'], map: (p) => ({ Nombre: pick(p,['Nombre','Clientes','Cliente','name']), RazonSocial: pick(p,['RazonSocial','Nombre','Clientes','name']), Contacto: pick(p,['Contacto','contacto']), Telefono: pick(p,['Telefono','Telefonos','telefono']), CorreoGeneral: pick(p,['CorreoGeneral','Correo','correo']), Direccion: pick(p,['Direccion','DireccionEnvio','direccion']), SitioWeb: pick(p,['SitioWeb','sitioWeb']), Estado: pick(p,['Estado','status'],'ACTIVO') }) },
+  clients: {
+    table: 'Clientes',
+    id: 'ClienteID',
+    search: ['Nombre','RazonSocial','CorreoGeneral','Telefono'],
+    map: (p) => ({
+      Nombre: pick(p,['Nombre','Clientes','Cliente','name']),
+      RazonSocial: pick(p,['RazonSocial','Nombre','Clientes','name']),
+      Contacto: pick(p,['Contacto','contacto']),
+      Telefono: pick(p,['Telefono','Telefonos','telefono']),
+      CorreoGeneral: pick(p,['CorreoGeneral','Correo','correo']),
+      Direccion: pick(p,['Direccion','DireccionEnvio','direccion']),
+      SitioWeb: pick(p,['SitioWeb','sitioWeb']),
+      Estado: pick(p,['Estado','status'],'ACTIVO'),
+      ...(hasAny(p, ['ChatWebhook','ChatWebhookURL','chatWebhook'])
+        ? { ChatWebhook: pick(p,['ChatWebhook','ChatWebhookURL','chatWebhook']) }
+        : {}),
+    }),
+  },
   clientLocations: { table: 'ClienteUbicaciones', id: 'UbicacionID', search: ['Nombre','Direccion','Notas'], parent: 'ClienteID', map: (p) => ({ ClienteID: pick(p,['ClienteID','clienteId']), Nombre: pick(p,['Nombre','nombre']), Direccion: pick(p,['Direccion','direccion']), Notas: pick(p,['Notas','notas']) }) },
   equipmentLocations: { table: 'ClienteUbicacionesEquipo', id: 'UbicacionEquipoID', search: ['Nombre','Descripcion'], parent: 'UbicacionID', map: (p) => ({ UbicacionID: pick(p,['UbicacionID','ubicacionId']), Nombre: pick(p,['Nombre','nombre']), Descripcion: pick(p,['Descripcion','descripcion']) }) },
   contacts: { table: 'ClienteContactos', id: 'ContactoID', search: ['Nombre','Correo','Puesto','Telefono'], parent: 'ClienteID', map: (p) => ({ ClienteID: pick(p,['ClienteID','clienteId']), Nombre: pick(p,['Nombre','nombre']), Correo: pick(p,['Correo','correo']), Puesto: pick(p,['Puesto','puesto']), Telefono: pick(p,['Telefono','telefono']), EsSupervisor: asBool(p.EsSupervisor ?? p.esSupervisor, false), RecibeCorreo: asBool(p.RecibeCorreo ?? p.recibeCorreo, true) }) },
