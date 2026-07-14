@@ -25,7 +25,7 @@ export default function MaintenanceEvidenceImage({ image, sessionToken, alt = 'E
 
   async function loadProtectedImage(force = false) {
     if (!imageId || (!force && fallbackAttempted) || loadingFallback) {
-      if (!imageId) setFailed(true);
+      if (!loadingFallback) setFailed(true);
       return;
     }
 
