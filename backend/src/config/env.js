@@ -33,6 +33,7 @@ export const env = Object.freeze({
   httpQueueTimeoutMs: optionalNumber('HTTP_QUEUE_TIMEOUT_MS', 15000, 1000),
   httpLargeRequestBytes: optionalNumber('HTTP_LARGE_REQUEST_BYTES', 1000000, 1024),
   heavyActionMaxConcurrent: optionalNumber('HEAVY_ACTION_MAX_CONCURRENT', 2, 1),
+  writeActionMaxConcurrent: optionalNumber('WRITE_ACTION_MAX_CONCURRENT', 6, 1),
   serverKeepAliveTimeoutMs: optionalNumber('SERVER_KEEP_ALIVE_TIMEOUT_MS', 65000, 1000),
   serverHeadersTimeoutMs: optionalNumber('SERVER_HEADERS_TIMEOUT_MS', 66000, 2000),
   serverRequestTimeoutMs: optionalNumber('SERVER_REQUEST_TIMEOUT_MS', 360000, 10000),
