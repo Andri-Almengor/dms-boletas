@@ -48,9 +48,7 @@ export default function MobileTimePickerBridge() {
     function isMobileTimeInput(element) {
       const input = element?.closest?.('input[type="time"]');
       if (!input || input.disabled || input.readOnly) return null;
-      const compactViewport = window.matchMedia('(max-width: 760px)').matches;
-      const coarsePointer = window.matchMedia('(pointer: coarse)').matches;
-      return compactViewport || coarsePointer ? input : null;
+      return window.matchMedia('(max-width: 760px)').matches ? input : null;
     }
 
     function interceptPointer(event) {
