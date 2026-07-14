@@ -1,4 +1,4 @@
-import { appendRow } from '../infra/sheets.repository.js';
+import { appendRow, readTable } from '../infra/sheets.repository.js';
 import { asBool, nowIso, uuid } from '../core/utils.js';
 import { getConfig } from '../modules/config.module.js';
 import { sendChatMessage } from './chat.service.js';
@@ -6,8 +6,10 @@ import { sendTicketReportEmail } from './email.service.js';
 import { generateTicketReport } from './ticket-report.service.js';
 
 function splitEmails(value) {
-  const source = Array.isArray(value) ? value : String(value || '').split(',');
-  return [...new Set(source.map((item) => String(item || '').trim().toLowerCase()).filter(Boolean))];
+  const source = Array.isArray(value) ? value : String(value || '').split(/[;,]/);
+  return [...new Set(source
+    .map((item) => String(item || '').trim().toLowerCase())
+    .filter((item) => /^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(item)))];
 }
 
 function chatWebhook(...values) {
@@ -15,21 +17,11 @@ function chatWebhook(...values) {
 }
 
 function mainChatWebhook(config) {
-  return chatWebhook(
-    process.env.GOOGLE_CHAT_BOLETAS_WEBHOOK,
-    process.env.GOOGLE_CHAT_WEBHOOK,
-    config.CHAT_BOLETAS_WEBHOOK,
-    config.CHAT_WEBHOOK_BOLETAS,
-  );
+  return chatWebhook(process.env.GOOGLE_CHAT_BOLETAS_WEBHOOK, process.env.GOOGLE_CHAT_WEBHOOK, config.CHAT_BOLETAS_WEBHOOK, config.CHAT_WEBHOOK_BOLETAS);
 }
 
 function testChatWebhook(config) {
-  return chatWebhook(
-    process.env.GOOGLE_CHAT_TEST_WEBHOOK,
-    config.CHAT_TEST_WEBHOOK,
-    config.CHAT_WEBHOOK_PRUEBAS,
-    config.CHAT_TEST_MODE,
-  );
+  return chatWebhook(process.env.GOOGLE_CHAT_TEST_WEBHOOK, config.CHAT_TEST_WEBHOOK, config.CHAT_WEBHOOK_PRUEBAS, config.CHAT_TEST_MODE);
 }
 
 function clientChatWebhook(client) {
@@ -84,8 +76,6 @@ function clientChatText(report) {
 
 async function recordNotification(ctx, { entityId, channel, destination, type, result, error }) {
   const sent = !error;
-  const response = result ? JSON.stringify(result).slice(0, 1500) : '';
-  const errorText = error ? String(error.message || error).slice(0, 1500) : '';
   await appendRow('Notificaciones', {
     NotificacionID: uuid(),
     Entidad: 'BOLETA',
@@ -95,8 +85,8 @@ async function recordNotification(ctx, { entityId, channel, destination, type, r
     Tipo: type,
     Estado: sent ? 'ENVIADO' : 'ERROR',
     Intentos: 1,
-    Respuesta: response,
-    Error: errorText,
+    Respuesta: result ? JSON.stringify(result).slice(0, 1500) : '',
+    Error: error ? String(error.message || error).slice(0, 1500) : '',
     FechaCreacion: nowIso(),
     FechaEnvio: sent ? nowIso() : '',
     CreadoPor: ctx.user.UsuarioID,
@@ -109,18 +99,26 @@ async function executeNotification(ctx, metadata, operation) {
     await recordNotification(ctx, { ...metadata, result }).catch(() => {});
     return { ...metadata, ok: true, result };
   } catch (error) {
+    console.error(`[ticket-delivery] ${metadata.channel} falló para ${metadata.destination}:`, error);
     await recordNotification(ctx, { ...metadata, error }).catch(() => {});
     return { ...metadata, ok: false, error: String(error.message || error) };
   }
 }
 
+async function attachCreator(report) {
+  const users = await readTable('Usuarios');
+  const creator = users.find((user) => String(user.UsuarioID) === String(report.ticket.CreadoPor));
+  report.creator = creator ? {
+    UsuarioID: creator.UsuarioID,
+    Nombre: creator.NombreCompleto || creator.Nombre || creator.NombreUsuario,
+    Correo: creator.Correo || '',
+  } : null;
+  return report;
+}
+
 export async function deliverTicket(ctx, { ticketId, testMode = false }) {
   const config = await getConfig();
-  const report = await generateTicketReport({
-    ticketId,
-    actorId: ctx.user.UsuarioID,
-    testMode,
-  });
+  const report = await attachCreator(await generateTicketReport({ ticketId, actorId: ctx.user.UsuarioID, testMode }));
   const ticket = report.ticket;
   const jobs = [];
 
@@ -132,7 +130,6 @@ export async function deliverTicket(ctx, { ticketId, testMode = false }) {
       destination: testEmail,
       type: 'PRUEBA',
     }, () => sendTicketReportEmail({ report, to: testEmail, cc: [], testMode: true })));
-
     jobs.push(executeNotification(ctx, {
       entityId: ticket.BoletaUID,
       channel: 'CHAT',
@@ -140,22 +137,23 @@ export async function deliverTicket(ctx, { ticketId, testMode = false }) {
       type: 'PRUEBA',
     }, () => sendChatMessage(testChatWebhook(config), internalChatText(report, true))));
   } else {
+    const supervisorEmails = splitEmails(ticket.CorreoSupervisor);
+    const technicianEmails = splitEmails(report.assigned.map((item) => item.Correo));
+    const primaryRecipients = supervisorEmails.length ? supervisorEmails : technicianEmails;
     const cc = [
+      ...(supervisorEmails.length ? technicianEmails : []),
       ...splitEmails(config.DEFAULT_CC_EMAILS),
       ...splitEmails(ticket.CorreosCC),
       ...(asBool(ticket.EnviarCorreoCliente, false) ? splitEmails(ticket.CorreoCliente) : []),
     ];
+    const allDestinations = [...new Set([...primaryRecipients, ...cc])];
+
     jobs.push(executeNotification(ctx, {
       entityId: ticket.BoletaUID,
       channel: 'CORREO',
-      destination: ticket.CorreoSupervisor || 'Supervisor sin correo',
+      destination: allDestinations.join(', ') || 'Sin destinatarios válidos',
       type: 'FINALIZACION',
-    }, () => sendTicketReportEmail({
-      report,
-      to: ticket.CorreoSupervisor,
-      cc,
-      testMode: false,
-    })));
+    }, () => sendTicketReportEmail({ report, to: primaryRecipients, cc, testMode: false })));
 
     jobs.push(executeNotification(ctx, {
       entityId: ticket.BoletaUID,
