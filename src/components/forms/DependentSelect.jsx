@@ -73,6 +73,7 @@ export default function DependentSelect({
     emitChange(String(option.value));
     setQuery(option.label);
     setOpen(false);
+    requestAnimationFrame(() => inputRef.current?.blur());
   }
 
   function clearSelection(event) {
@@ -96,7 +97,7 @@ export default function DependentSelect({
   }
 
   return (
-    <div className="field-group" ref={rootRef}>
+    <div className={`field-group${useSearchable && open ? ' field-group--select-open' : ''}`} ref={rootRef}>
       <div className="field-label-row">
         <label className="field-label" htmlFor={fieldId}>{label}</label>
         {showAddButton && (
@@ -108,7 +109,7 @@ export default function DependentSelect({
 
       {useSearchable ? (
         <div className={`searchable-select${open ? ' is-open' : ''}`}>
-          <Icon name="search" />
+          <Icon name="search" className="searchable-select__leading" />
           <input
             ref={inputRef}
             id={fieldId}
@@ -123,10 +124,11 @@ export default function DependentSelect({
             aria-expanded={open}
             aria-controls={`${fieldId}-options`}
             aria-autocomplete="list"
+            aria-haspopup="listbox"
             role="combobox"
             onFocus={(event) => {
               setOpen(true);
-              event.currentTarget.select();
+              if (selectedOption) event.currentTarget.select();
             }}
             onClick={() => setOpen(true)}
             onChange={(event) => {
@@ -140,7 +142,7 @@ export default function DependentSelect({
               <Icon name="close" />
             </button>
           ) : (
-            <Icon name="expand_more" />
+            <Icon name={open ? 'expand_less' : 'expand_more'} className="searchable-select__trailing" />
           )}
           <input type="hidden" name={name} value={value || ''} required={required} />
 

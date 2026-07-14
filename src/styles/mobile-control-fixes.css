@@ -1,0 +1,94 @@
+/* Correcciones de controles móviles detectadas en dispositivos Android reales. */
+
+.field-group--select-open {
+  position: relative;
+  z-index: 96;
+}
+
+.searchable-select {
+  isolation: isolate;
+}
+
+.searchable-select__leading,
+.searchable-select__trailing {
+  position: absolute;
+  top: 50%;
+  z-index: 3;
+  transform: translateY(-50%);
+  color: var(--muted);
+  pointer-events: none;
+}
+
+.searchable-select__leading {
+  left: 13px;
+}
+
+.searchable-select__trailing {
+  right: 13px;
+}
+
+.searchable-select__input {
+  display: block;
+}
+
+.searchable-select__menu {
+  top: calc(100% + 6px);
+  right: 0;
+  bottom: auto;
+  left: 0;
+  width: 100%;
+  max-width: 100%;
+  overflow-x: hidden;
+}
+
+.mobile-time-picker,
+.mobile-time-picker button,
+.mobile-time-picker select {
+  touch-action: manipulation;
+}
+
+.maintenance-image-delete {
+  position: absolute;
+  top: 15px;
+  right: 15px;
+  z-index: 4;
+  width: 36px;
+  height: 36px;
+  padding: 0;
+  border: 1px solid #f1b4b8;
+  border-radius: 999px;
+  background: rgba(255, 255, 255, .96);
+  color: var(--danger);
+  display: grid;
+  place-items: center;
+  box-shadow: var(--shadow-sm);
+}
+
+.maintenance-image-delete .material-symbols-outlined {
+  font-size: 20px;
+}
+
+.maintenance-image-delete:disabled {
+  opacity: .6;
+}
+
+@media (max-width: 560px) {
+  .searchable-select__leading {
+    left: 11px;
+    font-size: 20px;
+  }
+
+  .searchable-select__trailing {
+    right: 11px;
+    font-size: 20px;
+  }
+
+  .searchable-select__menu {
+    max-height: min(220px, 30dvh);
+    padding: 4px;
+  }
+
+  .searchable-select__option {
+    min-height: 40px;
+  }
+}
