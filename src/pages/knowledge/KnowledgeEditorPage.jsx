@@ -10,7 +10,7 @@ const EMPTY_FORM = { title: '', categoryId: '', problem: '', content: '<h2>Objet
 const MAX_FILE_SIZE = 20 * 1024 * 1024;
 
 function canCreateTutorial(hasPermission) {
-  return hasPermission('CONOCIMIENTO_CREAR') || hasPermission('BOLETAS_CREAR') || hasPermission('USUARIOS_GESTIONAR');
+  return hasPermission('CONOCIMIENTO_CREAR') || hasPermission('CONOCIMIENTO_GESTIONAR') || hasPermission('BOLETAS_CREAR') || hasPermission('USUARIOS_GESTIONAR');
 }
 
 export default function KnowledgeEditorPage({ mode }) {
@@ -26,6 +26,7 @@ export default function KnowledgeEditorPage({ mode }) {
   const [loading, setLoading] = useState(isEdit);
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState('');
+  const [loadError, setLoadError] = useState('');
   const [savedLocally, setSavedLocally] = useState(false);
   const userId = String(pick(user, ['UsuarioID', 'id'], ''));
   const draftKey = `dms_knowledge_draft_${tutorialId || 'new'}_${userId || 'user'}`;
@@ -37,11 +38,12 @@ export default function KnowledgeEditorPage({ mode }) {
   }, [sessionToken]);
 
   useEffect(() => {
+    setLoadError('');
     if (!isEdit) {
       try {
         const local = JSON.parse(localStorage.getItem(draftKey) || 'null');
         if (local?.form) setForm({ ...EMPTY_FORM, ...local.form });
-      } catch { /* Ignorar borradores dañados. */ }
+      } catch { /* Ignorar borradores dañados o almacenamiento no disponible. */ }
       return;
     }
     setLoading(true);
@@ -53,19 +55,23 @@ export default function KnowledgeEditorPage({ mode }) {
         setForm({ title: item.title, categoryId: item.categoryId, problem: item.problem, content: item.content, status: item.status, videos: item.videos.length ? item.videos.map((video) => typeof video === 'string' ? video : pick(video, ['URL', 'url'])) : [''] });
         setExistingAttachments(item.attachments);
       })
-      .catch((err) => setError(err.message))
+      .catch((err) => setLoadError(err.message))
       .finally(() => setLoading(false));
   }, [isEdit, tutorialId, sessionToken, userId]);
 
   useEffect(() => {
-    if (loading) return undefined;
+    if (loading || loadError) return undefined;
     const timer = window.setTimeout(() => {
-      localStorage.setItem(draftKey, JSON.stringify({ form, savedAt: new Date().toISOString() }));
-      setSavedLocally(true);
-      window.setTimeout(() => setSavedLocally(false), 1600);
+      try {
+        localStorage.setItem(draftKey, JSON.stringify({ form, savedAt: new Date().toISOString() }));
+        setSavedLocally(true);
+        window.setTimeout(() => setSavedLocally(false), 1600);
+      } catch {
+        setSavedLocally(false);
+      }
     }, 700);
     return () => window.clearTimeout(timer);
-  }, [form, loading, draftKey]);
+  }, [form, loading, loadError, draftKey]);
 
   const categoryOptions = useMemo(() => categories.map((category) => ({ value: String(pick(category, ['CategoriaConocimientoID', 'CategoriaID', 'id'])), label: pick(category, ['Nombre', 'name']) })).filter((item) => item.value && item.label), [categories]);
 
@@ -87,6 +93,7 @@ export default function KnowledgeEditorPage({ mode }) {
       event.target.value = '';
       return;
     }
+    setError('');
     setNewFiles((current) => [...current, ...files]);
     event.target.value = '';
   }
@@ -122,16 +129,16 @@ export default function KnowledgeEditorPage({ mode }) {
         videos: form.videos.map((item) => item.trim()).filter(Boolean),
         estado: forcedStatus,
         Estado: forcedStatus,
-        autorUsuarioId: userId,
       };
       const response = await requestAvailable(isEdit ? MODULE_ROUTES.knowledge.update : MODULE_ROUTES.knowledge.create, payload, sessionToken);
       const savedId = String(pick(response, ['TutorialID', 'tutorialId', 'id'], tutorialId));
       if (!savedId) throw new Error('El backend guardó el tutorial pero no devolvió su identificador.');
-      for (const file of newFiles) {
+      for (const file of [...newFiles]) {
         const dataUrl = await fileToDataUrl(file);
         await requestAvailable(MODULE_ROUTES.knowledge.attachmentUpload, { tutorialId: savedId, nombre: file.name, mimeType: file.type || 'application/octet-stream', size: file.size, dataUrl }, sessionToken);
+        setNewFiles((current) => current.filter((item) => item !== file));
       }
-      localStorage.removeItem(draftKey);
+      try { localStorage.removeItem(draftKey); } catch { /* El guardado del servidor ya terminó. */ }
       navigate(`/conocimiento/${encodeURIComponent(savedId)}`, { replace: true });
     } catch (err) {
       setError(err.message);
@@ -142,10 +149,11 @@ export default function KnowledgeEditorPage({ mode }) {
 
   if (!isEdit && !canCreate) return <Navigate to="/conocimiento" replace />;
   if (loading) return <div className="page page--narrow"><div className="state-card state-card--loading"><Icon name="progress_activity" /> Cargando documento...</div></div>;
+  if (loadError) return <div className="page page--narrow"><div className="alert alert--error"><Icon name="error" /><span>{loadError}</span></div><button className="button button--secondary" type="button" onClick={() => navigate('/conocimiento')}><Icon name="arrow_back" /> Volver</button></div>;
 
   return <div className="page knowledge-editor-page">
     <div className="page-header knowledge-editor-header">
-      <button className="icon-button" type="button" onClick={() => navigate(isEdit ? `/conocimiento/${tutorialId}` : '/conocimiento')}><Icon name="arrow_back" /></button>
+      <button className="icon-button" type="button" onClick={() => navigate(isEdit ? `/conocimiento/${tutorialId}` : '/conocimiento')} aria-label="Volver"><Icon name="arrow_back" /></button>
       <div><span className="eyebrow">Base de conocimientos</span><h1>{isEdit ? 'Editar tutorial' : 'Nuevo tutorial'}</h1></div>
       <span className={`autosave-indicator${savedLocally ? ' autosave-indicator--local' : ''}`}><Icon name={savedLocally ? 'cloud_done' : 'cloud'} /> {savedLocally ? 'Borrador guardado' : 'Autoguardado local'}</span>
     </div>
@@ -176,10 +184,10 @@ export default function KnowledgeEditorPage({ mode }) {
 
       <section className="form-card">
         <div className="form-card__heading"><span className="section-marker" /><div><h2>Documentos y archivos</h2><p>Adjunta PDF, Word, Excel, imágenes o videos de hasta 20 MB por archivo.</p></div></div>
-        <label className="knowledge-file-drop"><input type="file" multiple accept=".pdf,.doc,.docx,.xls,.xlsx,.ppt,.pptx,.txt,.csv,image/*,video/*" onChange={selectFiles} /><Icon name="upload_file" /><strong>Seleccionar documentos o videos</strong><span>También puedes arrastrarlos aquí desde el explorador.</span></label>
+        <label className="knowledge-file-drop"><input type="file" multiple accept=".pdf,.doc,.docx,.xls,.xlsx,.ppt,.pptx,.txt,.csv,image/*,video/*" onChange={selectFiles} /><Icon name="upload_file" /><strong>Seleccionar documentos o videos</strong><span>Puede seleccionar varios archivos desde el explorador.</span></label>
         {(existingAttachments.length > 0 || newFiles.length > 0) && <div className="knowledge-file-list">
-          {existingAttachments.map((attachment, index) => <article key={getAttachmentId(attachment) || index}><Icon name="description" /><div><strong>{getAttachmentName(attachment)}</strong><small>Archivo guardado</small></div><button type="button" className="icon-button" onClick={() => deleteExistingAttachment(attachment)}><Icon name="delete" /></button></article>)}
-          {newFiles.map((file, index) => <article key={`${file.name}-${file.lastModified}-${index}`}><Icon name={file.type.startsWith('video/') ? 'movie' : 'draft'} /><div><strong>{file.name}</strong><small>{(file.size / 1024 / 1024).toFixed(2)} MB · Pendiente de subir</small></div><button type="button" className="icon-button" onClick={() => setNewFiles((current) => current.filter((_, itemIndex) => itemIndex !== index))}><Icon name="close" /></button></article>)}
+          {existingAttachments.map((attachment, index) => <article key={getAttachmentId(attachment) || index}><Icon name="description" /><div><strong>{getAttachmentName(attachment)}</strong><small>Archivo guardado</small></div><button type="button" className="icon-button" onClick={() => deleteExistingAttachment(attachment)} aria-label={`Eliminar ${getAttachmentName(attachment)}`}><Icon name="delete" /></button></article>)}
+          {newFiles.map((file, index) => <article key={`${file.name}-${file.lastModified}-${index}`}><Icon name={file.type.startsWith('video/') ? 'movie' : 'draft'} /><div><strong>{file.name}</strong><small>{(file.size / 1024 / 1024).toFixed(2)} MB · Pendiente de subir</small></div><button type="button" className="icon-button" onClick={() => setNewFiles((current) => current.filter((_, itemIndex) => itemIndex !== index))} aria-label={`Quitar ${file.name}`}><Icon name="close" /></button></article>)}
         </div>}
       </section>
 
