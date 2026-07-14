@@ -6,6 +6,7 @@ import { rewriteTechnicalReport } from '../services/gemini.service.js';
 import { usersHandlers } from '../modules/users.module.js';
 import { crudHandlers } from '../modules/crud.module.js';
 import { ticketHandlers } from '../modules/tickets.module.js';
+import { ticketDeliveryHandlers } from '../modules/ticket-delivery.module.js';
 import { maintenanceHandlers } from '../modules/maintenance.module.js';
 import { knowledgeHandlers } from '../modules/knowledge.module.js';
 import { getConfig } from '../modules/config.module.js';
@@ -55,8 +56,10 @@ for(const [key,names] of Object.entries(ticketAliases)) {
   if(['list','get','mediaGet'].includes(key)) permission='BOLETAS_VER';
   else if(key==='create') permission='BOLETAS_CREAR';
   else if(key==='finalize') permission='BOLETAS_FINALIZAR';
+  else if(key==='testFinalize') permission='NOTIFICACIONES_PRUEBA';
   else if(['evidenceUpload','evidenceUpdate','evidenceDelete'].includes(key)) permission=['BOLETAS_EVIDENCIAS','BOLETAS_EDITAR'];
-  add(names,ticketHandlers[key],permission);
+  const handler = ticketDeliveryHandlers[key] || ticketHandlers[key];
+  add(names,handler,permission);
 }
 
 const maintenanceAliases={list:['maintenance.list','mantenimientos.list'],get:['maintenance.get','mantenimientos.get'],create:['maintenance.create','mantenimientos.create'],update:['maintenance.update','mantenimientos.update'],delete:['maintenance.delete','mantenimientos.delete'],finalize:['maintenance.finalize','mantenimientos.finalize'],reopen:['maintenance.reopen','mantenimientos.reopen'],deviceCreate:['maintenance.devices.create','mantenimientos.dispositivos.create'],deviceUpdate:['maintenance.devices.update','mantenimientos.dispositivos.update'],deviceAutosave:['maintenance.devices.autosave','mantenimientos.dispositivos.autosave'],deviceDelete:['maintenance.devices.delete','mantenimientos.dispositivos.delete'],imageUpload:['maintenance.images.upload','mantenimientos.imagenes.upload'],imageUpdate:['maintenance.images.update','mantenimientos.imagenes.update'],imageDelete:['maintenance.images.delete','mantenimientos.imagenes.delete'],mediaGet:['maintenance.media.get','mantenimientos.media.get'],spreadsheetReport:['maintenance.report.spreadsheet','mantenimientos.reporte.excel'],slidesReport:['maintenance.report.slides','mantenimientos.reporte.presentacion'],config:['maintenance.config','mantenimientos.config']};
