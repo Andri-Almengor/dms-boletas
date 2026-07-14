@@ -47,6 +47,31 @@
   touch-action: manipulation;
 }
 
+.maintenance-image-delete {
+  position: absolute;
+  top: 15px;
+  right: 15px;
+  z-index: 4;
+  width: 36px;
+  height: 36px;
+  padding: 0;
+  border: 1px solid #f1b4b8;
+  border-radius: 999px;
+  background: rgba(255, 255, 255, .96);
+  color: var(--danger);
+  display: grid;
+  place-items: center;
+  box-shadow: var(--shadow-sm);
+}
+
+.maintenance-image-delete .material-symbols-outlined {
+  font-size: 20px;
+}
+
+.maintenance-image-delete:disabled {
+  opacity: .6;
+}
+
 @media (max-width: 560px) {
   .searchable-select__leading {
     left: 11px;
