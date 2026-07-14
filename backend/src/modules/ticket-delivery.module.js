@@ -3,7 +3,7 @@ import { forbidden } from '../core/errors.js';
 import { nowIso, pick } from '../core/utils.js';
 import { audit } from '../services/audit.service.js';
 import { deliverTicket } from '../services/ticket-delivery.service.js';
-import { generateTicketReport } from '../services/ticket-report.service.js';
+import { generateTicketWithAppsScript } from '../services/apps-script-ticket.service.js';
 
 const running = new Map();
 
@@ -60,10 +60,13 @@ export const ticketDeliveryHandlers = {
   generatePdf: async (ctx) => {
     const id = pick(ctx.payload, ['boletaUid', 'BoletaUID', 'id']);
     return runOnce(`pdf:${id}`, async () => {
-      const report = await generateTicketReport({
-        ticketId: id,
-        actorId: ctx.user.UsuarioID,
-        testMode: false,
+      const report = await generateTicketWithAppsScript({ ticketId: id, testMode: false, sendEmail: false });
+      await updateRow('Boletas', id, {
+        DocumentoURL: report.documentUrl,
+        PDFURL: report.pdfUrl,
+        CarpetaURL: report.folderUrl,
+        ActualizadoPor: ctx.user.UsuarioID,
+        FechaActualizacion: nowIso(),
       });
       await audit(ctx, 'GENERAR_REPORTE_BOLETA', 'Boletas', id, null, {
         DocumentoURL: report.documentUrl,

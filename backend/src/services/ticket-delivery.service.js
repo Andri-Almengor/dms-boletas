@@ -1,16 +1,8 @@
-import { appendRow, readTable } from '../infra/sheets.repository.js';
-import { asBool, nowIso, uuid } from '../core/utils.js';
+import { appendRow } from '../infra/sheets.repository.js';
+import { nowIso, uuid } from '../core/utils.js';
 import { getConfig } from '../modules/config.module.js';
 import { sendChatMessage } from './chat.service.js';
-import { sendTicketReportEmail } from './email.service.js';
-import { generateTicketReport } from './ticket-report.service.js';
-
-function splitEmails(value) {
-  const source = Array.isArray(value) ? value : String(value || '').split(/[;,]/);
-  return [...new Set(source
-    .map((item) => String(item || '').trim().toLowerCase())
-    .filter((item) => /^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(item)))];
-}
+import { generateTicketWithAppsScript } from './apps-script-ticket.service.js';
 
 function chatWebhook(...values) {
   return values.map((value) => String(value || '').trim()).find((value) => value.startsWith('https://chat.googleapis.com/')) || '';
@@ -105,57 +97,41 @@ async function executeNotification(ctx, metadata, operation) {
   }
 }
 
-async function attachCreator(report) {
-  const users = await readTable('Usuarios');
-  const creator = users.find((user) => String(user.UsuarioID) === String(report.ticket.CreadoPor));
-  report.creator = creator ? {
-    UsuarioID: creator.UsuarioID,
-    Nombre: creator.NombreCompleto || creator.Nombre || creator.NombreUsuario,
-    Correo: creator.Correo || '',
-  } : null;
-  return report;
+function emailDestination(report) {
+  return [...new Set([...(report.recipients?.to || []), ...(report.recipients?.cc || [])])].join(', ') || 'Sin destinatarios válidos';
 }
 
 export async function deliverTicket(ctx, { ticketId, testMode = false }) {
   const config = await getConfig();
-  const report = await attachCreator(await generateTicketReport({ ticketId, actorId: ctx.user.UsuarioID, testMode }));
+  const report = await generateTicketWithAppsScript({ ticketId, testMode, sendEmail: true });
   const ticket = report.ticket;
-  const jobs = [];
+  const results = [];
+
+  const emailError = report.email?.sent === false && !report.email?.skipped
+    ? new Error(report.email.error || 'Apps Script no pudo enviar el correo.')
+    : null;
+  const emailMetadata = {
+    entityId: ticket.BoletaUID,
+    channel: 'CORREO_APPS_SCRIPT',
+    destination: emailDestination(report),
+    type: testMode ? 'PRUEBA' : 'FINALIZACION',
+  };
+  await recordNotification(ctx, emailError
+    ? { ...emailMetadata, error: emailError }
+    : { ...emailMetadata, result: report.email || { sent: true } }).catch(() => {});
+  results.push(emailError
+    ? { ...emailMetadata, ok: false, error: emailError.message }
+    : { ...emailMetadata, ok: true, result: report.email || { sent: true } });
 
   if (testMode) {
-    const testEmail = String(process.env.TEST_NOTIFICATION_EMAIL || config.TEST_EMAIL || 'andrick.almengor@solutionsdms.com').trim();
-    jobs.push(executeNotification(ctx, {
-      entityId: ticket.BoletaUID,
-      channel: 'CORREO',
-      destination: testEmail,
-      type: 'PRUEBA',
-    }, () => sendTicketReportEmail({ report, to: testEmail, cc: [], testMode: true })));
-    jobs.push(executeNotification(ctx, {
+    results.push(await executeNotification(ctx, {
       entityId: ticket.BoletaUID,
       channel: 'CHAT',
       destination: 'Chat de pruebas',
       type: 'PRUEBA',
     }, () => sendChatMessage(testChatWebhook(config), internalChatText(report, true))));
   } else {
-    const supervisorEmails = splitEmails(ticket.CorreoSupervisor);
-    const technicianEmails = splitEmails(report.assigned.map((item) => item.Correo));
-    const primaryRecipients = supervisorEmails.length ? supervisorEmails : technicianEmails;
-    const cc = [
-      ...(supervisorEmails.length ? technicianEmails : []),
-      ...splitEmails(config.DEFAULT_CC_EMAILS),
-      ...splitEmails(ticket.CorreosCC),
-      ...(asBool(ticket.EnviarCorreoCliente, false) ? splitEmails(ticket.CorreoCliente) : []),
-    ];
-    const allDestinations = [...new Set([...primaryRecipients, ...cc])];
-
-    jobs.push(executeNotification(ctx, {
-      entityId: ticket.BoletaUID,
-      channel: 'CORREO',
-      destination: allDestinations.join(', ') || 'Sin destinatarios válidos',
-      type: 'FINALIZACION',
-    }, () => sendTicketReportEmail({ report, to: primaryRecipients, cc, testMode: false })));
-
-    jobs.push(executeNotification(ctx, {
+    results.push(await executeNotification(ctx, {
       entityId: ticket.BoletaUID,
       channel: 'CHAT',
       destination: 'Chat operativo de boletas',
@@ -164,7 +140,7 @@ export async function deliverTicket(ctx, { ticketId, testMode = false }) {
 
     const clientWebhook = clientChatWebhook(report.client);
     if (clientWebhook) {
-      jobs.push(executeNotification(ctx, {
+      results.push(await executeNotification(ctx, {
         entityId: ticket.BoletaUID,
         channel: 'CHAT_CLIENTE',
         destination: `Chat del cliente: ${ticket.Cliente || ticket.ClienteID}`,
@@ -173,7 +149,6 @@ export async function deliverTicket(ctx, { ticketId, testMode = false }) {
     }
   }
 
-  const results = await Promise.all(jobs);
   const failed = results.filter((item) => !item.ok);
   return {
     report: {
@@ -184,6 +159,7 @@ export async function deliverTicket(ctx, { ticketId, testMode = false }) {
       folderId: report.folderId,
       folderUrl: report.folderUrl,
       evidenceCount: report.evidences.length,
+      templateId: report.templateId,
     },
     notifications: results,
     notificationState: failed.length ? (failed.length === results.length ? 'ERROR' : 'PARCIAL') : 'ENVIADO',
