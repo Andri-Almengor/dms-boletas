@@ -1,14 +1,35 @@
-import { appendRow, filterRows, findById, readTable, softDelete, updateRow } from '../infra/sheets.repository.js';
+import { appendRow, filterRows, findById, readTable, readTables, softDelete, updateRow } from '../infra/sheets.repository.js';
 import { uploadBase64, downloadAsDataUrl, trashFile } from '../infra/drive.repository.js';
-import { badRequest } from '../core/errors.js';
+import { badRequest, notFound } from '../core/errors.js';
 import { asArray, asBool, nowIso, pick, uuid } from '../core/utils.js';
 import { getConfig } from './config.module.js';
 import { audit } from '../services/audit.service.js';
 
-async function enrichTicket(row) {
-  const [assigned, evidences] = await Promise.all([readTable('BoletaAsignados'), readTable('EvidenciasBoleta')]);
-  return { boleta: row, asignados: assigned.filter((a) => String(a.BoletaUID) === String(row.BoletaUID) && a.Activo !== false), evidencias: evidences.filter((e) => String(e.BoletaUID) === String(row.BoletaUID) && e.Activo !== false) };
+function userDisplayName(user, fallback = '') {
+  return String(pick(user, ['NombreCompleto', 'Nombre', 'NombreUsuario', 'Correo'], fallback)).trim();
 }
+
+async function enrichTicket(row) {
+  const tables = await readTables(['BoletaAsignados', 'EvidenciasBoleta', 'Usuarios']);
+  const usersById = new Map(tables.Usuarios.map((user) => [String(user.UsuarioID), user]));
+  const assigned = tables.BoletaAsignados
+    .filter((item) => String(item.BoletaUID) === String(row.BoletaUID) && item.Activo !== false)
+    .map((item) => {
+      const user = usersById.get(String(item.UsuarioID));
+      const name = userDisplayName(user, item.NombreUsuarioSnapshot || item.UsuarioID);
+      return {
+        ...item,
+        NombreCompleto: name,
+        Nombre: name,
+        NombreUsuario: String(user?.NombreUsuario || '').trim(),
+        Correo: String(user?.Correo || '').trim(),
+      };
+    });
+  const evidences = tables.EvidenciasBoleta
+    .filter((item) => String(item.BoletaUID) === String(row.BoletaUID) && item.Activo !== false);
+  return { boleta: row, asignados: assigned, evidencias: evidences };
+}
+
 function ticketPayload(p, existing = {}) {
   return {
     Titulo: pick(p,['Titulo','titulo'],existing.Titulo), Estado: pick(p,['Estado','estado'],existing.Estado || 'PENDIENTE').toUpperCase(), Fecha: pick(p,['Fecha','fecha'],existing.Fecha), HoraInicio: pick(p,['HoraInicio','horaInicio'],existing.HoraInicio), HoraFinal: pick(p,['HoraFinal','horaFinal'],existing.HoraFinal), HorasTotales: Number(p.HorasTotales ?? p.horasTotales ?? existing.HorasTotales ?? 0),
@@ -17,14 +38,70 @@ function ticketPayload(p, existing = {}) {
     RazonVisita: pick(p,['RazonVisita','razonVisita'],existing.RazonVisita), Descripcion: pick(p,['Descripcion','descripcion'],existing.Descripcion), PruebasRealizadas: pick(p,['PruebasRealizadas','pruebasRealizadas'],existing.PruebasRealizadas), Resultado: pick(p,['Resultado','resultado'],existing.Resultado), Recomendaciones: pick(p,['Recomendaciones','recomendaciones'],existing.Recomendaciones), EnviarCorreoCliente: asBool(p.EnviarCorreoCliente ?? p.enviarCorreoCliente, existing.EnviarCorreoCliente), CorreosCC: pick(p,['CorreosCC','correosCC'],existing.CorreosCC),
   };
 }
+
 async function replaceAssigned(ticketId, ids, ctx) {
   const existing = await readTable('BoletaAsignados');
-  for (const row of existing.filter((a) => String(a.BoletaUID) === String(ticketId) && a.Activo !== false)) await updateRow('BoletaAsignados', row.BoletaAsignadoID, { Activo: false });
+  for (const row of existing.filter((item) => String(item.BoletaUID) === String(ticketId) && item.Activo !== false)) {
+    await updateRow('BoletaAsignados', row.BoletaAsignadoID, { Activo: false });
+  }
   const users = await readTable('Usuarios');
-  for (const id of ids) { const user = users.find((u) => String(u.UsuarioID) === String(id)); await appendRow('BoletaAsignados', { BoletaAsignadoID: uuid(), BoletaUID: ticketId, UsuarioID: id, NombreUsuarioSnapshot: user?.NombreCompleto || user?.NombreUsuario || id, Activo: true, CreadoPor: ctx.user.UsuarioID, FechaCreacion: nowIso() }); }
+  for (const id of ids) {
+    const user = users.find((item) => String(item.UsuarioID) === String(id));
+    await appendRow('BoletaAsignados', {
+      BoletaAsignadoID: uuid(),
+      BoletaUID: ticketId,
+      UsuarioID: id,
+      NombreUsuarioSnapshot: userDisplayName(user, id),
+      Activo: true,
+      CreadoPor: ctx.user.UsuarioID,
+      FechaCreacion: nowIso(),
+    });
+  }
 }
+
 async function nextTicketNumber() {
   const rows = await readTable('Boletas'); return Math.max(0, ...rows.map((r) => Number(r.BoletaID || 0))) + 1;
+}
+
+async function resolveTicketMedia(payload = {}) {
+  const boletaUid = pick(payload, ['boletaUid', 'BoletaUID']);
+  const evidenceId = pick(payload, ['evidenciaId', 'EvidenciaID', 'mediaId', 'id']);
+  const requestedFileId = pick(payload, ['fileId', 'ArchivoID', 'ArchivoFileID', 'DriveFileID']);
+  const kind = String(pick(payload, ['kind', 'tipo'], '')).trim().toLowerCase();
+
+  if (evidenceId) {
+    const evidence = await findById('EvidenciasBoleta', evidenceId);
+    if (boletaUid && String(evidence.BoletaUID) !== String(boletaUid)) throw notFound('La evidencia no pertenece a la boleta solicitada.');
+    const fileId = pick(evidence, ['ArchivoID', 'ArchivoFileID', 'DriveFileID']);
+    if (!fileId) throw notFound('La evidencia no tiene un archivo asociado.');
+    return { recordId: evidence.EvidenciaID, kind: 'evidence', fileId, mimeType: evidence.MimeType || 'application/octet-stream' };
+  }
+
+  let ticket = null;
+  if (boletaUid) ticket = await findById('Boletas', boletaUid);
+
+  if (kind === 'signature' || kind === 'firma') {
+    if (!ticket) throw notFound('No se indicó la boleta de la firma.');
+    const fileId = pick(ticket, ['FirmaArchivoID', 'FirmaFileID']);
+    if (!fileId) throw notFound('La boleta no tiene una firma almacenada.');
+    return { recordId: ticket.BoletaUID, kind: 'signature', fileId, mimeType: pick(ticket, ['FirmaMimeType'], 'image/png') };
+  }
+
+  if (requestedFileId) {
+    const evidences = await readTable('EvidenciasBoleta');
+    const evidence = evidences.find((item) => {
+      const sameFile = String(pick(item, ['ArchivoID', 'ArchivoFileID', 'DriveFileID'])) === String(requestedFileId);
+      const sameTicket = !boletaUid || String(item.BoletaUID) === String(boletaUid);
+      return sameFile && sameTicket && item.Activo !== false;
+    });
+    if (evidence) return { recordId: evidence.EvidenciaID, kind: 'evidence', fileId: requestedFileId, mimeType: evidence.MimeType || 'application/octet-stream' };
+
+    if (ticket && String(pick(ticket, ['FirmaArchivoID', 'FirmaFileID'])) === String(requestedFileId)) {
+      return { recordId: ticket.BoletaUID, kind: 'signature', fileId: requestedFileId, mimeType: pick(ticket, ['FirmaMimeType'], 'image/png') };
+    }
+  }
+
+  throw notFound('No se encontró el archivo asociado a la boleta.');
 }
 
 export const ticketHandlers = {
@@ -55,8 +132,11 @@ export const ticketHandlers = {
   },
   evidenceUpdate: async (ctx) => updateRow('EvidenciasBoleta', pick(ctx.payload,['evidenciaId','EvidenciaID','id']), { Nombre:pick(ctx.payload,['nombre','Nombre']), Nota:pick(ctx.payload,['nota','Nota']), ActualizadoPor:ctx.user.UsuarioID, FechaActualizacion:nowIso() }),
   evidenceDelete: async (ctx) => { const row=await findById('EvidenciasBoleta',pick(ctx.payload,['evidenciaId','EvidenciaID','id'])); await trashFile(row.ArchivoID).catch(()=>{}); return softDelete('EvidenciasBoleta',row.EvidenciaID,ctx.user.UsuarioID); },
-  mediaGet: async ({ payload }) => { const row=await findById('EvidenciasBoleta',pick(payload,['evidenciaId','EvidenciaID','id'])); return { EvidenciaID:row.EvidenciaID,...await downloadAsDataUrl(row.ArchivoID,row.MimeType) }; },
-  signatureUpload: async (ctx) => { const cfg=await getConfig(); const file=await uploadBase64({base64:ctx.payload.base64,mimeType:ctx.payload.mimeType||'image/png',fileName:ctx.payload.fileName,folderId:cfg.FIRMAS_FOLDER_ID}); await updateRow('Boletas',pick(ctx.payload,['boletaUid','BoletaUID']),{FirmaArchivoID:file.id,FirmaURL:file.webViewLink,ActualizadoPor:ctx.user.UsuarioID,FechaActualizacion:nowIso()}); return file; },
+  mediaGet: async ({ payload }) => {
+    const media = await resolveTicketMedia(payload);
+    return { mediaId: media.recordId, kind: media.kind, fileId: media.fileId, ...await downloadAsDataUrl(media.fileId, media.mimeType) };
+  },
+  signatureUpload: async (ctx) => { const cfg=await getConfig(); const mimeType=ctx.payload.mimeType||'image/png'; const file=await uploadBase64({base64:ctx.payload.base64,mimeType,fileName:ctx.payload.fileName,folderId:cfg.FIRMAS_FOLDER_ID}); await updateRow('Boletas',pick(ctx.payload,['boletaUid','BoletaUID']),{FirmaArchivoID:file.id,FirmaURL:file.webViewLink,FirmaMimeType:mimeType,ActualizadoPor:ctx.user.UsuarioID,FechaActualizacion:nowIso()}); return file; },
   generatePdf: async ({ payload }) => { const row=await findById('Boletas',pick(payload,['boletaUid','BoletaUID'])); return { boletaUid:row.BoletaUID, pdfUrl:row.PDFURL || '', message:'La generación avanzada de PDF puede configurarse con una plantilla de Google Docs; los datos y archivos ya están migrados al backend Node.' }; },
   testFinalize: async (ctx) => ticketHandlers.finalize(ctx),
 };
