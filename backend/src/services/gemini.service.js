@@ -15,8 +15,21 @@ const RESPONSE_SCHEMA = {
   required: FIELD_KEYS,
 };
 
+const TRANSIENT_STATUSES = new Set([408, 429, 500, 502, 503, 504]);
+const DEFAULT_FALLBACK_MODELS = ['gemini-3.1-flash-lite', 'gemini-2.5-flash-lite'];
+
 function clean(value, maxLength = 8000) {
   return String(value ?? '').trim().slice(0, maxLength);
+}
+
+function positiveInteger(value, fallback, minimum = 0, maximum = Number.MAX_SAFE_INTEGER) {
+  const parsed = Number.parseInt(String(value ?? ''), 10);
+  if (!Number.isFinite(parsed)) return fallback;
+  return Math.min(maximum, Math.max(minimum, parsed));
+}
+
+function sleep(milliseconds) {
+  return new Promise((resolve) => setTimeout(resolve, milliseconds));
 }
 
 function parseJson(text) {
@@ -99,9 +112,122 @@ function buildPrompt(fields, context) {
   ].join('\n');
 }
 
+function resolveModels() {
+  const primary = clean(process.env.GEMINI_MODEL || 'gemini-3.5-flash', 100);
+  const configured = clean(process.env.GEMINI_FALLBACK_MODELS, 500)
+    .split(',')
+    .map((value) => clean(value, 100))
+    .filter(Boolean);
+  const fallbacks = configured.length ? configured : DEFAULT_FALLBACK_MODELS;
+  return [...new Set([primary, ...fallbacks])];
+}
+
+function generationConfig(model) {
+  if (/^gemini-3(?:\.|-)/i.test(model)) return { thinking_level: 'low' };
+  return { temperature: 0.2 };
+}
+
+function retryDelay(attempt, response) {
+  const retryAfter = Number(response?.headers?.get?.('retry-after'));
+  if (Number.isFinite(retryAfter) && retryAfter > 0) return Math.min(retryAfter * 1000, 10_000);
+  const base = 800 * (2 ** attempt);
+  const jitter = Math.floor(Math.random() * 350);
+  return Math.min(base + jitter, 8_000);
+}
+
+async function requestModel({ apiKey, model, prompt, retries }) {
+  const timeoutMs = positiveInteger(process.env.GEMINI_TIMEOUT_MS, 30_000, 10_000, 90_000);
+  let lastFailure = null;
+
+  for (let attempt = 0; attempt <= retries; attempt += 1) {
+    const controller = new AbortController();
+    const timeout = setTimeout(() => controller.abort(), timeoutMs);
+    let response;
+    let data = {};
+
+    try {
+      response = await fetch('https://generativelanguage.googleapis.com/v1beta/interactions', {
+        method: 'POST',
+        signal: controller.signal,
+        headers: {
+          'Content-Type': 'application/json',
+          'x-goog-api-key': apiKey,
+        },
+        body: JSON.stringify({
+          model,
+          store: false,
+          system_instruction: 'Eres un redactor de informes de mantenimiento y soporte técnico. Debes mejorar la redacción sin agregar información que el técnico no haya proporcionado.',
+          input: prompt,
+          response_format: {
+            type: 'text',
+            mime_type: 'application/json',
+            schema: RESPONSE_SCHEMA,
+          },
+          generation_config: generationConfig(model),
+        }),
+      });
+      data = await response.json().catch(() => ({}));
+    } catch (error) {
+      lastFailure = {
+        status: error?.name === 'AbortError' ? 504 : 502,
+        code: error?.name === 'AbortError' ? 'GEMINI_TIMEOUT' : 'GEMINI_CONNECTION_ERROR',
+        message: error?.name === 'AbortError'
+          ? 'Gemini tardó demasiado en responder.'
+          : 'No se pudo conectar con Gemini.',
+        transient: true,
+      };
+    } finally {
+      clearTimeout(timeout);
+    }
+
+    if (response?.ok) return { data, model };
+
+    if (response) {
+      const status = response.status;
+      lastFailure = {
+        status,
+        code: status === 429 ? 'GEMINI_QUOTA_EXCEEDED' : 'GEMINI_REQUEST_FAILED',
+        message: data?.error?.message || `Gemini rechazó la solicitud (${status}).`,
+        transient: TRANSIENT_STATUSES.has(status),
+      };
+    }
+
+    if (!lastFailure?.transient || attempt >= retries) break;
+    await sleep(retryDelay(attempt, response));
+  }
+
+  return { error: lastFailure || { status: 502, code: 'GEMINI_REQUEST_FAILED', message: 'Gemini rechazó la solicitud.', transient: false }, model };
+}
+
+function finalGeminiError(failure, attemptedModels) {
+  if (failure?.status === 429) {
+    return new AppError(
+      'GEMINI_QUOTA_EXCEEDED',
+      'Gemini alcanzó temporalmente el límite de solicitudes. Espere unos segundos y vuelva a intentarlo.',
+      429,
+      { attemptedModels },
+    );
+  }
+
+  if (failure?.transient) {
+    return new AppError(
+      'GEMINI_TEMPORARILY_UNAVAILABLE',
+      'Gemini está temporalmente saturado. Se intentaron modelos alternativos, pero ninguno respondió. Intente nuevamente en unos minutos.',
+      503,
+      { attemptedModels },
+    );
+  }
+
+  return new AppError(
+    failure?.code || 'GEMINI_REQUEST_FAILED',
+    failure?.message || 'Gemini rechazó la solicitud.',
+    failure?.status === 400 ? 400 : 502,
+    { attemptedModels },
+  );
+}
+
 export async function rewriteTechnicalReport(payload = {}) {
   const apiKey = clean(process.env.GEMINI_API_KEY, 500);
-  const model = clean(process.env.GEMINI_MODEL || 'gemini-3.5-flash', 100);
   if (!apiKey) {
     throw new AppError(
       'GEMINI_NOT_CONFIGURED',
@@ -125,51 +251,35 @@ export async function rewriteTechnicalReport(payload = {}) {
     serie: clean(payload.serie),
   };
 
-  const controller = new AbortController();
-  const timeout = setTimeout(() => controller.abort(), 45000);
-  let response;
-  try {
-    response = await fetch('https://generativelanguage.googleapis.com/v1beta/interactions', {
-      method: 'POST',
-      signal: controller.signal,
-      headers: {
-        'Content-Type': 'application/json',
-        'x-goog-api-key': apiKey,
-      },
-      body: JSON.stringify({
-        model,
-        store: false,
-        system_instruction: 'Eres un redactor de informes de mantenimiento y soporte técnico. Debes mejorar la redacción sin agregar información que el técnico no haya proporcionado.',
-        input: buildPrompt(fields, context),
-        response_format: {
-          type: 'text',
-          mime_type: 'application/json',
-          schema: RESPONSE_SCHEMA,
-        },
-        generation_config: {
-          temperature: 0.2,
-          thinking_level: 'low',
-        },
-      }),
+  const models = resolveModels();
+  const primaryRetries = positiveInteger(process.env.GEMINI_MAX_RETRIES, 1, 0, 3);
+  const attemptedModels = [];
+  let lastFailure = null;
+
+  for (let index = 0; index < models.length; index += 1) {
+    const model = models[index];
+    attemptedModels.push(model);
+    const result = await requestModel({
+      apiKey,
+      model,
+      prompt: buildPrompt(fields, context),
+      retries: index === 0 ? primaryRetries : 0,
     });
-  } catch (error) {
-    if (error?.name === 'AbortError') throw new AppError('GEMINI_TIMEOUT', 'Gemini tardó demasiado en responder. Intente nuevamente.', 504);
-    throw new AppError('GEMINI_CONNECTION_ERROR', 'No se pudo conectar con Gemini.', 502);
-  } finally {
-    clearTimeout(timeout);
+
+    if (result.data) {
+      if (index > 0) console.warn(`[gemini] Se utilizó el modelo alternativo ${model}.`);
+      const parsed = parseJson(extractInteractionText(result.data));
+      const improved = Object.fromEntries(FIELD_KEYS.map((key) => [
+        key,
+        fields[key] ? clean(parsed[key] ?? fields[key], 12000) : '',
+      ]));
+      return { fields: improved, model };
+    }
+
+    lastFailure = result.error;
+    console.warn(`[gemini] ${model} no respondió correctamente: ${lastFailure?.status || 'sin estado'} ${lastFailure?.message || ''}`);
+    if (!lastFailure?.transient) break;
   }
 
-  const data = await response.json().catch(() => ({}));
-  if (!response.ok) {
-    const message = data?.error?.message || 'Gemini rechazó la solicitud.';
-    const status = response.status === 429 ? 429 : 502;
-    throw new AppError(response.status === 429 ? 'GEMINI_QUOTA_EXCEEDED' : 'GEMINI_REQUEST_FAILED', message, status);
-  }
-
-  const parsed = parseJson(extractInteractionText(data));
-  const improved = Object.fromEntries(FIELD_KEYS.map((key) => [
-    key,
-    fields[key] ? clean(parsed[key] ?? fields[key], 12000) : '',
-  ]));
-  return { fields: improved, model };
+  throw finalGeminiError(lastFailure, attemptedModels);
 }
