@@ -2,7 +2,7 @@ import { appendRow, filterRows, findById, readTable, updateRow } from '../infra/
 import { badRequest } from '../core/errors.js';
 import { hashPassword, nowIso, pick, randomPassword, uuid } from '../core/utils.js';
 import { safeUser } from '../services/permissions.service.js';
-import { sendTemporaryCredentials } from '../services/email.service.js';
+import { sendTemporaryCredentialsWithAppsScript } from '../services/apps-script-user-invitation.service.js';
 import { audit } from '../services/audit.service.js';
 
 function normalizeUser(user) {
@@ -41,7 +41,7 @@ export const usersHandlers = {
     const temporaryPassword = randomPassword(); const { salt, hash } = hashPassword(temporaryPassword);
     const fullName = p.nombreCompleto || p.NombreCompleto || p.Nombre;
     const row = { UsuarioID: uuid(), NombreCompleto: fullName, Nombre: fullName, NombreUsuario: username, Correo: email, PasswordHash: hash, PasswordSalt: salt, CambioPasswordObligatorio: true, Estado: p.estado || p.Estado || 'ACTIVO', RolID: p.rolId || p.RolID, UltimoAcceso: '', IntentosFallidos: 0, BloqueadoHasta: '', CreadoPor: ctx.user.UsuarioID, FechaCreacion: nowIso(), ActualizadoPor: ctx.user.UsuarioID, FechaActualizacion: nowIso() };
-    await appendRow('Usuarios', row); const invitationEmail = await sendTemporaryCredentials(row, temporaryPassword).catch((error) => ({ sent: false, error: error.message })); await audit(ctx,'CREAR_USUARIO','Usuarios',row.UsuarioID,null,normalizeUser(row));
+    await appendRow('Usuarios', row); const invitationEmail = await sendTemporaryCredentialsWithAppsScript(row, temporaryPassword).catch((error) => ({ sent: false, error: error.message })); await audit(ctx,'CREAR_USUARIO','Usuarios',row.UsuarioID,null,normalizeUser(row));
     return { user: normalizeUser(row), temporaryPassword, invitationEmail };
   },
   update: async (ctx) => {
