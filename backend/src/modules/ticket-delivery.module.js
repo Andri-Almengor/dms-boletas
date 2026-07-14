@@ -1,4 +1,5 @@
 import { findById, updateRow } from '../infra/sheets.repository.js';
+import { forbidden } from '../core/errors.js';
 import { nowIso, pick } from '../core/utils.js';
 import { audit } from '../services/audit.service.js';
 import { deliverTicket } from '../services/ticket-delivery.service.js';
@@ -18,6 +19,9 @@ export const ticketDeliveryHandlers = {
     const id = pick(ctx.payload, ['boletaUid', 'BoletaUID', 'id']);
     return runOnce(`finalize:${id}`, async () => {
       const before = await findById('Boletas', id);
+      if (String(before.Estado || '').toUpperCase() === 'FINALIZADA') {
+        return { boleta: before, alreadyFinalized: true };
+      }
       const delivery = await deliverTicket(ctx, { ticketId: id, testMode: false });
       const after = await updateRow('Boletas', id, {
         Estado: 'FINALIZADA',
@@ -36,6 +40,9 @@ export const ticketDeliveryHandlers = {
   },
 
   testFinalize: async (ctx) => {
+    if (!ctx.permissions.includes('USUARIOS_GESTIONAR')) {
+      throw forbidden('Solo un administrador puede ejecutar las pruebas de correo y Google Chat.');
+    }
     const id = pick(ctx.payload, ['boletaUid', 'BoletaUID', 'id']);
     return runOnce(`test:${id}`, async () => {
       const delivery = await deliverTicket(ctx, { ticketId: id, testMode: true });
