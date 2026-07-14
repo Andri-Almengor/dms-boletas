@@ -159,6 +159,7 @@ export default function TicketDetailPage() {
 
   async function uploadEvidence(event) {
     event.preventDefault();
+    const formElement = event.currentTarget;
     if (!evidenceForm.file) {
       setError('Tome una foto o seleccione un archivo antes de guardar la evidencia.');
       return;
@@ -176,7 +177,7 @@ export default function TicketDetailPage() {
         base64: await fileToBase64(evidenceForm.file),
       }, sessionToken);
       setEvidenceForm({ name: '', note: '', file: null });
-      event.currentTarget.reset();
+      formElement?.reset();
       if (cameraInputRef.current) cameraInputRef.current.value = '';
       if (fileInputRef.current) fileInputRef.current.value = '';
       setNotice('Evidencia agregada correctamente.');
