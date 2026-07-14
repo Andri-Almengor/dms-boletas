@@ -1,9 +1,26 @@
 import { ticketHandlers } from '../modules/tickets.module.js';
 import { ticketDeliveryHandlers } from '../modules/ticket-delivery.module.js';
-import { assertTicketPayloadAccess, filterTicketListResult } from './ticket-access.service.js';
+import { filterRows, readTable } from '../infra/sheets.repository.js';
+import { assertTicketPayloadAccess, assignedTicketIdsForUser, canViewAllTickets } from './ticket-access.service.js';
 
-const originalList = ticketHandlers.list;
-ticketHandlers.list = async (ctx) => filterTicketListResult(ctx, await originalList(ctx));
+ticketHandlers.list = async (ctx) => {
+  const { payload } = ctx;
+  let rows = (await readTable('Boletas'))
+    .filter((row) => row.Activo !== false && String(row.Estado || '').toUpperCase() !== 'ANULADA');
+
+  if (!canViewAllTickets(ctx)) {
+    const allowedIds = await assignedTicketIdsForUser(ctx.user.UsuarioID);
+    rows = rows.filter((row) => allowedIds.has(String(row.BoletaUID)));
+  }
+
+  if (payload.status || payload.estado) {
+    rows = rows.filter((row) => String(row.Estado || '').toUpperCase() === String(payload.status || payload.estado).toUpperCase());
+  }
+  if (payload.dateFrom) rows = rows.filter((row) => String(row.Fecha || '').slice(0, 10) >= String(payload.dateFrom));
+  if (payload.dateTo) rows = rows.filter((row) => String(row.Fecha || '').slice(0, 10) <= String(payload.dateTo));
+
+  return filterRows(rows, payload, ['Titulo', 'Cliente', 'Ubicacion', 'Categoria', 'TipoDispositivo', 'Modelo', 'BoletaID']);
+};
 
 for (const key of [
   'get',
