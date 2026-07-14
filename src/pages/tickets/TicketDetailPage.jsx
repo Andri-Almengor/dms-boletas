@@ -27,7 +27,7 @@ export default function TicketDetailPage() {
   const canEvidence = hasPermission('BOLETAS_EVIDENCIAS');
   const canFinalize = hasPermission('BOLETAS_FINALIZAR');
   const canAdmin = hasPermission('BOLETAS_ELIMINAR') || hasPermission('USUARIOS_GESTIONAR');
-  const canTest = hasPermission('NOTIFICACIONES_PRUEBA');
+  const canTest = hasPermission('NOTIFICACIONES_PRUEBA') && hasPermission('USUARIOS_GESTIONAR');
 
   async function loadTicket() {
     setLoading(true); setError('');
