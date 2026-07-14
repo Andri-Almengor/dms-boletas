@@ -24,9 +24,7 @@ function Select({ label, value, onChange, options }) {
       <span className="field-label">{label}</span>
       <select className="form-control" value={value} onChange={onChange}>
         <option value="">Todos</option>
-        {options.map((option) => (
-          <option key={option.value} value={option.value}>{option.label}</option>
-        ))}
+        {options.map((option) => <option key={option.value} value={option.value}>{option.label}</option>)}
       </select>
     </label>
   );
@@ -34,11 +32,12 @@ function Select({ label, value, onChange, options }) {
 
 function options(records, idKeys, labelKeys) {
   return records
-    .map((record) => ({
-      value: String(pick(record, idKeys)),
-      label: pick(record, labelKeys),
-    }))
+    .map((record) => ({ value: String(pick(record, idKeys)), label: pick(record, labelKeys) }))
     .filter((item) => item.value && item.label);
+}
+
+function invalidDateRange(filters) {
+  return Boolean(filters.dateFrom && filters.dateTo && filters.dateFrom > filters.dateTo);
 }
 
 export default function TicketListPage({ status }) {
@@ -47,14 +46,7 @@ export default function TicketListPage({ status }) {
   const [tickets, setTickets] = useState([]);
   const [search, setSearch] = useState('');
   const [filters, setFilters] = useState(EMPTY_FILTERS);
-  const [catalogs, setCatalogs] = useState({
-    clients: [],
-    users: [],
-    categories: [],
-    deviceTypes: [],
-    manufacturers: [],
-    models: [],
-  });
+  const [catalogs, setCatalogs] = useState({ clients: [], users: [], categories: [], deviceTypes: [], manufacturers: [], models: [] });
   const [filterOpen, setFilterOpen] = useState(false);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState('');
@@ -63,7 +55,7 @@ export default function TicketListPage({ status }) {
   useEffect(() => {
     Promise.allSettled([
       requestAvailable(MODULE_ROUTES.clients.list, { page: 1, pageSize: 500, activo: true }, sessionToken),
-      requestAvailable(MODULE_ROUTES.users.list, { page: 1, pageSize: 500 }, sessionToken),
+      requestAvailable(['users.assignment.list', ...MODULE_ROUTES.users.list], { page: 1, pageSize: 500 }, sessionToken),
       requestAvailable(MODULE_ROUTES.categories.list, { page: 1, pageSize: 500, activo: true }, sessionToken),
       requestAvailable(MODULE_ROUTES.deviceTypes.list, { page: 1, pageSize: 500, activo: true }, sessionToken),
       requestAvailable(MODULE_ROUTES.manufacturers.list, { page: 1, pageSize: 500, activo: true }, sessionToken),
@@ -79,6 +71,10 @@ export default function TicketListPage({ status }) {
   }, [sessionToken]);
 
   async function loadTickets(query = search, currentFilters = filters) {
+    if (invalidDateRange(currentFilters)) {
+      setError('La fecha inicial no puede ser posterior a la fecha final.');
+      return;
+    }
     setLoading(true);
     setError('');
     try {
@@ -101,12 +97,8 @@ export default function TicketListPage({ status }) {
       }, sessionToken);
 
       let items = normalizeItems(data).filter((item) => normalizeTicketStatus(item) === status);
-      if (currentFilters.fabricanteId) {
-        items = items.filter((item) => String(pick(item, ['FabricanteID'])) === String(currentFilters.fabricanteId));
-      }
-      if (currentFilters.modeloId) {
-        items = items.filter((item) => String(pick(item, ['ModeloID'])) === String(currentFilters.modeloId));
-      }
+      if (currentFilters.fabricanteId) items = items.filter((item) => String(pick(item, ['FabricanteID'])) === String(currentFilters.fabricanteId));
+      if (currentFilters.modeloId) items = items.filter((item) => String(pick(item, ['ModeloID'])) === String(currentFilters.modeloId));
       setTickets(items);
     } catch (err) {
       setError(err.message);
@@ -116,9 +108,7 @@ export default function TicketListPage({ status }) {
     }
   }
 
-  useEffect(() => {
-    loadTickets('', EMPTY_FILTERS);
-  }, [sessionToken, status]);
+  useEffect(() => { loadTickets('', EMPTY_FILTERS); }, [sessionToken, status]);
 
   const groups = useMemo(() => groupTicketsByDate(tickets), [tickets]);
   const clientOptions = options(catalogs.clients, ['ClienteID', 'id'], ['Nombre', 'Clientes']);
@@ -141,6 +131,10 @@ export default function TicketListPage({ status }) {
   }
 
   function applyFilters() {
+    if (invalidDateRange(filters)) {
+      setError('La fecha inicial no puede ser posterior a la fecha final.');
+      return;
+    }
     setFilterOpen(false);
     loadTickets(search, filters);
   }
@@ -166,14 +160,8 @@ export default function TicketListPage({ status }) {
     <>
       <Select label="Cliente" value={filters.clienteId} onChange={(event) => setFilter('clienteId', event.target.value)} options={clientOptions} />
       <div className="ticket-form-grid">
-        <label className="field-group">
-          <span className="field-label">Desde</span>
-          <input className="form-control" type="date" value={filters.dateFrom} onChange={(event) => setFilter('dateFrom', event.target.value)} />
-        </label>
-        <label className="field-group">
-          <span className="field-label">Hasta</span>
-          <input className="form-control" type="date" value={filters.dateTo} onChange={(event) => setFilter('dateTo', event.target.value)} />
-        </label>
+        <label className="field-group"><span className="field-label">Desde</span><input className="form-control" type="date" value={filters.dateFrom} max={filters.dateTo || undefined} onChange={(event) => setFilter('dateFrom', event.target.value)} /></label>
+        <label className="field-group"><span className="field-label">Hasta</span><input className="form-control" type="date" value={filters.dateTo} min={filters.dateFrom || undefined} onChange={(event) => setFilter('dateTo', event.target.value)} /></label>
       </div>
       {isAdmin && <Select label="Técnico" value={filters.asignadoUsuarioId} onChange={(event) => setFilter('asignadoUsuarioId', event.target.value)} options={technicianOptions} />}
       <Select label="Categoría" value={filters.categoriaId} onChange={(event) => setFilter('categoriaId', event.target.value)} options={categoryOptions} />
@@ -186,27 +174,14 @@ export default function TicketListPage({ status }) {
   return (
     <div className="page ticket-list-page">
       <div className="list-page-heading">
-        <div>
-          <span className="eyebrow">Gestión de servicios</span>
-          <h1>{isPending ? 'Boletas pendientes' : 'Boletas finalizadas'}</h1>
-          <p>{isPending ? 'Servicios que todavía requieren atención o cierre.' : 'Historial de trabajos completados.'}</p>
-        </div>
-        {isPending && hasPermission('BOLETAS_CREAR') && (
-          <Link className="button button--primary button--compact" to="/boletas/nueva">
-            <Icon name="add" /> Nueva
-          </Link>
-        )}
+        <div><span className="eyebrow">Gestión de servicios</span><h1>{isPending ? 'Boletas pendientes' : 'Boletas finalizadas'}</h1><p>{isPending ? 'Servicios que todavía requieren atención o cierre.' : 'Historial de trabajos completados.'}</p></div>
+        {isPending && hasPermission('BOLETAS_CREAR') && <Link className="button button--primary button--compact" to="/boletas/nueva"><Icon name="add" /> Nueva</Link>}
       </div>
 
       <form className="search-bar" onSubmit={(event) => { event.preventDefault(); loadTickets(); }}>
         <Icon name="search" />
         <input value={search} onChange={(event) => setSearch(event.target.value)} placeholder="Buscar boleta o cliente..." />
-        <button
-          type="button"
-          className="icon-button icon-button--primary filter-trigger"
-          onClick={() => setFilterOpen(true)}
-          aria-label="Abrir filtros"
-        >
+        <button type="button" className="icon-button icon-button--primary filter-trigger" onClick={() => setFilterOpen(true)} aria-label="Abrir filtros">
           <Icon name="tune" className="filter-trigger__glyph" />
           {activeFilterCount > 0 && <span className="filter-trigger__count">{activeFilterCount}</span>}
         </button>
@@ -217,29 +192,25 @@ export default function TicketListPage({ status }) {
       {loading ? (
         <div className="state-card state-card--loading"><Icon name="progress_activity" /><span>Cargando boletas...</span></div>
       ) : tickets.length ? (
-        <div className="ticket-card-grid">
-          {groups.flatMap((group) => group.items.map((ticket, index) => (
-            <section className="ticket-grid-item" key={`${group.label}-${getTicketId(ticket, index)}`}>
+        <div className="ticket-date-groups">
+          {groups.map((group) => (
+            <section className="ticket-date-group" key={group.label}>
               <h2>{group.label}</h2>
-              <TicketCard ticket={ticket} onDelete={isAdmin ? annulTicket : undefined} />
+              <div className="ticket-stack">
+                {group.items.map((ticket, index) => <TicketCard key={getTicketId(ticket, index)} ticket={ticket} onDelete={isAdmin ? annulTicket : undefined} />)}
+              </div>
             </section>
-          )))}
+          ))}
         </div>
       ) : (
         <div className="empty-state">
           <Icon name={isPending ? 'pending_actions' : 'task_alt'} />
           <h2>{isPending ? 'No hay boletas pendientes' : 'No hay boletas finalizadas'}</h2>
-          <p>{error ? 'Revisa la conexión con Apps Script.' : 'Los registros aparecerán aquí automáticamente.'}</p>
+          <p>{error ? 'Revisa la conexión con el backend.' : 'Los registros aparecerán aquí automáticamente.'}</p>
         </div>
       )}
 
-      <FilterDrawer
-        open={filterOpen}
-        title="Filtros de boletas"
-        onClose={() => setFilterOpen(false)}
-        onApply={applyFilters}
-        onClear={clearFilters}
-      >
+      <FilterDrawer open={filterOpen} title="Filtros de boletas" onClose={() => setFilterOpen(false)} onApply={applyFilters} onClear={clearFilters}>
         {filterFields}
       </FilterDrawer>
     </div>
