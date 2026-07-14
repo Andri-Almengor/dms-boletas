@@ -4,13 +4,20 @@ import { useAuth } from '../../AuthContext';
 import Icon from '../../components/common/Icon';
 import { normalizeItems, requestAvailable } from '../../services/moduleApi';
 
+function allowed(hasPermission, permissions = []) {
+  return permissions.some((permission) => hasPermission(permission));
+}
+
 export default function CatalogManager({ config }) {
   const { sessionToken, hasPermission } = useAuth();
   const navigate = useNavigate();
-  const canManage = hasPermission('USUARIOS_GESTIONAR');
+  const isAdmin = hasPermission('USUARIOS_GESTIONAR');
+  const canCreate = isAdmin || allowed(hasPermission, config.createPermissions || []);
+  const canEdit = isAdmin || allowed(hasPermission, config.editPermissions || []);
+  const canManage = canCreate || canEdit;
   const [items, setItems] = useState([]);
   const [search, setSearch] = useState('');
-  const [form, setForm] = useState(config.empty);
+  const [form, setForm] = useState({ ...config.empty });
   const [showForm, setShowForm] = useState(false);
   const [loading, setLoading] = useState(true);
   const [saving, setSaving] = useState(false);
@@ -22,7 +29,7 @@ export default function CatalogManager({ config }) {
     try {
       const data = await requestAvailable(
         config.routes.list,
-        { page: 1, pageSize: 300, search: query, sortBy: config.sortBy, sortDir: 'asc' },
+        { page: 1, pageSize: 300, search: query, sortBy: config.sortBy, sortDir: 'asc', includeInactive: canEdit },
         sessionToken,
       );
       setItems(normalizeItems(data));
@@ -34,27 +41,27 @@ export default function CatalogManager({ config }) {
     }
   }
 
-  useEffect(() => { load(''); }, [sessionToken]);
+  useEffect(() => { load(''); }, [sessionToken, canEdit]);
 
   async function save(event) {
     event.preventDefault();
-    if (!canManage) {
-      setError('Solo los administradores pueden crear o editar registros en esta sección.');
+    const editing = Boolean(form.id);
+    if ((editing && !canEdit) || (!editing && !canCreate)) {
+      setError(editing ? 'No cuenta con permiso para editar este registro.' : 'No cuenta con permiso para crear este registro.');
       return;
     }
 
     setSaving(true);
     setError('');
     try {
-      const editing = Boolean(form.id);
       await requestAvailable(
         editing ? config.routes.update : config.routes.create,
         config.toPayload(form),
         sessionToken,
       );
-      setForm(config.empty);
+      setForm({ ...config.empty });
       setShowForm(false);
-      await load('');
+      await load(search);
     } catch (err) {
       setError(err.message);
     } finally {
@@ -63,8 +70,15 @@ export default function CatalogManager({ config }) {
   }
 
   function edit(record) {
-    if (!canManage) return;
+    if (!canEdit) return;
     setForm(config.fromRecord(record));
+    setShowForm(true);
+    window.scrollTo({ top: 0, behavior: 'smooth' });
+  }
+
+  function openCreate() {
+    setError('');
+    setForm({ ...config.empty });
     setShowForm(true);
     window.scrollTo({ top: 0, behavior: 'smooth' });
   }
@@ -72,7 +86,7 @@ export default function CatalogManager({ config }) {
   return (
     <div className="page admin-module-page">
       <div className="page-header">
-        <button className="icon-button" type="button" onClick={() => navigate('/mas')}>
+        <button className="icon-button" type="button" onClick={() => navigate('/mas')} aria-label="Volver">
           <Icon name="arrow_back" />
         </button>
         <div><span className="eyebrow">Administración</span><h1>{config.title}</h1></div>
@@ -80,12 +94,8 @@ export default function CatalogManager({ config }) {
 
       <div className="list-page-heading">
         <p>{config.description}</p>
-        {canManage && (
-          <button
-            className="button button--primary button--compact"
-            type="button"
-            onClick={() => { setForm(config.empty); setShowForm((current) => !current); }}
-          >
+        {canCreate && (
+          <button className="button button--primary button--compact" type="button" onClick={openCreate}>
             <Icon name="add" /> Nuevo
           </button>
         )}
@@ -94,11 +104,11 @@ export default function CatalogManager({ config }) {
       {!canManage && (
         <div className="readonly-notice">
           <Icon name="visibility" />
-          <span>Modo consulta: los técnicos pueden ver esta información, pero solo un administrador puede agregar o editar registros.</span>
+          <span>Modo consulta: puede revisar esta información, pero no agregar ni editar registros.</span>
         </div>
       )}
 
-      {canManage && showForm && (
+      {showForm && ((form.id && canEdit) || (!form.id && canCreate)) && (
         <form className="form-card admin-inline-form" onSubmit={save}>
           <div className="form-card__heading">
             <span className="section-marker" />
@@ -109,9 +119,9 @@ export default function CatalogManager({ config }) {
               <label className={`field-group${field.wide ? ' is-wide' : ''}`} key={field.name}>
                 <span className="field-label">{field.label}</span>
                 {field.type === 'textarea' ? (
-                  <textarea className="form-control ticket-textarea" rows="3" value={form[field.name] || ''} onChange={(event) => setForm({ ...form, [field.name]: event.target.value })} />
+                  <textarea className="form-control ticket-textarea" rows="3" value={form[field.name] || ''} onChange={(event) => setForm({ ...form, [field.name]: event.target.value })} required={field.required} />
                 ) : field.type === 'select' ? (
-                  <select className="form-control" value={form[field.name] || ''} onChange={(event) => setForm({ ...form, [field.name]: event.target.value })}>
+                  <select className="form-control" value={form[field.name] || ''} onChange={(event) => setForm({ ...form, [field.name]: event.target.value })} required={field.required}>
                     {field.options.map((option) => <option key={option}>{option}</option>)}
                   </select>
                 ) : (
@@ -121,7 +131,7 @@ export default function CatalogManager({ config }) {
             ))}
           </div>
           <div className="form-actions">
-            <button type="button" className="button button--secondary" onClick={() => setShowForm(false)}>Cancelar</button>
+            <button type="button" className="button button--secondary" onClick={() => { setShowForm(false); setError(''); }}>Cancelar</button>
             <button className="button button--primary" disabled={saving}>{saving ? 'Guardando...' : 'Guardar'}</button>
           </div>
         </form>
@@ -150,8 +160,8 @@ export default function CatalogManager({ config }) {
                   </div>
                   {config.summary(view).map((line) => <p key={line.label}>{line.icon && <Icon name={line.icon} />} {line.value || line.empty}</p>)}
                 </div>
-                {canManage && (
-                  <button className="icon-button icon-button--outlined" type="button" onClick={() => edit(record)} aria-label="Editar">
+                {canEdit && (
+                  <button className="icon-button icon-button--outlined" type="button" onClick={() => edit(record)} aria-label={`Editar ${view.name || config.singular}`}>
                     <Icon name="edit" />
                   </button>
                 )}
@@ -163,7 +173,7 @@ export default function CatalogManager({ config }) {
         <div className="empty-state">
           <Icon name={config.icon} />
           <h2>Sin registros</h2>
-          <p>{canManage ? config.emptyMessage : 'No hay registros disponibles para consulta.'}</p>
+          <p>{canCreate ? config.emptyMessage : 'No hay registros disponibles para consulta.'}</p>
         </div>
       )}
     </div>
