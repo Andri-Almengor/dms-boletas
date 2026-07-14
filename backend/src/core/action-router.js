@@ -24,13 +24,28 @@ add('users.get',usersHandlers.get,'USUARIOS_VER'); add('users.create',usersHandl
 add(['config.get','app.config.get'],getConfig);
 add(['ai.technicalRewrite','gemini.technicalRewrite','boletas.ai.rewrite'], async (ctx)=>rewriteTechnicalReport(ctx.payload), ['BOLETAS_CREAR','BOLETAS_EDITAR','MANTENIMIENTOS_CREAR','MANTENIMIENTOS_EDITAR','MANTENIMIENTOS_GESTIONAR']);
 
+const operationalCatalogPermissions = ['BOLETAS_CREAR','BOLETAS_EDITAR','MANTENIMIENTOS_CREAR','MANTENIMIENTOS_EDITAR','MANTENIMIENTOS_GESTIONAR'];
+const operationalClientDataPermissions = [
+  'CLIENTES_DATOS_OPERATIVOS_CREAR',
+  'CLIENTES_EDITAR',
+  'BOLETAS_CREAR',
+  'BOLETAS_EDITAR',
+  'MANTENIMIENTOS_CREAR',
+  'MANTENIMIENTOS_EDITAR',
+  'MANTENIMIENTOS_GESTIONAR',
+];
+const clientOperationalKeys = new Set(['clientLocations','equipmentLocations','contacts']);
+
 const crudRouteGroups = [
   ['clients',['clients','clientes']],['clientLocations',['clientLocations','clients.locations','clientes.ubicaciones','ubicacionesCliente']],['equipmentLocations',['equipmentLocations','clients.equipmentLocations','clientes.ubicacionesEquipo','ubicacionesEquipo']],['contacts',['contacts','clients.contacts','clientes.contactos','contactosCliente']],
   ['categories',['catalog.categories','categories','categorias','catalog.operational.categories']],['deviceTypes',['catalog.deviceTypes','deviceTypes','tiposDispositivo','catalog.operational.deviceTypes']],['manufacturers',['catalog.manufacturers','manufacturers','fabricantes','catalog.operational.manufacturers']],['models',['catalog.models','models','modelos','catalog.operational.models']],['failureTypes',['catalog.failureTypes','failureTypes','tiposFalla','catalog.operational.failureTypes']],['deviceManufacturers',['catalog.deviceManufacturers','deviceManufacturers','tipoDispositivoFabricantes','catalog.operational.deviceManufacturers']],['knowledgeCategories',['knowledge.categories','baseConocimientos.categorias','categoriasConocimiento']]
 ];
 for(const [key,prefixes] of crudRouteGroups){for(const prefix of prefixes){
   const operational=prefix.includes('.operational.');
-  const createPermission=operational?['BOLETAS_CREAR','BOLETAS_EDITAR','MANTENIMIENTOS_CREAR','MANTENIMIENTOS_EDITAR','MANTENIMIENTOS_GESTIONAR']:(key==='clients'?'CLIENTES_CREAR':key.startsWith('client')||key==='contacts'?'CLIENTES_EDITAR':'CATALOGOS_GESTIONAR');
+  let createPermission='CATALOGOS_GESTIONAR';
+  if(operational) createPermission=operationalCatalogPermissions;
+  else if(key==='clients') createPermission='CLIENTES_CREAR';
+  else if(clientOperationalKeys.has(key)) createPermission=operationalClientDataPermissions;
   add(`${prefix}.list`,c[key].list);add(`${prefix}.get`,c[key].get);add(`${prefix}.create`,c[key].create,createPermission);add(`${prefix}.update`,c[key].update,createPermission);
 }}
 
