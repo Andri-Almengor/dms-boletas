@@ -1,9 +1,10 @@
-import React, { useEffect, useState } from 'react';
+import React, { useEffect, useRef, useState } from 'react';
 import { Link, useNavigate, useParams } from 'react-router-dom';
 import { useAuth } from '../../AuthContext';
 import Icon from '../../components/common/Icon';
 import ImageViewer from '../../components/tickets/ImageViewer';
 import MediaPreview from '../../components/tickets/MediaPreview';
+import SignaturePad from '../../components/tickets/SignaturePad';
 import { TicketStatusChip } from '../../components/tickets/TicketCard';
 import { MODULE_ROUTES, pick, requestAvailable } from '../../services/moduleApi';
 import { formatDate, formatTime, normalizeTicketStatus } from '../../utils/tickets';
@@ -44,10 +45,19 @@ async function fileToBase64(file) {
   });
 }
 
+function cameraEvidenceName() {
+  const formatter = new Intl.DateTimeFormat('es-CR', {
+    year: 'numeric', month: '2-digit', day: '2-digit', hour: '2-digit', minute: '2-digit',
+  });
+  return `Foto ${formatter.format(new Date())}`;
+}
+
 export default function TicketDetailPage() {
   const { boletaUid } = useParams();
   const { sessionToken, hasPermission } = useAuth();
   const navigate = useNavigate();
+  const cameraInputRef = useRef(null);
+  const fileInputRef = useRef(null);
   const [data, setData] = useState(null);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState('');
@@ -55,9 +65,11 @@ export default function TicketDetailPage() {
   const [processing, setProcessing] = useState(false);
   const [viewer, setViewer] = useState(null);
   const [evidenceForm, setEvidenceForm] = useState({ name: '', note: '', file: null });
+  const [signatureEditorOpen, setSignatureEditorOpen] = useState(false);
+  const [signatureDraft, setSignatureDraft] = useState('');
 
   const canEdit = hasPermission('BOLETAS_EDITAR');
-  const canEvidence = hasPermission('BOLETAS_EVIDENCIAS');
+  const canEvidence = hasPermission('BOLETAS_EVIDENCIAS') || canEdit;
   const canFinalize = hasPermission('BOLETAS_FINALIZAR');
   const canAdmin = hasPermission('BOLETAS_ELIMINAR') || hasPermission('USUARIOS_GESTIONAR');
   const canTest = hasPermission('NOTIFICACIONES_PRUEBA') && hasPermission('USUARIOS_GESTIONAR');
@@ -135,11 +147,25 @@ export default function TicketDetailPage() {
     }
   }
 
+  function selectEvidenceFile(file, source = 'file') {
+    if (!file) return;
+    setError('');
+    setEvidenceForm((current) => ({
+      ...current,
+      file,
+      name: current.name || (source === 'camera' ? cameraEvidenceName() : file.name),
+    }));
+  }
+
   async function uploadEvidence(event) {
     event.preventDefault();
-    if (!evidenceForm.file) return;
+    if (!evidenceForm.file) {
+      setError('Tome una foto o seleccione un archivo antes de guardar la evidencia.');
+      return;
+    }
     setProcessing(true);
     setError('');
+    setNotice('');
     try {
       await requestAvailable(MODULE_ROUTES.tickets.evidenceUpload, {
         boletaUid,
@@ -150,7 +176,36 @@ export default function TicketDetailPage() {
         base64: await fileToBase64(evidenceForm.file),
       }, sessionToken);
       setEvidenceForm({ name: '', note: '', file: null });
-      event.target.reset();
+      event.currentTarget.reset();
+      if (cameraInputRef.current) cameraInputRef.current.value = '';
+      if (fileInputRef.current) fileInputRef.current.value = '';
+      setNotice('Evidencia agregada correctamente.');
+      await loadTicket();
+    } catch (err) {
+      setError(err.message);
+    } finally {
+      setProcessing(false);
+    }
+  }
+
+  async function saveSignature() {
+    if (!signatureDraft?.startsWith('data:image/')) {
+      setError('Dibuje o modifique la firma antes de guardarla.');
+      return;
+    }
+    setProcessing(true);
+    setError('');
+    setNotice('');
+    try {
+      await requestAvailable(MODULE_ROUTES.tickets.signatureUpload, {
+        boletaUid,
+        base64: signatureDraft.split(',')[1],
+        mimeType: 'image/png',
+        fileName: `firma_boleta_${boletaUid}.png`,
+      }, sessionToken);
+      setSignatureDraft('');
+      setSignatureEditorOpen(false);
+      setNotice('Firma actualizada correctamente.');
       await loadTicket();
     } catch (err) {
       setError(err.message);
@@ -221,6 +276,7 @@ export default function TicketDetailPage() {
   const signatureUrl = pick(record, ['FirmaURL', 'FirmaUrl', 'Firma', 'signature']);
   const deviceName = pick(record, ['Descripcion', 'Descripción', 'DescripcionEquipo', 'NombreEquipo']);
   const backTo = status === 'FINALIZADA' ? '/boletas/finalizadas' : '/boletas/pendientes';
+  const canModifyPending = status !== 'FINALIZADA';
 
   return (
     <div className="page page--narrow ticket-detail-page">
@@ -308,23 +364,63 @@ export default function TicketDetailPage() {
           <div className="empty-state"><Icon name="photo_library" /><h2>Sin evidencias</h2><p>No hay archivos asociados a esta boleta.</p></div>
         )}
 
-        {canEvidence && status !== 'FINALIZADA' && (
-          <form className="evidence-inline-form" onSubmit={uploadEvidence}>
+        {canEvidence && canModifyPending && (
+          <form className="evidence-inline-form ticket-detail-evidence-form" onSubmit={uploadEvidence}>
+            <div className="ticket-detail-capture-actions">
+              <input
+                ref={cameraInputRef}
+                className="ticket-detail-hidden-input"
+                type="file"
+                accept="image/*"
+                capture="environment"
+                onChange={(event) => selectEvidenceFile(event.target.files?.[0], 'camera')}
+              />
+              <button className="button button--primary" type="button" onClick={() => cameraInputRef.current?.click()} disabled={processing}>
+                <Icon name="photo_camera" /> Tomar foto
+              </button>
+              <button className="button button--secondary" type="button" onClick={() => fileInputRef.current?.click()} disabled={processing}>
+                <Icon name="upload_file" /> Seleccionar archivo
+              </button>
+              <input
+                ref={fileInputRef}
+                className="ticket-detail-hidden-input"
+                type="file"
+                accept="image/*,.pdf,.doc,.docx"
+                onChange={(event) => selectEvidenceFile(event.target.files?.[0], 'file')}
+              />
+            </div>
+            {evidenceForm.file && <div className="ticket-detail-selected-file"><Icon name="check_circle" /><span>{evidenceForm.file.name}</span></div>}
             <input className="form-control" value={evidenceForm.name} onChange={(event) => setEvidenceForm((current) => ({ ...current, name: event.target.value }))} placeholder="Nombre de la evidencia" />
             <input className="form-control" value={evidenceForm.note} onChange={(event) => setEvidenceForm((current) => ({ ...current, note: event.target.value }))} placeholder="Nota opcional" />
-            <input className="form-control" type="file" accept="image/*,.pdf,.doc,.docx" onChange={(event) => setEvidenceForm((current) => ({ ...current, file: event.target.files?.[0] || null }))} required />
-            <button className="button button--primary" disabled={processing}><Icon name="add_a_photo" /> Añadir evidencia</button>
+            <button className="button button--primary" disabled={processing || !evidenceForm.file}><Icon name="add_a_photo" /> {processing ? 'Guardando...' : 'Añadir evidencia'}</button>
           </form>
         )}
       </section>
 
       <section className="section-block">
-        <div className="section-heading"><div><span className="eyebrow">Conformidad</span><h2>Firma del Cliente</h2></div></div>
-        <div className="signature-display">
-          {signatureFileId || signatureUrl
-            ? <MediaPreview boletaUid={boletaUid} fileId={signatureFileId} kind="signature" directUrl={signatureUrl} mimeType="image/png" alt="Firma del cliente" onOpen={(source) => setViewer({ source, alt: 'Firma del cliente' })} />
-            : <span><Icon name="draw" /> Firma pendiente</span>}
+        <div className="section-heading ticket-signature-heading">
+          <div><span className="eyebrow">Conformidad</span><h2>Firma del Cliente</h2></div>
+          {canEdit && canModifyPending && !signatureEditorOpen && (
+            <button className="button button--secondary button--compact" type="button" onClick={() => { setSignatureDraft(''); setSignatureEditorOpen(true); }}>
+              <Icon name="draw" /> {signatureFileId || signatureUrl ? 'Editar firma' : 'Agregar firma'}
+            </button>
+          )}
         </div>
+        {signatureEditorOpen ? (
+          <div className="ticket-signature-editor">
+            <SignaturePad value={signatureDraft} onChange={setSignatureDraft} />
+            <div className="ticket-signature-editor__actions">
+              <button className="button button--secondary" type="button" disabled={processing} onClick={() => { setSignatureDraft(''); setSignatureEditorOpen(false); }}><Icon name="close" /> Cancelar</button>
+              <button className="button button--primary" type="button" disabled={processing || !signatureDraft} onClick={saveSignature}><Icon name="save" /> {processing ? 'Guardando...' : 'Guardar firma'}</button>
+            </div>
+          </div>
+        ) : (
+          <div className="signature-display">
+            {signatureFileId || signatureUrl
+              ? <MediaPreview boletaUid={boletaUid} fileId={signatureFileId} kind="signature" directUrl={signatureUrl} mimeType="image/png" alt="Firma del cliente" onOpen={(source) => setViewer({ source, alt: 'Firma del cliente' })} />
+              : <span><Icon name="draw" /> Firma pendiente</span>}
+          </div>
+        )}
       </section>
 
       <section className="document-links">
@@ -337,7 +433,7 @@ export default function TicketDetailPage() {
       </section>
 
       <div className="ticket-detail-actions">
-        {canEdit && status !== 'FINALIZADA' && <Link className="button button--secondary" to={`/boletas/${encodeURIComponent(boletaUid)}/editar`}><Icon name="edit" /> Editar</Link>}
+        {canEdit && canModifyPending && <Link className="button button--secondary" to={`/boletas/${encodeURIComponent(boletaUid)}/editar`}><Icon name="edit" /> Editar</Link>}
         {canTest && <button className="button button--secondary" type="button" onClick={() => finalAction('test')} disabled={processing}><Icon name="science" /> Probar</button>}
         {status === 'FINALIZADA'
           ? <>
