@@ -23,6 +23,11 @@ import UsersPage from '../pages/users/UsersPage';
 import PermissionRoute from '../routes/PermissionRoute';
 import ProtectedRoute from '../routes/ProtectedRoute';
 
+const MAINTENANCE_VIEW = ['MANTENIMIENTOS_VER','MANTENIMIENTOS_CREAR','MANTENIMIENTOS_EDITAR','MANTENIMIENTOS_GESTIONAR','BOLETAS_VER'];
+const MAINTENANCE_CREATE = ['MANTENIMIENTOS_CREAR','MANTENIMIENTOS_GESTIONAR','BOLETAS_CREAR'];
+const MAINTENANCE_EDIT = ['MANTENIMIENTOS_EDITAR','MANTENIMIENTOS_GESTIONAR','BOLETAS_EDITAR'];
+const KNOWLEDGE_CREATE = ['CONOCIMIENTO_CREAR','CONOCIMIENTO_GESTIONAR','BOLETAS_CREAR','USUARIOS_GESTIONAR'];
+
 export default function App() {
   return <Routes>
     <Route path="/login" element={<LoginPage />} />
@@ -33,17 +38,17 @@ export default function App() {
       <Route path="boletas/nueva" element={<PermissionRoute permission="BOLETAS_CREAR"><TicketFormPage mode="create" /></PermissionRoute>} />
       <Route path="boletas/:boletaUid" element={<PermissionRoute permission="BOLETAS_VER"><TicketDetailPage /></PermissionRoute>} />
       <Route path="boletas/:boletaUid/editar" element={<PermissionRoute permission="BOLETAS_EDITAR"><TicketFormPage mode="edit" /></PermissionRoute>} />
-      <Route path="mantenimientos" element={<MaintenanceListPage />} />
-      <Route path="mantenimientos/nuevo" element={<MaintenanceFormPage mode="create" />} />
-      <Route path="mantenimientos/:maintenanceId" element={<MaintenanceDetailPage />} />
-      <Route path="mantenimientos/:maintenanceId/editar" element={<MaintenanceFormPage mode="edit" />} />
+      <Route path="mantenimientos" element={<PermissionRoute anyOf={MAINTENANCE_VIEW}><MaintenanceListPage /></PermissionRoute>} />
+      <Route path="mantenimientos/nuevo" element={<PermissionRoute anyOf={MAINTENANCE_CREATE}><MaintenanceFormPage mode="create" /></PermissionRoute>} />
+      <Route path="mantenimientos/:maintenanceId" element={<PermissionRoute anyOf={MAINTENANCE_VIEW}><MaintenanceDetailPage /></PermissionRoute>} />
+      <Route path="mantenimientos/:maintenanceId/editar" element={<PermissionRoute anyOf={MAINTENANCE_EDIT}><MaintenanceFormPage mode="edit" /></PermissionRoute>} />
       <Route path="conocimiento" element={<KnowledgeListPage />} />
-      <Route path="conocimiento/nuevo" element={<KnowledgeEditorPage mode="create" />} />
-      <Route path="conocimiento/categorias" element={<KnowledgeCategoriesPage />} />
+      <Route path="conocimiento/nuevo" element={<PermissionRoute anyOf={KNOWLEDGE_CREATE}><KnowledgeEditorPage mode="create" /></PermissionRoute>} />
+      <Route path="conocimiento/categorias" element={<PermissionRoute anyOf={['CONOCIMIENTO_CATEGORIAS_GESTIONAR','USUARIOS_GESTIONAR']}><KnowledgeCategoriesPage /></PermissionRoute>} />
       <Route path="conocimiento/:tutorialId" element={<KnowledgeDetailPage />} />
       <Route path="conocimiento/:tutorialId/editar" element={<KnowledgeEditorPage mode="edit" />} />
       <Route path="clientes" element={<PermissionRoute permission="CLIENTES_VER"><ClientsPage /></PermissionRoute>} />
-      <Route path="catalogos" element={<CatalogsPage />} />
+      <Route path="catalogos" element={<PermissionRoute anyOf={['CATALOGOS_VER','CATALOGOS_GESTIONAR','USUARIOS_GESTIONAR']}><CatalogsPage /></PermissionRoute>} />
       <Route path="categorias" element={<Navigate to="/catalogos" replace />} />
       <Route path="cambiar-contrasena" element={<ChangePasswordPage />} />
       <Route path="mas" element={<MorePage />} />

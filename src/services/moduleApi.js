@@ -74,7 +74,7 @@ export const MODULE_ROUTES = {
     create: ['knowledge.categories.create', 'baseConocimientos.categorias.create', 'categoriasConocimiento.create'],
     update: ['knowledge.categories.update', 'baseConocimientos.categorias.update', 'categoriasConocimiento.update'],
   },
-  users: { list: ['users.list'] },
+  users: { list: ['users.assignment.list', 'users.list'], adminList: ['users.list'] },
   config: { get: ['config.get', 'app.config.get'] },
 };
 

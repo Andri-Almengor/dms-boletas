@@ -17,7 +17,8 @@ export default function MorePage() {
   const navigate = useNavigate();
   const isAdmin = hasPermission('USUARIOS_GESTIONAR');
   const canManageKnowledgeCategories = hasPermission('CONOCIMIENTO_CATEGORIAS_GESTIONAR') || isAdmin;
-  const canViewMaintenance = hasPermission('MANTENIMIENTOS_VER') || hasPermission('BOLETAS_VER');
+  const canViewMaintenance = ['MANTENIMIENTOS_VER','MANTENIMIENTOS_CREAR','MANTENIMIENTOS_EDITAR','MANTENIMIENTOS_GESTIONAR','BOLETAS_VER']
+    .some((permission) => hasPermission(permission));
   async function handleLogout() { await logout(); navigate('/login', { replace: true }); }
 
   return <div className="page page--narrow">

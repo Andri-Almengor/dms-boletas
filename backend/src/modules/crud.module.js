@@ -7,8 +7,46 @@ function hasAny(object, keys) {
   return keys.some((key) => Object.prototype.hasOwnProperty.call(object || {}, key));
 }
 
+function normalizedKey(value) {
+  return String(value || '').replace(/[^a-z0-9]/gi, '').toLowerCase();
+}
+
+function payloadHasCanonicalField(payload, canonicalField) {
+  const expected = normalizedKey(canonicalField);
+  return Object.keys(payload || {}).some((key) => normalizedKey(key) === expected);
+}
+
+function mappedUpdatePatch(definitionKey, def, payload) {
+  const mapped = def.map(payload);
+  const patch = Object.fromEntries(Object.entries(mapped).filter(([field]) => payloadHasCanonicalField(payload, field)));
+
+  // RazonSocial se mantiene sincronizada con el nombre visible del cliente.
+  if (definitionKey === 'clients' && hasAny(payload, ['Nombre', 'Clientes', 'Cliente', 'name'])) {
+    patch.Nombre = mapped.Nombre;
+    patch.RazonSocial = mapped.RazonSocial;
+  }
+
+  // El webhook se puede borrar de forma intencional enviando una cadena vacía.
+  if (definitionKey === 'clients' && hasAny(payload, ['ChatWebhook', 'ChatWebhookURL', 'chatWebhook'])) {
+    patch.ChatWebhook = mapped.ChatWebhook || '';
+  }
+
+  return patch;
+}
+
 function canViewClientWebhook(ctx) {
   return ctx.permissions?.includes('USUARIOS_GESTIONAR') || ctx.permissions?.includes('CLIENTES_EDITAR');
+}
+
+function canIncludeInactive(ctx, definitionKey) {
+  if (ctx.permissions?.includes('USUARIOS_GESTIONAR')) return true;
+  if (definitionKey === 'clients' || ['clientLocations', 'equipmentLocations', 'contacts'].includes(definitionKey)) {
+    return ctx.permissions?.includes('CLIENTES_EDITAR');
+  }
+  if (definitionKey === 'knowledgeCategories') {
+    return ctx.permissions?.includes('CONOCIMIENTO_CATEGORIAS_GESTIONAR');
+  }
+  return ctx.permissions?.includes('CATALOGOS_GESTIONAR');
 }
 
 function sanitizeClientRow(row, ctx) {
@@ -55,7 +93,10 @@ export function crudHandlers(definitionKey) {
     list: async (ctx) => {
       const { payload } = ctx;
       let rows = await readTable(def.table);
-      rows = rows.filter((row) => String(row.Estado || 'ACTIVO').toUpperCase() !== 'INACTIVO' && row.Activo !== false);
+      const includeInactive = asBool(payload.includeInactive, false) && canIncludeInactive(ctx, definitionKey);
+      if (!includeInactive) {
+        rows = rows.filter((row) => String(row.Estado || 'ACTIVO').toUpperCase() !== 'INACTIVO' && row.Activo !== false);
+      }
       if (def.parent) {
         const parentValue = payload[def.parent] ?? payload[def.parent.charAt(0).toLowerCase() + def.parent.slice(1)] ?? payload.clienteId ?? payload.ubicacionId;
         if (parentValue) rows = rows.filter((row) => String(row[def.parent]) === String(parentValue));
@@ -79,7 +120,15 @@ export function crudHandlers(definitionKey) {
     update: async (ctx) => {
       const id = pick(ctx.payload, [def.id,'id','clienteId','ubicacionId','contactoId']); if (!id) throw badRequest('Falta el identificador.');
       const before = (await readTable(def.table)).find((row) => String(row[def.id]) === String(id));
-      const patch = { ...def.map(ctx.payload), Activo: ctx.payload.Activo ?? ctx.payload.activo ?? before?.Activo ?? true, Estado: pick(ctx.payload,['Estado','status'],before?.Estado || 'ACTIVO'), ActualizadoPor: ctx.user.UsuarioID, FechaActualizacion: nowIso() };
+      if (!before) throw badRequest('No se encontró el registro.');
+      const mapped = mappedUpdatePatch(definitionKey, def, ctx.payload);
+      const patch = {
+        ...mapped,
+        Activo: ctx.payload.Activo ?? ctx.payload.activo ?? before.Activo ?? true,
+        Estado: pick(ctx.payload,['Estado','status'],before.Estado || 'ACTIVO'),
+        ActualizadoPor: ctx.user.UsuarioID,
+        FechaActualizacion: nowIso(),
+      };
       const after = await updateRow(def.table, id, patch); await audit(ctx, `EDITAR_${def.table.toUpperCase()}`, def.table, id, before, after); return after;
     },
   };

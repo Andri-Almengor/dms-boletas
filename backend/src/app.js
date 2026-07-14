@@ -69,6 +69,7 @@ app.use((_req, res) => {
 
 app.use((error, _req, res, _next) => {
   const status = error.status || error.statusCode || (error instanceof AppError ? error.status : 500);
+  const isExpected = error instanceof AppError;
   if (status >= 500) console.error(error);
   else console.warn(`[${error.code || 'REQUEST_ERROR'}] ${error.message}`);
 
@@ -76,8 +77,8 @@ app.use((error, _req, res, _next) => {
     ok: false,
     error: {
       code: error.code || 'INTERNAL_ERROR',
-      message: status >= 500 ? 'Ocurrió un error interno en el servidor.' : error.message,
-      details: error.details || null,
+      message: isExpected ? error.message : (status >= 500 ? 'Ocurrió un error interno en el servidor.' : error.message),
+      details: isExpected ? error.details || null : null,
     },
   });
 });

@@ -25,8 +25,9 @@ function TextField({ label, multiline = false, ...props }) {
 
 export default function CatalogsPage() {
   const { sessionToken, hasPermission } = useAuth();
-  const canView = hasPermission('CATALOGOS_VER') || hasPermission('CATALOGOS_GESTIONAR');
-  const canManage = hasPermission('USUARIOS_GESTIONAR') && hasPermission('CATALOGOS_GESTIONAR');
+  const isAdmin = hasPermission('USUARIOS_GESTIONAR');
+  const canView = hasPermission('CATALOGOS_VER') || hasPermission('CATALOGOS_GESTIONAR') || isAdmin;
+  const canManage = hasPermission('CATALOGOS_GESTIONAR') || isAdmin;
   const [tab, setTab] = useState('categories');
   const [data, setData] = useState({ categories: [], deviceTypes: [], manufacturers: [], models: [], failureTypes: [], relations: [] });
   const [loading, setLoading] = useState(true);
@@ -46,7 +47,7 @@ export default function CatalogsPage() {
       ['relations', MODULE_ROUTES.deviceManufacturers.list],
     ];
     const results = await Promise.allSettled(
-      requests.map(([, routes]) => requestAvailable(routes, { page: 1, pageSize: 1000, sortBy: 'Nombre', sortDir: 'asc' }, sessionToken)),
+      requests.map(([, routes]) => requestAvailable(routes, { page: 1, pageSize: 1000, sortBy: 'Nombre', sortDir: 'asc', includeInactive: canManage }, sessionToken)),
     );
     const next = {};
     const failures = [];
@@ -59,7 +60,7 @@ export default function CatalogsPage() {
     setLoading(false);
   }
 
-  useEffect(() => { if (canView) load(); }, [sessionToken, canView]);
+  useEffect(() => { if (canView) load(); }, [sessionToken, canView, canManage]);
   const activeConfig = useMemo(() => catalogConfig(tab, data), [tab, data]);
 
   async function toggle(record) {
@@ -67,6 +68,7 @@ export default function CatalogsPage() {
     const active = toBoolean(pick(record, ['Activo', 'activo'], true), true);
     if (!window.confirm(`${active ? 'Desactivar' : 'Reactivar'} este registro?`)) return;
     setSaving(true);
+    setError('');
     try {
       await requestAvailable(
         activeConfig.routes.update,
@@ -84,7 +86,7 @@ export default function CatalogsPage() {
   async function create(event) {
     event.preventDefault();
     if (!canManage) {
-      setError('Solo los administradores pueden crear registros en Catálogos.');
+      setError('No cuenta con permiso para crear registros en Catálogos.');
       return;
     }
 
@@ -121,19 +123,15 @@ export default function CatalogsPage() {
       <div className="list-page-heading">
         <div><span className="eyebrow">Administración</span><h1>Catálogos</h1><p>Valores operativos utilizados por las boletas.</p></div>
         {canManage && (
-          <button
-            className="button button--primary button--compact"
-            type="button"
-            onClick={() => setModal({ values: { nombre: '', descripcion: '', tipoDispositivoId: '', fabricanteId: '', imagenReferenciaURL: '' } })}
-          >
+          <button className="button button--primary button--compact" type="button" onClick={() => setModal({ values: { nombre: '', descripcion: '', tipoDispositivoId: '', fabricanteId: '', imagenReferenciaURL: '' } })}>
             <Icon name="add" /> Nuevo
           </button>
         )}
       </div>
 
-      <div className="catalog-tabs" role="tablist">
+      <div className="catalog-tabs" role="tablist" aria-label="Tipos de catálogo">
         {TABS.map(([key, label, icon]) => (
-          <button key={key} className={tab === key ? 'is-active' : ''} type="button" onClick={() => setTab(key)}>
+          <button key={key} className={tab === key ? 'is-active' : ''} type="button" role="tab" aria-selected={tab === key} onClick={() => setTab(key)}>
             <Icon name={icon} /><span>{label}</span>
           </button>
         ))}
@@ -142,7 +140,7 @@ export default function CatalogsPage() {
       {!canManage && (
         <div className="readonly-notice">
           <Icon name="visibility" />
-          <span>Modo consulta: los técnicos pueden revisar los catálogos, pero solo un administrador puede agregar, desactivar o reactivar registros.</span>
+          <span>Modo consulta: puede revisar los catálogos, pero no agregar, desactivar ni reactivar registros.</span>
         </div>
       )}
 
@@ -173,14 +171,7 @@ export default function CatalogsPage() {
       )}
 
       {canManage && (
-        <InlineCreateModal
-          open={Boolean(modal)}
-          title={`Nuevo registro: ${TABS.find(([key]) => key === tab)?.[1]}`}
-          saving={saving}
-          error={error}
-          onClose={() => setModal(null)}
-          onSubmit={create}
-        >
+        <InlineCreateModal open={Boolean(modal)} title={`Nuevo registro: ${TABS.find(([key]) => key === tab)?.[1]}`} saving={saving} error={error} onClose={() => setModal(null)} onSubmit={create}>
           {modal && <CatalogCreateFields tab={tab} values={modal.values} setModal={setModal} data={data} />}
         </InlineCreateModal>
       )}
@@ -197,8 +188,8 @@ function CatalogCreateFields({ tab, values, setModal, data }) {
   if (tab === 'relations') {
     return (
       <>
-        <Select label="Tipo de dispositivo" name="tipoDispositivoId" value={values.tipoDispositivoId} onChange={change} records={data.deviceTypes} idKeys={['TipoDispositivoID']} labelKeys={['Nombre']} required />
-        <Select label="Fabricante" name="fabricanteId" value={values.fabricanteId} onChange={change} records={data.manufacturers} idKeys={['FabricanteID']} labelKeys={['Nombre']} required />
+        <Select label="Tipo de dispositivo" name="tipoDispositivoId" value={values.tipoDispositivoId} onChange={change} records={data.deviceTypes.filter((item) => toBoolean(pick(item, ['Activo'], true), true))} idKeys={['TipoDispositivoID']} labelKeys={['Nombre']} required />
+        <Select label="Fabricante" name="fabricanteId" value={values.fabricanteId} onChange={change} records={data.manufacturers.filter((item) => toBoolean(pick(item, ['Activo'], true), true))} idKeys={['FabricanteID']} labelKeys={['Nombre']} required />
       </>
     );
   }
@@ -209,8 +200,8 @@ function CatalogCreateFields({ tab, values, setModal, data }) {
       {tab !== 'manufacturers' && <TextField label="Descripción" name="descripcion" value={values.descripcion} onChange={change} multiline />}
       {tab === 'models' && (
         <>
-          <Select label="Tipo de dispositivo" name="tipoDispositivoId" value={values.tipoDispositivoId} onChange={change} records={data.deviceTypes} idKeys={['TipoDispositivoID']} labelKeys={['Nombre']} required />
-          <Select label="Fabricante" name="fabricanteId" value={values.fabricanteId} onChange={change} records={data.manufacturers} idKeys={['FabricanteID']} labelKeys={['Nombre']} required />
+          <Select label="Tipo de dispositivo" name="tipoDispositivoId" value={values.tipoDispositivoId} onChange={change} records={data.deviceTypes.filter((item) => toBoolean(pick(item, ['Activo'], true), true))} idKeys={['TipoDispositivoID']} labelKeys={['Nombre']} required />
+          <Select label="Fabricante" name="fabricanteId" value={values.fabricanteId} onChange={change} records={data.manufacturers.filter((item) => toBoolean(pick(item, ['Activo'], true), true))} idKeys={['FabricanteID']} labelKeys={['Nombre']} required />
           <TextField label="Imagen de referencia (URL)" name="imagenReferenciaURL" value={values.imagenReferenciaURL} onChange={change} />
         </>
       )}

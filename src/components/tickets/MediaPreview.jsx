@@ -19,9 +19,10 @@ export default function MediaPreview({ boletaUid, evidenceId, fileId, kind = 'ev
   const [source, setSource] = useState(canUseDirectly(directUrl) ? directUrl : '');
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState('');
+  const canRequestProtected = Boolean(evidenceId || fileId || kind === 'signature');
 
   async function loadProtectedMedia(force = false) {
-    if ((!evidenceId && !fileId && kind !== 'signature') || (!force && attemptedRef.current)) return;
+    if (!canRequestProtected || (!force && attemptedRef.current)) return;
     attemptedRef.current = true;
     setLoading(true);
     setError('');
@@ -54,6 +55,7 @@ export default function MediaPreview({ boletaUid, evidenceId, fileId, kind = 'ev
       || kind === 'signature'
       || Boolean(fileId && (!directSource || isProtectedGoogleUrl(directUrl)));
     if (needsProtectedMedia) loadProtectedMedia();
+    else if (!directSource) setError('El registro no tiene un archivo disponible.');
     // Se reinicia únicamente cuando cambia el archivo mostrado.
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [boletaUid, evidenceId, fileId, kind, directUrl, sessionToken]);
@@ -61,20 +63,21 @@ export default function MediaPreview({ boletaUid, evidenceId, fileId, kind = 'ev
   const image = String(mimeType || '').startsWith('image/') || String(source || '').startsWith('data:image/');
 
   if (loading && !source) return <div className="media-loading"><Icon name="progress_activity" /> Cargando...</div>;
-  if (error && !source) return <div className="media-error"><Icon name="broken_image" /> <span>No se pudo cargar</span><button type="button" onClick={() => loadProtectedMedia(true)}>Reintentar</button></div>;
-  if (!source) return <div className="media-loading"><Icon name="progress_activity" /> Cargando...</div>;
+  if (error && !source) return <div className="media-error"><Icon name="broken_image" /> <span>{error}</span>{canRequestProtected && <button type="button" onClick={() => { attemptedRef.current = false; loadProtectedMedia(true); }}>Reintentar</button>}</div>;
+  if (!source) return <div className="media-error"><Icon name="hide_image" /><span>Archivo no disponible</span></div>;
   if (!image) return <a className="evidence-file-link" href={source} target="_blank" rel="noreferrer"><Icon name="description" /> Abrir archivo</a>;
 
   return (
-    <button className="media-preview-button" type="button" onClick={() => onOpen?.(source)}>
+    <button className="media-preview-button" type="button" onClick={() => onOpen?.(source)} aria-label={`Abrir ${alt || 'evidencia'}`}>
       <img
         src={source}
         alt={alt || 'Evidencia'}
         loading="lazy"
         decoding="async"
         onError={() => {
-          if (!attemptedRef.current && (evidenceId || fileId || kind === 'signature')) loadProtectedMedia();
-          else setError('No se pudo mostrar la imagen.');
+          setSource('');
+          setError('No se pudo mostrar la imagen.');
+          if (!attemptedRef.current && canRequestProtected) loadProtectedMedia();
         }}
       />
       {loading && <span className="media-preview-button__loading"><Icon name="progress_activity" /></span>}

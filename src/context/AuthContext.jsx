@@ -3,6 +3,23 @@ import { apiRequest } from '../api';
 
 const STORAGE_KEY = 'dms_session';
 const AuthContext = createContext(null);
+const OPERATIONAL_CLIENT_PERMISSIONS = [
+  'BOLETAS_CREAR',
+  'BOLETAS_EDITAR',
+  'MANTENIMIENTOS_CREAR',
+  'MANTENIMIENTOS_EDITAR',
+  'MANTENIMIENTOS_GESTIONAR',
+];
+
+function effectivePermission(permissions, code) {
+  if (!code) return true;
+  if (permissions.includes('USUARIOS_GESTIONAR')) return true;
+  if (permissions.includes(code)) return true;
+  if (code === 'CLIENTES_DATOS_OPERATIVOS_CREAR') {
+    return OPERATIONAL_CLIENT_PERMISSIONS.some((permission) => permissions.includes(permission));
+  }
+  return false;
+}
 
 export function AuthProvider({ children }) {
   const [sessionToken, setSessionToken] = useState(() => {
@@ -45,7 +62,7 @@ export function AuthProvider({ children }) {
   }, [sessionToken]);
 
   function clearSession() {
-    localStorage.removeItem(STORAGE_KEY);
+    try { localStorage.removeItem(STORAGE_KEY); } catch { /* La sesión en memoria también se limpia. */ }
     setSessionToken('');
     setUser(null);
     setPermissions([]);
@@ -54,7 +71,7 @@ export function AuthProvider({ children }) {
 
   async function login(username, password) {
     const data = await apiRequest('auth.login', { username, password });
-    localStorage.setItem(STORAGE_KEY, JSON.stringify({ sessionToken: data.sessionToken }));
+    try { localStorage.setItem(STORAGE_KEY, JSON.stringify({ sessionToken: data.sessionToken })); } catch { /* La sesión seguirá activa mientras la pestaña permanezca abierta. */ }
     setSessionToken(data.sessionToken);
     setUser(data.user);
     setPermissions(data.permissions || []);
@@ -85,7 +102,7 @@ export function AuthProvider({ children }) {
     logout,
     refreshMe,
     clearSession,
-    hasPermission: (code) => permissions.includes(code),
+    hasPermission: (code) => effectivePermission(permissions, code),
   }), [sessionToken, user, permissions, loading]);
 
   return <AuthContext.Provider value={value}>{children}</AuthContext.Provider>;
