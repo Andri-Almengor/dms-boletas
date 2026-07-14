@@ -79,13 +79,13 @@ export default function TicketDetailPage() {
   if (loading) return <div className="page"><div className="state-card state-card--loading"><Icon name="progress_activity" /><span>Cargando boleta...</span></div></div>;
 
   const evidences = data?.evidencias || data?.evidences || [];
-  const assigned = (data?.asignados || []).map((item) => pick(item, ['NombreCompleto', 'Nombre', 'name'])).filter(Boolean).join(', ');
+  const assigned = (data?.asignados || []).map((item) => pick(item, ['NombreCompleto', 'Nombre', 'NombreUsuarioSnapshot', 'name'])).filter(Boolean).join(', ');
   const status = normalizeTicketStatus(record);
   const displayId = pick(record, ['BoletaID', 'TicketID'], boletaUid);
   const pdfUrl = pick(record, ['PDFURL', 'PDFUrl', 'PDF_Url', 'pdfUrl']);
   const documentUrl = pick(record, ['DocumentoURL', 'DocumentoUrl', 'documentUrl']);
   const folderUrl = pick(record, ['CarpetaURL', 'CarpetaUrl', 'folderUrl']);
-  const signatureFileId = pick(record, ['FirmaFileID', 'FirmaArchivoID']);
+  const signatureFileId = pick(record, ['FirmaFileID', 'FirmaArchivoID', 'FirmaDriveFileID']);
   const signatureUrl = pick(record, ['FirmaURL', 'FirmaUrl', 'Firma', 'signature']);
   const backTo = status === 'FINALIZADA' ? '/boletas/finalizadas' : '/boletas/pendientes';
 
@@ -99,8 +99,8 @@ export default function TicketDetailPage() {
     <DetailSection title="Trabajo Realizado" icon="engineering"><InfoGrid items={[[ 'Razón de visita', pick(record, ['RazonVisita', 'Razon_visita']), true ], [ 'Pruebas realizadas', pick(record, ['PruebasRealizadas', 'Pruebas realizadas']), true ], [ 'Resultado', pick(record, ['Resultado']), true ], [ 'Recomendaciones', pick(record, ['Recomendaciones']), true ], [ 'Técnicos asignados', assigned, true ]]} /></DetailSection>
 
     <section className="section-block"><div className="section-heading"><div><span className="eyebrow">Archivos</span><h2>Evidencias Fotográficas</h2></div></div>{evidences.length ? <div className="evidence-gallery">{evidences.map((item, index) => {
-      const fileId = pick(item, ['ArchivoFileID', 'ArchivoID', 'fileId']); const url = pick(item, ['ArchivoURL', 'URL', 'url']); const mimeType = pick(item, ['MimeType', 'mimeType']); const name = pick(item, ['Nombre', 'name'], `Evidencia ${index + 1}`); const note = pick(item, ['Nota', 'note']);
-      return <article className="evidence-detail-card" key={pick(item, ['EvidenciaID', 'id'], index)}><MediaPreview boletaUid={boletaUid} fileId={fileId} directUrl={url} mimeType={mimeType} alt={name} onOpen={(source) => setViewer({ source, alt: name })} /><div><strong>{name}</strong>{note && <p>{note}</p>}</div>{canEvidence && <div className="evidence-detail-card__actions"><button type="button" onClick={() => editEvidence(item)}><Icon name="edit" /></button><button type="button" onClick={() => deleteEvidence(item)}><Icon name="delete" /></button></div>}</article>;
+      const evidenceId = pick(item, ['EvidenciaID', 'id']); const fileId = pick(item, ['ArchivoFileID', 'ArchivoID', 'DriveFileID', 'fileId']); const url = pick(item, ['ArchivoURL', 'DriveURL', 'URL', 'url']); const mimeType = pick(item, ['MimeType', 'mimeType']); const name = pick(item, ['Nombre', 'name'], `Evidencia ${index + 1}`); const note = pick(item, ['Nota', 'note']);
+      return <article className="evidence-detail-card" key={evidenceId || index}><MediaPreview boletaUid={boletaUid} evidenceId={evidenceId} fileId={fileId} directUrl={url} mimeType={mimeType} alt={name} onOpen={(source) => setViewer({ source, alt: name })} /><div><strong>{name}</strong>{note && <p>{note}</p>}</div>{canEvidence && <div className="evidence-detail-card__actions"><button type="button" onClick={() => editEvidence(item)}><Icon name="edit" /></button><button type="button" onClick={() => deleteEvidence(item)}><Icon name="delete" /></button></div>}</article>;
     })}</div> : <div className="empty-state"><Icon name="photo_library" /><h2>Sin evidencias</h2><p>No hay archivos asociados a esta boleta.</p></div>}
       {canEvidence && status !== 'FINALIZADA' && <form className="evidence-inline-form" onSubmit={uploadEvidence}><input className="form-control" value={evidenceForm.name} onChange={(event) => setEvidenceForm((current) => ({ ...current, name: event.target.value }))} placeholder="Nombre de la evidencia" /><input className="form-control" value={evidenceForm.note} onChange={(event) => setEvidenceForm((current) => ({ ...current, note: event.target.value }))} placeholder="Nota opcional" /><input className="form-control" type="file" accept="image/*,.pdf,.doc,.docx" onChange={(event) => setEvidenceForm((current) => ({ ...current, file: event.target.files?.[0] || null }))} required /><button className="button button--primary" disabled={processing}><Icon name="add_a_photo" /> Añadir evidencia</button></form>}
     </section>
