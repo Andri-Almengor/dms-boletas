@@ -4,7 +4,7 @@ import { requestAvailable } from '../../services/moduleApi';
 import '../../styles/technical-writing.css';
 import Icon from '../common/Icon';
 
-const FIELD_KEYS = ['razonVisita', 'descripcion', 'pruebasRealizadas', 'resultado', 'recomendaciones'];
+const FIELD_KEYS = ['razonVisita', 'pruebasRealizadas', 'resultado', 'recomendaciones'];
 const ROUTES = ['ai.technicalRewrite', 'gemini.technicalRewrite', 'boletas.ai.rewrite'];
 
 function snapshot(form) {
@@ -39,6 +39,7 @@ export default function TechnicalWritingAssistant({ form, setForm, disabled = fa
         categoria: form.categoria,
         tipoFalla: form.tipoFalla,
         tipoDispositivo: form.tipoDispositivo,
+        nombreDispositivo: form.nombreDispositivo,
         fabricante: form.fabricante,
         modelo: form.modelo,
         serie: form.serie,
@@ -76,7 +77,7 @@ export default function TechnicalWritingAssistant({ form, setForm, disabled = fa
         <div className="inline-actions">
           <button className="button button--secondary button--compact" type="button" onClick={improve} disabled={disabled || loading || !hasText}>
             <Icon name={loading ? 'progress_activity' : 'auto_awesome'} />
-            {loading ? 'Mejorando redacción...' : 'Mejorar los cinco campos'}
+            {loading ? 'Mejorando redacción...' : 'Mejorar los cuatro campos'}
           </button>
           {previous && (
             <button className="button button--secondary button--compact" type="button" onClick={undo} disabled={disabled || loading}>
