@@ -63,7 +63,7 @@ async function withQuotaRetry(operation) {
   if (isQuotaError(lastError)) {
     throw new AppError(
       'SHEETS_QUOTA_EXCEEDED',
-      'Google Sheets está recibiendo demasiadas consultas. Espere unos segundos y vuelva a intentarlo.',
+      'Google Sheets está recibiendo demasiadas lecturas o escrituras. Espere unos segundos y vuelva a intentarlo.',
       429,
       { retryAfterSeconds: 60 },
     );
@@ -176,7 +176,7 @@ export async function findById(sheetName, idValue, idColumn = TABLES[sheetName]?
 export async function appendRow(sheetName, record) {
   const headers = await getHeaders(sheetName);
   if (!headers.length) throw new Error(`La hoja ${sheetName} no tiene encabezados.`);
-  await sheetsApi.spreadsheets.values.append({ spreadsheetId: env.sheetId, range: `${quote(sheetName)}!A1`, valueInputOption: 'USER_ENTERED', insertDataOption: 'INSERT_ROWS', requestBody: { values: [headers.map((header) => writable(record[header]))] } });
+  await withQuotaRetry(() => sheetsApi.spreadsheets.values.append({ spreadsheetId: env.sheetId, range: `${quote(sheetName)}!A1`, valueInputOption: 'USER_ENTERED', insertDataOption: 'INSERT_ROWS', requestBody: { values: [headers.map((header) => writable(record[header]))] } }));
   invalidateTableCache(sheetName);
   return record;
 }
@@ -196,7 +196,7 @@ export async function updateRow(sheetName, idValue, patch, idColumn = TABLES[she
     });
 
     try {
-      await sheetsApi.spreadsheets.values.batchUpdate({ spreadsheetId: env.sheetId, requestBody: { valueInputOption: 'USER_ENTERED', data } });
+      await withQuotaRetry(() => sheetsApi.spreadsheets.values.batchUpdate({ spreadsheetId: env.sheetId, requestBody: { valueInputOption: 'USER_ENTERED', data } }));
       invalidateTableCache(sheetName);
     } catch (error) {
       if (isProtectedRangeError(error)) {
