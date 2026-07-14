@@ -56,6 +56,8 @@ function isSafeKnowledgeImageSource(value = '') {
   return /^(https?:\/\/|data:image\/(?:png|jpe?g|gif|webp|bmp);base64,)/i.test(String(value).trim());
 }
 
+const SAFE_KNOWLEDGE_SIZES = new Set(['small', 'normal', 'large', 'xlarge']);
+
 export function sanitizeKnowledgeHtml(html = '') {
   if (!html || typeof DOMParser === 'undefined') return '';
   const parser = new DOMParser();
@@ -88,9 +90,15 @@ export function sanitizeKnowledgeHtml(html = '') {
     }
 
     [...node.attributes].forEach((attribute) => {
-      if (node.tagName === 'A' && ['href', 'target', 'rel'].includes(attribute.name)) return;
+      const name = attribute.name.toLowerCase();
+      if (node.tagName === 'A' && ['href', 'target', 'rel'].includes(name)) return;
+      if (node.tagName === 'SPAN' && name === 'data-knowledge-size' && SAFE_KNOWLEDGE_SIZES.has(attribute.value)) return;
       node.removeAttribute(attribute.name);
     });
+    if (node.tagName === 'SPAN') {
+      const size = node.getAttribute('data-knowledge-size');
+      if (size && !SAFE_KNOWLEDGE_SIZES.has(size)) node.removeAttribute('data-knowledge-size');
+    }
     if (node.tagName === 'A') {
       const href = node.getAttribute('href') || '';
       if (!/^(https?:|mailto:)/i.test(href)) node.removeAttribute('href');

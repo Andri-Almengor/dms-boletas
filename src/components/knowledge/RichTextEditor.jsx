@@ -14,6 +14,13 @@ const TOOLS = [
   ['removeFormat', 'format_clear', 'Limpiar formato'],
 ];
 
+const INLINE_SELECTION_TOOLS = new Set(['bold', 'italic', 'underline']);
+const FONT_SIZES = [
+  ['small', 'Pequeña'],
+  ['normal', 'Normal'],
+  ['large', 'Grande'],
+  ['xlarge', 'Muy grande'],
+];
 const INLINE_IMAGE_TARGET_LENGTH = 36000;
 const SAFE_LINK = /^(https?:\/\/|mailto:)/i;
 
@@ -98,13 +105,13 @@ export default function RichTextEditor({ value, onChange, disabled = false }) {
   function restoreSelection() {
     const editor = editorRef.current;
     const selection = window.getSelection?.();
-    if (!editor || !selection) return;
+    if (!editor || !selection) return null;
     editor.focus();
     selection.removeAllRanges();
     try {
       if (savedRangeRef.current && editor.contains(savedRangeRef.current.commonAncestorContainer)) {
         selection.addRange(savedRangeRef.current);
-        return;
+        return savedRangeRef.current;
       }
     } catch { /* La selección quedó desconectada después de modificar el contenido. */ }
     const range = document.createRange();
@@ -112,12 +119,34 @@ export default function RichTextEditor({ value, onChange, disabled = false }) {
     range.collapse(false);
     selection.addRange(range);
     savedRangeRef.current = range.cloneRange();
+    return range;
+  }
+
+  function requireSelectedText(message = 'Selecciona el texto que deseas modificar.') {
+    const range = restoreSelection();
+    if (!range || range.collapsed || !String(range.toString()).trim()) {
+      setImageError(message);
+      return false;
+    }
+    return true;
+  }
+
+  function normalizeFontSize(size) {
+    const editor = editorRef.current;
+    if (!editor) return;
+    editor.querySelectorAll('font[size="7"]').forEach((font) => {
+      const span = document.createElement('span');
+      span.dataset.knowledgeSize = size;
+      while (font.firstChild) span.appendChild(font.firstChild);
+      font.replaceWith(span);
+    });
   }
 
   function run(tool) {
     if (disabled) return;
     setImageError('');
-    restoreSelection();
+    if (INLINE_SELECTION_TOOLS.has(tool) && !requireSelectedText()) return;
+    if (!INLINE_SELECTION_TOOLS.has(tool)) restoreSelection();
     if (tool.startsWith('formatBlock:')) {
       document.execCommand('formatBlock', false, tool.split(':')[1]);
     } else {
@@ -133,6 +162,18 @@ export default function RichTextEditor({ value, onChange, disabled = false }) {
     restoreSelection();
     document.execCommand('formatBlock', false, event.target.value || 'p');
     event.target.value = '';
+    emit();
+    rememberSelection();
+  }
+
+  function setFontSize(event) {
+    const size = event.target.value;
+    event.target.value = '';
+    if (disabled || !size) return;
+    setImageError('');
+    if (!requireSelectedText('Selecciona el texto al que deseas cambiar el tamaño.')) return;
+    document.execCommand('fontSize', false, '7');
+    normalizeFontSize(size);
     emit();
     rememberSelection();
   }
@@ -210,6 +251,10 @@ export default function RichTextEditor({ value, onChange, disabled = false }) {
         <option value="h1">Título 1</option>
         <option value="h2">Título 2</option>
         <option value="h3">Título 3</option>
+      </select>
+      <select defaultValue="" onChange={setFontSize} disabled={disabled} aria-label="Tamaño de texto">
+        <option value="" disabled>Tamaño</option>
+        {FONT_SIZES.map(([size, label]) => <option key={size} value={size}>{label}</option>)}
       </select>
       {TOOLS.map(([command, icon, label]) => <button key={command} type="button" title={label} aria-label={label} onClick={() => run(command)} disabled={disabled}><Icon name={icon} /></button>)}
       <button type="button" title="Insertar enlace" aria-label="Insertar enlace" onClick={addLink} disabled={disabled}><Icon name="link" /></button>
