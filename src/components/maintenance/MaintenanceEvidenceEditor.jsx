@@ -1,4 +1,5 @@
 import React, { useState } from 'react';
+import { useAuth } from '../../AuthContext';
 import Icon from '../common/Icon';
 import MaintenanceEvidenceImage from './MaintenanceEvidenceImage';
 import { MODULE_ROUTES, pick, requestAvailable } from '../../services/moduleApi';
@@ -12,7 +13,12 @@ export default function MaintenanceEvidenceEditor({
   onClose,
   onUpdated,
 }) {
+  const { hasPermission } = useAuth();
   const imageId = String(pick(image, ['FotoDispositivoID', 'id']));
+  const canDeleteEvidence = isAdmin
+    || hasPermission('MANTENIMIENTOS_EDITAR')
+    || hasPermission('MANTENIMIENTOS_GESTIONAR')
+    || hasPermission('BOLETAS_EDITAR');
   const [type, setType] = useState(pick(image, ['Tipo'], 'Antes'));
   const [note, setNote] = useState(pick(image, ['Nota']));
   const [saving, setSaving] = useState(false);
@@ -44,7 +50,7 @@ export default function MaintenanceEvidenceEditor({
   }
 
   async function remove() {
-    if (!isAdmin || !window.confirm('¿Eliminar definitivamente esta evidencia?')) return;
+    if (!canDeleteEvidence || !window.confirm('¿Eliminar definitivamente esta evidencia?')) return;
     setSaving(true);
     setError('');
     try {
@@ -105,7 +111,7 @@ export default function MaintenanceEvidenceEditor({
 
         <footer>
           <div>
-            {isAdmin && (
+            {canDeleteEvidence && (
               <button className="button button--danger" type="button" onClick={remove} disabled={saving}>
                 <Icon name="delete" />Eliminar
               </button>
