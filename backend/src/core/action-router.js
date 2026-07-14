@@ -48,14 +48,19 @@ for(const [key,prefixes] of crudRouteGroups){for(const prefix of prefixes){
     createPermission='CLIENTES_CREAR';
     updatePermission='CLIENTES_EDITAR';
   } else if(clientOperationalKeys.has(key)) {
+    // Técnicos pueden crear datos operativos durante una boleta, pero la edición
+    // permanente desde la administración de clientes requiere CLIENTES_EDITAR.
     createPermission=operationalClientDataPermissions;
-    updatePermission=operationalClientDataPermissions;
+    updatePermission='CLIENTES_EDITAR';
   } else if(key==='knowledgeCategories') {
     createPermission='CONOCIMIENTO_CATEGORIAS_GESTIONAR';
     updatePermission='CONOCIMIENTO_CATEGORIAS_GESTIONAR';
   }
   add(`${prefix}.list`,c[key].list);add(`${prefix}.get`,c[key].get);add(`${prefix}.create`,c[key].create,createPermission);add(`${prefix}.update`,c[key].update,updatePermission);
 }}
+
+// La eliminación de supervisores queda reservada a administradores.
+add(['contacts.delete','clients.contacts.delete','clientes.contactos.delete','contactosCliente.delete'], c.contacts.delete, 'USUARIOS_GESTIONAR');
 
 for (const [key, prefixes] of [
   ['categories',['catalog.operational.categories']],

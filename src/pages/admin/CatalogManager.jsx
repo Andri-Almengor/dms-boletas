@@ -1,6 +1,7 @@
 import React, { useEffect, useState } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { useAuth } from '../../AuthContext';
+import ClientSupervisorsPanel from '../../components/clients/ClientSupervisorsPanel';
 import Icon from '../../components/common/Icon';
 import { normalizeItems, requestAvailable } from '../../services/moduleApi';
 
@@ -150,6 +151,19 @@ export default function CatalogManager({ config }) {
         <div className="admin-record-grid">
           {items.map((record, index) => {
             const view = config.fromRecord(record);
+            const configuredExtra = config.renderRecordExtra?.({
+              record,
+              view,
+              canCreate,
+              canEdit,
+              isAdmin,
+              reload: () => load(search),
+            });
+            const extra = configuredExtra || (
+              config.title === 'Clientes' && isAdmin
+                ? <ClientSupervisorsPanel clientId={view.id} clientName={view.name || 'cliente'} />
+                : null
+            );
             return (
               <article className="module-record-card" key={view.id || index}>
                 <span className="module-record-card__icon"><Icon name={config.icon} /></span>
@@ -165,6 +179,7 @@ export default function CatalogManager({ config }) {
                     <Icon name="edit" />
                   </button>
                 )}
+                {extra && <div className="module-record-card__extra">{extra}</div>}
               </article>
             );
           })}
