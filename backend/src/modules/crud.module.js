@@ -75,8 +75,31 @@ export const CRUD_DEFINITIONS = Object.freeze({
         : {}),
     }),
   },
-  clientLocations: { table: 'ClienteUbicaciones', id: 'UbicacionID', search: ['Nombre','Direccion','Notas'], parent: 'ClienteID', map: (p) => ({ ClienteID: pick(p,['ClienteID','clienteId']), Nombre: pick(p,['Nombre','nombre']), Direccion: pick(p,['Direccion','direccion']), Notas: pick(p,['Notas','notas']) }) },
-  equipmentLocations: { table: 'ClienteUbicacionesEquipo', id: 'UbicacionEquipoID', search: ['Nombre','Descripcion'], parent: 'UbicacionID', map: (p) => ({ UbicacionID: pick(p,['UbicacionID','ubicacionId']), Nombre: pick(p,['Nombre','nombre']), Descripcion: pick(p,['Descripcion','descripcion']) }) },
+  clientLocations: {
+    table: 'ClienteUbicaciones',
+    id: 'UbicacionID',
+    search: ['Nombre','Direccion','Notas'],
+    parent: 'ClienteID',
+    map: (p) => ({
+      ClienteID: pick(p,['ClienteID','clienteId']),
+      Nombre: pick(p,['Nombre','nombre']),
+      Direccion: pick(p,['Direccion','direccion']),
+      Notas: pick(p,['Notas','notas']),
+      Estado: pick(p,['Estado','status'],'ACTIVO'),
+    }),
+  },
+  equipmentLocations: {
+    table: 'ClienteUbicacionesEquipo',
+    id: 'UbicacionEquipoID',
+    search: ['Nombre','Descripcion'],
+    parent: 'UbicacionID',
+    map: (p) => ({
+      UbicacionID: pick(p,['UbicacionID','ubicacionId']),
+      Nombre: pick(p,['Nombre','nombre']),
+      Descripcion: pick(p,['Descripcion','descripcion']),
+      Estado: pick(p,['Estado','status'],'ACTIVO'),
+    }),
+  },
   contacts: { table: 'ClienteContactos', id: 'ContactoID', search: ['Nombre','Correo','Puesto','Telefono'], parent: 'ClienteID', map: (p) => ({ ClienteID: pick(p,['ClienteID','clienteId']), Nombre: pick(p,['Nombre','nombre']), Correo: pick(p,['Correo','correo']), Puesto: pick(p,['Puesto','puesto']), Telefono: pick(p,['Telefono','telefono']), EsSupervisor: asBool(p.EsSupervisor ?? p.esSupervisor, false), RecibeCorreo: asBool(p.RecibeCorreo ?? p.recibeCorreo, true) }) },
   categories: { table: 'Categorias', id: 'CategoriaID', search: ['Nombre','Descripcion'], map: (p) => ({ Nombre: pick(p,['Nombre','nombre']), Descripcion: pick(p,['Descripcion','descripcion']) }) },
   deviceTypes: { table: 'TiposDispositivo', id: 'TipoDispositivoID', search: ['Nombre','Descripcion'], map: (p) => ({ Nombre: pick(p,['Nombre','nombre']), Descripcion: pick(p,['Descripcion','descripcion']) }) },
@@ -89,6 +112,7 @@ export const CRUD_DEFINITIONS = Object.freeze({
 
 export function crudHandlers(definitionKey) {
   const def = CRUD_DEFINITIONS[definitionKey];
+  const idAliases = [def.id, 'id', 'clienteId', 'ubicacionId', 'ubicacionEquipoId', 'contactoId'];
   return {
     list: async (ctx) => {
       const { payload } = ctx;
@@ -107,32 +131,35 @@ export function crudHandlers(definitionKey) {
     },
     get: async (ctx) => {
       const { payload } = ctx;
-      const rows = await readTable(def.table); const id = pick(payload, [def.id, 'id', 'clienteId', 'ubicacionId', 'contactoId']);
+      const rows = await readTable(def.table); const id = pick(payload, idAliases);
       const row = rows.find((item) => String(item[def.id]) === String(id)); if (!row) throw badRequest('No se encontró el registro.');
       return definitionKey === 'clients' ? sanitizeClientRow(row, ctx) : row;
     },
     create: async (ctx) => {
       const mapped = def.map(ctx.payload);
-      if (!mapped.Nombre && ['clients','categories','deviceTypes','manufacturers','models','failureTypes','knowledgeCategories'].includes(definitionKey)) throw badRequest('El nombre es obligatorio.');
-      const row = { [def.id]: uuid(), ...mapped, Activo: true, Estado: mapped.Estado || 'ACTIVO', CreadoPor: ctx.user.UsuarioID, FechaCreacion: nowIso(), ActualizadoPor: ctx.user.UsuarioID, FechaActualizacion: nowIso() };
+      if (!mapped.Nombre && ['clients','clientLocations','equipmentLocations','categories','deviceTypes','manufacturers','models','failureTypes','knowledgeCategories'].includes(definitionKey)) throw badRequest('El nombre es obligatorio.');
+      if (def.parent && !mapped[def.parent]) throw badRequest('Falta la relación principal del registro.');
+      const status = mapped.Estado || 'ACTIVO';
+      const row = { [def.id]: uuid(), ...mapped, Activo: status !== 'INACTIVO', Estado: status, CreadoPor: ctx.user.UsuarioID, FechaCreacion: nowIso(), ActualizadoPor: ctx.user.UsuarioID, FechaActualizacion: nowIso() };
       await appendRow(def.table, row); await audit(ctx, `CREAR_${def.table.toUpperCase()}`, def.table, row[def.id], null, row); return row;
     },
     update: async (ctx) => {
-      const id = pick(ctx.payload, [def.id,'id','clienteId','ubicacionId','contactoId']); if (!id) throw badRequest('Falta el identificador.');
+      const id = pick(ctx.payload, idAliases); if (!id) throw badRequest('Falta el identificador.');
       const before = (await readTable(def.table)).find((row) => String(row[def.id]) === String(id));
       if (!before) throw badRequest('No se encontró el registro.');
       const mapped = mappedUpdatePatch(definitionKey, def, ctx.payload);
+      const requestedStatus = pick(ctx.payload,['Estado','status'],before.Estado || 'ACTIVO');
       const patch = {
         ...mapped,
-        Activo: ctx.payload.Activo ?? ctx.payload.activo ?? before.Activo ?? true,
-        Estado: pick(ctx.payload,['Estado','status'],before.Estado || 'ACTIVO'),
+        Activo: ctx.payload.Activo ?? ctx.payload.activo ?? (requestedStatus !== 'INACTIVO'),
+        Estado: requestedStatus,
         ActualizadoPor: ctx.user.UsuarioID,
         FechaActualizacion: nowIso(),
       };
       const after = await updateRow(def.table, id, patch); await audit(ctx, `EDITAR_${def.table.toUpperCase()}`, def.table, id, before, after); return after;
     },
     delete: async (ctx) => {
-      const id = pick(ctx.payload, [def.id,'id','clienteId','ubicacionId','contactoId']);
+      const id = pick(ctx.payload, idAliases);
       if (!id) throw badRequest('Falta el identificador.');
       const before = (await readTable(def.table)).find((row) => String(row[def.id]) === String(id));
       if (!before) throw badRequest('No se encontró el registro.');
