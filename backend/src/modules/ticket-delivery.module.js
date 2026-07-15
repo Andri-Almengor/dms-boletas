@@ -23,19 +23,21 @@ export const ticketDeliveryHandlers = {
         return { boleta: before, alreadyFinalized: true };
       }
       const delivery = await deliverTicket(ctx, { ticketId: id, testMode: false });
+      const surveyUrl = delivery.report.survey?.url || '';
       const after = await updateRow('Boletas', id, {
         Estado: 'FINALIZADA',
         FinalizadaEn: nowIso(),
         DocumentoURL: delivery.report.documentUrl,
         PDFURL: delivery.report.pdfUrl,
         CarpetaURL: delivery.report.folderUrl,
+        EncuestaURL: surveyUrl,
         EstadoNotificacion: delivery.notificationState,
         UltimoErrorNotificacion: delivery.errors.join(' | '),
         ActualizadoPor: ctx.user.UsuarioID,
         FechaActualizacion: nowIso(),
       });
       await audit(ctx, 'FINALIZAR_BOLETA', 'Boletas', id, before, after);
-      return { boleta: after, delivery };
+      return { boleta: after, delivery, surveyUrl };
     });
   },
 
