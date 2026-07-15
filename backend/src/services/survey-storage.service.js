@@ -22,6 +22,7 @@ export const SURVEY_SHEETS = Object.freeze({
     'ClienteID',
     'ClienteNombre',
     'TituloBoleta',
+    'Tipo',
     'FinalizacionClave',
     'PreguntasSnapshot',
     'Estado',
