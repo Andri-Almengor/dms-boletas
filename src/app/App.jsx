@@ -24,6 +24,7 @@ import TicketListPage from '../pages/tickets/TicketListPage';
 import UserDetailPage from '../pages/users/UserDetailPage';
 import UserFormPage from '../pages/users/UserFormPage';
 import UsersPage from '../pages/users/UsersPage';
+import OfflineEntityPermissionScope from '../routes/OfflineEntityPermissionScope';
 import OfflineOwnedEditRoute from '../routes/OfflineOwnedEditRoute';
 import PermissionRoute from '../routes/PermissionRoute';
 import ProtectedRoute from '../routes/ProtectedRoute';
@@ -41,11 +42,11 @@ export default function App() {
       <Route path="boletas/pendientes" element={<PermissionRoute permission="BOLETAS_VER"><TicketListPage status="PENDIENTE" /></PermissionRoute>} />
       <Route path="boletas/finalizadas" element={<PermissionRoute permission="BOLETAS_VER"><TicketListPage status="FINALIZADA" /></PermissionRoute>} />
       <Route path="boletas/nueva" element={<PermissionRoute permission="BOLETAS_CREAR"><TicketFormPage mode="create" /></PermissionRoute>} />
-      <Route path="boletas/:boletaUid" element={<PermissionRoute permission="BOLETAS_VER"><TicketDetailPage /></PermissionRoute>} />
+      <Route path="boletas/:boletaUid" element={<PermissionRoute permission="BOLETAS_VER"><OfflineEntityPermissionScope type="ticket"><TicketDetailPage /></OfflineEntityPermissionScope></PermissionRoute>} />
       <Route path="boletas/:boletaUid/editar" element={<OfflineOwnedEditRoute type="ticket"><TicketFormPage mode="edit" /></OfflineOwnedEditRoute>} />
       <Route path="mantenimientos" element={<PermissionRoute anyOf={MAINTENANCE_VIEW}><MaintenanceListPage /></PermissionRoute>} />
       <Route path="mantenimientos/nuevo" element={<PermissionRoute anyOf={MAINTENANCE_CREATE}><MaintenanceFormPage mode="create" /></PermissionRoute>} />
-      <Route path="mantenimientos/:maintenanceId" element={<PermissionRoute anyOf={MAINTENANCE_VIEW}><MaintenanceDetailPage /></PermissionRoute>} />
+      <Route path="mantenimientos/:maintenanceId" element={<PermissionRoute anyOf={MAINTENANCE_VIEW}><OfflineEntityPermissionScope type="maintenance"><MaintenanceDetailPage /></OfflineEntityPermissionScope></PermissionRoute>} />
       <Route path="mantenimientos/:maintenanceId/editar" element={<OfflineOwnedEditRoute type="maintenance"><MaintenanceFormPage mode="edit" /></OfflineOwnedEditRoute>} />
       <Route path="conocimiento" element={<KnowledgeListPage />} />
       <Route path="conocimiento/nuevo" element={<PermissionRoute anyOf={KNOWLEDGE_CREATE}><KnowledgeEditorPage mode="create" /></PermissionRoute>} />
