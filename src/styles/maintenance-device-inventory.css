@@ -1,0 +1,736 @@
+.maintenance-form-page {
+  width: min(100%, 1180px);
+}
+
+.maintenance-device-manager,
+.maintenance-inventory-panel {
+  min-width: 0;
+}
+
+.maintenance-device-summary--compact {
+  display: grid;
+  grid-template-columns: repeat(4, minmax(110px, 1fr));
+  gap: 10px;
+  padding: 0;
+  background: transparent;
+  border: 0;
+}
+
+.maintenance-device-summary--compact > div {
+  min-height: 78px;
+  padding: 14px;
+  border: 1px solid var(--outline-soft);
+  border-radius: 14px;
+  background: var(--surface, #fff);
+  display: flex;
+  flex-direction: column;
+  justify-content: center;
+  box-shadow: var(--shadow-sm);
+}
+
+.maintenance-device-summary--compact strong {
+  color: var(--primary);
+  font-size: 1.5rem;
+  line-height: 1;
+}
+
+.maintenance-device-summary--compact span {
+  margin-top: 6px;
+  color: var(--muted);
+  font-size: .7rem;
+  font-weight: 750;
+  text-transform: uppercase;
+  letter-spacing: .04em;
+}
+
+.maintenance-device-manager__actions {
+  margin: 14px 0;
+  display: flex;
+  flex-wrap: wrap;
+  gap: 10px;
+}
+
+.maintenance-device-toolbar {
+  position: sticky;
+  top: 8px;
+  z-index: 12;
+  display: grid;
+  grid-template-columns: minmax(240px, 1.8fr) repeat(3, minmax(150px, .75fr));
+  gap: 9px;
+  padding: 10px;
+  border: 1px solid var(--outline-soft);
+  border-radius: 14px;
+  background: rgba(255,255,255,.97);
+  box-shadow: 0 6px 20px rgba(60,24,28,.08);
+  backdrop-filter: blur(12px);
+}
+
+.maintenance-device-toolbar--detail {
+  top: calc(var(--top-bar-height, 64px) + 8px);
+}
+
+.maintenance-device-toolbar select,
+.maintenance-device-search {
+  min-width: 0;
+  min-height: 43px;
+  border: 1px solid var(--outline-soft);
+  border-radius: 10px;
+  background: #fff;
+  color: var(--text);
+  font: inherit;
+}
+
+.maintenance-device-toolbar select {
+  padding: 0 10px;
+  font-size: .78rem;
+}
+
+.maintenance-device-search {
+  padding: 0 11px;
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+
+.maintenance-device-search .material-symbols-outlined {
+  color: var(--primary);
+  font-size: 20px;
+}
+
+.maintenance-device-search input {
+  min-width: 0;
+  width: 100%;
+  height: 41px;
+  border: 0;
+  outline: 0;
+  background: transparent;
+}
+
+.maintenance-device-category-chips {
+  margin: 10px 0 13px;
+  padding-bottom: 3px;
+  display: flex;
+  gap: 7px;
+  overflow-x: auto;
+  scrollbar-width: thin;
+}
+
+.maintenance-device-category-chips button {
+  flex: 0 0 auto;
+  min-height: 34px;
+  padding: 6px 10px;
+  border: 1px solid var(--outline-soft);
+  border-radius: 999px;
+  background: #fff;
+  color: var(--muted);
+  font: inherit;
+  font-size: .7rem;
+  font-weight: 750;
+  cursor: pointer;
+}
+
+.maintenance-device-category-chips button span {
+  margin-left: 4px;
+  padding: 2px 6px;
+  border-radius: 999px;
+  background: var(--surface-container);
+  color: var(--text);
+}
+
+.maintenance-device-category-chips button.is-active {
+  border-color: var(--primary);
+  background: var(--primary-soft);
+  color: var(--primary);
+}
+
+.maintenance-device-table-wrap,
+.maintenance-inventory-table-wrap {
+  overflow: auto;
+  border: 1px solid var(--outline-soft);
+  border-radius: 14px;
+  background: #fff;
+  box-shadow: var(--shadow-sm);
+}
+
+.maintenance-device-table,
+.maintenance-inventory-table {
+  width: 100%;
+  min-width: 930px;
+  border-collapse: collapse;
+  table-layout: fixed;
+}
+
+.maintenance-device-table th,
+.maintenance-inventory-table th {
+  position: sticky;
+  top: 0;
+  z-index: 2;
+  padding: 10px 9px;
+  border-bottom: 1px solid var(--outline-soft);
+  background: #f8f4f4;
+  color: var(--muted);
+  text-align: left;
+  font-size: .64rem;
+  font-weight: 800;
+  text-transform: uppercase;
+  letter-spacing: .045em;
+}
+
+.maintenance-device-table td,
+.maintenance-inventory-table td {
+  padding: 9px;
+  border-bottom: 1px solid var(--surface-container);
+  color: var(--text);
+  font-size: .75rem;
+  vertical-align: middle;
+  overflow-wrap: anywhere;
+}
+
+.maintenance-device-table tbody tr:hover,
+.maintenance-inventory-table tbody tr:not(.maintenance-inventory-expanded-row):hover {
+  background: #fffafa;
+}
+
+.maintenance-device-table tbody tr:last-child td,
+.maintenance-inventory-table tbody tr:last-child td {
+  border-bottom: 0;
+}
+
+.maintenance-device-table th:nth-child(1),
+.maintenance-inventory-table th:nth-child(1) { width: 46px; }
+.maintenance-device-table th:nth-child(2),
+.maintenance-inventory-table th:nth-child(2) { width: 23%; }
+.maintenance-device-table th:nth-child(3),
+.maintenance-inventory-table th:nth-child(3) { width: 13%; }
+.maintenance-device-table th:nth-child(4),
+.maintenance-inventory-table th:nth-child(4) { width: 17%; }
+.maintenance-device-table th:nth-child(5),
+.maintenance-inventory-table th:nth-child(5) { width: 18%; }
+.maintenance-device-table th:nth-child(6),
+.maintenance-inventory-table th:nth-child(6) { width: 13%; }
+.maintenance-device-table th:nth-child(7),
+.maintenance-inventory-table th:nth-child(7) { width: 82px; }
+.maintenance-device-table th:nth-child(8),
+.maintenance-inventory-table th:nth-child(8) { width: 52px; }
+
+.maintenance-device-table__number {
+  color: var(--muted);
+  font-variant-numeric: tabular-nums;
+}
+
+.maintenance-device-name-button,
+.maintenance-inventory-name {
+  width: 100%;
+  padding: 0;
+  border: 0;
+  background: transparent;
+  color: inherit;
+  display: flex;
+  align-items: center;
+  gap: 9px;
+  text-align: left;
+  cursor: pointer;
+}
+
+.maintenance-device-name-button > span:last-child,
+.maintenance-inventory-name > span:last-child {
+  min-width: 0;
+}
+
+.maintenance-device-name-button strong,
+.maintenance-inventory-name strong,
+.maintenance-device-name-button small,
+.maintenance-inventory-name small {
+  display: block;
+}
+
+.maintenance-device-name-button strong,
+.maintenance-inventory-name strong {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.maintenance-device-name-button small,
+.maintenance-inventory-name small {
+  margin-top: 3px;
+  color: #9a5a10;
+  font-size: .63rem;
+}
+
+.maintenance-device-name-button small .material-symbols-outlined,
+.maintenance-inventory-name small .material-symbols-outlined {
+  margin-right: 3px;
+  font-size: 13px;
+  vertical-align: -2px;
+}
+
+.maintenance-device-compact-state {
+  display: inline-flex;
+  max-width: 100%;
+  padding: 5px 8px;
+  border-radius: 999px;
+  font-size: .61rem;
+  font-weight: 850;
+  line-height: 1.2;
+  text-transform: uppercase;
+}
+
+.maintenance-device-compact-state.is-good,
+.maintenance-device-mobile-row em.is-good,
+.maintenance-inventory-mobile-toggle em.is-good {
+  background: var(--success-soft);
+  color: #0e6745;
+}
+
+.maintenance-device-compact-state.is-warning,
+.maintenance-device-mobile-row em.is-warning,
+.maintenance-inventory-mobile-toggle em.is-warning {
+  background: #fff0d3;
+  color: #8a5600;
+}
+
+.maintenance-device-compact-state.is-empty {
+  background: var(--surface-container);
+  color: var(--muted);
+}
+
+.maintenance-device-evidence-count {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  color: var(--muted);
+  font-weight: 750;
+}
+
+.maintenance-device-evidence-count .material-symbols-outlined {
+  color: var(--primary);
+  font-size: 17px;
+}
+
+.maintenance-device-mobile-list,
+.maintenance-inventory-mobile-list {
+  display: none;
+}
+
+.maintenance-device-pagination {
+  margin-top: 10px;
+  padding: 9px 12px;
+  border: 1px solid var(--outline-soft);
+  border-radius: 12px;
+  background: #fff;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  color: var(--muted);
+  font-size: .72rem;
+}
+
+.maintenance-device-pagination > div {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+
+.maintenance-device-pagination strong {
+  min-width: 62px;
+  color: var(--text);
+  text-align: center;
+  font-variant-numeric: tabular-nums;
+}
+
+.maintenance-device-empty .button {
+  margin-top: 12px;
+}
+
+.maintenance-inventory-panel {
+  margin-top: 18px;
+  padding: 18px;
+  border: 1px solid var(--outline-soft);
+  border-radius: 18px;
+  background: #fff;
+  box-shadow: var(--shadow-sm);
+}
+
+.maintenance-inventory-heading {
+  margin-bottom: 15px;
+  display: flex;
+  align-items: flex-end;
+  justify-content: space-between;
+  gap: 18px;
+}
+
+.maintenance-inventory-heading h2 {
+  margin: 4px 0 5px;
+}
+
+.maintenance-inventory-heading p {
+  margin: 0;
+  color: var(--muted);
+}
+
+.maintenance-inventory-table tr.is-expanded {
+  background: #fff8f8;
+}
+
+.maintenance-inventory-expanded-row > td {
+  padding: 0 !important;
+  background: #fffafa;
+}
+
+.maintenance-inventory-expanded {
+  padding: 16px;
+}
+
+.maintenance-inventory-checklist {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(135px, 1fr));
+  gap: 8px;
+}
+
+.maintenance-inventory-checklist > div {
+  min-width: 0;
+  padding: 9px;
+  border: 1px solid var(--outline-soft);
+  border-radius: 9px;
+  background: #fff;
+}
+
+.maintenance-inventory-checklist span,
+.maintenance-inventory-checklist strong {
+  display: block;
+}
+
+.maintenance-inventory-checklist span {
+  color: var(--muted);
+  font-size: .64rem;
+}
+
+.maintenance-inventory-checklist strong {
+  margin-top: 3px;
+  font-size: .73rem;
+}
+
+.maintenance-inventory-checklist .is-good {
+  border-color: #bfe5d4;
+  background: #f2fbf7;
+}
+
+.maintenance-inventory-checklist .is-warning {
+  border-color: #f1d39a;
+  background: #fffaf0;
+}
+
+.maintenance-inventory-observation,
+.maintenance-inventory-offline-note {
+  margin-top: 11px;
+  padding: 10px 12px;
+  border-radius: 10px;
+  display: flex;
+  align-items: flex-start;
+  gap: 8px;
+  font-size: .72rem;
+}
+
+.maintenance-inventory-observation {
+  background: var(--surface-low);
+}
+
+.maintenance-inventory-observation p {
+  margin: 0;
+}
+
+.maintenance-inventory-offline-note {
+  border: 1px solid #efc06f;
+  background: #fff8e7;
+  color: #714600;
+}
+
+.maintenance-inventory-evidence-heading {
+  margin: 14px 0 8px;
+  padding-top: 12px;
+  border-top: 1px solid var(--outline-soft);
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 10px;
+}
+
+.maintenance-inventory-evidence-heading strong,
+.maintenance-inventory-evidence-heading span {
+  display: block;
+}
+
+.maintenance-inventory-evidence-heading span {
+  margin-top: 2px;
+  color: var(--muted);
+  font-size: .68rem;
+}
+
+.maintenance-inventory-images {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(145px, 1fr));
+  gap: 9px;
+}
+
+.maintenance-inventory-images figure {
+  margin: 0;
+  min-width: 0;
+  overflow: hidden;
+  border: 1px solid var(--outline-soft);
+  border-radius: 10px;
+  background: #fff;
+}
+
+.maintenance-inventory-images img {
+  width: 100%;
+  aspect-ratio: 4 / 3;
+  object-fit: cover;
+}
+
+.maintenance-inventory-images figcaption {
+  padding: 8px;
+}
+
+.maintenance-inventory-images figcaption strong,
+.maintenance-inventory-images figcaption span {
+  display: block;
+  overflow-wrap: anywhere;
+}
+
+.maintenance-inventory-images figcaption span {
+  margin-top: 2px;
+  color: var(--muted);
+  font-size: .65rem;
+}
+
+.maintenance-inventory-images figure > button {
+  width: 100%;
+  padding: 7px;
+  border: 0;
+  border-top: 1px solid var(--outline-soft);
+  background: #fff;
+  color: var(--primary);
+  font: inherit;
+  font-size: .68rem;
+  font-weight: 750;
+  cursor: pointer;
+}
+
+.maintenance-inventory-images figure > button .material-symbols-outlined {
+  margin-right: 4px;
+  font-size: 15px;
+  vertical-align: -3px;
+}
+
+.maintenance-inventory-no-images {
+  min-height: 90px;
+  border: 1px dashed var(--outline-soft);
+  border-radius: 10px;
+  color: var(--muted);
+  display: grid;
+  place-items: center;
+  align-content: center;
+  gap: 4px;
+  font-size: .7rem;
+}
+
+.maintenance-inventory-device-id {
+  display: block;
+  margin-top: 10px;
+  color: var(--muted);
+  font-size: .58rem;
+  overflow-wrap: anywhere;
+}
+
+.maintenance-offline-edit-notice {
+  border-color: #efc06f;
+  background: #fff8e7;
+  color: #714600;
+}
+
+.maintenance-detail-page--inventory {
+  width: min(100%, 1280px);
+}
+
+@media (max-width: 880px) {
+  .maintenance-device-toolbar {
+    position: static;
+    grid-template-columns: 1fr 1fr;
+  }
+
+  .maintenance-device-search {
+    grid-column: 1 / -1;
+  }
+
+  .maintenance-device-table-wrap,
+  .maintenance-inventory-table-wrap {
+    display: none;
+  }
+
+  .maintenance-device-mobile-list,
+  .maintenance-inventory-mobile-list {
+    display: grid;
+    gap: 8px;
+  }
+
+  .maintenance-device-mobile-row,
+  .maintenance-inventory-mobile-toggle {
+    width: 100%;
+    min-width: 0;
+    padding: 11px;
+    border: 1px solid var(--outline-soft);
+    border-radius: 12px;
+    background: #fff;
+    color: var(--text);
+    display: grid;
+    grid-template-columns: 28px 38px minmax(0, 1fr) 24px;
+    align-items: center;
+    gap: 8px;
+    text-align: left;
+    font: inherit;
+    cursor: pointer;
+  }
+
+  .maintenance-device-mobile-row__number {
+    color: var(--muted);
+    font-size: .65rem;
+    text-align: center;
+  }
+
+  .maintenance-device-mobile-row__content,
+  .maintenance-inventory-mobile-toggle > span:nth-child(3) {
+    min-width: 0;
+  }
+
+  .maintenance-device-mobile-row__content strong,
+  .maintenance-device-mobile-row__content small,
+  .maintenance-inventory-mobile-toggle strong,
+  .maintenance-inventory-mobile-toggle small {
+    display: block;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+  }
+
+  .maintenance-device-mobile-row__content small,
+  .maintenance-inventory-mobile-toggle small {
+    margin-top: 3px;
+    color: var(--muted);
+    font-size: .68rem;
+  }
+
+  .maintenance-device-mobile-row__content > span,
+  .maintenance-inventory-mobile-toggle > span:nth-child(3) > span {
+    margin-top: 6px;
+    display: flex;
+    flex-wrap: wrap;
+    gap: 5px;
+  }
+
+  .maintenance-device-mobile-row em,
+  .maintenance-inventory-mobile-toggle em {
+    padding: 3px 6px;
+    border-radius: 999px;
+    background: var(--surface-container);
+    color: var(--muted);
+    font-size: .58rem;
+    font-style: normal;
+    font-weight: 750;
+  }
+
+  .maintenance-device-mobile-row em .material-symbols-outlined,
+  .maintenance-inventory-mobile-toggle em .material-symbols-outlined {
+    margin-right: 2px;
+    font-size: 12px;
+    vertical-align: -2px;
+  }
+
+  .maintenance-device-mobile-row em.is-offline,
+  .maintenance-inventory-mobile-toggle em.is-offline {
+    background: #fff0d3;
+    color: #8a5600;
+  }
+
+  .maintenance-inventory-mobile-card {
+    overflow: hidden;
+    border: 1px solid var(--outline-soft);
+    border-radius: 13px;
+    background: #fff;
+  }
+
+  .maintenance-inventory-mobile-card .maintenance-inventory-mobile-toggle {
+    border: 0;
+    border-radius: 0;
+  }
+
+  .maintenance-inventory-mobile-card.is-expanded .maintenance-inventory-mobile-toggle {
+    background: #fff8f8;
+  }
+
+  .maintenance-inventory-mobile-card .maintenance-inventory-expanded {
+    border-top: 1px solid var(--outline-soft);
+    background: #fffafa;
+  }
+}
+
+@media (max-width: 620px) {
+  .maintenance-form-page,
+  .maintenance-detail-page--inventory {
+    width: 100%;
+  }
+
+  .maintenance-device-summary--compact {
+    grid-template-columns: 1fr 1fr;
+  }
+
+  .maintenance-device-manager__actions,
+  .maintenance-inventory-heading {
+    align-items: stretch;
+    flex-direction: column;
+  }
+
+  .maintenance-device-manager__actions .button,
+  .maintenance-inventory-heading .button {
+    width: 100%;
+  }
+
+  .maintenance-device-toolbar {
+    grid-template-columns: 1fr;
+  }
+
+  .maintenance-device-search {
+    grid-column: auto;
+  }
+
+  .maintenance-device-pagination {
+    align-items: stretch;
+    flex-direction: column;
+  }
+
+  .maintenance-device-pagination > div {
+    justify-content: space-between;
+  }
+
+  .maintenance-inventory-panel {
+    margin-inline: -4px;
+    padding: 12px;
+    border-radius: 14px;
+  }
+
+  .maintenance-inventory-checklist {
+    grid-template-columns: 1fr 1fr;
+  }
+
+  .maintenance-inventory-images {
+    grid-template-columns: 1fr 1fr;
+  }
+}
+
+@media (max-width: 390px) {
+  .maintenance-inventory-checklist,
+  .maintenance-inventory-images {
+    grid-template-columns: 1fr;
+  }
+}

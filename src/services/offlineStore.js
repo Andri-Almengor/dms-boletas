@@ -1,5 +1,5 @@
 const DB_NAME = 'dms-boletas-offline';
-const DB_VERSION = 1;
+const DB_VERSION = 2;
 const CACHE_STORE = 'responses';
 const QUEUE_STORE = 'operations';
 const META_STORE = 'meta';
@@ -19,10 +19,37 @@ const OFFLINE_SECTIONS = Object.freeze([
   { id: 'users', label: 'Técnicos y usuarios' },
 ]);
 
+const OPERATION_PRIORITY = Object.freeze({
+  ticketCreate: 10,
+  maintenanceCreate: 10,
+  ticketUpdate: 20,
+  ticketAutosave: 20,
+  maintenanceUpdate: 20,
+  maintenanceDeviceCreate: 30,
+  maintenanceDeviceUpdate: 31,
+  maintenanceDeviceAutosave: 31,
+  ticketSignature: 40,
+  ticketEvidence: 41,
+  ticketEvidenceUpdate: 42,
+  ticketEvidenceDelete: 43,
+  maintenanceImage: 41,
+  maintenanceImageUpdate: 42,
+  maintenanceImageDelete: 43,
+  ticketPdf: 50,
+  ticketTest: 50,
+});
+
 let databasePromise = null;
 
 function supportsIndexedDb() {
   return typeof window !== 'undefined' && 'indexedDB' in window;
+}
+
+function ensureQueueIndexes(store) {
+  if (!store.indexNames.contains('createdAt')) store.createIndex('createdAt', 'createdAt');
+  if (!store.indexNames.contains('status')) store.createIndex('status', 'status');
+  if (!store.indexNames.contains('entityId')) store.createIndex('entityId', 'entityId');
+  if (!store.indexNames.contains('kind')) store.createIndex('kind', 'kind');
 }
 
 function openDatabase() {
@@ -33,11 +60,13 @@ function openDatabase() {
     const request = window.indexedDB.open(DB_NAME, DB_VERSION);
     request.onupgradeneeded = () => {
       const db = request.result;
+      const transaction = request.transaction;
       if (!db.objectStoreNames.contains(CACHE_STORE)) db.createObjectStore(CACHE_STORE, { keyPath: 'key' });
       if (!db.objectStoreNames.contains(QUEUE_STORE)) {
         const store = db.createObjectStore(QUEUE_STORE, { keyPath: 'id' });
-        store.createIndex('createdAt', 'createdAt');
-        store.createIndex('status', 'status');
+        ensureQueueIndexes(store);
+      } else if (transaction) {
+        ensureQueueIndexes(transaction.objectStore(QUEUE_STORE));
       }
       if (!db.objectStoreNames.contains(META_STORE)) db.createObjectStore(META_STORE, { keyPath: 'key' });
     };
@@ -94,6 +123,10 @@ function sessionScope(sessionToken = '') {
   return text.length > 18 ? text.slice(-18) : text;
 }
 
+function operationPriority(operation) {
+  return Number(OPERATION_PRIORITY[operation.kind] || 35);
+}
+
 export function responseCacheKey(routes, payload = {}, sessionToken = '') {
   const route = Array.isArray(routes) ? routes[0] : routes;
   return `${sessionScope(sessionToken)}|${String(route || '')}|${JSON.stringify(stable(payload || {}))}`;
@@ -119,6 +152,32 @@ export async function readCachedResponse(key, maxAgeMs = CACHE_MAX_AGE_MS) {
   return entry.data;
 }
 
+export async function updateCachedResponses(predicate, updater) {
+  const entries = await readAll(CACHE_STORE);
+  const selected = entries.filter((entry) => {
+    try { return predicate(entry); } catch { return false; }
+  });
+  if (!selected.length) return 0;
+
+  const db = await openDatabase();
+  if (!db) return 0;
+  await new Promise((resolve, reject) => {
+    const transaction = db.transaction(CACHE_STORE, 'readwrite');
+    const store = transaction.objectStore(CACHE_STORE);
+    selected.forEach((entry) => {
+      try {
+        const nextData = updater(entry.data, entry);
+        if (nextData !== undefined) store.put({ ...entry, data: nextData, savedAt: Date.now() });
+      } catch {
+        // Una entrada dañada no debe impedir actualizar las demás.
+      }
+    });
+    transaction.oncomplete = resolve;
+    transaction.onerror = () => reject(transaction.error || new Error('No fue posible actualizar la caché local.'));
+  });
+  return selected.length;
+}
+
 function emitQueueChange() {
   if (typeof window !== 'undefined') window.dispatchEvent(new CustomEvent('dms-offline-queue-change'));
 }
@@ -129,10 +188,14 @@ export function createOfflineId(prefix = 'local') {
 }
 
 export async function listQueuedOperations() {
-  return (await readAll(QUEUE_STORE)).sort((a, b) => Number(a.createdAt) - Number(b.createdAt));
+  return (await readAll(QUEUE_STORE)).sort((a, b) => {
+    const byTime = Number(a.createdAt || 0) - Number(b.createdAt || 0);
+    if (byTime) return byTime;
+    return operationPriority(a) - operationPriority(b);
+  });
 }
 
-export async function enqueueOperation({ routes, payload, description = '', entityId = '', dedupeKey = '' }) {
+export async function enqueueOperation({ routes, payload, description = '', entityId = '', dedupeKey = '', kind = '' }) {
   const existing = dedupeKey
     ? (await listQueuedOperations()).find((item) => item.dedupeKey === dedupeKey)
     : null;
@@ -141,8 +204,9 @@ export async function enqueueOperation({ routes, payload, description = '', enti
     routes: Array.isArray(routes) ? [...routes] : [routes],
     payload,
     description,
-    entityId: String(entityId || payload?.boletaUid || payload?.BoletaUID || ''),
+    entityId: String(entityId || payload?.boletaUid || payload?.BoletaUID || payload?.maintenanceId || payload?.MantenimientoID || ''),
     dedupeKey,
+    kind: kind || existing?.kind || '',
     status: 'PENDING',
     attempts: existing?.attempts || 0,
     lastError: '',
@@ -163,6 +227,20 @@ export async function queuedOperationCount() {
     request.onsuccess = () => resolve(Number(request.result || 0));
     request.onerror = () => reject(request.error);
   });
+}
+
+export async function getEntityQueueState(entityId) {
+  const id = String(entityId || '');
+  if (!id) return { entityId: '', pending: 0, errors: 0, syncing: 0, operations: [], readyToFinalize: true };
+  const operations = (await listQueuedOperations()).filter((item) => String(item.entityId || '') === id);
+  return {
+    entityId: id,
+    pending: operations.length,
+    errors: operations.filter((item) => String(item.status).toUpperCase() === 'ERROR').length,
+    syncing: operations.filter((item) => String(item.status).toUpperCase() === 'SYNCING').length,
+    operations,
+    readyToFinalize: operations.length === 0,
+  };
 }
 
 export async function removeQueuedOperation(id) {
@@ -309,6 +387,8 @@ export async function getOfflineStorageStats() {
     errorCount: pendingOperations.filter((item) => String(item.status).toUpperCase() === 'ERROR').length,
     pendingOperations: pendingOperations.map((item) => ({
       id: item.id,
+      entityId: item.entityId || '',
+      kind: item.kind || '',
       description: item.description || 'Cambio pendiente',
       status: String(item.status || 'PENDING').toUpperCase(),
       createdAt: Number(item.createdAt || 0),

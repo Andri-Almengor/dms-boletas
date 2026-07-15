@@ -7,6 +7,26 @@ import { audit } from '../services/audit.service.js';
 
 const autosaveWriteTimes = new Map();
 const AUTOSAVE_MIN_INTERVAL_MS = 6000;
+let ticketCreateTail = Promise.resolve();
+let evidenceCreateTail = Promise.resolve();
+
+function serialized(previousTail, operation, setTail) {
+  const current = previousTail.then(operation, operation);
+  setTail(current.catch(() => {}));
+  return current;
+}
+
+function withTicketCreateLock(operation) {
+  return serialized(ticketCreateTail, operation, (next) => { ticketCreateTail = next; });
+}
+
+function withEvidenceCreateLock(operation) {
+  return serialized(evidenceCreateTail, operation, (next) => { evidenceCreateTail = next; });
+}
+
+function validClientGeneratedId(value) {
+  return /^[A-Za-z0-9._:-]{8,160}$/.test(String(value || ''));
+}
 
 function userDisplayName(user, fallback = '') {
   return String(pick(user, ['NombreCompleto', 'Nombre', 'NombreUsuario', 'Correo'], fallback)).trim();
@@ -42,11 +62,7 @@ function resolveFailureType(row, failureTypes = []) {
   if (!currentName) return row;
   const match = failureTypes.find((item) => normalizeComparable(item.Nombre) === currentName);
   if (!match) return row;
-  return {
-    ...row,
-    TipoFallaID: match.TipoFallaID,
-    TipoFalla: row.TipoFalla || match.Nombre,
-  };
+  return { ...row, TipoFallaID: match.TipoFallaID, TipoFalla: row.TipoFalla || match.Nombre };
 }
 
 async function enrichTicket(sourceRow) {
@@ -143,9 +159,11 @@ async function replaceAssigned(ticketId, ids, ctx) {
   return true;
 }
 
-async function nextTicketNumber() {
-  const rows = await readTable('Boletas');
-  return Math.max(0, ...rows.map((row) => Number(row.BoletaID || 0))) + 1;
+function nextTicketNumber(rows) {
+  const used = rows
+    .map((row) => Number(row.BoletaID))
+    .filter((value) => Number.isInteger(value) && value > 0);
+  return (used.length ? Math.max(...used) : 0) + 1;
 }
 
 async function resolveTicketMedia(payload = {}) {
@@ -185,17 +203,20 @@ export const ticketHandlers = {
     if (payload.dateTo) rows = rows.filter((row) => String(row.Fecha || '').slice(0, 10) <= String(payload.dateTo));
     return filterRows(rows, payload, ['Titulo', 'Cliente', 'Ubicacion', 'Categoria', 'TipoDispositivo', 'Modelo', 'BoletaID']);
   },
-  get: async ({ payload }) => enrichTicket(await findById('Boletas', pick(payload, ['boletaUid', 'BoletaUID', 'id']))),
-  create: async (ctx) => {
-    const requestedId = String(pick(ctx.payload, ['boletaUid', 'BoletaUID'], '')).trim();
-    if (requestedId && !/^[A-Za-z0-9._:-]{8,140}$/.test(requestedId)) throw badRequest('El identificador local de la boleta no es válido.');
 
+  get: async ({ payload }) => enrichTicket(await findById('Boletas', pick(payload, ['boletaUid', 'BoletaUID', 'id']))),
+
+  create: async (ctx) => withTicketCreateLock(async () => {
+    const requestedId = String(pick(ctx.payload, ['boletaUid', 'BoletaUID'], '')).trim();
+    if (requestedId && !validClientGeneratedId(requestedId)) throw badRequest('El identificador local de la boleta no es válido.');
+
+    const rows = await readTable('Boletas', { force: true });
     if (requestedId) {
-      const existing = (await readTable('Boletas')).find((item) => String(item.BoletaUID) === requestedId);
+      const existing = rows.find((item) => String(item.BoletaUID) === requestedId);
       if (existing) {
         const sameOwner = String(existing.CreadoPor || '') === String(ctx.user.UsuarioID || '');
-        const isAdmin = ctx.permissions?.includes('USUARIOS_GESTIONAR');
-        if (!sameOwner && !isAdmin) throw badRequest('El identificador local ya pertenece a otra boleta.');
+        const admin = ctx.permissions?.includes('USUARIOS_GESTIONAR');
+        if (!sameOwner && !admin) throw badRequest('El identificador local ya pertenece a otra boleta.');
         if (hasAssignedPayload(ctx.payload)) await replaceAssigned(existing.BoletaUID, ctx.payload.AsignadoA || ctx.payload.asignados, ctx);
         return enrichTicket(existing);
       }
@@ -203,7 +224,7 @@ export const ticketHandlers = {
 
     const row = {
       BoletaUID: requestedId || uuid(),
-      BoletaID: await nextTicketNumber(),
+      BoletaID: nextTicketNumber(rows),
       Version: 1,
       ...ticketPayload(ctx.payload),
       CreadoPor: ctx.user.UsuarioID,
@@ -218,7 +239,8 @@ export const ticketHandlers = {
     await replaceAssigned(row.BoletaUID, asArray(ctx.payload.AsignadoA || ctx.payload.asignados), ctx);
     await audit(ctx, 'CREAR_BOLETA', 'Boletas', row.BoletaUID, null, row);
     return enrichTicket(row);
-  },
+  }),
+
   update: async (ctx) => {
     const id = pick(ctx.payload, ['boletaUid', 'BoletaUID', 'id']);
     const before = await findById('Boletas', id);
@@ -228,6 +250,7 @@ export const ticketHandlers = {
     if (Object.keys(patch).length || assignedChanged) await audit(ctx, 'EDITAR_BOLETA', 'Boletas', id, before, after);
     return enrichTicket(after);
   },
+
   autosave: async (ctx) => {
     const id = String(pick(ctx.payload, ['boletaUid', 'BoletaUID', 'id']));
     const now = Date.now();
@@ -244,31 +267,64 @@ export const ticketHandlers = {
       throw error;
     }
   },
+
   finalize: async (ctx) => {
     const id = pick(ctx.payload, ['boletaUid', 'BoletaUID']);
     const after = await updateRow('Boletas', id, { Estado: 'FINALIZADA', FinalizadaEn: nowIso(), ActualizadoPor: ctx.user.UsuarioID, FechaActualizacion: nowIso() });
     await audit(ctx, 'FINALIZAR_BOLETA', 'Boletas', id, null, after);
     return enrichTicket(after);
   },
+
   returnPending: async (ctx) => ({ boleta: await updateRow('Boletas', pick(ctx.payload, ['boletaUid', 'BoletaUID']), { Estado: 'PENDIENTE', ActualizadoPor: ctx.user.UsuarioID, FechaActualizacion: nowIso() }) }),
   annul: async (ctx) => ({ boleta: await updateRow('Boletas', pick(ctx.payload, ['boletaUid', 'BoletaUID']), { Estado: 'ANULADA', ActualizadoPor: ctx.user.UsuarioID, FechaActualizacion: nowIso() }) }),
-  evidenceUpload: async (ctx) => {
+
+  evidenceUpload: async (ctx) => withEvidenceCreateLock(async () => {
+    const requestedId = String(pick(ctx.payload, ['evidenciaId', 'EvidenciaID'], '')).trim();
+    const boletaUid = pick(ctx.payload, ['boletaUid', 'BoletaUID']);
+    if (requestedId && !validClientGeneratedId(requestedId)) throw badRequest('El identificador local de la evidencia no es válido.');
+    if (requestedId) {
+      const existing = (await readTable('EvidenciasBoleta', { force: true })).find((item) => String(item.EvidenciaID) === requestedId);
+      if (existing) {
+        if (String(existing.BoletaUID) !== String(boletaUid)) throw badRequest('La evidencia local ya pertenece a otra boleta.');
+        return existing;
+      }
+    }
+    await findById('Boletas', boletaUid);
     const cfg = await getConfig();
     const file = await uploadBase64({ base64: ctx.payload.base64, mimeType: ctx.payload.mimeType, fileName: ctx.payload.fileName, folderId: cfg.EVIDENCIAS_FOLDER_ID });
-    const row = { EvidenciaID: uuid(), BoletaUID: pick(ctx.payload, ['boletaUid', 'BoletaUID']), Nombre: pick(ctx.payload, ['nombre', 'Nombre'], file.name), Nota: pick(ctx.payload, ['nota', 'Nota']), ArchivoID: file.id, ArchivoURL: file.webViewLink, NombreArchivo: file.name, MimeType: file.mimeType, Orden: Number(ctx.payload.orden || 0), Activo: true, CreadoPor: ctx.user.UsuarioID, FechaCreacion: nowIso(), ActualizadoPor: ctx.user.UsuarioID, FechaActualizacion: nowIso() };
+    const row = {
+      EvidenciaID: requestedId || uuid(),
+      BoletaUID: boletaUid,
+      Nombre: pick(ctx.payload, ['nombre', 'Nombre'], file.name),
+      Nota: pick(ctx.payload, ['nota', 'Nota']),
+      ArchivoID: file.id,
+      ArchivoURL: file.webViewLink,
+      NombreArchivo: file.name,
+      MimeType: file.mimeType,
+      Orden: Number(ctx.payload.orden || 0),
+      Activo: true,
+      CreadoPor: ctx.user.UsuarioID,
+      FechaCreacion: nowIso(),
+      ActualizadoPor: ctx.user.UsuarioID,
+      FechaActualizacion: nowIso(),
+    };
     await appendRow('EvidenciasBoleta', row);
     return row;
-  },
+  }),
+
   evidenceUpdate: async (ctx) => updateRow('EvidenciasBoleta', pick(ctx.payload, ['evidenciaId', 'EvidenciaID', 'id']), { Nombre: pick(ctx.payload, ['nombre', 'Nombre']), Nota: pick(ctx.payload, ['nota', 'Nota']), ActualizadoPor: ctx.user.UsuarioID, FechaActualizacion: nowIso() }),
+
   evidenceDelete: async (ctx) => {
     const row = await findById('EvidenciasBoleta', pick(ctx.payload, ['evidenciaId', 'EvidenciaID', 'id']));
     await trashFile(row.ArchivoID).catch(() => {});
     return softDelete('EvidenciasBoleta', row.EvidenciaID, ctx.user.UsuarioID);
   },
+
   mediaGet: async ({ payload }) => {
     const media = await resolveTicketMedia(payload);
     return { mediaId: media.recordId, kind: media.kind, fileId: media.fileId, ...await downloadAsDataUrl(media.fileId, media.mimeType) };
   },
+
   signatureUpload: async (ctx) => {
     const cfg = await getConfig();
     const mimeType = ctx.payload.mimeType || 'image/png';
@@ -276,9 +332,11 @@ export const ticketHandlers = {
     await updateRow('Boletas', pick(ctx.payload, ['boletaUid', 'BoletaUID']), { FirmaArchivoID: file.id, FirmaURL: file.webViewLink, FirmaMimeType: mimeType, ActualizadoPor: ctx.user.UsuarioID, FechaActualizacion: nowIso() });
     return file;
   },
+
   generatePdf: async ({ payload }) => {
     const row = await findById('Boletas', pick(payload, ['boletaUid', 'BoletaUID']));
     return { boletaUid: row.BoletaUID, pdfUrl: row.PDFURL || '', message: 'La generación avanzada de PDF puede configurarse con una plantilla de Google Docs; los datos y archivos ya están migrados al backend Node.' };
   },
+
   testFinalize: async (ctx) => ticketHandlers.finalize(ctx),
 };

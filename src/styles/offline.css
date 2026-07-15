@@ -80,6 +80,16 @@
   cursor: pointer;
 }
 
+/* Finalizar no se muestra hasta que la entidad y todos sus archivos existan
+   correctamente en el servidor. Guardar, editar y agregar evidencias continúa
+   disponible durante el trabajo sin conexión. */
+body.dms-entity-unsynced .ticket-form-page .review-action-grid .button--primary,
+body.dms-entity-unsynced .ticket-detail-page .ticket-detail-actions .button--primary.button--wide,
+body.dms-entity-unsynced .maintenance-final-actions .button--primary,
+body.dms-entity-unsynced .maintenance-detail-footer-actions .button--primary {
+  display: none !important;
+}
+
 @keyframes dms-offline-spin {
   to { transform: rotate(360deg); }
 }

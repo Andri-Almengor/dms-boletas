@@ -1,7 +1,9 @@
-import React, { useCallback, useEffect, useState } from 'react';
+import React, { useCallback, useEffect, useMemo, useState } from 'react';
+import { useLocation } from 'react-router-dom';
 import { useAuth } from '../../AuthContext';
 import Icon from '../common/Icon';
 import {
+  getEntityQueueState,
   listQueuedOperations,
   queuedOperationCount,
   removeQueuedOperation,
@@ -18,10 +20,29 @@ function isAuthenticationError(error) {
     || String(error?.code || '').toUpperCase() === 'UNAUTHORIZED';
 }
 
+function currentEntity(pathname) {
+  const ticket = pathname.match(/^\/boletas\/([^/]+)(?:\/editar)?$/);
+  if (ticket && ticket[1] !== 'nueva' && !['pendientes', 'finalizadas'].includes(ticket[1])) {
+    return { type: 'boleta', id: decodeURIComponent(ticket[1]) };
+  }
+  const maintenance = pathname.match(/^\/mantenimientos\/([^/]+)(?:\/editar)?$/);
+  if (maintenance && maintenance[1] !== 'nuevo') {
+    return { type: 'mantenimiento', id: decodeURIComponent(maintenance[1]) };
+  }
+  return null;
+}
+
+function isCreateWorkflow(pathname) {
+  return pathname === '/boletas/nueva' || pathname === '/mantenimientos/nuevo';
+}
+
 export default function OfflineSyncManager() {
   const { sessionToken } = useAuth();
+  const location = useLocation();
+  const entity = useMemo(() => currentEntity(location.pathname), [location.pathname]);
   const [online, setOnline] = useState(() => navigator.onLine !== false);
   const [pending, setPending] = useState(0);
+  const [entityPending, setEntityPending] = useState(0);
   const [syncing, setSyncing] = useState(false);
   const [message, setMessage] = useState('');
 
@@ -31,12 +52,25 @@ export default function OfflineSyncManager() {
     return count;
   }, []);
 
+  const refreshEntityState = useCallback(async () => {
+    if (!entity?.id) {
+      setEntityPending(0);
+      return 0;
+    }
+    const state = await getEntityQueueState(entity.id).catch(() => ({ pending: 0 }));
+    setEntityPending(Number(state.pending || 0));
+    return Number(state.pending || 0);
+  }, [entity?.id]);
+
   const synchronize = useCallback(async () => {
     if (!sessionToken || navigator.onLine === false || syncing) return;
     const operations = await listQueuedOperations().catch(() => []);
     if (!operations.length) {
       setMessage('');
-      await preloadOfflineCatalogs(sessionToken).catch(() => {});
+      await Promise.all([
+        preloadOfflineCatalogs(sessionToken).catch(() => {}),
+        refreshEntityState(),
+      ]);
       return;
     }
 
@@ -52,15 +86,16 @@ export default function OfflineSyncManager() {
         try {
           await replayQueuedOperation(operation, sessionToken);
           await removeQueuedOperation(operation.id);
-          await refreshCount();
+          await Promise.all([refreshCount(), refreshEntityState()]);
         } catch (error) {
           await updateQueuedOperation(operation.id, {
             status: 'ERROR',
             lastError: String(error?.message || error),
           });
+          await Promise.all([refreshCount(), refreshEntityState()]);
           if (isNetworkError(error)) {
             setOnline(false);
-            setMessage('La conexión se interrumpió. Los cambios permanecen guardados.');
+            setMessage('La conexión se interrumpió. Los cambios permanecen guardados y la finalización sigue bloqueada.');
           } else if (isAuthenticationError(error)) {
             setMessage('Inicie sesión nuevamente para sincronizar los cambios guardados.');
           } else {
@@ -71,26 +106,30 @@ export default function OfflineSyncManager() {
       }
 
       await preloadOfflineCatalogs(sessionToken).catch(() => {});
-      setMessage('Todos los cambios fueron sincronizados correctamente.');
+      setMessage('Todos los cambios fueron sincronizados correctamente. Ya puede finalizar.');
       window.dispatchEvent(new CustomEvent('dms-offline-sync-complete'));
       window.setTimeout(() => setMessage(''), 4500);
     } finally {
       setSyncing(false);
-      await refreshCount();
+      await Promise.all([refreshCount(), refreshEntityState()]);
     }
-  }, [sessionToken, syncing, refreshCount]);
+  }, [sessionToken, syncing, refreshCount, refreshEntityState]);
 
   useEffect(() => {
     refreshCount();
+    refreshEntityState();
     const handleOnline = () => {
       setOnline(true);
       window.setTimeout(() => synchronize(), 250);
     };
     const handleOffline = () => {
       setOnline(false);
-      setMessage('Sin conexión. Puede continuar trabajando; los cambios se enviarán al reconectarse.');
+      setMessage('Sin conexión. Puede continuar editando y agregando evidencias; se enviarán al reconectarse.');
     };
-    const handleQueueChange = () => refreshCount();
+    const handleQueueChange = () => {
+      refreshCount();
+      refreshEntityState();
+    };
 
     window.addEventListener('online', handleOnline);
     window.addEventListener('offline', handleOffline);
@@ -100,16 +139,31 @@ export default function OfflineSyncManager() {
       window.removeEventListener('offline', handleOffline);
       window.removeEventListener('dms-offline-queue-change', handleQueueChange);
     };
-  }, [refreshCount, synchronize]);
+  }, [refreshCount, refreshEntityState, synchronize]);
 
   useEffect(() => {
     if (!sessionToken) return;
-    refreshCount().then(() => {
+    Promise.all([refreshCount(), refreshEntityState()]).then(() => {
       if (navigator.onLine !== false) synchronize();
     });
-  }, [sessionToken]);
+  }, [sessionToken, location.pathname]);
+
+  const finalizationBlocked = navigator.onLine === false
+    || entityPending > 0
+    || (isCreateWorkflow(location.pathname) && navigator.onLine === false);
+
+  useEffect(() => {
+    document.body.classList.toggle('dms-entity-unsynced', finalizationBlocked);
+    return () => document.body.classList.remove('dms-entity-unsynced');
+  }, [finalizationBlocked]);
 
   if (online && !pending && !syncing && !message) return null;
+
+  const pendingText = entityPending
+    ? `${entityPending} cambio${entityPending === 1 ? '' : 's'} de este ${entity?.type || 'registro'} pendiente${entityPending === 1 ? '' : 's'}. Finalizar aparecerá al terminar.`
+    : pending
+      ? `${pending} cambio${pending === 1 ? '' : 's'} pendiente${pending === 1 ? '' : 's'} de envío.`
+      : 'Los catálogos guardados continúan disponibles.';
 
   return (
     <aside className={`offline-status${online ? ' is-online' : ' is-offline'}${syncing ? ' is-syncing' : ''}`} role="status" aria-live="polite">
@@ -118,7 +172,7 @@ export default function OfflineSyncManager() {
       </span>
       <div className="offline-status__body">
         <strong>{syncing ? 'Sincronizando' : online ? 'Conexión disponible' : 'Trabajando sin conexión'}</strong>
-        <small>{message || (pending ? `${pending} cambio${pending === 1 ? '' : 's'} pendiente${pending === 1 ? '' : 's'} de envío.` : 'Los catálogos guardados continúan disponibles.')}</small>
+        <small>{message || pendingText}</small>
       </div>
       {online && pending > 0 && !syncing && (
         <button type="button" onClick={synchronize}>Reintentar</button>
