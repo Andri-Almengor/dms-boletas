@@ -1,5 +1,6 @@
 import { forbidden } from './errors.js';
 import { asBool } from './utils.js';
+import { normalizeTicketHoursPayload } from './ticket-hours.js';
 import { login, authenticate, logout, changePassword } from '../services/auth.service.js';
 import { safeUser } from '../services/permissions.service.js';
 import { rewriteTechnicalReport } from '../services/gemini.service.js';
@@ -125,5 +126,6 @@ export async function dispatchAction({ route, payload={}, sessionToken='', ip=''
   if(!entry) { const error=new Error(`Ruta no encontrada: ${route}`); error.code='ROUTE_NOT_FOUND'; error.status=404; throw error; }
   let auth={user:null,permissions:[]}; if(!entry.publicRoute) auth=await authenticate(sessionToken);
   if(entry.permission){const required=Array.isArray(entry.permission)?entry.permission:[entry.permission];const allowed=required.some((code)=>auth.permissions.includes(code))||auth.permissions.includes('USUARIOS_GESTIONAR');if(!allowed)throw forbidden();}
-  return entry.handler({route,payload,sessionToken,ip,userAgent,origin,...auth});
+  const normalizedPayload = normalizeTicketHoursPayload(route, payload);
+  return entry.handler({route,payload:normalizedPayload,sessionToken,ip,userAgent,origin,...auth});
 }
