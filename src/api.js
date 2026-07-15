@@ -23,16 +23,37 @@ function isReadRoute(route) {
     || value.endsWith('.config');
 }
 
+function localId(prefix) {
+  const random = globalThis.crypto?.randomUUID?.() || `${Date.now()}-${Math.random().toString(16).slice(2)}`;
+  return `${prefix}-${random}`;
+}
+
+function ensurePayloadId(payload, fields, prefix) {
+  const current = fields.map((field) => payload?.[field]).find(Boolean);
+  const id = String(current || localId(prefix));
+  fields.forEach((field) => { payload[field] = id; });
+  return payload;
+}
+
 function preparePayload(route, payload) {
   const value = String(route || '').toLowerCase();
-  const isTicketCreate = value === 'boletas.create' || value === 'tickets.create';
-  if (!isTicketCreate || payload?.boletaUid || payload?.BoletaUID) return payload;
-  const random = globalThis.crypto?.randomUUID?.() || `${Date.now()}-${Math.random().toString(16).slice(2)}`;
-  const uid = `boleta-${random}`;
-  // Se modifica el mismo objeto para que, si la respuesta se pierde por un corte
-  // de internet, la cola offline reutilice exactamente el mismo identificador.
-  payload.boletaUid = uid;
-  payload.BoletaUID = uid;
+
+  if (value === 'boletas.create' || value === 'tickets.create') {
+    return ensurePayloadId(payload, ['boletaUid', 'BoletaUID'], 'boleta');
+  }
+  if (value === 'boletas.evidence.upload' || value === 'tickets.evidence.upload') {
+    return ensurePayloadId(payload, ['evidenciaId', 'EvidenciaID'], 'evidencia');
+  }
+  if (value === 'maintenance.create' || value === 'mantenimientos.create') {
+    return ensurePayloadId(payload, ['maintenanceId', 'MantenimientoID'], 'mantenimiento');
+  }
+  if (value === 'maintenance.devices.create' || value === 'mantenimientos.dispositivos.create') {
+    return ensurePayloadId(payload, ['deviceId', 'EvidenciaMantenimientoID'], 'dispositivo');
+  }
+  if (value === 'maintenance.images.upload' || value === 'mantenimientos.imagenes.upload') {
+    return ensurePayloadId(payload, ['imageId', 'FotoDispositivoID'], 'imagen');
+  }
+
   return payload;
 }
 
