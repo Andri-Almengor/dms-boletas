@@ -37,12 +37,14 @@ app.get('/api/health', (_req, res) => {
 app.post('/api/action', async (req, res, next) => {
   try {
     const body = typeof req.body === 'string' ? JSON.parse(req.body || '{}') : (req.body || {});
+    const requestOrigin = req.get('origin') || `${req.protocol}://${req.get('host')}`;
     const data = await dispatchAction({
       route: body.route || body.action,
       payload: body.payload || {},
       sessionToken: body.sessionToken || req.headers.authorization?.replace(/^Bearer\s+/i, '') || '',
       ip: req.ip,
       userAgent: req.get('user-agent') || '',
+      origin: requestOrigin,
     });
     res.json({ ok: true, data });
   } catch (error) {
