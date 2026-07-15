@@ -29,11 +29,14 @@ export const ticketDeliveryHandlers = {
   evidenceUpdate: ticketAccessHandlers.evidenceUpdate,
   evidenceDelete: ticketAccessHandlers.evidenceDelete,
   signatureUpload: ticketAccessHandlers.signatureUpload,
+  returnPending: ticketAccessHandlers.returnPending,
+  annul: ticketAccessHandlers.annul,
 
   finalize: async (ctx) => {
     const id = pick(ctx.payload, ['boletaUid', 'BoletaUID', 'id']);
     return runOnce(`finalize:${id}`, async () => {
       const before = await findById('Boletas', id);
+      await ticketAccessHandlers.assertTicketAccess(ctx, before, 'finalizar');
       if (isFinalized(before.Estado)) {
         return { boleta: before, alreadyFinalized: true };
       }

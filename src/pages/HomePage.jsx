@@ -4,7 +4,7 @@ import { useAuth } from '../AuthContext';
 import Icon from '../components/common/Icon';
 import TicketCard from '../components/tickets/TicketCard';
 import { MODULE_ROUTES, normalizeItems, requestAvailable } from '../services/moduleApi';
-import { getTicketId, normalizeTicketStatus } from '../utils/tickets';
+import { getTicketId, normalizeTicketStatus, sortTicketsNewestFirst } from '../utils/tickets';
 
 function firstName(name = '') {
   return String(name).trim().split(/\s+/)[0] || 'Usuario';
@@ -34,7 +34,7 @@ export default function HomePage() {
       sortBy: 'Fecha',
       sortDir: 'desc',
     }, sessionToken)
-      .then((data) => { if (active) setTickets(normalizeItems(data)); })
+      .then((data) => { if (active) setTickets(sortTicketsNewestFirst(normalizeItems(data))); })
       .catch((loadError) => { if (active) { setTickets([]); setError(loadError.message); } })
       .finally(() => { if (active) setLoading(false); });
     return () => { active = false; };
@@ -42,7 +42,7 @@ export default function HomePage() {
 
   const pending = useMemo(() => tickets.filter((ticket) => normalizeTicketStatus(ticket) === 'PENDIENTE'), [tickets]);
   const finished = useMemo(() => tickets.filter((ticket) => normalizeTicketStatus(ticket) === 'FINALIZADA'), [tickets]);
-  const recent = useMemo(() => [...tickets].slice(0, 3), [tickets]);
+  const recent = useMemo(() => sortTicketsNewestFirst(tickets).slice(0, 3), [tickets]);
 
   return (
     <div className="page page--home">

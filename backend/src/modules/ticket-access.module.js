@@ -36,18 +36,41 @@ function assignedTicketIds(assignments, selectedUserId) {
   );
 }
 
-function technicianParticipates(ticket, participationIds, technicianId) {
-  return participationIds.has(String(ticket.BoletaUID || '').trim())
-    || String(ticket.CreadoPor || '').trim() === String(technicianId || '').trim();
+function technicianIsAssigned(ticket, assignedIds) {
+  return assignedIds.has(String(ticket.BoletaUID || '').trim());
 }
 
-async function assertFinalizedAccess(ctx, ticket, action = 'consultar') {
-  if (normalizeStatus(ticket.Estado) !== 'FINALIZADA' || isAdministrator(ctx)) return ticket;
+function ticketDateKey(row) {
+  return String(row.Fecha || row.FechaCreacion || '').slice(0, 10);
+}
+
+function ticketNumber(row) {
+  const value = Number(row.BoletaID);
+  return Number.isFinite(value) ? value : 0;
+}
+
+function ticketCreatedAt(row) {
+  const value = Date.parse(row.FechaCreacion || row.FechaActualizacion || '');
+  return Number.isNaN(value) ? 0 : value;
+}
+
+function sortNewestFirst(rows) {
+  return [...rows].sort((left, right) => {
+    const byDate = ticketDateKey(right).localeCompare(ticketDateKey(left));
+    if (byDate) return byDate;
+    const byNumber = ticketNumber(right) - ticketNumber(left);
+    if (byNumber) return byNumber;
+    return ticketCreatedAt(right) - ticketCreatedAt(left);
+  });
+}
+
+async function assertTicketAccess(ctx, ticket, action = 'consultar') {
+  if (isAdministrator(ctx)) return ticket;
   const technicianId = userId(ctx);
   const assignments = await readTable('BoletaAsignados');
-  const participationIds = assignedTicketIds(assignments, technicianId);
-  if (!technicianParticipates(ticket, participationIds, technicianId)) {
-    throw forbidden(`Solo puede ${action} boletas finalizadas en las que participó.`);
+  const assignedIds = assignedTicketIds(assignments, technicianId);
+  if (!technicianIsAssigned(ticket, assignedIds)) {
+    throw forbidden(`Solo puede ${action} boletas en las que está asignado.`);
   }
   return ticket;
 }
@@ -104,7 +127,7 @@ function applyFieldFilters(rows, payload) {
 
 async function assertCanModifyFinalized(ctx, ticketId) {
   const ticket = await findById('Boletas', ticketId);
-  return assertFinalizedAccess(ctx, ticket, 'editar');
+  return assertTicketAccess(ctx, ticket, 'editar');
 }
 
 function preserveFinalizedState(ctx, ticket) {
@@ -120,6 +143,7 @@ function preserveFinalizedState(ctx, ticket) {
 }
 
 export const ticketAccessHandlers = {
+  assertTicketAccess,
   assertCanModifyFinalized,
 
   list: async (ctx) => {
@@ -127,41 +151,44 @@ export const ticketAccessHandlers = {
     const tables = await readTables(['Boletas', 'BoletaAsignados']);
     const requestedStatus = normalizeStatus(payload.status || payload.estado);
     const admin = isAdministrator(ctx);
-    const technicianId = userId(ctx);
     let rows = tables.Boletas.filter((row) => isActive(row) && normalizeStatus(row.Estado) !== 'ANULADA');
+
     if (requestedStatus) rows = rows.filter((row) => normalizeStatus(row.Estado) === requestedStatus);
-    if (requestedStatus === 'FINALIZADA') {
-      if (admin) {
-        const selectedTechnician = String(payload.asignadoUsuarioId || '').trim();
-        if (selectedTechnician) {
-          const selectedIds = assignedTicketIds(tables.BoletaAsignados, selectedTechnician);
-          rows = rows.filter((row) => selectedIds.has(String(row.BoletaUID)));
-        }
-      } else {
-        const participationIds = assignedTicketIds(tables.BoletaAsignados, technicianId);
-        rows = rows.filter((row) => technicianParticipates(row, participationIds, technicianId));
+
+    if (admin) {
+      const selectedTechnician = String(payload.asignadoUsuarioId || '').trim();
+      if (selectedTechnician) {
+        const selectedIds = assignedTicketIds(tables.BoletaAsignados, selectedTechnician);
+        rows = rows.filter((row) => technicianIsAssigned(row, selectedIds));
       }
-    } else if (admin && payload.asignadoUsuarioId) {
-      const selectedIds = assignedTicketIds(tables.BoletaAsignados, payload.asignadoUsuarioId);
-      rows = rows.filter((row) => selectedIds.has(String(row.BoletaUID)));
+    } else {
+      const assignedIds = assignedTicketIds(tables.BoletaAsignados, userId(ctx));
+      rows = rows.filter((row) => technicianIsAssigned(row, assignedIds));
     }
+
     if (payload.dateFrom) rows = rows.filter((row) => String(row.Fecha || '').slice(0, 10) >= String(payload.dateFrom));
     if (payload.dateTo) rows = rows.filter((row) => String(row.Fecha || '').slice(0, 10) <= String(payload.dateTo));
-    rows = applyFieldFilters(rows, payload);
-    return filterRows(rows, { ...payload, estado: undefined, status: undefined }, [
-      'Titulo', 'Cliente', 'Ubicacion', 'Categoria', 'TipoDispositivo', 'Fabricante', 'Modelo', 'BoletaID',
-    ]);
+    rows = sortNewestFirst(applyFieldFilters(rows, payload));
+
+    return filterRows(rows, {
+      ...payload,
+      estado: undefined,
+      status: undefined,
+      sortBy: undefined,
+      sortDir: undefined,
+      asignadoUsuarioId: undefined,
+    }, ['Titulo', 'Cliente', 'Ubicacion', 'Categoria', 'TipoDispositivo', 'Fabricante', 'Modelo', 'BoletaID']);
   },
 
   get: async (ctx) => {
     const ticket = await findById('Boletas', pick(ctx.payload, ['boletaUid', 'BoletaUID', 'id']));
-    await assertFinalizedAccess(ctx, ticket);
+    await assertTicketAccess(ctx, ticket);
     return ticketHandlers.get(ctx);
   },
 
   mediaGet: async (ctx) => {
     const ticket = await ticketForMedia(ctx.payload);
-    await assertFinalizedAccess(ctx, ticket);
+    await assertTicketAccess(ctx, ticket);
     return ticketHandlers.mediaGet(ctx);
   },
 
@@ -177,24 +204,37 @@ export const ticketAccessHandlers = {
 
   evidenceUpload: async (ctx) => {
     const ticket = await ticketForEvidenceMutation(ctx.payload);
-    await assertFinalizedAccess(ctx, ticket, 'agregar evidencias a');
+    await assertTicketAccess(ctx, ticket, 'agregar evidencias a');
     return ticketHandlers.evidenceUpload(ctx);
   },
 
   evidenceUpdate: async (ctx) => {
     const ticket = await ticketForEvidenceMutation(ctx.payload);
-    await assertFinalizedAccess(ctx, ticket, 'editar evidencias de');
+    await assertTicketAccess(ctx, ticket, 'editar evidencias de');
     return ticketHandlers.evidenceUpdate(ctx);
   },
 
   evidenceDelete: async (ctx) => {
     const ticket = await ticketForEvidenceMutation(ctx.payload);
-    await assertFinalizedAccess(ctx, ticket, 'eliminar evidencias de');
+    await assertTicketAccess(ctx, ticket, 'eliminar evidencias de');
     return ticketHandlers.evidenceDelete(ctx);
   },
 
   signatureUpload: async (ctx) => {
-    await assertCanModifyFinalized(ctx, pick(ctx.payload, ['boletaUid', 'BoletaUID', 'id']));
+    const ticket = await findById('Boletas', pick(ctx.payload, ['boletaUid', 'BoletaUID', 'id']));
+    await assertTicketAccess(ctx, ticket, 'editar la firma de');
     return ticketHandlers.signatureUpload(ctx);
+  },
+
+  returnPending: async (ctx) => {
+    const ticket = await findById('Boletas', pick(ctx.payload, ['boletaUid', 'BoletaUID', 'id']));
+    await assertTicketAccess(ctx, ticket, 'regresar a pendiente');
+    return ticketHandlers.returnPending(ctx);
+  },
+
+  annul: async (ctx) => {
+    const ticket = await findById('Boletas', pick(ctx.payload, ['boletaUid', 'BoletaUID', 'id']));
+    await assertTicketAccess(ctx, ticket, 'anular');
+    return ticketHandlers.annul(ctx);
   },
 };
