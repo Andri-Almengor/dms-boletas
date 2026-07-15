@@ -18,7 +18,9 @@ export default function MaintenanceDetailPage() {
   const { maintenanceId } = useParams();
   const navigate = useNavigate();
   const { sessionToken, hasPermission } = useAuth();
-  const isAdmin = hasPermission('USUARIOS_GESTIONAR') || hasPermission('MANTENIMIENTOS_ELIMINAR');
+  const isAdmin = hasPermission('USUARIOS_GESTIONAR')
+    || hasPermission('MANTENIMIENTOS_ELIMINAR')
+    || hasPermission('MANTENIMIENTOS_GESTIONAR');
   const canEdit = hasPermission('MANTENIMIENTOS_EDITAR') || hasPermission('BOLETAS_EDITAR');
   const canFinalize = hasPermission('MANTENIMIENTOS_FINALIZAR') || hasPermission('BOLETAS_FINALIZAR') || canEdit;
   const [data, setData] = useState(null);
@@ -58,11 +60,12 @@ export default function MaintenanceDetailPage() {
   const devices = data?.dispositivos || data?.devices || [];
   const status = String(pick(row, ['Estado'], 'PENDIENTE')).toUpperCase();
   const pending = status === 'PENDIENTE';
-  const offlinePending = Boolean(pick(row, ['OfflinePendiente'])) || String(maintenanceId).startsWith('mantenimiento-');
+  const offlinePending = Boolean(pick(row, ['OfflinePendiente'], false));
 
   async function action(type) {
     if (type === 'delete' && !window.confirm('¿Eliminar este mantenimiento y todos sus dispositivos?')) return;
     if (type === 'finalize' && !window.confirm('¿Finalizar este mantenimiento? Después quedará en modo consulta.')) return;
+    const reportWindow = ['sheet', 'slides'].includes(type) ? window.open('about:blank', '_blank') : null;
     setWorking(type);
     setError('');
     setNotice('');
@@ -82,14 +85,21 @@ export default function MaintenanceDetailPage() {
       }
       if (type === 'sheet') {
         const result = await requestAvailable(MODULE_ROUTES.maintenance.spreadsheetReport, { maintenanceId }, sessionToken);
-        window.open(pick(result, ['spreadsheetUrl', 'url']), '_blank', 'noopener,noreferrer');
+        const url = pick(result, ['excelUrl', 'spreadsheetUrl', 'url']);
+        if (!url) throw new Error('El servidor no devolvió el enlace del reporte de Excel.');
+        if (reportWindow) reportWindow.location.replace(url);
+        else setNotice('El reporte fue creado. Use el enlace “Excel creado” para abrirlo.');
       }
       if (type === 'slides') {
         const result = await requestAvailable(MODULE_ROUTES.maintenance.slidesReport, { maintenanceId }, sessionToken);
-        window.open(pick(result, ['slidesUrl', 'url']), '_blank', 'noopener,noreferrer');
+        const url = pick(result, ['slidesUrl', 'url']);
+        if (!url) throw new Error('El servidor no devolvió el enlace de la presentación.');
+        if (reportWindow) reportWindow.location.replace(url);
+        else setNotice('La presentación fue creada. Use el enlace “Presentación creada” para abrirla.');
       }
       await load({ silent: true });
     } catch (actionError) {
+      try { reportWindow?.close(); } catch { /* sin acción */ }
       setError(actionError.message);
     } finally {
       setWorking('');
@@ -129,7 +139,7 @@ export default function MaintenanceDetailPage() {
 
       {error && <div className="alert alert--error"><Icon name="error" /><span>{error}</span></div>}
       {notice && <div className="alert alert--success"><Icon name="check_circle" /><span>{notice}</span></div>}
-      {offlinePending && <div className="alert alert--warning maintenance-offline-edit-notice"><Icon name="cloud_off" /><span>Este mantenimiento está guardado en el dispositivo. Puede editarlo, agregar equipos y evidencias. Finalizar aparecerá cuando todo se sincronice.</span></div>}
+      {offlinePending && <div className="alert alert--warning maintenance-offline-edit-notice"><Icon name="cloud_off" /><span>Este mantenimiento está guardado en el dispositivo. Puede editarlo, agregar equipos y evidencias. Finalizar y generar reportes aparecerán cuando todo se sincronice.</span></div>}
 
       <section className="maintenance-detail-summary">
         <div className="maintenance-detail-summary__hero">
@@ -153,8 +163,8 @@ export default function MaintenanceDetailPage() {
         <section className="maintenance-report-actions" aria-label="Acciones del mantenimiento">
           {pending && canEdit && <button type="button" className="button button--primary" onClick={addDevice} disabled={Boolean(working)}><Icon name="add" />Agregar dispositivo</button>}
           {pending && canEdit && <button type="button" className="button button--secondary maintenance-quick-evidence-button" onClick={() => setQuickEvidenceOpen(true)} disabled={!devices.length || Boolean(working)} title={devices.length ? 'Agregar evidencia a cualquier dispositivo' : 'Agregue un dispositivo primero'}><Icon name="add_a_photo" />Nueva evidencia</button>}
-          {isAdmin && <button type="button" className="button button--secondary" onClick={() => action('sheet')} disabled={Boolean(working) || offlinePending}><Icon name="table_view" />{working === 'sheet' ? 'Generando...' : 'Crear Excel'}</button>}
-          {isAdmin && <button type="button" className="button button--secondary" onClick={() => action('slides')} disabled={Boolean(working) || offlinePending}><Icon name="slideshow" />{working === 'slides' ? 'Generando...' : 'Crear presentación'}</button>}
+          {isAdmin && <button type="button" className="button button--secondary" onClick={() => action('sheet')} disabled={Boolean(working) || offlinePending} title={offlinePending ? 'Sincronice el mantenimiento antes de generar el reporte' : 'Crear reporte de Excel'}><Icon name="table_view" />{working === 'sheet' ? 'Generando...' : 'Crear Excel'}</button>}
+          {isAdmin && <button type="button" className="button button--secondary" onClick={() => action('slides')} disabled={Boolean(working) || offlinePending} title={offlinePending ? 'Sincronice el mantenimiento antes de generar la presentación' : 'Crear presentación'}><Icon name="slideshow" />{working === 'slides' ? 'Generando...' : 'Crear presentación'}</button>}
           {isAdmin && pick(row, ['SpreadsheetURL']) && <a className="button button--ghost" href={pick(row, ['SpreadsheetURL'])} target="_blank" rel="noreferrer"><Icon name="open_in_new" />Excel creado</a>}
           {isAdmin && pick(row, ['SlidesURL']) && <a className="button button--ghost" href={pick(row, ['SlidesURL'])} target="_blank" rel="noreferrer"><Icon name="open_in_new" />Presentación creada</a>}
         </section>
