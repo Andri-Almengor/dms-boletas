@@ -4,6 +4,7 @@ import { nowIso, pick } from '../core/utils.js';
 import { audit } from '../services/audit.service.js';
 import { deliverTicket } from '../services/ticket-delivery.service.js';
 import { generateTicketWithAppsScript } from '../services/apps-script-ticket.service.js';
+import { ticketAccessHandlers } from './ticket-access.module.js';
 
 const running = new Map();
 
@@ -15,6 +16,10 @@ async function runOnce(key, operation) {
 }
 
 export const ticketDeliveryHandlers = {
+  list: ticketAccessHandlers.list,
+  get: ticketAccessHandlers.get,
+  mediaGet: ticketAccessHandlers.mediaGet,
+
   finalize: async (ctx) => {
     const id = pick(ctx.payload, ['boletaUid', 'BoletaUID', 'id']);
     return runOnce(`finalize:${id}`, async () => {
