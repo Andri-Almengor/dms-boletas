@@ -114,20 +114,18 @@ export const ticketAccessHandlers = {
       rows = rows.filter((row) => normalizeStatus(row.Estado) === requestedStatus);
     }
 
-    if (requestedStatus === 'FINALIZADA') {
-      if (admin) {
-        const selectedTechnician = String(payload.asignadoUsuarioId || '').trim();
-        if (selectedTechnician) {
-          const selectedIds = assignedTicketIds(tables.BoletaAsignados, selectedTechnician);
-          rows = rows.filter((row) => selectedIds.has(String(row.BoletaUID)));
-        }
-      } else {
-        const participationIds = assignedTicketIds(tables.BoletaAsignados, technicianId);
-        rows = rows.filter((row) => technicianParticipates(row, participationIds, technicianId));
+    if (admin) {
+      const selectedTechnician = String(payload.asignadoUsuarioId || '').trim();
+      if (selectedTechnician) {
+        const selectedIds = assignedTicketIds(tables.BoletaAsignados, selectedTechnician);
+        rows = rows.filter((row) => selectedIds.has(String(row.BoletaUID)));
       }
-    } else if (admin && payload.asignadoUsuarioId) {
-      const selectedIds = assignedTicketIds(tables.BoletaAsignados, payload.asignadoUsuarioId);
-      rows = rows.filter((row) => selectedIds.has(String(row.BoletaUID)));
+    } else {
+      const participationIds = assignedTicketIds(tables.BoletaAsignados, technicianId);
+      rows = rows.filter((row) => (
+        normalizeStatus(row.Estado) !== 'FINALIZADA'
+        || technicianParticipates(row, participationIds, technicianId)
+      ));
     }
 
     if (payload.dateFrom) rows = rows.filter((row) => String(row.Fecha || '').slice(0, 10) >= String(payload.dateFrom));
