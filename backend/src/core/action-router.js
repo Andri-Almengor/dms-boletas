@@ -8,6 +8,7 @@ import { crudHandlers } from '../modules/crud.module.js';
 import { ticketHandlers } from '../modules/tickets.module.js';
 import { ticketDeliveryHandlers } from '../modules/ticket-delivery.module.js';
 import { maintenanceHandlers } from '../modules/maintenance.module.js';
+import { maintenanceReportAccessHandlers } from '../modules/maintenance-report-access.module.js';
 import { knowledgeHandlers } from '../modules/knowledge.module.js';
 import { surveyHandlers } from '../modules/survey.module.js';
 import { getClientConfig } from '../modules/config.module.js';
@@ -107,7 +108,8 @@ for(const [key,names] of Object.entries(maintenanceAliases)) {
   if(['list','get','mediaGet','config'].includes(key)) permission=maintenanceReadPermissions;
   else if(key==='create') permission=maintenanceCreatePermissions;
   else if(key==='finalize') permission=maintenanceFinalizePermissions;
-  add(names,maintenanceHandlers[key],permission);
+  const handler = maintenanceReportAccessHandlers[key] || maintenanceHandlers[key];
+  add(names,handler,permission);
 }
 
 const knowledgeAliases={list:['knowledge.list','baseConocimientos.list','conocimiento.list','tutorials.list'],get:['knowledge.get','baseConocimientos.get','conocimiento.get','tutorials.get'],create:['knowledge.create','baseConocimientos.create','conocimiento.create','tutorials.create'],update:['knowledge.update','baseConocimientos.update','conocimiento.update','tutorials.update'],delete:['knowledge.delete','baseConocimientos.delete','conocimiento.delete','tutorials.delete'],attachmentUpload:['knowledge.attachments.upload','baseConocimientos.adjuntos.upload','conocimiento.adjuntos.upload'],attachmentDelete:['knowledge.attachments.delete','baseConocimientos.adjuntos.delete','conocimiento.adjuntos.delete'],mediaGet:['knowledge.media.get','baseConocimientos.media.get','conocimiento.media.get']};
