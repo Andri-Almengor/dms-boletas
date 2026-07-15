@@ -49,16 +49,6 @@ export default function MaintenanceFormPage({ mode = 'create' }) {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [editing, requestedDeviceId, state.loading, state.devices, state.activeDevice]);
 
-  async function closeRequestedDevice() {
-    await state.closeActiveDevice();
-    if (requestedDeviceId) navigate(`/mantenimientos/${encodeURIComponent(maintenanceId)}`);
-  }
-
-  async function deleteRequestedDevice() {
-    await state.removeDevice(state.activeDevice);
-    if (requestedDeviceId) navigate(`/mantenimientos/${encodeURIComponent(maintenanceId)}`);
-  }
-
   if (!state.allowed) return <Navigate to="/mantenimientos" replace />;
   if (state.loading) return <div className="page"><div className="state-card state-card--loading"><Icon name="progress_activity" />Cargando mantenimiento...</div></div>;
 
@@ -70,9 +60,9 @@ export default function MaintenanceFormPage({ mode = 'create' }) {
         disabled={state.readOnly || state.saving}
         isAdmin={state.isAdmin}
         onChange={state.setActiveDevice}
-        onClose={requestedDeviceId ? closeRequestedDevice : state.closeActiveDevice}
-        onSubmit={requestedDeviceId ? closeRequestedDevice : state.closeActiveDevice}
-        onDelete={requestedDeviceId ? deleteRequestedDevice : () => state.removeDevice(state.activeDevice)}
+        onClose={state.closeActiveDevice}
+        onSubmit={state.closeActiveDevice}
+        onDelete={() => state.removeDevice(state.activeDevice)}
         submitting={state.deviceSaving}
         autosaveStatus={state.deviceAutosaveStatus}
       />
