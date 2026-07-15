@@ -28,6 +28,30 @@ export function formatTime(value) {
   }).format(date);
 }
 
+function ticketDateKey(ticket) {
+  return String(pick(ticket, ['Fecha', 'fecha', 'FechaCreacion', 'CreatedAt'], '')).slice(0, 10);
+}
+
+function ticketNumber(ticket) {
+  const value = Number(pick(ticket, ['BoletaID', 'TicketID'], 0));
+  return Number.isFinite(value) ? value : 0;
+}
+
+function ticketCreatedAt(ticket) {
+  const value = Date.parse(pick(ticket, ['FechaCreacion', 'CreatedAt', 'FechaActualizacion'], ''));
+  return Number.isNaN(value) ? 0 : value;
+}
+
+export function sortTicketsNewestFirst(tickets = []) {
+  return [...tickets].sort((left, right) => {
+    const byDate = ticketDateKey(right).localeCompare(ticketDateKey(left));
+    if (byDate) return byDate;
+    const byNumber = ticketNumber(right) - ticketNumber(left);
+    if (byNumber) return byNumber;
+    return ticketCreatedAt(right) - ticketCreatedAt(left);
+  });
+}
+
 export function groupTicketsByDate(tickets) {
   const groups = new Map();
   const todayKey = todayInCostaRica();
@@ -36,7 +60,7 @@ export function groupTicketsByDate(tickets) {
   yesterday.setUTCDate(yesterday.getUTCDate() - 1);
   const yesterdayKey = costaRicaDateKey(yesterday);
 
-  tickets.forEach((ticket) => {
+  sortTicketsNewestFirst(tickets).forEach((ticket) => {
     const rawDate = pick(ticket, ['Fecha', 'FechaCreacion', 'CreatedAt', 'fecha']);
     const key = costaRicaDateKey(rawDate);
     let label = 'Sin fecha';
