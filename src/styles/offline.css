@@ -80,6 +80,19 @@
   cursor: pointer;
 }
 
+/* Las acciones que generan documentos o cambian el estado solo aparecen cuando
+   no quedan operaciones locales por sincronizar. Guardar y editar siguen activos. */
+.dms-offline .review-action-grid,
+.dms-has-pending-sync .review-action-grid,
+.dms-offline .ticket-detail-actions .button--wide,
+.dms-has-pending-sync .ticket-detail-actions .button--wide,
+.dms-offline .maintenance-final-actions .button--primary,
+.dms-has-pending-sync .maintenance-final-actions .button--primary,
+.dms-offline .maintenance-detail-footer-actions .button--primary,
+.dms-has-pending-sync .maintenance-detail-footer-actions .button--primary {
+  display: none !important;
+}
+
 @keyframes dms-offline-spin {
   to { transform: rotate(360deg); }
 }
