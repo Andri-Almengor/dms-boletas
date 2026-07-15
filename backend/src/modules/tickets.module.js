@@ -187,8 +187,22 @@ export const ticketHandlers = {
   },
   get: async ({ payload }) => enrichTicket(await findById('Boletas', pick(payload, ['boletaUid', 'BoletaUID', 'id']))),
   create: async (ctx) => {
+    const requestedId = String(pick(ctx.payload, ['boletaUid', 'BoletaUID'], '')).trim();
+    if (requestedId && !/^[A-Za-z0-9._:-]{8,140}$/.test(requestedId)) throw badRequest('El identificador local de la boleta no es válido.');
+
+    if (requestedId) {
+      const existing = (await readTable('Boletas')).find((item) => String(item.BoletaUID) === requestedId);
+      if (existing) {
+        const sameOwner = String(existing.CreadoPor || '') === String(ctx.user.UsuarioID || '');
+        const isAdmin = ctx.permissions?.includes('USUARIOS_GESTIONAR');
+        if (!sameOwner && !isAdmin) throw badRequest('El identificador local ya pertenece a otra boleta.');
+        if (hasAssignedPayload(ctx.payload)) await replaceAssigned(existing.BoletaUID, ctx.payload.AsignadoA || ctx.payload.asignados, ctx);
+        return enrichTicket(existing);
+      }
+    }
+
     const row = {
-      BoletaUID: uuid(),
+      BoletaUID: requestedId || uuid(),
       BoletaID: await nextTicketNumber(),
       Version: 1,
       ...ticketPayload(ctx.payload),
