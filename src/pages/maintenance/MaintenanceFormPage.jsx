@@ -1,5 +1,5 @@
-import React, { useState } from 'react';
-import { Navigate, useNavigate, useParams } from 'react-router-dom';
+import React, { useEffect, useState } from 'react';
+import { Navigate, useNavigate, useParams, useSearchParams } from 'react-router-dom';
 import Icon from '../../components/common/Icon';
 import InlineCreateModal from '../../components/forms/InlineCreateModal';
 import MaintenanceDeviceEditor from '../../components/maintenance/MaintenanceDeviceEditor';
@@ -18,12 +18,18 @@ function Field({ label, multiline = false, ...props }) {
 export default function MaintenanceFormPage({ mode = 'create' }) {
   const { maintenanceId } = useParams();
   const navigate = useNavigate();
+  const [searchParams] = useSearchParams();
   const editing = mode === 'edit';
+  const requestedStep = searchParams.get('step') === 'devices' ? 2 : 0;
   const state = useMaintenanceForm({ editing, maintenanceId });
-  const [step, setStep] = useState(0);
+  const [step, setStep] = useState(requestedStep);
   const [modal, setModal] = useState(null);
   const [modalError, setModalError] = useState('');
   const [modalSaving, setModalSaving] = useState(false);
+
+  useEffect(() => {
+    if (searchParams.get('step') === 'devices') setStep(2);
+  }, [searchParams]);
 
   if (!state.allowed) return <Navigate to="/mantenimientos" replace />;
   if (state.loading) return <div className="page"><div className="state-card state-card--loading"><Icon name="progress_activity" />Cargando mantenimiento...</div></div>;
@@ -96,7 +102,7 @@ export default function MaintenanceFormPage({ mode = 'create' }) {
       <span className={`status-chip ${state.form.estado === 'FINALIZADO' ? 'status-chip--active' : 'status-chip--pending'}`}>{state.form.estado}</span>
     </div>
     <section className="ticket-progress"><div><strong>Paso {step + 1} de {MAINTENANCE_STEPS.length}</strong><span>{progress}% completado</span></div><div className="ticket-progress__track"><span style={{ width: `${progress}%` }} /></div></section>
-    <section className="form-card ticket-form-card">
+    <section className="form-card ticket-form-card maintenance-form-card--wide">
       <div className="form-card__heading"><span className="section-marker" /><div><h2>Paso {step + 1}: {MAINTENANCE_STEPS[step][0]}</h2><p>{MAINTENANCE_STEPS[step][1]}</p></div></div>
       {state.error && <div className="alert alert--error"><Icon name="error" /><span>{state.error}</span></div>}
       {step === 0 && <MaintenanceGeneralStep form={state.form} setForm={state.setForm} clients={state.clients} locations={state.locations} technicians={state.technicians} disabled={state.readOnly} canCreateLocation={state.canCreateLocation} onAddLocation={() => openModal('location')} />}
