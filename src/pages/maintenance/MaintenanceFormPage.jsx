@@ -1,4 +1,4 @@
-import React, { useEffect, useState } from 'react';
+import React, { useEffect, useRef, useState } from 'react';
 import { Navigate, useNavigate, useParams, useSearchParams } from 'react-router-dom';
 import Icon from '../../components/common/Icon';
 import InlineCreateModal from '../../components/forms/InlineCreateModal';
@@ -21,6 +21,8 @@ export default function MaintenanceFormPage({ mode = 'create' }) {
   const [searchParams] = useSearchParams();
   const editing = mode === 'edit';
   const requestedStep = searchParams.get('step') === 'devices' ? 2 : 0;
+  const requestedDeviceId = String(searchParams.get('device') || '');
+  const requestedDeviceOpenedRef = useRef('');
   const state = useMaintenanceForm({ editing, maintenanceId });
   const [step, setStep] = useState(requestedStep);
   const [modal, setModal] = useState(null);
@@ -30,6 +32,22 @@ export default function MaintenanceFormPage({ mode = 'create' }) {
   useEffect(() => {
     if (searchParams.get('step') === 'devices') setStep(2);
   }, [searchParams]);
+
+  useEffect(() => {
+    if (!editing || state.loading || !requestedDeviceId || state.activeDevice) return;
+    if (requestedDeviceOpenedRef.current === requestedDeviceId) return;
+    const selected = state.devices.find((device) => String(device.id || device.localId) === requestedDeviceId);
+    if (!selected) {
+      requestedDeviceOpenedRef.current = requestedDeviceId;
+      state.setError('No se encontró el dispositivo solicitado. Puede seleccionarlo desde la lista.');
+      setStep(2);
+      return;
+    }
+    requestedDeviceOpenedRef.current = requestedDeviceId;
+    state.openDevice(selected);
+    // state.openDevice cambia en cada render; la apertura se controla con la referencia.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [editing, requestedDeviceId, state.loading, state.devices, state.activeDevice]);
 
   if (!state.allowed) return <Navigate to="/mantenimientos" replace />;
   if (state.loading) return <div className="page"><div className="state-card state-card--loading"><Icon name="progress_activity" />Cargando mantenimiento...</div></div>;

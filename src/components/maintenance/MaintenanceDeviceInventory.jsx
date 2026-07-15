@@ -1,5 +1,6 @@
 import React, { useEffect, useMemo, useState } from 'react';
 import Icon from '../common/Icon';
+import FilterDrawer from '../forms/FilterDrawer';
 import MaintenanceEvidenceImage from './MaintenanceEvidenceImage';
 import { getMaintenanceCategory } from '../../config/maintenanceCategories';
 import { pick } from '../../services/moduleApi';
@@ -42,12 +43,22 @@ function isOffline(device) {
   return Boolean(device.OfflinePendiente) || deviceId(device).startsWith('dispositivo-');
 }
 
+function FilterSelect({ label, value, onChange, children }) {
+  return (
+    <label className="field-group">
+      <span className="field-label">{label}</span>
+      <select className="form-control" value={value} onChange={onChange}>{children}</select>
+    </label>
+  );
+}
+
 export default function MaintenanceDeviceInventory({
   devices,
   status,
   canEdit,
   sessionToken,
   onAddDevice,
+  onEditDevice,
   onAddEvidence,
   onEditEvidence,
 }) {
@@ -57,6 +68,7 @@ export default function MaintenanceDeviceInventory({
   const [pageSize, setPageSize] = useState(25);
   const [page, setPage] = useState(1);
   const [expanded, setExpanded] = useState('');
+  const [filterOpen, setFilterOpen] = useState(false);
 
   const categories = useMemo(() => [...new Set(devices.map((item) => pick(item, ['Categoria'], 'Sin categoría')))]
     .sort((a, b) => String(a).localeCompare(String(b), 'es')), [devices]);
@@ -86,6 +98,7 @@ export default function MaintenanceDeviceInventory({
   const totalPages = Math.max(1, Math.ceil(filtered.length / pageSize));
   const visible = filtered.slice((page - 1) * pageSize, page * pageSize);
   const pending = status === 'PENDIENTE';
+  const activeFilterCount = Number(category !== 'TODAS') + Number(stateFilter !== 'TODOS') + Number(pageSize !== 25);
 
   useEffect(() => { setPage(1); }, [query, category, stateFilter, pageSize]);
   useEffect(() => { if (page > totalPages) setPage(totalPages); }, [page, totalPages]);
@@ -93,6 +106,13 @@ export default function MaintenanceDeviceInventory({
   function toggle(device) {
     const id = deviceId(device);
     setExpanded((current) => current === id ? '' : id);
+  }
+
+  function clearFilters() {
+    setCategory('TODAS');
+    setStateFilter('TODOS');
+    setPageSize(25);
+    setFilterOpen(false);
   }
 
   function expandedContent(device) {
@@ -103,6 +123,17 @@ export default function MaintenanceDeviceInventory({
     const id = deviceId(device);
     return (
       <div className="maintenance-inventory-expanded">
+        <div className="maintenance-inventory-expanded__heading">
+          <div>
+            <span className="eyebrow">Detalle del dispositivo</span>
+            <strong>{pick(device, ['NombreDispositivo'], 'Dispositivo')}</strong>
+          </div>
+          {pending && canEdit && (
+            <button className="button button--secondary button--compact" type="button" onClick={() => onEditDevice(device)}>
+              <Icon name="edit" />Editar dispositivo
+            </button>
+          )}
+        </div>
         <div className="maintenance-inventory-checklist">
           <div className={stateClass(pick(device, ['Funcionamiento']))}><span>Funcionamiento</span><strong>{pick(device, ['Funcionamiento'], 'Sin responder')}</strong></div>
           <div className={stateClass(pick(device, ['EnUso']))}><span>En uso</span><strong>{pick(device, ['EnUso'], 'Sin responder')}</strong></div>
@@ -120,7 +151,7 @@ export default function MaintenanceDeviceInventory({
             <figure key={pick(image, ['FotoDispositivoID', 'id'])}>
               <MaintenanceEvidenceImage image={image} sessionToken={sessionToken} alt={pick(image, ['Nombre'], 'Evidencia')} />
               <figcaption><strong>{pick(image, ['Tipo'], 'Evidencia')}</strong><span>{pick(image, ['Nota'], 'Sin nota')}</span></figcaption>
-              {pending && canEdit && <button type="button" onClick={() => onEditEvidence(image, device)}><Icon name="edit" />Editar</button>}
+              {pending && canEdit && <button type="button" onClick={() => onEditEvidence(image, device)}><Icon name="edit" />Editar evidencia</button>}
             </figure>
           ))}
           {!images.length && <div className="maintenance-inventory-no-images"><Icon name="photo_library" /><span>Sin fotografías registradas.</span></div>}
@@ -131,6 +162,23 @@ export default function MaintenanceDeviceInventory({
     );
   }
 
+  const drawerFields = (
+    <>
+      <FilterSelect label="Categoría" value={category} onChange={(event) => setCategory(event.target.value)}>
+        <option value="TODAS">Todas las categorías</option>
+        {categories.map((name) => <option key={name} value={name}>{name}</option>)}
+      </FilterSelect>
+      <FilterSelect label="Estado" value={stateFilter} onChange={(event) => setStateFilter(event.target.value)}>
+        <option value="TODOS">Todos los estados</option>
+        <option value="CORRECTOS">Correctos</option>
+        <option value="ATENCION">Requieren atención</option>
+      </FilterSelect>
+      <FilterSelect label="Dispositivos por página" value={pageSize} onChange={(event) => setPageSize(Number(event.target.value))}>
+        {PAGE_SIZES.map((size) => <option key={size} value={size}>{size} por página</option>)}
+      </FilterSelect>
+    </>
+  );
+
   return (
     <section className="maintenance-inventory-panel">
       <div className="maintenance-inventory-heading">
@@ -140,9 +188,13 @@ export default function MaintenanceDeviceInventory({
 
       <div className="maintenance-device-toolbar maintenance-device-toolbar--detail">
         <label className="maintenance-device-search"><Icon name="search" /><input type="search" value={query} onChange={(event) => setQuery(event.target.value)} placeholder="Buscar nombre, zona, modelo, serie u observación..." /></label>
-        <select value={category} onChange={(event) => setCategory(event.target.value)} aria-label="Filtrar por categoría"><option value="TODAS">Todas las categorías</option>{categories.map((name) => <option key={name} value={name}>{name}</option>)}</select>
-        <select value={stateFilter} onChange={(event) => setStateFilter(event.target.value)} aria-label="Filtrar por estado"><option value="TODOS">Todos los estados</option><option value="CORRECTOS">Correctos</option><option value="ATENCION">Requieren atención</option></select>
-        <select value={pageSize} onChange={(event) => setPageSize(Number(event.target.value))} aria-label="Filas por página">{PAGE_SIZES.map((size) => <option key={size} value={size}>{size} por página</option>)}</select>
+        <button type="button" className="icon-button icon-button--primary maintenance-inventory-filter-trigger" onClick={() => setFilterOpen(true)} aria-label="Abrir filtros de dispositivos">
+          <Icon name="tune" />
+          {activeFilterCount > 0 && <span>{activeFilterCount}</span>}
+        </button>
+        <select className="maintenance-inventory-inline-filter" value={category} onChange={(event) => setCategory(event.target.value)} aria-label="Filtrar por categoría"><option value="TODAS">Todas las categorías</option>{categories.map((name) => <option key={name} value={name}>{name}</option>)}</select>
+        <select className="maintenance-inventory-inline-filter" value={stateFilter} onChange={(event) => setStateFilter(event.target.value)} aria-label="Filtrar por estado"><option value="TODOS">Todos los estados</option><option value="CORRECTOS">Correctos</option><option value="ATENCION">Requieren atención</option></select>
+        <select className="maintenance-inventory-inline-filter" value={pageSize} onChange={(event) => setPageSize(Number(event.target.value))} aria-label="Filas por página">{PAGE_SIZES.map((size) => <option key={size} value={size}>{size} por página</option>)}</select>
       </div>
 
       <div className="maintenance-device-category-chips">
@@ -154,7 +206,7 @@ export default function MaintenanceDeviceInventory({
         <>
           <div className="maintenance-inventory-table-wrap">
             <table className="maintenance-inventory-table">
-              <thead><tr><th>#</th><th>Nombre</th><th>Categoría</th><th>Ubicación</th><th>Modelo / Serie</th><th>Estado</th><th>Fotos</th><th aria-label="Abrir" /></tr></thead>
+              <thead><tr><th>#</th><th>Nombre</th><th>Categoría</th><th>Ubicación</th><th>Modelo / Serie</th><th>Estado</th><th>Fotos</th><th>Acciones</th></tr></thead>
               <tbody>
                 {visible.map((device, index) => {
                   const id = deviceId(device);
@@ -170,7 +222,12 @@ export default function MaintenanceDeviceInventory({
                         <td>{[pick(device, ['Modelo']), pick(device, ['Serie'])].filter(Boolean).join(' · ') || 'Sin datos'}</td>
                         <td><span className={`maintenance-device-compact-state ${stateClass(pick(device, ['Estado']))}`}>{stateText(pick(device, ['Estado']))}</span></td>
                         <td><span className="maintenance-device-evidence-count"><Icon name="photo_library" />{images.length}</span></td>
-                        <td><button type="button" className="icon-button" onClick={() => toggle(device)} aria-expanded={open} aria-label={`Ver detalle de ${pick(device, ['NombreDispositivo'], 'dispositivo')}`}><Icon name={open ? 'expand_less' : 'expand_more'} /></button></td>
+                        <td>
+                          <div className="maintenance-inventory-row-actions">
+                            {pending && canEdit && <button type="button" className="icon-button" onClick={() => onEditDevice(device)} aria-label={`Editar ${pick(device, ['NombreDispositivo'], 'dispositivo')}`}><Icon name="edit" /></button>}
+                            <button type="button" className="icon-button" onClick={() => toggle(device)} aria-expanded={open} aria-label={`Ver detalle de ${pick(device, ['NombreDispositivo'], 'dispositivo')}`}><Icon name={open ? 'expand_less' : 'expand_more'} /></button>
+                          </div>
+                        </td>
                       </tr>
                       {open && <tr className="maintenance-inventory-expanded-row"><td colSpan="8">{expandedContent(device)}</td></tr>}
                     </React.Fragment>
@@ -191,6 +248,7 @@ export default function MaintenanceDeviceInventory({
                   <span><strong>{pick(device, ['NombreDispositivo'], 'Dispositivo')}</strong><small>{pick(device, ['Categoria'], 'Sin categoría')} · {pick(device, ['Zona'], 'Sin ubicación')}</small><span><em className={stateClass(pick(device, ['Estado']))}>{stateText(pick(device, ['Estado']))}</em><em><Icon name="photo_library" />{(device.Imagenes || []).length}</em>{isOffline(device) && <em className="is-offline"><Icon name="cloud_off" />Offline</em>}</span></span>
                   <Icon name={open ? 'expand_less' : 'expand_more'} />
                 </button>
+                {pending && canEdit && <button type="button" className="maintenance-inventory-mobile-edit" onClick={() => onEditDevice(device)}><Icon name="edit" />Editar dispositivo y evidencias</button>}
                 {open && expandedContent(device)}
               </article>;
             })}
@@ -204,6 +262,10 @@ export default function MaintenanceDeviceInventory({
       ) : (
         <div className="empty-state maintenance-device-empty"><Icon name="devices_other" /><h2>{devices.length ? 'No hay coincidencias' : 'Sin dispositivos registrados'}</h2><p>{devices.length ? 'Cambie los filtros para ver otros equipos.' : 'Este mantenimiento puede guardarse vacío. Agregue el primer equipo cuando esté listo.'}</p>{pending && canEdit && <button className="button button--primary" type="button" onClick={onAddDevice}><Icon name="add" />Agregar primer dispositivo</button>}</div>
       )}
+
+      <FilterDrawer open={filterOpen} title="Filtros de dispositivos" onClose={() => setFilterOpen(false)} onApply={() => { setPage(1); setFilterOpen(false); }} onClear={clearFilters}>
+        {drawerFields}
+      </FilterDrawer>
     </section>
   );
 }
