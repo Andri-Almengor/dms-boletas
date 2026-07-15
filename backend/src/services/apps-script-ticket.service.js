@@ -119,7 +119,7 @@ export async function generateTicketWithAppsScript({ ticketId, testMode = false,
   if (!baseFolderId) throw new AppError('REPORT_FOLDER_NOT_CONFIGURED', 'No está configurada la carpeta principal de boletas.', 503);
 
   const recipients = resolveRecipients(bundle, config, testMode);
-  const surveyUrl = testMode ? '' : clean(survey?.url);
+  const surveyUrl = clean(survey?.url);
   const ticketForDelivery = {
     ...bundle.ticket,
     EncuestaURL: surveyUrl,
@@ -128,9 +128,10 @@ export async function generateTicketWithAppsScript({ ticketId, testMode = false,
   const surveyPayload = surveyUrl ? {
     id: survey.id,
     url: surveyUrl,
-    title: 'Califique nuestro servicio',
-    buttonText: 'Responder encuesta',
+    title: testMode ? 'Encuesta de prueba' : 'Califique nuestro servicio',
+    buttonText: testMode ? 'Probar encuesta' : 'Responder encuesta',
     expiresAt: survey.expiresAt,
+    type: survey.type || (testMode ? 'PRUEBA' : 'REAL'),
   } : null;
 
   const data = await postAppsScript(url, {
