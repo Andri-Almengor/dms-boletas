@@ -1,5 +1,5 @@
-import React, { useState } from 'react';
-import { Navigate, useNavigate, useParams } from 'react-router-dom';
+import React, { useEffect, useRef, useState } from 'react';
+import { Navigate, useNavigate, useParams, useSearchParams } from 'react-router-dom';
 import Icon from '../../components/common/Icon';
 import InlineCreateModal from '../../components/forms/InlineCreateModal';
 import MaintenanceDeviceEditor from '../../components/maintenance/MaintenanceDeviceEditor';
@@ -18,12 +18,25 @@ function Field({ label, multiline = false, ...props }) {
 export default function MaintenanceFormPage({ mode = 'create' }) {
   const { maintenanceId } = useParams();
   const navigate = useNavigate();
+  const [searchParams, setSearchParams] = useSearchParams();
   const editing = mode === 'edit';
   const state = useMaintenanceForm({ editing, maintenanceId });
   const [step, setStep] = useState(0);
   const [modal, setModal] = useState(null);
   const [modalError, setModalError] = useState('');
   const [modalSaving, setModalSaving] = useState(false);
+  const newDeviceHandled = useRef(false);
+
+  useEffect(() => {
+    if (state.loading || state.readOnly || state.activeDevice || newDeviceHandled.current) return;
+    if (searchParams.get('newDevice') !== '1') return;
+    newDeviceHandled.current = true;
+    setStep(2);
+    state.openDevice(state.createDevice());
+    const next = new URLSearchParams(searchParams);
+    next.delete('newDevice');
+    setSearchParams(next, { replace: true });
+  }, [searchParams, setSearchParams, state]);
 
   if (!state.allowed) return <Navigate to="/mantenimientos" replace />;
   if (state.loading) return <div className="page"><div className="state-card state-card--loading"><Icon name="progress_activity" />Cargando mantenimiento...</div></div>;
