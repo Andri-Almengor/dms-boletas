@@ -79,6 +79,16 @@ export const MODULE_ROUTES = {
     create: ['knowledge.categories.create', 'baseConocimientos.categorias.create', 'categoriasConocimiento.create'],
     update: ['knowledge.categories.update', 'baseConocimientos.categorias.update', 'categoriasConocimiento.update'],
   },
+  surveys: {
+    publicGet: ['survey.public.get', 'encuesta.publica.get'],
+    publicSubmit: ['survey.public.submit', 'encuesta.publica.submit'],
+    questionsList: ['survey.questions.list', 'encuestas.preguntas.list'],
+    questionsCreate: ['survey.questions.create', 'encuestas.preguntas.create'],
+    questionsUpdate: ['survey.questions.update', 'encuestas.preguntas.update'],
+    questionsDelete: ['survey.questions.delete', 'encuestas.preguntas.delete'],
+    responsesList: ['survey.responses.list', 'encuestas.respuestas.list'],
+    responsesGet: ['survey.responses.get', 'encuestas.respuestas.get'],
+  },
   users: { list: ['users.assignment.list', 'users.list'], adminList: ['users.list'] },
   config: { get: ['config.get', 'app.config.get'] },
 };
