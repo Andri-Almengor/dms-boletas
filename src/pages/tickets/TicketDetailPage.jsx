@@ -9,6 +9,8 @@ import { TicketStatusChip } from '../../components/tickets/TicketCard';
 import { MODULE_ROUTES, pick, requestAvailable } from '../../services/moduleApi';
 import { formatDate, formatTime, normalizeTicketStatus } from '../../utils/tickets';
 
+const RESEND_CHAT_ROUTES = ['boletas.resendChats', 'tickets.resendChats', 'boletas.reenviarChats'];
+
 function DetailSection({ title, icon, children, open = false }) {
   return (
     <details className="ticket-detail-section" open={open}>
@@ -119,14 +121,16 @@ export default function TicketDetailPage() {
       finalize: '¿Finalizar la boleta, generar PDF y enviar las notificaciones?',
       test: '¿Ejecutar una prueba sin cambiar el estado ni notificar al cliente?',
       pending: '¿Regresar esta boleta a pendiente?',
+      resend: '¿Generar el reporte actualizado y reenviarlo únicamente al Chat de boletas y al Chat del cliente? No se enviará correo electrónico.',
     };
     if (!window.confirm(messages[type])) return;
     setProcessing(true);
     setError('');
     setNotice('');
     try {
+      let result = null;
       if (type === 'finalize') {
-        await requestAvailable(MODULE_ROUTES.tickets.finalize, {
+        result = await requestAvailable(MODULE_ROUTES.tickets.finalize, {
           boletaUid,
           testMode: false,
           sendClientCopy: Boolean(record.EnviarCorreoCliente),
@@ -134,10 +138,14 @@ export default function TicketDetailPage() {
         }, sessionToken);
       }
       if (type === 'test') {
-        await requestAvailable(MODULE_ROUTES.tickets.testFinalize, { boletaUid, testMode: true }, sessionToken);
+        result = await requestAvailable(MODULE_ROUTES.tickets.testFinalize, { boletaUid, testMode: true }, sessionToken);
       }
       if (type === 'pending') {
-        await requestAvailable(MODULE_ROUTES.tickets.returnPending, { boletaUid, estado: 'PENDIENTE' }, sessionToken);
+        result = await requestAvailable(MODULE_ROUTES.tickets.returnPending, { boletaUid, estado: 'PENDIENTE' }, sessionToken);
+      }
+      if (type === 'resend') {
+        result = await requestAvailable(RESEND_CHAT_ROUTES, { boletaUid }, sessionToken);
+        setNotice(result?.message || 'Boleta reenviada únicamente a los chats configurados. No se envió correo electrónico.');
       }
       await loadTicket();
     } catch (err) {
@@ -180,7 +188,7 @@ export default function TicketDetailPage() {
       formElement?.reset();
       if (cameraInputRef.current) cameraInputRef.current.value = '';
       if (fileInputRef.current) fileInputRef.current.value = '';
-      setNotice('Evidencia agregada correctamente.');
+      setNotice('Evidencia agregada correctamente. Si la boleta ya estaba finalizada, use “Reenviar a chats” para publicar el reporte actualizado.');
       await loadTicket();
     } catch (err) {
       setError(err.message);
@@ -206,7 +214,7 @@ export default function TicketDetailPage() {
       }, sessionToken);
       setSignatureDraft('');
       setSignatureEditorOpen(false);
-      setNotice('Firma actualizada correctamente.');
+      setNotice('Firma actualizada correctamente. Si la boleta ya estaba finalizada, use “Reenviar a chats” para publicar el reporte actualizado.');
       await loadTicket();
     } catch (err) {
       setError(err.message);
@@ -221,12 +229,15 @@ export default function TicketDetailPage() {
     const nota = window.prompt('Nota de la evidencia', pick(item, ['Nota', 'note'], ''));
     if (nota === null) return;
     setProcessing(true);
+    setError('');
+    setNotice('');
     try {
       await requestAvailable(MODULE_ROUTES.tickets.evidenceUpdate, {
         evidenciaId: pick(item, ['EvidenciaID', 'id']),
         nombre,
         nota,
       }, sessionToken);
+      setNotice('Evidencia actualizada. En una boleta finalizada, use “Reenviar a chats” para compartir el nuevo reporte.');
       await loadTicket();
     } catch (err) {
       setError(err.message);
@@ -238,10 +249,13 @@ export default function TicketDetailPage() {
   async function deleteEvidence(item) {
     if (!window.confirm('¿Eliminar esta evidencia?')) return;
     setProcessing(true);
+    setError('');
+    setNotice('');
     try {
       await requestAvailable(MODULE_ROUTES.tickets.evidenceDelete, {
         evidenciaId: pick(item, ['EvidenciaID', 'id']),
       }, sessionToken);
+      setNotice('Evidencia eliminada. En una boleta finalizada, use “Reenviar a chats” para compartir el nuevo reporte.');
       await loadTicket();
     } catch (err) {
       setError(err.message);
@@ -277,7 +291,8 @@ export default function TicketDetailPage() {
   const signatureUrl = pick(record, ['FirmaURL', 'FirmaUrl', 'Firma', 'signature']);
   const deviceName = pick(record, ['Descripcion', 'Descripción', 'DescripcionEquipo', 'NombreEquipo']);
   const backTo = status === 'FINALIZADA' ? '/boletas/finalizadas' : '/boletas/pendientes';
-  const canModifyPending = status !== 'FINALIZADA';
+  const finalized = status === 'FINALIZADA';
+  const canResend = finalized && (canEdit || canFinalize || canAdmin);
 
   return (
     <div className="page page--narrow ticket-detail-page">
@@ -289,6 +304,12 @@ export default function TicketDetailPage() {
 
       {error && <div className="alert alert--error"><Icon name="error" /><span>{error}</span></div>}
       {notice && <div className="alert alert--success"><Icon name="check_circle" /><span>{notice}</span></div>}
+      {finalized && canEdit && (
+        <div className="info-box">
+          <Icon name="edit_note" />
+          <p>Esta boleta está finalizada, pero puede corregir sus datos, firma y evidencias. Los cambios no envían correos. Después use <strong>Reenviar a chats</strong> para generar el PDF actualizado y publicarlo en los chats.</p>
+        </div>
+      )}
 
       <section className="ticket-status-card">
         <div><span>Estado actual</span><TicketStatusChip status={status} /></div>
@@ -365,7 +386,7 @@ export default function TicketDetailPage() {
           <div className="empty-state"><Icon name="photo_library" /><h2>Sin evidencias</h2><p>No hay archivos asociados a esta boleta.</p></div>
         )}
 
-        {canEvidence && canModifyPending && (
+        {canEvidence && (
           <form className="evidence-inline-form ticket-detail-evidence-form" onSubmit={uploadEvidence}>
             <div className="ticket-detail-capture-actions">
               <input
@@ -401,7 +422,7 @@ export default function TicketDetailPage() {
       <section className="section-block">
         <div className="section-heading ticket-signature-heading">
           <div><span className="eyebrow">Conformidad</span><h2>Firma del Cliente</h2></div>
-          {canEdit && canModifyPending && !signatureEditorOpen && (
+          {canEdit && !signatureEditorOpen && (
             <button className="button button--secondary button--compact" type="button" onClick={() => { setSignatureDraft(''); setSignatureEditorOpen(true); }}>
               <Icon name="draw" /> {signatureFileId || signatureUrl ? 'Editar firma' : 'Agregar firma'}
             </button>
@@ -434,11 +455,12 @@ export default function TicketDetailPage() {
       </section>
 
       <div className="ticket-detail-actions">
-        {canEdit && canModifyPending && <Link className="button button--secondary" to={`/boletas/${encodeURIComponent(boletaUid)}/editar`}><Icon name="edit" /> Editar</Link>}
-        {canTest && <button className="button button--secondary" type="button" onClick={() => finalAction('test')} disabled={processing}><Icon name="science" /> Probar</button>}
-        {status === 'FINALIZADA'
+        {canEdit && <Link className="button button--secondary" to={`/boletas/${encodeURIComponent(boletaUid)}/editar`}><Icon name="edit" /> Editar</Link>}
+        {canTest && !finalized && <button className="button button--secondary" type="button" onClick={() => finalAction('test')} disabled={processing}><Icon name="science" /> Probar</button>}
+        {finalized
           ? <>
-            {pdfUrl && <a className="button button--primary" href={pdfUrl} target="_blank" rel="noreferrer"><Icon name="picture_as_pdf" /> Abrir PDF</a>}
+            {pdfUrl && <a className="button button--secondary" href={pdfUrl} target="_blank" rel="noreferrer"><Icon name="picture_as_pdf" /> Abrir PDF</a>}
+            {canResend && <button className="button button--primary button--wide" type="button" onClick={() => finalAction('resend')} disabled={processing}><Icon name="send" /> {processing ? 'Reenviando...' : 'Reenviar a chats'}</button>}
             {canAdmin && <button className="button button--secondary" type="button" onClick={() => finalAction('pending')} disabled={processing}><Icon name="undo" /> Volver a pendiente</button>}
           </>
           : canFinalize && <button className="button button--primary button--wide" type="button" onClick={() => finalAction('finalize')} disabled={processing}><Icon name="task_alt" /> {processing ? 'Procesando...' : 'Finalizar boleta'}</button>}
