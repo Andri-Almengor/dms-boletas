@@ -1,8 +1,8 @@
 import { findById, updateRow } from '../infra/sheets.repository.js';
-import { forbidden } from '../core/errors.js';
+import { badRequest, forbidden } from '../core/errors.js';
 import { nowIso, pick } from '../core/utils.js';
 import { audit } from '../services/audit.service.js';
-import { deliverTicket } from '../services/ticket-delivery.service.js';
+import { deliverTicket, resendTicketChats } from '../services/ticket-delivery.service.js';
 import { generateTicketWithAppsScript } from '../services/apps-script-ticket.service.js';
 import { ticketAccessHandlers } from './ticket-access.module.js';
 
@@ -15,16 +15,26 @@ async function runOnce(key, operation) {
   return promise;
 }
 
+function isFinalized(value) {
+  return String(value || '').trim().toUpperCase().includes('FINAL');
+}
+
 export const ticketDeliveryHandlers = {
   list: ticketAccessHandlers.list,
   get: ticketAccessHandlers.get,
   mediaGet: ticketAccessHandlers.mediaGet,
+  update: ticketAccessHandlers.update,
+  autosave: ticketAccessHandlers.autosave,
+  evidenceUpload: ticketAccessHandlers.evidenceUpload,
+  evidenceUpdate: ticketAccessHandlers.evidenceUpdate,
+  evidenceDelete: ticketAccessHandlers.evidenceDelete,
+  signatureUpload: ticketAccessHandlers.signatureUpload,
 
   finalize: async (ctx) => {
     const id = pick(ctx.payload, ['boletaUid', 'BoletaUID', 'id']);
     return runOnce(`finalize:${id}`, async () => {
       const before = await findById('Boletas', id);
-      if (String(before.Estado || '').toUpperCase() === 'FINALIZADA') {
+      if (isFinalized(before.Estado)) {
         return { boleta: before, alreadyFinalized: true };
       }
       const delivery = await deliverTicket(ctx, { ticketId: id, testMode: false });
@@ -43,6 +53,35 @@ export const ticketDeliveryHandlers = {
       });
       await audit(ctx, 'FINALIZAR_BOLETA', 'Boletas', id, before, after);
       return { boleta: after, delivery, surveyUrl };
+    });
+  },
+
+  resendChats: async (ctx) => {
+    const id = pick(ctx.payload, ['boletaUid', 'BoletaUID', 'id']);
+    await ticketAccessHandlers.assertCanModifyFinalized(ctx, id);
+    return runOnce(`resend-chats:${id}`, async () => {
+      const before = await findById('Boletas', id);
+      if (!isFinalized(before.Estado)) {
+        throw badRequest('Solo se pueden reenviar a los chats las boletas finalizadas.');
+      }
+      const delivery = await resendTicketChats(ctx, { ticketId: id });
+      const after = await findById('Boletas', id);
+      await audit(ctx, 'REENVIAR_BOLETA_CHATS', 'Boletas', id, before, {
+        ...after,
+        Canales: ['CHAT_BOLETAS', 'CHAT_CLIENTE'],
+        CorreoEnviado: false,
+        EstadoReenvio: delivery.notificationState,
+        Errores: delivery.errors,
+      });
+      const clientSkipped = delivery.notifications.some((item) => item.channel === 'CHAT_CLIENTE' && item.skipped);
+      return {
+        boleta: after,
+        delivery,
+        emailSent: false,
+        message: clientSkipped
+          ? 'La boleta fue reenviada al Chat de boletas. El cliente no tiene un Chat configurado. No se envió correo.'
+          : 'La boleta fue reenviada únicamente al Chat de boletas y al Chat del cliente. No se envió correo.',
+      };
     });
   },
 
@@ -66,8 +105,16 @@ export const ticketDeliveryHandlers = {
 
   generatePdf: async (ctx) => {
     const id = pick(ctx.payload, ['boletaUid', 'BoletaUID', 'id']);
+    await ticketAccessHandlers.assertCanModifyFinalized(ctx, id);
     return runOnce(`pdf:${id}`, async () => {
-      const report = await generateTicketWithAppsScript({ ticketId: id, testMode: false, sendEmail: false });
+      const current = await findById('Boletas', id);
+      const surveyUrl = String(current.EncuestaURL || current.SurveyURL || '').trim();
+      const report = await generateTicketWithAppsScript({
+        ticketId: id,
+        testMode: false,
+        sendEmail: false,
+        survey: surveyUrl ? { url: surveyUrl, type: 'REAL' } : null,
+      });
       await updateRow('Boletas', id, {
         DocumentoURL: report.documentUrl,
         PDFURL: report.pdfUrl,
