@@ -24,6 +24,10 @@ function publicTicketView(ticket = {}) {
   };
 }
 
+function isFinalized(ticket = {}) {
+  return String(ticket.Estado || '').trim().toUpperCase().includes('FINAL');
+}
+
 export const ticketSignatureHandlers = {
   link: async (ctx) => {
     const ticketId = ctx.payload.boletaUid || ctx.payload.BoletaUID || ctx.payload.id;
@@ -76,23 +80,32 @@ export const ticketSignatureHandlers = {
       permissions: [],
     };
 
+    const finalized = isFinalized(signed.ticket);
     let delivery = null;
     let deliveryError = '';
-    try {
-      delivery = await deliverSignedTicket(systemContext, {
-        ticketId: signed.ticket.BoletaUID,
-        signatureRequest: signed.request,
-      });
+
+    if (finalized) {
+      try {
+        delivery = await deliverSignedTicket(systemContext, {
+          ticketId: signed.ticket.BoletaUID,
+          signatureRequest: signed.request,
+        });
+        await updateSignatureDelivery(signed.request.id, {
+          state: delivery.notificationState,
+          error: delivery.errors.join(' | '),
+          pdfUrl: delivery.report.pdfUrl,
+        });
+      } catch (error) {
+        deliveryError = String(error?.message || error);
+        await updateSignatureDelivery(signed.request.id, {
+          state: 'ERROR',
+          error: deliveryError,
+        }).catch(() => {});
+      }
+    } else {
       await updateSignatureDelivery(signed.request.id, {
-        state: delivery.notificationState,
-        error: delivery.errors.join(' | '),
-        pdfUrl: delivery.report.pdfUrl,
-      });
-    } catch (error) {
-      deliveryError = String(error?.message || error);
-      await updateSignatureDelivery(signed.request.id, {
-        state: 'ERROR',
-        error: deliveryError,
+        state: 'ESPERANDO_FINALIZACION',
+        error: '',
       }).catch(() => {});
     }
 
@@ -100,9 +113,15 @@ export const ticketSignatureHandlers = {
       FirmaArchivoID: signed.file?.id || '',
       FirmaURL: signed.file?.webViewLink || '',
       SolicitudFirmaID: signed.request.id,
-      EstadoEntrega: delivery?.notificationState || 'ERROR',
+      EstadoEntrega: finalized ? (delivery?.notificationState || 'ERROR') : 'ESPERANDO_FINALIZACION',
       ErrorEntrega: deliveryError || delivery?.errors?.join(' | ') || '',
     }).catch(() => {});
+
+    const message = !finalized
+      ? 'La firma se guardó correctamente. El reporte firmado se enviará cuando el técnico finalice la boleta.'
+      : deliveryError
+        ? 'La firma se guardó correctamente. El reporte firmado quedó pendiente de reenvío automático.'
+        : 'La firma se guardó y el reporte actualizado fue enviado al correo del cliente y al Chat de boletas.';
 
     return {
       signed: true,
@@ -110,11 +129,9 @@ export const ticketSignatureHandlers = {
       request: signed.request,
       ticket: publicTicketView(signed.ticket),
       delivery,
-      deliveryState: delivery?.notificationState || 'ERROR',
+      deliveryState: finalized ? (delivery?.notificationState || 'ERROR') : 'ESPERANDO_FINALIZACION',
       deliveryError,
-      message: deliveryError
-        ? 'La firma se guardó correctamente. El reporte firmado quedó pendiente de reenvío automático.'
-        : 'La firma se guardó y el reporte actualizado fue enviado al correo del cliente y al Chat de boletas.',
+      message,
     };
   },
 };
