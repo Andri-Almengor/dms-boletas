@@ -4,8 +4,10 @@ import { badRequest, notFound } from '../core/errors.js';
 import { asArray, asBool, nowIso, pick, uuid } from '../core/utils.js';
 import { getConfig } from './config.module.js';
 import { audit } from '../services/audit.service.js';
+import { reserveNextTicketNumber } from '../services/ticket-sequence.service.js';
 
 const autosaveWriteTimes = new Map();
+const creatingTickets = new Map();
 const AUTOSAVE_MIN_INTERVAL_MS = 6000;
 
 function userDisplayName(user, fallback = '') {
@@ -34,6 +36,10 @@ function sameValue(left, right) {
   if (typeof left === 'boolean' || typeof right === 'boolean') return Boolean(left) === Boolean(right);
   if (typeof left === 'number' || typeof right === 'number') return Number(left || 0) === Number(right || 0);
   return String(left ?? '').trim() === String(right ?? '').trim();
+}
+
+function validLocalId(value) {
+  return /^[A-Za-z0-9._:-]{8,140}$/.test(String(value || ''));
 }
 
 function resolveFailureType(row, failureTypes = []) {
@@ -143,11 +149,6 @@ async function replaceAssigned(ticketId, ids, ctx) {
   return true;
 }
 
-async function nextTicketNumber() {
-  const rows = await readTable('Boletas');
-  return Math.max(0, ...rows.map((row) => Number(row.BoletaID || 0))) + 1;
-}
-
 async function resolveTicketMedia(payload = {}) {
   const boletaUid = pick(payload, ['boletaUid', 'BoletaUID']);
   const evidenceId = pick(payload, ['evidenciaId', 'EvidenciaID', 'mediaId', 'id']);
@@ -177,33 +178,24 @@ async function resolveTicketMedia(payload = {}) {
   throw notFound('No se encontró el archivo asociado a la boleta.');
 }
 
-export const ticketHandlers = {
-  list: async ({ payload }) => {
-    let rows = (await readTable('Boletas')).filter((row) => row.Activo !== false && String(row.Estado || '').toUpperCase() !== 'ANULADA');
-    if (payload.status || payload.estado) rows = rows.filter((row) => String(row.Estado || '').toUpperCase() === String(payload.status || payload.estado).toUpperCase());
-    if (payload.dateFrom) rows = rows.filter((row) => String(row.Fecha || '').slice(0, 10) >= String(payload.dateFrom));
-    if (payload.dateTo) rows = rows.filter((row) => String(row.Fecha || '').slice(0, 10) <= String(payload.dateTo));
-    return filterRows(rows, payload, ['Titulo', 'Cliente', 'Ubicacion', 'Categoria', 'TipoDispositivo', 'Modelo', 'BoletaID']);
-  },
-  get: async ({ payload }) => enrichTicket(await findById('Boletas', pick(payload, ['boletaUid', 'BoletaUID', 'id']))),
-  create: async (ctx) => {
-    const requestedId = String(pick(ctx.payload, ['boletaUid', 'BoletaUID'], '')).trim();
-    if (requestedId && !/^[A-Za-z0-9._:-]{8,140}$/.test(requestedId)) throw badRequest('El identificador local de la boleta no es válido.');
+async function createTicket(ctx) {
+  const requestedId = String(pick(ctx.payload, ['boletaUid', 'BoletaUID'], '')).trim() || uuid();
+  if (!validLocalId(requestedId)) throw badRequest('El identificador local de la boleta no es válido.');
 
-    if (requestedId) {
-      const existing = (await readTable('Boletas')).find((item) => String(item.BoletaUID) === requestedId);
-      if (existing) {
-        const sameOwner = String(existing.CreadoPor || '') === String(ctx.user.UsuarioID || '');
-        const isAdmin = ctx.permissions?.includes('USUARIOS_GESTIONAR');
-        if (!sameOwner && !isAdmin) throw badRequest('El identificador local ya pertenece a otra boleta.');
-        if (hasAssignedPayload(ctx.payload)) await replaceAssigned(existing.BoletaUID, ctx.payload.AsignadoA || ctx.payload.asignados, ctx);
-        return enrichTicket(existing);
-      }
+  if (creatingTickets.has(requestedId)) return creatingTickets.get(requestedId);
+  const task = (async () => {
+    const existing = (await readTable('Boletas', { force: true })).find((item) => String(item.BoletaUID) === requestedId);
+    if (existing) {
+      const sameOwner = String(existing.CreadoPor || '') === String(ctx.user.UsuarioID || '');
+      const isAdmin = ctx.permissions?.includes('USUARIOS_GESTIONAR');
+      if (!sameOwner && !isAdmin) throw badRequest('El identificador local ya pertenece a otra boleta.');
+      if (hasAssignedPayload(ctx.payload)) await replaceAssigned(existing.BoletaUID, ctx.payload.AsignadoA || ctx.payload.asignados, ctx);
+      return enrichTicket(existing);
     }
 
     const row = {
-      BoletaUID: requestedId || uuid(),
-      BoletaID: await nextTicketNumber(),
+      BoletaUID: requestedId,
+      BoletaID: await reserveNextTicketNumber(),
       Version: 1,
       ...ticketPayload(ctx.payload),
       CreadoPor: ctx.user.UsuarioID,
@@ -218,7 +210,22 @@ export const ticketHandlers = {
     await replaceAssigned(row.BoletaUID, asArray(ctx.payload.AsignadoA || ctx.payload.asignados), ctx);
     await audit(ctx, 'CREAR_BOLETA', 'Boletas', row.BoletaUID, null, row);
     return enrichTicket(row);
+  })().finally(() => creatingTickets.delete(requestedId));
+
+  creatingTickets.set(requestedId, task);
+  return task;
+}
+
+export const ticketHandlers = {
+  list: async ({ payload }) => {
+    let rows = (await readTable('Boletas')).filter((row) => row.Activo !== false && String(row.Estado || '').toUpperCase() !== 'ANULADA');
+    if (payload.status || payload.estado) rows = rows.filter((row) => String(row.Estado || '').toUpperCase() === String(payload.status || payload.estado).toUpperCase());
+    if (payload.dateFrom) rows = rows.filter((row) => String(row.Fecha || '').slice(0, 10) >= String(payload.dateFrom));
+    if (payload.dateTo) rows = rows.filter((row) => String(row.Fecha || '').slice(0, 10) <= String(payload.dateTo));
+    return filterRows(rows, payload, ['Titulo', 'Cliente', 'Ubicacion', 'Categoria', 'TipoDispositivo', 'Modelo', 'BoletaID']);
   },
+  get: async ({ payload }) => enrichTicket(await findById('Boletas', pick(payload, ['boletaUid', 'BoletaUID', 'id']))),
+  create: createTicket,
   update: async (ctx) => {
     const id = pick(ctx.payload, ['boletaUid', 'BoletaUID', 'id']);
     const before = await findById('Boletas', id);
@@ -253,9 +260,18 @@ export const ticketHandlers = {
   returnPending: async (ctx) => ({ boleta: await updateRow('Boletas', pick(ctx.payload, ['boletaUid', 'BoletaUID']), { Estado: 'PENDIENTE', ActualizadoPor: ctx.user.UsuarioID, FechaActualizacion: nowIso() }) }),
   annul: async (ctx) => ({ boleta: await updateRow('Boletas', pick(ctx.payload, ['boletaUid', 'BoletaUID']), { Estado: 'ANULADA', ActualizadoPor: ctx.user.UsuarioID, FechaActualizacion: nowIso() }) }),
   evidenceUpload: async (ctx) => {
+    const requestedId = String(pick(ctx.payload, ['evidenciaId', 'EvidenciaID'], '')).trim() || uuid();
+    if (!validLocalId(requestedId)) throw badRequest('El identificador local de la evidencia no es válido.');
+    const ticketId = pick(ctx.payload, ['boletaUid', 'BoletaUID']);
+    const existing = (await readTable('EvidenciasBoleta', { force: true })).find((item) => String(item.EvidenciaID) === requestedId);
+    if (existing) {
+      if (String(existing.BoletaUID) !== String(ticketId)) throw badRequest('La evidencia local ya pertenece a otra boleta.');
+      return existing;
+    }
+
     const cfg = await getConfig();
     const file = await uploadBase64({ base64: ctx.payload.base64, mimeType: ctx.payload.mimeType, fileName: ctx.payload.fileName, folderId: cfg.EVIDENCIAS_FOLDER_ID });
-    const row = { EvidenciaID: uuid(), BoletaUID: pick(ctx.payload, ['boletaUid', 'BoletaUID']), Nombre: pick(ctx.payload, ['nombre', 'Nombre'], file.name), Nota: pick(ctx.payload, ['nota', 'Nota']), ArchivoID: file.id, ArchivoURL: file.webViewLink, NombreArchivo: file.name, MimeType: file.mimeType, Orden: Number(ctx.payload.orden || 0), Activo: true, CreadoPor: ctx.user.UsuarioID, FechaCreacion: nowIso(), ActualizadoPor: ctx.user.UsuarioID, FechaActualizacion: nowIso() };
+    const row = { EvidenciaID: requestedId, BoletaUID: ticketId, Nombre: pick(ctx.payload, ['nombre', 'Nombre'], file.name), Nota: pick(ctx.payload, ['nota', 'Nota']), ArchivoID: file.id, ArchivoURL: file.webViewLink, NombreArchivo: file.name, MimeType: file.mimeType, Orden: Number(ctx.payload.orden || 0), Activo: true, CreadoPor: ctx.user.UsuarioID, FechaCreacion: nowIso(), ActualizadoPor: ctx.user.UsuarioID, FechaActualizacion: nowIso() };
     await appendRow('EvidenciasBoleta', row);
     return row;
   },
