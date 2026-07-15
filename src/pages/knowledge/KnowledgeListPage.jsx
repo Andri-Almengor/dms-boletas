@@ -57,10 +57,11 @@ export default function KnowledgeListPage() {
     const userId = String(pick(user, ['UsuarioID', 'id'], ''));
     return items.filter((record) => {
       const item = normalizeKnowledge(record);
-      if (categoryId && item.categoryId !== String(categoryId)) return false;
+      if (categoryId && !item.categoryIds.includes(String(categoryId))) return false;
       if (mineOnly && item.authorId !== userId) return false;
       if (!query) return true;
-      return `${item.title} ${item.category} ${item.problem} ${item.author}`.toLowerCase().includes(query);
+      const categoryText = item.categories.map((category) => category.name).join(' ');
+      return `${item.title} ${categoryText} ${item.problem} ${item.author}`.toLowerCase().includes(query);
     });
   }, [items, search, categoryId, mineOnly, user]);
 
