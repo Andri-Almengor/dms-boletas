@@ -8,6 +8,7 @@ export default function KnowledgeCard({ record }) {
   const item = normalizeKnowledge(record);
   const excerpt = item.problem || stripHtml(item.content) || 'Documento técnico sin descripción.';
   const detailUrl = item.id ? `/conocimiento/${encodeURIComponent(item.id)}` : '';
+  const categories = item.categories.length ? item.categories : [{ id: '', name: 'Sin categoría' }];
 
   function openDetail(event) {
     if (!detailUrl || event.target.closest('a, button, input, select, textarea, label')) return;
@@ -32,7 +33,13 @@ export default function KnowledgeCard({ record }) {
       <span className="knowledge-card__icon"><Icon name="menu_book" /></span>
       <span className={`status-chip ${item.status === 'BORRADOR' ? 'status-chip--inactive' : 'status-chip--active'}`}>{item.status === 'BORRADOR' ? 'BORRADOR' : 'PUBLICADO'}</span>
     </div>
-    <span className="knowledge-category-chip"><Icon name="label" /> {item.category}</span>
+    <div className="knowledge-category-chip-list" aria-label="Categorías del tutorial">
+      {categories.map((category, index) => (
+        <span className={`knowledge-category-chip${index === 0 && categories.length > 1 ? ' is-primary' : ''}`} key={category.id || `${category.name}-${index}`}>
+          <Icon name={index === 0 && categories.length > 1 ? 'star' : 'label'} /> {category.name}
+        </span>
+      ))}
+    </div>
     <h2>{item.title}</h2>
     <p>{excerpt}</p>
     <div className="knowledge-card__meta">
