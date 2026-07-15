@@ -26,6 +26,10 @@ function syncVisibleTicketForm() {
 
   if (!startInput || !endInput || !totalInput) return;
 
+  totalInput.readOnly = true;
+  totalInput.setAttribute('aria-readonly', 'true');
+  totalInput.title = 'Se calcula automáticamente y redondea cualquier fracción a la siguiente hora completa.';
+
   const total = formatCeilingTotalHours(startInput.value, endInput.value);
   setReactInputValue(totalInput, total);
 }
