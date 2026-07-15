@@ -1,6 +1,7 @@
 import React, { useEffect, useState } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { useAuth } from '../../AuthContext';
+import ClientLocationsPanel from '../../components/clients/ClientLocationsPanel';
 import ClientSupervisorsPanel from '../../components/clients/ClientSupervisorsPanel';
 import Icon from '../../components/common/Icon';
 import { normalizeItems, requestAvailable } from '../../services/moduleApi';
@@ -160,8 +161,13 @@ export default function CatalogManager({ config }) {
               reload: () => load(search),
             });
             const extra = configuredExtra || (
-              config.title === 'Clientes' && isAdmin
-                ? <ClientSupervisorsPanel clientId={view.id} clientName={view.name || 'cliente'} />
+              config.title === 'Clientes' && canEdit
+                ? (
+                  <div className="client-management-panels">
+                    <ClientLocationsPanel clientId={view.id} clientName={view.name || 'cliente'} />
+                    <ClientSupervisorsPanel clientId={view.id} clientName={view.name || 'cliente'} canDelete={isAdmin} />
+                  </div>
+                )
                 : null
             );
             return (
@@ -175,7 +181,7 @@ export default function CatalogManager({ config }) {
                   {config.summary(view).map((line) => <p key={line.label}>{line.icon && <Icon name={line.icon} />} {line.value || line.empty}</p>)}
                 </div>
                 {canEdit && (
-                  <button className="icon-button icon-button--outlined" type="button" onClick={() => edit(record)} aria-label={`Editar ${view.name || config.singular}`}>
+                  <button className="icon-button icon-button--outlined module-record-card__edit" type="button" onClick={() => edit(record)} aria-label={`Editar ${view.name || config.singular}`}>
                     <Icon name="edit" />
                   </button>
                 )}
