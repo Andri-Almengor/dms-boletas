@@ -8,6 +8,7 @@ import { usersHandlers } from '../modules/users.module.js';
 import { crudHandlers } from '../modules/crud.module.js';
 import { ticketHandlers } from '../modules/tickets.module.js';
 import { ticketDeliveryHandlers } from '../modules/ticket-delivery.module.js';
+import { ticketSignatureHandlers } from '../modules/ticket-signature.module.js';
 import { maintenanceHandlers } from '../modules/maintenance.module.js';
 import { maintenanceReportAccessHandlers } from '../modules/maintenance-report-access.module.js';
 import { knowledgeHandlers } from '../modules/knowledge.module.js';
@@ -34,6 +35,9 @@ add(['ai.technicalRewrite','gemini.technicalRewrite','boletas.ai.rewrite'], asyn
 
 add(['survey.public.get','encuesta.publica.get'], surveyHandlers.publicGet, null, true);
 add(['survey.public.submit','encuesta.publica.submit'], surveyHandlers.publicSubmit, null, true);
+add(['ticket.signature.public.get','boletas.firma.publica.get'], ticketSignatureHandlers.publicGet, null, true);
+add(['ticket.signature.public.submit','boletas.firma.publica.guardar'], ticketSignatureHandlers.publicSubmit, null, true);
+add(['ticket.signature.link','boletas.signature.link','boletas.firma.enlace'], ticketSignatureHandlers.link, 'BOLETAS_VER');
 add(['survey.questions.list','encuestas.preguntas.list'], surveyHandlers.questionsList, 'USUARIOS_GESTIONAR');
 add(['survey.questions.create','encuestas.preguntas.create'], surveyHandlers.questionsCreate, 'USUARIOS_GESTIONAR');
 add(['survey.questions.update','encuestas.preguntas.update'], surveyHandlers.questionsUpdate, 'USUARIOS_GESTIONAR');
