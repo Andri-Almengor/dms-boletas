@@ -1,4 +1,5 @@
 import { pick } from '../services/moduleApi';
+import { costaRicaDateKey, formatCostaRicaDate, parseCostaRicaDate, todayInCostaRica } from './costaRicaDate';
 
 export function normalizeTicketStatus(ticket) {
   const status = String(pick(ticket, ['Estado', 'estado', 'Status', 'status'], '')).trim().toUpperCase();
@@ -12,14 +13,7 @@ export function getTicketId(ticket, fallback = '') {
 }
 
 export function formatDate(value, options = {}) {
-  if (!value) return 'Sin fecha';
-  const date = new Date(value);
-  if (Number.isNaN(date.getTime())) return String(value);
-  return new Intl.DateTimeFormat('es-CR', {
-    day: '2-digit',
-    month: options.long ? 'long' : 'short',
-    year: 'numeric',
-  }).format(date);
+  return formatCostaRicaDate(value, options);
 }
 
 export function formatTime(value) {
@@ -27,24 +21,30 @@ export function formatTime(value) {
   if (typeof value === 'string' && /^\d{1,2}:\d{2}/.test(value)) return value.slice(0, 5);
   const date = new Date(value);
   if (Number.isNaN(date.getTime())) return String(value);
-  return new Intl.DateTimeFormat('es-CR', { hour: '2-digit', minute: '2-digit' }).format(date);
+  return new Intl.DateTimeFormat('es-CR', {
+    timeZone: 'America/Costa_Rica',
+    hour: '2-digit',
+    minute: '2-digit',
+  }).format(date);
 }
 
 export function groupTicketsByDate(tickets) {
   const groups = new Map();
-  const today = new Date();
+  const todayKey = todayInCostaRica();
+  const today = parseCostaRicaDate(todayKey);
   const yesterday = new Date(today);
-  yesterday.setDate(today.getDate() - 1);
+  yesterday.setUTCDate(yesterday.getUTCDate() - 1);
+  const yesterdayKey = costaRicaDateKey(yesterday);
 
   tickets.forEach((ticket) => {
     const rawDate = pick(ticket, ['Fecha', 'FechaCreacion', 'CreatedAt', 'fecha']);
-    const parsed = rawDate ? new Date(rawDate) : null;
+    const key = costaRicaDateKey(rawDate);
     let label = 'Sin fecha';
 
-    if (parsed && !Number.isNaN(parsed.getTime())) {
-      if (parsed.toDateString() === today.toDateString()) label = 'Hoy';
-      else if (parsed.toDateString() === yesterday.toDateString()) label = 'Ayer';
-      else label = formatDate(parsed, { long: true });
+    if (key) {
+      if (key === todayKey) label = 'Hoy';
+      else if (key === yesterdayKey) label = 'Ayer';
+      else label = formatDate(rawDate, { long: true });
     }
 
     if (!groups.has(label)) groups.set(label, []);

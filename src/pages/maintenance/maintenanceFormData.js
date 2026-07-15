@@ -1,5 +1,6 @@
 import { MAINTENANCE_CATEGORIES, createEmptyChecklist, createEmptyMaintenanceCounts } from '../../config/maintenanceCategories';
 import { pick } from '../../services/moduleApi';
+import { todayInCostaRica } from '../../utils/costaRicaDate';
 
 export const MAINTENANCE_STEPS = [
   ['Información general', 'Cliente, ubicación, responsables, fechas y descripción.'],
@@ -10,8 +11,8 @@ export const MAINTENANCE_STEPS = [
 
 export const EMPTY_MAINTENANCE = {
   titulo: '', clienteId: '', cliente: '', ubicacionId: '', ubicacion: '', estado: 'PENDIENTE',
-  fecha: new Date().toISOString().slice(0, 10),
-  fechaFinalizacion: new Date().toISOString().slice(0, 10),
+  fecha: todayInCostaRica(),
+  fechaFinalizacion: todayInCostaRica(),
   responsables: [], descripcion: '', counts: createEmptyMaintenanceCounts(),
 };
 
