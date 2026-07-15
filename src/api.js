@@ -28,6 +28,26 @@ function localId(prefix) {
   return `${prefix}-${random}`;
 }
 
+function storedUserId() {
+  try {
+    const session = JSON.parse(localStorage.getItem('dms_session') || '{}');
+    return String(session?.user?.UsuarioID || session?.user?.id || '');
+  } catch {
+    return '';
+  }
+}
+
+function attachOfflineOwner(payload) {
+  if (!payload.OfflineOwnerID && !payload.offlineOwnerId) {
+    const ownerId = storedUserId();
+    if (ownerId) {
+      payload.OfflineOwnerID = ownerId;
+      payload.offlineOwnerId = ownerId;
+    }
+  }
+  return payload;
+}
+
 function ensurePayloadId(payload, fields, prefix) {
   const current = fields.map((field) => payload?.[field]).find(Boolean);
   const id = String(current || localId(prefix));
@@ -37,6 +57,9 @@ function ensurePayloadId(payload, fields, prefix) {
 
 function preparePayload(route, payload) {
   const value = String(route || '').toLowerCase();
+  const ticketWrite = value.startsWith('boletas.') || value.startsWith('tickets.');
+  const maintenanceWrite = value.startsWith('maintenance.') || value.startsWith('mantenimientos.');
+  if ((ticketWrite || maintenanceWrite) && !isReadRoute(value)) attachOfflineOwner(payload);
 
   if (value === 'boletas.create' || value === 'tickets.create') {
     return ensurePayloadId(payload, ['boletaUid', 'BoletaUID'], 'boleta');
