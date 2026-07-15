@@ -4,6 +4,12 @@
   margin: 2px -4px -4px;
 }
 
+.client-management-panels {
+  min-width: 0;
+  display: grid;
+  gap: 8px;
+}
+
 .client-supervisors {
   min-width: 0;
   border-top: 1px solid var(--surface-container);
@@ -34,6 +40,7 @@
 }
 
 .client-supervisors__toggle > span:last-child {
+  flex: 0 0 auto;
   color: var(--muted);
   font-size: .72rem;
   font-weight: 650;
@@ -44,6 +51,7 @@
 }
 
 .client-supervisors__content {
+  min-width: 0;
   padding: 14px;
   border: 1px solid var(--outline-soft);
   border-radius: var(--radius-md);
@@ -53,9 +61,10 @@
 }
 
 .client-supervisors__heading {
-  display: flex;
-  align-items: center;
-  justify-content: space-between;
+  min-width: 0;
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto;
+  align-items: start;
   gap: 14px;
 }
 
@@ -66,6 +75,7 @@
 .client-supervisors__heading strong,
 .client-supervisors__heading small {
   display: block;
+  overflow-wrap: anywhere;
 }
 
 .client-supervisors__heading strong {
@@ -78,7 +88,16 @@
   font-size: .72rem;
 }
 
+.client-relations__add {
+  min-width: 104px;
+  max-width: 100%;
+  align-self: start;
+  justify-self: end;
+  white-space: nowrap;
+}
+
 .client-supervisor-form {
+  min-width: 0;
   padding: 14px;
   border: 1px solid var(--outline-soft);
   border-radius: var(--radius-md);
@@ -106,6 +125,7 @@
 }
 
 .client-supervisors__list {
+  min-width: 0;
   display: grid;
   gap: 9px;
 }
@@ -206,17 +226,23 @@
 }
 
 @media (max-width: 620px) {
+  .module-record-card__extra {
+    margin-inline: -2px;
+  }
+
   .client-supervisors__content {
     padding: 11px;
   }
 
   .client-supervisors__heading {
-    align-items: stretch;
-    flex-direction: column;
+    grid-template-columns: minmax(0, 1fr);
   }
 
+  .client-relations__add,
   .client-supervisors__heading .button {
     width: 100%;
+    min-width: 0;
+    justify-self: stretch;
   }
 
   .client-supervisor-form__grid {
