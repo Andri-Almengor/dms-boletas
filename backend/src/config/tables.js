@@ -4,7 +4,7 @@ export const TABLES = Object.freeze({
   RolPermisos: { id: 'RolPermisoID' }, UsuarioPermisos: { id: 'UsuarioPermisoID' }, Sesiones: { id: 'SesionID' },
   Clientes: { id: 'ClienteID' }, ClienteUbicaciones: { id: 'UbicacionID' }, ClienteUbicacionesEquipo: { id: 'UbicacionEquipoID' }, ClienteContactos: { id: 'ContactoID' },
   Categorias: { id: 'CategoriaID' }, TiposDispositivo: { id: 'TipoDispositivoID' }, Fabricantes: { id: 'FabricanteID' }, Modelos: { id: 'ModeloID' }, TiposFalla: { id: 'TipoFallaID' }, TipoDispositivoFabricantes: { id: 'RelacionID' },
-  Boletas: { id: 'BoletaUID' }, BoletaAsignados: { id: 'BoletaAsignadoID' }, EvidenciasBoleta: { id: 'EvidenciaID' }, RespuestasBoleta: { id: 'RespuestaID' }, Consecutivos: { id: 'ConsecutivoID' },
+  Boletas: { id: 'BoletaUID' }, BoletaAsignados: { id: 'BoletaAsignadoID' }, EvidenciasBoleta: { id: 'EvidenciaID' }, RespuestasBoleta: { id: 'RespuestaID' }, Consecutivos: { id: 'ConsecutivoID' }, FirmaSolicitudes: { id: 'SolicitudFirmaID' },
   Mantenimiento: { id: 'MantenimientoID' }, Evidencia_Mantenimientos: { id: 'EvidenciaMantenimientoID' }, 'Mantenimiento imagenes': { id: 'FotoDispositivoID' },
   KnowledgeCategories: { id: 'CategoriaConocimientoID' }, KnowledgeArticles: { id: 'TutorialID' }, KnowledgeAttachments: { id: 'AdjuntoID' }, KnowledgeArticleCategories: { id: 'RelacionArticuloCategoriaID' },
   EncuestaPreguntas: { id: 'PreguntaID' }, Encuestas: { id: 'EncuestaID' }, EncuestaRespuestas: { id: 'RespuestaEncuestaID' },
@@ -12,6 +12,6 @@ export const TABLES = Object.freeze({
 });
 
 export const DATE_FIELDS = new Set([
-  'Fecha','FechaFinalizacion','FechaCreacion','FechaActualizacion','FechaInicio','FechaExpiracion','FechaRevocacion','FechaEnvio','FechaRespuesta','FinalizadaEn','UltimoAcceso','BloqueadoHasta'
+  'Fecha','FechaFinalizacion','FechaCreacion','FechaActualizacion','FechaInicio','FechaExpiracion','FechaRevocacion','FechaEnvio','FechaRespuesta','FinalizadaEn','UltimoAcceso','BloqueadoHasta','FechaFirma','FirmaFecha'
 ]);
 export const TIME_FIELDS = new Set(['HoraInicio','HoraFinal']);

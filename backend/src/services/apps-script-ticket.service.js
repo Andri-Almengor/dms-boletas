@@ -17,6 +17,10 @@ function splitEmails(value) {
     .filter((item) => /^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(item)))];
 }
 
+function hasSignature(ticket = {}) {
+  return Boolean(clean(pick(ticket, ['FirmaArchivoID', 'FirmaFileID', 'FirmaURL', 'FirmaUrl', 'Firma'])));
+}
+
 async function loadTicketBundle(ticketId) {
   const ticket = await findById('Boletas', ticketId);
   const tables = await readTables(['BoletaAsignados', 'Usuarios', 'EvidenciasBoleta', 'Clientes']);
@@ -46,7 +50,12 @@ async function loadTicketBundle(ticketId) {
   return { ticket, assigned, evidences, client, creator };
 }
 
-function resolveRecipients(bundle, config, testMode) {
+function resolveRecipients(bundle, config, testMode, override = null, forceClient = false) {
+  if (override) {
+    const to = splitEmails(override.to || []);
+    const cc = splitEmails(override.cc || []).filter((email) => !to.includes(email));
+    return { to, cc };
+  }
   if (testMode) {
     const testEmail = clean(process.env.TEST_NOTIFICATION_EMAIL || config.TEST_EMAIL, 'andrick.almengor@solutionsdms.com');
     return { to: splitEmails(testEmail), cc: [] };
@@ -54,19 +63,28 @@ function resolveRecipients(bundle, config, testMode) {
 
   const supervisorEmails = splitEmails(bundle.ticket.CorreoSupervisor);
   const technicianEmails = splitEmails(bundle.assigned.map((item) => item.Correo));
-  const to = supervisorEmails.length ? supervisorEmails : technicianEmails;
+  const clientEmails = splitEmails(bundle.ticket.CorreoCliente);
+  const includeClient = forceClient || asBool(bundle.ticket.EnviarCorreoCliente, false);
+  const to = supervisorEmails.length
+    ? supervisorEmails
+    : technicianEmails.length
+      ? technicianEmails
+      : includeClient
+        ? clientEmails
+        : [];
   const cc = [
     ...(supervisorEmails.length ? technicianEmails : []),
     ...splitEmails(config.DEFAULT_CC_EMAILS),
     ...splitEmails(bundle.ticket.CorreosCC),
-    ...(asBool(bundle.ticket.EnviarCorreoCliente, false) ? splitEmails(bundle.ticket.CorreoCliente) : []),
+    ...(includeClient ? clientEmails : []),
   ].filter((email, index, all) => !to.includes(email) && all.indexOf(email) === index);
   return { to, cc };
 }
 
-function requestKey(ticket, testMode, sendEmail) {
+function requestKey(ticket, testMode, sendEmail, deliveryType = '') {
   const version = ticket.Version || ticket.FechaActualizacion || ticket.FinalizadaEn || '1';
   if (testMode) return `test:${ticket.BoletaUID}:${Date.now()}`;
+  if (deliveryType === 'SIGNED') return `signed:${ticket.BoletaUID}:${version}`;
   return `${sendEmail ? 'final' : 'pdf'}:${ticket.BoletaUID}:${version}`;
 }
 
@@ -107,7 +125,15 @@ async function postAppsScript(url, payload) {
   }
 }
 
-export async function generateTicketWithAppsScript({ ticketId, testMode = false, sendEmail = true, survey = null }) {
+export async function generateTicketWithAppsScript({
+  ticketId,
+  testMode = false,
+  sendEmail = true,
+  survey = null,
+  signatureRequest = null,
+  recipientsOverride = null,
+  deliveryType = '',
+}) {
   const url = clean(process.env.APPS_SCRIPT_REPORT_URL);
   const secret = clean(process.env.APPS_SCRIPT_REPORT_SECRET);
   if (!url) throw new AppError('APPS_SCRIPT_URL_MISSING', 'Falta configurar APPS_SCRIPT_REPORT_URL en el backend.', 503);
@@ -118,12 +144,15 @@ export async function generateTicketWithAppsScript({ ticketId, testMode = false,
   const baseFolderId = clean(config.BOLETAS_FOLDER_ID || config.ROOT_FOLDER_ID || process.env.BOLETAS_FOLDER_ID);
   if (!baseFolderId) throw new AppError('REPORT_FOLDER_NOT_CONFIGURED', 'No está configurada la carpeta principal de boletas.', 503);
 
-  const recipients = resolveRecipients(bundle, config, testMode);
   const surveyUrl = clean(survey?.url);
+  const signatureUrl = !hasSignature(bundle.ticket) ? clean(signatureRequest?.url) : '';
+  const recipients = resolveRecipients(bundle, config, testMode, recipientsOverride, Boolean(signatureUrl));
   const ticketForDelivery = {
     ...bundle.ticket,
     EncuestaURL: surveyUrl,
     SurveyURL: surveyUrl,
+    FirmaPublicaURL: signatureUrl,
+    SignatureURL: signatureUrl,
   };
   const surveyPayload = surveyUrl ? {
     id: survey.id,
@@ -133,13 +162,22 @@ export async function generateTicketWithAppsScript({ ticketId, testMode = false,
     expiresAt: survey.expiresAt,
     type: survey.type || (testMode ? 'PRUEBA' : 'REAL'),
   } : null;
+  const signaturePayload = signatureUrl ? {
+    id: signatureRequest?.id || '',
+    url: signatureUrl,
+    title: 'Firma pendiente del cliente',
+    buttonText: 'Firmar boleta',
+    expiresAt: signatureRequest?.expiresAt || '',
+    status: signatureRequest?.status || 'PENDIENTE',
+  } : null;
 
   const data = await postAppsScript(url, {
     action: 'ticket.report.deliver',
     secret,
-    idempotencyKey: requestKey(bundle.ticket, testMode, sendEmail),
+    idempotencyKey: requestKey(bundle.ticket, testMode, sendEmail, deliveryType),
     testMode,
     sendEmail,
+    deliveryType,
     templateId,
     baseFolderId,
     ticket: ticketForDelivery,
@@ -150,6 +188,8 @@ export async function generateTicketWithAppsScript({ ticketId, testMode = false,
     recipients,
     survey: surveyPayload,
     surveyUrl,
+    signature: signaturePayload,
+    signatureUrl,
   });
 
   return {
@@ -158,7 +198,9 @@ export async function generateTicketWithAppsScript({ ticketId, testMode = false,
     ...data,
     pdfName: `Boleta ${bundle.ticket.BoletaID || bundle.ticket.BoletaUID}.pdf`,
     testMode,
+    deliveryType,
     recipients,
     survey: surveyPayload,
+    signatureRequest: signaturePayload,
   };
 }

@@ -5,9 +5,24 @@ import { ensureSurveyForTicket } from '../modules/survey.module.js';
 import { sendChatMessage } from './chat.service.js';
 import { generateTicketWithAppsScript } from './apps-script-ticket.service.js';
 import { ensureTestSurveyForTicket } from './test-survey.service.js';
+import {
+  ensureSignatureRequestForTicket,
+  ticketHasSignature,
+} from './ticket-signature-request.service.js';
+
+function clean(value) {
+  return String(value || '').trim();
+}
+
+function splitEmails(value) {
+  const source = Array.isArray(value) ? value : String(value || '').split(/[;,]/);
+  return [...new Set(source
+    .map((item) => clean(item).toLowerCase())
+    .filter((item) => /^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(item)))];
+}
 
 function chatWebhook(...values) {
-  return values.map((value) => String(value || '').trim()).find((value) => value.startsWith('https://chat.googleapis.com/')) || '';
+  return values.map((value) => clean(value)).find((value) => value.startsWith('https://chat.googleapis.com/')) || '';
 }
 
 function mainChatWebhook(config) {
@@ -52,10 +67,28 @@ function internalChatText(report, { testMode = false, resendMode = false } = {})
     `PDF: ${report.pdfUrl}`,
     `Carpeta: ${report.folderUrl}`,
     ...(report.survey?.url ? [`Encuesta${testMode ? ' de prueba' : ''}: ${report.survey.url}`] : []),
+    ...(report.signatureRequest?.url ? [`Firma pendiente del cliente: ${report.signatureRequest.url}`] : []),
     `Evidencias: ${report.evidences.length}`,
     ...evidenceLines(report),
     ...(testMode ? ['Esta prueba no cambió el estado ni notificó al cliente. La encuesta incluida es únicamente para validación administrativa.'] : []),
     ...(resendMode ? ['Este reenvío fue enviado únicamente a Google Chat. No se envió correo electrónico.'] : []),
+  ].filter(Boolean).join('\n');
+}
+
+function signedInternalChatText(report) {
+  const ticket = report.ticket;
+  const assigned = report.assigned.map((item) => item.Nombre).filter(Boolean).join(', ');
+  return [
+    '✍️ BOLETA FIRMADA POR EL CLIENTE',
+    `Cliente: ${ticket.Cliente || 'Sin cliente'}`,
+    `Boleta: #${ticket.BoletaID || ticket.BoletaUID}`,
+    `Título: ${ticket.Titulo || 'Reporte de visita'}`,
+    `Fecha: ${ticket.Fecha || ''}`,
+    `Ubicación: ${[ticket.Ubicacion, ticket.UbicacionEquipo].filter(Boolean).join(' · ')}`,
+    `Técnicos: ${assigned || 'Sin especificar'}`,
+    'Firma: Registrada por el cliente mediante el enlace público',
+    `PDF firmado: ${report.pdfUrl}`,
+    `Carpeta: ${report.folderUrl}`,
   ].filter(Boolean).join('\n');
 }
 
@@ -91,7 +124,7 @@ async function recordNotification(ctx, { entityId, channel, destination, type, r
     Error: error ? String(error.message || error).slice(0, 1500) : '',
     FechaCreacion: nowIso(),
     FechaEnvio: sent ? nowIso() : '',
-    CreadoPor: ctx.user.UsuarioID,
+    CreadoPor: ctx.user?.UsuarioID || 'SISTEMA',
   });
 }
 
@@ -124,6 +157,7 @@ function deliverySummary(report, results, extra = {}) {
       evidenceCount: report.evidences.length,
       templateId: report.templateId,
       survey: report.survey || null,
+      signatureRequest: report.signatureRequest || null,
     },
     notifications: results,
     notificationState: failed.length ? (failed.length === results.filter((item) => !item.skipped).length ? 'ERROR' : 'PARCIAL') : 'ENVIADO',
@@ -132,27 +166,41 @@ function deliverySummary(report, results, extra = {}) {
   };
 }
 
-export async function deliverTicket(ctx, { ticketId, testMode = false }) {
-  const config = await getConfig();
-  const survey = testMode
-    ? await ensureTestSurveyForTicket({ ticketId, origin: ctx.origin, actor: ctx.user.UsuarioID })
-    : await ensureSurveyForTicket({ ticketId, origin: ctx.origin, actor: ctx.user.UsuarioID });
-  const report = await generateTicketWithAppsScript({ ticketId, testMode, sendEmail: true, survey });
-  const ticket = report.ticket;
-  const results = [];
-
+function emailResult(report, ctx, type) {
   const emailError = report.email?.sent === false && !report.email?.skipped
     ? new Error(report.email.error || 'Apps Script no pudo enviar el correo.')
     : null;
-  const emailMetadata = {
-    entityId: ticket.BoletaUID,
+  const metadata = {
+    entityId: report.ticket.BoletaUID,
     channel: 'CORREO_APPS_SCRIPT',
     destination: emailDestination(report),
-    type: testMode ? 'PRUEBA' : 'FINALIZACION',
+    type,
   };
+  return { emailError, metadata, ctx };
+}
+
+export async function deliverTicket(ctx, { ticketId, testMode = false }) {
+  const [config, currentTicket] = await Promise.all([getConfig(), findById('Boletas', ticketId)]);
+  const survey = testMode
+    ? await ensureTestSurveyForTicket({ ticketId, origin: ctx.origin, actor: ctx.user.UsuarioID })
+    : await ensureSurveyForTicket({ ticketId, origin: ctx.origin, actor: ctx.user.UsuarioID });
+  const signatureRequest = !testMode && !ticketHasSignature(currentTicket)
+    ? await ensureSignatureRequestForTicket({ ticketId, origin: ctx.origin, actor: ctx.user.UsuarioID })
+    : null;
+  const report = await generateTicketWithAppsScript({
+    ticketId,
+    testMode,
+    sendEmail: true,
+    survey,
+    signatureRequest,
+  });
+  const ticket = report.ticket;
+  const results = [];
+
+  const { emailError, metadata: emailMetadata } = emailResult(report, ctx, testMode ? 'PRUEBA' : 'FINALIZACION');
   await recordNotification(ctx, emailError
     ? { ...emailMetadata, error: emailError }
-    : { ...emailMetadata, result: { ...(report.email || { sent: true }), surveyUrl: report.survey?.url || '' } }).catch(() => {});
+    : { ...emailMetadata, result: { ...(report.email || { sent: true }), surveyUrl: report.survey?.url || '', signatureUrl: report.signatureRequest?.url || '' } }).catch(() => {});
   results.push(emailError
     ? { ...emailMetadata, ok: false, error: emailError.message }
     : { ...emailMetadata, ok: true, result: report.email || { sent: true } });
@@ -183,7 +231,58 @@ export async function deliverTicket(ctx, { ticketId, testMode = false }) {
     }
   }
 
-  return deliverySummary(report, results, { testMode });
+  return deliverySummary(report, results, { testMode, signatureRequest });
+}
+
+export async function deliverSignedTicket(ctx, { ticketId, signatureRequest = null }) {
+  const [config, ticket] = await Promise.all([getConfig(), findById('Boletas', ticketId)]);
+  const clientEmails = splitEmails(ticket.CorreoCliente);
+  if (!clientEmails.length) {
+    throw new Error('La firma fue guardada, pero la boleta no tiene un correo de cliente válido para reenviar el reporte firmado.');
+  }
+  const surveyUrl = clean(ticket.EncuestaURL || ticket.SurveyURL);
+  const survey = surveyUrl ? { url: surveyUrl, type: 'REAL' } : null;
+  const report = await generateTicketWithAppsScript({
+    ticketId,
+    testMode: false,
+    sendEmail: true,
+    survey,
+    signatureRequest: null,
+    recipientsOverride: { to: clientEmails, cc: [] },
+    deliveryType: 'SIGNED',
+  });
+  const results = [];
+
+  const { emailError, metadata: emailMetadata } = emailResult(report, ctx, 'FIRMA_CLIENTE');
+  await recordNotification(ctx, emailError
+    ? { ...emailMetadata, error: emailError }
+    : { ...emailMetadata, result: report.email || { sent: true } }).catch(() => {});
+  results.push(emailError
+    ? { ...emailMetadata, ok: false, error: emailError.message }
+    : { ...emailMetadata, ok: true, result: report.email || { sent: true } });
+
+  results.push(await executeNotification(ctx, {
+    entityId: report.ticket.BoletaUID,
+    channel: 'CHAT',
+    destination: 'Chat operativo de boletas',
+    type: 'FIRMA_CLIENTE',
+  }, () => sendChatMessage(mainChatWebhook(config), signedInternalChatText(report))));
+
+  const summary = deliverySummary(report, results, {
+    signedDelivery: true,
+    signatureRequest,
+  });
+  await updateRow('Boletas', ticketId, {
+    DocumentoURL: report.documentUrl,
+    PDFURL: report.pdfUrl,
+    CarpetaURL: report.folderUrl,
+    EstadoEntregaFirma: summary.notificationState,
+    UltimoErrorEntregaFirma: summary.errors.join(' | '),
+    FirmaReenviadaEn: nowIso(),
+    ActualizadoPor: 'CLIENTE',
+    FechaActualizacion: nowIso(),
+  });
+  return summary;
 }
 
 export async function resendTicketChats(ctx, { ticketId }) {
