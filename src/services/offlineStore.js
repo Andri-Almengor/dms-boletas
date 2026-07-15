@@ -119,6 +119,33 @@ export async function readCachedResponse(key, maxAgeMs = CACHE_MAX_AGE_MS) {
   return entry.data;
 }
 
+export async function listCachedResponses() {
+  return readAll(CACHE_STORE);
+}
+
+export async function mutateCachedResponse(key, updater) {
+  if (!key || typeof updater !== 'function') return null;
+  const current = await readCachedResponse(key, 0);
+  const next = updater(current);
+  if (next === undefined) return current;
+  await cacheResponse(key, next);
+  return next;
+}
+
+export async function mutateCachedResponses(predicate, updater) {
+  if (typeof predicate !== 'function' || typeof updater !== 'function') return 0;
+  const entries = await listCachedResponses();
+  let changed = 0;
+  for (const entry of entries) {
+    if (!predicate(entry)) continue;
+    const next = updater(entry.data, entry);
+    if (next === undefined) continue;
+    await cacheResponse(entry.key, next);
+    changed += 1;
+  }
+  return changed;
+}
+
 function emitQueueChange() {
   if (typeof window !== 'undefined') window.dispatchEvent(new CustomEvent('dms-offline-queue-change'));
 }
@@ -132,16 +159,36 @@ export async function listQueuedOperations() {
   return (await readAll(QUEUE_STORE)).sort((a, b) => Number(a.createdAt) - Number(b.createdAt));
 }
 
-export async function enqueueOperation({ routes, payload, description = '', entityId = '', dedupeKey = '' }) {
+export async function queuedOperationsForEntity(entityId) {
+  const target = String(entityId || '');
+  if (!target) return [];
+  return (await listQueuedOperations()).filter((item) => String(item.entityId || '') === target);
+}
+
+export async function queuedOperationCountForEntity(entityId) {
+  return (await queuedOperationsForEntity(entityId)).length;
+}
+
+export async function enqueueOperation({ routes, payload, description = '', entityId = '', entityType = '', dedupeKey = '' }) {
   const existing = dedupeKey
     ? (await listQueuedOperations()).find((item) => item.dedupeKey === dedupeKey)
     : null;
+  const resolvedEntityId = String(
+    entityId
+    || payload?.boletaUid
+    || payload?.BoletaUID
+    || payload?.maintenanceId
+    || payload?.MantenimientoID
+    || payload?.MantenimientoRef
+    || '',
+  );
   const operation = {
     id: existing?.id || createOfflineId('op'),
     routes: Array.isArray(routes) ? [...routes] : [routes],
     payload,
     description,
-    entityId: String(entityId || payload?.boletaUid || payload?.BoletaUID || ''),
+    entityId: resolvedEntityId,
+    entityType: entityType || existing?.entityType || '',
     dedupeKey,
     status: 'PENDING',
     attempts: existing?.attempts || 0,
@@ -314,6 +361,8 @@ export async function getOfflineStorageStats() {
       createdAt: Number(item.createdAt || 0),
       attempts: Number(item.attempts || 0),
       lastError: item.lastError || '',
+      entityId: item.entityId || '',
+      entityType: item.entityType || '',
     })),
     usage,
     quota,
