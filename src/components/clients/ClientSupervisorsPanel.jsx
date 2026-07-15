@@ -16,7 +16,7 @@ function supervisorView(record) {
   };
 }
 
-export default function ClientSupervisorsPanel({ clientId, clientName }) {
+export default function ClientSupervisorsPanel({ clientId, clientName, canDelete = false }) {
   const { sessionToken } = useAuth();
   const [open, setOpen] = useState(false);
   const [items, setItems] = useState([]);
@@ -120,6 +120,7 @@ export default function ClientSupervisorsPanel({ clientId, clientName }) {
   }
 
   async function remove(record) {
+    if (!canDelete) return;
     const view = supervisorView(record);
     if (!window.confirm(`¿Eliminar al supervisor ${view.nombre || ''} de ${clientName}?`)) return;
     setSaving(true);
@@ -155,7 +156,7 @@ export default function ClientSupervisorsPanel({ clientId, clientName }) {
               <strong>Supervisores de {clientName}</strong>
               <small>Se utilizan en las boletas y en los correos de notificación.</small>
             </div>
-            <button className="button button--primary button--compact" type="button" onClick={openCreate} disabled={saving}>
+            <button className="button button--primary button--compact client-relations__add" type="button" onClick={openCreate} disabled={saving}>
               <Icon name="person_add" /> Agregar
             </button>
           </div>
@@ -208,7 +209,7 @@ export default function ClientSupervisorsPanel({ clientId, clientName }) {
                     </div>
                     <div className="client-supervisor-card__actions">
                       <button className="icon-button icon-button--outlined" type="button" onClick={() => editSupervisor(record)} disabled={saving} aria-label={`Editar ${view.nombre}`}><Icon name="edit" /></button>
-                      <button className="icon-button icon-button--danger" type="button" onClick={() => remove(record)} disabled={saving} aria-label={`Eliminar ${view.nombre}`}><Icon name="delete" /></button>
+                      {canDelete && <button className="icon-button icon-button--danger" type="button" onClick={() => remove(record)} disabled={saving} aria-label={`Eliminar ${view.nombre}`}><Icon name="delete" /></button>}
                     </div>
                   </article>
                 );
