@@ -1,0 +1,22 @@
+.offline-content-page__header {
+  display: flex;
+  grid-template-columns: none;
+  justify-content: space-between;
+  align-items: flex-end;
+  gap: 24px;
+}
+
+.offline-content-page__header > div {
+  min-width: 0;
+}
+
+.more-page__offline-menu {
+  margin-top: 12px;
+}
+
+@media (max-width: 680px) {
+  .offline-content-page__header {
+    flex-direction: column;
+    align-items: stretch;
+  }
+}

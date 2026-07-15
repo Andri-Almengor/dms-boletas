@@ -14,6 +14,7 @@ import KnowledgeListPage from '../pages/knowledge/KnowledgeListPage';
 import MaintenanceDetailPage from '../pages/maintenance/MaintenanceDetailPage';
 import MaintenanceFormPage from '../pages/maintenance/MaintenanceFormPage';
 import MaintenanceListPage from '../pages/maintenance/MaintenanceListPage';
+import OfflineContentPage from '../pages/offline/OfflineContentPage';
 import PublicSurveyPage from '../pages/surveys/PublicSurveyPage';
 import SurveyDetailPage from '../pages/surveys/SurveyDetailPage';
 import SurveysAdminPage from '../pages/surveys/SurveysAdminPage';
@@ -58,6 +59,7 @@ export default function App() {
       <Route path="encuestas/:encuestaId" element={<PermissionRoute permission="USUARIOS_GESTIONAR"><SurveyDetailPage /></PermissionRoute>} />
       <Route path="cambiar-contrasena" element={<ChangePasswordPage />} />
       <Route path="mas" element={<MorePage />} />
+      <Route path="mas/contenido-offline" element={<OfflineContentPage />} />
       <Route path="usuarios" element={<PermissionRoute permission="USUARIOS_VER"><UsersPage /></PermissionRoute>} />
       <Route path="usuarios/nuevo" element={<PermissionRoute permission="USUARIOS_GESTIONAR"><UserFormPage mode="create" /></PermissionRoute>} />
       <Route path="usuarios/:usuarioId" element={<PermissionRoute permission="USUARIOS_VER"><UserDetailPage /></PermissionRoute>} />
