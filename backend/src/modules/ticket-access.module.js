@@ -41,16 +41,17 @@ function technicianParticipates(ticket, participationIds, technicianId) {
     || String(ticket.CreadoPor || '').trim() === String(technicianId || '').trim();
 }
 
-async function assertFinalizedAccess(ctx, ticket) {
-  if (normalizeStatus(ticket.Estado) !== 'FINALIZADA' || isAdministrator(ctx)) return;
+async function assertFinalizedAccess(ctx, ticket, action = 'consultar') {
+  if (normalizeStatus(ticket.Estado) !== 'FINALIZADA' || isAdministrator(ctx)) return ticket;
 
   const technicianId = userId(ctx);
   const assignments = await readTable('BoletaAsignados');
   const participationIds = assignedTicketIds(assignments, technicianId);
 
   if (!technicianParticipates(ticket, participationIds, technicianId)) {
-    throw forbidden('Solo puede consultar boletas finalizadas en las que participó.');
+    throw forbidden(`Solo puede ${action} boletas finalizadas en las que participó.`);
   }
+  return ticket;
 }
 
 async function ticketForMedia(payload = {}) {
@@ -84,6 +85,15 @@ async function ticketForMedia(payload = {}) {
   throw notFound('No se encontró la boleta relacionada con el archivo solicitado.');
 }
 
+async function ticketForEvidenceMutation(payload = {}) {
+  const directTicketId = pick(payload, ['boletaUid', 'BoletaUID']);
+  if (directTicketId) return findById('Boletas', directTicketId);
+  const evidenceId = pick(payload, ['evidenciaId', 'EvidenciaID', 'id']);
+  if (!evidenceId) throw notFound('No fue posible identificar la evidencia de la boleta.');
+  const evidence = await findById('EvidenciasBoleta', evidenceId);
+  return findById('Boletas', evidence.BoletaUID);
+}
+
 function applyFieldFilters(rows, payload) {
   const filters = [
     ['clienteId', 'ClienteID'],
@@ -100,7 +110,14 @@ function applyFieldFilters(rows, payload) {
   }, rows);
 }
 
+async function assertCanModifyFinalized(ctx, ticketId) {
+  const ticket = await findById('Boletas', ticketId);
+  return assertFinalizedAccess(ctx, ticket, 'editar');
+}
+
 export const ticketAccessHandlers = {
+  assertCanModifyFinalized,
+
   list: async (ctx) => {
     const { payload } = ctx;
     const tables = await readTables(['Boletas', 'BoletaAsignados']);
@@ -114,18 +131,20 @@ export const ticketAccessHandlers = {
       rows = rows.filter((row) => normalizeStatus(row.Estado) === requestedStatus);
     }
 
-    if (admin) {
-      const selectedTechnician = String(payload.asignadoUsuarioId || '').trim();
-      if (selectedTechnician) {
-        const selectedIds = assignedTicketIds(tables.BoletaAsignados, selectedTechnician);
-        rows = rows.filter((row) => selectedIds.has(String(row.BoletaUID)));
+    if (requestedStatus === 'FINALIZADA') {
+      if (admin) {
+        const selectedTechnician = String(payload.asignadoUsuarioId || '').trim();
+        if (selectedTechnician) {
+          const selectedIds = assignedTicketIds(tables.BoletaAsignados, selectedTechnician);
+          rows = rows.filter((row) => selectedIds.has(String(row.BoletaUID)));
+        }
+      } else {
+        const participationIds = assignedTicketIds(tables.BoletaAsignados, technicianId);
+        rows = rows.filter((row) => technicianParticipates(row, participationIds, technicianId));
       }
-    } else {
-      const participationIds = assignedTicketIds(tables.BoletaAsignados, technicianId);
-      rows = rows.filter((row) => (
-        normalizeStatus(row.Estado) !== 'FINALIZADA'
-        || technicianParticipates(row, participationIds, technicianId)
-      ));
+    } else if (admin && payload.asignadoUsuarioId) {
+      const selectedIds = assignedTicketIds(tables.BoletaAsignados, payload.asignadoUsuarioId);
+      rows = rows.filter((row) => selectedIds.has(String(row.BoletaUID)));
     }
 
     if (payload.dateFrom) rows = rows.filter((row) => String(row.Fecha || '').slice(0, 10) >= String(payload.dateFrom));
@@ -160,5 +179,38 @@ export const ticketAccessHandlers = {
     const ticket = await ticketForMedia(ctx.payload);
     await assertFinalizedAccess(ctx, ticket);
     return ticketHandlers.mediaGet(ctx);
+  },
+
+  update: async (ctx) => {
+    await assertCanModifyFinalized(ctx, pick(ctx.payload, ['boletaUid', 'BoletaUID', 'id']));
+    return ticketHandlers.update(ctx);
+  },
+
+  autosave: async (ctx) => {
+    await assertCanModifyFinalized(ctx, pick(ctx.payload, ['boletaUid', 'BoletaUID', 'id']));
+    return ticketHandlers.autosave(ctx);
+  },
+
+  evidenceUpload: async (ctx) => {
+    const ticket = await ticketForEvidenceMutation(ctx.payload);
+    await assertFinalizedAccess(ctx, ticket, 'agregar evidencias a');
+    return ticketHandlers.evidenceUpload(ctx);
+  },
+
+  evidenceUpdate: async (ctx) => {
+    const ticket = await ticketForEvidenceMutation(ctx.payload);
+    await assertFinalizedAccess(ctx, ticket, 'editar evidencias de');
+    return ticketHandlers.evidenceUpdate(ctx);
+  },
+
+  evidenceDelete: async (ctx) => {
+    const ticket = await ticketForEvidenceMutation(ctx.payload);
+    await assertFinalizedAccess(ctx, ticket, 'eliminar evidencias de');
+    return ticketHandlers.evidenceDelete(ctx);
+  },
+
+  signatureUpload: async (ctx) => {
+    await assertCanModifyFinalized(ctx, pick(ctx.payload, ['boletaUid', 'BoletaUID', 'id']));
+    return ticketHandlers.signatureUpload(ctx);
   },
 };
