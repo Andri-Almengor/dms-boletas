@@ -2,15 +2,31 @@ import React, { useEffect, useMemo, useState } from 'react';
 import { Navigate, useNavigate, useParams } from 'react-router-dom';
 import { useAuth } from '../../AuthContext';
 import Icon from '../../components/common/Icon';
+import KnowledgeCategoryMultiSelect from '../../components/knowledge/KnowledgeCategoryMultiSelect';
 import RichTextEditor from '../../components/knowledge/RichTextEditor';
 import { MODULE_ROUTES, normalizeItems, pick, requestAvailable } from '../../services/moduleApi';
 import { fileToDataUrl, getAttachmentId, getAttachmentName, normalizeKnowledge, stripHtml } from '../../utils/knowledge';
 
-const EMPTY_FORM = { title: '', categoryId: '', problem: '', content: '<h2>Objetivo</h2><p></p><h2>Procedimiento paso a paso</h2><ol><li></li></ol><h2>Validación final</h2><p></p>', status: 'BORRADOR', videos: [''] };
+const EMPTY_FORM = {
+  title: '',
+  categoryIds: [],
+  problem: '',
+  content: '<h2>Objetivo</h2><p></p><h2>Procedimiento paso a paso</h2><ol><li></li></ol><h2>Validación final</h2><p></p>',
+  status: 'BORRADOR',
+  videos: [''],
+};
 const MAX_FILE_SIZE = 20 * 1024 * 1024;
 
 function canCreateTutorial(hasPermission) {
   return hasPermission('CONOCIMIENTO_CREAR') || hasPermission('CONOCIMIENTO_GESTIONAR') || hasPermission('BOLETAS_CREAR') || hasPermission('USUARIOS_GESTIONAR');
+}
+
+function normalizeDraftForm(value = {}) {
+  const legacyId = String(value.categoryId || '').trim();
+  const categoryIds = Array.isArray(value.categoryIds)
+    ? value.categoryIds.map(String).filter(Boolean)
+    : legacyId ? [legacyId] : [];
+  return { ...EMPTY_FORM, ...value, categoryIds };
 }
 
 export default function KnowledgeEditorPage({ mode }) {
@@ -42,7 +58,7 @@ export default function KnowledgeEditorPage({ mode }) {
     if (!isEdit) {
       try {
         const local = JSON.parse(localStorage.getItem(draftKey) || 'null');
-        if (local?.form) setForm({ ...EMPTY_FORM, ...local.form });
+        if (local?.form) setForm(normalizeDraftForm(local.form));
       } catch { /* Ignorar borradores dañados o almacenamiento no disponible. */ }
       return;
     }
@@ -52,12 +68,19 @@ export default function KnowledgeEditorPage({ mode }) {
         const item = normalizeKnowledge(data?.item || data?.data || data);
         const canManage = hasPermission('CONOCIMIENTO_GESTIONAR') || hasPermission('USUARIOS_GESTIONAR');
         if (!canManage && item.authorId && item.authorId !== userId) throw new Error('Solo puedes editar tus propios tutoriales.');
-        setForm({ title: item.title, categoryId: item.categoryId, problem: item.problem, content: item.content, status: item.status, videos: item.videos.length ? item.videos.map((video) => typeof video === 'string' ? video : pick(video, ['URL', 'url'])) : [''] });
+        setForm({
+          title: item.title,
+          categoryIds: item.categoryIds,
+          problem: item.problem,
+          content: item.content,
+          status: item.status,
+          videos: item.videos.length ? item.videos.map((video) => typeof video === 'string' ? video : pick(video, ['URL', 'url'])) : [''],
+        });
         setExistingAttachments(item.attachments);
       })
       .catch((err) => setLoadError(err.message))
       .finally(() => setLoading(false));
-  }, [isEdit, tutorialId, sessionToken, userId]);
+  }, [isEdit, tutorialId, sessionToken, userId, hasPermission]);
 
   useEffect(() => {
     if (loading || loadError) return undefined;
@@ -73,7 +96,10 @@ export default function KnowledgeEditorPage({ mode }) {
     return () => window.clearTimeout(timer);
   }, [form, loading, loadError, draftKey]);
 
-  const categoryOptions = useMemo(() => categories.map((category) => ({ value: String(pick(category, ['CategoriaConocimientoID', 'CategoriaID', 'id'])), label: pick(category, ['Nombre', 'name']) })).filter((item) => item.value && item.label), [categories]);
+  const categoryOptions = useMemo(() => categories.map((category) => ({
+    value: String(pick(category, ['CategoriaConocimientoID', 'CategoriaID', 'id'])),
+    label: pick(category, ['Nombre', 'name']),
+  })).filter((item) => item.value && item.label), [categories]);
 
   function setField(name, value) { setForm((current) => ({ ...current, [name]: value })); }
   function updateVideo(index, value) { setForm((current) => ({ ...current, videos: current.videos.map((item, itemIndex) => itemIndex === index ? value : item) })); }
@@ -109,19 +135,22 @@ export default function KnowledgeEditorPage({ mode }) {
   async function save(event, forcedStatus = form.status) {
     event?.preventDefault();
     setError('');
-    if (!form.title.trim() || !form.categoryId || !form.problem.trim() || !stripHtml(form.content)) {
-      setError('Completa el título, la categoría, el problema que resuelve y el contenido del tutorial.');
+    if (!form.title.trim() || !form.categoryIds.length || !form.problem.trim() || !stripHtml(form.content)) {
+      setError('Completa el título, selecciona al menos una categoría, describe el problema y agrega el contenido del tutorial.');
       return;
     }
     setSaving(true);
     try {
+      const primaryCategoryId = form.categoryIds[0];
       const payload = {
         tutorialId,
         TutorialID: tutorialId,
         titulo: form.title.trim(),
         Titulo: form.title.trim(),
-        categoriaId: form.categoryId,
-        CategoriaConocimientoID: form.categoryId,
+        categoriaIds: form.categoryIds,
+        CategoriaConocimientoIDs: form.categoryIds,
+        categoriaId: primaryCategoryId,
+        CategoriaConocimientoID: primaryCategoryId,
         problemaResuelto: form.problem.trim(),
         ProblemaResuelto: form.problem.trim(),
         contenidoHtml: form.content,
@@ -162,11 +191,13 @@ export default function KnowledgeEditorPage({ mode }) {
 
     <form onSubmit={(event) => save(event, form.status)}>
       <section className="form-card knowledge-basics-card">
-        <div className="form-card__heading"><span className="section-marker" /><div><h2>Información del tutorial</h2><p>Describe claramente qué problema resuelve y a qué tecnología pertenece.</p></div></div>
+        <div className="form-card__heading"><span className="section-marker" /><div><h2>Información del tutorial</h2><p>Relaciona el procedimiento con todas las plataformas, marcas o sistemas involucrados.</p></div></div>
         <div className="knowledge-basics-grid">
-          <label className="field-group is-wide"><span className="field-label">Título del tutorial *</span><input className="form-control" value={form.title} onChange={(event) => setField('title', event.target.value)} placeholder="Ej. Cómo restablecer la comunicación de un panel Lenel" required /></label>
-          <label className="field-group"><span className="field-label">Categoría *</span><select className="form-control" value={form.categoryId} onChange={(event) => setField('categoryId', event.target.value)} required><option value="">Seleccione una categoría</option>{categoryOptions.map((option) => <option key={option.value} value={option.value}>{option.label}</option>)}</select></label>
+          <label className="field-group is-wide"><span className="field-label">Título del tutorial *</span><input className="form-control" value={form.title} onChange={(event) => setField('title', event.target.value)} placeholder="Ej. Configurar una cámara Axis en Milestone con redundancia Lenel" required /></label>
           <label className="field-group"><span className="field-label">Estado</span><select className="form-control" value={form.status} onChange={(event) => setField('status', event.target.value)}><option value="BORRADOR">Borrador</option><option value="PUBLICADO">Publicado</option></select></label>
+          <div className="field-group is-wide">
+            <KnowledgeCategoryMultiSelect options={categoryOptions} selectedIds={form.categoryIds} onChange={(value) => setField('categoryIds', value)} disabled={saving} />
+          </div>
           <label className="field-group is-wide"><span className="field-label">Descripción del problema que resuelve *</span><textarea className="form-control ticket-textarea" rows="4" value={form.problem} onChange={(event) => setField('problem', event.target.value)} placeholder="Explica el síntoma, error o necesidad que llevó a crear este procedimiento." required /></label>
         </div>
       </section>
