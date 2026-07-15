@@ -2,7 +2,7 @@ import React, { createContext, useContext, useEffect, useMemo, useState } from '
 import { apiRequest } from '../api';
 
 const STORAGE_KEY = 'dms_session';
-const AuthContext = createContext(null);
+export const AuthContext = createContext(null);
 const OPERATIONAL_CLIENT_PERMISSIONS = [
   'BOLETAS_CREAR',
   'BOLETAS_EDITAR',
