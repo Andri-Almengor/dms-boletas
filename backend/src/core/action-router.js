@@ -9,6 +9,7 @@ import { ticketHandlers } from '../modules/tickets.module.js';
 import { ticketDeliveryHandlers } from '../modules/ticket-delivery.module.js';
 import { maintenanceHandlers } from '../modules/maintenance.module.js';
 import { knowledgeHandlers } from '../modules/knowledge.module.js';
+import { surveyHandlers } from '../modules/survey.module.js';
 import { getClientConfig } from '../modules/config.module.js';
 
 const c = Object.fromEntries(Object.keys({clients:1,clientLocations:1,equipmentLocations:1,contacts:1,categories:1,deviceTypes:1,manufacturers:1,models:1,failureTypes:1,deviceManufacturers:1,knowledgeCategories:1}).map((key)=>[key,crudHandlers(key)]));
@@ -24,6 +25,15 @@ add('users.assignment.list',usersHandlers.assignable,['BOLETAS_CREAR','BOLETAS_E
 add('users.get',usersHandlers.get,'USUARIOS_VER'); add('users.create',usersHandlers.create,'USUARIOS_GESTIONAR'); add('users.update',usersHandlers.update,'USUARIOS_GESTIONAR'); add('roles.list',usersHandlers.roles,'USUARIOS_VER');
 add(['config.get','app.config.get'],getClientConfig);
 add(['ai.technicalRewrite','gemini.technicalRewrite','boletas.ai.rewrite'], async (ctx)=>rewriteTechnicalReport(ctx.payload), ['BOLETAS_CREAR','BOLETAS_EDITAR','MANTENIMIENTOS_CREAR','MANTENIMIENTOS_EDITAR','MANTENIMIENTOS_GESTIONAR']);
+
+add(['survey.public.get','encuesta.publica.get'], surveyHandlers.publicGet, null, true);
+add(['survey.public.submit','encuesta.publica.submit'], surveyHandlers.publicSubmit, null, true);
+add(['survey.questions.list','encuestas.preguntas.list'], surveyHandlers.questionsList, 'USUARIOS_GESTIONAR');
+add(['survey.questions.create','encuestas.preguntas.create'], surveyHandlers.questionsCreate, 'USUARIOS_GESTIONAR');
+add(['survey.questions.update','encuestas.preguntas.update'], surveyHandlers.questionsUpdate, 'USUARIOS_GESTIONAR');
+add(['survey.questions.delete','encuestas.preguntas.delete'], surveyHandlers.questionsDelete, 'USUARIOS_GESTIONAR');
+add(['survey.responses.list','encuestas.respuestas.list'], surveyHandlers.responsesList, 'USUARIOS_GESTIONAR');
+add(['survey.responses.get','encuestas.respuestas.get'], surveyHandlers.responsesGet, 'USUARIOS_GESTIONAR');
 
 const operationalCatalogPermissions = ['BOLETAS_CREAR','BOLETAS_EDITAR','MANTENIMIENTOS_CREAR','MANTENIMIENTOS_EDITAR','MANTENIMIENTOS_GESTIONAR'];
 const operationalClientDataPermissions = [
@@ -48,8 +58,6 @@ for(const [key,prefixes] of crudRouteGroups){for(const prefix of prefixes){
     createPermission='CLIENTES_CREAR';
     updatePermission='CLIENTES_EDITAR';
   } else if(clientOperationalKeys.has(key)) {
-    // Técnicos pueden crear datos operativos durante una boleta, pero la edición
-    // permanente desde la administración de clientes requiere CLIENTES_EDITAR.
     createPermission=operationalClientDataPermissions;
     updatePermission='CLIENTES_EDITAR';
   } else if(key==='knowledgeCategories') {
@@ -59,7 +67,6 @@ for(const [key,prefixes] of crudRouteGroups){for(const prefix of prefixes){
   add(`${prefix}.list`,c[key].list);add(`${prefix}.get`,c[key].get);add(`${prefix}.create`,c[key].create,createPermission);add(`${prefix}.update`,c[key].update,updatePermission);
 }}
 
-// La eliminación de supervisores queda reservada a administradores.
 add(['contacts.delete','clients.contacts.delete','clientes.contactos.delete','contactosCliente.delete'], c.contacts.delete, 'USUARIOS_GESTIONAR');
 
 for (const [key, prefixes] of [
@@ -110,10 +117,10 @@ for(const [key,names] of Object.entries(knowledgeAliases)) {
   add(names,knowledgeHandlers[key],permission);
 }
 
-export async function dispatchAction({ route, payload={}, sessionToken='', ip='', userAgent='' }) {
+export async function dispatchAction({ route, payload={}, sessionToken='', ip='', userAgent='', origin='' }) {
   const entry=routes.get(route);
   if(!entry) { const error=new Error(`Ruta no encontrada: ${route}`); error.code='ROUTE_NOT_FOUND'; error.status=404; throw error; }
   let auth={user:null,permissions:[]}; if(!entry.publicRoute) auth=await authenticate(sessionToken);
   if(entry.permission){const required=Array.isArray(entry.permission)?entry.permission:[entry.permission];const allowed=required.some((code)=>auth.permissions.includes(code))||auth.permissions.includes('USUARIOS_GESTIONAR');if(!allowed)throw forbidden();}
-  return entry.handler({route,payload,sessionToken,ip,userAgent,...auth});
+  return entry.handler({route,payload,sessionToken,ip,userAgent,origin,...auth});
 }

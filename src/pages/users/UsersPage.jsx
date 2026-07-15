@@ -1,5 +1,5 @@
 import React, { useEffect, useMemo, useState } from 'react';
-import { Link } from 'react-router-dom';
+import { Link, useNavigate } from 'react-router-dom';
 import { apiRequest } from '../../api';
 import { useAuth } from '../../AuthContext';
 import ErrorMessage from '../../components/common/ErrorMessage';
@@ -14,6 +14,7 @@ function initials(name = '') {
 
 export default function UsersPage() {
   const { sessionToken, hasPermission, user: currentUser } = useAuth();
+  const navigate = useNavigate();
   const { roles } = useRoles();
   const [users, setUsers] = useState([]);
   const [search, setSearch] = useState('');
@@ -53,6 +54,17 @@ export default function UsersPage() {
     }
   }
 
+  function openCard(event, url) {
+    if (event.target.closest('a, button, input, select, textarea, label')) return;
+    navigate(url);
+  }
+
+  function openCardWithKeyboard(event, url) {
+    if (!['Enter', ' '].includes(event.key)) return;
+    event.preventDefault();
+    navigate(url);
+  }
+
   return (
     <div className="page">
       <header className="list-page-heading">
@@ -76,8 +88,17 @@ export default function UsersPage() {
         <div className="user-grid">
           {users.map((record) => {
             const active = record.Estado === 'ACTIVO';
+            const detailUrl = `/usuarios/${encodeURIComponent(record.UsuarioID)}`;
             return (
-              <article key={record.UsuarioID} className={`user-card${active ? '' : ' user-card--inactive'}`}>
+              <article
+                key={record.UsuarioID}
+                className={`user-card detail-clickable-card${active ? '' : ' user-card--inactive'}`}
+                onClick={(event) => openCard(event, detailUrl)}
+                onKeyDown={(event) => openCardWithKeyboard(event, detailUrl)}
+                role="link"
+                tabIndex={0}
+                aria-label={`Abrir detalle de ${record.NombreCompleto}`}
+              >
                 <span className={`user-card__stripe ${active ? 'is-active' : 'is-inactive'}`} />
                 <div className="user-card__header">
                   <div className="avatar">{initials(record.NombreCompleto)}</div>
@@ -92,8 +113,8 @@ export default function UsersPage() {
                   <div><dt>Rol</dt><dd>{roleById[record.RolID] || record.RolID}</dd></div>
                 </dl>
                 <div className="card-actions">
-                  <Link to={`/usuarios/${record.UsuarioID}`} className="button button--primary button--compact">Ver detalle</Link>
-                  {hasPermission('USUARIOS_GESTIONAR') && <Link to={`/usuarios/${record.UsuarioID}/editar`} className="icon-button icon-button--outlined" aria-label="Editar"><Icon name="edit" /></Link>}
+                  <Link to={detailUrl} className="button button--primary button--compact">Ver detalle</Link>
+                  {hasPermission('USUARIOS_GESTIONAR') && <Link to={`${detailUrl}/editar`} className="icon-button icon-button--outlined" aria-label="Editar"><Icon name="edit" /></Link>}
                   {hasPermission('USUARIOS_GESTIONAR') && active && (
                     <button type="button" className="icon-button icon-button--danger" onClick={() => deactivateUser(record)} aria-label="Desactivar"><Icon name="person_remove" /></button>
                   )}

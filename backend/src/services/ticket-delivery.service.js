@@ -1,6 +1,7 @@
 import { appendRow } from '../infra/sheets.repository.js';
 import { nowIso, uuid } from '../core/utils.js';
 import { getConfig } from '../modules/config.module.js';
+import { ensureSurveyForTicket } from '../modules/survey.module.js';
 import { sendChatMessage } from './chat.service.js';
 import { generateTicketWithAppsScript } from './apps-script-ticket.service.js';
 
@@ -44,6 +45,7 @@ function internalChatText(report, testMode) {
     `Resultado: ${ticket.Resultado || 'Sin especificar'}`,
     `PDF: ${report.pdfUrl}`,
     `Carpeta: ${report.folderUrl}`,
+    ...(!testMode && report.survey?.url ? [`Encuesta: ${report.survey.url}`] : []),
     `Evidencias: ${report.evidences.length}`,
     ...evidenceLines(report),
     ...(testMode ? ['Esta prueba no cambió el estado ni notificó al cliente.'] : []),
@@ -63,6 +65,7 @@ function clientChatText(report) {
     `Resultado: ${ticket.Resultado || 'Sin especificar'}`,
     `Recomendaciones: ${ticket.Recomendaciones || 'Sin recomendaciones adicionales'}`,
     `PDF: ${report.pdfUrl}`,
+    ...(report.survey?.url ? [`Califique nuestro servicio: ${report.survey.url}`] : []),
   ].join('\n');
 }
 
@@ -103,7 +106,12 @@ function emailDestination(report) {
 
 export async function deliverTicket(ctx, { ticketId, testMode = false }) {
   const config = await getConfig();
-  const report = await generateTicketWithAppsScript({ ticketId, testMode, sendEmail: true });
+  const survey = testMode ? null : await ensureSurveyForTicket({
+    ticketId,
+    origin: ctx.origin,
+    actor: ctx.user.UsuarioID,
+  });
+  const report = await generateTicketWithAppsScript({ ticketId, testMode, sendEmail: true, survey });
   const ticket = report.ticket;
   const results = [];
 
@@ -118,7 +126,7 @@ export async function deliverTicket(ctx, { ticketId, testMode = false }) {
   };
   await recordNotification(ctx, emailError
     ? { ...emailMetadata, error: emailError }
-    : { ...emailMetadata, result: report.email || { sent: true } }).catch(() => {});
+    : { ...emailMetadata, result: { ...(report.email || { sent: true }), surveyUrl: report.survey?.url || '' } }).catch(() => {});
   results.push(emailError
     ? { ...emailMetadata, ok: false, error: emailError.message }
     : { ...emailMetadata, ok: true, result: report.email || { sent: true } });
@@ -160,6 +168,7 @@ export async function deliverTicket(ctx, { ticketId, testMode = false }) {
       folderUrl: report.folderUrl,
       evidenceCount: report.evidences.length,
       templateId: report.templateId,
+      survey: report.survey || null,
     },
     notifications: results,
     notificationState: failed.length ? (failed.length === results.length ? 'ERROR' : 'PARCIAL') : 'ENVIADO',

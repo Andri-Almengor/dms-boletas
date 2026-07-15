@@ -107,7 +107,7 @@ async function postAppsScript(url, payload) {
   }
 }
 
-export async function generateTicketWithAppsScript({ ticketId, testMode = false, sendEmail = true }) {
+export async function generateTicketWithAppsScript({ ticketId, testMode = false, sendEmail = true, survey = null }) {
   const url = clean(process.env.APPS_SCRIPT_REPORT_URL);
   const secret = clean(process.env.APPS_SCRIPT_REPORT_SECRET);
   if (!url) throw new AppError('APPS_SCRIPT_URL_MISSING', 'Falta configurar APPS_SCRIPT_REPORT_URL en el backend.', 503);
@@ -119,6 +119,20 @@ export async function generateTicketWithAppsScript({ ticketId, testMode = false,
   if (!baseFolderId) throw new AppError('REPORT_FOLDER_NOT_CONFIGURED', 'No está configurada la carpeta principal de boletas.', 503);
 
   const recipients = resolveRecipients(bundle, config, testMode);
+  const surveyUrl = testMode ? '' : clean(survey?.url);
+  const ticketForDelivery = {
+    ...bundle.ticket,
+    EncuestaURL: surveyUrl,
+    SurveyURL: surveyUrl,
+  };
+  const surveyPayload = surveyUrl ? {
+    id: survey.id,
+    url: surveyUrl,
+    title: 'Califique nuestro servicio',
+    buttonText: 'Responder encuesta',
+    expiresAt: survey.expiresAt,
+  } : null;
+
   const data = await postAppsScript(url, {
     action: 'ticket.report.deliver',
     secret,
@@ -127,19 +141,23 @@ export async function generateTicketWithAppsScript({ ticketId, testMode = false,
     sendEmail,
     templateId,
     baseFolderId,
-    ticket: bundle.ticket,
+    ticket: ticketForDelivery,
     assigned: bundle.assigned,
     evidences: bundle.evidences,
     client: bundle.client,
     creator: bundle.creator,
     recipients,
+    survey: surveyPayload,
+    surveyUrl,
   });
 
   return {
     ...bundle,
+    ticket: ticketForDelivery,
     ...data,
     pdfName: `Boleta ${bundle.ticket.BoletaID || bundle.ticket.BoletaUID}.pdf`,
     testMode,
     recipients,
+    survey: surveyPayload,
   };
 }

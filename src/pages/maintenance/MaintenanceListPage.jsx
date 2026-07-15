@@ -1,5 +1,5 @@
 import React, { useEffect, useMemo, useState } from 'react';
-import { Link } from 'react-router-dom';
+import { Link, useNavigate } from 'react-router-dom';
 import { useAuth } from '../../AuthContext';
 import Icon from '../../components/common/Icon';
 import { MODULE_ROUTES, normalizeItems, pick, requestAvailable } from '../../services/moduleApi';
@@ -30,6 +30,7 @@ function getId(row) {
 
 export default function MaintenanceListPage() {
   const { sessionToken, hasPermission } = useAuth();
+  const navigate = useNavigate();
   const canCreate = hasPermission('MANTENIMIENTOS_CREAR') || hasPermission('BOLETAS_CREAR');
   const [records, setRecords] = useState([]);
   const [status, setStatus] = useState('PENDIENTE');
@@ -98,6 +99,17 @@ export default function MaintenanceListPage() {
     setDateTo('');
   }
 
+  function openCard(event, detailUrl) {
+    if (!detailUrl || event.target.closest('a, button, input, select, textarea, label')) return;
+    navigate(detailUrl);
+  }
+
+  function openCardWithKeyboard(event, detailUrl) {
+    if (!detailUrl || !['Enter', ' '].includes(event.key)) return;
+    event.preventDefault();
+    navigate(detailUrl);
+  }
+
   return (
     <div className="page maintenance-page">
       <div className="list-page-heading maintenance-heading">
@@ -160,8 +172,17 @@ export default function MaintenanceListPage() {
             const id = getId(row);
             const completed = Number(pick(row, ['DispositivosRegistrados', 'CantidadDispositivos'], 0));
             const expected = Number(pick(row, ['DispositivosEsperados', 'CantidadEsperada'], 0));
+            const detailUrl = id ? `/mantenimientos/${encodeURIComponent(id)}` : '';
             return (
-              <article className="maintenance-card" key={id}>
+              <article
+                className={`maintenance-card${detailUrl ? ' detail-clickable-card' : ''}`}
+                key={id}
+                onClick={(event) => openCard(event, detailUrl)}
+                onKeyDown={(event) => openCardWithKeyboard(event, detailUrl)}
+                role={detailUrl ? 'link' : undefined}
+                tabIndex={detailUrl ? 0 : undefined}
+                aria-label={detailUrl ? `Abrir detalle del mantenimiento ${pick(row, ['TituloMantenimiento'], '')}` : undefined}
+              >
                 <div className="maintenance-card__top"><span className="maintenance-card__icon"><Icon name="engineering" /></span><span className={`status-chip ${status === 'FINALIZADO' ? 'status-chip--active' : 'status-chip--pending'}`}>{status}</span></div>
                 <div><span className="eyebrow">{pick(row, ['Cliente', 'ClienteRef'], 'Sin cliente')}</span><h2>{pick(row, ['TituloMantenimiento'], 'Mantenimiento sin título')}</h2><p>{pick(row, ['DescripcionGeneral'], 'Sin descripción general')}</p></div>
                 <div className="maintenance-card__meta">
@@ -170,7 +191,7 @@ export default function MaintenanceListPage() {
                   <span><Icon name="location_on" />{pick(row, ['Ubicacion'], 'Sin ubicación')}</span>
                 </div>
                 <div className="maintenance-progress-mini"><div><strong>{completed}</strong><span>registrados</span></div><div><strong>{expected || completed}</strong><span>esperados</span></div></div>
-                <Link className="button button--primary" to={`/mantenimientos/${encodeURIComponent(id)}`}>Ver detalle<Icon name="chevron_right" /></Link>
+                <Link className="button button--primary" to={detailUrl}>Ver detalle<Icon name="chevron_right" /></Link>
               </article>
             );
           }) : (

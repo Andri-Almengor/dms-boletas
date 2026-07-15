@@ -14,6 +14,9 @@ import KnowledgeListPage from '../pages/knowledge/KnowledgeListPage';
 import MaintenanceDetailPage from '../pages/maintenance/MaintenanceDetailPage';
 import MaintenanceFormPage from '../pages/maintenance/MaintenanceFormPage';
 import MaintenanceListPage from '../pages/maintenance/MaintenanceListPage';
+import PublicSurveyPage from '../pages/surveys/PublicSurveyPage';
+import SurveyDetailPage from '../pages/surveys/SurveyDetailPage';
+import SurveysAdminPage from '../pages/surveys/SurveysAdminPage';
 import TicketDetailPage from '../pages/tickets/TicketDetailPage';
 import TicketFormPage from '../pages/tickets/TicketFormPage';
 import TicketListPage from '../pages/tickets/TicketListPage';
@@ -31,6 +34,7 @@ const KNOWLEDGE_CREATE = ['CONOCIMIENTO_CREAR','CONOCIMIENTO_GESTIONAR','BOLETAS
 export default function App() {
   return <Routes>
     <Route path="/login" element={<LoginPage />} />
+    <Route path="/encuesta/:token" element={<PublicSurveyPage />} />
     <Route path="/" element={<ProtectedRoute><AppShell /></ProtectedRoute>}>
       <Route index element={<HomePage />} />
       <Route path="boletas/pendientes" element={<PermissionRoute permission="BOLETAS_VER"><TicketListPage status="PENDIENTE" /></PermissionRoute>} />
@@ -50,6 +54,8 @@ export default function App() {
       <Route path="clientes" element={<PermissionRoute permission="CLIENTES_VER"><ClientsPage /></PermissionRoute>} />
       <Route path="catalogos" element={<PermissionRoute anyOf={['CATALOGOS_VER','CATALOGOS_GESTIONAR','USUARIOS_GESTIONAR']}><CatalogsPage /></PermissionRoute>} />
       <Route path="categorias" element={<Navigate to="/catalogos" replace />} />
+      <Route path="encuestas" element={<PermissionRoute permission="USUARIOS_GESTIONAR"><SurveysAdminPage /></PermissionRoute>} />
+      <Route path="encuestas/:encuestaId" element={<PermissionRoute permission="USUARIOS_GESTIONAR"><SurveyDetailPage /></PermissionRoute>} />
       <Route path="cambiar-contrasena" element={<ChangePasswordPage />} />
       <Route path="mas" element={<MorePage />} />
       <Route path="usuarios" element={<PermissionRoute permission="USUARIOS_VER"><UsersPage /></PermissionRoute>} />
