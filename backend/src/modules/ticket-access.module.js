@@ -134,7 +134,13 @@ export const ticketAccessHandlers = {
     if (payload.dateTo) rows = rows.filter((row) => String(row.Fecha || '').slice(0, 10) <= String(payload.dateTo));
     rows = applyFieldFilters(rows, payload);
 
-    return filterRows(rows, payload, [
+    const normalizedPayload = {
+      ...payload,
+      estado: undefined,
+      status: undefined,
+    };
+
+    return filterRows(rows, normalizedPayload, [
       'Titulo',
       'Cliente',
       'Ubicacion',
