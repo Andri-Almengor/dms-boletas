@@ -18,6 +18,7 @@ import OfflineContentPage from '../pages/offline/OfflineContentPage';
 import PublicSurveyPage from '../pages/surveys/PublicSurveyPage';
 import SurveyDetailPage from '../pages/surveys/SurveyDetailPage';
 import SurveysAdminPage from '../pages/surveys/SurveysAdminPage';
+import PublicSignaturePage from '../pages/tickets/PublicSignaturePage';
 import TicketDetailWithQuickEdit from '../pages/tickets/TicketDetailWithQuickEdit';
 import TicketFormPage from '../pages/tickets/TicketFormPage';
 import TicketListPage from '../pages/tickets/TicketListPage';
@@ -37,6 +38,7 @@ export default function App() {
   return <Routes>
     <Route path="/login" element={<LoginPage />} />
     <Route path="/encuesta/:token" element={<PublicSurveyPage />} />
+    <Route path="/firmar/:token" element={<PublicSignaturePage />} />
     <Route path="/" element={<ProtectedRoute><AppShell /></ProtectedRoute>}>
       <Route index element={<HomePage />} />
       <Route path="boletas/pendientes" element={<PermissionRoute permission="BOLETAS_VER"><TicketListPage status="PENDIENTE" /></PermissionRoute>} />
