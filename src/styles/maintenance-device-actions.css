@@ -1,0 +1,108 @@
+.maintenance-inventory-filter-trigger {
+  position: relative;
+  display: none;
+  min-width: 43px;
+  min-height: 43px;
+}
+
+.maintenance-inventory-filter-trigger > span:last-child:not(.material-symbols-outlined) {
+  position: absolute;
+  top: -5px;
+  right: -5px;
+  min-width: 19px;
+  height: 19px;
+  padding: 0 5px;
+  border: 2px solid #fff;
+  border-radius: 999px;
+  background: var(--primary);
+  color: #fff;
+  display: grid;
+  place-items: center;
+  font-size: .58rem;
+  font-weight: 850;
+  line-height: 1;
+}
+
+.maintenance-inventory-row-actions {
+  display: flex;
+  align-items: center;
+  justify-content: flex-end;
+  gap: 3px;
+}
+
+.maintenance-inventory-row-actions .icon-button:first-child {
+  color: var(--primary);
+}
+
+.maintenance-inventory-expanded__heading {
+  margin-bottom: 12px;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+}
+
+.maintenance-inventory-expanded__heading span,
+.maintenance-inventory-expanded__heading strong {
+  display: block;
+}
+
+.maintenance-inventory-expanded__heading strong {
+  margin-top: 3px;
+  font-size: .92rem;
+}
+
+.maintenance-inventory-mobile-edit {
+  display: none;
+}
+
+@media (max-width: 620px) {
+  .maintenance-device-toolbar--detail {
+    grid-template-columns: minmax(0, 1fr) 43px;
+    align-items: center;
+  }
+
+  .maintenance-device-toolbar--detail .maintenance-device-search {
+    grid-column: auto;
+  }
+
+  .maintenance-inventory-inline-filter,
+  .maintenance-device-category-chips {
+    display: none !important;
+  }
+
+  .maintenance-inventory-filter-trigger {
+    display: grid;
+  }
+
+  .maintenance-inventory-mobile-edit {
+    width: 100%;
+    min-height: 38px;
+    padding: 8px 12px;
+    border: 0;
+    border-top: 1px solid var(--outline-soft);
+    background: #fff;
+    color: var(--primary);
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    gap: 6px;
+    font: inherit;
+    font-size: .72rem;
+    font-weight: 800;
+    cursor: pointer;
+  }
+
+  .maintenance-inventory-mobile-edit .material-symbols-outlined {
+    font-size: 17px;
+  }
+
+  .maintenance-inventory-expanded__heading {
+    align-items: stretch;
+    flex-direction: column;
+  }
+
+  .maintenance-inventory-expanded__heading .button {
+    width: 100%;
+  }
+}
