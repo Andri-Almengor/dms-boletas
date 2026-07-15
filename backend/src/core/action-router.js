@@ -86,12 +86,13 @@ for (const [key, prefixes] of [
   }
 }
 
-const ticketAliases={list:['boletas.list','tickets.list'],get:['boletas.get','tickets.get'],create:['boletas.create','tickets.create'],update:['boletas.update','tickets.update'],autosave:['boletas.autosave'],finalize:['boletas.finalize','tickets.finalize'],testFinalize:['boletas.testFinalize','tickets.testFinalize'],generatePdf:['boletas.generatePdf','tickets.generatePdf'],returnPending:['boletas.returnPending'],annul:['boletas.annul'],evidenceUpload:['boletas.evidence.upload','tickets.evidence.upload'],evidenceUpdate:['boletas.evidence.update','tickets.evidence.update'],evidenceDelete:['boletas.evidence.delete','tickets.evidence.delete'],mediaGet:['boletas.media.get','tickets.media.get'],signatureUpload:['boletas.signature.upload']};
+const ticketAliases={list:['boletas.list','tickets.list'],get:['boletas.get','tickets.get'],create:['boletas.create','tickets.create'],update:['boletas.update','tickets.update'],autosave:['boletas.autosave'],finalize:['boletas.finalize','tickets.finalize'],resendChats:['boletas.resendChats','tickets.resendChats','boletas.reenviarChats'],testFinalize:['boletas.testFinalize','tickets.testFinalize'],generatePdf:['boletas.generatePdf','tickets.generatePdf'],returnPending:['boletas.returnPending'],annul:['boletas.annul'],evidenceUpload:['boletas.evidence.upload','tickets.evidence.upload'],evidenceUpdate:['boletas.evidence.update','tickets.evidence.update'],evidenceDelete:['boletas.evidence.delete','tickets.evidence.delete'],mediaGet:['boletas.media.get','tickets.media.get'],signatureUpload:['boletas.signature.upload']};
 for(const [key,names] of Object.entries(ticketAliases)) {
   let permission='BOLETAS_EDITAR';
   if(['list','get','mediaGet'].includes(key)) permission='BOLETAS_VER';
   else if(key==='create') permission='BOLETAS_CREAR';
   else if(key==='finalize') permission='BOLETAS_FINALIZAR';
+  else if(key==='resendChats') permission=['BOLETAS_FINALIZAR','BOLETAS_EDITAR'];
   else if(key==='testFinalize') permission='NOTIFICACIONES_PRUEBA';
   else if(['evidenceUpload','evidenceUpdate','evidenceDelete'].includes(key)) permission=['BOLETAS_EVIDENCIAS','BOLETAS_EDITAR'];
   const handler = ticketDeliveryHandlers[key] || ticketHandlers[key];
