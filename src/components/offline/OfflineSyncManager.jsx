@@ -50,8 +50,11 @@ export default function OfflineSyncManager() {
           lastError: '',
         });
         try {
-          await replayQueuedOperation(operation, sessionToken);
+          const result = await replayQueuedOperation(operation, sessionToken);
           await removeQueuedOperation(operation.id);
+          window.dispatchEvent(new CustomEvent('dms-offline-entity-synced', {
+            detail: { entityId: operation.entityId || '', entityType: operation.entityType || '', result },
+          }));
           await refreshCount();
         } catch (error) {
           await updateQueuedOperation(operation.id, {
@@ -101,6 +104,15 @@ export default function OfflineSyncManager() {
       window.removeEventListener('dms-offline-queue-change', handleQueueChange);
     };
   }, [refreshCount, synchronize]);
+
+  useEffect(() => {
+    document.body.classList.toggle('dms-offline', !online);
+    document.body.classList.toggle('dms-has-pending-sync', pending > 0 || syncing);
+    return () => {
+      document.body.classList.remove('dms-offline');
+      document.body.classList.remove('dms-has-pending-sync');
+    };
+  }, [online, pending, syncing]);
 
   useEffect(() => {
     if (!sessionToken) return;
