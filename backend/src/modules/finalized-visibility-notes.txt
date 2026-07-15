@@ -1,2 +1,0 @@
-Administradores: todas las boletas finalizadas.
-Técnicos: únicamente boletas asignadas o creadas por ellos.
