@@ -60,6 +60,7 @@ export default function KnowledgeDetailPage() {
   if (!record) return <div className="page page--narrow"><div className="alert alert--error"><Icon name="error" /> {error || 'No se encontró el tutorial.'}</div></div>;
 
   const item = normalizeKnowledge(record);
+  const categories = item.categories.length ? item.categories : [{ id: '', name: 'Sin categoría' }];
   const currentUserId = String(pick(user, ['UsuarioID', 'id'], ''));
   const canEdit = hasPermission('CONOCIMIENTO_GESTIONAR') || hasPermission('USUARIOS_GESTIONAR') || Boolean(item.authorId && currentUserId && item.authorId === currentUserId);
 
@@ -73,7 +74,13 @@ export default function KnowledgeDetailPage() {
     {error && <div className="alert alert--error"><Icon name="error" /><span>{error}</span></div>}
 
     <section className="knowledge-detail-meta">
-      <span className="knowledge-category-chip"><Icon name="label" /> {item.category}</span>
+      <div className="knowledge-category-chip-list" aria-label="Categorías del tutorial">
+        {categories.map((category, index) => (
+          <span className={`knowledge-category-chip${index === 0 && categories.length > 1 ? ' is-primary' : ''}`} key={category.id || `${category.name}-${index}`}>
+            <Icon name={index === 0 && categories.length > 1 ? 'star' : 'label'} /> {category.name}
+          </span>
+        ))}
+      </div>
       <span className={`status-chip ${item.status === 'BORRADOR' ? 'status-chip--inactive' : 'status-chip--active'}`}>{item.status}</span>
       <div><span><Icon name="person" /> {item.author}</span><span><Icon name="event" /> Actualizado {formatKnowledgeDate(item.updatedAt || item.createdAt)}</span></div>
     </section>
