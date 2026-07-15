@@ -7,10 +7,11 @@ export const TABLES = Object.freeze({
   Boletas: { id: 'BoletaUID' }, BoletaAsignados: { id: 'BoletaAsignadoID' }, EvidenciasBoleta: { id: 'EvidenciaID' }, RespuestasBoleta: { id: 'RespuestaID' }, Consecutivos: { id: 'ConsecutivoID' },
   Mantenimiento: { id: 'MantenimientoID' }, Evidencia_Mantenimientos: { id: 'EvidenciaMantenimientoID' }, 'Mantenimiento imagenes': { id: 'FotoDispositivoID' },
   KnowledgeCategories: { id: 'CategoriaConocimientoID' }, KnowledgeArticles: { id: 'TutorialID' }, KnowledgeAttachments: { id: 'AdjuntoID' },
+  EncuestaPreguntas: { id: 'PreguntaID' }, Encuestas: { id: 'EncuestaID' }, EncuestaRespuestas: { id: 'RespuestaEncuestaID' },
   Notificaciones: { id: 'NotificacionID' }, Auditoria: { id: 'AuditoriaID' }, Archivos: { id: 'ArchivoIDInterno' },
 });
 
 export const DATE_FIELDS = new Set([
-  'Fecha','FechaFinalizacion','FechaCreacion','FechaActualizacion','FechaInicio','FechaExpiracion','FechaRevocacion','FechaEnvio','FinalizadaEn','UltimoAcceso','BloqueadoHasta'
+  'Fecha','FechaFinalizacion','FechaCreacion','FechaActualizacion','FechaInicio','FechaExpiracion','FechaRevocacion','FechaEnvio','FechaRespuesta','FinalizadaEn','UltimoAcceso','BloqueadoHasta'
 ]);
 export const TIME_FIELDS = new Set(['HoraInicio','HoraFinal']);
