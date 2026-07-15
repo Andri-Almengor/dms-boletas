@@ -21,6 +21,7 @@ import SurveysAdminPage from '../pages/surveys/SurveysAdminPage';
 import TicketDetailPage from '../pages/tickets/TicketDetailPage';
 import TicketFormPage from '../pages/tickets/TicketFormPage';
 import TicketListPage from '../pages/tickets/TicketListPage';
+import TicketQuickEditPage from '../pages/tickets/TicketQuickEditPage';
 import UserDetailPage from '../pages/users/UserDetailPage';
 import UserFormPage from '../pages/users/UserFormPage';
 import UsersPage from '../pages/users/UsersPage';
@@ -43,6 +44,7 @@ export default function App() {
       <Route path="boletas/nueva" element={<PermissionRoute permission="BOLETAS_CREAR"><TicketFormPage mode="create" /></PermissionRoute>} />
       <Route path="boletas/:boletaUid" element={<PermissionRoute permission="BOLETAS_VER"><TicketDetailPage /></PermissionRoute>} />
       <Route path="boletas/:boletaUid/editar" element={<PermissionRoute permission="BOLETAS_EDITAR"><TicketFormPage mode="edit" /></PermissionRoute>} />
+      <Route path="boletas/:boletaUid/editar-rapido/:section" element={<PermissionRoute permission="BOLETAS_EDITAR"><TicketQuickEditPage /></PermissionRoute>} />
       <Route path="mantenimientos" element={<PermissionRoute anyOf={MAINTENANCE_VIEW}><MaintenanceListPage /></PermissionRoute>} />
       <Route path="mantenimientos/nuevo" element={<PermissionRoute anyOf={MAINTENANCE_CREATE}><MaintenanceFormPage mode="create" /></PermissionRoute>} />
       <Route path="mantenimientos/:maintenanceId" element={<PermissionRoute anyOf={MAINTENANCE_VIEW}><MaintenanceDetailPage /></PermissionRoute>} />
