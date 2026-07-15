@@ -230,6 +230,25 @@
     margin-inline: -2px;
   }
 
+  .module-record-card {
+    position: relative;
+  }
+
+  .module-record-card > .module-record-card__edit {
+    position: absolute;
+    top: 16px;
+    right: 16px;
+    grid-column: auto;
+    grid-row: auto;
+    justify-self: auto;
+    margin-top: 0;
+    z-index: 2;
+  }
+
+  .module-record-card__title {
+    padding-right: 48px;
+  }
+
   .client-supervisors__content {
     padding: 11px;
   }
