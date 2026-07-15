@@ -1,6 +1,6 @@
 import { appendRow, filterRows, findById, readTable, updateRow } from '../infra/sheets.repository.js';
 import { badRequest } from '../core/errors.js';
-import { hashPassword, nowIso, pick, randomPassword, uuid } from '../core/utils.js';
+import { asBool, hashPassword, nowIso, pick, randomPassword, uuid } from '../core/utils.js';
 import { safeUser } from '../services/permissions.service.js';
 import { sendTemporaryCredentialsWithAppsScript } from '../services/apps-script-user-invitation.service.js';
 import { audit } from '../services/audit.service.js';
@@ -18,6 +18,21 @@ function normalizeUser(user) {
     Estado: status,
     Activo: safe.Activo === undefined || safe.Activo === '' ? status.toUpperCase() === 'ACTIVO' : safe.Activo,
   };
+}
+
+async function revokeUserSessions(usuarioId) {
+  const sessions = (await readTable('Sesiones')).filter((session) => (
+    String(session.UsuarioID || '') === String(usuarioId || '')
+    && !asBool(session.Revocada, false)
+  ));
+  const revokedAt = nowIso();
+  for (const session of sessions) {
+    await updateRow('Sesiones', session.SesionID, {
+      Revocada: true,
+      FechaRevocacion: revokedAt,
+    });
+  }
+  return sessions.length;
 }
 
 export const usersHandlers = {
@@ -49,6 +64,57 @@ export const usersHandlers = {
     const fullName = pick(ctx.payload,['nombreCompleto','NombreCompleto','Nombre'],pick(before,['NombreCompleto','Nombre']));
     const patch = { NombreCompleto: fullName, Nombre: fullName, NombreUsuario: pick(ctx.payload,['nombreUsuario','NombreUsuario'],before.NombreUsuario), Correo: pick(ctx.payload,['correo','Correo'],before.Correo), RolID: pick(ctx.payload,['rolId','RolID'],before.RolID), Estado: pick(ctx.payload,['estado','Estado'],before.Estado), ActualizadoPor: ctx.user.UsuarioID, FechaActualizacion: nowIso() };
     const after = await updateRow('Usuarios', id, patch); await audit(ctx,'EDITAR_USUARIO','Usuarios',id,normalizeUser(before),normalizeUser(after)); return { user: normalizeUser(after) };
+  },
+  resetPassword: async (ctx) => {
+    const id = pick(ctx.payload, ['usuarioId', 'UsuarioID', 'id']);
+    const before = await findById('Usuarios', id);
+    if (String(before.UsuarioID) === String(ctx.user.UsuarioID)) {
+      throw badRequest('Para su propia cuenta utilice la opción Cambiar contraseña.');
+    }
+    if (String(before.Estado || '').trim().toUpperCase() !== 'ACTIVO') {
+      throw badRequest('Debe activar el usuario antes de restablecer su contraseña.');
+    }
+    if (!String(before.Correo || '').trim()) {
+      throw badRequest('El usuario no tiene un correo configurado para recibir la nueva contraseña.');
+    }
+
+    const temporaryPassword = randomPassword();
+    const { salt, hash } = hashPassword(temporaryPassword);
+    const resetAt = nowIso();
+    const after = await updateRow('Usuarios', id, {
+      PasswordHash: hash,
+      PasswordSalt: salt,
+      CambioPasswordObligatorio: true,
+      IntentosFallidos: 0,
+      BloqueadoHasta: '',
+      ActualizadoPor: ctx.user.UsuarioID,
+      FechaActualizacion: resetAt,
+    });
+
+    const revokedSessions = await revokeUserSessions(id);
+    const resetKey = `password-reset:${id}:${Date.now()}:${uuid()}`;
+    const email = await sendTemporaryCredentialsWithAppsScript(after, temporaryPassword, {
+      credentialType: 'PASSWORD_RESET',
+      idempotencyKey: resetKey,
+    }).catch((error) => ({ sent: false, error: error.message }));
+
+    await audit(ctx, 'RESTABLECER_PASSWORD_USUARIO', 'Usuarios', id, normalizeUser(before), {
+      ...normalizeUser(after),
+      CambioPasswordObligatorio: true,
+      SesionesRevocadas: revokedSessions,
+      CorreoEnviado: Boolean(email?.sent),
+      ErrorCorreo: email?.error || '',
+    });
+
+    return {
+      user: normalizeUser(after),
+      email,
+      revokedSessions,
+      temporaryPassword: email?.sent ? '' : temporaryPassword,
+      message: email?.sent
+        ? `La contraseña fue restablecida y enviada a ${after.Correo}.`
+        : 'La contraseña fue restablecida, pero el correo no pudo enviarse. Copie la contraseña temporal mostrada y entréguela al usuario de forma segura.',
+    };
   },
   roles: async () => ({ items: (await readTable('Roles')).filter((r) => String(r.Estado || '').trim().toUpperCase() === 'ACTIVO') }),
 };

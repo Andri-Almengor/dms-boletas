@@ -24,7 +24,11 @@ add('auth.logout', async (ctx)=>logout(ctx.sessionToken));
 add(['auth.changePassword','auth.change-password'], async (ctx)=>changePassword(ctx.user,ctx.payload.currentPassword||ctx.payload.passwordActual,ctx.payload.newPassword||ctx.payload.nuevaPassword));
 add('users.list',usersHandlers.list,'USUARIOS_VER');
 add('users.assignment.list',usersHandlers.assignable,['BOLETAS_CREAR','BOLETAS_EDITAR','MANTENIMIENTOS_CREAR','MANTENIMIENTOS_EDITAR','MANTENIMIENTOS_GESTIONAR','MANTENIMIENTOS_VER']);
-add('users.get',usersHandlers.get,'USUARIOS_VER'); add('users.create',usersHandlers.create,'USUARIOS_GESTIONAR'); add('users.update',usersHandlers.update,'USUARIOS_GESTIONAR'); add('roles.list',usersHandlers.roles,'USUARIOS_VER');
+add('users.get',usersHandlers.get,'USUARIOS_VER');
+add('users.create',usersHandlers.create,'USUARIOS_GESTIONAR');
+add('users.update',usersHandlers.update,'USUARIOS_GESTIONAR');
+add(['users.password.reset','users.resetPassword','usuarios.contrasena.restablecer'],usersHandlers.resetPassword,'USUARIOS_GESTIONAR');
+add('roles.list',usersHandlers.roles,'USUARIOS_VER');
 add(['config.get','app.config.get'],getClientConfig);
 add(['ai.technicalRewrite','gemini.technicalRewrite','boletas.ai.rewrite'], async (ctx)=>rewriteTechnicalReport(ctx.payload), ['BOLETAS_CREAR','BOLETAS_EDITAR','MANTENIMIENTOS_CREAR','MANTENIMIENTOS_EDITAR','MANTENIMIENTOS_GESTIONAR']);
 
