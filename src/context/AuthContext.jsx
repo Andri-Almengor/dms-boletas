@@ -11,6 +11,37 @@ const OPERATIONAL_CLIENT_PERMISSIONS = [
   'MANTENIMIENTOS_GESTIONAR',
 ];
 
+function readStoredSession() {
+  try {
+    const stored = JSON.parse(localStorage.getItem(STORAGE_KEY) || '{}');
+    return {
+      sessionToken: stored.sessionToken || '',
+      user: stored.user || null,
+      permissions: Array.isArray(stored.permissions) ? stored.permissions : [],
+    };
+  } catch {
+    return { sessionToken: '', user: null, permissions: [] };
+  }
+}
+
+function saveStoredSession(sessionToken, user, permissions) {
+  try {
+    localStorage.setItem(STORAGE_KEY, JSON.stringify({
+      sessionToken,
+      user: user || null,
+      permissions: Array.isArray(permissions) ? permissions : [],
+      savedAt: Date.now(),
+    }));
+  } catch {
+    // La sesión seguirá activa en memoria aunque el navegador bloquee el almacenamiento.
+  }
+}
+
+function isAuthenticationError(error) {
+  return Number(error?.status || 0) === 401
+    || String(error?.code || '').toUpperCase() === 'UNAUTHORIZED';
+}
+
 function effectivePermission(permissions, code) {
   if (!code) return true;
   if (permissions.includes('USUARIOS_GESTIONAR')) return true;
@@ -22,16 +53,11 @@ function effectivePermission(permissions, code) {
 }
 
 export function AuthProvider({ children }) {
-  const [sessionToken, setSessionToken] = useState(() => {
-    try {
-      return JSON.parse(localStorage.getItem(STORAGE_KEY) || '{}').sessionToken || '';
-    } catch {
-      return '';
-    }
-  });
-  const [user, setUser] = useState(null);
-  const [permissions, setPermissions] = useState([]);
-  const [loading, setLoading] = useState(Boolean(sessionToken));
+  const initial = useMemo(() => readStoredSession(), []);
+  const [sessionToken, setSessionToken] = useState(initial.sessionToken);
+  const [user, setUser] = useState(initial.user);
+  const [permissions, setPermissions] = useState(initial.permissions);
+  const [loading, setLoading] = useState(Boolean(initial.sessionToken && !initial.user));
 
   useEffect(() => {
     if (!sessionToken) {
@@ -40,17 +66,29 @@ export function AuthProvider({ children }) {
     }
 
     let active = true;
-    setLoading(true);
+    setLoading(!user);
 
     apiRequest('auth.me', {}, sessionToken)
       .then((data) => {
         if (!active) return;
+        const nextPermissions = data.permissions || [];
         setUser(data.user);
-        setPermissions(data.permissions || []);
+        setPermissions(nextPermissions);
+        saveStoredSession(sessionToken, data.user, nextPermissions);
       })
-      .catch(() => {
+      .catch((error) => {
         if (!active) return;
-        clearSession();
+        if (isAuthenticationError(error)) {
+          clearSession();
+          return;
+        }
+        // Una caída de red o del servidor no debe cerrar la sesión ni borrar los
+        // permisos ya descargados. La aplicación puede continuar en modo offline.
+        if (!user) {
+          const cached = readStoredSession();
+          setUser(cached.user);
+          setPermissions(cached.permissions);
+        }
       })
       .finally(() => {
         if (active) setLoading(false);
@@ -71,16 +109,17 @@ export function AuthProvider({ children }) {
 
   async function login(username, password) {
     const data = await apiRequest('auth.login', { username, password });
-    try { localStorage.setItem(STORAGE_KEY, JSON.stringify({ sessionToken: data.sessionToken })); } catch { /* La sesión seguirá activa mientras la pestaña permanezca abierta. */ }
+    const nextPermissions = data.permissions || [];
+    saveStoredSession(data.sessionToken, data.user, nextPermissions);
     setSessionToken(data.sessionToken);
     setUser(data.user);
-    setPermissions(data.permissions || []);
+    setPermissions(nextPermissions);
     return data;
   }
 
   async function logout() {
     try {
-      if (sessionToken) await apiRequest('auth.logout', {}, sessionToken);
+      if (sessionToken && navigator.onLine !== false) await apiRequest('auth.logout', {}, sessionToken);
     } finally {
       clearSession();
     }
@@ -88,8 +127,10 @@ export function AuthProvider({ children }) {
 
   async function refreshMe() {
     const data = await apiRequest('auth.me', {}, sessionToken);
+    const nextPermissions = data.permissions || [];
     setUser(data.user);
-    setPermissions(data.permissions || []);
+    setPermissions(nextPermissions);
+    saveStoredSession(sessionToken, data.user, nextPermissions);
     return data;
   }
 

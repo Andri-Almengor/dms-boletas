@@ -1,4 +1,11 @@
 import { apiRequest } from '../api';
+import {
+  cacheResponse,
+  createOfflineId,
+  enqueueOperation,
+  readCachedResponse,
+  responseCacheKey,
+} from './offlineStore';
 
 export const MODULE_ROUTES = {
   tickets: {
@@ -113,6 +120,8 @@ export const MODULE_ROUTES = {
   config: { get: ['config.get', 'app.config.get'] },
 };
 
+export const OFFLINE_CATALOG_PAYLOAD = Object.freeze({ page: 1, pageSize: 1000, activo: true });
+
 export function normalizeItems(data) {
   if (Array.isArray(data)) return data;
   if (Array.isArray(data?.items)) return data.items;
@@ -147,9 +156,36 @@ function isMissingRouteError(error) {
   return text.includes('route') || text.includes('ruta') || text.includes('not_found') || text.includes('no encontrada') || text.includes('unknown action') || text.includes('handler not found');
 }
 
-function isNetworkError(error) {
+export function isNetworkError(error) {
   const text = `${error?.name || ''} ${error?.message || ''}`.toLowerCase();
-  return text.includes('failed to fetch') || text.includes('networkerror') || text.includes('network request failed') || text.includes('load failed');
+  return text.includes('failed to fetch')
+    || text.includes('networkerror')
+    || text.includes('network request failed')
+    || text.includes('load failed')
+    || text.includes('internet disconnected');
+}
+
+function isReadRoute(routes) {
+  const route = String((Array.isArray(routes) ? routes[0] : routes) || '').toLowerCase();
+  return route === 'auth.me'
+    || route === 'config.get'
+    || route === 'app.config.get'
+    || route.endsWith('.list')
+    || route.endsWith('.get')
+    || route.endsWith('.config');
+}
+
+function offlineWriteKind(routes) {
+  const text = (Array.isArray(routes) ? routes : [routes]).join(' ').toLowerCase();
+  if (text.includes('boletas.create') || text.includes('tickets.create')) return 'create';
+  if (text.includes('boletas.autosave')) return 'autosave';
+  if (text.includes('boletas.signature.upload')) return 'signature';
+  if (text.includes('boletas.evidence.upload') || text.includes('tickets.evidence.upload')) return 'evidence';
+  if (text.includes('boletas.finalize') || text.includes('tickets.finalize')) return 'finalize';
+  if (text.includes('boletas.testfinalize') || text.includes('tickets.testfinalize')) return 'test';
+  if (text.includes('boletas.generatepdf') || text.includes('tickets.generatepdf')) return 'pdf';
+  if (text.includes('boletas.update') || text.includes('tickets.update')) return 'update';
+  return '';
 }
 
 function wait(milliseconds) {
@@ -170,15 +206,204 @@ async function requestRouteWithRetry(route, payload, sessionToken) {
   throw lastError;
 }
 
-export async function requestAvailable(routes, payload = {}, sessionToken = '') {
+function offlineDescription(kind) {
+  const labels = {
+    create: 'Crear boleta',
+    update: 'Actualizar boleta',
+    autosave: 'Autoguardar boleta',
+    signature: 'Subir firma',
+    evidence: 'Subir evidencia',
+    finalize: 'Finalizar y enviar boleta',
+    test: 'Generar prueba de boleta',
+    pdf: 'Generar PDF',
+  };
+  return labels[kind] || 'Sincronizar cambio';
+}
+
+function rebuildCollection(original, items) {
+  if (Array.isArray(original)) return items;
+  if (Array.isArray(original?.items)) return { ...original, items, total: items.length, page: 1, pageSize: items.length || 1 };
+  if (Array.isArray(original?.rows)) return { ...original, rows: items, total: items.length };
+  if (Array.isArray(original?.data)) return { ...original, data: items, total: items.length };
+  return { items, total: items.length, page: 1, pageSize: items.length || 1 };
+}
+
+function filterMasterCatalog(data, routes, payload) {
+  const routeText = (Array.isArray(routes) ? routes : [routes]).join(' ').toLowerCase();
+  let items = normalizeItems(data);
+  if (payload.activo !== undefined) {
+    items = items.filter((row) => String(row.Activo ?? true).toLowerCase() === String(payload.activo).toLowerCase()
+      && String(row.Estado || 'ACTIVO').toUpperCase() !== 'INACTIVO');
+  }
+  if (routeText.includes('location') || routeText.includes('ubicacion')) {
+    if (routeText.includes('equipment') || routeText.includes('ubicacionesequipo') || routeText.includes('ubicacionesequipo')) {
+      if (payload.ubicacionId || payload.UbicacionID) {
+        const parentId = String(payload.ubicacionId || payload.UbicacionID);
+        items = items.filter((row) => String(row.UbicacionID || row.ubicacionId || '') === parentId);
+      }
+    } else if (payload.clienteId || payload.ClienteID) {
+      const clientId = String(payload.clienteId || payload.ClienteID);
+      items = items.filter((row) => String(row.ClienteID || row.clienteId || '') === clientId);
+    }
+  }
+  if (routeText.includes('contact')) {
+    if (payload.clienteId || payload.ClienteID) {
+      const clientId = String(payload.clienteId || payload.ClienteID);
+      items = items.filter((row) => String(row.ClienteID || row.clienteId || '') === clientId);
+    }
+    if (payload.esSupervisor !== undefined) {
+      items = items.filter((row) => toBoolean(row.EsSupervisor ?? row.esSupervisor, false) === toBoolean(payload.esSupervisor, false));
+    }
+  }
+  return rebuildCollection(data, items);
+}
+
+async function readOfflineResponse(routes, payload, sessionToken, exactKey) {
+  const exact = await readCachedResponse(exactKey);
+  if (exact !== null) return exact;
+
+  const routeText = (Array.isArray(routes) ? routes : [routes]).join(' ').toLowerCase();
+  const supportsMasterFallback = routeText.includes('clientlocations')
+    || routeText.includes('clients.locations')
+    || routeText.includes('ubicacionescliente')
+    || routeText.includes('equipmentlocations')
+    || routeText.includes('ubicacionesequipo')
+    || routeText.includes('contacts.list')
+    || routeText.includes('clients.contacts')
+    || routeText.includes('contactoscliente');
+  if (!supportsMasterFallback) return null;
+
+  const masterKey = responseCacheKey(routes, OFFLINE_CATALOG_PAYLOAD, sessionToken);
+  const master = await readCachedResponse(masterKey);
+  return master === null ? null : filterMasterCatalog(master, routes, payload);
+}
+
+function queuedResponse(kind, payload, operation) {
+  const uid = pick(payload, ['boletaUid', 'BoletaUID', 'id']);
+  if (kind === 'create' || kind === 'update' || kind === 'autosave') {
+    return {
+      boleta: { ...payload, BoletaUID: uid, boletaUid: uid, Estado: payload.Estado || payload.estado || 'PENDIENTE' },
+      offlineQueued: true,
+      operationId: operation.id,
+    };
+  }
+  return { ok: true, offlineQueued: true, boletaUid: uid, operationId: operation.id };
+}
+
+async function cacheOfflineTicketDetail(payload, sessionToken) {
+  const uid = pick(payload, ['boletaUid', 'BoletaUID']);
+  if (!uid) return;
+  const assigned = (payload.AsignadoA || payload.asignados || []).map((UsuarioID) => ({ UsuarioID }));
+  const detail = {
+    boleta: {
+      ...payload,
+      BoletaUID: uid,
+      BoletaID: payload.BoletaID || 'Sin sincronizar',
+      Estado: payload.Estado || payload.estado || 'PENDIENTE',
+      EstadoNotificacion: 'PENDIENTE_SINCRONIZACION',
+      OfflinePendiente: true,
+    },
+    asignados: assigned,
+    evidencias: [],
+    offlineQueued: true,
+  };
+  const key = responseCacheKey(MODULE_ROUTES.tickets.get, { boletaUid: uid }, sessionToken);
+  await cacheResponse(key, detail).catch(() => {});
+}
+
+async function queueOfflineWrite(routes, originalPayload, kind, sessionToken) {
+  let payload = originalPayload;
+  let uid = pick(payload, ['boletaUid', 'BoletaUID', 'id']);
+  if (kind === 'create' && !uid) {
+    uid = createOfflineId('boleta');
+    payload = { ...payload, boletaUid: uid, BoletaUID: uid };
+  }
+  const dedupeKey = ['create', 'update', 'autosave', 'finalize', 'test', 'pdf'].includes(kind)
+    ? `${kind}:${uid}`
+    : '';
+  const operation = await enqueueOperation({
+    routes,
+    payload,
+    entityId: uid,
+    description: offlineDescription(kind),
+    dedupeKey,
+  });
+  if (kind === 'create') await cacheOfflineTicketDetail(payload, sessionToken);
+  return queuedResponse(kind, payload, operation);
+}
+
+export async function replayQueuedOperation(operation, sessionToken = '') {
   let lastError;
-  for (const route of routes) {
+  for (const route of operation.routes || []) {
     try {
-      return await requestRouteWithRetry(route, payload, sessionToken);
+      return await requestRouteWithRetry(route, operation.payload || {}, sessionToken);
     } catch (error) {
       lastError = error;
       if (!isMissingRouteError(error)) throw error;
     }
   }
+  throw lastError || new Error('La operación pendiente ya no está disponible en el backend.');
+}
+
+export async function requestAvailable(routes, payload = {}, sessionToken = '') {
+  const candidates = Array.isArray(routes) ? routes : [routes];
+  const read = isReadRoute(candidates);
+  const writeKind = offlineWriteKind(candidates);
+  const cacheKey = read ? responseCacheKey(candidates, payload, sessionToken) : '';
+  const browserOffline = typeof navigator !== 'undefined' && navigator.onLine === false;
+
+  if (browserOffline) {
+    if (read) {
+      const cached = await readOfflineResponse(candidates, payload, sessionToken, cacheKey);
+      if (cached !== null) {
+        window.dispatchEvent(new CustomEvent('dms-offline-cache-used'));
+        return cached;
+      }
+      throw new Error('Sin conexión y todavía no hay datos guardados para esta sección. Conecte el dispositivo una vez para descargar la base operativa.');
+    }
+    if (writeKind) return queueOfflineWrite(candidates, payload, writeKind, sessionToken);
+  }
+
+  let lastError;
+  for (const route of candidates) {
+    try {
+      const result = await requestRouteWithRetry(route, payload, sessionToken);
+      if (read) await cacheResponse(cacheKey, result).catch(() => {});
+      return result;
+    } catch (error) {
+      lastError = error;
+      if (isMissingRouteError(error)) continue;
+      if (isNetworkError(error)) {
+        if (read) {
+          const cached = await readOfflineResponse(candidates, payload, sessionToken, cacheKey);
+          if (cached !== null) {
+            window.dispatchEvent(new CustomEvent('dms-offline-cache-used'));
+            return cached;
+          }
+        }
+        if (writeKind) return queueOfflineWrite(candidates, payload, writeKind, sessionToken);
+      }
+      throw error;
+    }
+  }
+
   throw lastError || new Error('La operación todavía no está disponible en el backend.');
+}
+
+export async function preloadOfflineCatalogs(sessionToken = '') {
+  if (!sessionToken || (typeof navigator !== 'undefined' && navigator.onLine === false)) return [];
+  const jobs = [
+    MODULE_ROUTES.clients.list,
+    MODULE_ROUTES.clients.locationsList,
+    MODULE_ROUTES.clients.equipmentLocationsList,
+    MODULE_ROUTES.clients.contactsList,
+    MODULE_ROUTES.categories.list,
+    MODULE_ROUTES.failureTypes.list,
+    MODULE_ROUTES.deviceTypes.list,
+    MODULE_ROUTES.manufacturers.list,
+    MODULE_ROUTES.models.list,
+    MODULE_ROUTES.deviceManufacturers.list,
+    MODULE_ROUTES.users.list,
+  ];
+  return Promise.allSettled(jobs.map((routes) => requestAvailable(routes, OFFLINE_CATALOG_PAYLOAD, sessionToken)));
 }
