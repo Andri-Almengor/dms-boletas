@@ -4,6 +4,7 @@ import { getConfig } from '../modules/config.module.js';
 import { ensureSurveyForTicket } from '../modules/survey.module.js';
 import { sendChatMessage } from './chat.service.js';
 import { generateTicketWithAppsScript } from './apps-script-ticket.service.js';
+import { ensureTestSurveyForTicket } from './test-survey.service.js';
 
 function chatWebhook(...values) {
   return values.map((value) => String(value || '').trim()).find((value) => value.startsWith('https://chat.googleapis.com/')) || '';
@@ -45,10 +46,10 @@ function internalChatText(report, testMode) {
     `Resultado: ${ticket.Resultado || 'Sin especificar'}`,
     `PDF: ${report.pdfUrl}`,
     `Carpeta: ${report.folderUrl}`,
-    ...(!testMode && report.survey?.url ? [`Encuesta: ${report.survey.url}`] : []),
+    ...(report.survey?.url ? [`Encuesta${testMode ? ' de prueba' : ''}: ${report.survey.url}`] : []),
     `Evidencias: ${report.evidences.length}`,
     ...evidenceLines(report),
-    ...(testMode ? ['Esta prueba no cambió el estado ni notificó al cliente.'] : []),
+    ...(testMode ? ['Esta prueba no cambió el estado ni notificó al cliente. La encuesta incluida es únicamente para validación administrativa.'] : []),
   ].filter(Boolean).join('\n');
 }
 
@@ -106,11 +107,9 @@ function emailDestination(report) {
 
 export async function deliverTicket(ctx, { ticketId, testMode = false }) {
   const config = await getConfig();
-  const survey = testMode ? null : await ensureSurveyForTicket({
-    ticketId,
-    origin: ctx.origin,
-    actor: ctx.user.UsuarioID,
-  });
+  const survey = testMode
+    ? await ensureTestSurveyForTicket({ ticketId, origin: ctx.origin, actor: ctx.user.UsuarioID })
+    : await ensureSurveyForTicket({ ticketId, origin: ctx.origin, actor: ctx.user.UsuarioID });
   const report = await generateTicketWithAppsScript({ ticketId, testMode, sendEmail: true, survey });
   const ticket = report.ticket;
   const results = [];
