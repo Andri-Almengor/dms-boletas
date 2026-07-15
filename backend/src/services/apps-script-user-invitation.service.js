@@ -59,12 +59,17 @@ async function postAppsScript(url, payload) {
   }
 }
 
-export async function sendTemporaryCredentialsWithAppsScript(user, temporaryPassword) {
+export async function sendTemporaryCredentialsWithAppsScript(user, temporaryPassword, options = {}) {
   const url = clean(process.env.APPS_SCRIPT_REPORT_URL);
   const secret = clean(process.env.APPS_SCRIPT_REPORT_SECRET);
   const email = clean(user?.Correo).toLowerCase();
   const username = clean(user?.NombreUsuario);
   const password = String(temporaryPassword || '');
+  const credentialType = clean(options.credentialType, 'INVITATION').toUpperCase();
+  const idempotencyKey = clean(
+    options.idempotencyKey,
+    `user-credentials:${clean(user.UsuarioID, email)}`,
+  );
 
   if (!url) {
     throw new AppError(
@@ -90,7 +95,9 @@ export async function sendTemporaryCredentialsWithAppsScript(user, temporaryPass
   return postAppsScript(url, {
     action: 'user.credentials.send',
     secret,
-    idempotencyKey: `user-credentials:${clean(user.UsuarioID, email)}`,
+    idempotencyKey,
+    credentialType,
+    isPasswordReset: credentialType === 'PASSWORD_RESET',
     user: {
       usuarioId: clean(user.UsuarioID),
       nombre: clean(user.NombreCompleto || user.Nombre || username, username),
