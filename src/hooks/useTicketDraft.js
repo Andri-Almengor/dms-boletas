@@ -8,6 +8,9 @@ export default function useTicketDraft({ keySuffix, enabled, value, onRestore })
   const storageKey = useMemo(() => `dms_boleta_draft_${keySuffix || 'new'}`, [keySuffix]);
   const [status, setStatus] = useState('idle');
   const restoredRef = useRef(false);
+  const initialValueRef = useRef(value);
+  const onRestoreRef = useRef(onRestore);
+  onRestoreRef.current = onRestore;
 
   useEffect(() => {
     if (!enabled || restoredRef.current) return;
@@ -15,19 +18,20 @@ export default function useTicketDraft({ keySuffix, enabled, value, onRestore })
     const draft = safeParse(localStorage.getItem(storageKey));
 
     if (!draft) {
-      const currentDate = String(value?.form?.fecha || '');
+      const initialValue = initialValueRef.current;
+      const currentDate = String(initialValue?.form?.fecha || '');
       const utcToday = new Date().toISOString().slice(0, 10);
       const costaRicaToday = todayInCostaRica();
       if ((keySuffix || 'new') === 'new' && (!currentDate || currentDate === utcToday) && currentDate !== costaRicaToday) {
-        onRestore?.({ form: { ...(value?.form || {}), fecha: costaRicaToday } });
+        onRestoreRef.current?.({ form: { ...(initialValue?.form || {}), fecha: costaRicaToday } });
       }
       return;
     }
 
     if (!draft.savedAt || Date.now() - draft.savedAt > MAX_AGE_MS) { localStorage.removeItem(storageKey); return; }
-    if (window.confirm('Se encontró un borrador guardado automáticamente. ¿Desea recuperarlo?')) { onRestore?.(draft.value || {}); setStatus('restored'); }
+    if (window.confirm('Se encontró un borrador guardado automáticamente. ¿Desea recuperarlo?')) { onRestoreRef.current?.(draft.value || {}); setStatus('restored'); }
     else localStorage.removeItem(storageKey);
-  }, [enabled, storageKey, keySuffix, onRestore, value]);
+  }, [enabled, storageKey, keySuffix]);
 
   useEffect(() => {
     if (!enabled || !restoredRef.current) return undefined;
