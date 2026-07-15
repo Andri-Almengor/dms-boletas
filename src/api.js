@@ -23,12 +23,26 @@ function isReadRoute(route) {
     || value.endsWith('.config');
 }
 
+function preparePayload(route, payload) {
+  const value = String(route || '').toLowerCase();
+  const isTicketCreate = value === 'boletas.create' || value === 'tickets.create';
+  if (!isTicketCreate || payload?.boletaUid || payload?.BoletaUID) return payload;
+  const random = globalThis.crypto?.randomUUID?.() || `${Date.now()}-${Math.random().toString(16).slice(2)}`;
+  const uid = `boleta-${random}`;
+  // Se modifica el mismo objeto para que, si la respuesta se pierde por un corte
+  // de internet, la cola offline reutilice exactamente el mismo identificador.
+  payload.boletaUid = uid;
+  payload.BoletaUID = uid;
+  return payload;
+}
+
 function requestKey(route, payload, sessionToken) {
   return `${String(route)}|${String(sessionToken)}|${JSON.stringify(payload || {})}`;
 }
 
 async function performRequest(route, payload, sessionToken) {
   if (!API_URL) throw new Error('Falta configurar VITE_API_URL.');
+  const requestPayload = preparePayload(route, payload || {});
 
   const response = await fetch(API_URL, {
     method: 'POST',
@@ -37,7 +51,7 @@ async function performRequest(route, payload, sessionToken) {
         ? 'text/plain;charset=utf-8'
         : 'application/json;charset=utf-8',
     },
-    body: JSON.stringify({ route, payload, sessionToken }),
+    body: JSON.stringify({ route, payload: requestPayload, sessionToken }),
   });
 
   let result;
