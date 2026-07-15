@@ -5,6 +5,7 @@ import { useAuth } from '../../AuthContext';
 import ErrorMessage from '../../components/common/ErrorMessage';
 import Icon from '../../components/common/Icon';
 import Loading from '../../components/common/Loading';
+import PasswordResetFeedback from '../../components/users/PasswordResetFeedback';
 import useRoles from '../../hooks/useRoles';
 
 function initials(name = '') {
@@ -20,6 +21,8 @@ export default function UsersPage() {
   const [search, setSearch] = useState('');
   const [error, setError] = useState('');
   const [loading, setLoading] = useState(true);
+  const [resettingUserId, setResettingUserId] = useState('');
+  const [resetResult, setResetResult] = useState(null);
 
   const roleById = useMemo(() => Object.fromEntries(roles.map((role) => [role.RolID, role.Nombre])), [roles]);
 
@@ -54,6 +57,31 @@ export default function UsersPage() {
     }
   }
 
+  async function resetPassword(record) {
+    if (record.UsuarioID === currentUser.UsuarioID) {
+      window.alert('Para su propia cuenta utilice la opción Cambiar contraseña.');
+      return;
+    }
+    const confirmed = window.confirm(
+      `¿Restablecer la contraseña de ${record.NombreCompleto}?\n\n`
+      + `Se generará una contraseña temporal, se enviará a ${record.Correo} y se cerrarán todas sus sesiones activas.`,
+    );
+    if (!confirmed) return;
+
+    setResettingUserId(record.UsuarioID);
+    setError('');
+    setResetResult(null);
+    try {
+      const result = await apiRequest('users.password.reset', { usuarioId: record.UsuarioID }, sessionToken);
+      setResetResult(result);
+      await loadUsers();
+    } catch (err) {
+      setError(err.message);
+    } finally {
+      setResettingUserId('');
+    }
+  }
+
   function openCard(event, url) {
     if (event.target.closest('a, button, input, select, textarea, label')) return;
     navigate(url);
@@ -81,6 +109,7 @@ export default function UsersPage() {
       </form>
 
       <ErrorMessage message={error} />
+      <PasswordResetFeedback result={resetResult} onClose={() => setResetResult(null)} />
 
       {loading ? <Loading label="Cargando usuarios..." /> : users.length === 0 ? (
         <div className="empty-state"><Icon name="person_off" /><h2>No hay usuarios</h2><p>No se encontraron resultados para la búsqueda actual.</p></div>
@@ -89,6 +118,8 @@ export default function UsersPage() {
           {users.map((record) => {
             const active = record.Estado === 'ACTIVO';
             const detailUrl = `/usuarios/${encodeURIComponent(record.UsuarioID)}`;
+            const isCurrentUser = record.UsuarioID === currentUser.UsuarioID;
+            const resetting = resettingUserId === record.UsuarioID;
             return (
               <article
                 key={record.UsuarioID}
@@ -115,6 +146,18 @@ export default function UsersPage() {
                 <div className="card-actions">
                   <Link to={detailUrl} className="button button--primary button--compact">Ver detalle</Link>
                   {hasPermission('USUARIOS_GESTIONAR') && <Link to={`${detailUrl}/editar`} className="icon-button icon-button--outlined" aria-label="Editar"><Icon name="edit" /></Link>}
+                  {hasPermission('USUARIOS_GESTIONAR') && active && !isCurrentUser && (
+                    <button
+                      type="button"
+                      className="icon-button icon-button--outlined user-card__reset-password"
+                      onClick={() => resetPassword(record)}
+                      aria-label={`Restablecer contraseña de ${record.NombreCompleto}`}
+                      title="Restablecer contraseña y enviarla por correo"
+                      disabled={Boolean(resettingUserId)}
+                    >
+                      <Icon name={resetting ? 'progress_activity' : 'lock_reset'} />
+                    </button>
+                  )}
                   {hasPermission('USUARIOS_GESTIONAR') && active && (
                     <button type="button" className="icon-button icon-button--danger" onClick={() => deactivateUser(record)} aria-label="Desactivar"><Icon name="person_remove" /></button>
                   )}
