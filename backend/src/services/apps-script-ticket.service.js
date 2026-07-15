@@ -50,7 +50,7 @@ async function loadTicketBundle(ticketId) {
   return { ticket, assigned, evidences, client, creator };
 }
 
-function resolveRecipients(bundle, config, testMode, override = null) {
+function resolveRecipients(bundle, config, testMode, override = null, forceClient = false) {
   if (override) {
     const to = splitEmails(override.to || []);
     const cc = splitEmails(override.cc || []).filter((email) => !to.includes(email));
@@ -63,12 +63,20 @@ function resolveRecipients(bundle, config, testMode, override = null) {
 
   const supervisorEmails = splitEmails(bundle.ticket.CorreoSupervisor);
   const technicianEmails = splitEmails(bundle.assigned.map((item) => item.Correo));
-  const to = supervisorEmails.length ? supervisorEmails : technicianEmails;
+  const clientEmails = splitEmails(bundle.ticket.CorreoCliente);
+  const includeClient = forceClient || asBool(bundle.ticket.EnviarCorreoCliente, false);
+  const to = supervisorEmails.length
+    ? supervisorEmails
+    : technicianEmails.length
+      ? technicianEmails
+      : includeClient
+        ? clientEmails
+        : [];
   const cc = [
     ...(supervisorEmails.length ? technicianEmails : []),
     ...splitEmails(config.DEFAULT_CC_EMAILS),
     ...splitEmails(bundle.ticket.CorreosCC),
-    ...(asBool(bundle.ticket.EnviarCorreoCliente, false) ? splitEmails(bundle.ticket.CorreoCliente) : []),
+    ...(includeClient ? clientEmails : []),
   ].filter((email, index, all) => !to.includes(email) && all.indexOf(email) === index);
   return { to, cc };
 }
@@ -136,9 +144,9 @@ export async function generateTicketWithAppsScript({
   const baseFolderId = clean(config.BOLETAS_FOLDER_ID || config.ROOT_FOLDER_ID || process.env.BOLETAS_FOLDER_ID);
   if (!baseFolderId) throw new AppError('REPORT_FOLDER_NOT_CONFIGURED', 'No está configurada la carpeta principal de boletas.', 503);
 
-  const recipients = resolveRecipients(bundle, config, testMode, recipientsOverride);
   const surveyUrl = clean(survey?.url);
   const signatureUrl = !hasSignature(bundle.ticket) ? clean(signatureRequest?.url) : '';
+  const recipients = resolveRecipients(bundle, config, testMode, recipientsOverride, Boolean(signatureUrl));
   const ticketForDelivery = {
     ...bundle.ticket,
     EncuestaURL: surveyUrl,
