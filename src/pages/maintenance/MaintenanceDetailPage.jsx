@@ -100,6 +100,15 @@ export default function MaintenanceDetailPage() {
     navigate(`/mantenimientos/${encodeURIComponent(maintenanceId)}/editar?step=devices`);
   }
 
+  function editDevice(device) {
+    const id = String(pick(device, ['EvidenciaMantenimientoID', 'deviceId', 'id']));
+    if (!id) {
+      setError('No fue posible identificar el dispositivo seleccionado.');
+      return;
+    }
+    navigate(`/mantenimientos/${encodeURIComponent(maintenanceId)}/editar?step=devices&device=${encodeURIComponent(id)}`);
+  }
+
   if (loading) {
     return <div className="page"><div className="state-card state-card--loading"><Icon name="progress_activity" />Cargando mantenimiento...</div></div>;
   }
@@ -157,12 +166,13 @@ export default function MaintenanceDetailPage() {
         canEdit={canEdit}
         sessionToken={sessionToken}
         onAddDevice={addDevice}
+        onEditDevice={editDevice}
         onAddEvidence={setEvidenceDevice}
         onEditEvidence={(image, device) => setEditingEvidence({ image, device })}
       />
 
       <section className="maintenance-detail-footer-actions">
-        {pending && canFinalize && devices.length > 0 && <button className="button button--primary" type="button" onClick={() => action('finalize')} disabled={Boolean(working)}><Icon name="task_alt" />{working === 'finalize' ? 'Finalizando...' : 'Finalizar mantenimiento'}</button>}
+        {pending && !offlinePending && canFinalize && devices.length > 0 && <button className="button button--primary" type="button" onClick={() => action('finalize')} disabled={Boolean(working)}><Icon name="task_alt" />{working === 'finalize' ? 'Finalizando...' : 'Finalizar mantenimiento'}</button>}
         {status === 'FINALIZADO' && isAdmin && <button className="button button--secondary" type="button" onClick={() => action('reopen')} disabled={Boolean(working)}><Icon name="undo" />Volver a pendiente</button>}
         {isAdmin && <button className="button button--danger" type="button" onClick={() => action('delete')} disabled={Boolean(working)}><Icon name="delete" />Eliminar</button>}
       </section>
