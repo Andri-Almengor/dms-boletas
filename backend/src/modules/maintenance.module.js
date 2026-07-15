@@ -8,6 +8,9 @@ import { sheetsApi, slidesApi } from '../infra/google.js';
 
 const deviceAutosaveWriteTimes = new Map();
 const DEVICE_AUTOSAVE_MIN_INTERVAL_MS = 6000;
+let maintenanceCreateTail = Promise.resolve();
+let maintenanceDeviceCreateTail = Promise.resolve();
+let maintenanceImageCreateTail = Promise.resolve();
 
 const CATEGORY_CONFIG = [
   { key: 'Cámaras', countField: 'CantCámaras', questions: [['limpieza', 'Limpieza'], ['alimentacion', 'Alimentación'], ['conexion', 'Conexión'], ['montaje', 'Montaje'], ['visualizacion', 'Visualización']] },
@@ -22,6 +25,28 @@ const CATEGORY_CONFIG = [
   { key: 'Gabinete', countField: 'CantGabinetes', questions: [['limpieza', 'Limpieza'], ['conexiones', 'Conexiones'], ['mediciones', 'Mediciones'], ['respaldo', 'Respaldo']] },
   { key: 'VideoWall', countField: 'CantVideoWall', questions: [['limpieza', 'Limpieza'], ['alimentacion', 'Alimentación'], ['conexion', 'Conexión'], ['montaje', 'Montaje'], ['visualizacion', 'Visualización'], ['calibracion', 'Calibración']] },
 ];
+
+function serialize(tail, operation, replaceTail) {
+  const current = tail.then(operation, operation);
+  replaceTail(current.catch(() => {}));
+  return current;
+}
+
+function withMaintenanceCreateLock(operation) {
+  return serialize(maintenanceCreateTail, operation, (next) => { maintenanceCreateTail = next; });
+}
+
+function withDeviceCreateLock(operation) {
+  return serialize(maintenanceDeviceCreateTail, operation, (next) => { maintenanceDeviceCreateTail = next; });
+}
+
+function withImageCreateLock(operation) {
+  return serialize(maintenanceImageCreateTail, operation, (next) => { maintenanceImageCreateTail = next; });
+}
+
+function validClientGeneratedId(value) {
+  return /^[A-Za-z0-9._:-]{8,160}$/.test(String(value || ''));
+}
 
 function sameValue(left, right) {
   if (typeof left === 'boolean' || typeof right === 'boolean') return Boolean(left) === Boolean(right);
@@ -117,13 +142,25 @@ export const maintenanceHandlers = {
 
   get: async ({ payload }) => enrich(await findById('Mantenimiento', pick(payload, ['maintenanceId', 'MantenimientoID', 'id']))),
 
-  create: async (ctx) => {
+  create: async (ctx) => withMaintenanceCreateLock(async () => {
+    const requestedId = String(pick(ctx.payload, ['maintenanceId', 'MantenimientoID'], '')).trim();
+    if (requestedId && !validClientGeneratedId(requestedId)) throw badRequest('El identificador local del mantenimiento no es válido.');
+    const rows = await readTable('Mantenimiento', { force: true });
+    if (requestedId) {
+      const existing = rows.find((item) => String(item.MantenimientoID) === requestedId);
+      if (existing) {
+        const sameOwner = String(existing.CreadoPor || '') === String(ctx.user.UsuarioID || '');
+        if (!sameOwner && !isAdmin(ctx)) throw badRequest('El identificador local ya pertenece a otro mantenimiento.');
+        return enrich(existing);
+      }
+    }
+
     const base = maintenancePayload(ctx.payload);
     if (!base.TituloMantenimiento || !base.ClienteID) throw badRequest('Título y cliente son obligatorios.');
     const users = await readTable('Usuarios');
     const ids = asArray(base.ResponsableIDsJSON);
     const row = {
-      MantenimientoID: uuid(),
+      MantenimientoID: requestedId || uuid(),
       ...base,
       Responsables: ids.map((id) => users.find((user) => String(user.UsuarioID) === String(id))?.NombreCompleto || id).join(', '),
       Activo: true,
@@ -135,7 +172,7 @@ export const maintenanceHandlers = {
     await appendRow('Mantenimiento', row);
     await audit(ctx, 'CREAR_MANTENIMIENTO', 'Mantenimiento', row.MantenimientoID, null, row);
     return enrich(row);
-  },
+  }),
 
   update: async (ctx) => {
     const id = pick(ctx.payload, ['maintenanceId', 'MantenimientoID']);
@@ -168,12 +205,24 @@ export const maintenanceHandlers = {
     return softDelete('Mantenimiento', pick(ctx.payload, ['maintenanceId', 'MantenimientoID']), ctx.user.UsuarioID);
   },
 
-  deviceCreate: async (ctx) => {
+  deviceCreate: async (ctx) => withDeviceCreateLock(async () => {
     const payload = devicePayload(ctx.payload);
     const maintenanceId = pick(ctx.payload, ['maintenanceId', 'MantenimientoID', 'MantenimientoRef']);
+    const requestedId = String(pick(ctx.payload, ['deviceId', 'EvidenciaMantenimientoID'], '')).trim();
+    if (requestedId && !validClientGeneratedId(requestedId)) throw badRequest('El identificador local del dispositivo no es válido.');
     if (!maintenanceId || !payload.Categoria || !payload.NombreDispositivo || !payload.Zona) throw badRequest('Categoría, nombre y ubicación son obligatorios.');
+    await findById('Mantenimiento', maintenanceId);
+
+    if (requestedId) {
+      const existing = (await readTable('Evidencia_Mantenimientos', { force: true })).find((item) => String(item.EvidenciaMantenimientoID) === requestedId);
+      if (existing) {
+        if (String(existing.MantenimientoRef) !== String(maintenanceId)) throw badRequest('El dispositivo local ya pertenece a otro mantenimiento.');
+        return existing;
+      }
+    }
+
     const row = {
-      EvidenciaMantenimientoID: uuid(),
+      EvidenciaMantenimientoID: requestedId || uuid(),
       MantenimientoRef: maintenanceId,
       ...payload,
       Activo: true,
@@ -184,7 +233,7 @@ export const maintenanceHandlers = {
     };
     await appendRow('Evidencia_Mantenimientos', row);
     return row;
-  },
+  }),
 
   deviceUpdate: async (ctx) => {
     const id = pick(ctx.payload, ['deviceId', 'EvidenciaMantenimientoID']);
@@ -218,12 +267,25 @@ export const maintenanceHandlers = {
     return softDelete('Evidencia_Mantenimientos', pick(ctx.payload, ['deviceId', 'EvidenciaMantenimientoID']), ctx.user.UsuarioID);
   },
 
-  imageUpload: async (ctx) => {
+  imageUpload: async (ctx) => withImageCreateLock(async () => {
+    const requestedId = String(pick(ctx.payload, ['imageId', 'FotoDispositivoID'], '')).trim();
+    const deviceId = pick(ctx.payload, ['deviceId', 'DispositivoMantenimientoRef']);
+    if (requestedId && !validClientGeneratedId(requestedId)) throw badRequest('El identificador local de la fotografía no es válido.');
+    await findById('Evidencia_Mantenimientos', deviceId);
+
+    if (requestedId) {
+      const existing = (await readTable('Mantenimiento imagenes', { force: true })).find((item) => String(item.FotoDispositivoID) === requestedId);
+      if (existing) {
+        if (String(existing.DispositivoMantenimientoRef) !== String(deviceId)) throw badRequest('La fotografía local ya pertenece a otro dispositivo.');
+        return { ...existing, PreviewURL: existing.DriveFileID ? `https://drive.google.com/thumbnail?id=${encodeURIComponent(existing.DriveFileID)}&sz=w1200` : existing.DriveURL };
+      }
+    }
+
     const cfg = await getConfig();
     const file = await uploadBase64({ base64: ctx.payload.base64, mimeType: ctx.payload.mimeType || 'image/jpeg', fileName: ctx.payload.fileName, folderId: cfg.EVIDENCIAS_FOLDER_ID || cfg.ROOT_FOLDER_ID });
     const row = {
-      FotoDispositivoID: uuid(),
-      DispositivoMantenimientoRef: pick(ctx.payload, ['deviceId', 'DispositivoMantenimientoRef']),
+      FotoDispositivoID: requestedId || uuid(),
+      DispositivoMantenimientoRef: deviceId,
       Tipo: String(pick(ctx.payload, ['Tipo', 'tipo'], 'Antes')).toLowerCase().includes('desp') ? 'Despues' : 'Antes',
       Nombre: file.name,
       Nota: pick(ctx.payload, ['Nota', 'nota']),
@@ -239,7 +301,7 @@ export const maintenanceHandlers = {
     };
     await appendRow('Mantenimiento imagenes', row);
     return { ...row, PreviewURL: file.thumbnailLink };
-  },
+  }),
 
   imageUpdate: async (ctx) => updateRow('Mantenimiento imagenes', pick(ctx.payload, ['imageId', 'FotoDispositivoID']), { Tipo: pick(ctx.payload, ['Tipo', 'tipo']), Nota: pick(ctx.payload, ['Nota', 'nota']), ActualizadoPor: ctx.user.UsuarioID, FechaActualizacion: nowIso() }),
 
