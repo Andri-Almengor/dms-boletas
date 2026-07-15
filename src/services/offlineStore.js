@@ -103,24 +103,6 @@ export function createOfflineId(prefix = 'local') {
   return `${prefix}-${random}`;
 }
 
-export async function enqueueOperation({ routes, payload, description = '', entityId = '' }) {
-  const operation = {
-    id: createOfflineId('op'),
-    routes: Array.isArray(routes) ? [...routes] : [routes],
-    payload,
-    description,
-    entityId: String(entityId || payload?.boletaUid || payload?.BoletaUID || ''),
-    status: 'PENDING',
-    attempts: 0,
-    lastError: '',
-    createdAt: Date.now(),
-    updatedAt: Date.now(),
-  };
-  await run(QUEUE_STORE, 'readwrite', (store) => store.put(operation));
-  emitQueueChange();
-  return operation;
-}
-
 export async function listQueuedOperations() {
   const db = await openDatabase();
   if (!db) return [];
@@ -130,6 +112,28 @@ export async function listQueuedOperations() {
     request.onsuccess = () => resolve((request.result || []).sort((a, b) => Number(a.createdAt) - Number(b.createdAt)));
     request.onerror = () => reject(request.error);
   });
+}
+
+export async function enqueueOperation({ routes, payload, description = '', entityId = '', dedupeKey = '' }) {
+  const existing = dedupeKey
+    ? (await listQueuedOperations()).find((item) => item.dedupeKey === dedupeKey)
+    : null;
+  const operation = {
+    id: existing?.id || createOfflineId('op'),
+    routes: Array.isArray(routes) ? [...routes] : [routes],
+    payload,
+    description,
+    entityId: String(entityId || payload?.boletaUid || payload?.BoletaUID || ''),
+    dedupeKey,
+    status: 'PENDING',
+    attempts: existing?.attempts || 0,
+    lastError: '',
+    createdAt: existing?.createdAt || Date.now(),
+    updatedAt: Date.now(),
+  };
+  await run(QUEUE_STORE, 'readwrite', (store) => store.put(operation));
+  emitQueueChange();
+  return operation;
 }
 
 export async function queuedOperationCount() {
