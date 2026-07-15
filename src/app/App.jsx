@@ -18,7 +18,7 @@ import OfflineContentPage from '../pages/offline/OfflineContentPage';
 import PublicSurveyPage from '../pages/surveys/PublicSurveyPage';
 import SurveyDetailPage from '../pages/surveys/SurveyDetailPage';
 import SurveysAdminPage from '../pages/surveys/SurveysAdminPage';
-import TicketDetailPage from '../pages/tickets/TicketDetailPage';
+import TicketDetailWithQuickEdit from '../pages/tickets/TicketDetailWithQuickEdit';
 import TicketFormPage from '../pages/tickets/TicketFormPage';
 import TicketListPage from '../pages/tickets/TicketListPage';
 import TicketQuickEditPage from '../pages/tickets/TicketQuickEditPage';
@@ -42,7 +42,7 @@ export default function App() {
       <Route path="boletas/pendientes" element={<PermissionRoute permission="BOLETAS_VER"><TicketListPage status="PENDIENTE" /></PermissionRoute>} />
       <Route path="boletas/finalizadas" element={<PermissionRoute permission="BOLETAS_VER"><TicketListPage status="FINALIZADA" /></PermissionRoute>} />
       <Route path="boletas/nueva" element={<PermissionRoute permission="BOLETAS_CREAR"><TicketFormPage mode="create" /></PermissionRoute>} />
-      <Route path="boletas/:boletaUid" element={<PermissionRoute permission="BOLETAS_VER"><TicketDetailPage /></PermissionRoute>} />
+      <Route path="boletas/:boletaUid" element={<PermissionRoute permission="BOLETAS_VER"><TicketDetailWithQuickEdit /></PermissionRoute>} />
       <Route path="boletas/:boletaUid/editar" element={<PermissionRoute permission="BOLETAS_EDITAR"><TicketFormPage mode="edit" /></PermissionRoute>} />
       <Route path="boletas/:boletaUid/editar-rapido/:section" element={<PermissionRoute permission="BOLETAS_EDITAR"><TicketQuickEditPage /></PermissionRoute>} />
       <Route path="mantenimientos" element={<PermissionRoute anyOf={MAINTENANCE_VIEW}><MaintenanceListPage /></PermissionRoute>} />
