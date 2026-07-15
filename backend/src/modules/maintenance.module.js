@@ -29,6 +29,10 @@ function sameValue(left, right) {
   return String(left ?? '').trim() === String(right ?? '').trim();
 }
 
+function validLocalId(value) {
+  return /^[A-Za-z0-9._:-]{8,140}$/.test(String(value || ''));
+}
+
 function maintenancePayload(payload, before = {}) {
   const counts = payload.counts || payload.cantidades || (() => {
     try { return JSON.parse(payload.CantidadesJSON || '{}'); } catch { return {}; }
@@ -118,12 +122,21 @@ export const maintenanceHandlers = {
   get: async ({ payload }) => enrich(await findById('Mantenimiento', pick(payload, ['maintenanceId', 'MantenimientoID', 'id']))),
 
   create: async (ctx) => {
+    const requestedId = String(pick(ctx.payload, ['maintenanceId', 'MantenimientoID'], '')).trim() || uuid();
+    if (!validLocalId(requestedId)) throw badRequest('El identificador local del mantenimiento no es válido.');
+    const existing = (await readTable('Mantenimiento', { force: true })).find((item) => String(item.MantenimientoID) === requestedId);
+    if (existing) {
+      const sameOwner = String(existing.CreadoPor || '') === String(ctx.user.UsuarioID || '');
+      if (!sameOwner && !isAdmin(ctx)) throw badRequest('El identificador local ya pertenece a otro mantenimiento.');
+      return enrich(existing);
+    }
+
     const base = maintenancePayload(ctx.payload);
     if (!base.TituloMantenimiento || !base.ClienteID) throw badRequest('Título y cliente son obligatorios.');
     const users = await readTable('Usuarios');
     const ids = asArray(base.ResponsableIDsJSON);
     const row = {
-      MantenimientoID: uuid(),
+      MantenimientoID: requestedId,
       ...base,
       Responsables: ids.map((id) => users.find((user) => String(user.UsuarioID) === String(id))?.NombreCompleto || id).join(', '),
       Activo: true,
@@ -171,9 +184,18 @@ export const maintenanceHandlers = {
   deviceCreate: async (ctx) => {
     const payload = devicePayload(ctx.payload);
     const maintenanceId = pick(ctx.payload, ['maintenanceId', 'MantenimientoID', 'MantenimientoRef']);
+    const requestedId = String(pick(ctx.payload, ['deviceId', 'EvidenciaMantenimientoID'], '')).trim() || uuid();
+    if (!validLocalId(requestedId)) throw badRequest('El identificador local del dispositivo no es válido.');
     if (!maintenanceId || !payload.Categoria || !payload.NombreDispositivo || !payload.Zona) throw badRequest('Categoría, nombre y ubicación son obligatorios.');
+
+    const existing = (await readTable('Evidencia_Mantenimientos', { force: true })).find((item) => String(item.EvidenciaMantenimientoID) === requestedId);
+    if (existing) {
+      if (String(existing.MantenimientoRef) !== String(maintenanceId)) throw badRequest('El dispositivo local ya pertenece a otro mantenimiento.');
+      return existing;
+    }
+
     const row = {
-      EvidenciaMantenimientoID: uuid(),
+      EvidenciaMantenimientoID: requestedId,
       MantenimientoRef: maintenanceId,
       ...payload,
       Activo: true,
@@ -219,11 +241,20 @@ export const maintenanceHandlers = {
   },
 
   imageUpload: async (ctx) => {
+    const requestedId = String(pick(ctx.payload, ['imageId', 'FotoDispositivoID'], '')).trim() || uuid();
+    if (!validLocalId(requestedId)) throw badRequest('El identificador local de la imagen no es válido.');
+    const deviceId = pick(ctx.payload, ['deviceId', 'DispositivoMantenimientoRef']);
+    const existing = (await readTable('Mantenimiento imagenes', { force: true })).find((item) => String(item.FotoDispositivoID) === requestedId);
+    if (existing) {
+      if (String(existing.DispositivoMantenimientoRef) !== String(deviceId)) throw badRequest('La imagen local ya pertenece a otro dispositivo.');
+      return existing;
+    }
+
     const cfg = await getConfig();
     const file = await uploadBase64({ base64: ctx.payload.base64, mimeType: ctx.payload.mimeType || 'image/jpeg', fileName: ctx.payload.fileName, folderId: cfg.EVIDENCIAS_FOLDER_ID || cfg.ROOT_FOLDER_ID });
     const row = {
-      FotoDispositivoID: uuid(),
-      DispositivoMantenimientoRef: pick(ctx.payload, ['deviceId', 'DispositivoMantenimientoRef']),
+      FotoDispositivoID: requestedId,
+      DispositivoMantenimientoRef: deviceId,
       Tipo: String(pick(ctx.payload, ['Tipo', 'tipo'], 'Antes')).toLowerCase().includes('desp') ? 'Despues' : 'Antes',
       Nombre: file.name,
       Nota: pick(ctx.payload, ['Nota', 'nota']),
