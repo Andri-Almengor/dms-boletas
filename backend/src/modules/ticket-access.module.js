@@ -1,7 +1,7 @@
 import { forbidden, notFound } from '../core/errors.js';
 import { pick } from '../core/utils.js';
 import { filterRows, findById, readTable, readTables } from '../infra/sheets.repository.js';
-import { ticketHandlers } from './tickets.module.js';
+import { ticketMultiHandlers as ticketHandlers } from './ticket-multi.module.js';
 
 function normalizeStatus(value) {
   const text = String(value || '').trim().toUpperCase();
