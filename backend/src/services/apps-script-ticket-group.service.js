@@ -7,6 +7,7 @@ import {
   ticketVisitNumber,
   visitGroupVersionKey,
 } from './ticket-visit-group.service.js';
+import { ticketPdfFileName } from './ticket-pdf-name.service.js';
 
 const DEFAULT_TEMPLATE_ID = '1QsEaLN8RL5Ry_EBZvBeKoWo6NHZHNmKHckAWT85fhBE';
 
@@ -181,11 +182,14 @@ export async function generateTicketWithAppsScript({
   const signatureUrl = clean(signatureRequest?.url);
   const forceClient = Boolean(signatureUrl) || deliveryType === 'SIGNED';
   const recipients = resolveRecipients(bundle, config, testMode, recipientsOverride, forceClient);
+  const rootPdfName = ticketPdfFileName(bundle.ticket);
   const rootTicket = {
     ...bundle.ticket,
     EncuestaURL: surveyUrl,
     SurveyURL: surveyUrl,
     FirmaPublicaURL: signatureUrl,
+    PDFFileName: rootPdfName,
+    NombreArchivoPDF: rootPdfName,
   };
   const surveyPayload = surveyUrl ? {
     id: survey.id,
@@ -201,16 +205,21 @@ export async function generateTicketWithAppsScript({
     rootId: bundle.group.rootId,
     count: bundle.visits.length,
     numbers: bundle.visits.map((visit) => visit.ticket.BoletaID || visit.ticket.BoletaUID),
-    visits: bundle.visits.map((visit) => ({
-      ticket: {
-        ...visit.ticket,
-        EncuestaURL: surveyUrl,
-        SurveyURL: surveyUrl,
-        FirmaPublicaURL: signatureUrl,
-      },
-      assigned: visit.assigned,
-      evidences: visit.evidences,
-    })),
+    visits: bundle.visits.map((visit) => {
+      const pdfFileName = ticketPdfFileName(visit.ticket);
+      return {
+        ticket: {
+          ...visit.ticket,
+          EncuestaURL: surveyUrl,
+          SurveyURL: surveyUrl,
+          FirmaPublicaURL: signatureUrl,
+          PDFFileName: pdfFileName,
+          NombreArchivoPDF: pdfFileName,
+        },
+        assigned: visit.assigned,
+        evidences: visit.evidences,
+      };
+    }),
   };
 
   const data = await postAppsScript(url, {
@@ -239,9 +248,8 @@ export async function generateTicketWithAppsScript({
     ...bundle,
     ticket: rootTicket,
     ...data,
-    pdfName: bundle.visits.length > 1
-      ? `Seguimiento ${bundle.visits.map((visit) => visit.ticket.BoletaID || visit.ticket.BoletaUID).join('-')}.pdf`
-      : `Boleta ${bundle.ticket.BoletaID || bundle.ticket.BoletaUID}.pdf`,
+    pdfName: rootPdfName,
+    pdfNames: bundle.visits.map((visit) => ticketPdfFileName(visit.ticket)),
     testMode,
     recipients,
     survey: surveyPayload,
