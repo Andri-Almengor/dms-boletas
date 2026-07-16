@@ -3,6 +3,8 @@ import { useParams } from 'react-router-dom';
 import Icon from '../../components/common/Icon';
 import { MODULE_ROUTES, requestAvailable } from '../../services/moduleApi';
 
+const DMS_LOGO_URL = 'https://res.cloudinary.com/dj73vkht6/image/upload/v1784169860/DMS_logo_2_dusshv.jpg';
+
 const SCALE = [
   { value: 1, label: 'Debe mejorar' },
   { value: 2, label: 'Regular' },
@@ -91,7 +93,7 @@ export default function PublicSurveyPage() {
           <div className="public-survey-state"><Icon name="progress_activity" /><h1>Cargando encuesta...</h1><p>Estamos preparando las preguntas.</p></div>
         ) : submitted ? (
           <div className="public-survey-thanks">
-            <span><Icon name="favorite" filled /></span>
+            <img className="public-completion-logo" src={DMS_LOGO_URL} alt="Digital Management Systems" />
             <div className="eyebrow">Respuesta recibida</div>
             <h1>¡Muchas gracias!</h1>
             <p>Su opinión fue registrada correctamente y nos ayudará a seguir mejorando nuestro servicio.</p>
