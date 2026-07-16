@@ -51,7 +51,20 @@ async function enrichWithVisitGroup(bundle, actor = 'SISTEMA') {
     asignados: assignedView(visit.BoletaUID, tables.BoletaAsignados, usersById),
     evidenceCount: tables.EvidenciasBoleta.filter((item) => clean(item.BoletaUID) === clean(visit.BoletaUID) && item.Activo !== false).length,
   }));
-  const current = group.visits.find((visit) => clean(visit.BoletaUID) === clean(ticket.BoletaUID)) || ticket;
+  const rawCurrent = group.visits.find((visit) => clean(visit.BoletaUID) === clean(ticket.BoletaUID)) || ticket;
+
+  // El detalle base completa IDs históricos a partir del nombre del catálogo.
+  // Se conserva esa versión enriquecida para que al editar una visita no se
+  // vacíen selectores como Tipo de falla, dispositivo, fabricante o modelo.
+  const current = {
+    ...rawCurrent,
+    ...ticket,
+    GrupoVisitaID: ticketGroupId(rawCurrent),
+    BoletaPrincipalUID: ticketRootId(rawCurrent),
+    NumeroVisita: ticketVisitNumber(rawCurrent),
+    EsVisitaPrincipal: clean(rawCurrent.BoletaUID) === clean(group.rootId),
+  };
+
   return {
     ...(bundle?.boleta ? bundle : {}),
     boleta: current,
