@@ -1,0 +1,54 @@
+.more-sync-row {
+  width: 100%;
+  border: 0;
+  background: var(--surface);
+  color: inherit;
+  text-align: left;
+  cursor: pointer;
+  font: inherit;
+}
+
+.more-sync-row:disabled {
+  cursor: not-allowed;
+  opacity: .65;
+}
+
+.more-sync-row > .material-symbols-outlined:last-child {
+  color: var(--primary);
+}
+
+.more-sync-row:disabled > .material-symbols-outlined:last-child,
+.more-sync-row:disabled .menu-row__icon {
+  color: var(--muted);
+}
+
+.more-sync-row:not(:disabled):active {
+  background: var(--primary-soft);
+}
+
+.more-sync-row strong,
+.more-sync-row small {
+  display: block;
+}
+
+.more-sync-row small {
+  margin-top: 3px;
+  color: var(--muted);
+  line-height: 1.4;
+}
+
+.more-sync-row:has(.material-symbols-outlined:first-child:is([data-icon="sync"], [data-icon="progress_activity"])) .menu-row__icon,
+.more-sync-row .material-symbols-outlined:first-child {
+  animation: none;
+}
+
+.more-sync-row:disabled .material-symbols-outlined:last-child {
+  animation: none;
+}
+
+@media (min-width: 760px) {
+  .more-page__offline-menu {
+    display: grid;
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
+}

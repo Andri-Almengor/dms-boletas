@@ -1,4 +1,4 @@
-import { findById } from '../infra/sheets.repository.js';
+import { findById, updateRow } from '../infra/sheets.repository.js';
 import { badRequest, forbidden } from '../core/errors.js';
 import { nowIso, pick } from '../core/utils.js';
 import { audit } from '../services/audit.service.js';
@@ -7,7 +7,6 @@ import { generateTicketWithAppsScript } from '../services/apps-script-ticket-gro
 import {
   ensureVisitGroupForTicket,
   groupSummary,
-  updateVisitGroup,
 } from '../services/ticket-visit-group.service.js';
 import { ticketAccessHandlers } from './ticket-access.module.js';
 
@@ -20,23 +19,38 @@ async function runOnce(key, operation) {
   return promise;
 }
 
-function isFinalized(value) {
-  return String(value || '').trim().toUpperCase().includes('FINAL');
+function clean(value) {
+  return String(value ?? '').trim();
 }
 
-function reportPatch(delivery, actor) {
-  return {
-    Estado: 'FINALIZADA',
-    FinalizadaEn: nowIso(),
-    DocumentoURL: delivery.report.documentUrl,
-    PDFURL: delivery.report.pdfUrl,
-    CarpetaURL: delivery.report.folderUrl,
-    EncuestaURL: delivery.report.survey?.url || '',
-    EstadoNotificacion: delivery.notificationState,
-    UltimoErrorNotificacion: delivery.errors.join(' | '),
-    ActualizadoPor: actor,
-    FechaActualizacion: nowIso(),
-  };
+function isFinalized(value) {
+  return clean(value).toUpperCase().includes('FINAL');
+}
+
+function reportForTicket(reports, ticket) {
+  const uid = clean(ticket.BoletaUID);
+  const number = clean(ticket.BoletaID);
+  return (Array.isArray(reports) ? reports : []).find((report) => (
+    clean(report.ticketUid || report.BoletaUID) === uid
+    || (number && clean(report.ticketNumber || report.BoletaID) === number)
+  )) || null;
+}
+
+async function persistReportPerVisit(group, report, commonPatch, actor) {
+  const reports = Array.isArray(report?.reports) ? report.reports : [];
+  const timestamp = nowIso();
+  for (const visit of group.visits) {
+    const ownReport = reportForTicket(reports, visit);
+    await updateRow('Boletas', visit.BoletaUID, {
+      ...commonPatch,
+      DocumentoURL: ownReport?.documentUrl || report?.documentUrl || '',
+      PDFURL: ownReport?.pdfUrl || report?.pdfUrl || '',
+      CarpetaURL: ownReport?.folderUrl || report?.folderUrl || '',
+      ActualizadoPor: actor,
+      FechaActualizacion: timestamp,
+    });
+  }
+  return ensureVisitGroupForTicket(group.rootId, actor);
 }
 
 export const ticketDeliveryHandlers = {
@@ -69,17 +83,19 @@ export const ticketDeliveryHandlers = {
       }
 
       const delivery = await deliverTicket(ctx, { ticketId: currentGroup.rootId, testMode: false });
-      const updatedGroup = await updateVisitGroup(
-        currentGroup.rootId,
-        reportPatch(delivery, ctx.user.UsuarioID),
-        ctx.user.UsuarioID,
-      );
+      const timestamp = nowIso();
+      const updatedGroup = await persistReportPerVisit(currentGroup, delivery.report, {
+        Estado: 'FINALIZADA',
+        FinalizadaEn: timestamp,
+        EncuestaURL: delivery.report.survey?.url || '',
+        EstadoNotificacion: delivery.notificationState,
+        UltimoErrorNotificacion: delivery.errors.join(' | '),
+      }, ctx.user.UsuarioID);
       await audit(ctx, 'FINALIZAR_GRUPO_BOLETAS', 'Boletas', updatedGroup.rootId, currentGroup.root, {
         GrupoVisitaID: updatedGroup.id,
         CantidadVisitas: updatedGroup.visits.length,
         Boletas: updatedGroup.visits.map((visit) => visit.BoletaID || visit.BoletaUID),
-        DocumentoURL: delivery.report.documentUrl,
-        PDFURL: delivery.report.pdfUrl,
+        Reportes: delivery.report.reports || [],
         EstadoNotificacion: delivery.notificationState,
       });
       return {
@@ -142,8 +158,7 @@ export const ticketDeliveryHandlers = {
         CantidadVisitas: group.visits.length,
         Resultado: delivery.notificationState,
         Errores: delivery.errors,
-        DocumentoURL: delivery.report.documentUrl,
-        PDFURL: delivery.report.pdfUrl,
+        Reportes: delivery.report.reports || [],
       });
       return {
         tested: true,
@@ -160,34 +175,31 @@ export const ticketDeliveryHandlers = {
     const group = await ensureVisitGroupForTicket(requestedId, ctx.user.UsuarioID);
 
     return runOnce(`pdf-group:${group.rootId}`, async () => {
-      const surveyUrl = String(group.root.EncuestaURL || group.root.SurveyURL || '').trim();
+      const surveyUrl = clean(group.root.EncuestaURL || group.root.SurveyURL);
       const report = await generateTicketWithAppsScript({
         ticketId: group.rootId,
         testMode: false,
         sendEmail: false,
         survey: surveyUrl ? { url: surveyUrl, type: 'REAL' } : null,
       });
-      const updatedGroup = await updateVisitGroup(group.rootId, {
-        DocumentoURL: report.documentUrl,
-        PDFURL: report.pdfUrl,
-        CarpetaURL: report.folderUrl,
-      }, ctx.user.UsuarioID);
-      await audit(ctx, 'GENERAR_REPORTE_GRUPO_BOLETAS', 'Boletas', updatedGroup.rootId, null, {
+      const updatedGroup = await persistReportPerVisit(group, report, {}, ctx.user.UsuarioID);
+      const requestedVisit = updatedGroup.visits.find((visit) => clean(visit.BoletaUID) === clean(requestedId)) || updatedGroup.root;
+      const requestedReport = reportForTicket(report.reports, requestedVisit) || report;
+      await audit(ctx, 'GENERAR_REPORTES_GRUPO_BOLETAS', 'Boletas', updatedGroup.rootId, null, {
         GrupoVisitaID: updatedGroup.id,
         CantidadVisitas: updatedGroup.visits.length,
-        DocumentoURL: report.documentUrl,
-        PDFURL: report.pdfUrl,
-        CarpetaURL: report.folderUrl,
+        Reportes: report.reports || [],
       });
       return {
-        boletaUid: updatedGroup.rootId,
+        boletaUid: requestedVisit.BoletaUID,
         grupoVisitas: groupSummary(updatedGroup),
-        documentId: report.documentId,
-        documentUrl: report.documentUrl,
-        pdfId: report.pdfId,
-        pdfUrl: report.pdfUrl,
-        folderId: report.folderId,
-        folderUrl: report.folderUrl,
+        documentId: requestedReport.documentId,
+        documentUrl: requestedReport.documentUrl,
+        pdfId: requestedReport.pdfId,
+        pdfUrl: requestedReport.pdfUrl,
+        folderId: requestedReport.folderId,
+        folderUrl: requestedReport.folderUrl,
+        reports: report.reports || [],
         evidenceCount: report.evidences.length,
         visitCount: report.visitGroup.count,
       };
