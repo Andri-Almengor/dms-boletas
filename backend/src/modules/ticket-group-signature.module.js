@@ -1,6 +1,6 @@
 import { findById } from '../infra/sheets.repository.js';
 import { audit } from '../services/audit.service.js';
-import { deliverSignedTicket } from '../services/ticket-delivery.service.js';
+import { deliverSignedTicket } from '../services/ticket-group-delivery.service.js';
 import {
   applyPublicSignature,
   ensureSignatureRequestForTicket,
