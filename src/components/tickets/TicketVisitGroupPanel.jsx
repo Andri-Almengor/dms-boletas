@@ -2,6 +2,7 @@ import React, { useEffect, useMemo, useState } from 'react';
 import { Link } from 'react-router-dom';
 import Icon from '../common/Icon';
 import { MODULE_ROUTES, pick, requestAvailable } from '../../services/moduleApi';
+import { listQueuedOperations } from '../../services/offlineStore';
 import { formatDate, formatTime, normalizeTicketStatus } from '../../utils/tickets';
 
 function visitNumber(visit, index) {
@@ -16,9 +17,46 @@ function statusLabel(visit) {
   return normalizeTicketStatus(visit) === 'FINALIZADA' ? 'Finalizada' : 'Pendiente';
 }
 
+function operationRelatedToGroup(operation, ids) {
+  const payload = operation?.payload || {};
+  const candidates = [
+    operation?.entityId,
+    payload.boletaUid,
+    payload.BoletaUID,
+    payload.parentTicketId,
+    payload.boletaRelacionadaUid,
+    payload.BoletaRelacionadaUID,
+    payload.BoletaPrincipalUID,
+    payload.GrupoVisitaID,
+  ].map((value) => String(value || '')).filter(Boolean);
+  return candidates.some((value) => ids.has(value));
+}
+
 export default function TicketVisitGroupPanel({ boletaUid, sessionToken, canCreate, canEdit }) {
   const [bundle, setBundle] = useState(null);
   const [error, setError] = useState('');
+  const [queueState, setQueueState] = useState({ pending: 0, errors: 0, syncing: 0 });
+
+  const visits = useMemo(() => {
+    const source = bundle?.visitasRelacionadas || bundle?.grupoVisitas?.visits || [];
+    if (source.length) return [...source].sort((left, right) => visitNumber(left, 0) - visitNumber(right, 0));
+    return bundle?.boleta ? [bundle.boleta] : [];
+  }, [bundle]);
+
+  const relationIds = useMemo(() => {
+    const ids = new Set([String(boletaUid || '')]);
+    const group = bundle?.grupoVisitas || {};
+    [group.id, group.rootId, bundle?.boleta?.GrupoVisitaID, bundle?.boleta?.BoletaPrincipalUID]
+      .filter(Boolean)
+      .forEach((value) => ids.add(String(value)));
+    visits.forEach((visit) => {
+      [visitId(visit), visit.GrupoVisitaID, visit.BoletaPrincipalUID]
+        .filter(Boolean)
+        .forEach((value) => ids.add(String(value)));
+    });
+    ids.delete('');
+    return ids;
+  }, [boletaUid, bundle, visits]);
 
   useEffect(() => {
     let active = true;
@@ -33,25 +71,41 @@ export default function TicketVisitGroupPanel({ boletaUid, sessionToken, canCrea
     };
     load();
     window.addEventListener('dms-offline-sync-complete', load);
-    window.addEventListener('dms-offline-queue-change', load);
     return () => {
       active = false;
       window.removeEventListener('dms-offline-sync-complete', load);
-      window.removeEventListener('dms-offline-queue-change', load);
     };
   }, [boletaUid, sessionToken]);
 
-  const visits = useMemo(() => {
-    const source = bundle?.visitasRelacionadas || bundle?.grupoVisitas?.visits || [];
-    if (source.length) return [...source].sort((left, right) => visitNumber(left, 0) - visitNumber(right, 0));
-    return bundle?.boleta ? [bundle.boleta] : [];
-  }, [bundle]);
+  useEffect(() => {
+    let active = true;
+    const refreshQueue = async () => {
+      const operations = await listQueuedOperations().catch(() => []);
+      if (!active) return;
+      const related = operations.filter((operation) => operationRelatedToGroup(operation, relationIds));
+      setQueueState({
+        pending: related.length,
+        errors: related.filter((item) => String(item.status || '').toUpperCase() === 'ERROR').length,
+        syncing: related.filter((item) => String(item.status || '').toUpperCase() === 'SYNCING').length,
+      });
+    };
+    refreshQueue();
+    window.addEventListener('dms-offline-queue-change', refreshQueue);
+    window.addEventListener('dms-offline-sync-complete', refreshQueue);
+    window.addEventListener('dms-offline-sync-error', refreshQueue);
+    return () => {
+      active = false;
+      window.removeEventListener('dms-offline-queue-change', refreshQueue);
+      window.removeEventListener('dms-offline-sync-complete', refreshQueue);
+      window.removeEventListener('dms-offline-sync-error', refreshQueue);
+    };
+  }, [relationIds]);
 
-  const groupPending = visits.some((visit) => Boolean(pick(visit, ['OfflinePendiente', 'offlinePending'], false)) || visitId(visit).startsWith('boleta-'));
+  const groupPending = queueState.pending > 0;
 
   useEffect(() => {
-    document.body.classList.toggle('dms-entity-unsynced', groupPending);
-    return () => document.body.classList.remove('dms-entity-unsynced');
+    document.body.classList.toggle('dms-group-unsynced', groupPending);
+    return () => document.body.classList.remove('dms-group-unsynced');
   }, [groupPending]);
 
   if (!bundle && !error) return null;
@@ -65,7 +119,7 @@ export default function TicketVisitGroupPanel({ boletaUid, sessionToken, canCrea
         <div>
           <span className="eyebrow">Seguimiento relacionado</span>
           <h2>{groupCount > 1 ? `${groupCount} visitas del mismo trabajo` : 'Visita inicial'}</h2>
-          <p>Las visitas mantienen su propia información, evidencias y edición, pero comparten la firma, la encuesta y el reporte final.</p>
+          <p>Las visitas mantienen su propia información, evidencias y edición, pero comparten la firma, la encuesta y el envío final.</p>
         </div>
         {canCreate && (
           <Link className="button button--primary" to={`/boletas/${encodeURIComponent(boletaUid)}/nueva-visita`}>
@@ -75,7 +129,18 @@ export default function TicketVisitGroupPanel({ boletaUid, sessionToken, canCrea
       </div>
 
       {error && <div className="alert alert--warning"><Icon name="cloud_off" /><span>No se pudo actualizar la relación de visitas: {error}</span></div>}
-      {groupPending && <div className="alert alert--warning"><Icon name="sync_problem" /><span>Hay visitas o evidencias pendientes de sincronización. La finalización aparecerá cuando todo el seguimiento esté sincronizado.</span></div>}
+      {groupPending && (
+        <div className="alert alert--warning">
+          <Icon name={queueState.errors ? 'sync_problem' : 'sync'} />
+          <span>
+            {queueState.errors
+              ? `${queueState.errors} cambio${queueState.errors === 1 ? '' : 's'} del seguimiento no pudo${queueState.errors === 1 ? '' : 'ieron'} sincronizarse. Use Más → Forzar sincronización para reintentar.`
+              : queueState.syncing
+                ? 'El seguimiento se está sincronizando. La finalización aparecerá al terminar.'
+                : `${queueState.pending} cambio${queueState.pending === 1 ? '' : 's'} pendiente${queueState.pending === 1 ? '' : 's'} de sincronización. La finalización aparecerá al terminar.`}
+          </span>
+        </div>
+      )}
       {groupCount > 1 && <div className="ticket-visit-group-panel__shared"><Icon name={groupSigned ? 'verified' : 'draw'} /><span>{groupSigned ? 'Una firma ya está aplicada a todas las visitas.' : 'El enlace de firma es único: el cliente firma una sola vez para todo el seguimiento.'}</span></div>}
 
       <div className="ticket-visit-list">
@@ -87,6 +152,7 @@ export default function TicketVisitGroupPanel({ boletaUid, sessionToken, canCrea
             .map((item) => pick(item, ['NombreCompleto', 'Nombre', 'NombreUsuarioSnapshot', 'Correo']))
             .filter(Boolean)
             .join(', ');
+          const visitPending = queueState.pending > 0 && relationIds.has(id);
           return (
             <article className={`ticket-visit-card${current ? ' is-current' : ''}`} key={id || index}>
               <div className="ticket-visit-card__number"><span>Visita</span><strong>{visitNumber(visit, index)}</strong></div>
@@ -99,7 +165,7 @@ export default function TicketVisitGroupPanel({ boletaUid, sessionToken, canCrea
                   <span><Icon name="group" /> {assigned || 'Técnicos asignados'}</span>
                   <span><Icon name="photo_library" /> {Number(pick(visit, ['evidenceCount'], 0))} evidencia(s)</span>
                   <span className={status === 'FINALIZADA' ? 'is-finished' : 'is-pending'}><Icon name={status === 'FINALIZADA' ? 'task_alt' : 'pending_actions'} /> {statusLabel(visit)}</span>
-                  {pick(visit, ['OfflinePendiente']) && <span className="is-pending"><Icon name="cloud_off" /> Sin sincronizar</span>}
+                  {visitPending && <span className="is-pending"><Icon name="cloud_off" /> Sin sincronizar</span>}
                 </div>
               </div>
               <div className="ticket-visit-card__actions">
