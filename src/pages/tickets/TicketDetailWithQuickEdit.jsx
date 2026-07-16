@@ -3,6 +3,7 @@ import { createPortal } from 'react-dom';
 import { useNavigate, useParams } from 'react-router-dom';
 import { useAuth } from '../../AuthContext';
 import Icon from '../../components/common/Icon';
+import TicketVisitGroupPanel from '../../components/tickets/TicketVisitGroupPanel';
 import { requestAvailable } from '../../services/moduleApi';
 import TicketDetailPage from './TicketDetailPage';
 
@@ -27,6 +28,7 @@ function TicketPublicSignatureCard({ info, loading, error }) {
   const request = info?.request || null;
   const signed = Boolean(info?.signed || request?.status === 'FIRMADA');
   const url = request?.url || '';
+  const visitCount = Number(info?.group?.visitCount || info?.ticket?.visitCount || request?.visitCount || 1);
   const [notice, setNotice] = useState('');
 
   async function copyLink() {
@@ -44,8 +46,10 @@ function TicketPublicSignatureCard({ info, loading, error }) {
     try {
       if (navigator.share) {
         await navigator.share({
-          title: `Firma de boleta #${info?.ticket?.number || ''}`,
-          text: 'Abra este enlace para firmar la boleta de servicio de DMS.',
+          title: visitCount > 1 ? 'Firma del seguimiento de boletas' : `Firma de boleta #${info?.ticket?.number || ''}`,
+          text: visitCount > 1
+            ? `Abra este enlace para firmar una sola vez las ${visitCount} visitas relacionadas de DMS.`
+            : 'Abra este enlace para firmar la boleta de servicio de DMS.',
           url,
         });
       } else {
@@ -61,7 +65,7 @@ function TicketPublicSignatureCard({ info, loading, error }) {
   }
 
   if (signed) {
-    return <div className="ticket-public-signature-card ticket-public-signature-card--signed"><div className="ticket-public-signature-card__heading"><Icon name="verified" filled /><div><strong>Firma del cliente registrada</strong><span>El enlace público ya fue completado y la boleta cuenta con firma.</span></div></div></div>;
+    return <div className="ticket-public-signature-card ticket-public-signature-card--signed"><div className="ticket-public-signature-card__heading"><Icon name="verified" filled /><div><strong>Firma del cliente registrada</strong><span>{visitCount > 1 ? `La misma firma está relacionada con las ${visitCount} visitas del seguimiento.` : 'El enlace público ya fue completado y la boleta cuenta con firma.'}</span></div></div></div>;
   }
 
   if (error) {
@@ -75,8 +79,8 @@ function TicketPublicSignatureCard({ info, loading, error }) {
       <div className="ticket-public-signature-card__heading">
         <Icon name="link" />
         <div>
-          <strong>Enlace para que el cliente firme</strong>
-          <span>Comparta únicamente este enlace. El cliente podrá dibujar la firma y presionar Guardar.</span>
+          <strong>{visitCount > 1 ? 'Enlace único para firmar todas las visitas' : 'Enlace para que el cliente firme'}</strong>
+          <span>{visitCount > 1 ? `Comparta este enlace. Una sola firma se guardará en las ${visitCount} boletas relacionadas.` : 'Comparta únicamente este enlace. El cliente podrá dibujar la firma y presionar Guardar.'}</span>
         </div>
       </div>
       <input className="ticket-public-signature-card__link" value={url} readOnly aria-label="Enlace público de firma" onFocus={(event) => event.target.select()} />
@@ -96,6 +100,7 @@ export default function TicketDetailWithQuickEdit() {
   const { boletaUid } = useParams();
   const { hasPermission, sessionToken } = useAuth();
   const canEdit = hasPermission('BOLETAS_EDITAR');
+  const canCreate = hasPermission('BOLETAS_CREAR');
   const [signaturePortal, setSignaturePortal] = useState(null);
   const [signatureInfo, setSignatureInfo] = useState(null);
   const [signatureLoading, setSignatureLoading] = useState(true);
@@ -103,13 +108,20 @@ export default function TicketDetailWithQuickEdit() {
 
   useEffect(() => {
     let active = true;
-    setSignatureLoading(true);
-    setSignatureError('');
-    requestAvailable(SIGNATURE_LINK_ROUTES, { boletaUid, id: boletaUid }, sessionToken)
-      .then((data) => { if (active) setSignatureInfo(data); })
-      .catch((error) => { if (active) setSignatureError(error.message); })
-      .finally(() => { if (active) setSignatureLoading(false); });
-    return () => { active = false; };
+    const load = () => {
+      setSignatureLoading(true);
+      setSignatureError('');
+      requestAvailable(SIGNATURE_LINK_ROUTES, { boletaUid, id: boletaUid }, sessionToken)
+        .then((data) => { if (active) setSignatureInfo(data); })
+        .catch((error) => { if (active) setSignatureError(error.message); })
+        .finally(() => { if (active) setSignatureLoading(false); });
+    };
+    load();
+    window.addEventListener('dms-offline-sync-complete', load);
+    return () => {
+      active = false;
+      window.removeEventListener('dms-offline-sync-complete', load);
+    };
   }, [boletaUid, sessionToken]);
 
   useEffect(() => {
@@ -170,13 +182,10 @@ export default function TicketDetailWithQuickEdit() {
 
   return (
     <div ref={hostRef} className="ticket-detail-quick-edit-host">
+      <TicketVisitGroupPanel boletaUid={boletaUid} sessionToken={sessionToken} canCreate={canCreate} canEdit={canEdit} />
       <TicketDetailPage />
       {signaturePortal && createPortal(
-        <TicketPublicSignatureCard
-          info={signatureInfo}
-          loading={signatureLoading}
-          error={signatureError}
-        />,
+        <TicketPublicSignatureCard info={signatureInfo} loading={signatureLoading} error={signatureError} />,
         signaturePortal,
       )}
     </div>
