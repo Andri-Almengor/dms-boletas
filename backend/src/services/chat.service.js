@@ -1,4 +1,10 @@
 import { AppError } from '../core/errors.js';
+import { summarizeClientChatFacts } from './gemini.service.js';
+
+const CLIENT_TICKET_HEADINGS = [
+  '✅ REPORTE DE SEGUIMIENTO FINALIZADO',
+  '🔁 REPORTE DE SEGUIMIENTO ACTUALIZADO',
+];
 
 function isValidWebhook(value) {
   try {
@@ -13,6 +19,67 @@ function isValidWebhook(value) {
   }
 }
 
+function clean(value, maxLength = 3900) {
+  return String(value ?? '').trim().slice(0, maxLength);
+}
+
+function isClientTicketMessage(value) {
+  const source = clean(value);
+  return CLIENT_TICKET_HEADINGS.some((heading) => source.startsWith(heading));
+}
+
+function splitClientTicketMessage(value) {
+  const lines = clean(value).split('\n');
+  const heading = lines.shift() || CLIENT_TICKET_HEADINGS[0];
+  const facts = [];
+  const preserved = [];
+  let preserveRest = false;
+
+  for (const rawLine of lines) {
+    const line = clean(rawLine, 1500);
+    if (!line) continue;
+    if (
+      line.startsWith('Cada boleta conserva')
+      || line.startsWith('PDF:')
+      || line.startsWith('PDF boleta')
+      || line.startsWith('Califique ')
+      || line.startsWith('Firma única')
+    ) {
+      preserveRest = true;
+    }
+    if (preserveRest || /https?:\/\//i.test(line)) preserved.push(line);
+    else facts.push(line);
+  }
+
+  return { heading, facts, preserved };
+}
+
+async function prepareChatText(value) {
+  const source = clean(value);
+  if (!isClientTicketMessage(source)) return source;
+
+  const { heading, facts, preserved } = splitClientTicketMessage(source);
+  if (!facts.length) return source;
+
+  try {
+    const response = await summarizeClientChatFacts(facts.join('\n'));
+    const summary = clean(response?.summary, 1200);
+    if (!summary) return source;
+    return [
+      heading,
+      '',
+      'Resumen del servicio:',
+      summary,
+      '',
+      ...preserved,
+    ].filter(Boolean).join('\n').slice(0, 3900);
+  } catch (error) {
+    // La notificación no debe fallar si Gemini está saturado o sin configurar.
+    console.warn(`[chat] No se pudo generar el resumen para el cliente; se enviará el mensaje original: ${error?.message || error}`);
+    return source;
+  }
+}
+
 export function redactWebhook(value) {
   if (!isValidWebhook(value)) return '';
   const url = new URL(value);
@@ -24,6 +91,9 @@ export async function sendChatMessage(webhook, text, options = {}) {
     throw new AppError('CHAT_NOT_CONFIGURED', 'El webhook de Google Chat no está configurado o no es válido.', 503);
   }
 
+  // Gemini se ejecuta antes del temporizador propio de Google Chat. Así un resumen
+  // lento no consume el tiempo reservado para publicar el mensaje.
+  const preparedText = await prepareChatText(text);
   const timeoutMs = Number(options.timeoutMs || process.env.NOTIFICATION_TIMEOUT_MS || 15000);
   const controller = new AbortController();
   const timer = setTimeout(() => controller.abort(), timeoutMs);
@@ -32,7 +102,7 @@ export async function sendChatMessage(webhook, text, options = {}) {
     const response = await fetch(webhook, {
       method: 'POST',
       headers: { 'Content-Type': 'application/json; charset=UTF-8' },
-      body: JSON.stringify({ text: String(text || '').slice(0, 3900) }),
+      body: JSON.stringify({ text: preparedText }),
       signal: controller.signal,
     });
     const responseText = await response.text();

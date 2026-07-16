@@ -3,6 +3,7 @@ import { Navigate, useNavigate, useParams } from 'react-router-dom';
 import { useAuth } from '../../AuthContext';
 import Icon from '../../components/common/Icon';
 import TechnicianMultiSelect from '../../components/forms/TechnicianMultiSelect';
+import TechnicalWritingAssistant from '../../components/tickets/TechnicalWritingAssistant';
 import { MODULE_ROUTES, normalizeItems, pick, requestAvailable, toBoolean } from '../../services/moduleApi';
 
 const SECTIONS = {
@@ -344,6 +345,7 @@ export default function TicketQuickEditPage() {
           </>}
 
           {section === 'work' && <>
+            <TechnicalWritingAssistant form={form} setForm={setForm} disabled={saving} />
             <Field label="Razón de visita" multiline name="razonVisita" value={form.razonVisita} onChange={update} />
             <Field label="Pruebas realizadas" multiline name="pruebasRealizadas" value={form.pruebasRealizadas} onChange={update} />
             <Field label="Resultado" multiline name="resultado" value={form.resultado} onChange={update} />
