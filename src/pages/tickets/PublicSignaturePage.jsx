@@ -4,6 +4,7 @@ import Icon from '../../components/common/Icon';
 import SignaturePad from '../../components/tickets/SignaturePad';
 import { requestAvailable } from '../../services/moduleApi';
 
+const DMS_LOGO_URL = 'https://res.cloudinary.com/dj73vkht6/image/upload/v1784169860/DMS_logo_2_dusshv.jpg';
 const PUBLIC_GET_ROUTES = ['ticket.signature.public.get', 'boletas.firma.publica.get'];
 const PUBLIC_SUBMIT_ROUTES = ['ticket.signature.public.submit', 'boletas.firma.publica.guardar'];
 
@@ -56,6 +57,7 @@ export default function PublicSignaturePage() {
       });
       setSigned(true);
       setSignature('');
+      setTicket(result.ticket || ticket);
       setMessage(result.message || 'La firma fue guardada correctamente.');
     } catch (saveError) {
       if (saveError.code === 'SIGNATURE_LINK_EXPIRED') setExpired(true);
@@ -64,6 +66,9 @@ export default function PublicSignaturePage() {
       setSaving(false);
     }
   }
+
+  const visits = Array.isArray(ticket?.visits) ? ticket.visits : [];
+  const visitCount = Number(ticket?.visitCount || request?.visitCount || visits.length || 1);
 
   return (
     <main className="public-signature-page">
@@ -77,11 +82,11 @@ export default function PublicSignaturePage() {
           <div className="public-signature-state"><Icon name="progress_activity" /><h1>Cargando boleta...</h1><p>Estamos preparando el espacio de firma.</p></div>
         ) : signed ? (
           <div className="public-signature-state public-signature-state--success">
-            <Icon name="verified" filled />
+            <img className="public-completion-logo" src={DMS_LOGO_URL} alt="Digital Management Systems" />
             <span className="eyebrow">Firma registrada</span>
             <h1>¡Muchas gracias!</h1>
             <p>{message || 'La boleta ya cuenta con su firma. El reporte firmado fue preparado para su envío.'}</p>
-            {ticket?.number && <strong>Boleta #{ticket.number}</strong>}
+            {ticket?.number && <strong>{visitCount > 1 ? `Boletas #${ticket.number}` : `Boleta #${ticket.number}`}</strong>}
           </div>
         ) : expired ? (
           <div className="public-signature-state public-signature-state--warning"><Icon name="event_busy" /><h1>Enlace vencido</h1><p>Solicite al técnico un enlace nuevo para firmar la boleta.</p></div>
@@ -91,21 +96,33 @@ export default function PublicSignaturePage() {
           <>
             <div className="public-signature-heading">
               <span className="eyebrow">{ticket.clientName || request?.clientName || 'Cliente'}</span>
-              <h1>Firmar boleta de servicio</h1>
-              <p>Revise la información y firme dentro del recuadro.</p>
+              <h1>{visitCount > 1 ? 'Firmar seguimiento de visitas' : 'Firmar boleta de servicio'}</h1>
+              <p>{visitCount > 1 ? `Esta firma se aplicará a las ${visitCount} visitas relacionadas.` : 'Revise la información y firme dentro del recuadro.'}</p>
             </div>
 
             <dl className="public-signature-summary">
-              <div><dt>Boleta</dt><dd>#{ticket.number || '—'}</dd></div>
-              <div><dt>Fecha</dt><dd>{ticket.date || 'Sin especificar'}</dd></div>
+              <div><dt>{visitCount > 1 ? 'Boletas' : 'Boleta'}</dt><dd>#{ticket.number || '—'}</dd></div>
+              <div><dt>Visitas</dt><dd>{visitCount}</dd></div>
               <div className="is-wide"><dt>Servicio</dt><dd>{ticket.title || 'Boleta de servicio'}</dd></div>
-              <div className="is-wide"><dt>Ubicación</dt><dd>{ticket.location || 'Sin especificar'}</dd></div>
+              <div className="is-wide"><dt>Ubicación principal</dt><dd>{ticket.location || 'Sin especificar'}</dd></div>
               {ticket.supervisor && <div className="is-wide"><dt>Supervisor</dt><dd>{ticket.supervisor}</dd></div>}
             </dl>
 
+            {visits.length > 1 && (
+              <div className="public-signature-visits">
+                {visits.map((visit) => (
+                  <article key={visit.uid}>
+                    <strong>Visita {visit.visitNumber} · Boleta #{visit.number}</strong>
+                    <span>{visit.date || 'Sin fecha'}{visit.location ? ` · ${visit.location}` : ''}</span>
+                    {visit.result && <p>{visit.result}</p>}
+                  </article>
+                ))}
+              </div>
+            )}
+
             <div className="public-signature-instructions">
               <Icon name="info" />
-              <p>Al guardar, confirma la recepción del servicio descrito en esta boleta. Esta página únicamente permite registrar la firma.</p>
+              <p>Al guardar, confirma la recepción del servicio descrito. Esta página únicamente permite registrar la firma y, cuando existen visitas relacionadas, la misma firma se guarda en todas.</p>
             </div>
 
             <section className="public-signature-pad-card">
