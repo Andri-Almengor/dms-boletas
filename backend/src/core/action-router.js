@@ -8,7 +8,7 @@ import { usersHandlers } from '../modules/users.module.js';
 import { crudHandlers } from '../modules/crud.module.js';
 import { ticketMultiHandlers as ticketHandlers } from '../modules/ticket-multi.module.js';
 import { ticketDeliveryHandlers } from '../modules/ticket-delivery.module.js';
-import { ticketSignatureHandlers } from '../modules/ticket-signature.module.js';
+import { ticketGroupSignatureHandlers as ticketSignatureHandlers } from '../modules/ticket-group-signature.module.js';
 import { maintenanceHandlers } from '../modules/maintenance.module.js';
 import { maintenanceReportAccessHandlers } from '../modules/maintenance-report-access.module.js';
 import { knowledgeHandlers } from '../modules/knowledge.module.js';
