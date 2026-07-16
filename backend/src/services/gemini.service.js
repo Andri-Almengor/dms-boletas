@@ -17,6 +17,7 @@ const RESPONSE_SCHEMA = {
 
 const TRANSIENT_STATUSES = new Set([408, 429, 500, 502, 503, 504]);
 const DEFAULT_FALLBACK_MODELS = ['gemini-3.1-flash-lite', 'gemini-2.5-flash-lite'];
+const CLIENT_CHAT_SUMMARY_MODE = 'CLIENT_CHAT_SUMMARY';
 
 function clean(value, maxLength = 8000) {
   return String(value ?? '').trim().slice(0, maxLength);
@@ -94,7 +95,25 @@ function extractInteractionText(data = {}) {
   );
 }
 
+function buildClientSummaryPrompt(fields) {
+  return [
+    'Resume para el cliente la información de una o varias boletas de servicio técnico.',
+    'Reglas obligatorias:',
+    '- Usa únicamente los datos proporcionados. No inventes diagnósticos, trabajos, repuestos, mediciones ni resultados.',
+    '- Mantén todos los consecutivos de boleta y distingue cada visita cuando exista más de una.',
+    '- Explica de forma comprensible qué se atendió y cuál fue el resultado.',
+    '- Usa español profesional, cordial y directo.',
+    '- Máximo 700 caracteres y hasta cinco oraciones cortas.',
+    '- No incluyas enlaces, Markdown, viñetas, encabezados ni saludos.',
+    '- Coloca el resumen solamente en el campo descripcion y devuelve vacíos los otros cuatro campos.',
+    '',
+    `Información original: ${fields.descripcion}`,
+  ].join('\n');
+}
+
 function buildPrompt(fields, context) {
+  if (context.mode === CLIENT_CHAT_SUMMARY_MODE) return buildClientSummaryPrompt(fields);
+
   const original = Object.fromEntries(FIELD_KEYS.map((key) => [FIELD_LABELS[key], fields[key]]));
   return [
     'Reescribe los campos de una boleta de servicio técnico en español profesional y claro.',
@@ -156,7 +175,7 @@ async function requestModel({ apiKey, model, prompt, retries }) {
         body: JSON.stringify({
           model,
           store: false,
-          system_instruction: 'Eres un redactor de informes de mantenimiento y soporte técnico. Debes mejorar la redacción sin agregar información que el técnico no haya proporcionado.',
+          system_instruction: 'Eres un redactor de informes de mantenimiento y soporte técnico. Debes mejorar o resumir la información sin agregar datos que el técnico no haya proporcionado.',
           input: prompt,
           response_format: {
             type: 'text',
@@ -240,6 +259,7 @@ export async function rewriteTechnicalReport(payload = {}) {
   if (!FIELD_KEYS.some((key) => fields[key])) throw badRequest('Escriba al menos uno de los campos antes de mejorarlo con Gemini.');
 
   const context = {
+    mode: clean(payload.mode, 50).toUpperCase(),
     titulo: clean(payload.titulo),
     cliente: clean(payload.cliente),
     ubicacion: clean(payload.ubicacion),
@@ -273,6 +293,9 @@ export async function rewriteTechnicalReport(payload = {}) {
         key,
         fields[key] ? clean(parsed[key] ?? fields[key], 12000) : '',
       ]));
+      if (context.mode === CLIENT_CHAT_SUMMARY_MODE) {
+        return { summary: clean(parsed.descripcion ?? improved.descripcion ?? fields.descripcion, 1200), model };
+      }
       return { fields: improved, model };
     }
 
@@ -282,4 +305,20 @@ export async function rewriteTechnicalReport(payload = {}) {
   }
 
   throw finalGeminiError(lastFailure, attemptedModels);
+}
+
+export async function summarizeClientChatFacts(facts) {
+  const description = clean(facts, 12000);
+  if (!description) return { summary: '', model: '' };
+  return rewriteTechnicalReport({
+    mode: CLIENT_CHAT_SUMMARY_MODE,
+    descripcion: description,
+    fields: {
+      razonVisita: '',
+      descripcion: description,
+      pruebasRealizadas: '',
+      resultado: '',
+      recomendaciones: '',
+    },
+  });
 }
