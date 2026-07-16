@@ -6,6 +6,7 @@ import {
   ensureVisitGroupForTicket,
   groupSummary,
   prepareRelatedVisit,
+  synchronizeVisitGroupSignature,
   ticketGroupId,
   ticketRootId,
   ticketVisitNumber,
@@ -120,6 +121,7 @@ async function createTicket(ctx) {
     ActualizadoPor: ctx.user.UsuarioID,
     FechaActualizacion: nowIso(),
   });
+  await synchronizeVisitGroupSignature(relation.group.rootId, ctx.user.UsuarioID);
   await audit(ctx, 'RELACIONAR_VISITA_BOLETA', 'Boletas', groupedTicket.BoletaUID, createdTicket, {
     GrupoVisitaID: relation.group.id,
     BoletaPrincipalUID: relation.group.rootId,
