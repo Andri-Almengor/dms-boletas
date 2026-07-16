@@ -248,13 +248,124 @@
 .survey-response-card__meta .material-symbols-outlined { font-size: 16px; }
 .survey-response-card__open { margin-top: 15px; padding-top: 12px; border-top: 1px solid var(--surface-container); color: var(--primary); display: flex; align-items: center; justify-content: flex-end; gap: 5px; font-size: .76rem; font-weight: 800; }
 
-.survey-detail-summary { margin-bottom: 16px; display: grid; grid-template-columns: repeat(4, minmax(0, 1fr)); gap: 10px; }
+.survey-detail-page__subtitle {
+  margin: 5px 0 0;
+  color: var(--muted);
+}
+
+.survey-detail-summary {
+  margin-bottom: 16px;
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(155px, 1fr));
+  gap: 10px;
+}
 .survey-detail-summary > div { padding: 14px; border: 1px solid var(--outline-soft); border-radius: var(--radius-md); background: white; box-shadow: var(--shadow-sm); }
 .survey-detail-summary span,
-.survey-detail-summary strong { display: block; }
+.survey-detail-summary strong,
+.survey-detail-summary small { display: block; }
 .survey-detail-summary span { color: var(--muted); font-size: .68rem; }
 .survey-detail-summary strong { margin-top: 6px; overflow-wrap: anywhere; }
+.survey-detail-summary small { margin-top: 5px; color: var(--primary); font-size: .72rem; line-height: 1.4; overflow-wrap: anywhere; }
 .survey-detail-ticket .button { margin-top: 14px; }
+
+.survey-related-heading p {
+  max-width: 760px;
+}
+
+.survey-related-ticket-list {
+  display: grid;
+  gap: 14px;
+}
+
+.survey-related-ticket-card {
+  padding: 16px;
+  border: 1px solid var(--outline-soft);
+  border-left: 4px solid var(--primary);
+  border-radius: 16px;
+  background: linear-gradient(145deg, #fff, var(--surface-low));
+}
+
+.survey-related-ticket-card > header {
+  display: grid;
+  grid-template-columns: auto minmax(0, 1fr);
+  align-items: center;
+  gap: 8px 12px;
+  padding-bottom: 12px;
+  border-bottom: 1px solid var(--outline-soft);
+}
+
+.survey-related-ticket-card > header > div {
+  display: flex;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: 8px;
+}
+
+.survey-related-ticket-card > header > div strong {
+  font-size: 1rem;
+}
+
+.survey-related-ticket-card > header > p {
+  grid-column: 1 / -1;
+  margin: 0;
+  color: var(--muted);
+}
+
+.survey-related-ticket-card__visit {
+  padding: 6px 10px;
+  border-radius: 999px;
+  background: var(--primary);
+  color: #fff;
+  font-size: .72rem;
+  font-weight: 800;
+  white-space: nowrap;
+}
+
+.survey-related-ticket-card__info {
+  margin-top: 14px;
+}
+
+.survey-related-ticket-card .button {
+  justify-self: start;
+}
+
+.survey-ticket-status--finalizada,
+.survey-ticket-status--finalizado {
+  color: var(--success, #18794e);
+  border-color: color-mix(in srgb, var(--success, #18794e) 35%, transparent);
+  background: color-mix(in srgb, var(--success, #18794e) 10%, #fff);
+}
+
+.survey-detail-dates {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 10px;
+  margin-top: 16px;
+  padding-top: 16px;
+  border-top: 1px solid var(--outline-soft);
+}
+
+.survey-detail-dates > div {
+  padding: 12px 14px;
+  border-radius: 12px;
+  background: var(--surface-low);
+}
+
+.survey-detail-dates span,
+.survey-detail-dates strong {
+  display: block;
+}
+
+.survey-detail-dates span {
+  color: var(--muted);
+  font-size: .68rem;
+}
+
+.survey-detail-dates strong {
+  margin-top: 5px;
+  overflow-wrap: anywhere;
+}
+
 .survey-answer-list { display: grid; gap: 10px; }
 .survey-answer-card { padding: 13px; border: 1px solid var(--outline-soft); border-radius: var(--radius-sm); background: var(--surface-low); display: grid; grid-template-columns: 38px minmax(0, 1fr) auto; align-items: center; gap: 11px; }
 .survey-answer-card__order { width: 38px; height: 38px; border-radius: 50%; background: white; color: var(--primary); display: grid; place-items: center; font-weight: 850; }
@@ -277,11 +388,28 @@
   .public-survey-actions .button { padding-inline: 9px; font-size: .76rem; }
   .survey-question-form__grid,
   .survey-response-filters,
-  .survey-detail-summary { grid-template-columns: 1fr; }
+  .survey-detail-summary,
+  .survey-detail-dates { grid-template-columns: 1fr; }
   .survey-question-admin-card { grid-template-columns: 38px minmax(0, 1fr); }
   .survey-question-admin-card__actions { grid-column: 1 / -1; justify-content: flex-end; }
   .survey-response-grid { grid-template-columns: 1fr; }
   .survey-answer-card { grid-template-columns: 34px minmax(0, 1fr) auto; }
+  .survey-related-ticket-card {
+    padding: 13px;
+  }
+  .survey-related-ticket-card > header {
+    grid-template-columns: 1fr;
+    align-items: start;
+  }
+  .survey-related-ticket-card > header > p {
+    grid-column: auto;
+  }
+  .survey-related-ticket-card__visit {
+    justify-self: start;
+  }
+  .survey-related-ticket-card .button {
+    width: 100%;
+  }
 }
 
 @media (prefers-reduced-motion: reduce) {
