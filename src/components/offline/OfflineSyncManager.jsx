@@ -15,17 +15,30 @@ import {
   replayQueuedOperation,
 } from '../../services/moduleApi';
 
+const AUTO_SYNC_DELAY_MS = 8_000;
+const AUTO_SYNC_IDLE_MS = 12_000;
+const SAVE_GRACE_PERIOD_MS = 20_000;
+const PERIODIC_RETRY_MS = 60_000;
+
+const EDITABLE_SELECTOR = [
+  'input:not([readonly]):not([disabled])',
+  'textarea:not([readonly]):not([disabled])',
+  'select:not([disabled])',
+  '[contenteditable="true"]',
+  'canvas',
+].join(',');
+
 function isAuthenticationError(error) {
   return Number(error?.status || 0) === 401
     || String(error?.code || '').toUpperCase() === 'UNAUTHORIZED';
 }
 
 function currentEntity(pathname) {
-  const ticket = pathname.match(/^\/boletas\/([^/]+)(?:\/editar)?$/);
+  const ticket = pathname.match(/^\/boletas\/([^/]+)/);
   if (ticket && ticket[1] !== 'nueva' && !['pendientes', 'finalizadas'].includes(ticket[1])) {
     return { type: 'boleta', id: decodeURIComponent(ticket[1]) };
   }
-  const maintenance = pathname.match(/^\/mantenimientos\/([^/]+)(?:\/editar)?$/);
+  const maintenance = pathname.match(/^\/mantenimientos\/([^/]+)/);
   if (maintenance && maintenance[1] !== 'nuevo') {
     return { type: 'mantenimiento', id: decodeURIComponent(maintenance[1]) };
   }
@@ -38,6 +51,23 @@ function isCreateWorkflow(pathname) {
     || /\/boletas\/[^/]+\/nueva-visita$/.test(pathname);
 }
 
+function isEditingElement(target) {
+  if (!(target instanceof Element)) return false;
+  if (!target.matches(EDITABLE_SELECTOR) && !target.closest(EDITABLE_SELECTOR)) return false;
+  return Boolean(
+    target.closest('form')
+    || target.closest('.signature-pad')
+    || target.closest('.evidence-uploader')
+    || target.closest('[data-offline-editing-surface]')
+    || target.matches('input[type="file"]'),
+  );
+}
+
+function hasFocusedEditor() {
+  const active = document.activeElement;
+  return active instanceof Element && isEditingElement(active);
+}
+
 export default function OfflineSyncManager() {
   const { sessionToken } = useAuth();
   const location = useLocation();
@@ -46,9 +76,13 @@ export default function OfflineSyncManager() {
   const [pending, setPending] = useState(0);
   const [entityPending, setEntityPending] = useState(0);
   const [syncing, setSyncing] = useState(false);
+  const [autoPaused, setAutoPaused] = useState(false);
   const [message, setMessage] = useState('');
   const syncingRef = useRef(false);
   const retryTimerRef = useRef(0);
+  const dirtyRef = useRef(false);
+  const lastInteractionRef = useRef(0);
+  const holdUntilRef = useRef(0);
 
   const refreshCount = useCallback(async () => {
     const count = await queuedOperationCount().catch(() => 0);
@@ -66,6 +100,13 @@ export default function OfflineSyncManager() {
     return Number(state.pending || 0);
   }, [entity?.id]);
 
+  const shouldPauseAutomaticSync = useCallback(() => {
+    if (dirtyRef.current) return true;
+    if (Date.now() < holdUntilRef.current) return true;
+    if (Date.now() - lastInteractionRef.current < AUTO_SYNC_IDLE_MS) return true;
+    return hasFocusedEditor();
+  }, []);
+
   const synchronize = useCallback(async ({ forced = false } = {}) => {
     if (!sessionToken || navigator.onLine === false || syncingRef.current) {
       if (forced && navigator.onLine === false) {
@@ -77,8 +118,14 @@ export default function OfflineSyncManager() {
       return;
     }
 
+    if (!forced && shouldPauseAutomaticSync()) {
+      setAutoPaused(true);
+      return;
+    }
+
     syncingRef.current = true;
     setSyncing(true);
+    setAutoPaused(false);
     setOnline(true);
     setMessage(forced ? 'Sincronización manual iniciada...' : 'Sincronizando cambios pendientes...');
     window.dispatchEvent(new CustomEvent('dms-offline-sync-start', { detail: { forced } }));
@@ -93,7 +140,7 @@ export default function OfflineSyncManager() {
         ]);
         setMessage(forced ? 'No había cambios pendientes. El contenido offline quedó actualizado.' : '');
         window.dispatchEvent(new CustomEvent('dms-offline-sync-complete', {
-          detail: { forced, synchronized: 0 },
+          detail: { forced, synchronized: 0, refreshMode: 'non-destructive' },
         }));
         if (forced) window.setTimeout(() => setMessage(''), 3500);
         return;
@@ -135,9 +182,9 @@ export default function OfflineSyncManager() {
       }
 
       await preloadOfflineCatalogs(sessionToken).catch(() => {});
-      setMessage('Todos los cambios fueron sincronizados correctamente. Ya puede finalizar.');
+      setMessage('Todos los cambios fueron sincronizados correctamente.');
       window.dispatchEvent(new CustomEvent('dms-offline-sync-complete', {
-        detail: { forced, synchronized },
+        detail: { forced, synchronized, refreshMode: 'non-destructive' },
       }));
       window.setTimeout(() => setMessage(''), 4500);
     } finally {
@@ -145,9 +192,9 @@ export default function OfflineSyncManager() {
       setSyncing(false);
       await Promise.all([refreshCount(), refreshEntityState()]);
     }
-  }, [sessionToken, refreshCount, refreshEntityState]);
+  }, [sessionToken, refreshCount, refreshEntityState, shouldPauseAutomaticSync]);
 
-  const scheduleSync = useCallback((delay = 450, options = {}) => {
+  const scheduleSync = useCallback((delay = AUTO_SYNC_DELAY_MS, options = {}) => {
     window.clearTimeout(retryTimerRef.current);
     retryTimerRef.current = window.setTimeout(() => {
       if (navigator.onLine !== false) synchronize(options);
@@ -155,12 +202,69 @@ export default function OfflineSyncManager() {
   }, [synchronize]);
 
   useEffect(() => {
+    dirtyRef.current = false;
+    holdUntilRef.current = 0;
+    lastInteractionRef.current = Date.now();
+    setAutoPaused(false);
+    setMessage('');
+
+    Promise.all([refreshCount(), refreshEntityState()]).then(([count]) => {
+      if (count > 0 && navigator.onLine !== false) scheduleSync(2_500);
+    });
+  }, [location.pathname, refreshCount, refreshEntityState, scheduleSync]);
+
+  useEffect(() => {
+    const markEditing = (event) => {
+      if (!isEditingElement(event.target)) return;
+      dirtyRef.current = true;
+      lastInteractionRef.current = Date.now();
+      setAutoPaused(true);
+      window.clearTimeout(retryTimerRef.current);
+    };
+
+    const markInteraction = (event) => {
+      if (!isEditingElement(event.target)) return;
+      lastInteractionRef.current = Date.now();
+    };
+
+    const markSaving = (event) => {
+      if (!(event.target instanceof HTMLFormElement)) return;
+      dirtyRef.current = false;
+      lastInteractionRef.current = Date.now();
+      holdUntilRef.current = Date.now() + SAVE_GRACE_PERIOD_MS;
+      setAutoPaused(true);
+      scheduleSync(SAVE_GRACE_PERIOD_MS + 1_000);
+    };
+
+    const releaseEditing = () => {
+      dirtyRef.current = false;
+      holdUntilRef.current = Date.now() + 1_500;
+      setAutoPaused(false);
+      scheduleSync(2_000);
+    };
+
+    document.addEventListener('input', markEditing, true);
+    document.addEventListener('change', markEditing, true);
+    document.addEventListener('pointerdown', markInteraction, true);
+    document.addEventListener('submit', markSaving, true);
+    window.addEventListener('dms-offline-editing-complete', releaseEditing);
+
+    return () => {
+      document.removeEventListener('input', markEditing, true);
+      document.removeEventListener('change', markEditing, true);
+      document.removeEventListener('pointerdown', markInteraction, true);
+      document.removeEventListener('submit', markSaving, true);
+      window.removeEventListener('dms-offline-editing-complete', releaseEditing);
+    };
+  }, [scheduleSync]);
+
+  useEffect(() => {
     refreshCount();
     refreshEntityState();
 
     const handleOnline = () => {
       setOnline(true);
-      scheduleSync(250);
+      scheduleSync(AUTO_SYNC_DELAY_MS);
     };
     const handleOffline = () => {
       setOnline(false);
@@ -168,15 +272,15 @@ export default function OfflineSyncManager() {
     };
     const handleQueueChange = () => {
       Promise.all([refreshCount(), refreshEntityState()]).then(([count]) => {
-        if (count > 0 && navigator.onLine !== false) scheduleSync(650);
+        if (count > 0 && navigator.onLine !== false) scheduleSync(AUTO_SYNC_DELAY_MS);
       });
     };
     const handleManualSync = () => synchronize({ forced: true });
     const handleVisibility = () => {
-      if (document.visibilityState === 'visible' && navigator.onLine !== false) scheduleSync(200);
+      if (document.visibilityState === 'visible' && navigator.onLine !== false) scheduleSync(5_000);
     };
     const handleFocus = () => {
-      if (navigator.onLine !== false) scheduleSync(200);
+      if (navigator.onLine !== false) scheduleSync(5_000);
     };
 
     window.addEventListener('online', handleOnline);
@@ -200,18 +304,18 @@ export default function OfflineSyncManager() {
   useEffect(() => {
     if (!sessionToken) return undefined;
     Promise.all([refreshCount(), refreshEntityState()]).then(([count]) => {
-      if (navigator.onLine !== false && count > 0) scheduleSync(250);
+      if (navigator.onLine !== false && count > 0) scheduleSync(5_000);
       else if (navigator.onLine !== false) preloadOfflineCatalogs(sessionToken).catch(() => {});
     });
 
     const intervalId = window.setInterval(async () => {
       if (document.visibilityState !== 'visible' || navigator.onLine === false || syncingRef.current) return;
       const count = await queuedOperationCount().catch(() => 0);
-      if (count > 0) synchronize();
-    }, 30_000);
+      if (count > 0 && !shouldPauseAutomaticSync()) synchronize();
+    }, PERIODIC_RETRY_MS);
 
     return () => window.clearInterval(intervalId);
-  }, [sessionToken, location.pathname, refreshCount, refreshEntityState, scheduleSync, synchronize]);
+  }, [sessionToken, refreshCount, refreshEntityState, scheduleSync, shouldPauseAutomaticSync, synchronize]);
 
   const finalizationBlocked = navigator.onLine === false
     || entityPending > 0
@@ -224,23 +328,25 @@ export default function OfflineSyncManager() {
 
   if (online && !pending && !syncing && !message) return null;
 
-  const pendingText = entityPending
-    ? `${entityPending} cambio${entityPending === 1 ? '' : 's'} de este ${entity?.type || 'registro'} pendiente${entityPending === 1 ? '' : 's'}. Finalizar aparecerá al terminar.`
-    : pending
-      ? `${pending} cambio${pending === 1 ? '' : 's'} pendiente${pending === 1 ? '' : 's'} de envío.`
-      : 'Los catálogos guardados continúan disponibles.';
+  const pendingText = autoPaused && pending
+    ? `Sincronización pausada mientras termina de editar. ${pending} cambio${pending === 1 ? '' : 's'} permanece${pending === 1 ? '' : 'n'} guardado${pending === 1 ? '' : 's'}.`
+    : entityPending
+      ? `${entityPending} cambio${entityPending === 1 ? '' : 's'} de este ${entity?.type || 'registro'} pendiente${entityPending === 1 ? '' : 's'}. Finalizar aparecerá al terminar.`
+      : pending
+        ? `${pending} cambio${pending === 1 ? '' : 's'} pendiente${pending === 1 ? '' : 's'} de envío.`
+        : 'Los catálogos guardados continúan disponibles.';
 
   return (
     <aside className={`offline-status${online ? ' is-online' : ' is-offline'}${syncing ? ' is-syncing' : ''}`} role="status" aria-live="polite">
       <span className="offline-status__icon">
-        <Icon name={syncing ? 'sync' : online ? 'cloud_done' : 'cloud_off'} />
+        <Icon name={syncing ? 'sync' : autoPaused ? 'edit_note' : online ? 'cloud_done' : 'cloud_off'} />
       </span>
       <div className="offline-status__body">
-        <strong>{syncing ? 'Sincronizando' : online ? 'Conexión disponible' : 'Trabajando sin conexión'}</strong>
+        <strong>{syncing ? 'Sincronizando' : autoPaused && pending ? 'Sincronización en pausa' : online ? 'Conexión disponible' : 'Trabajando sin conexión'}</strong>
         <small>{message || pendingText}</small>
       </div>
       {online && pending > 0 && !syncing && (
-        <button type="button" onClick={() => synchronize({ forced: true })}>Sincronizar</button>
+        <button type="button" onClick={() => synchronize({ forced: true })}>Sincronizar ahora</button>
       )}
     </aside>
   );
