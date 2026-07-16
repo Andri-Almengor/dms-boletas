@@ -2,8 +2,10 @@ import React, { useEffect, useMemo, useState } from 'react';
 import { Link, useNavigate, useParams } from 'react-router-dom';
 import { useAuth } from '../../AuthContext';
 import Icon from '../../components/common/Icon';
-import SignaturePad from '../../components/tickets/SignaturePad';
+import EvidenceUploader from '../../components/forms/EvidenceUploader';
 import TechnicianMultiSelect from '../../components/forms/TechnicianMultiSelect';
+import SignaturePad from '../../components/tickets/SignaturePad';
+import TechnicalWritingAssistant from '../../components/tickets/TechnicalWritingAssistant';
 import { createOfflineId } from '../../services/offlineStore';
 import {
   MODULE_ROUTES,
@@ -18,12 +20,35 @@ function text(value) {
   return String(value ?? '').trim();
 }
 
+function normalized(value) {
+  return text(value)
+    .normalize('NFD')
+    .replace(/[\u0300-\u036f]/g, '')
+    .toLowerCase();
+}
+
 function optionRows(rows, idKeys, labelKeys) {
   return rows.map((row) => {
     const value = text(pick(row, idKeys));
     const label = text(pick(row, labelKeys));
     return value && label ? { value, label, row } : null;
   }).filter(Boolean);
+}
+
+function resolveCatalogSelection(rows, currentId, currentLabel, idKeys, labelKeys) {
+  const byId = rows.find((row) => idKeys.some((key) => text(row?.[key]) === text(currentId)));
+  if (byId) {
+    return {
+      id: text(pick(byId, idKeys)),
+      label: text(pick(byId, labelKeys, currentLabel)),
+    };
+  }
+  const wanted = normalized(currentLabel);
+  if (!wanted) return { id: text(currentId), label: text(currentLabel) };
+  const byName = rows.find((row) => labelKeys.some((key) => normalized(row?.[key]) === wanted));
+  return byName
+    ? { id: text(pick(byName, idKeys)), label: text(pick(byName, labelKeys, currentLabel)) }
+    : { id: text(currentId), label: text(currentLabel) };
 }
 
 function ticketRecord(bundle) {
@@ -40,11 +65,40 @@ function hasSignature(ticket) {
   return Boolean(text(pick(ticket, ['FirmaArchivoID', 'FirmaFileID', 'FirmaURL', 'FirmaUrl', 'Firma'])));
 }
 
-function buildInitialForm(bundle) {
+function buildInitialForm(bundle, catalogs = {}) {
   const row = ticketRecord(bundle);
+  const failure = resolveCatalogSelection(
+    catalogs.failures || [],
+    pick(row, ['TipoFallaID']),
+    pick(row, ['TipoFalla']),
+    ['TipoFallaID', 'ID', 'id'],
+    ['Nombre'],
+  );
+  const device = resolveCatalogSelection(
+    catalogs.devices || [],
+    pick(row, ['TipoDispositivoID']),
+    pick(row, ['TipoDispositivo']),
+    ['TipoDispositivoID', 'ID', 'id'],
+    ['Nombre'],
+  );
+  const manufacturer = resolveCatalogSelection(
+    catalogs.manufacturers || [],
+    pick(row, ['FabricanteID']),
+    pick(row, ['Fabricante']),
+    ['FabricanteID', 'ID', 'id'],
+    ['Nombre'],
+  );
+  const model = resolveCatalogSelection(
+    catalogs.models || [],
+    pick(row, ['ModeloID']),
+    pick(row, ['Modelo']),
+    ['ModeloID', 'ID', 'id'],
+    ['Nombre'],
+  );
+
   return {
-    tipoFallaId: text(pick(row, ['TipoFallaID'])),
-    tipoFalla: pick(row, ['TipoFalla']),
+    tipoFallaId: failure.id,
+    tipoFalla: failure.label,
     fecha: todayInCostaRica(),
     horaInicio: '',
     horaFinal: '',
@@ -54,12 +108,12 @@ function buildInitialForm(bundle) {
     ubicacionEquipoId: text(pick(row, ['UbicacionEquipoID'])),
     ubicacionEquipo: pick(row, ['UbicacionEquipo', 'Ubicacion_equipo']),
     nombreDispositivo: pick(row, ['Descripcion', 'Descripción', 'DescripcionEquipo', 'NombreEquipo']),
-    tipoDispositivoId: text(pick(row, ['TipoDispositivoID'])),
-    tipoDispositivo: pick(row, ['TipoDispositivo']),
-    fabricanteId: text(pick(row, ['FabricanteID'])),
-    fabricante: pick(row, ['Fabricante']),
-    modeloId: text(pick(row, ['ModeloID'])),
-    modelo: pick(row, ['Modelo']),
+    tipoDispositivoId: device.id,
+    tipoDispositivo: device.label,
+    fabricanteId: manufacturer.id,
+    fabricante: manufacturer.label,
+    modeloId: model.id,
+    modelo: model.label,
     razonVisita: '',
     pruebasRealizadas: '',
     resultado: '',
@@ -136,7 +190,7 @@ export default function TicketRelatedVisitPage() {
       });
       setCatalogs(nextCatalogs);
       setParentBundle(bundle);
-      setForm(buildInitialForm(bundle));
+      setForm(buildInitialForm(bundle, nextCatalogs));
     }).catch((loadError) => {
       if (active) setError(loadError.message);
     }).finally(() => {
@@ -192,19 +246,33 @@ export default function TicketRelatedVisitPage() {
     }));
   }
 
-  function addEvidenceFiles(files) {
-    const incoming = Array.from(files || []);
-    if (!incoming.length) return;
-    setEvidences((current) => [...current, ...incoming.map((file) => ({
-      id: createOfflineId('archivo-visita'),
-      file,
-      name: file.name,
-      note: '',
-    }))]);
+  function addEvidenceFiles(event) {
+    const files = Array.from(event?.target?.files || event || []);
+    if (!files.length) return;
+    setEvidences((current) => [
+      ...current,
+      ...files.map((file) => ({
+        localId: createOfflineId('archivo-visita'),
+        file,
+        name: file.name,
+        note: '',
+        mimeType: file.type || 'application/octet-stream',
+        previewUrl: file.type.startsWith('image/') ? URL.createObjectURL(file) : '',
+      })),
+    ]);
+    if (event?.target) event.target.value = '';
   }
 
-  function updateEvidence(id, patch) {
-    setEvidences((current) => current.map((item) => item.id === id ? { ...item, ...patch } : item));
+  function updateEvidence(index, patch) {
+    setEvidences((current) => current.map((item, itemIndex) => itemIndex === index ? { ...item, ...patch } : item));
+  }
+
+  function removeEvidence(index) {
+    setEvidences((current) => {
+      const removed = current[index];
+      if (removed?.previewUrl?.startsWith('blob:')) URL.revokeObjectURL(removed.previewUrl);
+      return current.filter((_, itemIndex) => itemIndex !== index);
+    });
   }
 
   async function save(event) {
@@ -306,7 +374,7 @@ export default function TicketRelatedVisitPage() {
           nombre: item.name || item.file.name,
           nota: item.note,
           fileName: item.file.name,
-          mimeType: item.file.type || 'application/octet-stream',
+          mimeType: item.mimeType || item.file.type || 'application/octet-stream',
           base64: await fileToBase64(item.file),
         }, sessionToken);
       }
@@ -342,6 +410,13 @@ export default function TicketRelatedVisitPage() {
   const parent = ticketRecord(parentBundle);
   const parentSigned = hasSignature(parent);
   const nextVisit = Number(parentBundle?.grupoVisitas?.count || parentBundle?.visitasRelacionadas?.length || 1) + 1;
+  const assistantForm = {
+    ...form,
+    titulo: parent.Titulo,
+    cliente: parent.Cliente,
+    categoria: parent.Categoria,
+    serie: parent.Serie,
+  };
 
   return (
     <form className="page page--narrow related-visit-page" onSubmit={save}>
@@ -378,6 +453,7 @@ export default function TicketRelatedVisitPage() {
 
       <section className="detail-card">
         <div className="detail-card__heading"><span className="section-marker" /><h2>Trabajo realizado</h2></div>
+        <TechnicalWritingAssistant form={assistantForm} setForm={setForm} disabled={saving} />
         <div className="form-grid">
           <Field label="Razón de visita" name="razonVisita" value={form.razonVisita} onChange={update} multiline required />
           <Field label="Pruebas realizadas" name="pruebasRealizadas" value={form.pruebasRealizadas} onChange={update} multiline />
@@ -391,22 +467,15 @@ export default function TicketRelatedVisitPage() {
         <TechnicianMultiSelect users={options.technicians} selectedIds={form.asignados} onChange={(asignados) => setForm((current) => ({ ...current, asignados }))} disabled={saving} />
       </section>
 
-      <section className="detail-card">
+      <section className="detail-card related-visit-evidence-card">
         <div className="detail-card__heading"><span className="section-marker" /><h2>Evidencias de esta visita</h2></div>
-        <input type="file" multiple accept="image/*,.pdf,.doc,.docx" onChange={(event) => addEvidenceFiles(event.target.files)} />
-        <div className="related-visit-evidence-list">
-          {evidences.map((item) => (
-            <article key={item.id}>
-              <Icon name="attach_file" />
-              <div>
-                <input className="form-control" value={item.name} onChange={(event) => updateEvidence(item.id, { name: event.target.value })} aria-label="Nombre de evidencia" />
-                <input className="form-control" value={item.note} onChange={(event) => updateEvidence(item.id, { note: event.target.value })} placeholder="Nota opcional" aria-label="Nota de evidencia" />
-              </div>
-              <button type="button" className="icon-button icon-button--danger" onClick={() => setEvidences((current) => current.filter((evidence) => evidence.id !== item.id))} aria-label={`Quitar ${item.name}`}><Icon name="delete" /></button>
-            </article>
-          ))}
-          {!evidences.length && <p className="muted">Puede guardar la visita sin evidencia y agregarla después.</p>}
-        </div>
+        <EvidenceUploader
+          items={evidences}
+          onAdd={addEvidenceFiles}
+          onUpdate={updateEvidence}
+          onRemove={removeEvidence}
+          disabled={saving}
+        />
       </section>
 
       <section className="detail-card">
