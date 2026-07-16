@@ -1,4 +1,4 @@
-import { appendRow, findById } from '../infra/sheets.repository.js';
+import { appendRow } from '../infra/sheets.repository.js';
 import { nowIso, uuid } from '../core/utils.js';
 import { getConfig } from '../modules/config.module.js';
 import { sendChatMessage } from './chat.service.js';
@@ -61,6 +61,14 @@ function visitLines(report) {
   });
 }
 
+function reportLines(report, prefix = 'PDF') {
+  const reports = Array.isArray(report.reports) ? report.reports : [];
+  if (reports.length) {
+    return reports.map((item) => `${prefix} boleta #${item.ticketNumber || item.boletaId || item.ticketUid}: ${item.pdfUrl}`);
+  }
+  return report.pdfUrl ? [`${prefix}: ${report.pdfUrl}`] : [];
+}
+
 function internalChatText(report, { testMode = false, resendMode = false } = {}) {
   const ticket = report.ticket;
   const heading = testMode
@@ -78,8 +86,9 @@ function internalChatText(report, { testMode = false, resendMode = false } = {})
     `Asunto: ${ticket.Titulo || 'Reporte de visita'}`,
     '',
     ...visitLines(report),
-    `PDF conjunto: ${report.pdfUrl}`,
-    `Carpeta: ${report.folderUrl}`,
+    'Reportes generados con la plantilla oficial de boletas:',
+    ...reportLines(report),
+    `Carpeta principal: ${report.folderUrl}`,
     ...(report.survey?.url ? [`Encuesta única${testMode ? ' de prueba' : ''}: ${report.survey.url}`] : []),
     ...(report.signatureRequest?.url ? [`Firma única pendiente para todas las visitas: ${report.signatureRequest.url}`] : []),
     `Evidencias totales: ${report.evidences.length}`,
@@ -101,7 +110,8 @@ function clientChatText(report, { resendMode = false } = {}) {
       const item = visit.ticket;
       return `Visita ${ticketVisitNumber(item)}: ${item.Fecha || ''} · ${item.Resultado || 'Sin resultado especificado'}`;
     }),
-    `PDF conjunto: ${report.pdfUrl}`,
+    'Cada boleta conserva su PDF con la plantilla oficial:',
+    ...reportLines(report),
     ...(report.survey?.url ? [`Califique todo el seguimiento en una sola encuesta: ${report.survey.url}`] : []),
     ...(report.signatureRequest?.url ? [`Firma única para todas las visitas: ${report.signatureRequest.url}`] : []),
   ].filter(Boolean).join('\n');
@@ -114,8 +124,9 @@ function signedInternalChatText(report) {
     `Boletas: ${report.visitGroup.numbers.map((number) => `#${number}`).join(', ')}`,
     `Visitas cubiertas por la firma: ${report.visitGroup.count}`,
     'Firma: registrada una sola vez y aplicada a todas las visitas relacionadas',
-    `PDF firmado: ${report.pdfUrl}`,
-    `Carpeta: ${report.folderUrl}`,
+    'Reportes firmados con la plantilla oficial:',
+    ...reportLines(report, 'PDF firmado'),
+    `Carpeta principal: ${report.folderUrl}`,
   ].filter(Boolean).join('\n');
 }
 
@@ -164,6 +175,7 @@ function deliverySummary(report, results, extra = {}) {
       pdfUrl: report.pdfUrl,
       folderId: report.folderId,
       folderUrl: report.folderUrl,
+      reports: Array.isArray(report.reports) ? report.reports : [],
       evidenceCount: report.evidences.length,
       visitCount: report.visitGroup.count,
       ticketNumbers: report.visitGroup.numbers,
@@ -190,7 +202,7 @@ async function appendEmailResult(ctx, report, results, type) {
   };
   await recordNotification(ctx, error
     ? { ...metadata, error }
-    : { ...metadata, result: { ...(report.email || { sent: true }), surveyUrl: report.survey?.url || '', signatureUrl: report.signatureRequest?.url || '' } }).catch(() => {});
+    : { ...metadata, result: { ...(report.email || { sent: true }), surveyUrl: report.survey?.url || '', signatureUrl: report.signatureRequest?.url || '', reportCount: report.reports?.length || 1 } }).catch(() => {});
   results.push(error
     ? { ...metadata, ok: false, error: error.message }
     : { ...metadata, ok: true, result: report.email || { sent: true } });
