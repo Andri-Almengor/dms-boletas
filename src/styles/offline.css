@@ -85,6 +85,7 @@
    disponible durante el trabajo sin conexión. */
 body.dms-entity-unsynced .ticket-form-page .review-action-grid .button--primary,
 body.dms-entity-unsynced .ticket-detail-page .ticket-detail-actions .button--primary.button--wide,
+body.dms-group-unsynced .ticket-detail-page .ticket-detail-actions .button--primary.button--wide,
 body.dms-entity-unsynced .maintenance-final-actions .button--primary,
 body.dms-entity-unsynced .maintenance-detail-footer-actions .button--primary {
   display: none !important;

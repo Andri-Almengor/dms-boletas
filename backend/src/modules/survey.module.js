@@ -41,11 +41,69 @@ function surveyView(row) {
     clientName: clean(row.ClienteNombre) || 'Cliente',
     ticketTitle: clean(row.TituloBoleta) || 'Boleta de servicio',
     status: clean(row.Estado || 'PENDIENTE').toUpperCase(),
+    type: clean(row.Tipo || 'REAL').toUpperCase(),
     average: row.Promedio === '' || row.Promedio === undefined ? null : Number(row.Promedio),
     url: clean(row.EncuestaURL),
     createdAt: row.FechaCreacion || '',
     expiresAt: row.FechaExpiracion || '',
     answeredAt: row.FechaRespuesta || '',
+  };
+}
+
+function visitNumber(ticket = {}) {
+  const number = Number(ticket.NumeroVisita || 0);
+  return Number.isFinite(number) && number > 0 ? number : 1;
+}
+
+function ticketGroupId(ticket = {}) {
+  return clean(ticket.GrupoVisitaID || ticket.BoletaPrincipalUID || ticket.BoletaUID);
+}
+
+function ticketRootId(ticket = {}) {
+  return clean(ticket.BoletaPrincipalUID || ticket.BoletaUID);
+}
+
+function sortRelatedTickets(tickets = []) {
+  return [...tickets].sort((left, right) => {
+    const byVisit = visitNumber(left) - visitNumber(right);
+    if (byVisit) return byVisit;
+    const byDate = clean(left.Fecha).localeCompare(clean(right.Fecha));
+    if (byDate) return byDate;
+    return Number(left.BoletaID || 0) - Number(right.BoletaID || 0);
+  });
+}
+
+function relatedTicketsForSurvey(ticket, allTickets = []) {
+  if (!ticket?.BoletaUID) return [];
+  const groupId = ticketGroupId(ticket);
+  const rootId = ticketRootId(ticket);
+  const related = allTickets.filter((row) => (
+    ticketGroupId(row) === groupId
+    || clean(row.BoletaUID) === rootId
+    || clean(row.BoletaPrincipalUID) === rootId
+  ));
+  return sortRelatedTickets(related.length ? related : [ticket]);
+}
+
+function ticketSurveyView(ticket, rootId) {
+  return {
+    uid: clean(ticket.BoletaUID),
+    number: clean(ticket.BoletaID || ticket.BoletaUID),
+    visitNumber: visitNumber(ticket),
+    isPrimary: clean(ticket.BoletaUID) === clean(rootId),
+    title: clean(ticket.Titulo || ticket.TituloBoleta || 'Boleta de servicio'),
+    date: ticket.Fecha || '',
+    startTime: ticket.HoraInicio || '',
+    endTime: ticket.HoraFinal || '',
+    totalHours: ticket.HorasTotales ?? '',
+    status: clean(ticket.Estado || 'PENDIENTE').toUpperCase(),
+    result: clean(ticket.Resultado) || 'Sin información adicional',
+    location: clean(ticket.Ubicacion),
+    equipmentLocation: clean(ticket.UbicacionEquipo || ticket.Ubicacion_equipo),
+    deviceName: clean(ticket.Descripcion || ticket.Descripción || ticket.DescripcionEquipo || ticket.NombreEquipo),
+    deviceType: clean(ticket.TipoDispositivo),
+    manufacturer: clean(ticket.Fabricante),
+    model: clean(ticket.Modelo),
   };
 }
 
@@ -329,6 +387,29 @@ export const surveyHandlers = {
       }))
       .sort((a, b) => a.order - b.order);
     const ticket = tables.Boletas.find((row) => String(row.BoletaUID) === String(survey.BoletaUID)) || null;
-    return { survey: surveyView(survey), answers, ticket };
+    const related = ticket ? relatedTicketsForSurvey(ticket, tables.Boletas) : [];
+    const rootId = ticket ? ticketRootId(ticket) : clean(survey.BoletaUID);
+    const tickets = related.map((item) => ticketSurveyView(item, rootId));
+    const view = surveyView(survey);
+    const isMultipleTickets = tickets.length > 1;
+    const ticketNumbers = tickets.map((item) => item.number).filter(Boolean);
+    return {
+      survey: {
+        ...view,
+        ticketNumber: ticketNumbers.length ? ticketNumbers.join(', ') : view.ticketNumber,
+        visitCount: tickets.length || (ticket ? 1 : 0),
+        isMultipleTickets,
+      },
+      answers,
+      ticket,
+      tickets,
+      visitGroup: {
+        id: ticket ? ticketGroupId(ticket) : clean(survey.BoletaUID),
+        rootId,
+        count: tickets.length || (ticket ? 1 : 0),
+        isMultiple: isMultipleTickets,
+        ticketNumbers,
+      },
+    };
   },
 };
