@@ -18,7 +18,6 @@ export default function AppShell() {
   const navigate = useNavigate();
   const location = useLocation();
   const [drawerOpen, setDrawerOpen] = useState(false);
-  const [contentVersion, setContentVersion] = useState(0);
   const canViewTickets = hasPermission('BOLETAS_VER');
   const canViewUsers = hasPermission('USUARIOS_VER');
   const canViewClients = hasPermission('CLIENTES_VER');
@@ -27,6 +26,8 @@ export default function AppShell() {
   const canViewMaintenance = hasPermission('MANTENIMIENTOS_VER') || hasPermission('MANTENIMIENTOS_CREAR') || hasPermission('MANTENIMIENTOS_EDITAR') || hasPermission('MANTENIMIENTOS_GESTIONAR') || canViewTickets;
   const isWorkflowForm = location.pathname === '/boletas/nueva'
     || /^\/boletas\/[^/]+\/editar$/.test(location.pathname)
+    || /\/boletas\/[^/]+\/edicion-rapida\//.test(location.pathname)
+    || /\/boletas\/[^/]+\/nueva-visita$/.test(location.pathname)
     || location.pathname === '/mantenimientos/nuevo'
     || /^\/mantenimientos\/[^/]+\/editar$/.test(location.pathname);
 
@@ -34,11 +35,6 @@ export default function AppShell() {
     if (user?.CambioPasswordObligatorio && location.pathname !== '/cambiar-contrasena') navigate('/cambiar-contrasena', { replace: true });
   }, [user, location.pathname, navigate]);
   useEffect(() => { setDrawerOpen(false); }, [location.pathname]);
-  useEffect(() => {
-    const refresh = () => setContentVersion((value) => value + 1);
-    window.addEventListener('dms-offline-sync-complete', refresh);
-    return () => window.removeEventListener('dms-offline-sync-complete', refresh);
-  }, []);
   useEffect(() => {
     if (!drawerOpen) return undefined;
     const previousOverflow = document.body.style.overflow;
@@ -73,7 +69,7 @@ export default function AppShell() {
       </nav>
       <button type="button" className="drawer-logout" onClick={handleLogout}><Icon name="logout" /> Cerrar sesión</button>
     </aside>
-    <main className="app-content"><Outlet key={`${location.pathname}:${contentVersion}`} /></main>
+    <main className="app-content"><Outlet /></main>
     {!isWorkflowForm && <nav className="bottom-nav" aria-label="Navegación principal"><NavigationItem to="/" icon="home" label="Inicio" end />{canViewTickets && <NavigationItem to="/boletas/pendientes" icon="pending_actions" label="Pendientes" />}{canCreateTickets && <NavigationItem to="/boletas/nueva" icon="add" label="Crear" prominent />}{canViewTickets && <NavigationItem to="/boletas/finalizadas" icon="task_alt" label="Finalizadas" />}<NavigationItem to="/mas" icon="more_horiz" label="Más" /></nav>}
   </div>;
 }
