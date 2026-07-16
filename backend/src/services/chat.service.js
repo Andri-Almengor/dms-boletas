@@ -91,12 +91,14 @@ export async function sendChatMessage(webhook, text, options = {}) {
     throw new AppError('CHAT_NOT_CONFIGURED', 'El webhook de Google Chat no está configurado o no es válido.', 503);
   }
 
+  // Gemini se ejecuta antes del temporizador propio de Google Chat. Así un resumen
+  // lento no consume el tiempo reservado para publicar el mensaje.
+  const preparedText = await prepareChatText(text);
   const timeoutMs = Number(options.timeoutMs || process.env.NOTIFICATION_TIMEOUT_MS || 15000);
   const controller = new AbortController();
   const timer = setTimeout(() => controller.abort(), timeoutMs);
 
   try {
-    const preparedText = await prepareChatText(text);
     const response = await fetch(webhook, {
       method: 'POST',
       headers: { 'Content-Type': 'application/json; charset=UTF-8' },
