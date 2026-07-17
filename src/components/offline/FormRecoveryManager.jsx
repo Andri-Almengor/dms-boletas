@@ -1,14 +1,20 @@
 import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { useLocation } from 'react-router-dom';
 import { useAuth } from '../../AuthContext';
-import { deleteDraft, loadDraft, pruneDrafts, requestPersistentStorage, saveDraft } from '../../services/draftStore';
+import {
+  deleteDraft,
+  loadDraft,
+  pruneDrafts,
+  requestPersistentStorage,
+  saveDraft,
+  saveDraftBackup,
+} from '../../services/draftStore';
 import Icon from '../common/Icon';
 
-const SAVE_DELAY_MS = 300;
+const SAVE_DELAY_MS = 250;
 const EDITING_IDLE_MS = 6_000;
 const RESTORE_RETRY_MS = 140;
 const RESTORE_RETRIES = 45;
-
 const ELIGIBLE_PATH = /^(\/boletas|\/mantenimientos|\/conocimiento|\/clientes|\/catalogos|\/usuarios|\/firmar\/)/;
 const CONTROL_SELECTOR = 'input, textarea, select, [contenteditable="true"]';
 const SKIPPED_INPUT_TYPES = new Set(['password', 'submit', 'button', 'reset', 'image']);
@@ -22,7 +28,9 @@ function normalizedPath(pathname, search) {
 }
 
 function isEligible(pathname) {
-  return ELIGIBLE_PATH.test(pathname) && pathname !== '/boletas/pendientes' && pathname !== '/boletas/finalizadas';
+  return ELIGIBLE_PATH.test(pathname)
+    && pathname !== '/boletas/pendientes'
+    && pathname !== '/boletas/finalizadas';
 }
 
 function formLabel(element) {
@@ -34,35 +42,64 @@ function formLabel(element) {
   return clean(explicit || direct || placeholder || element.getAttribute('aria-label') || 'campo');
 }
 
-function elementIndex(element, selector) {
-  return Array.from(document.querySelectorAll(selector)).indexOf(element);
+function controlDescriptor(element) {
+  const tag = element.tagName.toLowerCase();
+  const type = tag === 'input' ? String(element.type || 'text').toLowerCase() : tag;
+  return `${formLabel(element)}|${tag}|${type}`;
+}
+
+function occurrenceIndex(element, selector, descriptor) {
+  return Array.from(document.querySelectorAll(selector))
+    .filter((candidate) => descriptor(candidate) === descriptor(element))
+    .indexOf(element);
 }
 
 function controlKey(element) {
-  const explicit = element.dataset?.draftKey || element.getAttribute('name') || element.id;
-  if (explicit) return `control:${explicit}`;
   const tag = element.tagName.toLowerCase();
   const type = tag === 'input' ? String(element.type || 'text').toLowerCase() : tag;
-  return `control:${formLabel(element)}:${tag}:${type}:${elementIndex(element, CONTROL_SELECTOR)}`;
+  const explicit = element.dataset?.draftKey || element.getAttribute('name') || element.id;
+  if (explicit) {
+    const optionValue = type === 'checkbox' || type === 'radio' ? `:${element.value || formLabel(element)}` : '';
+    return `control:${explicit}:${type}${optionValue}`;
+  }
+  return `control:${controlDescriptor(element)}:${occurrenceIndex(element, CONTROL_SELECTOR, controlDescriptor)}`;
+}
+
+function fileDescriptor(element) {
+  const root = element.closest('.evidence-uploader, .maintenance-image-section, .knowledge-file-drop, .ticket-evidence-add, label');
+  const rootText = clean(root?.querySelector('strong')?.textContent || root?.textContent || 'archivos');
+  return rootText;
 }
 
 function fileKey(element) {
   const explicit = element.dataset?.draftKey || element.getAttribute('name') || element.id;
   if (explicit) return `file:${explicit}`;
-  const root = element.closest('.evidence-uploader, .maintenance-image-section, .knowledge-file-drop, .ticket-evidence-add, label');
-  const rootText = clean(root?.querySelector('strong')?.textContent || root?.textContent || 'archivos');
-  return `file:${rootText}:${elementIndex(element, 'input[type="file"]')}`;
+  return `file:${fileDescriptor(element)}:${occurrenceIndex(element, 'input[type="file"]', fileDescriptor)}`;
+}
+
+function choiceDescriptor(group) {
+  return clean(
+    group.closest('.field-group')?.querySelector('.field-label')?.textContent
+      || group.previousElementSibling?.textContent
+      || 'opción',
+  );
 }
 
 function choiceKey(group) {
-  const label = clean(group.closest('.field-group')?.querySelector('.field-label')?.textContent || group.previousElementSibling?.textContent || 'opción');
-  return `choice:${label}:${elementIndex(group, '.maintenance-choice')}`;
+  return `choice:${choiceDescriptor(group)}:${occurrenceIndex(group, '.maintenance-choice', choiceDescriptor)}`;
 }
 
 function nativeSetter(element, property, value) {
-  const prototype = Object.getPrototypeOf(element);
-  const descriptor = Object.getOwnPropertyDescriptor(prototype, property)
-    || Object.getOwnPropertyDescriptor(HTMLElement.prototype, property);
+  const prototypes = [
+    Object.getPrototypeOf(element),
+    HTMLInputElement.prototype,
+    HTMLTextAreaElement.prototype,
+    HTMLSelectElement.prototype,
+    HTMLElement.prototype,
+  ];
+  const descriptor = prototypes
+    .map((prototype) => Object.getOwnPropertyDescriptor(prototype, property))
+    .find(Boolean);
   if (descriptor?.set) descriptor.set.call(element, value);
   else element[property] = value;
 }
@@ -103,22 +140,25 @@ function isSaveAction(target) {
   if (!(target instanceof Element)) return false;
   const button = target.closest('button, [role="button"]');
   if (!button) return false;
-  return /guardar|finalizar|crear|enviar|registrar firma|guardar cambios/i.test(clean(button.textContent));
+  return /guardar|finalizar|enviar|registrar firma|crear boleta|crear mantenimiento|crear visita/i.test(clean(button.textContent));
 }
 
 function hasRecoverableData(data) {
   return Boolean(
     Object.keys(data?.fields || {}).length
-    || Object.keys(data?.files || {}).length
-    || Object.keys(data?.choices || {}).length
-    || data?.signature,
+      || Object.keys(data?.files || {}).length
+      || Object.keys(data?.choices || {}).length
+      || data?.signature,
   );
 }
 
 export default function FormRecoveryManager() {
   const location = useLocation();
   const { user } = useAuth();
-  const route = useMemo(() => normalizedPath(location.pathname, location.search), [location.pathname, location.search]);
+  const route = useMemo(
+    () => normalizedPath(location.pathname, location.search),
+    [location.pathname, location.search],
+  );
   const scope = String(user?.UsuarioID || user?.Correo || 'public');
   const draftKey = useMemo(() => `${scope}:${route}`, [scope, route]);
   const enabled = isEligible(location.pathname);
@@ -127,12 +167,15 @@ export default function FormRecoveryManager() {
   const dataRef = useRef({ fields: {}, files: {}, choices: {}, step: 0, signature: '' });
   const timerRef = useRef(0);
   const releaseTimerRef = useRef(0);
+  const restoreTimerRef = useRef(0);
+  const submitResetTimerRef = useRef(0);
   const savingRef = useRef(Promise.resolve());
   const pendingSubmitRef = useRef(false);
   const restoredFilesRef = useRef(new Set());
   const restorationRef = useRef({ active: false, attempts: 0 });
   const routeRef = useRef(route);
   const keyRef = useRef(draftKey);
+  const scopeRef = useRef(scope);
 
   const captureVisible = useCallback(() => {
     const next = {
@@ -167,23 +210,34 @@ export default function FormRecoveryManager() {
     return next;
   }, []);
 
+  const currentEntry = useCallback((data = dataRef.current) => ({
+    key: keyRef.current,
+    route: routeRef.current,
+    userScope: scopeRef.current,
+    data,
+  }), []);
+
+  const backupNow = useCallback(() => {
+    if (!enabled) return null;
+    const data = captureVisible();
+    if (!hasRecoverableData(data)) return null;
+    return saveDraftBackup(currentEntry(data));
+  }, [captureVisible, currentEntry, enabled]);
+
   const persistNow = useCallback(async ({ quiet = false } = {}) => {
     if (!enabled) return null;
     const data = captureVisible();
     if (!hasRecoverableData(data)) return null;
     if (!quiet) setStatus('saving');
-    const entry = {
-      key: keyRef.current,
-      route: routeRef.current,
-      userScope: scope,
-      data,
-    };
+    const entry = currentEntry(data);
+    saveDraftBackup(entry);
     savingRef.current = savingRef.current
       .catch(() => {})
       .then(() => saveDraft(entry));
     try {
       const saved = await savingRef.current;
       setStatus('local');
+      setNotice('');
       window.dispatchEvent(new CustomEvent('dms-form-draft-saved', {
         detail: { key: entry.key, route: entry.route, savedAt: saved.updatedAt },
       }));
@@ -192,22 +246,23 @@ export default function FormRecoveryManager() {
         window.dispatchEvent(new CustomEvent('dms-offline-editing-complete', {
           detail: { source: 'form-draft', key: entry.key },
         }));
-        if (status !== 'restored') setStatus('idle');
+        setStatus('idle');
       }, EDITING_IDLE_MS);
       return saved;
-    } catch (error) {
+    } catch {
       setStatus('error');
       setNotice('No fue posible guardar el borrador local. Mantenga esta pantalla abierta hasta guardar manualmente.');
       return null;
     }
-  }, [captureVisible, enabled, scope, status]);
+  }, [captureVisible, currentEntry, enabled]);
 
   const scheduleSave = useCallback(() => {
     if (!enabled || restorationRef.current.active) return;
     window.clearTimeout(timerRef.current);
     setStatus('saving');
+    backupNow();
     timerRef.current = window.setTimeout(() => persistNow(), SAVE_DELAY_MS);
-  }, [enabled, persistNow]);
+  }, [backupNow, enabled, persistNow]);
 
   const restoreControls = useCallback(() => {
     const data = dataRef.current;
@@ -244,7 +299,8 @@ export default function FormRecoveryManager() {
       if (!wanted) return;
       const current = clean(group.querySelector('button.is-selected')?.textContent);
       if (current === wanted) return;
-      const button = Array.from(group.querySelectorAll('button')).find((item) => clean(item.textContent) === wanted && !item.disabled);
+      const button = Array.from(group.querySelectorAll('button'))
+        .find((item) => clean(item.textContent) === wanted && !item.disabled);
       if (button) {
         button.click();
         changed = true;
@@ -258,7 +314,7 @@ export default function FormRecoveryManager() {
       try {
         const transfer = new DataTransfer();
         files.forEach((file) => transfer.items.add(file));
-        nativeSetter(input, 'files', transfer.files);
+        input.files = transfer.files;
         input.dispatchEvent(new Event('change', { bubbles: true }));
         restoredFilesRef.current.add(key);
         changed = true;
@@ -290,7 +346,7 @@ export default function FormRecoveryManager() {
     }
 
     if (restorationRef.current.attempts < RESTORE_RETRIES) {
-      window.setTimeout(restoreLoop, RESTORE_RETRY_MS);
+      restoreTimerRef.current = window.setTimeout(restoreLoop, RESTORE_RETRY_MS);
       return;
     }
     restorationRef.current.active = false;
@@ -302,9 +358,11 @@ export default function FormRecoveryManager() {
   useEffect(() => {
     routeRef.current = route;
     keyRef.current = draftKey;
+    scopeRef.current = scope;
     dataRef.current = { fields: {}, files: {}, choices: {}, step: 0, signature: '' };
     restoredFilesRef.current = new Set();
     restorationRef.current = { active: false, attempts: 0 };
+    pendingSubmitRef.current = false;
     setStatus('idle');
     setNotice('');
     if (!enabled) return undefined;
@@ -324,25 +382,38 @@ export default function FormRecoveryManager() {
       restorationRef.current = { active: true, attempts: 0 };
       setStatus('restored');
       setNotice('Recuperando el trabajo guardado automáticamente...');
-      window.setTimeout(restoreLoop, RESTORE_RETRY_MS);
+      restoreTimerRef.current = window.setTimeout(restoreLoop, RESTORE_RETRY_MS);
     }).catch(() => {});
 
     return () => {
       active = false;
       window.clearTimeout(timerRef.current);
       window.clearTimeout(releaseTimerRef.current);
-      persistNow({ quiet: true }).catch(() => {});
-      if (pendingSubmitRef.current) deleteDraft(draftKey).catch(() => {});
+      window.clearTimeout(restoreTimerRef.current);
+      window.clearTimeout(submitResetTimerRef.current);
+      if (pendingSubmitRef.current) {
+        savingRef.current.catch(() => {}).then(() => deleteDraft(draftKey)).catch(() => {});
+      } else {
+        const data = captureVisible();
+        if (hasRecoverableData(data)) {
+          const entry = { key: draftKey, route, userScope: scope, data };
+          saveDraftBackup(entry);
+          savingRef.current.catch(() => {}).then(() => saveDraft(entry)).catch(() => {});
+        }
+      }
     };
-  }, [draftKey, enabled, persistNow, restoreLoop, route]);
+  }, [captureVisible, draftKey, enabled, restoreLoop, route, scope]);
 
   useEffect(() => {
     if (!enabled) return undefined;
 
     const markChanged = (event) => {
       if (!(event.target instanceof Element) || event.target.closest('[data-no-draft]')) return;
-      if (!event.target.matches(CONTROL_SELECTOR) && !event.target.closest('.maintenance-choice, .signature-pad')) return;
+      if (!event.target.matches(CONTROL_SELECTOR)
+        && !event.target.closest('.maintenance-choice, .signature-pad')) return;
       if (event.target.matches('input[type="password"]')) return;
+      pendingSubmitRef.current = false;
+
       if (event.target.matches('input[type="file"]')) {
         const key = fileKey(event.target);
         const files = Array.from(event.target.files || []);
@@ -354,22 +425,29 @@ export default function FormRecoveryManager() {
               [key]: mergeFiles(dataRef.current.files?.[key] || [], files),
             },
           };
+          backupNow();
+          persistNow({ quiet: true }).catch(() => {});
+          return;
         }
       }
-      pendingSubmitRef.current = false;
       scheduleSave();
     };
 
     const captureSignature = (event) => {
       if (event.detail?.route && event.detail.route !== routeRef.current) return;
       dataRef.current = { ...dataRef.current, signature: event.detail?.value || '' };
-      scheduleSave();
+      backupNow();
+      persistNow({ quiet: true }).catch(() => {});
     };
 
     const markSubmit = () => {
       pendingSubmitRef.current = true;
+      backupNow();
       persistNow({ quiet: true }).catch(() => {});
-      window.setTimeout(() => { pendingSubmitRef.current = false; }, 30_000);
+      window.clearTimeout(submitResetTimerRef.current);
+      submitResetTimerRef.current = window.setTimeout(() => {
+        pendingSubmitRef.current = false;
+      }, 30_000);
     };
 
     const markClick = (event) => {
@@ -379,7 +457,10 @@ export default function FormRecoveryManager() {
       }
     };
 
-    const flush = () => persistNow({ quiet: true }).catch(() => {});
+    const flush = () => {
+      backupNow();
+      persistNow({ quiet: true }).catch(() => {});
+    };
 
     document.addEventListener('input', markChanged, true);
     document.addEventListener('change', markChanged, true);
@@ -388,7 +469,9 @@ export default function FormRecoveryManager() {
     window.addEventListener('dms-signature-draft-change', captureSignature);
     window.addEventListener('pagehide', flush);
     window.addEventListener('beforeunload', flush);
-    const visibility = () => { if (document.visibilityState === 'hidden') flush(); };
+    const visibility = () => {
+      if (document.visibilityState === 'hidden') flush();
+    };
     document.addEventListener('visibilitychange', visibility);
 
     const observer = new MutationObserver(() => {
@@ -407,7 +490,7 @@ export default function FormRecoveryManager() {
       window.removeEventListener('beforeunload', flush);
       document.removeEventListener('visibilitychange', visibility);
     };
-  }, [enabled, persistNow, restoreControls, scheduleSave]);
+  }, [backupNow, enabled, persistNow, restoreControls, scheduleSave]);
 
   async function discardDraft() {
     await deleteDraft(draftKey).catch(() => {});
