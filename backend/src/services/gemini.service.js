@@ -1,6 +1,7 @@
 import { AppError, badRequest } from '../core/errors.js';
 
-const FIELD_KEYS = ['razonVisita', 'descripcion', 'pruebasRealizadas', 'resultado', 'recomendaciones'];
+const REPORT_FIELD_KEYS = ['razonVisita', 'descripcion', 'pruebasRealizadas', 'resultado', 'recomendaciones'];
+const RESPONSE_KEYS = ['titulo', ...REPORT_FIELD_KEYS];
 const FIELD_LABELS = {
   razonVisita: 'Razón de visita',
   descripcion: 'Descripción',
@@ -11,8 +12,8 @@ const FIELD_LABELS = {
 
 const RESPONSE_SCHEMA = {
   type: 'object',
-  properties: Object.fromEntries(FIELD_KEYS.map((key) => [key, { type: 'string' }])),
-  required: FIELD_KEYS,
+  properties: Object.fromEntries(RESPONSE_KEYS.map((key) => [key, { type: 'string' }])),
+  required: RESPONSE_KEYS,
 };
 
 const TRANSIENT_STATUSES = new Set([408, 429, 500, 502, 503, 504]);
@@ -105,7 +106,8 @@ function buildClientSummaryPrompt(fields) {
     '- Usa español profesional, cordial y directo.',
     '- Máximo 700 caracteres y hasta cinco oraciones cortas.',
     '- No incluyas enlaces, Markdown, viñetas, encabezados ni saludos.',
-    '- Coloca el resumen solamente en el campo descripcion y devuelve vacíos los otros cuatro campos.',
+    '- Coloca el resumen solamente en el campo descripcion.',
+    '- Devuelve vacíos titulo, razonVisita, pruebasRealizadas, resultado y recomendaciones.',
     '',
     `Información original: ${fields.descripcion}`,
   ].join('\n');
@@ -114,19 +116,27 @@ function buildClientSummaryPrompt(fields) {
 function buildPrompt(fields, context) {
   if (context.mode === CLIENT_CHAT_SUMMARY_MODE) return buildClientSummaryPrompt(fields);
 
-  const original = Object.fromEntries(FIELD_KEYS.map((key) => [FIELD_LABELS[key], fields[key]]));
+  const original = Object.fromEntries(REPORT_FIELD_KEYS.map((key) => [FIELD_LABELS[key], fields[key]]));
   return [
-    'Reescribe los campos de una boleta de servicio técnico en español profesional y claro.',
-    'Reglas obligatorias:',
+    'Reescribe los campos de una boleta de servicio técnico en español profesional y claro y genera un título coherente con el trabajo realizado.',
+    'Reglas obligatorias para la redacción:',
     '- No inventes hechos, pruebas, mediciones, diagnósticos, repuestos ni resultados.',
     '- Conserva marcas, modelos, números de serie, ubicaciones, cantidades y valores técnicos.',
     '- Corrige ortografía, puntuación, concordancia y terminología.',
     '- Usa un tono objetivo de reporte técnico, preciso y comprensible para el cliente.',
-    '- Mantén vacío cualquier campo que originalmente esté vacío.',
+    '- Mantén vacío cualquier campo técnico que originalmente esté vacío.',
     '- No uses Markdown, encabezados ni listas con viñetas dentro de los valores.',
-    '- Devuelve únicamente los cinco campos solicitados.',
+    'Reglas obligatorias para el título:',
+    '- Lee conjuntamente razón de visita, pruebas realizadas, resultado, recomendaciones y todo el contexto del servicio.',
+    '- Resume la intervención principal con una frase específica y natural.',
+    '- Incluye el equipo, sistema, ubicación o acción principal cuando aporte claridad.',
+    '- No uses títulos genéricos como "Boleta de servicio", "Trabajo realizado" o "Mantenimiento".',
+    '- No empieces con la palabra "Boleta" y no incluyas el nombre del cliente salvo que sea indispensable.',
+    '- Usa entre 4 y 14 palabras, máximo 100 caracteres y sin punto final.',
+    '- Si el texto no permite deducir un título nuevo con seguridad, conserva el título actual.',
+    '- Devuelve únicamente titulo y los cinco campos técnicos solicitados.',
     '',
-    `Contexto del servicio: ${JSON.stringify(context)}`,
+    `Contexto completo del servicio: ${JSON.stringify(context)}`,
     `Texto original: ${JSON.stringify(original)}`,
   ].join('\n');
 }
@@ -175,7 +185,7 @@ async function requestModel({ apiKey, model, prompt, retries }) {
         body: JSON.stringify({
           model,
           store: false,
-          system_instruction: 'Eres un redactor de informes de mantenimiento y soporte técnico. Debes mejorar o resumir la información sin agregar datos que el técnico no haya proporcionado.',
+          system_instruction: 'Eres un redactor de informes de mantenimiento y soporte técnico. Debes mejorar, resumir y titular la información usando únicamente los datos que el técnico proporcionó.',
           input: prompt,
           response_format: {
             type: 'text',
@@ -255,17 +265,18 @@ export async function rewriteTechnicalReport(payload = {}) {
     );
   }
 
-  const fields = Object.fromEntries(FIELD_KEYS.map((key) => [key, clean(payload[key] ?? payload.fields?.[key])]));
-  if (!FIELD_KEYS.some((key) => fields[key])) throw badRequest('Escriba al menos uno de los campos antes de mejorarlo con Gemini.');
+  const fields = Object.fromEntries(REPORT_FIELD_KEYS.map((key) => [key, clean(payload[key] ?? payload.fields?.[key])]));
+  if (!REPORT_FIELD_KEYS.some((key) => fields[key])) throw badRequest('Escriba al menos uno de los campos antes de mejorarlo con Gemini.');
 
   const context = {
     mode: clean(payload.mode, 50).toUpperCase(),
-    titulo: clean(payload.titulo),
+    titulo: clean(payload.titulo, 200),
     cliente: clean(payload.cliente),
     ubicacion: clean(payload.ubicacion),
     categoria: clean(payload.categoria),
     tipoFalla: clean(payload.tipoFalla),
     tipoDispositivo: clean(payload.tipoDispositivo),
+    nombreDispositivo: clean(payload.nombreDispositivo),
     fabricante: clean(payload.fabricante),
     modelo: clean(payload.modelo),
     serie: clean(payload.serie),
@@ -289,14 +300,15 @@ export async function rewriteTechnicalReport(payload = {}) {
     if (result.data) {
       if (index > 0) console.warn(`[gemini] Se utilizó el modelo alternativo ${model}.`);
       const parsed = parseJson(extractInteractionText(result.data));
-      const improved = Object.fromEntries(FIELD_KEYS.map((key) => [
+      const improved = Object.fromEntries(REPORT_FIELD_KEYS.map((key) => [
         key,
         fields[key] ? clean(parsed[key] ?? fields[key], 12000) : '',
       ]));
       if (context.mode === CLIENT_CHAT_SUMMARY_MODE) {
         return { summary: clean(parsed.descripcion ?? improved.descripcion ?? fields.descripcion, 1200), model };
       }
-      return { fields: improved, model };
+      const titulo = clean(parsed.titulo || context.titulo, 100);
+      return { fields: { titulo, ...improved }, titulo, model };
     }
 
     lastFailure = result.error;
