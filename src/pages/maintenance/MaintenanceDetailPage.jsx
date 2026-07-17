@@ -61,18 +61,26 @@ export default function MaintenanceDetailPage() {
   const status = String(pick(row, ['Estado'], 'PENDIENTE')).toUpperCase();
   const pending = status === 'PENDIENTE';
   const offlinePending = Boolean(pick(row, ['OfflinePendiente'], false));
+  const driveFolderUrl = pick(row, ['CarpetaDriveURL', 'MaintenanceFolderURL']);
 
   async function action(type) {
     if (type === 'delete' && !window.confirm('¿Eliminar este mantenimiento y todos sus dispositivos?')) return;
-    if (type === 'finalize' && !window.confirm('¿Finalizar este mantenimiento? Después quedará en modo consulta.')) return;
+    if (type === 'finalize' && !window.confirm('¿Finalizar este mantenimiento? Se crearán las carpetas, se copiarán las evidencias y se enviará el detalle por Google Chat.')) return;
+    if (type === 'test' && !window.confirm('¿Enviar una prueba completa al Chat de pruebas? No se cambiará el estado del mantenimiento.')) return;
     const reportWindow = ['sheet', 'slides'].includes(type) ? window.open('about:blank', '_blank') : null;
     setWorking(type);
     setError('');
     setNotice('');
     try {
       if (type === 'finalize') {
-        await requestAvailable(MODULE_ROUTES.maintenance.finalize, { maintenanceId }, sessionToken);
-        setNotice('Mantenimiento finalizado correctamente.');
+        const result = await requestAvailable(MODULE_ROUTES.maintenance.finalize, { maintenanceId }, sessionToken);
+        const delivery = result?.delivery || {};
+        setNotice(`Mantenimiento finalizado y enviado correctamente a ${delivery.destination || 'Google Chat'}.`);
+      }
+      if (type === 'test') {
+        const result = await requestAvailable(MODULE_ROUTES.maintenance.finalize, { maintenanceId, testMode: true }, sessionToken);
+        const delivery = result?.delivery || {};
+        setNotice(`Prueba enviada correctamente a ${delivery.destination || 'el Chat de pruebas'}. El mantenimiento continúa en ${status}.`);
       }
       if (type === 'reopen') {
         await requestAvailable(MODULE_ROUTES.maintenance.reopen, { maintenanceId }, sessionToken);
@@ -156,6 +164,7 @@ export default function MaintenanceDetailPage() {
           <div><Icon name="location_on" /><span>Ubicación</span><strong>{pick(row, ['Ubicacion'], 'Sin ubicación')}</strong></div>
           <div><Icon name="groups" /><span>Responsables</span><strong>{pick(row, ['Responsables', 'Responsable'], 'Sin responsables')}</strong></div>
           <div><Icon name="devices_other" /><span>Dispositivos</span><strong>{devices.length}</strong></div>
+          {pick(row, ['ChatDestino']) && <div><Icon name="forum" /><span>Último destino</span><strong>{pick(row, ['ChatDestino'])}</strong></div>}
         </div>
       </section>
 
@@ -163,8 +172,10 @@ export default function MaintenanceDetailPage() {
         <section className="maintenance-report-actions" aria-label="Acciones del mantenimiento">
           {pending && canEdit && <button type="button" className="button button--primary" onClick={addDevice} disabled={Boolean(working)}><Icon name="add" />Agregar dispositivo</button>}
           {pending && canEdit && <button type="button" className="button button--secondary maintenance-quick-evidence-button" onClick={() => setQuickEvidenceOpen(true)} disabled={!devices.length || Boolean(working)} title={devices.length ? 'Agregar evidencia a cualquier dispositivo' : 'Agregue un dispositivo primero'}><Icon name="add_a_photo" />Nueva evidencia</button>}
+          {isAdmin && <button type="button" className="button button--secondary" onClick={() => action('test')} disabled={Boolean(working) || offlinePending || !devices.length} title={offlinePending ? 'Sincronice el mantenimiento antes de probar el envío' : 'Crear carpetas, copiar evidencias y enviar al Chat de pruebas sin finalizar'}><Icon name="science" />{working === 'test' ? 'Enviando prueba...' : 'Probar envío'}</button>}
           {isAdmin && <button type="button" className="button button--secondary" onClick={() => action('sheet')} disabled={Boolean(working) || offlinePending} title={offlinePending ? 'Sincronice el mantenimiento antes de generar el reporte' : 'Crear reporte de Excel'}><Icon name="table_view" />{working === 'sheet' ? 'Generando...' : 'Crear Excel'}</button>}
           {isAdmin && <button type="button" className="button button--secondary" onClick={() => action('slides')} disabled={Boolean(working) || offlinePending} title={offlinePending ? 'Sincronice el mantenimiento antes de generar la presentación' : 'Crear presentación'}><Icon name="slideshow" />{working === 'slides' ? 'Generando...' : 'Crear presentación'}</button>}
+          {driveFolderUrl && <a className="button button--ghost" href={driveFolderUrl} target="_blank" rel="noreferrer"><Icon name="folder_open" />Abrir carpeta Drive</a>}
           {isAdmin && pick(row, ['SpreadsheetURL']) && <a className="button button--ghost" href={pick(row, ['SpreadsheetURL'])} target="_blank" rel="noreferrer"><Icon name="open_in_new" />Excel creado</a>}
           {isAdmin && pick(row, ['SlidesURL']) && <a className="button button--ghost" href={pick(row, ['SlidesURL'])} target="_blank" rel="noreferrer"><Icon name="open_in_new" />Presentación creada</a>}
         </section>
@@ -182,7 +193,7 @@ export default function MaintenanceDetailPage() {
       />
 
       <section className="maintenance-detail-footer-actions">
-        {pending && !offlinePending && canFinalize && devices.length > 0 && <button className="button button--primary" type="button" onClick={() => action('finalize')} disabled={Boolean(working)}><Icon name="task_alt" />{working === 'finalize' ? 'Finalizando...' : 'Finalizar mantenimiento'}</button>}
+        {pending && !offlinePending && canFinalize && devices.length > 0 && <button className="button button--primary" type="button" onClick={() => action('finalize')} disabled={Boolean(working)}><Icon name="task_alt" />{working === 'finalize' ? 'Procesando carpetas y envío...' : 'Finalizar mantenimiento'}</button>}
         {status === 'FINALIZADO' && isAdmin && <button className="button button--secondary" type="button" onClick={() => action('reopen')} disabled={Boolean(working)}><Icon name="undo" />Volver a pendiente</button>}
         {isAdmin && <button className="button button--danger" type="button" onClick={() => action('delete')} disabled={Boolean(working)}><Icon name="delete" />Eliminar</button>}
       </section>
