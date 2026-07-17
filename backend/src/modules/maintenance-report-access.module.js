@@ -1,14 +1,60 @@
 import { AppError, forbidden } from '../core/errors.js';
 import { nowIso, pick } from '../core/utils.js';
-import { driveApi } from '../infra/google.js';
-import { findById, updateRow } from '../infra/sheets.repository.js';
+import { env } from '../config/env.js';
+import { driveApi, sheetsApi } from '../infra/google.js';
+import {
+  findById,
+  getHeaders,
+  invalidateTableCache,
+  updateRow,
+} from '../infra/sheets.repository.js';
 import { audit } from '../services/audit.service.js';
 import { deliverMaintenance } from '../services/maintenance-delivery.service.js';
 import { getConfig } from './config.module.js';
 import { maintenanceHandlers } from './maintenance.module.js';
 
+const DELIVERY_COLUMNS = [
+  'CarpetaDriveID',
+  'CarpetaDriveURL',
+  'EstadoNotificacion',
+  'ChatDestino',
+  'ChatEnviadoEn',
+  'ChatFallbackPruebas',
+  'ImagenesEsperadas',
+  'ImagenesCopiadas',
+  'ImagenesYaExistentes',
+  'ErroresCopia',
+];
+
 function clean(value) {
   return String(value || '').trim();
+}
+
+function columnLetter(index) {
+  let result = '';
+  let value = index + 1;
+  while (value > 0) {
+    const remainder = (value - 1) % 26;
+    result = String.fromCharCode(65 + remainder) + result;
+    value = Math.floor((value - 1) / 26);
+  }
+  return result;
+}
+
+async function ensureDeliveryColumns() {
+  const headers = await getHeaders('Mantenimiento', true);
+  const missing = DELIVERY_COLUMNS.filter((column) => !headers.includes(column));
+  if (!missing.length) return;
+  const start = headers.length;
+  const end = start + missing.length - 1;
+  await sheetsApi.spreadsheets.values.update({
+    spreadsheetId: env.sheetId,
+    range: `'Mantenimiento'!${columnLetter(start)}1:${columnLetter(end)}1`,
+    valueInputOption: 'RAW',
+    requestBody: { values: [missing] },
+  });
+  invalidateTableCache('Mantenimiento');
+  await getHeaders('Mantenimiento', true);
 }
 
 function isAdmin(ctx) {
@@ -104,6 +150,7 @@ async function finalizeWithDelivery(ctx) {
     };
   }
 
+  await ensureDeliveryColumns();
   const timestamp = nowIso();
   await updateRow('Mantenimiento', id, {
     Estado: 'FINALIZADO',
