@@ -5,6 +5,23 @@ const MAX_DRAFT_AGE_MS = 30 * 24 * 60 * 60 * 1000;
 const MAX_DRAFTS = 60;
 
 let databasePromise = null;
+const removedFilesByRoute = new Map();
+
+function fileIdentity(file) {
+  if (!file) return '';
+  return `${file.name}:${file.size}:${file.lastModified}:${file.type}`;
+}
+
+if (typeof window !== 'undefined') {
+  window.addEventListener('dms-draft-file-removed', (event) => {
+    const route = String(event.detail?.route || '');
+    const identity = fileIdentity(event.detail?.file);
+    if (!route || !identity) return;
+    const removed = removedFilesByRoute.get(route) || new Set();
+    removed.add(identity);
+    removedFilesByRoute.set(route, removed);
+  });
+}
 
 function supportsIndexedDb() {
   return typeof window !== 'undefined' && 'indexedDB' in window;
@@ -66,6 +83,20 @@ function backupKey(key) {
   return `dms_form_draft_backup:${key}`;
 }
 
+function filterRemovedFiles(entry) {
+  const removed = removedFilesByRoute.get(String(entry?.route || ''));
+  if (!removed?.size || !entry?.data?.files) return entry;
+  const files = Object.fromEntries(
+    Object.entries(entry.data.files).map(([key, values]) => [
+      key,
+      Array.isArray(values)
+        ? values.filter((file) => !removed.has(fileIdentity(file)))
+        : values,
+    ]),
+  );
+  return { ...entry, data: { ...entry.data, files } };
+}
+
 function scalarBackup(entry) {
   const fields = {};
   Object.entries(entry?.data?.fields || {}).forEach(([key, value]) => {
@@ -83,6 +114,7 @@ function scalarBackup(entry) {
       choices: entry?.data?.choices || {},
       step: entry?.data?.step || 0,
       signature: entry?.data?.signature || '',
+      hookValue: entry?.data?.hookValue,
     },
   };
 }
@@ -118,6 +150,7 @@ function mergeDraftSources(indexedEntry, backupEntry) {
       choices: backupEntry.data?.choices || indexedEntry.data?.choices || {},
       files: indexedEntry.data?.files || {},
       signature: backupEntry.data?.signature || indexedEntry.data?.signature || '',
+      hookValue: backupEntry.data?.hookValue || indexedEntry.data?.hookValue,
     },
   };
 }
@@ -134,12 +167,12 @@ export async function requestPersistentStorage() {
 
 export function saveDraftBackup(entry) {
   if (!entry?.key) return null;
-  const next = {
+  const next = filterRemovedFiles({
     version: 1,
     createdAt: Number(entry.createdAt || Date.now()),
     ...entry,
     updatedAt: Date.now(),
-  };
+  });
   writeBackup(next);
   return next;
 }
