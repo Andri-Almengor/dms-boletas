@@ -184,7 +184,7 @@ body.dms-entity-unsynced .maintenance-detail-footer-actions .button--primary {
   }
 
   .app-shell--form .offline-status {
-    top: 6px;
+    top: calc(env(safe-area-inset-top, 0px) + 6px);
   }
 
   .offline-status__icon {
@@ -198,15 +198,20 @@ body.dms-entity-unsynced .maintenance-detail-footer-actions .button--primary {
   }
 
   .form-recovery-status {
+    top: calc(var(--top-bar-height, 64px) + env(safe-area-inset-top, 0px) + 8px);
     right: 8px;
-    bottom: calc(var(--bottom-nav-height, 72px) + 8px);
-    width: calc(100vw - 16px);
+    bottom: auto;
+    left: 8px;
+    width: auto;
+    max-height: min(34vh, 190px);
+    overflow: auto;
     grid-template-columns: 32px minmax(0, 1fr);
   }
 
   .app-shell--form ~ .form-recovery-status,
   .app-shell--form .form-recovery-status {
-    bottom: 8px;
+    top: calc(env(safe-area-inset-top, 0px) + 8px);
+    bottom: auto;
   }
 
   .form-recovery-status button {
