@@ -7,6 +7,7 @@ import { nowIso, uuid } from '../core/utils.js';
 import { AppError } from '../core/errors.js';
 
 const running = new Map();
+const IMAGE_COPY_CONCURRENCY = 5;
 
 function clean(value) { return String(value ?? '').trim(); }
 function safe(value, fallback = 'Sin nombre', max = 120) {
@@ -23,8 +24,27 @@ function dateName(value) {
   const match = clean(value).match(/^(\d{4})-(\d{2})-(\d{2})/);
   return match ? `${match[1]}-${match[2]}-${match[3]}` : safe(value, 'Sin fecha', 30);
 }
-function webhook(...values) { return values.map(clean).find(Boolean) || ''; }
-function testWebhook(config) { return webhook(config.CHAT_TEST_WEBHOOK, config.CHAT_WEBHOOK_PRUEBAS); }
+function validWebhook(value) {
+  try {
+    const url = new URL(clean(value));
+    return url.protocol === 'https:'
+      && url.hostname === 'chat.googleapis.com'
+      && url.pathname.includes('/messages')
+      && url.searchParams.has('key')
+      && url.searchParams.has('token');
+  } catch {
+    return false;
+  }
+}
+function webhook(...values) { return values.map(clean).find(validWebhook) || ''; }
+function testWebhook(config) {
+  return webhook(
+    process.env.GOOGLE_CHAT_TEST_WEBHOOK,
+    config.CHAT_TEST_WEBHOOK,
+    config.CHAT_WEBHOOK_PRUEBAS,
+    config.CHAT_TEST_MODE,
+  );
+}
 function clientWebhook(client) { return webhook(client?.ChatWebhook, client?.ChatWebhookURL); }
 function rootFolder(config) {
   return clean(config.MANTENIMIENTOS_EVIDENCE_ROOT_FOLDER_ID
@@ -51,14 +71,35 @@ async function findNamed(folderId, name) {
   });
   return response.data.files?.[0] || null;
 }
-async function textOnce(folderId, name, content) {
-  return (await findNamed(folderId, name)) || uploadBuffer({
+async function replaceText(folderId, name, content) {
+  const existing = await findNamed(folderId, name);
+  if (existing?.id) {
+    await driveApi.files.update({
+      fileId: existing.id,
+      requestBody: { trashed: true },
+      supportsAllDrives: true,
+    });
+  }
+  return uploadBuffer({
     buffer: Buffer.from(String(content || ''), 'utf8'), mimeType: 'text/plain', fileName: name, folderId,
   });
 }
 async function copyOnce(fileId, folderId, name) {
   const existing = await findNamed(folderId, name);
   return existing ? { ...existing, skipped: true } : copyDriveFile({ fileId, folderId, name });
+}
+async function concurrentMap(items, limit, mapper) {
+  const results = new Array(items.length);
+  let cursor = 0;
+  async function worker() {
+    while (cursor < items.length) {
+      const index = cursor;
+      cursor += 1;
+      results[index] = await mapper(items[index], index);
+    }
+  }
+  await Promise.all(Array.from({ length: Math.min(limit, items.length || 1) }, worker));
+  return results;
 }
 async function loadBundle(id) {
   const [maintenance, devices, images, clients] = await Promise.all([
@@ -107,19 +148,32 @@ async function processDevice(device, images, parent) {
   const after = await createFolder('Evidencia del despues', folder.id);
   const other = await createFolder('Otras evidencias', folder.id);
   const counters = { ANTES: 0, DESPUES: 0, OTRA: 0 };
-  let copied = 0; let skipped = 0; const errors = [];
-  for (const image of images) {
-    const kind = imageKind(image.Tipo); counters[kind] += 1;
+  const tasks = images.map((image) => {
+    const kind = imageKind(image.Tipo);
+    counters[kind] += 1;
     const target = kind === 'ANTES' ? before : kind === 'DESPUES' ? after : other;
     const label = kind === 'ANTES' ? 'Antes' : kind === 'DESPUES' ? 'Despues' : 'Otra';
-    const name = `${safe(device.NombreDispositivo || device.EvidenciaMantenimientoID, 'Dispositivo', 70)} - ${label} ${String(counters[kind]).padStart(2, '0')}.${extension(image)}`;
+    return {
+      image,
+      target,
+      name: `${safe(device.NombreDispositivo || device.EvidenciaMantenimientoID, 'Dispositivo', 70)} - ${label} ${String(counters[kind]).padStart(2, '0')}.${extension(image)}`,
+    };
+  });
+
+  const copyResults = await concurrentMap(tasks, IMAGE_COPY_CONCURRENCY, async ({ image, target, name }) => {
     try {
       if (!clean(image.DriveFileID)) throw new Error('La evidencia no tiene DriveFileID.');
       const result = await copyOnce(image.DriveFileID, target.id, name);
-      if (result.skipped) skipped += 1; else copied += 1;
-    } catch (error) { errors.push(`${name}: ${error?.message || error}`); }
-  }
-  await textOnce(folder.id, 'INFO-DISPOSITIVO.txt', deviceInfo(device, images));
+      return { skipped: Boolean(result.skipped), error: '' };
+    } catch (error) {
+      return { skipped: false, error: `${name}: ${error?.message || error}` };
+    }
+  });
+
+  const errors = copyResults.map((item) => item.error).filter(Boolean);
+  const skipped = copyResults.filter((item) => item.skipped).length;
+  const copied = copyResults.length - skipped - errors.length;
+  await replaceText(folder.id, 'INFO-DISPOSITIVO.txt', deviceInfo(device, images));
   return {
     device, imageCount: images.length, copied, skipped, errors,
     folderUrl: folder.webViewLink || `https://drive.google.com/drive/folders/${folder.id}`,
@@ -212,7 +266,7 @@ async function run(ctx, id, testMode) {
     processed.push(await processDevice(device, images, folders.maintenance));
   }
   const dest = destination(bundle, config, testMode);
-  await textOnce(folders.maintenance.id, `LOG-MANTENIMIENTO-${safe(id, 'SIN-ID', 80)}${testMode ? '-PRUEBA' : ''}.txt`, logText(bundle, folders.maintenance, processed, dest, testMode));
+  await replaceText(folders.maintenance.id, `LOG-MANTENIMIENTO-${safe(id, 'SIN-ID', 80)}${testMode ? '-PRUEBA' : ''}.txt`, logText(bundle, folders.maintenance, processed, dest, testMode));
   try {
     const chat = await sendChunks(dest.url, message(bundle, folders.maintenance, processed, testMode, dest.fallback));
     await notification(ctx, bundle, dest, chat, testMode, null);
