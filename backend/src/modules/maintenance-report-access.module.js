@@ -1,11 +1,19 @@
-import { AppError } from '../core/errors.js';
-import { pick } from '../core/utils.js';
+import { AppError, forbidden } from '../core/errors.js';
+import { nowIso, pick } from '../core/utils.js';
 import { driveApi } from '../infra/google.js';
+import { findById, updateRow } from '../infra/sheets.repository.js';
+import { audit } from '../services/audit.service.js';
+import { deliverMaintenance } from '../services/maintenance-delivery.service.js';
 import { getConfig } from './config.module.js';
 import { maintenanceHandlers } from './maintenance.module.js';
 
 function clean(value) {
   return String(value || '').trim();
+}
+
+function isAdmin(ctx) {
+  return ctx.permissions.includes('USUARIOS_GESTIONAR')
+    || ctx.permissions.includes('MANTENIMIENTOS_GESTIONAR');
 }
 
 async function moveToReportFolder(fileId) {
@@ -70,7 +78,61 @@ async function prepareAccess(fileId, ctx) {
   }
 }
 
+async function finalizeWithDelivery(ctx) {
+  const id = pick(ctx.payload, ['maintenanceId', 'MantenimientoID', 'id']);
+  const testMode = Boolean(ctx.payload.testMode || ctx.payload.prueba);
+  if (testMode && !isAdmin(ctx)) {
+    throw forbidden('Solo los administradores pueden probar el envío de mantenimientos.');
+  }
+
+  const before = await findById('Mantenimiento', id);
+  const delivery = await deliverMaintenance(ctx, id, { testMode });
+
+  if (testMode) {
+    await audit(ctx, 'PROBAR_ENVIO_MANTENIMIENTO', 'Mantenimiento', id, before, {
+      Estado: before.Estado,
+      CarpetaDriveURL: delivery.folderUrl,
+      ChatDestino: delivery.destination,
+      EstadoCambiado: false,
+    });
+    return {
+      tested: true,
+      stateChanged: false,
+      maintenanceId: id,
+      delivery,
+      message: 'La prueba fue enviada al Chat de pruebas sin cambiar el estado del mantenimiento.',
+    };
+  }
+
+  const timestamp = nowIso();
+  await updateRow('Mantenimiento', id, {
+    Estado: 'FINALIZADO',
+    FechaFinalizacion: timestamp,
+    CarpetaDriveID: delivery.folderId,
+    CarpetaDriveURL: delivery.folderUrl,
+    EstadoNotificacion: 'ENVIADO',
+    ChatDestino: delivery.destination,
+    ChatEnviadoEn: timestamp,
+    ChatFallbackPruebas: delivery.fallbackToTest,
+    ImagenesEsperadas: delivery.imagesExpected,
+    ImagenesCopiadas: delivery.imagesCopied,
+    ImagenesYaExistentes: delivery.imagesAlreadyPresent,
+    ErroresCopia: delivery.errors.join(' | '),
+    ActualizadoPor: ctx.user.UsuarioID,
+    FechaActualizacion: timestamp,
+  });
+  const result = await maintenanceHandlers.get({ ...ctx, payload: { maintenanceId: id } });
+  await audit(ctx, 'FINALIZAR_MANTENIMIENTO_CON_ENTREGA', 'Mantenimiento', id, before, {
+    ...result.mantenimiento,
+    CarpetaDriveURL: delivery.folderUrl,
+    ChatDestino: delivery.destination,
+    ImagenesCopiadas: delivery.imagesCopied,
+  });
+  return { ...result, delivery };
+}
+
 export const maintenanceReportAccessHandlers = {
+  finalize: finalizeWithDelivery,
   spreadsheetReport: async (ctx) => {
     const result = await maintenanceHandlers.spreadsheetReport(ctx);
     await prepareAccess(result.spreadsheetId, ctx);
