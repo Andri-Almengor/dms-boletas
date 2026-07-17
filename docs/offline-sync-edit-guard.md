@@ -1,0 +1,1 @@
+La sincronización offline debe pausar los envíos automáticos mientras el usuario está editando formularios, seleccionando evidencias o dibujando firmas. La implementación se gestiona en el módulo de sincronización no disruptiva.
