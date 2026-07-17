@@ -4,6 +4,11 @@ import { useAuth } from '../../AuthContext';
 import { MODULE_ROUTES, requestAvailable } from '../../services/moduleApi';
 import Icon from '../common/Icon';
 
+function currentRoute() {
+  if (typeof window === 'undefined') return '';
+  return `${window.location.pathname}${window.location.search || ''}`;
+}
+
 export default function SignaturePad({ value, onChange }) {
   const { boletaUid } = useParams();
   const { sessionToken } = useAuth();
@@ -12,6 +17,13 @@ export default function SignaturePad({ value, onChange }) {
   const storedSourceRef = useRef('');
   const [existingSource, setExistingSource] = useState('');
   const [existingStatus, setExistingStatus] = useState(boletaUid ? 'loading' : 'none');
+
+  function publishSignature(nextValue) {
+    onChange(nextValue);
+    window.dispatchEvent(new CustomEvent('dms-signature-draft-change', {
+      detail: { route: currentRoute(), value: nextValue },
+    }));
+  }
 
   useEffect(() => {
     let active = true;
@@ -39,6 +51,19 @@ export default function SignaturePad({ value, onChange }) {
 
     return () => { active = false; };
   }, [boletaUid, sessionToken]);
+
+  useEffect(() => {
+    const restore = (event) => {
+      const detail = event.detail || {};
+      if (detail.route && detail.route !== currentRoute()) return;
+      const restored = String(detail.value || '');
+      if (!restored.startsWith('data:image/') || restored === value) return;
+      setExistingSource('');
+      onChange(restored);
+    };
+    window.addEventListener('dms-draft-restore-signature', restore);
+    return () => window.removeEventListener('dms-draft-restore-signature', restore);
+  }, [onChange, value]);
 
   useEffect(() => {
     const canvas = canvasRef.current;
@@ -95,14 +120,14 @@ export default function SignaturePad({ value, onChange }) {
   function stopDrawing() {
     if (!drawingRef.current) return;
     drawingRef.current = false;
-    onChange(canvasRef.current.toDataURL('image/png'));
+    publishSignature(canvasRef.current.toDataURL('image/png'));
   }
 
   function clearSignature() {
     const canvas = canvasRef.current;
     canvas.getContext('2d').clearRect(0, 0, canvas.width, canvas.height);
     setExistingSource('');
-    onChange('');
+    publishSignature('');
   }
 
   function restoreExistingSignature() {
@@ -110,10 +135,13 @@ export default function SignaturePad({ value, onChange }) {
     onChange('');
     setExistingSource(storedSourceRef.current);
     setExistingStatus('loaded');
+    window.dispatchEvent(new CustomEvent('dms-signature-draft-change', {
+      detail: { route: currentRoute(), value: '' },
+    }));
   }
 
   return (
-    <div className="signature-pad">
+    <div className="signature-pad" data-offline-editing-surface>
       <div className="signature-pad__toolbar">
         <span><Icon name="draw" /> Firma en el recuadro</span>
         <div className="inline-actions">
@@ -133,6 +161,7 @@ export default function SignaturePad({ value, onChange }) {
       {!value && !existingSource && storedSourceRef.current && <small className="field-hint">La vista fue limpiada. La firma almacenada sigue conservándose; puede restaurarla o dibujar una nueva.</small>}
       <canvas
         ref={canvasRef}
+        data-draft-signature="primary"
         width="900"
         height="300"
         onMouseDown={startDrawing}

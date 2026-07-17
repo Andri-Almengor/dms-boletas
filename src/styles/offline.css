@@ -80,6 +80,86 @@
   cursor: pointer;
 }
 
+.form-recovery-status {
+  position: fixed;
+  z-index: 94;
+  right: 18px;
+  bottom: 18px;
+  width: min(430px, calc(100vw - 24px));
+  min-width: 0;
+  padding: 10px 12px;
+  border: 1px solid #d7e6db;
+  border-radius: 14px;
+  background: rgba(247,253,249,.98);
+  box-shadow: 0 10px 28px rgba(18,80,42,.14);
+  backdrop-filter: blur(10px);
+  display: grid;
+  grid-template-columns: 34px minmax(0, 1fr) auto;
+  align-items: center;
+  gap: 10px;
+  color: #155d32;
+}
+
+.form-recovery-status > .material-symbols-outlined {
+  width: 34px;
+  height: 34px;
+  border-radius: 50%;
+  background: #e8f7ed;
+  display: grid;
+  place-items: center;
+}
+
+.form-recovery-status--saving > .material-symbols-outlined {
+  animation: dms-offline-spin 1s linear infinite;
+}
+
+.form-recovery-status--error {
+  border-color: #efb8b4;
+  background: rgba(255,247,246,.98);
+  color: #a1241b;
+}
+
+.form-recovery-status--restored {
+  border-color: #d5b26a;
+  background: rgba(255,250,238,.98);
+  color: #77500a;
+}
+
+.form-recovery-status div {
+  min-width: 0;
+}
+
+.form-recovery-status strong,
+.form-recovery-status small {
+  display: block;
+  overflow-wrap: anywhere;
+}
+
+.form-recovery-status strong {
+  font-size: .8rem;
+}
+
+.form-recovery-status small {
+  margin-top: 2px;
+  color: currentColor;
+  opacity: .82;
+  font-size: .7rem;
+  line-height: 1.35;
+}
+
+.form-recovery-status button {
+  min-height: 34px;
+  padding: 6px 10px;
+  border: 1px solid currentColor;
+  border-radius: 9px;
+  background: transparent;
+  color: inherit;
+  font: inherit;
+  font-size: .7rem;
+  font-weight: 750;
+  cursor: pointer;
+}
+
 /* Finalizar no se muestra hasta que la entidad y todos sus archivos existan
    correctamente en el servidor. Guardar, editar y agregar evidencias continúa
    disponible durante el trabajo sin conexión. */
@@ -113,6 +193,23 @@ body.dms-entity-unsynced .maintenance-detail-footer-actions .button--primary {
   }
 
   .offline-status > button {
+    grid-column: 1 / -1;
+    width: 100%;
+  }
+
+  .form-recovery-status {
+    right: 8px;
+    bottom: calc(var(--bottom-nav-height, 72px) + 8px);
+    width: calc(100vw - 16px);
+    grid-template-columns: 32px minmax(0, 1fr);
+  }
+
+  .app-shell--form ~ .form-recovery-status,
+  .app-shell--form .form-recovery-status {
+    bottom: 8px;
+  }
+
+  .form-recovery-status button {
     grid-column: 1 / -1;
     width: 100%;
   }

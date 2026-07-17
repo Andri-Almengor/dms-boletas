@@ -1,51 +1,133 @@
 import { useEffect, useMemo, useRef, useState } from 'react';
+import { deleteDraft, loadDraft, saveDraft, saveDraftBackup } from '../services/draftStore';
 import { todayInCostaRica } from '../utils/costaRicaDate';
 
-const MAX_AGE_MS = 30 * 24 * 60 * 60 * 1000;
-function safeParse(value) { try { return JSON.parse(value); } catch { return null; } }
+function safeParse(value) {
+  try { return JSON.parse(value); } catch { return null; }
+}
 
 export default function useTicketDraft({ keySuffix, enabled, value, onRestore }) {
-  const storageKey = useMemo(() => `dms_boleta_draft_${keySuffix || 'new'}`, [keySuffix]);
+  const storageKey = useMemo(() => `ticket-state:${keySuffix || 'new'}`, [keySuffix]);
+  const legacyKey = useMemo(() => `dms_boleta_draft_${keySuffix || 'new'}`, [keySuffix]);
   const [status, setStatus] = useState('idle');
-  const restoredRef = useRef(false);
-  const initialValueRef = useRef(value);
+  const [readyKey, setReadyKey] = useState('');
+  const restoredKeyRef = useRef('');
+  const cancelledKeyRef = useRef('');
   const onRestoreRef = useRef(onRestore);
+  const valueRef = useRef(value);
+  const timerRef = useRef(0);
+  const saveChainRef = useRef(Promise.resolve());
   onRestoreRef.current = onRestore;
+  valueRef.current = value;
 
   useEffect(() => {
-    if (!enabled || restoredRef.current) return;
-    restoredRef.current = true;
-    const draft = safeParse(localStorage.getItem(storageKey));
+    if (!enabled || restoredKeyRef.current === storageKey) return undefined;
+    restoredKeyRef.current = storageKey;
+    cancelledKeyRef.current = '';
+    setReadyKey('');
+    let active = true;
 
-    if (!draft) {
-      const initialValue = initialValueRef.current;
-      const currentDate = String(initialValue?.form?.fecha || '');
-      const utcToday = new Date().toISOString().slice(0, 10);
-      const costaRicaToday = todayInCostaRica();
-      if ((keySuffix || 'new') === 'new' && (!currentDate || currentDate === utcToday) && currentDate !== costaRicaToday) {
-        onRestoreRef.current?.({ form: { ...(initialValue?.form || {}), fecha: costaRicaToday } });
+    const restore = async () => {
+      let draft = await loadDraft(storageKey).catch(() => null);
+      if (!draft) {
+        const legacy = safeParse(localStorage.getItem(legacyKey));
+        if (legacy?.value) {
+          draft = {
+            key: storageKey,
+            route: `legacy:${legacyKey}`,
+            data: { hookValue: legacy.value },
+            updatedAt: Number(legacy.savedAt || Date.now()),
+          };
+          await saveDraft(draft).catch(() => {});
+          try { localStorage.removeItem(legacyKey); } catch { /* Sin efecto. */ }
+        }
       }
-      return;
-    }
 
-    if (!draft.savedAt || Date.now() - draft.savedAt > MAX_AGE_MS) { localStorage.removeItem(storageKey); return; }
-    if (window.confirm('Se encontró un borrador guardado automáticamente. ¿Desea recuperarlo?')) { onRestoreRef.current?.(draft.value || {}); setStatus('restored'); }
-    else localStorage.removeItem(storageKey);
-  }, [enabled, storageKey, keySuffix]);
+      if (!active) return;
+      const restoredValue = draft?.data?.hookValue;
+      if (restoredValue) {
+        onRestoreRef.current?.(restoredValue);
+        setStatus('restored');
+        window.setTimeout(() => setStatus('local'), 3_500);
+      } else {
+        const currentDate = String(valueRef.current?.form?.fecha || '');
+        const utcToday = new Date().toISOString().slice(0, 10);
+        const costaRicaToday = todayInCostaRica();
+        if ((keySuffix || 'new') === 'new'
+          && (!currentDate || currentDate === utcToday)
+          && currentDate !== costaRicaToday) {
+          onRestoreRef.current?.({
+            form: { ...(valueRef.current?.form || {}), fecha: costaRicaToday },
+          });
+        }
+      }
+      setReadyKey(storageKey);
+    };
+
+    restore();
+    return () => { active = false; };
+  }, [enabled, keySuffix, legacyKey, storageKey]);
 
   useEffect(() => {
-    if (!enabled || !restoredRef.current) return undefined;
+    if (!enabled
+      || readyKey !== storageKey
+      || cancelledKeyRef.current === storageKey) return undefined;
+    const entry = {
+      key: storageKey,
+      route: `ticket-hook:${keySuffix || 'new'}`,
+      data: { hookValue: value },
+    };
+    saveDraftBackup(entry);
     setStatus('saving');
-    const timer = window.setTimeout(() => {
-      try { localStorage.setItem(storageKey, JSON.stringify({ savedAt: Date.now(), value })); setStatus('local'); }
-      catch { setStatus('error'); }
-    }, 700);
-    return () => window.clearTimeout(timer);
-  }, [enabled, storageKey, value]);
+    window.clearTimeout(timerRef.current);
+    timerRef.current = window.setTimeout(() => {
+      if (cancelledKeyRef.current === storageKey) return;
+      saveChainRef.current = saveChainRef.current
+        .catch(() => {})
+        .then(() => saveDraft(entry));
+      saveChainRef.current
+        .then(() => {
+          if (cancelledKeyRef.current === storageKey) return;
+          setStatus('local');
+          window.dispatchEvent(new CustomEvent('dms-offline-editing-complete', {
+            detail: { source: 'ticket-draft', key: storageKey },
+          }));
+        })
+        .catch(() => setStatus('error'));
+    }, 250);
+    return () => window.clearTimeout(timerRef.current);
+  }, [enabled, keySuffix, readyKey, storageKey, value]);
+
+  useEffect(() => {
+    if (!enabled || readyKey !== storageKey) return undefined;
+    const flush = () => {
+      if (cancelledKeyRef.current === storageKey) return;
+      saveDraftBackup({
+        key: storageKey,
+        route: `ticket-hook:${keySuffix || 'new'}`,
+        data: { hookValue: valueRef.current },
+      });
+    };
+    window.addEventListener('pagehide', flush);
+    window.addEventListener('beforeunload', flush);
+    return () => {
+      window.removeEventListener('pagehide', flush);
+      window.removeEventListener('beforeunload', flush);
+    };
+  }, [enabled, keySuffix, readyKey, storageKey]);
 
   return {
     status,
-    clearDraft: () => { localStorage.removeItem(storageKey); setStatus('idle'); },
+    clearDraft: () => {
+      cancelledKeyRef.current = storageKey;
+      window.clearTimeout(timerRef.current);
+      saveChainRef.current
+        .catch(() => {})
+        .then(() => deleteDraft(storageKey))
+        .catch(() => {});
+      try { localStorage.removeItem(legacyKey); } catch { /* Sin efecto. */ }
+      setStatus('idle');
+    },
     markServerSaved: () => setStatus('server'),
     storageKey,
   };
