@@ -2,7 +2,9 @@ import React, { useEffect, useMemo, useState } from 'react';
 import { Link, useNavigate, useParams } from 'react-router-dom';
 import { useAuth } from '../../AuthContext';
 import Icon from '../../components/common/Icon';
+import DependentSelect from '../../components/forms/DependentSelect';
 import EvidenceUploader from '../../components/forms/EvidenceUploader';
+import InlineCreateModal from '../../components/forms/InlineCreateModal';
 import TechnicianMultiSelect from '../../components/forms/TechnicianMultiSelect';
 import SignaturePad from '../../components/tickets/SignaturePad';
 import TechnicalWritingAssistant from '../../components/tickets/TechnicalWritingAssistant';
@@ -12,6 +14,7 @@ import {
   normalizeItems,
   pick,
   requestAvailable,
+  toBoolean,
 } from '../../services/moduleApi';
 import { todayInCostaRica } from '../../utils/costaRicaDate';
 import { formatCeilingTotalHours } from '../../utils/ticketHours';
@@ -114,6 +117,7 @@ function buildInitialForm(bundle, catalogs = {}) {
     fabricante: manufacturer.label,
     modeloId: model.id,
     modelo: model.label,
+    serie: pick(row, ['Serie']),
     razonVisita: '',
     pruebasRealizadas: '',
     resultado: '',
@@ -134,18 +138,6 @@ function Field({ label, multiline = false, hint = '', ...props }) {
   );
 }
 
-function Select({ label, value, onChange, options, emptyLabel = 'Seleccione una opción' }) {
-  return (
-    <label className="field-group">
-      <span className="field-label">{label}</span>
-      <select className="form-control" value={value} onChange={onChange}>
-        <option value="">{emptyLabel}</option>
-        {options.map((option) => <option key={option.value} value={option.value}>{option.label}</option>)}
-      </select>
-    </label>
-  );
-}
-
 async function fileToBase64(file) {
   return new Promise((resolve, reject) => {
     const reader = new FileReader();
@@ -155,18 +147,47 @@ async function fileToBase64(file) {
   });
 }
 
+const MODAL_TITLES = {
+  location: 'Agregar ubicación',
+  equipment: 'Agregar ubicación del equipo',
+  failure: 'Agregar tipo de falla',
+  device: 'Agregar tipo de dispositivo',
+  manufacturer: 'Agregar fabricante',
+  model: 'Agregar modelo',
+};
+
 export default function TicketRelatedVisitPage() {
   const { boletaUid } = useParams();
   const navigate = useNavigate();
-  const { sessionToken } = useAuth();
+  const { sessionToken, hasPermission } = useAuth();
+  const manageCatalogs = hasPermission('CATALOGOS_GESTIONAR')
+    || hasPermission('BOLETAS_CREAR')
+    || hasPermission('BOLETAS_EDITAR');
+  const createOperational = hasPermission('CLIENTES_DATOS_OPERATIVOS_CREAR')
+    || hasPermission('CLIENTES_EDITAR')
+    || hasPermission('BOLETAS_CREAR')
+    || hasPermission('BOLETAS_EDITAR');
+
   const [parentBundle, setParentBundle] = useState(null);
   const [form, setForm] = useState(null);
-  const [catalogs, setCatalogs] = useState({ failures: [], devices: [], manufacturers: [], models: [], users: [] });
+  const [catalogs, setCatalogs] = useState({
+    failures: [],
+    devices: [],
+    manufacturers: [],
+    models: [],
+    relations: [],
+    users: [],
+  });
+  const [locations, setLocations] = useState([]);
+  const [equipmentLocations, setEquipmentLocations] = useState([]);
   const [signature, setSignature] = useState('');
   const [evidences, setEvidences] = useState([]);
   const [loading, setLoading] = useState(true);
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState('');
+  const [modal, setModal] = useState(null);
+  const [modalError, setModalError] = useState('');
+  const [modalSaving, setModalSaving] = useState(false);
 
   useEffect(() => {
     let active = true;
@@ -179,15 +200,18 @@ export default function TicketRelatedVisitPage() {
         requestAvailable(MODULE_ROUTES.deviceTypes.list, { page: 1, pageSize: 1000, activo: true }, sessionToken),
         requestAvailable(MODULE_ROUTES.manufacturers.list, { page: 1, pageSize: 1000, activo: true }, sessionToken),
         requestAvailable(MODULE_ROUTES.models.list, { page: 1, pageSize: 1500, activo: true }, sessionToken),
+        requestAvailable(MODULE_ROUTES.deviceManufacturers.list, { page: 1, pageSize: 1500, activo: true }, sessionToken),
         requestAvailable(MODULE_ROUTES.users.list, { page: 1, pageSize: 1000 }, sessionToken),
       ]),
     ]).then(([bundle, results]) => {
       if (!active) return;
-      const keys = ['failures', 'devices', 'manufacturers', 'models', 'users'];
+      const keys = ['failures', 'devices', 'manufacturers', 'models', 'relations', 'users'];
       const nextCatalogs = {};
       results.forEach((result, index) => {
         nextCatalogs[keys[index]] = result.status === 'fulfilled' ? normalizeItems(result.value) : [];
       });
+      nextCatalogs.users = (nextCatalogs.users || [])
+        .filter((item) => String(pick(item, ['Estado'], 'ACTIVO')).toUpperCase() === 'ACTIVO');
       setCatalogs(nextCatalogs);
       setParentBundle(bundle);
       setForm(buildInitialForm(bundle, nextCatalogs));
@@ -199,6 +223,36 @@ export default function TicketRelatedVisitPage() {
     return () => { active = false; };
   }, [boletaUid, sessionToken]);
 
+  const parentClientId = text(pick(ticketRecord(parentBundle), ['ClienteID']));
+
+  useEffect(() => {
+    if (!parentClientId) {
+      setLocations([]);
+      return;
+    }
+    requestAvailable(
+      MODULE_ROUTES.clients.locationsList,
+      { clienteId: parentClientId, activo: true, pageSize: 1000 },
+      sessionToken,
+    )
+      .then((data) => setLocations(normalizeItems(data)))
+      .catch((loadError) => setError(loadError.message));
+  }, [parentClientId, sessionToken]);
+
+  useEffect(() => {
+    if (!form?.ubicacionId) {
+      setEquipmentLocations([]);
+      return;
+    }
+    requestAvailable(
+      MODULE_ROUTES.clients.equipmentLocationsList,
+      { ubicacionId: form.ubicacionId, activo: true, pageSize: 1000 },
+      sessionToken,
+    )
+      .then((data) => setEquipmentLocations(normalizeItems(data)))
+      .catch((loadError) => setError(loadError.message));
+  }, [form?.ubicacionId, sessionToken]);
+
   useEffect(() => {
     if (!form) return;
     const total = formatCeilingTotalHours(form.horaInicio, form.horaFinal);
@@ -207,29 +261,44 @@ export default function TicketRelatedVisitPage() {
     }
   }, [form?.horaInicio, form?.horaFinal]);
 
-  const options = useMemo(() => ({
-    failures: optionRows(catalogs.failures, ['TipoFallaID', 'id'], ['Nombre']),
-    devices: optionRows(catalogs.devices, ['TipoDispositivoID', 'id'], ['Nombre']),
-    manufacturers: optionRows(catalogs.manufacturers, ['FabricanteID', 'id'], ['Nombre']),
-    models: optionRows(
-      catalogs.models.filter((item) => (
-        (!form?.tipoDispositivoId || text(item.TipoDispositivoID) === text(form.tipoDispositivoId))
-        && (!form?.fabricanteId || text(item.FabricanteID) === text(form.fabricanteId))
-      )),
-      ['ModeloID', 'id'],
-      ['Nombre'],
-    ),
-    technicians: catalogs.users.map((item) => {
-      const label = pick(item, ['NombreCompleto', 'Nombre']);
-      const parts = String(label || '').split(/\s+/);
-      return {
-        value: text(pick(item, ['UsuarioID', 'id'])),
-        label,
-        note: pick(item, ['Correo', 'NombreUsuario']),
-        initials: `${parts[0]?.[0] || ''}${parts[1]?.[0] || ''}`.toUpperCase(),
-      };
-    }).filter((item) => item.value && item.label),
-  }), [catalogs, form?.tipoDispositivoId, form?.fabricanteId]);
+  const options = useMemo(() => {
+    const relationIds = catalogs.relations
+      .filter((item) => (
+        text(pick(item, ['TipoDispositivoID'])) === text(form?.tipoDispositivoId)
+        && toBoolean(pick(item, ['Activo'], true), true)
+      ))
+      .map((item) => text(pick(item, ['FabricanteID'])));
+
+    const manufacturerRows = relationIds.length
+      ? catalogs.manufacturers.filter((item) => relationIds.includes(text(pick(item, ['FabricanteID']))))
+      : catalogs.manufacturers;
+
+    return {
+      failures: optionRows(catalogs.failures, ['TipoFallaID', 'id'], ['Nombre']),
+      devices: optionRows(catalogs.devices, ['TipoDispositivoID', 'id'], ['Nombre']),
+      locations: optionRows(locations, ['UbicacionID', 'id'], ['Nombre']),
+      equipment: optionRows(equipmentLocations, ['UbicacionEquipoID', 'id'], ['Nombre']),
+      manufacturers: optionRows(manufacturerRows, ['FabricanteID', 'id'], ['Nombre']),
+      models: optionRows(
+        catalogs.models.filter((item) => (
+          (!form?.tipoDispositivoId || text(item.TipoDispositivoID) === text(form.tipoDispositivoId))
+          && (!form?.fabricanteId || text(item.FabricanteID) === text(form.fabricanteId))
+        )),
+        ['ModeloID', 'id'],
+        ['Nombre'],
+      ),
+      technicians: catalogs.users.map((item) => {
+        const label = pick(item, ['NombreCompleto', 'Nombre']);
+        const parts = String(label || '').split(/\s+/);
+        return {
+          value: text(pick(item, ['UsuarioID', 'id'])),
+          label,
+          note: pick(item, ['Correo', 'NombreUsuario']),
+          initials: `${parts[0]?.[0] || ''}${parts[1]?.[0] || ''}`.toUpperCase(),
+        };
+      }).filter((item) => item.value && item.label),
+    };
+  }, [catalogs, equipmentLocations, form?.tipoDispositivoId, form?.fabricanteId, locations]);
 
   function update(event) {
     const { name, value } = event.target;
@@ -244,6 +313,158 @@ export default function TicketRelatedVisitPage() {
       [labelField]: selected?.label || '',
       ...reset,
     }));
+  }
+
+  function openModal(type) {
+    setModal({
+      type,
+      values: {
+        nombre: '',
+        descripcion: '',
+        direccion: '',
+        notas: '',
+        imagenReferenciaURL: '',
+      },
+    });
+    setModalError('');
+  }
+
+  function modalUpdate(event) {
+    const { name, value } = event.target;
+    setModal((current) => ({
+      ...current,
+      values: { ...current.values, [name]: value },
+    }));
+  }
+
+  async function submitModal(event) {
+    event.preventDefault();
+    if (!modal?.values?.nombre?.trim()) {
+      setModalError('El nombre es obligatorio.');
+      return;
+    }
+
+    const { type, values } = modal;
+    setModalSaving(true);
+    setModalError('');
+    try {
+      let result;
+      if (type === 'location') {
+        result = await requestAvailable(MODULE_ROUTES.clients.locationsCreate, {
+          clienteId: parentClientId,
+          nombre: values.nombre,
+          direccion: values.direccion,
+          notas: values.notas,
+          activo: true,
+        }, sessionToken);
+        setLocations((current) => [...current, result]);
+        setForm((current) => ({
+          ...current,
+          ubicacionId: text(pick(result, ['UbicacionID', 'id'])),
+          ubicacion: pick(result, ['Nombre'], values.nombre),
+          ubicacionEquipoId: '',
+          ubicacionEquipo: '',
+        }));
+      }
+
+      if (type === 'equipment') {
+        result = await requestAvailable(MODULE_ROUTES.clients.equipmentLocationsCreate, {
+          ubicacionId: form.ubicacionId,
+          nombre: values.nombre,
+          descripcion: values.descripcion,
+          activo: true,
+        }, sessionToken);
+        setEquipmentLocations((current) => [...current, result]);
+        setForm((current) => ({
+          ...current,
+          ubicacionEquipoId: text(pick(result, ['UbicacionEquipoID', 'id'])),
+          ubicacionEquipo: pick(result, ['Nombre'], values.nombre),
+        }));
+      }
+
+      if (type === 'failure') {
+        result = await requestAvailable(MODULE_ROUTES.failureTypes.create, {
+          nombre: values.nombre,
+          descripcion: values.descripcion,
+          activo: true,
+        }, sessionToken);
+        setCatalogs((current) => ({ ...current, failures: [...current.failures, result] }));
+        setForm((current) => ({
+          ...current,
+          tipoFallaId: text(pick(result, ['TipoFallaID', 'id'])),
+          tipoFalla: pick(result, ['Nombre'], values.nombre),
+        }));
+      }
+
+      if (type === 'device') {
+        result = await requestAvailable(MODULE_ROUTES.deviceTypes.create, {
+          nombre: values.nombre,
+          descripcion: values.descripcion,
+          activo: true,
+        }, sessionToken);
+        setCatalogs((current) => ({ ...current, devices: [...current.devices, result] }));
+        setForm((current) => ({
+          ...current,
+          tipoDispositivoId: text(pick(result, ['TipoDispositivoID', 'id'])),
+          tipoDispositivo: pick(result, ['Nombre'], values.nombre),
+          fabricanteId: '',
+          fabricante: '',
+          modeloId: '',
+          modelo: '',
+        }));
+      }
+
+      if (type === 'manufacturer') {
+        result = await requestAvailable(MODULE_ROUTES.manufacturers.create, {
+          nombre: values.nombre,
+          activo: true,
+        }, sessionToken);
+        const manufacturerId = text(pick(result, ['FabricanteID', 'id']));
+        await requestAvailable(MODULE_ROUTES.deviceManufacturers.create, {
+          tipoDispositivoId: form.tipoDispositivoId,
+          fabricanteId: manufacturerId,
+          activo: true,
+        }, sessionToken);
+        setCatalogs((current) => ({
+          ...current,
+          manufacturers: [...current.manufacturers, result],
+          relations: [
+            ...current.relations,
+            { TipoDispositivoID: form.tipoDispositivoId, FabricanteID: manufacturerId, Activo: true },
+          ],
+        }));
+        setForm((current) => ({
+          ...current,
+          fabricanteId: manufacturerId,
+          fabricante: pick(result, ['Nombre'], values.nombre),
+          modeloId: '',
+          modelo: '',
+        }));
+      }
+
+      if (type === 'model') {
+        result = await requestAvailable(MODULE_ROUTES.models.create, {
+          tipoDispositivoId: form.tipoDispositivoId,
+          fabricanteId: form.fabricanteId,
+          nombre: values.nombre,
+          descripcion: values.descripcion,
+          imagenReferenciaURL: values.imagenReferenciaURL,
+          activo: true,
+        }, sessionToken);
+        setCatalogs((current) => ({ ...current, models: [...current.models, result] }));
+        setForm((current) => ({
+          ...current,
+          modeloId: text(pick(result, ['ModeloID', 'id'])),
+          modelo: pick(result, ['Nombre'], values.nombre),
+        }));
+      }
+
+      setModal(null);
+    } catch (modalSaveError) {
+      setModalError(modalSaveError.message);
+    } finally {
+      setModalSaving(false);
+    }
   }
 
   function addEvidenceFiles(event) {
@@ -279,6 +500,10 @@ export default function TicketRelatedVisitPage() {
     event.preventDefault();
     if (!form.fecha || !form.razonVisita || !form.resultado || !form.asignados.length) {
       setError('Fecha, razón de visita, resultado y al menos un técnico son obligatorios.');
+      return;
+    }
+    if (!form.ubicacionId || !form.tipoDispositivoId || !form.nombreDispositivo.trim()) {
+      setError('Ubicación, tipo y nombre del dispositivo son obligatorios.');
       return;
     }
     setSaving(true);
@@ -351,7 +576,7 @@ export default function TicketRelatedVisitPage() {
         Modelo: form.modelo,
         modeloId: form.modeloId,
         modelo: form.modelo,
-        Serie: parent.Serie,
+        Serie: form.serie,
         RazonVisita: form.razonVisita,
         razonVisita: form.razonVisita,
         PruebasRealizadas: form.pruebasRealizadas,
@@ -415,7 +640,6 @@ export default function TicketRelatedVisitPage() {
     titulo: parent.Titulo,
     cliente: parent.Cliente,
     categoria: parent.Categoria,
-    serie: parent.Serie,
   };
 
   return (
@@ -426,12 +650,20 @@ export default function TicketRelatedVisitPage() {
       </header>
 
       {error && <div className="alert alert--error"><Icon name="error" /><span>{error}</span></div>}
-      <div className="info-box related-visit-inherited"><Icon name="link" /><p>Cliente, categoría, supervisor, correos y configuración general se copiarán automáticamente de la primera boleta. Después de guardar, esta visita también se puede editar con el formulario completo.</p></div>
+      <div className="info-box related-visit-inherited"><Icon name="link" /><p>Cliente, categoría, supervisor y correos se copiarán automáticamente de la primera boleta. La ubicación y los datos del dispositivo pueden seleccionarse o crearse igual que en una boleta normal.</p></div>
 
       <section className="detail-card">
         <div className="detail-card__heading"><span className="section-marker" /><h2>Fecha, horario y falla</h2></div>
         <div className="form-grid form-grid--two">
-          <Select label="Tipo de falla" value={form.tipoFallaId} options={options.failures} onChange={(event) => choose(event, options.failures, 'tipoFallaId', 'tipoFalla')} />
+          <DependentSelect
+            label="Tipo de falla"
+            name="tipoFallaId"
+            value={form.tipoFallaId}
+            options={options.failures}
+            canAdd={manageCatalogs}
+            onAdd={() => openModal('failure')}
+            onChange={(event) => choose(event, options.failures, 'tipoFallaId', 'tipoFalla')}
+          />
           <Field label="Fecha" name="fecha" type="date" value={form.fecha} onChange={update} required />
           <Field label="Hora inicio" name="horaInicio" type="time" value={form.horaInicio} onChange={update} required />
           <Field label="Hora final" name="horaFinal" type="time" value={form.horaFinal} onChange={update} required />
@@ -442,12 +674,70 @@ export default function TicketRelatedVisitPage() {
       <section className="detail-card">
         <div className="detail-card__heading"><span className="section-marker" /><h2>Ubicación y dispositivo</h2></div>
         <div className="form-grid form-grid--two">
-          <Field label="Ubicación" name="ubicacion" value={form.ubicacion} onChange={update} />
-          <Field label="Ubicación del equipo" name="ubicacionEquipo" value={form.ubicacionEquipo} onChange={update} />
-          <Field label="Nombre del dispositivo" name="nombreDispositivo" value={form.nombreDispositivo} onChange={update} />
-          <Select label="Tipo" value={form.tipoDispositivoId} options={options.devices} onChange={(event) => choose(event, options.devices, 'tipoDispositivoId', 'tipoDispositivo', { fabricanteId: '', fabricante: '', modeloId: '', modelo: '' })} />
-          <Select label="Fabricante" value={form.fabricanteId} options={options.manufacturers} onChange={(event) => choose(event, options.manufacturers, 'fabricanteId', 'fabricante', { modeloId: '', modelo: '' })} />
-          <Select label="Modelo" value={form.modeloId} options={options.models} onChange={(event) => choose(event, options.models, 'modeloId', 'modelo')} />
+          <DependentSelect
+            label="Ubicación"
+            name="ubicacionId"
+            value={form.ubicacionId}
+            options={options.locations}
+            required
+            disabled={!parentClientId}
+            canAdd={createOperational && Boolean(parentClientId)}
+            onAdd={() => openModal('location')}
+            onChange={(event) => choose(event, options.locations, 'ubicacionId', 'ubicacion', {
+              ubicacionEquipoId: '',
+              ubicacionEquipo: '',
+            })}
+          />
+          <DependentSelect
+            label="Ubicación del equipo"
+            name="ubicacionEquipoId"
+            value={form.ubicacionEquipoId}
+            options={options.equipment}
+            disabled={!form.ubicacionId}
+            canAdd={createOperational && Boolean(form.ubicacionId)}
+            onAdd={() => openModal('equipment')}
+            onChange={(event) => choose(event, options.equipment, 'ubicacionEquipoId', 'ubicacionEquipo')}
+          />
+          <Field label="Nombre del dispositivo" name="nombreDispositivo" value={form.nombreDispositivo} onChange={update} required />
+          <DependentSelect
+            label="Tipo de dispositivo"
+            name="tipoDispositivoId"
+            value={form.tipoDispositivoId}
+            options={options.devices}
+            required
+            canAdd={manageCatalogs}
+            onAdd={() => openModal('device')}
+            onChange={(event) => choose(event, options.devices, 'tipoDispositivoId', 'tipoDispositivo', {
+              fabricanteId: '',
+              fabricante: '',
+              modeloId: '',
+              modelo: '',
+            })}
+          />
+          <DependentSelect
+            label="Fabricante"
+            name="fabricanteId"
+            value={form.fabricanteId}
+            options={options.manufacturers}
+            disabled={!form.tipoDispositivoId}
+            canAdd={manageCatalogs && Boolean(form.tipoDispositivoId)}
+            onAdd={() => openModal('manufacturer')}
+            onChange={(event) => choose(event, options.manufacturers, 'fabricanteId', 'fabricante', {
+              modeloId: '',
+              modelo: '',
+            })}
+          />
+          <DependentSelect
+            label="Modelo"
+            name="modeloId"
+            value={form.modeloId}
+            options={options.models}
+            disabled={!form.tipoDispositivoId || !form.fabricanteId}
+            canAdd={manageCatalogs && Boolean(form.fabricanteId)}
+            onAdd={() => openModal('model')}
+            onChange={(event) => choose(event, options.models, 'modeloId', 'modelo')}
+          />
+          <Field label="Serie" name="serie" value={form.serie} onChange={update} />
         </div>
       </section>
 
@@ -494,6 +784,30 @@ export default function TicketRelatedVisitPage() {
         <Link className="button button--secondary" to={`/boletas/${encodeURIComponent(boletaUid)}`}>Cancelar</Link>
         <button className="button button--primary" type="submit" disabled={saving}><Icon name={saving ? 'progress_activity' : 'add_circle'} />{saving ? 'Guardando visita...' : 'Guardar visita relacionada'}</button>
       </div>
+
+      <InlineCreateModal
+        open={Boolean(modal)}
+        title={MODAL_TITLES[modal?.type] || 'Agregar registro'}
+        description="El registro quedará disponible para esta visita y para futuras boletas."
+        saving={modalSaving}
+        error={modalError}
+        onClose={() => setModal(null)}
+        onSubmit={submitModal}
+      >
+        {modal && <>
+          <Field label="Nombre" name="nombre" value={modal.values.nombre} onChange={modalUpdate} required />
+          {modal.type === 'location' && <>
+            <Field label="Dirección" name="direccion" value={modal.values.direccion} onChange={modalUpdate} />
+            <Field label="Notas" multiline name="notas" value={modal.values.notas} onChange={modalUpdate} />
+          </>}
+          {['equipment', 'failure', 'device', 'model'].includes(modal.type) && (
+            <Field label="Descripción" multiline name="descripcion" value={modal.values.descripcion} onChange={modalUpdate} />
+          )}
+          {modal.type === 'model' && (
+            <Field label="Imagen de referencia (URL)" name="imagenReferenciaURL" value={modal.values.imagenReferenciaURL} onChange={modalUpdate} />
+          )}
+        </>}
+      </InlineCreateModal>
     </form>
   );
 }
