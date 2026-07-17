@@ -10,7 +10,9 @@ export default function useTicketDraft({ keySuffix, enabled, value, onRestore })
   const storageKey = useMemo(() => `ticket-state:${keySuffix || 'new'}`, [keySuffix]);
   const legacyKey = useMemo(() => `dms_boleta_draft_${keySuffix || 'new'}`, [keySuffix]);
   const [status, setStatus] = useState('idle');
+  const [readyKey, setReadyKey] = useState('');
   const restoredKeyRef = useRef('');
+  const cancelledKeyRef = useRef('');
   const onRestoreRef = useRef(onRestore);
   const valueRef = useRef(value);
   const timerRef = useRef(0);
@@ -21,6 +23,8 @@ export default function useTicketDraft({ keySuffix, enabled, value, onRestore })
   useEffect(() => {
     if (!enabled || restoredKeyRef.current === storageKey) return undefined;
     restoredKeyRef.current = storageKey;
+    cancelledKeyRef.current = '';
+    setReadyKey('');
     let active = true;
 
     const restore = async () => {
@@ -45,19 +49,19 @@ export default function useTicketDraft({ keySuffix, enabled, value, onRestore })
         onRestoreRef.current?.(restoredValue);
         setStatus('restored');
         window.setTimeout(() => setStatus('local'), 3_500);
-        return;
+      } else {
+        const currentDate = String(valueRef.current?.form?.fecha || '');
+        const utcToday = new Date().toISOString().slice(0, 10);
+        const costaRicaToday = todayInCostaRica();
+        if ((keySuffix || 'new') === 'new'
+          && (!currentDate || currentDate === utcToday)
+          && currentDate !== costaRicaToday) {
+          onRestoreRef.current?.({
+            form: { ...(valueRef.current?.form || {}), fecha: costaRicaToday },
+          });
+        }
       }
-
-      const currentDate = String(valueRef.current?.form?.fecha || '');
-      const utcToday = new Date().toISOString().slice(0, 10);
-      const costaRicaToday = todayInCostaRica();
-      if ((keySuffix || 'new') === 'new'
-        && (!currentDate || currentDate === utcToday)
-        && currentDate !== costaRicaToday) {
-        onRestoreRef.current?.({
-          form: { ...(valueRef.current?.form || {}), fecha: costaRicaToday },
-        });
-      }
+      setReadyKey(storageKey);
     };
 
     restore();
@@ -65,7 +69,9 @@ export default function useTicketDraft({ keySuffix, enabled, value, onRestore })
   }, [enabled, keySuffix, legacyKey, storageKey]);
 
   useEffect(() => {
-    if (!enabled || restoredKeyRef.current !== storageKey) return undefined;
+    if (!enabled
+      || readyKey !== storageKey
+      || cancelledKeyRef.current === storageKey) return undefined;
     const entry = {
       key: storageKey,
       route: `ticket-hook:${keySuffix || 'new'}`,
@@ -75,11 +81,13 @@ export default function useTicketDraft({ keySuffix, enabled, value, onRestore })
     setStatus('saving');
     window.clearTimeout(timerRef.current);
     timerRef.current = window.setTimeout(() => {
+      if (cancelledKeyRef.current === storageKey) return;
       saveChainRef.current = saveChainRef.current
         .catch(() => {})
         .then(() => saveDraft(entry));
       saveChainRef.current
         .then(() => {
+          if (cancelledKeyRef.current === storageKey) return;
           setStatus('local');
           window.dispatchEvent(new CustomEvent('dms-offline-editing-complete', {
             detail: { source: 'ticket-draft', key: storageKey },
@@ -88,11 +96,12 @@ export default function useTicketDraft({ keySuffix, enabled, value, onRestore })
         .catch(() => setStatus('error'));
     }, 250);
     return () => window.clearTimeout(timerRef.current);
-  }, [enabled, keySuffix, storageKey, value]);
+  }, [enabled, keySuffix, readyKey, storageKey, value]);
 
   useEffect(() => {
-    if (!enabled) return undefined;
+    if (!enabled || readyKey !== storageKey) return undefined;
     const flush = () => {
+      if (cancelledKeyRef.current === storageKey) return;
       saveDraftBackup({
         key: storageKey,
         route: `ticket-hook:${keySuffix || 'new'}`,
@@ -105,13 +114,17 @@ export default function useTicketDraft({ keySuffix, enabled, value, onRestore })
       window.removeEventListener('pagehide', flush);
       window.removeEventListener('beforeunload', flush);
     };
-  }, [enabled, keySuffix, storageKey]);
+  }, [enabled, keySuffix, readyKey, storageKey]);
 
   return {
     status,
     clearDraft: () => {
+      cancelledKeyRef.current = storageKey;
       window.clearTimeout(timerRef.current);
-      deleteDraft(storageKey).catch(() => {});
+      saveChainRef.current
+        .catch(() => {})
+        .then(() => deleteDraft(storageKey))
+        .catch(() => {});
       try { localStorage.removeItem(legacyKey); } catch { /* Sin efecto. */ }
       setStatus('idle');
     },
