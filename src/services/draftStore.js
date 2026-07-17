@@ -75,7 +75,9 @@ function scalarBackup(entry) {
   return {
     key: entry.key,
     route: entry.route,
-    updatedAt: entry.updatedAt,
+    userScope: entry.userScope,
+    createdAt: Number(entry.createdAt || Date.now()),
+    updatedAt: Number(entry.updatedAt || Date.now()),
     data: {
       fields,
       choices: entry?.data?.choices || {},
@@ -103,6 +105,23 @@ function readBackup(key) {
   }
 }
 
+function mergeDraftSources(indexedEntry, backupEntry) {
+  if (!indexedEntry) return backupEntry;
+  if (!backupEntry || Number(indexedEntry.updatedAt || 0) >= Number(backupEntry.updatedAt || 0)) return indexedEntry;
+  return {
+    ...indexedEntry,
+    ...backupEntry,
+    data: {
+      ...(indexedEntry.data || {}),
+      ...(backupEntry.data || {}),
+      fields: backupEntry.data?.fields || indexedEntry.data?.fields || {},
+      choices: backupEntry.data?.choices || indexedEntry.data?.choices || {},
+      files: indexedEntry.data?.files || {},
+      signature: backupEntry.data?.signature || indexedEntry.data?.signature || '',
+    },
+  };
+}
+
 export async function requestPersistentStorage() {
   if (!navigator.storage?.persist) return false;
   try {
@@ -113,32 +132,38 @@ export async function requestPersistentStorage() {
   }
 }
 
-export async function saveDraft(entry) {
-  if (!entry?.key) throw new Error('El borrador no tiene una clave válida.');
+export function saveDraftBackup(entry) {
+  if (!entry?.key) return null;
   const next = {
     version: 1,
     createdAt: Number(entry.createdAt || Date.now()),
     ...entry,
     updatedAt: Date.now(),
   };
-  await transaction('readwrite', (store) => store.put(next));
   writeBackup(next);
+  return next;
+}
+
+export async function saveDraft(entry) {
+  if (!entry?.key) throw new Error('El borrador no tiene una clave válida.');
+  const next = saveDraftBackup(entry);
+  await transaction('readwrite', (store) => store.put(next));
   return next;
 }
 
 export async function loadDraft(key) {
   if (!key) return null;
   const db = await openDatabase();
-  let entry = null;
+  let indexedEntry = null;
   if (db) {
-    entry = await new Promise((resolve, reject) => {
+    indexedEntry = await new Promise((resolve, reject) => {
       const tx = db.transaction(DRAFT_STORE, 'readonly');
       const request = tx.objectStore(DRAFT_STORE).get(key);
       request.onsuccess = () => resolve(request.result || null);
       request.onerror = () => reject(request.error || new Error('No fue posible leer el borrador.'));
     });
   }
-  if (!entry) entry = readBackup(key);
+  const entry = mergeDraftSources(indexedEntry, readBackup(key));
   if (!entry) return null;
   if (Date.now() - Number(entry.updatedAt || 0) > MAX_DRAFT_AGE_MS) {
     await deleteDraft(key).catch(() => {});
