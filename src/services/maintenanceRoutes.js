@@ -1,5 +1,15 @@
 import { MODULE_ROUTES } from './moduleApi';
 
+const spreadsheetReportRoutes = [
+  'maintenance.report.spreadsheet',
+  'mantenimientos.reporte.excel',
+];
+
+const slidesReportRoutes = [
+  'maintenance.report.slides',
+  'mantenimientos.reporte.presentacion',
+];
+
 MODULE_ROUTES.maintenance = {
   list: ['maintenance.list', 'mantenimientos.list'],
   get: ['maintenance.get', 'mantenimientos.get'],
@@ -16,7 +26,11 @@ MODULE_ROUTES.maintenance = {
   imageUpdate: ['maintenance.images.update', 'mantenimientos.imagenes.update'],
   imageDelete: ['maintenance.images.delete', 'mantenimientos.imagenes.delete'],
   mediaGet: ['maintenance.media.get', 'mantenimientos.media.get'],
-  reportSpreadsheet: ['maintenance.report.spreadsheet', 'mantenimientos.reporte.excel'],
-  reportSlides: ['maintenance.report.slides', 'mantenimientos.reporte.presentacion'],
+  spreadsheetReport: spreadsheetReportRoutes,
+  slidesReport: slidesReportRoutes,
+  // Alias conservados para pantallas o instalaciones que todavía usan los
+  // nombres anteriores. Ambos apuntan a las mismas rutas del backend.
+  reportSpreadsheet: spreadsheetReportRoutes,
+  reportSlides: slidesReportRoutes,
   config: ['maintenance.config', 'mantenimientos.config'],
 };
