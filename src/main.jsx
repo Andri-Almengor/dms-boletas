@@ -3,6 +3,7 @@ import ReactDOM from 'react-dom/client';
 import { BrowserRouter } from 'react-router-dom';
 import { AuthProvider } from './AuthContext';
 import MobileTimePickerBridge from './components/forms/MobileTimePickerBridge';
+import TicketEvidenceMultiSelectBridge from './components/forms/TicketEvidenceMultiSelectBridge';
 import TicketHoursCeilingBridge from './components/forms/TicketHoursCeilingBridge';
 import './services/maintenanceRoutes';
 import './services/operationalRoutes';
@@ -36,6 +37,7 @@ ReactDOM.createRoot(document.getElementById('root')).render(
         <App />
         <MobileTimePickerBridge />
         <TicketHoursCeilingBridge />
+        <TicketEvidenceMultiSelectBridge />
       </AuthProvider>
     </BrowserRouter>
   </React.StrictMode>,
