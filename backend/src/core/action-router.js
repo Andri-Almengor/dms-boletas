@@ -119,7 +119,7 @@ for(const [key,names] of Object.entries(maintenanceAliases)) {
   if(['list','get','mediaGet','config'].includes(key)) permission=maintenanceReadPermissions;
   else if(key==='create') permission=maintenanceCreatePermissions;
   else if(key==='finalize') permission=maintenanceFinalizePermissions;
-  else if(key==='ticketGenerationTest') permission='USUARIOS_GESTIONAR';
+  else if(key==='ticketGenerationTest') permission=['USUARIOS_GESTIONAR','MANTENIMIENTOS_GESTIONAR','MANTENIMIENTOS_ELIMINAR'];
   add(names,maintenanceAutomationHandlers[key],permission);
 }
 
