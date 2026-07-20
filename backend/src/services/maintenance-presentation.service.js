@@ -1,4 +1,12 @@
 import { AppError } from '../core/errors.js';
+import { getConfig } from '../modules/config.module.js';
+
+const REPORT_FOLDER_KEYS = [
+  'MANTENIMIENTOS_REPORTS_FOLDER_ID',
+  'REPORTES_MANTENIMIENTOS_FOLDER_ID',
+  'REPORTES_FOLDER_ID',
+  'ROOT_FOLDER_ID',
+];
 
 function clean(value, fallback = '') {
   const text = String(value ?? '').trim();
@@ -7,6 +15,23 @@ function clean(value, fallback = '') {
 
 function active(value) {
   return value !== false && String(value ?? 'true').toLowerCase() !== 'false';
+}
+
+async function resolveBaseFolderId(provided) {
+  const direct = clean(provided);
+  if (direct) return direct;
+
+  const config = await getConfig();
+  for (const key of REPORT_FOLDER_KEYS) {
+    const value = clean(config?.[key]);
+    if (value) return value;
+  }
+
+  throw new AppError(
+    'MAINTENANCE_REPORT_FOLDER_MISSING',
+    'No hay una carpeta de Drive configurada para las presentaciones de mantenimiento.',
+    503,
+  );
 }
 
 function imagePayload(image = {}) {
@@ -142,11 +167,12 @@ export async function generateMaintenancePresentationWithAppsScript({
     );
   }
 
+  const resolvedFolderId = await resolveBaseFolderId(baseFolderId);
   const result = await postAppsScript(url, {
     action: 'maintenance.presentation.create',
     secret,
     idempotencyKey: `maintenance-presentation:${maintenanceId}:${Date.now()}`,
-    baseFolderId: clean(baseFolderId),
+    baseFolderId: resolvedFolderId,
     maintenance: {
       ...maintenance,
       MantenimientoID: maintenanceId,
@@ -179,5 +205,6 @@ export async function generateMaintenancePresentationWithAppsScript({
     ...result,
     slidesId,
     slidesUrl,
+    folderId: clean(result.folderId, resolvedFolderId),
   };
 }
