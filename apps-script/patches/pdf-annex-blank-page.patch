@@ -1,0 +1,138 @@
+--- Code.gs
++++ Code.gs
+@@ -1134,7 +1134,71 @@
+ }
+ 
+ /**
+- * Agrega firma y evidencias al documento.
++ * Indica si el documento realmente necesita una sección de anexos.
++ *
++ * La firma solo se considera anexo cuando existe y no pudo insertarse en el
++ * marcador de la plantilla. Si no hay firma pendiente de insertar ni
++ * evidencias, el PDF termina con la boleta y no agrega una página vacía.
++ */
++function hasAnnexContent_(
++  signatureBlob,
++  signatureInserted,
++  evidences,
++) {
++  return Boolean(
++    (signatureBlob && !signatureInserted)
++    || (Array.isArray(evidences) && evidences.length),
++  );
++}
++
++/**
++ * Elimina saltos de página y párrafos vacíos al final de la plantilla.
++ *
++ * Algunas versiones de la plantilla conservan un salto de página después de
++ * la tabla de firmas. Si se agrega otro salto sin limpiarlo, Google Docs
++ * genera una página completamente en blanco antes de los anexos.
++ */
++function removeTrailingPageArtifacts_(body) {
++  while (body.getNumChildren() > 0) {
++    const child = body.getChild(body.getNumChildren() - 1);
++    const type = child.getType();
++
++    if (type === DocumentApp.ElementType.PAGE_BREAK) {
++      child.removeFromParent();
++      continue;
++    }
++
++    if (
++      type === DocumentApp.ElementType.PARAGRAPH
++      || type === DocumentApp.ElementType.LIST_ITEM
++    ) {
++      const paragraph = type === DocumentApp.ElementType.PARAGRAPH
++        ? child.asParagraph()
++        : child.asListItem();
++      let containsPageBreak = false;
++
++      for (let index = 0; index < paragraph.getNumChildren(); index += 1) {
++        if (
++          paragraph.getChild(index).getType()
++          === DocumentApp.ElementType.PAGE_BREAK
++        ) {
++          containsPageBreak = true;
++          break;
++        }
++      }
++
++      if (containsPageBreak || !clean_(paragraph.getText())) {
++        child.removeFromParent();
++        continue;
++      }
++    }
++
++    break;
++  }
++}
++
++/**
++ * Agrega firma y evidencias al documento únicamente cuando existen.
+  */
+ function appendAnnexes_(
+   body,
+@@ -1142,37 +1206,46 @@
+   signatureInserted,
+   evidences,
+ ) {
++  const annexEvidences = Array.isArray(evidences)
++    ? evidences
++    : [];
++
++  if (!hasAnnexContent_(
++    signatureBlob,
++    signatureInserted,
++    annexEvidences,
++  )) {
++    removeTrailingPageArtifacts_(body);
++    return;
++  }
++
++  removeTrailingPageArtifacts_(body);
+   body.appendPageBreak();
+   body
+     .appendParagraph('ANEXOS')
+     .setHeading(DocumentApp.ParagraphHeading.HEADING1);
+ 
+-  if (!signatureInserted) {
++  if (signatureBlob && !signatureInserted) {
+     body
+       .appendParagraph('Firma del cliente')
+       .setHeading(DocumentApp.ParagraphHeading.HEADING2);
+ 
+-    if (signatureBlob) {
+-      const image = body
+-        .appendParagraph('')
+-        .appendInlineImage(signatureBlob);
+-
+-      resizeInlineImage_(image, 260);
+-    } else {
+-      body.appendParagraph('Sin firma registrada.');
+-    }
++    const image = body
++      .appendParagraph('')
++      .appendInlineImage(signatureBlob);
++
++    resizeInlineImage_(image, 260);
++  }
++
++  if (!annexEvidences.length) {
++    return;
+   }
+ 
+   body
+     .appendParagraph('Evidencias fotográficas')
+     .setHeading(DocumentApp.ParagraphHeading.HEADING2);
+ 
+-  if (!evidences.length) {
+-    body.appendParagraph('Sin evidencias asociadas.');
+-    return;
+-  }
+-
+-  evidences.forEach(function (evidence, index) {
++  annexEvidences.forEach(function (evidence, index) {
+     const name = clean_(
+       evidence.Nombre || evidence.NombreArchivo,
+       `Evidencia ${index + 1}`,
