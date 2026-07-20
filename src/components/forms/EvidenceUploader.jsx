@@ -21,14 +21,14 @@ export default function EvidenceUploader({ items, onAdd, onUpdate, onRemove, dis
       <div className="evidence-upload-actions">
         <label className="ticket-camera-button">
           <input type="file" accept="image/*" capture="environment" multiple onChange={onAdd} disabled={disabled} />
-          <Icon name="photo_camera" /><strong>Tomar Foto</strong><span>Usar cámara del dispositivo</span>
+          <Icon name="photo_camera" /><strong>Tomar foto</strong><span>Usar cámara del dispositivo</span>
         </label>
         <label className="ticket-file-button">
           <input type="file" accept="image/*,.pdf,.doc,.docx" multiple onChange={onAdd} disabled={disabled} />
-          <Icon name="upload_file" /><strong>Elegir archivo</strong><span>Galería o documento</span>
+          <Icon name="photo_library" /><strong>Elegir varios archivos</strong><span>Seleccione una o más imágenes</span>
         </label>
       </div>
-      <div className="info-box"><Icon name="info" /><p>Puede trabajar sin internet. Las evidencias quedan protegidas en este dispositivo y se enviarán al guardar y sincronizar la boleta.</p></div>
+      <div className="info-box"><Icon name="info" /><p>Puede seleccionar varias imágenes de la galería en una sola acción. Sin internet, las evidencias quedan protegidas en este dispositivo y se enviarán al guardar y sincronizar la boleta.</p></div>
       <div className="ticket-evidence-grid">
         {items.map((item, index) => (
           <article className="evidence-edit-card" key={item.localId || `${item.name}-${index}`}>
@@ -44,7 +44,7 @@ export default function EvidenceUploader({ items, onAdd, onUpdate, onRemove, dis
         ))}
         <label className="ticket-evidence-add">
           <input type="file" accept="image/*,.pdf,.doc,.docx" multiple onChange={onAdd} disabled={disabled} />
-          <Icon name="add_a_photo" /><span>Añadir otra</span>
+          <Icon name="add_a_photo" /><span>Añadir varias</span>
         </label>
       </div>
     </div>
