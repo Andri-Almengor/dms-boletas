@@ -12,6 +12,6 @@ export const TABLES = Object.freeze({
 });
 
 export const DATE_FIELDS = new Set([
-  'Fecha','FechaFinalizacion','FechaCreacion','FechaActualizacion','FechaInicio','FechaExpiracion','FechaRevocacion','FechaEnvio','FechaRespuesta','FinalizadaEn','UltimoAcceso','BloqueadoHasta','FechaFirma','FirmaFecha'
+  'Fecha','FechaTrabajo','FechaFinalizacion','FechaCreacion','FechaActualizacion','FechaInicio','FechaExpiracion','FechaRevocacion','FechaEnvio','FechaRespuesta','FinalizadaEn','UltimoAcceso','BloqueadoHasta','FechaFirma','FirmaFecha'
 ]);
 export const TIME_FIELDS = new Set(['HoraInicio','HoraFinal']);
