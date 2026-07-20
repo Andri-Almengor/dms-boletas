@@ -19,6 +19,10 @@ const RESPONSE_SCHEMA = {
 const TRANSIENT_STATUSES = new Set([408, 429, 500, 502, 503, 504]);
 const DEFAULT_FALLBACK_MODELS = ['gemini-3.1-flash-lite', 'gemini-2.5-flash-lite'];
 const CLIENT_CHAT_SUMMARY_MODE = 'CLIENT_CHAT_SUMMARY';
+const DEFAULT_QUOTA_COOLDOWN_MS = 60_000;
+const MAX_QUOTA_COOLDOWN_MS = 5 * 60_000;
+const modelQuotaCooldowns = new Map();
+const announcedFallbackModels = new Set();
 
 function clean(value, maxLength = 8000) {
   return String(value ?? '').trim().slice(0, maxLength);
@@ -164,6 +168,40 @@ function retryDelay(attempt, response) {
   return Math.min(base + jitter, 8_000);
 }
 
+function retryAfterMilliseconds(response, message = '') {
+  const headerSeconds = Number(response?.headers?.get?.('retry-after'));
+  if (Number.isFinite(headerSeconds) && headerSeconds > 0) {
+    return Math.min(Math.ceil(headerSeconds * 1000), MAX_QUOTA_COOLDOWN_MS);
+  }
+
+  const match = String(message || '').match(/retry in\s+([\d.]+)s/i);
+  const messageSeconds = Number(match?.[1]);
+  if (Number.isFinite(messageSeconds) && messageSeconds > 0) {
+    return Math.min(Math.ceil(messageSeconds * 1000), MAX_QUOTA_COOLDOWN_MS);
+  }
+
+  return DEFAULT_QUOTA_COOLDOWN_MS;
+}
+
+function quotaCooldownRemaining(model) {
+  const remaining = Number(modelQuotaCooldowns.get(model) || 0) - Date.now();
+  if (remaining <= 0) {
+    modelQuotaCooldowns.delete(model);
+    return 0;
+  }
+  return remaining;
+}
+
+function setQuotaCooldown(model, milliseconds) {
+  const duration = positiveInteger(
+    milliseconds,
+    DEFAULT_QUOTA_COOLDOWN_MS,
+    1000,
+    MAX_QUOTA_COOLDOWN_MS,
+  );
+  modelQuotaCooldowns.set(model, Date.now() + duration);
+}
+
 async function requestModel({ apiKey, model, prompt, retries }) {
   const timeoutMs = positiveInteger(process.env.GEMINI_TIMEOUT_MS, 30_000, 10_000, 90_000);
   let lastFailure = null;
@@ -213,14 +251,17 @@ async function requestModel({ apiKey, model, prompt, retries }) {
 
     if (response) {
       const status = response.status;
+      const message = data?.error?.message || `Gemini rechazó la solicitud (${status}).`;
       lastFailure = {
         status,
         code: status === 429 ? 'GEMINI_QUOTA_EXCEEDED' : 'GEMINI_REQUEST_FAILED',
-        message: data?.error?.message || `Gemini rechazó la solicitud (${status}).`,
+        message,
         transient: TRANSIENT_STATUSES.has(status),
+        retryAfterMs: status === 429 ? retryAfterMilliseconds(response, message) : 0,
       };
     }
 
+    if (lastFailure?.status === 429) break;
     if (!lastFailure?.transient || attempt >= retries) break;
     await sleep(retryDelay(attempt, response));
   }
@@ -289,6 +330,7 @@ export async function rewriteTechnicalReport(payload = {}) {
 
   for (let index = 0; index < models.length; index += 1) {
     const model = models[index];
+    if (quotaCooldownRemaining(model) > 0) continue;
     attemptedModels.push(model);
     const result = await requestModel({
       apiKey,
@@ -298,7 +340,10 @@ export async function rewriteTechnicalReport(payload = {}) {
     });
 
     if (result.data) {
-      if (index > 0) console.warn(`[gemini] Se utilizó el modelo alternativo ${model}.`);
+      if (index > 0 && !announcedFallbackModels.has(model)) {
+        announcedFallbackModels.add(model);
+        console.warn(`[gemini] Se utilizó el modelo alternativo ${model}.`);
+      }
       const parsed = parseJson(extractInteractionText(result.data));
       const improved = Object.fromEntries(REPORT_FIELD_KEYS.map((key) => [
         key,
@@ -312,8 +357,24 @@ export async function rewriteTechnicalReport(payload = {}) {
     }
 
     lastFailure = result.error;
-    console.warn(`[gemini] ${model} no respondió correctamente: ${lastFailure?.status || 'sin estado'} ${lastFailure?.message || ''}`);
+    if (lastFailure?.status === 429) {
+      setQuotaCooldown(model, lastFailure.retryAfterMs);
+      console.warn(`[gemini] ${model} alcanzó su cuota. Se omitirá temporalmente y se usará un modelo alternativo.`);
+    } else {
+      console.warn(`[gemini] ${model} no respondió correctamente: ${lastFailure?.status || 'sin estado'} ${lastFailure?.message || ''}`);
+    }
     if (!lastFailure?.transient) break;
+  }
+
+  if (!attemptedModels.length) {
+    const remaining = models.map(quotaCooldownRemaining).filter((value) => value > 0);
+    const retryInSeconds = Math.max(1, Math.ceil(Math.min(...remaining) / 1000));
+    throw new AppError(
+      'GEMINI_QUOTA_COOLDOWN',
+      `Los modelos de Gemini alcanzaron su cuota temporal. Vuelva a intentarlo en aproximadamente ${retryInSeconds} segundos.`,
+      429,
+      { attemptedModels, models, retryInSeconds },
+    );
   }
 
   throw finalGeminiError(lastFailure, attemptedModels);

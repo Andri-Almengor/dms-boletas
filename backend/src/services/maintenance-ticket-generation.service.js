@@ -534,7 +534,9 @@ function testWebhook(config = {}) {
     config.CHAT_WEBHOOK_PRUEBAS,
     config.CHAT_TEST_MODE,
   ];
-  return candidates.map(clean).find((value) => value.startsWith('https://chat.googleapis.com/')) || '';
+  return candidates
+    .map((value) => clean(value))
+    .find((value) => value.startsWith('https://chat.googleapis.com/')) || '';
 }
 
 function previewText(maintenance, previews) {
