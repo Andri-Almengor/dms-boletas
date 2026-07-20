@@ -8,6 +8,7 @@ import {
   MAINTENANCE_TICKET_COLUMNS,
 } from '../services/maintenance-ticket-generation.service.js';
 import { previewMaintenanceTicketsWithDocuments } from '../services/maintenance-ticket-preview-report.service.js';
+import { generateMaintenancePresentationWithAppsScript } from '../services/maintenance-presentation.service.js';
 import { ensureSheetColumns } from '../services/sheet-columns.service.js';
 
 const DEVICE_WORK_COLUMNS = ['FechaTrabajo', 'TecnicoIDsJSON', 'Tecnicos'];
@@ -156,6 +157,37 @@ async function ticketGenerationTest(ctx) {
   return previewMaintenanceTicketsWithDocuments(ctx, maintenanceId);
 }
 
+async function slidesReport(ctx) {
+  if (!isAdmin(ctx)) throw forbidden('Solo los administradores pueden crear presentaciones de mantenimiento.');
+
+  const maintenanceId = clean(pick(ctx.payload, ['maintenanceId', 'MantenimientoID', 'id']));
+  if (!maintenanceId) throw badRequest('No se indicó el mantenimiento para crear la presentación.');
+
+  const data = await maintenanceHandlers.get({
+    ...ctx,
+    payload: { maintenanceId },
+  });
+
+  const result = await generateMaintenancePresentationWithAppsScript({
+    maintenance: data.mantenimiento,
+    devices: data.dispositivos || [],
+    baseFolderId: pick(ctx.payload, ['baseFolderId', 'folderId']),
+    actor: ctx.user,
+  });
+
+  await updateRow('Mantenimiento', maintenanceId, {
+    SlidesID: result.slidesId,
+    SlidesURL: result.slidesUrl,
+    ActualizadoPor: ctx.user.UsuarioID,
+    FechaActualizacion: nowIso(),
+  });
+
+  return {
+    ...result,
+    message: `Presentación creada con ${result.slideCount || 0} diapositivas y ${result.imageCount || 0} imágenes.`,
+  };
+}
+
 export const maintenanceAutomationHandlers = {
   ...maintenanceHandlers,
   ...maintenanceReportAccessHandlers,
@@ -164,4 +196,5 @@ export const maintenanceAutomationHandlers = {
   deviceAutosave,
   finalize,
   ticketGenerationTest,
+  slidesReport,
 };
