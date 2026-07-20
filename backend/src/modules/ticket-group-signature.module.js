@@ -20,6 +20,14 @@ function clean(value) {
   return String(value ?? '').trim();
 }
 
+function reasonForVisit(ticket = {}) {
+  return clean(ticket.RazonVisita || ticket.Razon_visita);
+}
+
+function testsPerformed(ticket = {}) {
+  return clean(ticket.PruebasRealizadas);
+}
+
 function visitView(ticket = {}) {
   return {
     uid: clean(ticket.BoletaUID),
@@ -28,6 +36,8 @@ function visitView(ticket = {}) {
     title: clean(ticket.Titulo, 'Boleta de servicio'),
     date: ticket.Fecha || '',
     location: [ticket.Ubicacion, ticket.UbicacionEquipo].filter(Boolean).join(' · '),
+    reasonForVisit: reasonForVisit(ticket),
+    testsPerformed: testsPerformed(ticket),
     result: ticket.Resultado || '',
     signed: ticketHasStoredSignature(ticket),
   };
@@ -43,6 +53,8 @@ function publicTicketView(group) {
     date: ticket.Fecha || '',
     location: [ticket.Ubicacion, ticket.UbicacionEquipo].filter(Boolean).join(' · '),
     supervisor: ticket.Supervisor || '',
+    reasonForVisit: reasonForVisit(ticket),
+    testsPerformed: testsPerformed(ticket),
     signed: group.visits.every(ticketHasStoredSignature),
     visitCount: group.visits.length,
     visits: group.visits.map(visitView),
