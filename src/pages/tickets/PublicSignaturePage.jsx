@@ -8,6 +8,21 @@ const DMS_LOGO_URL = 'https://res.cloudinary.com/dj73vkht6/image/upload/v1784169
 const PUBLIC_GET_ROUTES = ['ticket.signature.public.get', 'boletas.firma.publica.get'];
 const PUBLIC_SUBMIT_ROUTES = ['ticket.signature.public.submit', 'boletas.firma.publica.guardar'];
 
+function VisitContext({ reasonForVisit, testsPerformed, compact = false }) {
+  return (
+    <section className={`public-signature-context${compact ? ' is-compact' : ''}`} aria-label="Información del servicio">
+      <article>
+        <strong>Razón de la visita</strong>
+        <p>{reasonForVisit || 'No registrada.'}</p>
+      </article>
+      <article>
+        <strong>Pruebas realizadas</strong>
+        <p>{testsPerformed || 'No registradas.'}</p>
+      </article>
+    </section>
+  );
+}
+
 export default function PublicSignaturePage() {
   const { token = '' } = useParams();
   const [request, setRequest] = useState(null);
@@ -108,12 +123,24 @@ export default function PublicSignaturePage() {
               {ticket.supervisor && <div className="is-wide"><dt>Supervisor</dt><dd>{ticket.supervisor}</dd></div>}
             </dl>
 
+            {visitCount === 1 && (
+              <VisitContext
+                reasonForVisit={ticket.reasonForVisit}
+                testsPerformed={ticket.testsPerformed}
+              />
+            )}
+
             {visits.length > 1 && (
               <div className="public-signature-visits">
                 {visits.map((visit) => (
                   <article key={visit.uid}>
                     <strong>Visita {visit.visitNumber} · Boleta #{visit.number}</strong>
                     <span>{visit.date || 'Sin fecha'}{visit.location ? ` · ${visit.location}` : ''}</span>
+                    <VisitContext
+                      reasonForVisit={visit.reasonForVisit}
+                      testsPerformed={visit.testsPerformed}
+                      compact
+                    />
                     {visit.result && <p>{visit.result}</p>}
                   </article>
                 ))}
