@@ -6,8 +6,8 @@ import { maintenanceReportAccessHandlers } from './maintenance-report-access.mod
 import {
   generateMaintenanceTickets,
   MAINTENANCE_TICKET_COLUMNS,
-  previewMaintenanceTickets,
 } from '../services/maintenance-ticket-generation.service.js';
+import { previewMaintenanceTicketsWithDocuments } from '../services/maintenance-ticket-preview-report.service.js';
 import { ensureSheetColumns } from '../services/sheet-columns.service.js';
 
 const DEVICE_WORK_COLUMNS = ['FechaTrabajo', 'TecnicoIDsJSON', 'Tecnicos'];
@@ -153,7 +153,7 @@ async function finalize(ctx) {
 async function ticketGenerationTest(ctx) {
   if (!isAdmin(ctx)) throw forbidden('Solo los administradores pueden probar las boletas automáticas.');
   const maintenanceId = clean(pick(ctx.payload, ['maintenanceId', 'MantenimientoID', 'id']));
-  return previewMaintenanceTickets(ctx, maintenanceId, { sendTestChat: true });
+  return previewMaintenanceTicketsWithDocuments(ctx, maintenanceId);
 }
 
 export const maintenanceAutomationHandlers = {
