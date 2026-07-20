@@ -1,4 +1,4 @@
-import { badRequest, forbidden } from '../core/errors.js';
+import { AppError, badRequest, forbidden } from '../core/errors.js';
 import { asArray, nowIso, pick } from '../core/utils.js';
 import { findById, readTable, updateRow } from '../infra/sheets.repository.js';
 import { maintenanceHandlers } from './maintenance.module.js';
@@ -9,6 +9,10 @@ import {
 } from '../services/maintenance-ticket-generation.service.js';
 import { previewMaintenanceTicketsWithDocuments } from '../services/maintenance-ticket-preview-report.service.js';
 import { generateMaintenancePresentationWithAppsScript } from '../services/maintenance-presentation.service.js';
+import {
+  ensureMaintenanceSignatureRequest,
+  maintenanceHasSignature,
+} from '../services/maintenance-signature-request.service.js';
 import { ensureSheetColumns } from '../services/sheet-columns.service.js';
 
 const DEVICE_WORK_COLUMNS = ['FechaTrabajo', 'TecnicoIDsJSON', 'Tecnicos'];
@@ -129,6 +133,22 @@ async function finalize(ctx) {
   const testMode = Boolean(ctx.payload.testMode || ctx.payload.prueba);
   if (testMode) return maintenanceReportAccessHandlers.finalize(ctx);
 
+  const maintenance = await findById('Mantenimiento', maintenanceId);
+  if (!maintenanceHasSignature(maintenance)) {
+    const request = await ensureMaintenanceSignatureRequest({
+      maintenanceId,
+      origin: ctx.origin,
+      actor: ctx.user.UsuarioID,
+      testMode: false,
+    });
+    throw new AppError(
+      'MAINTENANCE_SIGNATURE_REQUIRED',
+      'El cliente debe firmar el mantenimiento general antes de finalizarlo y generar las boletas automáticas.',
+      409,
+      { signatureUrl: request.url, maintenanceId },
+    );
+  }
+
   await ensureSheetColumns('Mantenimiento', MAINTENANCE_TICKET_COLUMNS);
   let ticketGeneration;
   try {
@@ -147,7 +167,7 @@ async function finalize(ctx) {
   return {
     ...result,
     ticketGeneration,
-    message: `Mantenimiento finalizado. Se generaron y enviaron ${ticketGeneration.ticketCount} boleta(s) por fecha y grupo técnico.`,
+    message: `Mantenimiento finalizado. La firma general del cliente fue aplicada y se generaron y enviaron ${ticketGeneration.ticketCount} boleta(s) por fecha y grupo técnico.`,
   };
 }
 
