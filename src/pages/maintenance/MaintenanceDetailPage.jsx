@@ -7,6 +7,8 @@ import MaintenanceEvidenceEditor from '../../components/maintenance/MaintenanceE
 import MaintenanceEvidenceUploader from '../../components/maintenance/MaintenanceEvidenceUploader';
 import { MODULE_ROUTES, pick, requestAvailable } from '../../services/moduleApi';
 
+const MAINTENANCE_TICKET_TEST_ROUTES = ['maintenance.tickets.test', 'mantenimientos.boletas.probar'];
+
 function date(value) {
   if (!value) return 'Sin fecha';
   const parsed = new Date(value);
@@ -62,11 +64,13 @@ export default function MaintenanceDetailPage() {
   const pending = status === 'PENDIENTE';
   const offlinePending = Boolean(pick(row, ['OfflinePendiente'], false));
   const driveFolderUrl = pick(row, ['CarpetaDriveURL', 'MaintenanceFolderURL']);
+  const generatedTicketCount = Number(pick(row, ['BoletasGeneradasCantidad'], 0) || 0);
 
   async function action(type) {
     if (type === 'delete' && !window.confirm('¿Eliminar este mantenimiento y todos sus dispositivos?')) return;
-    if (type === 'finalize' && !window.confirm('¿Finalizar este mantenimiento? Se crearán las carpetas, se copiarán las evidencias y se enviará el detalle por Google Chat.')) return;
+    if (type === 'finalize' && !window.confirm('¿Finalizar este mantenimiento? Se crearán las boletas por fecha y grupo técnico, se enviarán al supervisor y al Chat del cliente, y luego se procesarán las carpetas y evidencias del mantenimiento.')) return;
     if (type === 'test' && !window.confirm('¿Enviar una prueba completa al Chat de pruebas? No se cambiará el estado del mantenimiento.')) return;
+    if (type === 'ticket-test' && !window.confirm('¿Probar la agrupación y redacción de las boletas automáticas? La vista previa se enviará al Chat de pruebas sin crear boletas ni notificar al cliente o supervisor.')) return;
     const reportWindow = ['sheet', 'slides'].includes(type) ? window.open('about:blank', '_blank') : null;
     setWorking(type);
     setError('');
@@ -75,16 +79,22 @@ export default function MaintenanceDetailPage() {
       if (type === 'finalize') {
         const result = await requestAvailable(MODULE_ROUTES.maintenance.finalize, { maintenanceId }, sessionToken);
         const delivery = result?.delivery || {};
-        setNotice(`Mantenimiento finalizado y enviado correctamente a ${delivery.destination || 'Google Chat'}.`);
+        const count = Number(result?.ticketGeneration?.ticketCount || 0);
+        const warnings = result?.ticketGeneration?.warnings || [];
+        setNotice(`Mantenimiento finalizado. Se generaron y enviaron ${count} boleta${count === 1 ? '' : 's'} por fecha y grupo técnico. El mantenimiento también fue enviado a ${delivery.destination || 'Google Chat'}.${warnings.length ? ` Advertencias: ${warnings.join(' ')}` : ''}`);
       }
       if (type === 'test') {
         const result = await requestAvailable(MODULE_ROUTES.maintenance.finalize, { maintenanceId, testMode: true }, sessionToken);
         const delivery = result?.delivery || {};
         setNotice(`Prueba enviada correctamente a ${delivery.destination || 'el Chat de pruebas'}. El mantenimiento continúa en ${status}.`);
       }
+      if (type === 'ticket-test') {
+        const result = await requestAvailable(MAINTENANCE_TICKET_TEST_ROUTES, { maintenanceId }, sessionToken);
+        setNotice(result?.message || `Prueba completada. Se detectaron ${result?.groupCount || 0} grupos y no se crearon boletas reales.`);
+      }
       if (type === 'reopen') {
         await requestAvailable(MODULE_ROUTES.maintenance.reopen, { maintenanceId }, sessionToken);
-        setNotice('Mantenimiento regresado a pendiente.');
+        setNotice('Mantenimiento regresado a pendiente. Las boletas ya generadas permanecen finalizadas como registro del trabajo realizado.');
       }
       if (type === 'delete') {
         await requestAvailable(MODULE_ROUTES.maintenance.delete, { maintenanceId }, sessionToken);
@@ -164,6 +174,7 @@ export default function MaintenanceDetailPage() {
           <div><Icon name="location_on" /><span>Ubicación</span><strong>{pick(row, ['Ubicacion'], 'Sin ubicación')}</strong></div>
           <div><Icon name="groups" /><span>Responsables</span><strong>{pick(row, ['Responsables', 'Responsable'], 'Sin responsables')}</strong></div>
           <div><Icon name="devices_other" /><span>Dispositivos</span><strong>{devices.length}</strong></div>
+          {generatedTicketCount > 0 && <div><Icon name="receipt_long" /><span>Boletas automáticas</span><strong>{generatedTicketCount}</strong></div>}
           {pick(row, ['ChatDestino']) && <div><Icon name="forum" /><span>Último destino</span><strong>{pick(row, ['ChatDestino'])}</strong></div>}
         </div>
       </section>
@@ -172,6 +183,7 @@ export default function MaintenanceDetailPage() {
         <section className="maintenance-report-actions" aria-label="Acciones del mantenimiento">
           {pending && canEdit && <button type="button" className="button button--primary" onClick={addDevice} disabled={Boolean(working)}><Icon name="add" />Agregar dispositivo</button>}
           {pending && canEdit && <button type="button" className="button button--secondary maintenance-quick-evidence-button" onClick={() => setQuickEvidenceOpen(true)} disabled={!devices.length || Boolean(working)} title={devices.length ? 'Agregar evidencia a cualquier dispositivo' : 'Agregue un dispositivo primero'}><Icon name="add_a_photo" />Nueva evidencia</button>}
+          {isAdmin && pending && <button type="button" className="button button--secondary" onClick={() => action('ticket-test')} disabled={Boolean(working) || offlinePending || !devices.length} title={offlinePending ? 'Sincronice el mantenimiento antes de probar las boletas' : 'Agrupar por fecha y técnicos, usar Gemini y enviar una vista previa al Chat de pruebas'}><Icon name="receipt_long" />{working === 'ticket-test' ? 'Probando boletas...' : 'Probar boletas automáticas'}</button>}
           {isAdmin && <button type="button" className="button button--secondary" onClick={() => action('test')} disabled={Boolean(working) || offlinePending || !devices.length} title={offlinePending ? 'Sincronice el mantenimiento antes de probar el envío' : 'Crear carpetas, copiar evidencias y enviar al Chat de pruebas sin finalizar'}><Icon name="science" />{working === 'test' ? 'Enviando prueba...' : 'Probar envío'}</button>}
           {isAdmin && <button type="button" className="button button--secondary" onClick={() => action('sheet')} disabled={Boolean(working) || offlinePending} title={offlinePending ? 'Sincronice el mantenimiento antes de generar el reporte' : 'Crear reporte de Excel'}><Icon name="table_view" />{working === 'sheet' ? 'Generando...' : 'Crear Excel'}</button>}
           {isAdmin && <button type="button" className="button button--secondary" onClick={() => action('slides')} disabled={Boolean(working) || offlinePending} title={offlinePending ? 'Sincronice el mantenimiento antes de generar la presentación' : 'Crear presentación'}><Icon name="slideshow" />{working === 'slides' ? 'Generando...' : 'Crear presentación'}</button>}
@@ -193,7 +205,7 @@ export default function MaintenanceDetailPage() {
       />
 
       <section className="maintenance-detail-footer-actions">
-        {pending && !offlinePending && canFinalize && devices.length > 0 && <button className="button button--primary" type="button" onClick={() => action('finalize')} disabled={Boolean(working)}><Icon name="task_alt" />{working === 'finalize' ? 'Procesando carpetas y envío...' : 'Finalizar mantenimiento'}</button>}
+        {pending && !offlinePending && canFinalize && devices.length > 0 && <button className="button button--primary" type="button" onClick={() => action('finalize')} disabled={Boolean(working)}><Icon name="task_alt" />{working === 'finalize' ? 'Generando boletas y finalizando...' : 'Finalizar mantenimiento'}</button>}
         {status === 'FINALIZADO' && isAdmin && <button className="button button--secondary" type="button" onClick={() => action('reopen')} disabled={Boolean(working)}><Icon name="undo" />Volver a pendiente</button>}
         {isAdmin && <button className="button button--danger" type="button" onClick={() => action('delete')} disabled={Boolean(working)}><Icon name="delete" />Eliminar</button>}
       </section>
