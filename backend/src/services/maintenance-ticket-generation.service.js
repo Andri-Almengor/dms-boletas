@@ -245,7 +245,7 @@ function rawDraft(bundle, group) {
   }).join('\n');
 
   const result = group.devices.map(deviceResult).join('\n');
-  const recommendations = group.devices
+  const recomendaciones = group.devices
     .filter((device) => clean(device.Observacion))
     .map((device) => `${clean(device.NombreDispositivo, 'Dispositivo')}: ${clean(device.Observacion)}`)
     .join('\n');
