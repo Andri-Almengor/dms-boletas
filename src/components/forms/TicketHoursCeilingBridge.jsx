@@ -28,16 +28,16 @@ function syncVisibleTicketForm() {
 
   totalInput.readOnly = true;
   totalInput.setAttribute('aria-readonly', 'true');
-  totalInput.title = 'Se calcula automáticamente y redondea cualquier fracción a la siguiente hora completa.';
+  totalInput.title = 'Se calcula automáticamente: mínimo 1 hora; después de la primera hora conserva el tiempo real.';
 
   const total = formatCeilingTotalHours(startInput.value, endInput.value);
   setReactInputValue(totalInput, total);
 }
 
 /**
- * Mantiene la lógica de horas consistente en la edición completa y rápida.
- * Se usa como puente porque ambos formularios ya son controlados por React y
- * cualquier cambio debe disparar el evento input para actualizar su estado.
+ * Mantiene la lógica de horas consistente en la creación, edición completa,
+ * edición rápida y visitas relacionadas. Cualquier trabajo de hasta una hora
+ * registra 1.00; después de esa primera hora se conserva la duración real.
  */
 export default function TicketHoursCeilingBridge() {
   useEffect(() => {
@@ -58,8 +58,8 @@ export default function TicketHoursCeilingBridge() {
     observer.observe(document.body, { childList: true, subtree: true });
     document.addEventListener('input', handleInput, true);
 
-    // Respaldo para asegurar que el cálculo automático local de las pantallas
-    // no vuelva a colocar horas decimales después del cambio de horario.
+    // Respaldo para asegurar que todos los formularios visibles mantengan
+    // la misma regla aunque tengan un cálculo local anterior.
     const intervalId = window.setInterval(syncVisibleTicketForm, 500);
     scheduleSync();
 
