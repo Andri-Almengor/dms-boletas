@@ -193,7 +193,7 @@ export default function KnowledgeEditorPage({ mode }) {
       return;
     }
 
-    const snapshot = { title: form.title, content: form.content };
+    const snapshot = { title: form.title, problem: form.problem, content: form.content };
     const prepared = prepareHtmlForGemini(form.content);
     const selectedCategories = categoryOptions
       .filter((option) => form.categoryIds.includes(option.value))
@@ -211,6 +211,7 @@ export default function KnowledgeEditorPage({ mode }) {
         contenidoHtml: prepared.contentHtml,
       }, sessionToken);
       const improvedTitle = String(pick(response, ['titulo', 'title'], form.title)).trim();
+      const improvedProblem = String(pick(response, ['problema', 'problemaResuelto', 'problem'], form.problem)).trim();
       let improvedContent = form.content;
       if (requestedMode === 'FULL') {
         const receivedHtml = pick(response, ['contenidoHtml', 'contentHtml', 'content'], prepared.contentHtml);
@@ -219,12 +220,18 @@ export default function KnowledgeEditorPage({ mode }) {
       setAiSnapshot(snapshot);
       setForm((current) => ({
         ...current,
-        title: improvedTitle || current.title,
+        title: requestedMode === 'PROBLEM_ONLY' ? current.title : (improvedTitle || current.title),
+        problem: requestedMode === 'TITLE_ONLY' ? current.problem : (improvedProblem || current.problem),
         content: requestedMode === 'FULL' ? improvedContent : current.content,
       }));
-      setAiNotice(requestedMode === 'FULL'
-        ? 'Gemini mejoró el documento y generó un título fácil de buscar. Revise el resultado antes de publicar.'
-        : 'Gemini generó un título basado en el contenido del procedimiento.');
+
+      if (requestedMode === 'FULL') {
+        setAiNotice('Gemini mejoró el documento y generó el título y la descripción del problema. Revise el resultado antes de publicar.');
+      } else if (requestedMode === 'PROBLEM_ONLY') {
+        setAiNotice('Gemini generó la descripción del problema a partir del documento paso a paso.');
+      } else {
+        setAiNotice('Gemini generó un título basado en el contenido del procedimiento.');
+      }
     } catch (err) {
       setError(err.message || 'No se pudo procesar el tutorial con Gemini.');
     } finally {
@@ -234,9 +241,14 @@ export default function KnowledgeEditorPage({ mode }) {
 
   function undoGemini() {
     if (!aiSnapshot) return;
-    setForm((current) => ({ ...current, title: aiSnapshot.title, content: aiSnapshot.content }));
+    setForm((current) => ({
+      ...current,
+      title: aiSnapshot.title,
+      problem: aiSnapshot.problem,
+      content: aiSnapshot.content,
+    }));
     setAiSnapshot(null);
-    setAiNotice('Se restauró la versión anterior del título y del documento.');
+    setAiNotice('Se restauró la versión anterior del título, la descripción y el documento.');
   }
 
   async function save(event, forcedStatus = form.status) {
@@ -312,14 +324,18 @@ export default function KnowledgeEditorPage({ mode }) {
           <div className="field-group is-wide">
             <KnowledgeCategoryMultiSelect options={categoryOptions} selectedIds={form.categoryIds} onChange={(value) => setField('categoryIds', value)} disabled={aiDisabled} />
           </div>
-          <label className="field-group is-wide"><span className="field-label">Descripción del problema que resuelve *</span><textarea className="form-control ticket-textarea" rows="4" value={form.problem} onChange={(event) => setField('problem', event.target.value)} placeholder="Explica el síntoma, error o necesidad que llevó a crear este procedimiento." required disabled={aiDisabled} /></label>
+          <div className="field-group is-wide">
+            <div className="field-label-row knowledge-ai-field-label"><label className="field-label" htmlFor="knowledge-problem">Descripción del problema que resuelve *</label><button className="knowledge-ai-inline-button" type="button" onClick={() => improveWithGemini('PROBLEM_ONLY')} disabled={aiDisabled}><Icon name={aiBusy === 'PROBLEM_ONLY' ? 'progress_activity' : 'auto_awesome'} /> {aiBusy === 'PROBLEM_ONLY' ? 'Generando...' : 'Generar descripción con Gemini'}</button></div>
+            <textarea id="knowledge-problem" className="form-control ticket-textarea" rows="4" value={form.problem} onChange={(event) => setField('problem', event.target.value)} placeholder="Gemini puede generar esta descripción a partir del documento paso a paso." required disabled={aiDisabled} />
+            <small className="field-hint">Describe qué necesidad, error o situación resuelve el procedimiento y cuándo debe utilizarse.</small>
+          </div>
         </div>
       </section>
 
       <section className="form-card knowledge-document-card">
-        <div className="form-card__heading knowledge-ai-document-heading"><span className="section-marker" /><div><h2>Documento paso a paso</h2><p>Gemini puede ordenar los pasos, corregir la redacción y hacer el procedimiento más claro sin inventar información.</p></div><div className="knowledge-ai-actions"><button className="button button--secondary button--compact" type="button" onClick={() => improveWithGemini('FULL')} disabled={aiDisabled}><Icon name={aiBusy === 'FULL' ? 'progress_activity' : 'auto_awesome'} /> {aiBusy === 'FULL' ? 'Mejorando...' : 'Mejorar documento y título'}</button>{aiSnapshot && <button className="button button--ghost button--compact" type="button" onClick={undoGemini} disabled={aiDisabled}><Icon name="undo" /> Deshacer mejora</button>}</div></div>
+        <div className="form-card__heading knowledge-ai-document-heading"><span className="section-marker" /><div><h2>Documento paso a paso</h2><p>Gemini puede ordenar los pasos y generar automáticamente el título y la descripción del problema sin inventar información.</p></div><div className="knowledge-ai-actions"><button className="button button--secondary button--compact" type="button" onClick={() => improveWithGemini('FULL')} disabled={aiDisabled}><Icon name={aiBusy === 'FULL' ? 'progress_activity' : 'auto_awesome'} /> {aiBusy === 'FULL' ? 'Mejorando...' : 'Mejorar documento, título y descripción'}</button>{aiSnapshot && <button className="button button--ghost button--compact" type="button" onClick={undoGemini} disabled={aiDisabled}><Icon name="undo" /> Deshacer mejora</button>}</div></div>
         <RichTextEditor value={form.content} onChange={(value) => setField('content', value)} disabled={aiDisabled} />
-        <div className="knowledge-ai-help"><Icon name="verified_user" /><p>Gemini conserva las imágenes, enlaces, direcciones IP, comandos, marcas, modelos y valores técnicos escritos. Revise siempre el resultado antes de publicarlo.</p></div>
+        <div className="knowledge-ai-help"><Icon name="verified_user" /><p>Gemini conserva las imágenes, enlaces, direcciones IP, comandos, marcas, modelos y valores técnicos escritos. También usa el contexto del procedimiento para completar la descripción del problema. Revise siempre el resultado antes de publicarlo.</p></div>
       </section>
 
       <section className="form-card">
