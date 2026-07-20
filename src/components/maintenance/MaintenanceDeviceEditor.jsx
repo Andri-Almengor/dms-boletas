@@ -2,6 +2,7 @@ import React, { useState } from 'react';
 import { useAuth } from '../../AuthContext';
 import AutosaveIndicator from '../feedback/AutosaveIndicator';
 import Icon from '../common/Icon';
+import TechnicianMultiSelect from '../forms/TechnicianMultiSelect';
 import MaintenanceDeviceCatalogFields from './MaintenanceDeviceCatalogFields';
 import MaintenanceEvidenceImage from './MaintenanceEvidenceImage';
 import { getMaintenanceCategory } from '../../config/maintenanceCategories';
@@ -19,7 +20,7 @@ function currentRoute() {
   return `${window.location.pathname}${window.location.search || ''}`;
 }
 
-export default function MaintenanceDeviceEditor({ device, equipmentOptions = [], disabled, isAdmin, onChange, onClose, onDelete, onSubmit, submitLabel = 'Guardar dispositivo', submitting = false, autosaveStatus = 'idle' }) {
+export default function MaintenanceDeviceEditor({ device, equipmentOptions = [], technicians = [], disabled, isAdmin, onChange, onClose, onDelete, onSubmit, submitLabel = 'Guardar dispositivo', submitting = false, autosaveStatus = 'idle' }) {
   const { sessionToken, hasPermission } = useAuth();
   const category = getMaintenanceCategory(device.categoria);
   const locked = disabled || submitting;
@@ -88,6 +89,15 @@ export default function MaintenanceDeviceEditor({ device, equipmentOptions = [],
       <Field label="Ubicación específica del dispositivo *" value={device.zona} onChange={(event) => patch({ zona: event.target.value })} disabled={locked} />
       <Field label="Nombre del dispositivo *" value={device.nombre} onChange={(event) => patch({ nombre: event.target.value })} disabled={locked} />
       <Field label="Serie" value={device.serie} onChange={(event) => patch({ serie: event.target.value })} disabled={locked} />
+      <section className="form-card maintenance-device-work-card">
+        <div className="form-card__heading"><span className="section-marker" /><div><h3>Fecha y grupo de trabajo</h3><p>Estos datos determinan qué dispositivos se incluyen juntos en cada boleta automática al finalizar el mantenimiento.</p></div></div>
+        <Field label="Fecha de trabajo *" type="date" value={device.fechaTrabajo || ''} onChange={(event) => patch({ fechaTrabajo: event.target.value })} disabled={locked} />
+        <div className="field-group">
+          <span className="field-label">Técnicos que realizaron este trabajo *</span>
+          <TechnicianMultiSelect users={technicians} selectedIds={device.tecnicoIds || []} onChange={(tecnicoIds) => patch({ tecnicoIds })} disabled={locked} />
+          <small className="field-hint">Puede seleccionar varios técnicos. Los dispositivos de la misma fecha y con exactamente el mismo grupo formarán una sola boleta.</small>
+        </div>
+      </section>
       <div className="maintenance-checklist"><h3><Icon name={category.icon} /> Checklist de {category.key}</h3><Choice label="¿El dispositivo está funcionando correctamente?" value={device.funcionamiento} onChange={(value) => patch({ funcionamiento: value })} disabled={locked} /><Choice label="¿El dispositivo está en uso?" value={device.enUso} onChange={(value) => patch({ enUso: value })} options={['Sí, en uso', 'No, está guardado', 'No']} disabled={locked} />{category.questions.map(([key, label]) => <Choice key={key} label={label} value={device.respuestas[key] || ''} onChange={(value) => patch({ respuestas: { ...device.respuestas, [key]: value } })} disabled={locked} />)}{!category.questions.length && <div className="info-box"><Icon name="info" /><p>Este tipo no tiene preguntas específicas. Registre funcionamiento, uso, estado y observaciones.</p></div>}<Choice label="Estado" value={device.estado} onChange={(value) => patch({ estado: value })} options={['Correcto', 'Mal estado']} disabled={locked} /></div>
       <Field label="Observación" multiline value={device.observacion} onChange={(event) => patch({ observacion: event.target.value })} disabled={locked} />
       <section className="maintenance-image-section">
