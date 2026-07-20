@@ -10,7 +10,9 @@ import { crudHandlers } from '../modules/crud.module.js';
 import { ticketMultiHandlers as ticketHandlers } from '../modules/ticket-multi.module.js';
 import { ticketDeliveryHandlers } from '../modules/ticket-delivery.module.js';
 import { ticketGroupSignatureHandlers as ticketSignatureHandlers } from '../modules/ticket-group-signature.module.js';
+import { publicSignatureHandlers } from '../modules/public-signature.module.js';
 import { maintenanceAutomationHandlers } from '../modules/maintenance-automation.module.js';
+import { maintenanceSignatureHandlers } from '../modules/maintenance-signature.module.js';
 import { knowledgeHandlers } from '../modules/knowledge.module.js';
 import { surveyHandlers } from '../modules/survey.module.js';
 import { getClientConfig } from '../modules/config.module.js';
@@ -36,9 +38,11 @@ add(['ai.knowledgeRewrite','gemini.knowledgeRewrite','knowledge.ai.rewrite','bas
 
 add(['survey.public.get','encuesta.publica.get'], surveyHandlers.publicGet, null, true);
 add(['survey.public.submit','encuesta.publica.submit'], surveyHandlers.publicSubmit, null, true);
-add(['ticket.signature.public.get','boletas.firma.publica.get'], ticketSignatureHandlers.publicGet, null, true);
-add(['ticket.signature.public.submit','boletas.firma.publica.guardar'], ticketSignatureHandlers.publicSubmit, null, true);
+add(['ticket.signature.public.get','boletas.firma.publica.get'], publicSignatureHandlers.publicGet, null, true);
+add(['ticket.signature.public.submit','boletas.firma.publica.guardar'], publicSignatureHandlers.publicSubmit, null, true);
 add(['ticket.signature.link','boletas.signature.link','boletas.firma.enlace'], ticketSignatureHandlers.link, 'BOLETAS_VER');
+add(['maintenance.signature.public.get','mantenimientos.firma.publica.get'], publicSignatureHandlers.publicGet, null, true);
+add(['maintenance.signature.public.submit','mantenimientos.firma.publica.guardar'], publicSignatureHandlers.publicSubmit, null, true);
 add(['survey.questions.list','encuestas.preguntas.list'], surveyHandlers.questionsList, 'USUARIOS_GESTIONAR');
 add(['survey.questions.create','encuestas.preguntas.create'], surveyHandlers.questionsCreate, 'USUARIOS_GESTIONAR');
 add(['survey.questions.update','encuestas.preguntas.update'], surveyHandlers.questionsUpdate, 'USUARIOS_GESTIONAR');
@@ -109,18 +113,23 @@ for(const [key,names] of Object.entries(ticketAliases)) {
   add(names,handler,permission);
 }
 
-const maintenanceAliases={list:['maintenance.list','mantenimientos.list'],get:['maintenance.get','mantenimientos.get'],create:['maintenance.create','mantenimientos.create'],update:['maintenance.update','mantenimientos.update'],delete:['maintenance.delete','mantenimientos.delete'],finalize:['maintenance.finalize','mantenimientos.finalize'],reopen:['maintenance.reopen','mantenimientos.reopen'],deviceCreate:['maintenance.devices.create','mantenimientos.dispositivos.create'],deviceUpdate:['maintenance.devices.update','mantenimientos.dispositivos.update'],deviceAutosave:['maintenance.devices.autosave','mantenimientos.dispositivos.autosave'],deviceDelete:['maintenance.devices.delete','mantenimientos.dispositivos.delete'],imageUpload:['maintenance.images.upload','mantenimientos.imagenes.upload'],imageUpdate:['maintenance.images.update','mantenimientos.imagenes.update'],imageDelete:['maintenance.images.delete','mantenimientos.imagenes.delete'],mediaGet:['maintenance.media.get','mantenimientos.media.get'],spreadsheetReport:['maintenance.report.spreadsheet','mantenimientos.reporte.excel'],slidesReport:['maintenance.report.slides','mantenimientos.reporte.presentacion'],ticketGenerationTest:['maintenance.tickets.test','mantenimientos.boletas.probar'],config:['maintenance.config','mantenimientos.config']};
+const maintenanceAliases={list:['maintenance.list','mantenimientos.list'],get:['maintenance.get','mantenimientos.get'],create:['maintenance.create','mantenimientos.create'],update:['maintenance.update','mantenimientos.update'],delete:['maintenance.delete','mantenimientos.delete'],finalize:['maintenance.finalize','mantenimientos.finalize'],reopen:['maintenance.reopen','mantenimientos.reopen'],deviceCreate:['maintenance.devices.create','mantenimientos.dispositivos.create'],deviceUpdate:['maintenance.devices.update','mantenimientos.dispositivos.update'],deviceAutosave:['maintenance.devices.autosave','mantenimientos.dispositivos.autosave'],deviceDelete:['maintenance.devices.delete','mantenimientos.dispositivos.delete'],imageUpload:['maintenance.images.upload','mantenimientos.imagenes.upload'],imageUpdate:['maintenance.images.update','mantenimientos.imagenes.update'],imageDelete:['maintenance.images.delete','mantenimientos.imagenes.delete'],mediaGet:['maintenance.media.get','mantenimientos.media.get'],spreadsheetReport:['maintenance.report.spreadsheet','mantenimientos.reporte.excel'],slidesReport:['maintenance.report.slides','mantenimientos.reporte.presentacion'],ticketGenerationTest:['maintenance.tickets.test','mantenimientos.boletas.probar'],signatureLink:['maintenance.signature.link','mantenimientos.firma.enlace'],signatureTestLink:['maintenance.signature.test.link','mantenimientos.firma.prueba.enlace'],config:['maintenance.config','mantenimientos.config']};
 const maintenanceReadPermissions=['MANTENIMIENTOS_VER','MANTENIMIENTOS_CREAR','MANTENIMIENTOS_EDITAR','MANTENIMIENTOS_GESTIONAR','BOLETAS_VER'];
 const maintenanceCreatePermissions=['MANTENIMIENTOS_CREAR','MANTENIMIENTOS_GESTIONAR','BOLETAS_CREAR'];
 const maintenanceEditPermissions=['MANTENIMIENTOS_EDITAR','MANTENIMIENTOS_GESTIONAR','BOLETAS_EDITAR'];
 const maintenanceFinalizePermissions=['MANTENIMIENTOS_FINALIZAR','MANTENIMIENTOS_EDITAR','MANTENIMIENTOS_GESTIONAR','BOLETAS_FINALIZAR','BOLETAS_EDITAR'];
 for(const [key,names] of Object.entries(maintenanceAliases)) {
   let permission=maintenanceEditPermissions;
-  if(['list','get','mediaGet','config'].includes(key)) permission=maintenanceReadPermissions;
+  if(['list','get','mediaGet','config','signatureLink'].includes(key)) permission=maintenanceReadPermissions;
   else if(key==='create') permission=maintenanceCreatePermissions;
   else if(key==='finalize') permission=maintenanceFinalizePermissions;
-  else if(key==='ticketGenerationTest') permission=['USUARIOS_GESTIONAR','MANTENIMIENTOS_GESTIONAR','MANTENIMIENTOS_ELIMINAR'];
-  add(names,maintenanceAutomationHandlers[key],permission);
+  else if(['ticketGenerationTest','signatureTestLink'].includes(key)) permission=['USUARIOS_GESTIONAR','MANTENIMIENTOS_GESTIONAR','MANTENIMIENTOS_ELIMINAR'];
+  const handler = key === 'signatureLink'
+    ? maintenanceSignatureHandlers.link
+    : key === 'signatureTestLink'
+      ? maintenanceSignatureHandlers.testLink
+      : maintenanceAutomationHandlers[key];
+  add(names,handler,permission);
 }
 
 const knowledgeAliases={list:['knowledge.list','baseConocimientos.list','conocimiento.list','tutorials.list'],get:['knowledge.get','baseConocimientos.get','conocimiento.get','tutorials.get'],create:['knowledge.create','baseConocimientos.create','conocimiento.create','tutorials.create'],update:['knowledge.update','baseConocimientos.update','conocimiento.update','tutorials.update'],delete:['knowledge.delete','baseConocimientos.delete','conocimiento.delete','tutorials.delete'],attachmentUpload:['knowledge.attachments.upload','baseConocimientos.adjuntos.upload','conocimiento.adjuntos.upload'],attachmentDelete:['knowledge.attachments.delete','baseConocimientos.adjuntos.delete','conocimiento.adjuntos.delete'],mediaGet:['knowledge.media.get','baseConocimientos.media.get','conocimiento.media.get']};
