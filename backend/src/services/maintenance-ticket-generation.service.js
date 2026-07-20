@@ -1,5 +1,5 @@
 import { AppError, badRequest } from '../core/errors.js';
-import { asArray, nowIso, pick, sha256, uuid } from '../core/utils.js';
+import { asArray, nowIso, pick, sha256 } from '../core/utils.js';
 import {
   appendRow,
   findById,
@@ -456,7 +456,7 @@ async function upsertGeneratedTicket(ctx, item) {
     SupervisorID: supervisor.id,
     Supervisor: supervisor.names.join(', '),
     CorreoSupervisor: supervisor.emails.join(', '),
-    CorreoCliente: clean(bundle.client?.CorreoGeneral || bundle.client?.Correo),
+    CorreoCliente: '',
     CategoriaID: clean(category?.CategoriaID),
     Categoria: clean(category?.Nombre, 'Mantenimiento'),
     TipoFallaID: clean(failureType?.TipoFallaID),
