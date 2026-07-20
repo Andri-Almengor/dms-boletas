@@ -1,0 +1,121 @@
+.ticket-detail-selected-files {
+  min-width: 0;
+  padding: 12px;
+  border: 1px solid var(--outline-soft);
+  border-radius: var(--radius-sm);
+  background: #fff;
+}
+
+.ticket-detail-selected-files[hidden] {
+  display: none;
+}
+
+.ticket-detail-selected-files[data-tone="progress"] {
+  border-color: #dfc08d;
+  background: #fffaf0;
+}
+
+.ticket-detail-selected-files[data-tone="success"] {
+  border-color: #b9dfc9;
+  background: #f2fbf6;
+}
+
+.ticket-detail-selected-files[data-tone="error"] {
+  border-color: #efb7bd;
+  background: #fff4f5;
+}
+
+.ticket-detail-selected-files__header {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 12px;
+}
+
+.ticket-detail-selected-files__header strong,
+.ticket-detail-selected-files__header small {
+  display: block;
+}
+
+.ticket-detail-selected-files__header small {
+  margin-top: 3px;
+  color: var(--muted);
+  font-size: .74rem;
+  line-height: 1.4;
+}
+
+.ticket-detail-selected-files ul {
+  max-height: 210px;
+  overflow: auto;
+  display: grid;
+  gap: 6px;
+  margin: 10px 0 0;
+  padding: 0;
+  list-style: none;
+}
+
+.ticket-detail-selected-files li {
+  min-width: 0;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 10px;
+  padding: 7px 9px;
+  border-radius: 9px;
+  background: var(--surface-low);
+  font-size: .76rem;
+}
+
+.ticket-detail-selected-files li span {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.ticket-detail-selected-files li small {
+  flex: 0 0 auto;
+  color: var(--muted);
+}
+
+.ticket-detail-selected-files li.is-more {
+  justify-content: center;
+  color: var(--primary);
+  font-weight: 750;
+}
+
+.ticket-detail-multi-upload-button {
+  width: 100%;
+}
+
+.ticket-detail-multi-upload-button .material-symbols-outlined {
+  font-size: 20px;
+}
+
+.ticket-detail-selected-files[data-tone="progress"] + .ticket-detail-multi-upload-button .material-symbols-outlined {
+  animation: dms-spin 1s linear infinite;
+}
+
+@media (min-width: 761px) {
+  .ticket-detail-selected-files,
+  .ticket-detail-multi-upload-button {
+    grid-column: 1 / -1;
+  }
+
+  .ticket-detail-multi-upload-button {
+    justify-self: end;
+    width: min(100%, 280px);
+  }
+}
+
+@media (max-width: 560px) {
+  .ticket-detail-selected-files__header {
+    align-items: stretch;
+    flex-direction: column;
+  }
+
+  .ticket-detail-selected-files__header .button,
+  .ticket-detail-multi-upload-button {
+    width: 100%;
+  }
+}
