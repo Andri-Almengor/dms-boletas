@@ -5,7 +5,7 @@ import { todayInCostaRica } from '../../utils/costaRicaDate';
 export const MAINTENANCE_STEPS = [
   ['Información general', 'Cliente, ubicación, responsables, fechas y descripción.'],
   ['Cantidades esperadas', 'Indica cuántos dispositivos se revisarán por categoría.'],
-  ['Dispositivos y evidencias', 'Registra cada equipo, sus pruebas y fotografías.'],
+  ['Dispositivos y evidencias', 'Registra cada equipo, sus pruebas, técnicos y fotografías.'],
   ['Revisión y finalización', 'Confirma la información y guarda o finaliza.'],
 ];
 
@@ -16,10 +16,23 @@ export const EMPTY_MAINTENANCE = {
   responsables: [], descripcion: '', counts: createEmptyMaintenanceCounts(),
 };
 
+function parseTechnicianIds(row = {}) {
+  const source = pick(row, ['TecnicoIDsJSON', 'TecnicoIDs', 'tecnicoIds'], []);
+  if (Array.isArray(source)) return source.map(String).filter(Boolean);
+  try {
+    const parsed = JSON.parse(source || '[]');
+    if (Array.isArray(parsed)) return parsed.map(String).filter(Boolean);
+  } catch {
+    return String(source || '').split(/[;,]/).map((item) => item.trim()).filter(Boolean);
+  }
+  return [];
+}
+
 export function createMaintenanceDevice(category = 'Cámaras') {
   return {
     localId: crypto.randomUUID?.() || `${Date.now()}-${Math.random()}`,
     id: '', ubicacionEquipoId: '', zona: '',
+    fechaTrabajo: todayInCostaRica(), tecnicoIds: [],
     tipoDispositivoId: '', categoria: category,
     fabricanteId: '', fabricante: '', modeloId: '', modelo: '',
     nombre: '', serie: '', funcionamiento: '', enUso: '', estado: 'Correcto', observacion: '',
@@ -65,6 +78,8 @@ export function mapMaintenanceDevice(row) {
     id: String(pick(row, ['EvidenciaMantenimientoID', 'id'])),
     ubicacionEquipoId: String(pick(row, ['UbicacionEquipoID'])),
     zona: pick(row, ['Zona', 'UbicacionEspecifica']),
+    fechaTrabajo: String(pick(row, ['FechaTrabajo', 'FechaCreacion'], todayInCostaRica())).slice(0, 10),
+    tecnicoIds: parseTechnicianIds(row),
     tipoDispositivoId: String(pick(row, ['TipoDispositivoID'])),
     categoria: pick(row, ['TipoDispositivo', 'Categoria'], 'Cámaras'),
     fabricanteId: String(pick(row, ['FabricanteID'])),
@@ -92,10 +107,16 @@ export function maintenancePayload(form, id) {
 }
 
 export function maintenanceDevicePayload(device, maintenanceId) {
+  const technicianIds = (device.tecnicoIds || []).map(String).filter(Boolean);
   return {
     maintenanceId, MantenimientoID: maintenanceId, deviceId: device.id,
     EvidenciaMantenimientoID: device.id, UbicacionEquipoID: device.ubicacionEquipoId,
     Zona: device.zona,
+    FechaTrabajo: device.fechaTrabajo,
+    fechaTrabajo: device.fechaTrabajo,
+    TecnicoIDs: technicianIds,
+    tecnicoIds: technicianIds,
+    TecnicoIDsJSON: JSON.stringify(technicianIds),
     TipoDispositivoID: device.tipoDispositivoId,
     TipoDispositivo: device.categoria,
     Categoria: device.categoria,
