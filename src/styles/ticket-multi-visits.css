@@ -36,6 +36,56 @@
   margin: 8px 0 0;
 }
 
+.public-signature-context {
+  display: grid;
+  gap: 10px;
+  margin: 0 0 18px;
+}
+
+.public-signature-context > article {
+  padding: 14px 16px;
+  border: 1px solid var(--outline-soft, #e5e7eb);
+  border-radius: 13px;
+  background: #fafafa;
+}
+
+.public-signature-context > article > strong {
+  display: block;
+  margin-bottom: 6px;
+  color: var(--muted, #6b7280);
+  font-size: .72rem;
+  font-weight: 800;
+  letter-spacing: .05em;
+  text-transform: uppercase;
+}
+
+.public-signature-context > article > p,
+.public-signature-visits .public-signature-context > article > p {
+  margin: 0;
+  color: var(--text, #1f2937);
+  line-height: 1.55;
+  overflow-wrap: anywhere;
+  white-space: pre-wrap;
+}
+
+.public-signature-context.is-compact {
+  gap: 8px;
+  margin: 12px 0 0;
+}
+
+.public-signature-context.is-compact > article {
+  padding: 11px 12px;
+  background: #fff;
+}
+
+.public-signature-context.is-compact > article > strong {
+  font-size: .67rem;
+}
+
+.public-signature-context.is-compact > article > p {
+  font-size: .88rem;
+}
+
 .ticket-visit-group-panel {
   width: min(100%, 980px);
   margin: 0 auto 20px;
