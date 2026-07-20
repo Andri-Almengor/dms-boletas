@@ -36,6 +36,48 @@ function reportForTicket(reports, ticket) {
   )) || null;
 }
 
+function workflowState(ticket = {}) {
+  return {
+    Estado: clean(ticket.Estado) || 'PENDIENTE',
+    FinalizadaEn: ticket.FinalizadaEn || '',
+    EstadoNotificacion: ticket.EstadoNotificacion || 'PENDIENTE',
+    UltimoErrorNotificacion: ticket.UltimoErrorNotificacion || '',
+  };
+}
+
+function sameWorkflowState(ticket = {}, expected = {}) {
+  return clean(ticket.Estado) === clean(expected.Estado)
+    && clean(ticket.FinalizadaEn) === clean(expected.FinalizadaEn)
+    && clean(ticket.EstadoNotificacion) === clean(expected.EstadoNotificacion)
+    && clean(ticket.UltimoErrorNotificacion) === clean(expected.UltimoErrorNotificacion);
+}
+
+async function restoreWorkflowStateAfterSignature(groupBefore, actor) {
+  const expectedById = new Map(
+    groupBefore.visits.map((visit) => [clean(visit.BoletaUID), workflowState(visit)]),
+  );
+
+  const restore = async () => {
+    for (const visit of groupBefore.visits) {
+      const expected = expectedById.get(clean(visit.BoletaUID));
+      await updateRow('Boletas', visit.BoletaUID, {
+        ...expected,
+        ActualizadoPor: actor,
+        FechaActualizacion: nowIso(),
+      });
+    }
+    return ensureVisitGroupForTicket(groupBefore.rootId, actor);
+  };
+
+  let restoredGroup = await restore();
+  const changedUnexpectedly = restoredGroup.visits.some((visit) => (
+    !sameWorkflowState(visit, expectedById.get(clean(visit.BoletaUID)))
+  ));
+
+  if (changedUnexpectedly) restoredGroup = await restore();
+  return restoredGroup;
+}
+
 async function persistReportPerVisit(group, report, commonPatch, actor) {
   const reports = Array.isArray(report?.reports) ? report.reports : [];
   const timestamp = nowIso();
@@ -62,7 +104,37 @@ export const ticketDeliveryHandlers = {
   evidenceUpload: ticketAccessHandlers.evidenceUpload,
   evidenceUpdate: ticketAccessHandlers.evidenceUpdate,
   evidenceDelete: ticketAccessHandlers.evidenceDelete,
-  signatureUpload: ticketAccessHandlers.signatureUpload,
+  signatureUpload: async (ctx) => {
+    const requestedId = pick(ctx.payload, ['boletaUid', 'BoletaUID', 'id']);
+    const groupBefore = await ensureVisitGroupForTicket(requestedId, ctx.user.UsuarioID);
+    const statesBefore = Object.fromEntries(groupBefore.visits.map((visit) => [
+      clean(visit.BoletaUID),
+      workflowState(visit),
+    ]));
+
+    const file = await ticketAccessHandlers.signatureUpload(ctx);
+    const groupAfter = await restoreWorkflowStateAfterSignature(groupBefore, ctx.user.UsuarioID);
+
+    await audit(ctx, 'GUARDAR_FIRMA_SIN_FINALIZAR', 'Boletas', groupAfter.rootId, null, {
+      GrupoVisitaID: groupAfter.id,
+      CantidadVisitas: groupAfter.visits.length,
+      EstadosAntes: statesBefore,
+      EstadosDespues: Object.fromEntries(groupAfter.visits.map((visit) => [
+        clean(visit.BoletaUID),
+        workflowState(visit),
+      ])),
+      FirmaArchivoID: file.id || '',
+      FinalizacionSolicitada: false,
+    }).catch(() => {});
+
+    return {
+      ...file,
+      grupoVisitas: groupSummary(groupAfter),
+      stateChanged: false,
+      finalized: groupAfter.visits.every((visit) => isFinalized(visit.Estado)),
+      message: 'La firma se guardó correctamente sin cambiar el estado de la boleta.',
+    };
+  },
   returnPending: ticketAccessHandlers.returnPending,
   annul: ticketAccessHandlers.annul,
 
