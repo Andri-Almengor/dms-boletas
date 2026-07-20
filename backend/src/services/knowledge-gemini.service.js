@@ -6,9 +6,10 @@ const RESPONSE_SCHEMA = {
   type: 'object',
   properties: {
     titulo: { type: 'string' },
+    problema: { type: 'string' },
     contenidoHtml: { type: 'string' },
   },
-  required: ['titulo', 'contenidoHtml'],
+  required: ['titulo', 'problema', 'contenidoHtml'],
 };
 
 function clean(value, maxLength = 50_000) {
@@ -97,6 +98,9 @@ function retryDelay(attempt, response) {
 
 function buildPrompt({ mode, titulo, problema, contenidoHtml, categorias }) {
   const titleOnly = mode === 'TITLE_ONLY';
+  const problemOnly = mode === 'PROBLEM_ONLY';
+  const preserveDocument = titleOnly || problemOnly;
+
   return [
     'Eres un redactor senior de una base de conocimientos de soporte técnico y seguridad electrónica.',
     'Debes mejorar un tutorial escrito por un técnico usando exclusivamente la información suministrada.',
@@ -116,8 +120,8 @@ function buildPrompt({ mode, titulo, problema, contenidoHtml, categorias }) {
     '- El procedimiento debe ser entendible, explicativo y práctico.',
     '- Conserva cada marcador con formato [[IMAGEN_N]] exactamente una vez y en el punto del procedimiento donde se encontraba.',
     '- No modifiques las URL de los enlaces ni el contenido de bloques de código.',
-    titleOnly
-      ? '- Como el modo es TITLE_ONLY, devuelve contenidoHtml exactamente igual al contenido recibido.'
+    preserveDocument
+      ? `- Como el modo es ${mode}, devuelve contenidoHtml exactamente igual al contenido recibido.`
       : '- Reestructura el contenido únicamente cuando ayude a entenderlo mejor; conserva todos los hechos y pasos originales.',
     '',
     'Reglas del título para facilitar búsquedas:',
@@ -128,14 +132,28 @@ function buildPrompt({ mode, titulo, problema, contenidoHtml, categorias }) {
     '- Evita títulos genéricos como "Tutorial", "Procedimiento", "Configuración" o "Paso a paso" sin indicar de qué se trata.',
     '- Usa entre 5 y 16 palabras, máximo 120 caracteres, sin punto final.',
     '- No uses palabras clave que no aparezcan ni se deduzcan con seguridad del contenido.',
+    problemOnly
+      ? '- Como el modo es PROBLEM_ONLY, devuelve titulo exactamente igual al título recibido.'
+      : '- Genera o mejora el título de acuerdo con estas reglas.',
+    '',
+    'Reglas de la descripción del problema que resuelve:',
+    '- Dedúcela principalmente del objetivo y de las acciones descritas en el documento paso a paso.',
+    '- Explica qué necesidad, síntoma, error o situación resuelve el procedimiento y en qué sistema, equipo o contexto se aplica.',
+    '- Redacta un solo párrafo claro de dos a cuatro oraciones y máximo 700 caracteres.',
+    '- No conviertas la descripción en una lista de pasos ni repitas todo el procedimiento.',
+    '- No afirmes que el problema quedó solucionado ni agregues causas, fallas o resultados que no estén sustentados en el contenido.',
+    '- Utiliza términos comunes y técnicos que ayuden a entender cuándo debe usarse el tutorial.',
+    titleOnly
+      ? '- Como el modo es TITLE_ONLY, devuelve problema exactamente igual a la descripción recibida.'
+      : '- Genera una descripción completa aunque el campo actual esté vacío o sea muy breve.',
     '',
     `Modo: ${mode}`,
     `Título actual: ${titulo || '(vacío)'}`,
     `Categorías seleccionadas: ${categorias.length ? categorias.join(', ') : '(ninguna)'}`,
-    `Problema que resuelve: ${problema || '(vacío)'}`,
+    `Descripción actual del problema: ${problema || '(vacío)'}`,
     `Documento original: ${contenidoHtml}`,
     '',
-    'Devuelve únicamente un objeto JSON con titulo y contenidoHtml.',
+    'Devuelve únicamente un objeto JSON con titulo, problema y contenidoHtml.',
   ].join('\n');
 }
 
@@ -160,7 +178,7 @@ async function requestModel({ apiKey, model, prompt, retries }) {
         body: JSON.stringify({
           model,
           store: false,
-          system_instruction: 'Mejoras tutoriales técnicos sin inventar información. Produces títulos fáciles de buscar y documentos HTML claros, ordenados y precisos.',
+          system_instruction: 'Mejoras tutoriales técnicos sin inventar información. Produces títulos fáciles de buscar, descripciones claras del problema y documentos HTML ordenados y precisos.',
           input: prompt,
           response_format: {
             type: 'text',
@@ -241,7 +259,8 @@ export async function rewriteKnowledgeTutorial(payload = {}) {
     throw new AppError('GEMINI_NOT_CONFIGURED', 'Gemini no está configurado. Agregue GEMINI_API_KEY en las variables del backend.', 503);
   }
 
-  const mode = clean(payload.mode, 30).toUpperCase() === 'TITLE_ONLY' ? 'TITLE_ONLY' : 'FULL';
+  const requestedMode = clean(payload.mode, 30).toUpperCase();
+  const mode = ['TITLE_ONLY', 'PROBLEM_ONLY', 'FULL'].includes(requestedMode) ? requestedMode : 'FULL';
   const titulo = clean(payload.titulo ?? payload.title, 160);
   const problema = clean(payload.problema ?? payload.problem, 12_000);
   const contenidoHtml = clean(payload.contenidoHtml ?? payload.contentHtml ?? payload.content, 50_000);
@@ -270,12 +289,23 @@ export async function rewriteKnowledgeTutorial(payload = {}) {
 
     if (result.data) {
       const parsed = parseJson(extractInteractionText(result.data));
-      const improvedTitle = clean(parsed.titulo || titulo, 120);
-      const rawContent = mode === 'TITLE_ONLY'
-        ? contenidoHtml
-        : clean(parsed.contenidoHtml || contenidoHtml, 60_000);
+      const improvedTitle = mode === 'PROBLEM_ONLY'
+        ? titulo
+        : clean(parsed.titulo || titulo, 120);
+      const improvedProblem = mode === 'TITLE_ONLY'
+        ? problema
+        : clean(parsed.problema || problema, 1200);
+      const rawContent = mode === 'FULL'
+        ? clean(parsed.contenidoHtml || contenidoHtml, 60_000)
+        : contenidoHtml;
+
+      if (mode !== 'TITLE_ONLY' && !improvedProblem) {
+        throw new AppError('GEMINI_EMPTY_PROBLEM_DESCRIPTION', 'Gemini no pudo generar la descripción del problema a partir del procedimiento.', 502);
+      }
+
       return {
         titulo: improvedTitle || titulo,
+        problema: improvedProblem || problema,
         contenidoHtml: keepImageTokens(contenidoHtml, rawContent),
         model,
       };
