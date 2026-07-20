@@ -5,6 +5,10 @@ import { audit } from '../services/audit.service.js';
 import { deliverTicket, resendTicketChats } from '../services/ticket-group-delivery.service.js';
 import { generateTicketWithAppsScript } from '../services/apps-script-ticket-group.service.js';
 import {
+  maintenanceHasSignature,
+  synchronizeMaintenanceSignatureToTickets,
+} from '../services/maintenance-signature-request.service.js';
+import {
   ensureVisitGroupForTicket,
   groupSummary,
 } from '../services/ticket-visit-group.service.js';
@@ -50,6 +54,25 @@ function sameWorkflowState(ticket = {}, expected = {}) {
     && clean(ticket.FinalizadaEn) === clean(expected.FinalizadaEn)
     && clean(ticket.EstadoNotificacion) === clean(expected.EstadoNotificacion)
     && clean(ticket.UltimoErrorNotificacion) === clean(expected.UltimoErrorNotificacion);
+}
+
+async function inheritMaintenanceSignature(ticket, actor) {
+  const maintenanceId = clean(ticket?.OrigenMantenimientoID);
+  if (!maintenanceId) return ticket;
+
+  const maintenance = await findById('Mantenimiento', maintenanceId);
+  if (!maintenanceHasSignature(maintenance)) {
+    throw badRequest(
+      'El mantenimiento general debe contar con la firma del cliente antes de finalizar sus boletas automáticas.',
+    );
+  }
+
+  await synchronizeMaintenanceSignatureToTickets(
+    maintenanceId,
+    maintenance,
+    actor,
+  );
+  return findById('Boletas', ticket.BoletaUID);
 }
 
 async function restoreWorkflowStateAfterSignature(groupBefore, actor) {
@@ -140,9 +163,13 @@ export const ticketDeliveryHandlers = {
 
   finalize: async (ctx) => {
     const requestedId = pick(ctx.payload, ['boletaUid', 'BoletaUID', 'id']);
-    const requestedTicket = await findById('Boletas', requestedId);
+    let requestedTicket = await findById('Boletas', requestedId);
     await ticketAccessHandlers.assertTicketAccess(ctx, requestedTicket, 'finalizar');
-    const group = await ensureVisitGroupForTicket(requestedId, ctx.user.UsuarioID);
+    requestedTicket = await inheritMaintenanceSignature(
+      requestedTicket,
+      ctx.user.UsuarioID,
+    );
+    const group = await ensureVisitGroupForTicket(requestedTicket.BoletaUID, ctx.user.UsuarioID);
 
     return runOnce(`finalize-group:${group.rootId}`, async () => {
       const currentGroup = await ensureVisitGroupForTicket(group.rootId, ctx.user.UsuarioID);

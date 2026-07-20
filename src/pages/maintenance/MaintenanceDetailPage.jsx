@@ -5,6 +5,7 @@ import Icon from '../../components/common/Icon';
 import MaintenanceDeviceInventory from '../../components/maintenance/MaintenanceDeviceInventory';
 import MaintenanceEvidenceEditor from '../../components/maintenance/MaintenanceEvidenceEditor';
 import MaintenanceEvidenceUploader from '../../components/maintenance/MaintenanceEvidenceUploader';
+import MaintenanceSignatureCard from '../../components/maintenance/MaintenanceSignatureCard';
 import { MODULE_ROUTES, pick, requestAvailable } from '../../services/moduleApi';
 
 const MAINTENANCE_TICKET_TEST_ROUTES = ['maintenance.tickets.test', 'mantenimientos.boletas.probar'];
@@ -33,6 +34,7 @@ export default function MaintenanceDetailPage() {
   const [evidenceDevice, setEvidenceDevice] = useState(null);
   const [quickEvidenceOpen, setQuickEvidenceOpen] = useState(false);
   const [editingEvidence, setEditingEvidence] = useState(null);
+  const [maintenanceSigned, setMaintenanceSigned] = useState(false);
 
   async function load({ silent = false } = {}) {
     if (!silent) setLoading(true);
@@ -65,10 +67,15 @@ export default function MaintenanceDetailPage() {
   const offlinePending = Boolean(pick(row, ['OfflinePendiente'], false));
   const driveFolderUrl = pick(row, ['CarpetaDriveURL', 'MaintenanceFolderURL']);
   const generatedTicketCount = Number(pick(row, ['BoletasGeneradasCantidad'], 0) || 0);
+  const signatureRegistered = maintenanceSigned || Boolean(pick(row, [
+    'FirmaArchivoID',
+    'FirmaURL',
+    'Firma',
+  ]));
 
   async function action(type) {
     if (type === 'delete' && !window.confirm('¿Eliminar este mantenimiento y todos sus dispositivos?')) return;
-    if (type === 'finalize' && !window.confirm('¿Finalizar este mantenimiento? Se crearán las boletas por fecha y grupo técnico, se enviarán al supervisor y al Chat del cliente, y luego se procesarán las carpetas y evidencias del mantenimiento.')) return;
+    if (type === 'finalize' && !window.confirm('¿Finalizar este mantenimiento? La firma general del cliente se aplicará a todas las boletas, se crearán las boletas por fecha y grupo técnico, se enviarán al supervisor y al Chat del cliente, y luego se procesarán las carpetas y evidencias del mantenimiento.')) return;
     if (type === 'test' && !window.confirm('¿Enviar una prueba completa al Chat de pruebas? No se cambiará el estado del mantenimiento.')) return;
     if (type === 'ticket-test' && !window.confirm('¿Probar la agrupación y redacción de las boletas automáticas? La vista previa se enviará al Chat de pruebas sin crear boletas ni notificar al cliente o supervisor.')) return;
     const reportWindow = ['sheet', 'slides'].includes(type) ? window.open('about:blank', '_blank') : null;
@@ -81,7 +88,7 @@ export default function MaintenanceDetailPage() {
         const delivery = result?.delivery || {};
         const count = Number(result?.ticketGeneration?.ticketCount || 0);
         const warnings = result?.ticketGeneration?.warnings || [];
-        setNotice(`Mantenimiento finalizado. Se generaron y enviaron ${count} boleta${count === 1 ? '' : 's'} por fecha y grupo técnico. El mantenimiento también fue enviado a ${delivery.destination || 'Google Chat'}.${warnings.length ? ` Advertencias: ${warnings.join(' ')}` : ''}`);
+        setNotice(`Mantenimiento finalizado. La firma general fue aplicada y se generaron y enviaron ${count} boleta${count === 1 ? '' : 's'} por fecha y grupo técnico. El mantenimiento también fue enviado a ${delivery.destination || 'Google Chat'}.${warnings.length ? ` Advertencias: ${warnings.join(' ')}` : ''}`);
       }
       if (type === 'test') {
         const result = await requestAvailable(MODULE_ROUTES.maintenance.finalize, { maintenanceId, testMode: true }, sessionToken);
@@ -174,10 +181,24 @@ export default function MaintenanceDetailPage() {
           <div><Icon name="location_on" /><span>Ubicación</span><strong>{pick(row, ['Ubicacion'], 'Sin ubicación')}</strong></div>
           <div><Icon name="groups" /><span>Responsables</span><strong>{pick(row, ['Responsables', 'Responsable'], 'Sin responsables')}</strong></div>
           <div><Icon name="devices_other" /><span>Dispositivos</span><strong>{devices.length}</strong></div>
+          <div><Icon name={signatureRegistered ? 'verified' : 'draw'} /><span>Firma general</span><strong>{signatureRegistered ? 'Registrada' : 'Pendiente'}</strong></div>
           {generatedTicketCount > 0 && <div><Icon name="receipt_long" /><span>Boletas automáticas</span><strong>{generatedTicketCount}</strong></div>}
           {pick(row, ['ChatDestino']) && <div><Icon name="forum" /><span>Último destino</span><strong>{pick(row, ['ChatDestino'])}</strong></div>}
         </div>
       </section>
+
+      {!offlinePending && (
+        <MaintenanceSignatureCard
+          maintenanceId={maintenanceId}
+          sessionToken={sessionToken}
+          isAdmin={isAdmin}
+          disabled={Boolean(working)}
+          onStatusChange={(signed) => {
+            setMaintenanceSigned(signed);
+            if (signed) load({ silent: true });
+          }}
+        />
+      )}
 
       {(isAdmin || (pending && canEdit)) && (
         <section className="maintenance-report-actions" aria-label="Acciones del mantenimiento">
@@ -205,7 +226,7 @@ export default function MaintenanceDetailPage() {
       />
 
       <section className="maintenance-detail-footer-actions">
-        {pending && !offlinePending && canFinalize && devices.length > 0 && <button className="button button--primary" type="button" onClick={() => action('finalize')} disabled={Boolean(working)}><Icon name="task_alt" />{working === 'finalize' ? 'Generando boletas y finalizando...' : 'Finalizar mantenimiento'}</button>}
+        {pending && !offlinePending && canFinalize && devices.length > 0 && <button className="button button--primary" type="button" onClick={() => action('finalize')} disabled={Boolean(working) || !signatureRegistered} title={!signatureRegistered ? 'El cliente debe firmar el mantenimiento general antes de finalizar' : 'Finalizar mantenimiento y generar boletas firmadas'}><Icon name="task_alt" />{working === 'finalize' ? 'Generando boletas y finalizando...' : signatureRegistered ? 'Finalizar mantenimiento' : 'Firma pendiente'}</button>}
         {status === 'FINALIZADO' && isAdmin && <button className="button button--secondary" type="button" onClick={() => action('reopen')} disabled={Boolean(working)}><Icon name="undo" />Volver a pendiente</button>}
         {isAdmin && <button className="button button--danger" type="button" onClick={() => action('delete')} disabled={Boolean(working)}><Icon name="delete" />Eliminar</button>}
       </section>
