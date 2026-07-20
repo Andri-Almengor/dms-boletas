@@ -1,0 +1,202 @@
+name: Apply Chat and Gemini hotfix
+
+on:
+  push:
+    branches:
+      - fix/chat-webhook-and-gemini-quota
+
+permissions:
+  contents: write
+
+jobs:
+  patch:
+    if: github.actor != 'github-actions[bot]'
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: fix/chat-webhook-and-gemini-quota
+          fetch-depth: 0
+
+      - name: Apply source changes
+        shell: bash
+        run: |
+          python - <<'PY'
+          from pathlib import Path
+
+          def replace_once(path, old, new):
+              file = Path(path)
+              text = file.read_text(encoding='utf-8')
+              count = text.count(old)
+              if count != 1:
+                  raise SystemExit(f'{path}: expected one match, found {count}')
+              file.write_text(text.replace(old, new, 1), encoding='utf-8')
+
+          replace_once(
+              'backend/src/services/maintenance-ticket-generation.service.js',
+              "  return candidates.map(clean).find((value) => value.startsWith('https://chat.googleapis.com/')) || '';",
+              "  return candidates\n    .map((value) => clean(value))\n    .find((value) => value.startsWith('https://chat.googleapis.com/')) || '';",
+          )
+
+          replace_once(
+              'backend/src/services/gemini.service.js',
+              "const CLIENT_CHAT_SUMMARY_MODE = 'CLIENT_CHAT_SUMMARY';",
+              "const CLIENT_CHAT_SUMMARY_MODE = 'CLIENT_CHAT_SUMMARY';\nconst DEFAULT_QUOTA_COOLDOWN_MS = 60_000;\nconst MAX_QUOTA_COOLDOWN_MS = 5 * 60_000;\nconst modelQuotaCooldowns = new Map();\nconst announcedFallbackModels = new Set();",
+          )
+
+          replace_once(
+              'backend/src/services/gemini.service.js',
+              """function retryDelay(attempt, response) {
+  const retryAfter = Number(response?.headers?.get?.('retry-after'));
+  if (Number.isFinite(retryAfter) && retryAfter > 0) return Math.min(retryAfter * 1000, 10_000);
+  const base = 800 * (2 ** attempt);
+  const jitter = Math.floor(Math.random() * 350);
+  return Math.min(base + jitter, 8_000);
+}
+""",
+              """function retryDelay(attempt, response) {
+  const retryAfter = Number(response?.headers?.get?.('retry-after'));
+  if (Number.isFinite(retryAfter) && retryAfter > 0) return Math.min(retryAfter * 1000, 10_000);
+  const base = 800 * (2 ** attempt);
+  const jitter = Math.floor(Math.random() * 350);
+  return Math.min(base + jitter, 8_000);
+}
+
+function retryAfterMilliseconds(response, message = '') {
+  const headerSeconds = Number(response?.headers?.get?.('retry-after'));
+  if (Number.isFinite(headerSeconds) && headerSeconds > 0) {
+    return Math.min(Math.ceil(headerSeconds * 1000), MAX_QUOTA_COOLDOWN_MS);
+  }
+
+  const match = String(message || '').match(/retry in\s+([\d.]+)s/i);
+  const messageSeconds = Number(match?.[1]);
+  if (Number.isFinite(messageSeconds) && messageSeconds > 0) {
+    return Math.min(Math.ceil(messageSeconds * 1000), MAX_QUOTA_COOLDOWN_MS);
+  }
+
+  return DEFAULT_QUOTA_COOLDOWN_MS;
+}
+
+function quotaCooldownRemaining(model) {
+  const remaining = Number(modelQuotaCooldowns.get(model) || 0) - Date.now();
+  if (remaining <= 0) {
+    modelQuotaCooldowns.delete(model);
+    return 0;
+  }
+  return remaining;
+}
+
+function setQuotaCooldown(model, milliseconds) {
+  const duration = positiveInteger(
+    milliseconds,
+    DEFAULT_QUOTA_COOLDOWN_MS,
+    1000,
+    MAX_QUOTA_COOLDOWN_MS,
+  );
+  modelQuotaCooldowns.set(model, Date.now() + duration);
+}
+""",
+          )
+
+          replace_once(
+              'backend/src/services/gemini.service.js',
+              """    if (response) {
+      const status = response.status;
+      lastFailure = {
+        status,
+        code: status === 429 ? 'GEMINI_QUOTA_EXCEEDED' : 'GEMINI_REQUEST_FAILED',
+        message: data?.error?.message || `Gemini rechazó la solicitud (${status}).`,
+        transient: TRANSIENT_STATUSES.has(status),
+      };
+    }
+
+    if (!lastFailure?.transient || attempt >= retries) break;
+""",
+              """    if (response) {
+      const status = response.status;
+      const message = data?.error?.message || `Gemini rechazó la solicitud (${status}).`;
+      lastFailure = {
+        status,
+        code: status === 429 ? 'GEMINI_QUOTA_EXCEEDED' : 'GEMINI_REQUEST_FAILED',
+        message,
+        transient: TRANSIENT_STATUSES.has(status),
+        retryAfterMs: status === 429 ? retryAfterMilliseconds(response, message) : 0,
+      };
+    }
+
+    if (lastFailure?.status === 429) break;
+    if (!lastFailure?.transient || attempt >= retries) break;
+""",
+          )
+
+          replace_once(
+              'backend/src/services/gemini.service.js',
+              """  for (let index = 0; index < models.length; index += 1) {
+    const model = models[index];
+    attemptedModels.push(model);
+""",
+              """  for (let index = 0; index < models.length; index += 1) {
+    const model = models[index];
+    if (quotaCooldownRemaining(model) > 0) continue;
+    attemptedModels.push(model);
+""",
+          )
+
+          replace_once(
+              'backend/src/services/gemini.service.js',
+              """    if (result.data) {
+      if (index > 0) console.warn(`[gemini] Se utilizó el modelo alternativo ${model}.`);
+""",
+              """    if (result.data) {
+      if (index > 0 && !announcedFallbackModels.has(model)) {
+        announcedFallbackModels.add(model);
+        console.warn(`[gemini] Se utilizó el modelo alternativo ${model}.`);
+      }
+""",
+          )
+
+          replace_once(
+              'backend/src/services/gemini.service.js',
+              """    lastFailure = result.error;
+    console.warn(`[gemini] ${model} no respondió correctamente: ${lastFailure?.status || 'sin estado'} ${lastFailure?.message || ''}`);
+    if (!lastFailure?.transient) break;
+  }
+
+  throw finalGeminiError(lastFailure, attemptedModels);
+""",
+              """    lastFailure = result.error;
+    if (lastFailure?.status === 429) {
+      setQuotaCooldown(model, lastFailure.retryAfterMs);
+      console.warn(`[gemini] ${model} alcanzó su cuota. Se omitirá temporalmente y se usará un modelo alternativo.`);
+    } else {
+      console.warn(`[gemini] ${model} no respondió correctamente: ${lastFailure?.status || 'sin estado'} ${lastFailure?.message || ''}`);
+    }
+    if (!lastFailure?.transient) break;
+  }
+
+  if (!attemptedModels.length) {
+    const remaining = models.map(quotaCooldownRemaining).filter((value) => value > 0);
+    const retryInSeconds = Math.max(1, Math.ceil(Math.min(...remaining) / 1000));
+    throw new AppError(
+      'GEMINI_QUOTA_COOLDOWN',
+      `Los modelos de Gemini alcanzaron su cuota temporal. Vuelva a intentarlo en aproximadamente ${retryInSeconds} segundos.`,
+      429,
+      { attemptedModels, models, retryInSeconds },
+    );
+  }
+
+  throw finalGeminiError(lastFailure, attemptedModels);
+""",
+          )
+          PY
+
+          rm .github/workflows/apply-chat-gemini-hotfix.yml
+
+      - name: Commit source changes
+        shell: bash
+        run: |
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add -A
+          git commit -m "Corregir webhook de pruebas y controlar cuota Gemini"
+          git push origin HEAD:fix/chat-webhook-and-gemini-quota
