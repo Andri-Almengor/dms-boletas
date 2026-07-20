@@ -1,4 +1,4 @@
-import React, { useState } from 'react';
+import React, { useEffect, useMemo, useState } from 'react';
 import { useAuth } from '../../AuthContext';
 import AutosaveIndicator from '../feedback/AutosaveIndicator';
 import Icon from '../common/Icon';
@@ -6,7 +6,7 @@ import TechnicianMultiSelect from '../forms/TechnicianMultiSelect';
 import MaintenanceDeviceCatalogFields from './MaintenanceDeviceCatalogFields';
 import MaintenanceEvidenceImage from './MaintenanceEvidenceImage';
 import { getMaintenanceCategory } from '../../config/maintenanceCategories';
-import { MODULE_ROUTES, pick, requestAvailable } from '../../services/moduleApi';
+import { MODULE_ROUTES, normalizeItems, pick, requestAvailable } from '../../services/moduleApi';
 
 function Field({ label, multiline = false, ...props }) {
   return <label className="field-group"><span className="field-label">{label}</span>{multiline ? <textarea className="form-control ticket-textarea" rows="5" {...props} /> : <input className="form-control" {...props} />}</label>;
@@ -20,6 +20,17 @@ function currentRoute() {
   return `${window.location.pathname}${window.location.search || ''}`;
 }
 
+function technicianOption(row) {
+  const label = String(pick(row, ['NombreCompleto', 'Nombre', 'NombreUsuario', 'Correo'], '')).trim();
+  const parts = label.split(/\s+/);
+  return {
+    value: String(pick(row, ['UsuarioID', 'id'], '')),
+    label,
+    note: pick(row, ['Correo', 'NombreUsuario']),
+    initials: `${parts[0]?.[0] || ''}${parts[1]?.[0] || ''}`.toUpperCase(),
+  };
+}
+
 export default function MaintenanceDeviceEditor({ device, equipmentOptions = [], technicians = [], disabled, isAdmin, onChange, onClose, onDelete, onSubmit, submitLabel = 'Guardar dispositivo', submitting = false, autosaveStatus = 'idle' }) {
   const { sessionToken, hasPermission } = useAuth();
   const category = getMaintenanceCategory(device.categoria);
@@ -30,6 +41,27 @@ export default function MaintenanceDeviceEditor({ device, equipmentOptions = [],
     || hasPermission('BOLETAS_EDITAR');
   const [deletingImageId, setDeletingImageId] = useState('');
   const [evidenceError, setEvidenceError] = useState('');
+  const [loadedTechnicians, setLoadedTechnicians] = useState([]);
+
+  useEffect(() => {
+    if (technicians.length || !sessionToken) return undefined;
+    let active = true;
+    requestAvailable(MODULE_ROUTES.users.list, { page: 1, pageSize: 1000, activo: true }, sessionToken)
+      .then((data) => {
+        if (!active) return;
+        setLoadedTechnicians(normalizeItems(data)
+          .filter((item) => String(pick(item, ['Estado'], 'ACTIVO')).toUpperCase() === 'ACTIVO')
+          .map(technicianOption)
+          .filter((item) => item.value && item.label));
+      })
+      .catch((error) => active && setEvidenceError(error.message || 'No se pudieron cargar los técnicos.'));
+    return () => { active = false; };
+  }, [technicians.length, sessionToken]);
+
+  const technicianOptions = useMemo(
+    () => (technicians.length ? technicians : loadedTechnicians),
+    [technicians, loadedTechnicians],
+  );
 
   function patch(values) { onChange({ ...device, ...values }); }
 
@@ -94,7 +126,7 @@ export default function MaintenanceDeviceEditor({ device, equipmentOptions = [],
         <Field label="Fecha de trabajo *" type="date" value={device.fechaTrabajo || ''} onChange={(event) => patch({ fechaTrabajo: event.target.value })} disabled={locked} />
         <div className="field-group">
           <span className="field-label">Técnicos que realizaron este trabajo *</span>
-          <TechnicianMultiSelect users={technicians} selectedIds={device.tecnicoIds || []} onChange={(tecnicoIds) => patch({ tecnicoIds })} disabled={locked} />
+          <TechnicianMultiSelect users={technicianOptions} selectedIds={device.tecnicoIds || []} onChange={(tecnicoIds) => patch({ tecnicoIds })} disabled={locked} />
           <small className="field-hint">Puede seleccionar varios técnicos. Los dispositivos de la misma fecha y con exactamente el mismo grupo formarán una sola boleta.</small>
         </div>
       </section>
