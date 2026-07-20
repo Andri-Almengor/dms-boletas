@@ -4,6 +4,7 @@ import { normalizeTicketHoursPayload } from './ticket-hours.js';
 import { login, authenticate, logout, changePassword } from '../services/auth.service.js';
 import { safeUser } from '../services/permissions.service.js';
 import { rewriteTechnicalReport } from '../services/gemini.service.js';
+import { rewriteKnowledgeTutorial } from '../services/knowledge-gemini.service.js';
 import { usersHandlers } from '../modules/users.module.js';
 import { crudHandlers } from '../modules/crud.module.js';
 import { ticketMultiHandlers as ticketHandlers } from '../modules/ticket-multi.module.js';
@@ -32,6 +33,7 @@ add(['users.password.reset','users.resetPassword','usuarios.contrasena.restablec
 add('roles.list',usersHandlers.roles,'USUARIOS_VER');
 add(['config.get','app.config.get'],getClientConfig);
 add(['ai.technicalRewrite','gemini.technicalRewrite','boletas.ai.rewrite'], async (ctx)=>rewriteTechnicalReport(ctx.payload), ['BOLETAS_CREAR','BOLETAS_EDITAR','MANTENIMIENTOS_CREAR','MANTENIMIENTOS_EDITAR','MANTENIMIENTOS_GESTIONAR']);
+add(['ai.knowledgeRewrite','gemini.knowledgeRewrite','knowledge.ai.rewrite','baseConocimientos.ai.rewrite'], async (ctx)=>rewriteKnowledgeTutorial(ctx.payload), ['CONOCIMIENTO_CREAR','CONOCIMIENTO_GESTIONAR','BOLETAS_CREAR','USUARIOS_GESTIONAR']);
 
 add(['survey.public.get','encuesta.publica.get'], surveyHandlers.publicGet, null, true);
 add(['survey.public.submit','encuesta.publica.submit'], surveyHandlers.publicSubmit, null, true);

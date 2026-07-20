@@ -16,6 +16,8 @@ const EMPTY_FORM = {
   videos: [''],
 };
 const MAX_FILE_SIZE = 20 * 1024 * 1024;
+const KNOWLEDGE_AI_ROUTES = ['ai.knowledgeRewrite', 'gemini.knowledgeRewrite', 'knowledge.ai.rewrite', 'baseConocimientos.ai.rewrite'];
+const SAFE_AI_TAGS = new Set(['H1', 'H2', 'H3', 'P', 'OL', 'UL', 'LI', 'STRONG', 'B', 'EM', 'I', 'U', 'BLOCKQUOTE', 'PRE', 'CODE', 'A', 'BR', 'SPAN', 'DIV']);
 
 function canCreateTutorial(hasPermission) {
   return hasPermission('CONOCIMIENTO_CREAR') || hasPermission('CONOCIMIENTO_GESTIONAR') || hasPermission('BOLETAS_CREAR') || hasPermission('USUARIOS_GESTIONAR');
@@ -27,6 +29,55 @@ function normalizeDraftForm(value = {}) {
     ? value.categoryIds.map(String).filter(Boolean)
     : legacyId ? [legacyId] : [];
   return { ...EMPTY_FORM, ...value, categoryIds };
+}
+
+function prepareHtmlForGemini(html = '') {
+  const images = [];
+  const contentHtml = String(html).replace(/<img\b[^>]*>/gi, (tag) => {
+    const token = `[[IMAGEN_${images.length + 1}]]`;
+    images.push({ token, tag });
+    return `<p>${token}</p>`;
+  });
+  return { contentHtml, images };
+}
+
+function sanitizeGeminiHtml(html = '') {
+  const parser = new DOMParser();
+  const documentNode = parser.parseFromString(`<div id="dms-ai-root">${String(html)}</div>`, 'text/html');
+  const root = documentNode.getElementById('dms-ai-root');
+  if (!root) return '';
+
+  root.querySelectorAll('script,style,iframe,object,embed,form,input,button,textarea,select,meta,link').forEach((node) => node.remove());
+  [...root.querySelectorAll('*')].forEach((node) => {
+    if (!SAFE_AI_TAGS.has(node.tagName)) {
+      node.replaceWith(...node.childNodes);
+      return;
+    }
+    [...node.attributes].forEach((attribute) => {
+      const name = attribute.name.toLowerCase();
+      if (name.startsWith('on') || name === 'style' || name === 'class' || name === 'id') node.removeAttribute(attribute.name);
+      if (node.tagName !== 'A' && name !== 'data-knowledge-size') node.removeAttribute(attribute.name);
+    });
+    if (node.tagName === 'A') {
+      const href = String(node.getAttribute('href') || '').trim();
+      if (!/^(https?:\/\/|mailto:|#)/i.test(href)) node.removeAttribute('href');
+      else {
+        node.setAttribute('target', '_blank');
+        node.setAttribute('rel', 'noopener noreferrer');
+      }
+    }
+  });
+  return root.innerHTML;
+}
+
+function restoreInlineImages(html, images = []) {
+  let restored = String(html || '');
+  images.forEach(({ token, tag }) => {
+    if (restored.includes(token)) restored = restored.replace(token, tag);
+    else restored += `<p>${tag}</p>`;
+    restored = restored.split(token).join('');
+  });
+  return restored;
 }
 
 export default function KnowledgeEditorPage({ mode }) {
@@ -44,6 +95,9 @@ export default function KnowledgeEditorPage({ mode }) {
   const [error, setError] = useState('');
   const [loadError, setLoadError] = useState('');
   const [savedLocally, setSavedLocally] = useState(false);
+  const [aiBusy, setAiBusy] = useState('');
+  const [aiNotice, setAiNotice] = useState('');
+  const [aiSnapshot, setAiSnapshot] = useState(null);
   const userId = String(pick(user, ['UsuarioID', 'id'], ''));
   const draftKey = `dms_knowledge_draft_${tutorialId || 'new'}_${userId || 'user'}`;
 
@@ -132,6 +186,59 @@ export default function KnowledgeEditorPage({ mode }) {
     } catch (err) { setError(err.message); }
   }
 
+  async function improveWithGemini(requestedMode) {
+    const visibleText = stripHtml(form.content).trim();
+    if (!visibleText) {
+      setError('Escriba el documento paso a paso antes de usar Gemini.');
+      return;
+    }
+
+    const snapshot = { title: form.title, content: form.content };
+    const prepared = prepareHtmlForGemini(form.content);
+    const selectedCategories = categoryOptions
+      .filter((option) => form.categoryIds.includes(option.value))
+      .map((option) => option.label);
+
+    setAiBusy(requestedMode);
+    setError('');
+    setAiNotice('');
+    try {
+      const response = await requestAvailable(KNOWLEDGE_AI_ROUTES, {
+        mode: requestedMode,
+        titulo: form.title,
+        problema: form.problem,
+        categorias: selectedCategories,
+        contenidoHtml: prepared.contentHtml,
+      }, sessionToken);
+      const improvedTitle = String(pick(response, ['titulo', 'title'], form.title)).trim();
+      let improvedContent = form.content;
+      if (requestedMode === 'FULL') {
+        const receivedHtml = pick(response, ['contenidoHtml', 'contentHtml', 'content'], prepared.contentHtml);
+        improvedContent = restoreInlineImages(sanitizeGeminiHtml(receivedHtml), prepared.images);
+      }
+      setAiSnapshot(snapshot);
+      setForm((current) => ({
+        ...current,
+        title: improvedTitle || current.title,
+        content: requestedMode === 'FULL' ? improvedContent : current.content,
+      }));
+      setAiNotice(requestedMode === 'FULL'
+        ? 'Gemini mejoró el documento y generó un título fácil de buscar. Revise el resultado antes de publicar.'
+        : 'Gemini generó un título basado en el contenido del procedimiento.');
+    } catch (err) {
+      setError(err.message || 'No se pudo procesar el tutorial con Gemini.');
+    } finally {
+      setAiBusy('');
+    }
+  }
+
+  function undoGemini() {
+    if (!aiSnapshot) return;
+    setForm((current) => ({ ...current, title: aiSnapshot.title, content: aiSnapshot.content }));
+    setAiSnapshot(null);
+    setAiNotice('Se restauró la versión anterior del título y del documento.');
+  }
+
   async function save(event, forcedStatus = form.status) {
     event?.preventDefault();
     setError('');
@@ -180,6 +287,8 @@ export default function KnowledgeEditorPage({ mode }) {
   if (loading) return <div className="page page--narrow"><div className="state-card state-card--loading"><Icon name="progress_activity" /> Cargando documento...</div></div>;
   if (loadError) return <div className="page page--narrow"><div className="alert alert--error"><Icon name="error" /><span>{loadError}</span></div><button className="button button--secondary" type="button" onClick={() => navigate('/conocimiento')}><Icon name="arrow_back" /> Volver</button></div>;
 
+  const aiDisabled = saving || Boolean(aiBusy);
+
   return <div className="page knowledge-editor-page">
     <div className="page-header knowledge-editor-header">
       <button className="icon-button" type="button" onClick={() => navigate(isEdit ? `/conocimiento/${tutorialId}` : '/conocimiento')} aria-label="Volver"><Icon name="arrow_back" /></button>
@@ -188,43 +297,49 @@ export default function KnowledgeEditorPage({ mode }) {
     </div>
 
     {error && <div className="alert alert--error"><Icon name="error" /><span>{error}</span></div>}
+    {aiNotice && <div className="alert alert--success"><Icon name="auto_awesome" /><span>{aiNotice}</span></div>}
 
     <form onSubmit={(event) => save(event, form.status)}>
       <section className="form-card knowledge-basics-card">
         <div className="form-card__heading"><span className="section-marker" /><div><h2>Información del tutorial</h2><p>Relaciona el procedimiento con todas las plataformas, marcas o sistemas involucrados.</p></div></div>
         <div className="knowledge-basics-grid">
-          <label className="field-group is-wide"><span className="field-label">Título del tutorial *</span><input className="form-control" value={form.title} onChange={(event) => setField('title', event.target.value)} placeholder="Ej. Configurar una cámara Axis en Milestone con redundancia Lenel" required /></label>
-          <label className="field-group"><span className="field-label">Estado</span><select className="form-control" value={form.status} onChange={(event) => setField('status', event.target.value)}><option value="BORRADOR">Borrador</option><option value="PUBLICADO">Publicado</option></select></label>
           <div className="field-group is-wide">
-            <KnowledgeCategoryMultiSelect options={categoryOptions} selectedIds={form.categoryIds} onChange={(value) => setField('categoryIds', value)} disabled={saving} />
+            <div className="field-label-row knowledge-ai-field-label"><label className="field-label" htmlFor="knowledge-title">Título del tutorial *</label><button className="knowledge-ai-inline-button" type="button" onClick={() => improveWithGemini('TITLE_ONLY')} disabled={aiDisabled}><Icon name={aiBusy === 'TITLE_ONLY' ? 'progress_activity' : 'auto_awesome'} /> {aiBusy === 'TITLE_ONLY' ? 'Generando...' : 'Generar título con Gemini'}</button></div>
+            <input id="knowledge-title" className="form-control" value={form.title} onChange={(event) => setField('title', event.target.value)} placeholder="Ej. Configurar una IP estática en Windows 11" required disabled={aiDisabled} />
+            <small className="field-hint">Gemini usa el documento para incluir palabras comunes y técnicas que faciliten encontrar el tutorial.</small>
           </div>
-          <label className="field-group is-wide"><span className="field-label">Descripción del problema que resuelve *</span><textarea className="form-control ticket-textarea" rows="4" value={form.problem} onChange={(event) => setField('problem', event.target.value)} placeholder="Explica el síntoma, error o necesidad que llevó a crear este procedimiento." required /></label>
+          <label className="field-group"><span className="field-label">Estado</span><select className="form-control" value={form.status} onChange={(event) => setField('status', event.target.value)} disabled={saving}><option value="BORRADOR">Borrador</option><option value="PUBLICADO">Publicado</option></select></label>
+          <div className="field-group is-wide">
+            <KnowledgeCategoryMultiSelect options={categoryOptions} selectedIds={form.categoryIds} onChange={(value) => setField('categoryIds', value)} disabled={aiDisabled} />
+          </div>
+          <label className="field-group is-wide"><span className="field-label">Descripción del problema que resuelve *</span><textarea className="form-control ticket-textarea" rows="4" value={form.problem} onChange={(event) => setField('problem', event.target.value)} placeholder="Explica el síntoma, error o necesidad que llevó a crear este procedimiento." required disabled={aiDisabled} /></label>
         </div>
       </section>
 
       <section className="form-card knowledge-document-card">
-        <div className="form-card__heading"><span className="section-marker" /><div><h2>Documento paso a paso</h2><p>Redacta el tutorial dentro de la aplicación con formato similar a un documento.</p></div></div>
-        <RichTextEditor value={form.content} onChange={(value) => setField('content', value)} />
+        <div className="form-card__heading knowledge-ai-document-heading"><span className="section-marker" /><div><h2>Documento paso a paso</h2><p>Gemini puede ordenar los pasos, corregir la redacción y hacer el procedimiento más claro sin inventar información.</p></div><div className="knowledge-ai-actions"><button className="button button--secondary button--compact" type="button" onClick={() => improveWithGemini('FULL')} disabled={aiDisabled}><Icon name={aiBusy === 'FULL' ? 'progress_activity' : 'auto_awesome'} /> {aiBusy === 'FULL' ? 'Mejorando...' : 'Mejorar documento y título'}</button>{aiSnapshot && <button className="button button--ghost button--compact" type="button" onClick={undoGemini} disabled={aiDisabled}><Icon name="undo" /> Deshacer mejora</button>}</div></div>
+        <RichTextEditor value={form.content} onChange={(value) => setField('content', value)} disabled={aiDisabled} />
+        <div className="knowledge-ai-help"><Icon name="verified_user" /><p>Gemini conserva las imágenes, enlaces, direcciones IP, comandos, marcas, modelos y valores técnicos escritos. Revise siempre el resultado antes de publicarlo.</p></div>
       </section>
 
       <section className="form-card">
         <div className="form-card__heading"><span className="section-marker" /><div><h2>Videos</h2><p>Agrega enlaces de YouTube, Vimeo, Drive u otra plataforma.</p></div></div>
-        <div className="knowledge-video-fields">{form.videos.map((video, index) => <div key={index}><label className="field-group"><span className="field-label">Video {index + 1}</span><input className="form-control" type="url" value={video} onChange={(event) => updateVideo(index, event.target.value)} placeholder="https://..." /></label><button type="button" className="icon-button icon-button--outlined" onClick={() => removeVideo(index)} aria-label="Quitar video"><Icon name="delete" /></button></div>)}</div>
-        <button type="button" className="button button--secondary button--compact" onClick={addVideo}><Icon name="add" /> Agregar otro video</button>
+        <div className="knowledge-video-fields">{form.videos.map((video, index) => <div key={index}><label className="field-group"><span className="field-label">Video {index + 1}</span><input className="form-control" type="url" value={video} onChange={(event) => updateVideo(index, event.target.value)} placeholder="https://..." disabled={saving} /></label><button type="button" className="icon-button icon-button--outlined" onClick={() => removeVideo(index)} aria-label="Quitar video" disabled={saving}><Icon name="delete" /></button></div>)}</div>
+        <button type="button" className="button button--secondary button--compact" onClick={addVideo} disabled={saving}><Icon name="add" /> Agregar otro video</button>
       </section>
 
       <section className="form-card">
         <div className="form-card__heading"><span className="section-marker" /><div><h2>Documentos y archivos</h2><p>Adjunta PDF, Word, Excel, imágenes o videos de hasta 20 MB por archivo.</p></div></div>
-        <label className="knowledge-file-drop"><input type="file" multiple accept=".pdf,.doc,.docx,.xls,.xlsx,.ppt,.pptx,.txt,.csv,image/*,video/*" onChange={selectFiles} /><Icon name="upload_file" /><strong>Seleccionar documentos o videos</strong><span>Puede seleccionar varios archivos desde el explorador.</span></label>
+        <label className="knowledge-file-drop"><input type="file" multiple accept=".pdf,.doc,.docx,.xls,.xlsx,.ppt,.pptx,.txt,.csv,image/*,video/*" onChange={selectFiles} disabled={saving} /><Icon name="upload_file" /><strong>Seleccionar documentos o videos</strong><span>Puede seleccionar varios archivos desde el explorador.</span></label>
         {(existingAttachments.length > 0 || newFiles.length > 0) && <div className="knowledge-file-list">
-          {existingAttachments.map((attachment, index) => <article key={getAttachmentId(attachment) || index}><Icon name="description" /><div><strong>{getAttachmentName(attachment)}</strong><small>Archivo guardado</small></div><button type="button" className="icon-button" onClick={() => deleteExistingAttachment(attachment)} aria-label={`Eliminar ${getAttachmentName(attachment)}`}><Icon name="delete" /></button></article>)}
-          {newFiles.map((file, index) => <article key={`${file.name}-${file.lastModified}-${index}`}><Icon name={file.type.startsWith('video/') ? 'movie' : 'draft'} /><div><strong>{file.name}</strong><small>{(file.size / 1024 / 1024).toFixed(2)} MB · Pendiente de subir</small></div><button type="button" className="icon-button" onClick={() => setNewFiles((current) => current.filter((_, itemIndex) => itemIndex !== index))} aria-label={`Quitar ${file.name}`}><Icon name="close" /></button></article>)}
+          {existingAttachments.map((attachment, index) => <article key={getAttachmentId(attachment) || index}><Icon name="description" /><div><strong>{getAttachmentName(attachment)}</strong><small>Archivo guardado</small></div><button type="button" className="icon-button" onClick={() => deleteExistingAttachment(attachment)} aria-label={`Eliminar ${getAttachmentName(attachment)}`} disabled={saving}><Icon name="delete" /></button></article>)}
+          {newFiles.map((file, index) => <article key={`${file.name}-${file.lastModified}-${index}`}><Icon name={file.type.startsWith('video/') ? 'movie' : 'draft'} /><div><strong>{file.name}</strong><small>{(file.size / 1024 / 1024).toFixed(2)} MB · Pendiente de subir</small></div><button type="button" className="icon-button" onClick={() => setNewFiles((current) => current.filter((_, itemIndex) => itemIndex !== index))} aria-label={`Quitar ${file.name}`} disabled={saving}><Icon name="close" /></button></article>)}
         </div>}
       </section>
 
       <div className="knowledge-editor-actions">
-        <button type="button" className="button button--secondary" disabled={saving} onClick={(event) => save(event, 'BORRADOR')}><Icon name="save" /> Guardar borrador</button>
-        <button type="button" className="button button--primary" disabled={saving} onClick={(event) => save(event, 'PUBLICADO')}><Icon name="publish" /> {saving ? 'Guardando...' : 'Publicar tutorial'}</button>
+        <button type="button" className="button button--secondary" disabled={saving || Boolean(aiBusy)} onClick={(event) => save(event, 'BORRADOR')}><Icon name="save" /> Guardar borrador</button>
+        <button type="button" className="button button--primary" disabled={saving || Boolean(aiBusy)} onClick={(event) => save(event, 'PUBLICADO')}><Icon name="publish" /> {saving ? 'Guardando...' : 'Publicar tutorial'}</button>
       </div>
     </form>
   </div>;
