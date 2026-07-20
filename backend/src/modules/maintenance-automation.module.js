@@ -1,0 +1,167 @@
+import { badRequest, forbidden } from '../core/errors.js';
+import { asArray, nowIso, pick } from '../core/utils.js';
+import { findById, readTable, updateRow } from '../infra/sheets.repository.js';
+import { maintenanceHandlers } from './maintenance.module.js';
+import { maintenanceReportAccessHandlers } from './maintenance-report-access.module.js';
+import {
+  generateMaintenanceTickets,
+  MAINTENANCE_TICKET_COLUMNS,
+  previewMaintenanceTickets,
+} from '../services/maintenance-ticket-generation.service.js';
+import { ensureSheetColumns } from '../services/sheet-columns.service.js';
+
+const DEVICE_WORK_COLUMNS = ['FechaTrabajo', 'TecnicoIDsJSON', 'Tecnicos'];
+
+function clean(value) {
+  return String(value ?? '').trim();
+}
+
+function dateOnly(value, fallback = '') {
+  const match = clean(value).match(/^(\d{4}-\d{2}-\d{2})/);
+  return match?.[1] || fallback;
+}
+
+function isAdmin(ctx) {
+  return ctx.permissions?.includes('USUARIOS_GESTIONAR')
+    || ctx.permissions?.includes('MANTENIMIENTOS_GESTIONAR')
+    || ctx.permissions?.includes('MANTENIMIENTOS_ELIMINAR');
+}
+
+async function resolveDeviceWorkMetadata(payload = {}, existing = null) {
+  const maintenanceId = clean(pick(payload, ['maintenanceId', 'MantenimientoID', 'MantenimientoRef'], existing?.MantenimientoRef));
+  if (!maintenanceId) throw badRequest('No se indicó el mantenimiento del dispositivo.');
+
+  const [maintenance, users] = await Promise.all([
+    findById('Mantenimiento', maintenanceId),
+    readTable('Usuarios'),
+  ]);
+
+  const requestedIds = asArray(
+    payload.TecnicoIDsJSON
+      || payload.TecnicoIDs
+      || payload.tecnicoIds
+      || existing?.TecnicoIDsJSON,
+  ).map(clean).filter(Boolean);
+  const fallbackIds = asArray(maintenance.ResponsableIDsJSON || maintenance.ResponsableIDs)
+    .map(clean)
+    .filter(Boolean);
+  const actorFallback = clean(payload.CreadoPor || existing?.CreadoPor || maintenance.CreadoPor);
+  const ids = [...new Set(requestedIds.length ? requestedIds : fallbackIds.length ? fallbackIds : actorFallback ? [actorFallback] : [])].sort();
+  if (!ids.length) throw badRequest('Seleccione al menos un técnico para el dispositivo.');
+
+  const names = ids.map((id) => {
+    const user = users.find((item) => String(item.UsuarioID) === id);
+    return clean(pick(user, ['NombreCompleto', 'Nombre', 'NombreUsuario', 'Correo'], id));
+  });
+
+  const date = dateOnly(
+    pick(payload, ['FechaTrabajo', 'fechaTrabajo'], existing?.FechaTrabajo),
+    dateOnly(existing?.FechaCreacion, dateOnly(maintenance.Fecha, dateOnly(maintenance.FechaCreacion))),
+  );
+  if (!date) throw badRequest('Indique la fecha de trabajo del dispositivo.');
+
+  return {
+    maintenanceId,
+    FechaTrabajo: date,
+    TecnicoIDsJSON: JSON.stringify(ids),
+    Tecnicos: names.join(', '),
+    technicianIds: ids,
+  };
+}
+
+function contextWithMetadata(ctx, metadata) {
+  return {
+    ...ctx,
+    payload: {
+      ...ctx.payload,
+      maintenanceId: metadata.maintenanceId,
+      MantenimientoID: metadata.maintenanceId,
+      FechaTrabajo: metadata.FechaTrabajo,
+      fechaTrabajo: metadata.FechaTrabajo,
+      TecnicoIDs: metadata.technicianIds,
+      tecnicoIds: metadata.technicianIds,
+      TecnicoIDsJSON: metadata.TecnicoIDsJSON,
+      Tecnicos: metadata.Tecnicos,
+    },
+  };
+}
+
+async function persistMetadata(deviceId, metadata, actor) {
+  return updateRow('Evidencia_Mantenimientos', deviceId, {
+    FechaTrabajo: metadata.FechaTrabajo,
+    TecnicoIDsJSON: metadata.TecnicoIDsJSON,
+    Tecnicos: metadata.Tecnicos,
+    ActualizadoPor: actor,
+    FechaActualizacion: nowIso(),
+  });
+}
+
+async function deviceCreate(ctx) {
+  await ensureSheetColumns('Evidencia_Mantenimientos', DEVICE_WORK_COLUMNS);
+  const metadata = await resolveDeviceWorkMetadata(ctx.payload);
+  const created = await maintenanceHandlers.deviceCreate(contextWithMetadata(ctx, metadata));
+  const id = clean(pick(created, ['EvidenciaMantenimientoID', 'deviceId', 'id']));
+  return persistMetadata(id, metadata, ctx.user.UsuarioID);
+}
+
+async function deviceUpdate(ctx) {
+  await ensureSheetColumns('Evidencia_Mantenimientos', DEVICE_WORK_COLUMNS);
+  const id = clean(pick(ctx.payload, ['deviceId', 'EvidenciaMantenimientoID']));
+  const before = await findById('Evidencia_Mantenimientos', id);
+  const metadata = await resolveDeviceWorkMetadata(ctx.payload, before);
+  await maintenanceHandlers.deviceUpdate(contextWithMetadata(ctx, metadata));
+  return persistMetadata(id, metadata, ctx.user.UsuarioID);
+}
+
+async function deviceAutosave(ctx) {
+  await ensureSheetColumns('Evidencia_Mantenimientos', DEVICE_WORK_COLUMNS);
+  const id = clean(pick(ctx.payload, ['deviceId', 'EvidenciaMantenimientoID']));
+  const before = await findById('Evidencia_Mantenimientos', id);
+  const metadata = await resolveDeviceWorkMetadata(ctx.payload, before);
+  const base = await maintenanceHandlers.deviceAutosave(contextWithMetadata(ctx, metadata));
+  const saved = await persistMetadata(id, metadata, ctx.user.UsuarioID);
+  return { ...saved, autosaved: true, metadataSaved: true, throttled: Boolean(base?.throttled) };
+}
+
+async function finalize(ctx) {
+  const maintenanceId = clean(pick(ctx.payload, ['maintenanceId', 'MantenimientoID', 'id']));
+  const testMode = Boolean(ctx.payload.testMode || ctx.payload.prueba);
+  if (testMode) return maintenanceReportAccessHandlers.finalize(ctx);
+
+  await ensureSheetColumns('Mantenimiento', MAINTENANCE_TICKET_COLUMNS);
+  let ticketGeneration;
+  try {
+    ticketGeneration = await generateMaintenanceTickets(ctx, maintenanceId);
+  } catch (error) {
+    await updateRow('Mantenimiento', maintenanceId, {
+      EstadoBoletasMantenimiento: 'ERROR',
+      UltimoErrorBoletasMantenimiento: String(error?.message || error).slice(0, 1500),
+      ActualizadoPor: ctx.user.UsuarioID,
+      FechaActualizacion: nowIso(),
+    }).catch(() => {});
+    throw error;
+  }
+
+  const result = await maintenanceReportAccessHandlers.finalize(ctx);
+  return {
+    ...result,
+    ticketGeneration,
+    message: `Mantenimiento finalizado. Se generaron y enviaron ${ticketGeneration.ticketCount} boleta(s) por fecha y grupo técnico.`,
+  };
+}
+
+async function ticketGenerationTest(ctx) {
+  if (!isAdmin(ctx)) throw forbidden('Solo los administradores pueden probar las boletas automáticas.');
+  const maintenanceId = clean(pick(ctx.payload, ['maintenanceId', 'MantenimientoID', 'id']));
+  return previewMaintenanceTickets(ctx, maintenanceId, { sendTestChat: true });
+}
+
+export const maintenanceAutomationHandlers = {
+  ...maintenanceHandlers,
+  ...maintenanceReportAccessHandlers,
+  deviceCreate,
+  deviceUpdate,
+  deviceAutosave,
+  finalize,
+  ticketGenerationTest,
+};
