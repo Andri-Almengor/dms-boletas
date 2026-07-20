@@ -40,7 +40,8 @@ function deviceId(device) {
 }
 
 function isOffline(device) {
-  return Boolean(device.OfflinePendiente) || deviceId(device).startsWith('dispositivo-');
+  return Boolean(device.OfflinePendiente)
+    || (device.Imagenes || []).some((image) => Boolean(image.OfflinePendiente));
 }
 
 function FilterSelect({ label, value, onChange, children }) {
