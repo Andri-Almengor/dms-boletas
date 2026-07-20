@@ -23,7 +23,12 @@ function parseTimeToSeconds(value) {
   return (hour * 3600) + (minute * 60) + second;
 }
 
-export function calculateCeilingTotalHours(start, end) {
+/**
+ * Aplica una hora mínima únicamente a trabajos de hasta una hora.
+ * Después de la primera hora conserva la duración real con dos decimales.
+ * También permite visitas que terminan después de medianoche.
+ */
+export function calculateMinimumOneHourTotalHours(start, end) {
   if (!start || !end) return 0;
 
   const startSeconds = parseTimeToSeconds(start);
@@ -32,8 +37,16 @@ export function calculateCeilingTotalHours(start, end) {
 
   let elapsedSeconds = endSeconds - startSeconds;
   if (elapsedSeconds < 0) elapsedSeconds += 24 * 60 * 60;
+  if (elapsedSeconds <= 0) return 0;
 
-  return Math.ceil(elapsedSeconds / 3600);
+  const exactHours = elapsedSeconds / 3600;
+  if (exactHours <= 1) return 1;
+  return Number(exactHours.toFixed(2));
+}
+
+// Alias conservado para compatibilidad con código anterior.
+export function calculateCeilingTotalHours(start, end) {
+  return calculateMinimumOneHourTotalHours(start, end);
 }
 
 const TICKET_HOUR_ROUTES = new Set([
@@ -56,7 +69,7 @@ export function normalizeTicketHoursPayload(route, payload = {}) {
 
   const start = payload.HoraInicio ?? payload.horaInicio;
   const end = payload.HoraFinal ?? payload.horaFinal;
-  const total = calculateCeilingTotalHours(start, end);
+  const total = calculateMinimumOneHourTotalHours(start, end);
 
   return {
     ...payload,
