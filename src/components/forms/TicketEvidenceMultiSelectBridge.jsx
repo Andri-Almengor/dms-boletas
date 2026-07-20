@@ -15,9 +15,13 @@ async function fileToBase64(file) {
 function ticketIdFromPath(pathname) {
   const match = String(pathname || '').match(/^\/boletas\/([^/]+)\/?$/i);
   if (!match) return '';
-  const value = decodeURIComponent(match[1] || '');
-  if (['pendientes', 'finalizadas', 'nueva'].includes(value.toLowerCase())) return '';
-  return value;
+  try {
+    const value = decodeURIComponent(match[1] || '');
+    if (['pendientes', 'finalizadas', 'nueva'].includes(value.toLowerCase())) return '';
+    return value;
+  } catch {
+    return '';
+  }
 }
 
 function evidenceName(file, index, total, baseName) {
@@ -33,8 +37,10 @@ export default function TicketEvidenceMultiSelectBridge() {
   const selectedFilesRef = useRef([]);
   const activeInputRef = useRef(null);
   const activeFormRef = useRef(null);
+  const activeButtonRef = useRef(null);
   const inputHandlerRef = useRef(null);
   const submitHandlerRef = useRef(null);
+  const buttonHandlerRef = useRef(null);
 
   useEffect(() => {
     const boletaUid = ticketIdFromPath(pathname);
@@ -69,6 +75,7 @@ export default function TicketEvidenceMultiSelectBridge() {
     }
 
     function originalSubmitButton(form) {
+      if (!form) return null;
       return [...form.querySelectorAll('button')].find((button) => (
         !button.dataset.dmsMultiEvidenceUpload
         && (button.type === 'submit' || !button.getAttribute('type'))
@@ -109,8 +116,7 @@ export default function TicketEvidenceMultiSelectBridge() {
         selectedFilesRef.current = [];
         if (activeInputRef.current) activeInputRef.current.value = '';
         renderSelection(form);
-        const button = uploadButton(form);
-        button.disabled = true;
+        uploadButton(form).disabled = true;
       }, { once: true });
 
       header.append(title, clear);
@@ -145,6 +151,7 @@ export default function TicketEvidenceMultiSelectBridge() {
       const baseName = controls[0]?.value || '';
       const note = controls[1]?.value || '';
       const button = uploadButton(form);
+      let uploadedCount = 0;
 
       uploading = true;
       button.disabled = true;
@@ -165,6 +172,7 @@ export default function TicketEvidenceMultiSelectBridge() {
             mimeType: file.type || 'application/octet-stream',
             base64: await fileToBase64(file),
           }, sessionToken);
+          uploadedCount = index + 1;
         }
 
         renderSelection(form, 'Todas las evidencias se cargaron correctamente.', 'success');
@@ -174,12 +182,16 @@ export default function TicketEvidenceMultiSelectBridge() {
         window.setTimeout(() => window.location.reload(), 450);
       } catch (error) {
         uploading = false;
-        button.disabled = false;
+        selectedFilesRef.current = files.slice(uploadedCount);
+        button.disabled = !selectedFilesRef.current.length;
         button.innerHTML = '<span class="material-symbols-outlined" aria-hidden="true">refresh</span><span>Reintentar carga</span>';
         form.querySelectorAll('.ticket-detail-capture-actions .button').forEach((item) => {
           item.disabled = false;
         });
-        renderSelection(form, error?.message || 'No se pudieron cargar todas las evidencias.', 'error');
+        const prefix = uploadedCount
+          ? `${uploadedCount} evidencia(s) se cargaron. Quedan ${selectedFilesRef.current.length}. `
+          : '';
+        renderSelection(form, `${prefix}${error?.message || 'No se pudieron cargar todas las evidencias.'}`, 'error');
       }
     }
 
@@ -194,6 +206,14 @@ export default function TicketEvidenceMultiSelectBridge() {
       activeFormRef.current = null;
       inputHandlerRef.current = null;
       submitHandlerRef.current = null;
+    }
+
+    function detachButtonListener() {
+      if (activeButtonRef.current && buttonHandlerRef.current) {
+        activeButtonRef.current.removeEventListener('click', buttonHandlerRef.current);
+      }
+      activeButtonRef.current = null;
+      buttonHandlerRef.current = null;
     }
 
     function enhance() {
@@ -211,6 +231,7 @@ export default function TicketEvidenceMultiSelectBridge() {
       const actionButtons = [...form.querySelectorAll('.ticket-detail-capture-actions .button')];
       const selectButton = actionButtons[1];
       if (selectButton && !selectButton.dataset.dmsMultiLabel) {
+        selectButton.dataset.dmsOriginalLabel = selectButton.innerHTML;
         selectButton.dataset.dmsMultiLabel = 'true';
         selectButton.innerHTML = '<span class="material-symbols-outlined" aria-hidden="true">photo_library</span> Seleccionar varios archivos';
       }
@@ -250,20 +271,50 @@ export default function TicketEvidenceMultiSelectBridge() {
         submitHandlerRef.current = onSubmit;
       }
 
-      if (!button.dataset.dmsMultiBound) {
-        button.dataset.dmsMultiBound = 'true';
+      if (activeButtonRef.current !== button) {
+        detachButtonListener();
         button.addEventListener('click', uploadSelected);
+        activeButtonRef.current = button;
+        buttonHandlerRef.current = uploadSelected;
       }
     }
 
-    const observer = new MutationObserver(enhance);
+    const observer = new MutationObserver(() => {
+      const form = document.querySelector('.ticket-detail-evidence-form');
+      if (!form) return;
+      const input = [...form.querySelectorAll('input[type="file"]')]
+        .find((item) => !item.hasAttribute('capture'));
+      const originalSubmit = originalSubmitButton(form);
+      if (
+        form !== activeFormRef.current
+        || input !== activeInputRef.current
+        || !input?.multiple
+        || !form.querySelector('[data-dms-multi-evidence-summary]')
+        || !form.querySelector('[data-dms-multi-evidence-upload]')
+        || Boolean(originalSubmit && !originalSubmit.hidden)
+      ) {
+        enhance();
+      }
+    });
     observer.observe(document.body, { childList: true, subtree: true });
     enhance();
 
     return () => {
       disposed = true;
       observer.disconnect();
+      const form = activeFormRef.current || document.querySelector('.ticket-detail-evidence-form');
+      const originalSubmit = originalSubmitButton(form);
+      if (originalSubmit) originalSubmit.hidden = false;
+      const selectButton = form?.querySelector('.ticket-detail-capture-actions .button[data-dms-multi-label]');
+      if (selectButton?.dataset.dmsOriginalLabel) {
+        selectButton.innerHTML = selectButton.dataset.dmsOriginalLabel;
+        delete selectButton.dataset.dmsOriginalLabel;
+        delete selectButton.dataset.dmsMultiLabel;
+      }
       detachCurrentListeners();
+      detachButtonListener();
+      form?.querySelector('[data-dms-multi-evidence-summary]')?.remove();
+      form?.querySelector('[data-dms-multi-evidence-upload]')?.remove();
       selectedFilesRef.current = [];
     };
   }, [pathname, sessionToken]);
