@@ -23,6 +23,33 @@ function splitEmails(value) {
     .filter((item) => /^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(item)))];
 }
 
+function maintenanceSignaturePatch(maintenance = {}) {
+  const fileId = clean(pick(maintenance, ['FirmaArchivoID', 'FirmaFileID']));
+  const url = clean(pick(maintenance, ['FirmaURL', 'FirmaUrl', 'Firma']));
+  if (!fileId && !url) return null;
+  return {
+    FirmaArchivoID: fileId,
+    FirmaURL: url,
+    FirmaMimeType: clean(maintenance.FirmaMimeType, 'image/png'),
+    FirmaOrigen: clean(maintenance.FirmaOrigen, 'MANTENIMIENTO_GENERAL'),
+    FirmaFecha: maintenance.FirmaFecha || maintenance.FechaActualizacion || '',
+  };
+}
+
+/**
+ * Las boletas automáticas deben usar la firma general del mantenimiento como
+ * fuente de verdad. Esta combinación se realiza al construir el payload del
+ * PDF, además de la sincronización persistente de las filas de Boletas, para
+ * evitar que una lectura en caché o una boleta antigua genere un PDF sin firma.
+ */
+function withMaintenanceSignature(ticket = {}, maintenancesById = new Map()) {
+  const maintenanceId = clean(ticket.OrigenMantenimientoID);
+  if (!maintenanceId) return ticket;
+  const maintenance = maintenancesById.get(maintenanceId);
+  const patch = maintenanceSignaturePatch(maintenance);
+  return patch ? { ...ticket, ...patch } : ticket;
+}
+
 function assignedFor(ticketId, assignments, usersById) {
   return assignments
     .filter((row) => String(row.BoletaUID) === String(ticketId) && row.Activo !== false)
@@ -40,10 +67,14 @@ function assignedFor(ticketId, assignments, usersById) {
 async function loadTicketGroupBundle(ticketId) {
   const [group, tables] = await Promise.all([
     ensureVisitGroupForTicket(ticketId),
-    readTables(['BoletaAsignados', 'Usuarios', 'EvidenciasBoleta', 'Clientes']),
+    readTables(['BoletaAsignados', 'Usuarios', 'EvidenciasBoleta', 'Clientes', 'Mantenimiento']),
   ]);
   const usersById = new Map(tables.Usuarios.map((user) => [String(user.UsuarioID), user]));
-  const visits = group.visits.map((ticket) => {
+  const maintenancesById = new Map(
+    tables.Mantenimiento.map((maintenance) => [String(maintenance.MantenimientoID), maintenance]),
+  );
+  const visits = group.visits.map((storedTicket) => {
+    const ticket = withMaintenanceSignature(storedTicket, maintenancesById);
     const assigned = assignedFor(ticket.BoletaUID, tables.BoletaAsignados, usersById);
     const evidences = tables.EvidenciasBoleta
       .filter((row) => String(row.BoletaUID) === String(ticket.BoletaUID) && row.Activo !== false)
@@ -65,8 +96,9 @@ async function loadTicketGroupBundle(ticketId) {
   });
   const assigned = [...assignedMap.values()];
   const evidences = visits.flatMap((visit) => visit.evidences);
-  const client = tables.Clientes.find((row) => String(row.ClienteID) === String(group.root.ClienteID)) || null;
-  const creatorUser = usersById.get(String(group.root.CreadoPor));
+  const ticket = withMaintenanceSignature(group.root, maintenancesById);
+  const client = tables.Clientes.find((row) => String(row.ClienteID) === String(ticket.ClienteID)) || null;
+  const creatorUser = usersById.get(String(ticket.CreadoPor));
   const creator = creatorUser ? {
     UsuarioID: creatorUser.UsuarioID,
     Nombre: clean(pick(creatorUser, ['NombreCompleto', 'Nombre', 'NombreUsuario', 'Correo'])),
@@ -74,7 +106,7 @@ async function loadTicketGroupBundle(ticketId) {
     Correo: clean(creatorUser.Correo),
   } : null;
   return {
-    ticket: group.root,
+    ticket,
     group,
     visits,
     assigned,
@@ -115,11 +147,23 @@ function resolveRecipients(bundle, config, testMode, override = null, forceClien
   return { to, cc };
 }
 
+function signatureVersionKey(bundle) {
+  const signatures = bundle.visits
+    .map((visit) => clean(
+      visit.ticket.FirmaArchivoID
+      || visit.ticket.FirmaFileID
+      || visit.ticket.FirmaURL,
+    ))
+    .filter(Boolean);
+  return signatures.length ? [...new Set(signatures)].join('-').slice(0, 140) : 'sin-firma';
+}
+
 async function requestKey(bundle, testMode, sendEmail, deliveryType = '') {
   const version = await visitGroupVersionKey(bundle.group.rootId);
-  if (testMode) return `test-group:${bundle.group.id}:${Date.now()}`;
-  if (deliveryType === 'SIGNED') return `signed-group:${bundle.group.id}:${version}`;
-  return `${sendEmail ? 'final-group' : 'pdf-group'}:${bundle.group.id}:${version}`;
+  const signatureVersion = signatureVersionKey(bundle);
+  if (testMode) return `test-group:${bundle.group.id}:${signatureVersion}:${Date.now()}`;
+  if (deliveryType === 'SIGNED') return `signed-group:${bundle.group.id}:${version}:${signatureVersion}`;
+  return `${sendEmail ? 'final-group' : 'pdf-group'}:${bundle.group.id}:${version}:${signatureVersion}`;
 }
 
 async function postAppsScript(url, payload) {
@@ -254,6 +298,7 @@ export async function generateTicketWithAppsScript({
     recipients,
     survey: surveyPayload,
     signatureRequest,
+    signatureIncluded: Boolean(clean(rootTicket.FirmaArchivoID || rootTicket.FirmaURL)),
     visitGroup,
   };
 }
