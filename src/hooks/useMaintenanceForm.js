@@ -54,6 +54,11 @@ function deviceSignature(device) {
   });
 }
 
+function hasPendingMedia(device) {
+  return Boolean((device?.newImages || []).length)
+    || (device?.images || []).some((image) => image.dirty);
+}
+
 export default function useMaintenanceForm({ editing, maintenanceId }) {
   const navigate = useNavigate();
   const { sessionToken, user, hasPermission } = useAuth();
@@ -215,7 +220,8 @@ export default function useMaintenanceForm({ editing, maintenanceId }) {
         if (!deviceId) throw new Error('El backend no devolvió el identificador del dispositivo.');
 
         const savedExistingImageIds = [];
-        for (const image of (device.images || []).filter((item) => item.dirty)) {
+        const existingImagesToSave = automatic ? [] : (device.images || []).filter((item) => item.dirty);
+        for (const image of existingImagesToSave) {
           await requestAvailable(MODULE_ROUTES.maintenance.imageUpdate, {
             maintenanceId,
             deviceId,
@@ -227,7 +233,8 @@ export default function useMaintenanceForm({ editing, maintenanceId }) {
         }
 
         const uploadedImages = [];
-        for (const image of device.newImages || []) {
+        const newImagesToUpload = automatic ? [] : (device.newImages || []);
+        for (const image of newImagesToUpload) {
           const uploaded = await requestAvailable(MODULE_ROUTES.maintenance.imageUpload, {
             maintenanceId,
             deviceId,
@@ -243,20 +250,22 @@ export default function useMaintenanceForm({ editing, maintenanceId }) {
         const savedSnapshot = {
           ...device,
           id: deviceId,
-          images: [
-            ...(device.images || []).map((image) => savedExistingImageIds.includes(image.id) ? { ...image, dirty: false } : image),
-            ...uploadedImages,
-          ],
-          newImages: [],
+          images: automatic
+            ? (device.images || [])
+            : [
+              ...(device.images || []).map((image) => savedExistingImageIds.includes(image.id) ? { ...image, dirty: false } : image),
+              ...uploadedImages,
+            ],
+          newImages: automatic ? (device.newImages || []) : [],
         };
-        applySavedDevice(device, deviceId, uploadedImages, savedExistingImageIds);
+        applySavedDevice(automatic ? { ...device, newImages: [] } : device, deviceId, uploadedImages, savedExistingImageIds);
 
         if (saved?.throttled) {
           setDeviceAutosaveStatus('local');
         } else {
           lastSavedDeviceSignatureRef.current = deviceSignature(savedSnapshot);
           failedDeviceSignatureRef.current = '';
-          setDeviceAutosaveStatus('server');
+          setDeviceAutosaveStatus(automatic && hasPendingMedia(savedSnapshot) ? 'local' : 'server');
         }
         setError('');
         try { localStorage.removeItem(localDraftKey(maintenanceId)); } catch { /* Sin efecto sobre el guardado. */ }
@@ -284,7 +293,7 @@ export default function useMaintenanceForm({ editing, maintenanceId }) {
     if (!activeDevice || readOnly || saving || deviceSaving) return undefined;
     const currentSignature = deviceSignature(activeDevice);
     if (currentSignature === lastSavedDeviceSignatureRef.current) {
-      setDeviceAutosaveStatus(editing && maintenanceId ? 'server' : 'local');
+      setDeviceAutosaveStatus(editing && maintenanceId && !hasPendingMedia(activeDevice) ? 'server' : 'local');
       return undefined;
     }
     if (currentSignature === failedDeviceSignatureRef.current) return undefined;
