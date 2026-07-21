@@ -5,6 +5,7 @@ import { getConfig } from '../modules/config.module.js';
 import { audit } from './audit.service.js';
 import { sendChatMessage } from './chat.service.js';
 import { previewMaintenanceTickets } from './maintenance-ticket-generation.service.js';
+import { maintenanceSignaturePatch } from './maintenance-signature-request.service.js';
 import { ticketPdfFileName } from './ticket-pdf-name.service.js';
 
 const DEFAULT_TEMPLATE_ID = '1QsEaLN8RL5Ry_EBZvBeKoWo6NHZHNmKHckAWT85fhBE';
@@ -175,6 +176,8 @@ function previewTicket(bundle, previewGroup, deviceGroup, index, runId) {
   const ticket = {
     BoletaUID: ticketUid,
     BoletaID: ticketNumber,
+    OrigenMantenimientoID: clean(maintenance.MantenimientoID),
+    ...maintenanceSignaturePatch(maintenance),
     Titulo: clean(previewGroup.title, `Mantenimiento ${previewGroup.date}`),
     Estado: 'PRUEBA',
     Fecha: previewGroup.date,
@@ -265,6 +268,12 @@ async function createOfficialPreviewReport(runtime, bundle, previewGroup, device
   const ticket = previewTicket(bundle, previewGroup, deviceGroup, index, runId);
   const assigned = assignedFor(bundle, deviceGroup.technicianIds);
   const evidences = evidencesFor(bundle, deviceGroup.devices, ticket.BoletaUID);
+  const signatureIncluded = Boolean(clean(
+    ticket.FirmaArchivoID
+      || ticket.FirmaFileID
+      || ticket.FirmaURL
+      || ticket.Firma,
+  ));
   const data = await postAppsScript(runtime.url, {
     action: 'ticket.report.deliver',
     secret: runtime.secret,
@@ -289,6 +298,7 @@ async function createOfficialPreviewReport(runtime, bundle, previewGroup, device
     surveyUrl: '',
     signature: null,
     signatureUrl: '',
+    signatureIncluded,
     visitGroup: null,
   });
 
@@ -299,6 +309,7 @@ async function createOfficialPreviewReport(runtime, bundle, previewGroup, device
     date: ticket.Fecha,
     deviceCount: deviceGroup.devices.length,
     evidenceCount: evidences.length,
+    signatureIncluded,
     documentId: clean(data.documentId),
     documentUrl: clean(data.documentUrl),
     pdfId: clean(data.pdfId),
@@ -335,6 +346,7 @@ function chatText(maintenance, groups) {
       `Fecha: ${group.date}`,
       `Técnicos: ${(group.technicians || []).join(', ')}`,
       `Dispositivos: ${group.deviceCount}`,
+      `Firma general: ${group.signatureIncluded ? 'incluida en el PDF' : 'no disponible; el mantenimiento todavía no tiene una firma real registrada'}`,
       `Título: ${group.title}`,
       `Documento: ${group.documentUrl}`,
       `PDF: ${group.pdfUrl}`,
@@ -401,8 +413,10 @@ export async function previewMaintenanceTicketsWithDocuments(ctx, maintenanceId)
     EstadoCambiado: false,
     BoletasCreadas: false,
     DocumentosCreados: reports.length,
+    FirmaGeneralDisponible: reports.some((report) => report.signatureIncluded),
     Reportes: reports.map((report) => ({
       BoletaPrueba: report.ticketNumber,
+      FirmaIncluida: report.signatureIncluded,
       DocumentoURL: report.documentUrl,
       PDFURL: report.pdfUrl,
       CarpetaURL: report.folderUrl,
@@ -410,12 +424,14 @@ export async function previewMaintenanceTicketsWithDocuments(ctx, maintenanceId)
     })),
   }).catch(() => {});
 
+  const signedReports = reports.filter((report) => report.signatureIncluded).length;
   return {
     ...preview,
     documentsCreated: true,
     documentCount: reports.length,
+    signatureIncludedCount: signedReports,
     chat,
     groups: reports,
-    message: `Prueba completada: se crearon ${reports.length} documento${reports.length === 1 ? '' : 's'} y PDF con la plantilla oficial. Los enlaces fueron enviados al Chat de pruebas. No se crearon boletas reales ni se cambió el estado del mantenimiento.`,
+    message: `Prueba completada: se crearon ${reports.length} documento${reports.length === 1 ? '' : 's'} y PDF con la plantilla oficial.${signedReports ? ` La firma general fue incluida en ${signedReports} PDF${signedReports === 1 ? '' : 's'}.` : ' El mantenimiento todavía no tiene una firma real registrada, por lo que los PDF se generaron sin firma.'} Los enlaces fueron enviados al Chat de pruebas. No se crearon boletas reales ni se cambió el estado del mantenimiento.`,
   };
 }
