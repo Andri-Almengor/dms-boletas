@@ -2,6 +2,7 @@ import React from 'react';
 import { Navigate, Route, Routes } from 'react-router-dom';
 import AppShell from '../components/layout/AppShell';
 import FormRecoveryManager from '../components/offline/FormRecoveryManager';
+import FormRecoveryMobileController from '../components/offline/FormRecoveryMobileController';
 import ChangePasswordPage from '../pages/ChangePasswordPage';
 import HomePage from '../pages/HomePage';
 import LoginPage from '../pages/LoginPage';
@@ -41,6 +42,7 @@ const KNOWLEDGE_CREATE = ['CONOCIMIENTO_CREAR','CONOCIMIENTO_GESTIONAR','BOLETAS
 export default function App() {
   return <>
     <FormRecoveryManager />
+    <FormRecoveryMobileController />
     <Routes>
       <Route path="/login" element={<LoginPage />} />
       <Route path="/encuesta/:token" element={<PublicSurveyPage />} />
