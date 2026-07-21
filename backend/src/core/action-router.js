@@ -15,6 +15,7 @@ import { maintenanceAutomationHandlers } from '../modules/maintenance-automation
 import { maintenanceSignatureHandlers } from '../modules/maintenance-signature.module.js';
 import { knowledgeHandlers } from '../modules/knowledge.module.js';
 import { surveyHandlers } from '../modules/survey.module.js';
+import { metricsHandlers } from '../modules/metrics.module.js';
 import { getClientConfig } from '../modules/config.module.js';
 
 const c = Object.fromEntries(Object.keys({clients:1,clientLocations:1,equipmentLocations:1,contacts:1,categories:1,deviceTypes:1,manufacturers:1,models:1,failureTypes:1,deviceManufacturers:1,knowledgeCategories:1}).map((key)=>[key,crudHandlers(key)]));
@@ -33,6 +34,8 @@ add('users.update',usersHandlers.update,'USUARIOS_GESTIONAR');
 add(['users.password.reset','users.resetPassword','usuarios.contrasena.restablecer'],usersHandlers.resetPassword,'USUARIOS_GESTIONAR');
 add('roles.list',usersHandlers.roles,'USUARIOS_VER');
 add(['config.get','app.config.get'],getClientConfig);
+add(['metrics.tickets.get','metricas.boletas.get'],metricsHandlers.tickets,'USUARIOS_GESTIONAR');
+add(['metrics.maintenance.get','metricas.mantenimientos.get'],metricsHandlers.maintenance,'USUARIOS_GESTIONAR');
 add(['ai.technicalRewrite','gemini.technicalRewrite','boletas.ai.rewrite'], async (ctx)=>rewriteTechnicalReport(ctx.payload), ['BOLETAS_CREAR','BOLETAS_EDITAR','MANTENIMIENTOS_CREAR','MANTENIMIENTOS_EDITAR','MANTENIMIENTOS_GESTIONAR']);
 add(['ai.knowledgeRewrite','gemini.knowledgeRewrite','knowledge.ai.rewrite','baseConocimientos.ai.rewrite'], async (ctx)=>rewriteKnowledgeTutorial(ctx.payload), ['CONOCIMIENTO_CREAR','CONOCIMIENTO_GESTIONAR','BOLETAS_CREAR','USUARIOS_GESTIONAR']);
 
