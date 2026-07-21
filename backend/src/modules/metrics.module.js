@@ -40,7 +40,8 @@ function number(value) {
 }
 
 function uniqueSorted(values) {
-  return [...new Set(values.map(clean).filter(Boolean))].sort((a, b) => a.localeCompare(b, 'es'));
+  return [...new Set(values.map((value) => clean(value)).filter(Boolean))]
+    .sort((a, b) => a.localeCompare(b, 'es'));
 }
 
 function increment(map, key, amount = 1) {
@@ -50,15 +51,15 @@ function increment(map, key, amount = 1) {
 
 function mapRows(map, limit = 0) {
   const rows = [...map.entries()]
-    .sort((left, right) => right[1] - left[1] || left[0].localeCompare(right[0], 'es'))
-    .map(([label, value]) => [label, round(value)]);
+    .sort((left, right) => right[1] - left[1] || clean(left[0]).localeCompare(clean(right[0]), 'es'))
+    .map(([label, value]) => [clean(label, 'Sin dato'), round(value)]);
   return limit > 0 ? rows.slice(0, limit) : rows;
 }
 
 function chronologicalRows(map) {
   return [...map.entries()]
-    .sort((left, right) => left[0].localeCompare(right[0], 'es'))
-    .map(([label, value]) => [label, round(value)]);
+    .sort((left, right) => clean(left[0]).localeCompare(clean(right[0]), 'es'))
+    .map(([label, value]) => [clean(label, 'Sin dato'), round(value)]);
 }
 
 function ticketStatusBucket(value) {
@@ -202,8 +203,8 @@ async function ticketMetrics({ payload = {} }) {
       porCategoria: mapRows(byCategory, 12),
     },
     tableAsignadoHoras: [...assignedHours.entries()]
-      .sort((left, right) => right[1] - left[1] || left[0].localeCompare(right[0], 'es'))
-      .map(([asignadoA, horasTotales], index) => ({ index: index + 1, asignadoA, horasTotales: round(horasTotales) })),
+      .sort((left, right) => right[1] - left[1] || clean(left[0]).localeCompare(clean(right[0]), 'es'))
+      .map(([asignadoA, horasTotales], index) => ({ index: index + 1, asignadoA: clean(asignadoA, 'Sin asignar'), horasTotales: round(horasTotales) })),
     detailRows: details.slice(0, 300),
   };
 }
@@ -310,7 +311,7 @@ async function maintenanceMetrics({ payload = {} }) {
       faltantes,
       porcentaje: totalEsperado ? Math.min(100, Math.round((registrados / totalEsperado) * 100)) : (registrados ? 100 : 0),
     };
-  }).sort((left, right) => right.totalEsperado - left.totalEsperado || left.categoria.localeCompare(right.categoria, 'es'));
+  }).sort((left, right) => right.totalEsperado - left.totalEsperado || clean(left.categoria).localeCompare(clean(right.categoria), 'es'));
 
   const totalExpected = [...expectedByCategory.values()].reduce((sum, value) => sum + number(value), 0);
   const registered = selectedDevices.length;
@@ -348,7 +349,7 @@ async function maintenanceMetrics({ payload = {} }) {
     };
   }).sort((left, right) => (
     clean(right.fechaMantenimiento).localeCompare(clean(left.fechaMantenimiento), 'es')
-      || left.nombreDispositivo.localeCompare(right.nombreDispositivo, 'es')
+      || clean(left.nombreDispositivo).localeCompare(clean(right.nombreDispositivo), 'es')
   ));
 
   const operating = filteredDevices.filter((row) => positive(row.Funcionamiento)).length;
