@@ -15,6 +15,10 @@ function normalized(value) {
     .trim();
 }
 
+function sameText(left, right) {
+  return normalized(left) === normalized(right);
+}
+
 function active(row = {}) {
   return row.Activo !== false
     && String(row.Activo ?? 'true').toLowerCase() !== 'false'
@@ -109,24 +113,37 @@ function ticketAssignees(ticketId, assignments, usersById, ticket = {}) {
 async function ticketMetrics({ payload = {} }) {
   const tables = await readTables(['Boletas', 'BoletaAsignados', 'Usuarios']);
   const allTickets = (tables.Boletas || []).filter((row) => active(row) && normalized(row.Estado) !== 'anulada');
+  const assignments = tables.BoletaAsignados || [];
   const usersById = new Map((tables.Usuarios || []).map((row) => [clean(row.UsuarioID), row]));
 
   const client = clean(payload.cliente || payload.Cliente);
   const date = dateOnly(payload.fecha || payload.Fecha);
   const failureType = clean(payload.tipoFalla || payload.TipoFalla);
   const status = clean(payload.estado || payload.Estado);
+  const category = clean(payload.categoria || payload.Categoria);
+  const technician = clean(payload.tecnico || payload.Tecnico || payload.asignadoA);
 
   const clientFiltered = client
-    ? allTickets.filter((row) => normalized(row.Cliente) === normalized(client))
+    ? allTickets.filter((row) => sameText(row.Cliente, client))
     : allTickets;
+  const enrichedTickets = clientFiltered.map((row) => ({
+    row,
+    assignees: ticketAssignees(row.BoletaUID, assignments, usersById, row),
+  }));
   const dateOptions = uniqueSorted(clientFiltered.map((row) => dateOnly(row.Fecha))).reverse();
 
-  const rows = clientFiltered
-    .filter((row) => !date || dateOnly(row.Fecha) === date)
-    .filter((row) => !failureType || normalized(row.TipoFalla) === normalized(failureType))
-    .filter((row) => matchesRequestedStatus(row, status));
+  const rows = enrichedTickets
+    .filter(({ row }) => !date || dateOnly(row.Fecha) === date)
+    .filter(({ row }) => !failureType || sameText(row.TipoFalla, failureType))
+    .filter(({ row }) => matchesRequestedStatus(row, status))
+    .filter(({ row }) => !category || sameText(row.Categoria || 'Sin categoría', category))
+    .filter(({ assignees }) => {
+      if (!technician) return true;
+      if (sameText(technician, 'Sin asignar')) return assignees.length === 0;
+      return assignees.some((name) => sameText(name, technician));
+    });
 
-  const totalHours = rows.reduce((sum, row) => sum + number(row.HorasTotales), 0);
+  const totalHours = rows.reduce((sum, item) => sum + number(item.row.HorasTotales), 0);
   const statusCounts = { pendiente: 0, finalizado: 0, otro: 0 };
   const byDate = new Map();
   const byFailureType = new Map();
@@ -134,14 +151,14 @@ async function ticketMetrics({ payload = {} }) {
   const assignedHours = new Map();
   const details = [];
 
-  for (const row of rows) {
+  for (const item of rows) {
+    const { row, assignees } = item;
     const bucket = ticketStatusBucket(row.Estado);
     statusCounts[bucket] += 1;
     increment(byDate, dateOnly(row.Fecha) || 'Sin fecha');
     increment(byFailureType, row.TipoFalla || 'Sin tipo de falla');
     increment(byCategory, row.Categoria || 'Sin categoría');
 
-    const assignees = ticketAssignees(row.BoletaUID, tables.BoletaAsignados || [], usersById, row);
     const share = assignees.length ? number(row.HorasTotales) / assignees.length : 0;
     if (assignees.length) assignees.forEach((name) => increment(assignedHours, name, share));
     else increment(assignedHours, 'Sin asignar', number(row.HorasTotales));
@@ -151,11 +168,13 @@ async function ticketMetrics({ payload = {} }) {
       boletaUid: row.BoletaUID,
       titulo: row.Titulo || 'Sin título',
       estado: row.Estado || 'Sin estado',
+      estadoFiltro: bucket,
       fecha: dateOnly(row.Fecha),
       cliente: row.Cliente || 'Sin cliente',
       categoria: row.Categoria || 'Sin categoría',
       tipoFalla: row.TipoFalla || 'Sin tipo de falla',
       asignadoA: assignees.join(', ') || 'Sin asignar',
+      asignados: assignees.length ? assignees : ['Sin asignar'],
       horasTotales: round(row.HorasTotales),
       horaInicio: row.HoraInicio || '',
       horaFinalizacion: row.HoraFinal || '',
@@ -169,15 +188,28 @@ async function ticketMetrics({ payload = {} }) {
       || String(right.id).localeCompare(String(left.id), 'es')
   ));
 
-  const failureOptions = uniqueSorted(clientFiltered.map((row) => row.TipoFalla));
   const clients = uniqueSorted(allTickets.map((row) => row.Cliente));
+  const failureOptions = uniqueSorted(clientFiltered.map((row) => row.TipoFalla));
+  const categoryOptions = uniqueSorted(clientFiltered.map((row) => row.Categoria || 'Sin categoría'));
+  const technicianOptions = uniqueSorted(enrichedTickets.flatMap(({ assignees }) => (
+    assignees.length ? assignees : ['Sin asignar']
+  )));
 
   return {
-    filtersApplied: { cliente: client, fecha: date, tipoFalla: failureType, estado: normalized(status) },
+    filtersApplied: {
+      cliente: client,
+      fecha: date,
+      tipoFalla: failureType,
+      estado: normalized(status),
+      categoria: category,
+      tecnico: technician,
+    },
     options: {
       clientes: clients,
       fechas: dateOptions,
       tiposFalla: failureOptions,
+      categorias: categoryOptions,
+      tecnicos: technicianOptions,
       estados: [
         { value: 'pendiente', label: 'Pendiente' },
         { value: 'finalizado', label: 'Finalizado' },
@@ -204,7 +236,11 @@ async function ticketMetrics({ payload = {} }) {
     },
     tableAsignadoHoras: [...assignedHours.entries()]
       .sort((left, right) => right[1] - left[1] || clean(left[0]).localeCompare(clean(right[0]), 'es'))
-      .map(([asignadoA, horasTotales], index) => ({ index: index + 1, asignadoA: clean(asignadoA, 'Sin asignar'), horasTotales: round(horasTotales) })),
+      .map(([asignadoA, horasTotales], index) => ({
+        index: index + 1,
+        asignadoA: clean(asignadoA, 'Sin asignar'),
+        horasTotales: round(horasTotales),
+      })),
     detailRows: details.slice(0, 300),
   };
 }
@@ -256,6 +292,23 @@ function stored(value) {
   return text.includes('guardad') || (text.startsWith('no') && !text.includes('uso'));
 }
 
+function activelyUsed(value) {
+  const text = normalized(value);
+  return !stored(value) && (text.includes('uso') || text === 'si' || text.startsWith('si '));
+}
+
+function deviceResponsible(row, usersById) {
+  const creator = usersById.get(clean(row.CreadoPor));
+  return clean(
+    creator?.NombreCompleto
+      || creator?.Nombre
+      || creator?.NombreUsuario
+      || row.Tecnicos
+      || row.CreadoPor,
+    'Sin responsable',
+  );
+}
+
 async function maintenanceMetrics({ payload = {} }) {
   const tables = await readTables([
     'Mantenimiento',
@@ -272,25 +325,51 @@ async function maintenanceMetrics({ payload = {} }) {
   const date = dateOnly(payload.fecha || payload.Fecha);
   const functioning = clean(payload.funcionamiento || payload.Funcionamiento);
   const inUse = clean(payload.enUso || payload.EnUso);
+  const category = clean(payload.categoria || payload.Categoria);
+  const functioningGroup = normalized(payload.funcionamientoGrupo || payload.FuncionamientoGrupo);
+  const useGroup = normalized(payload.enUsoGrupo || payload.EnUsoGrupo);
+  const evidence = normalized(payload.evidencia || payload.Evidencia);
+  const responsible = clean(payload.responsable || payload.Responsable);
 
   const clientFiltered = client
-    ? allMaintenances.filter((row) => normalized(row.Cliente) === normalized(client))
+    ? allMaintenances.filter((row) => sameText(row.Cliente, client))
     : allMaintenances;
   const selectedMaintenances = clientFiltered.filter((row) => !date || dateOnly(row.Fecha) === date);
   const maintenanceIds = new Set(selectedMaintenances.map((row) => clean(row.MantenimientoID)));
   const maintenanceById = new Map(selectedMaintenances.map((row) => [clean(row.MantenimientoID), row]));
   const selectedDevices = allDevices.filter((row) => maintenanceIds.has(clean(row.MantenimientoRef)));
-  const filteredDevices = selectedDevices
-    .filter((row) => !functioning || normalized(row.Funcionamiento) === normalized(functioning))
-    .filter((row) => !inUse || normalized(row.EnUso) === normalized(inUse));
 
-  const selectedDeviceIds = new Set(selectedDevices.map((row) => clean(row.EvidenciaMantenimientoID)));
-  const evidenceCount = allImages.filter((row) => selectedDeviceIds.has(clean(row.DispositivoMantenimientoRef))).length;
   const imageCountByDevice = new Map();
   allImages.forEach((row) => {
     const id = clean(row.DispositivoMantenimientoRef);
-    if (selectedDeviceIds.has(id)) increment(imageCountByDevice, id);
+    if (id) increment(imageCountByDevice, id);
   });
+
+  const categoryDevices = selectedDevices.filter((row) => (
+    !category || sameText(categoryLabel(row.Categoria || row.TipoDispositivo), category)
+  ));
+  const filteredDevices = categoryDevices
+    .filter((row) => !functioning || sameText(row.Funcionamiento, functioning))
+    .filter((row) => !inUse || sameText(row.EnUso, inUse))
+    .filter((row) => {
+      if (!functioningGroup) return true;
+      if (functioningGroup === 'operativo') return positive(row.Funcionamiento);
+      if (functioningGroup === 'falla') return !positive(row.Funcionamiento);
+      return true;
+    })
+    .filter((row) => {
+      if (!useGroup) return true;
+      if (useGroup === 'en uso') return activelyUsed(row.EnUso);
+      if (useGroup === 'almacenado') return stored(row.EnUso);
+      return true;
+    })
+    .filter((row) => {
+      const count = number(imageCountByDevice.get(clean(row.EvidenciaMantenimientoID)));
+      if (evidence === 'con') return count > 0;
+      if (evidence === 'sin') return count === 0;
+      return true;
+    })
+    .filter((row) => !responsible || sameText(deviceResponsible(row, usersById), responsible));
 
   const expectedByCategory = new Map();
   selectedMaintenances.forEach((maintenance) => {
@@ -299,7 +378,8 @@ async function maintenanceMetrics({ payload = {} }) {
   const registeredByCategory = new Map();
   selectedDevices.forEach((device) => increment(registeredByCategory, categoryLabel(device.Categoria || device.TipoDispositivo)));
 
-  const categoryLabels = uniqueSorted([...expectedByCategory.keys(), ...registeredByCategory.keys()]);
+  const categoryLabels = uniqueSorted([...expectedByCategory.keys(), ...registeredByCategory.keys()])
+    .filter((label) => !category || sameText(label, category));
   const categorySummary = categoryLabels.map((categoria) => {
     const totalEsperado = number(expectedByCategory.get(categoria));
     const registrados = number(registeredByCategory.get(categoria));
@@ -313,9 +393,12 @@ async function maintenanceMetrics({ payload = {} }) {
     };
   }).sort((left, right) => right.totalEsperado - left.totalEsperado || clean(left.categoria).localeCompare(clean(right.categoria), 'es'));
 
-  const totalExpected = [...expectedByCategory.values()].reduce((sum, value) => sum + number(value), 0);
-  const registered = selectedDevices.length;
+  const totalExpected = categorySummary.reduce((sum, row) => sum + number(row.totalEsperado), 0);
+  const registered = categoryDevices.length;
   const missing = Math.max(0, totalExpected - registered);
+  const evidenceCount = filteredDevices.reduce((sum, row) => (
+    sum + number(imageCountByDevice.get(clean(row.EvidenciaMantenimientoID)))
+  ), 0);
   const byFunctioning = new Map();
   const byUse = new Map();
   filteredDevices.forEach((row) => {
@@ -325,19 +408,20 @@ async function maintenanceMetrics({ payload = {} }) {
 
   const details = filteredDevices.map((row) => {
     const maintenance = maintenanceById.get(clean(row.MantenimientoRef)) || {};
-    const creator = usersById.get(clean(row.CreadoPor));
     return {
       deviceId: row.EvidenciaMantenimientoID,
       nombreDispositivo: row.NombreDispositivo || 'Sin dispositivo',
       zona: row.Zona || 'Sin zona',
       categoria: categoryLabel(row.Categoria || row.TipoDispositivo),
       funcionamiento: row.Funcionamiento || 'Sin dato',
+      funcionamientoGrupo: positive(row.Funcionamiento) ? 'operativo' : 'falla',
       enUso: row.EnUso || 'Sin dato',
+      enUsoGrupo: activelyUsed(row.EnUso) ? 'en uso' : (stored(row.EnUso) ? 'almacenado' : ''),
       estado: row.Estado || '',
       observacion: row.Observacion || '',
       fechaRegistro: dateOnly(row.FechaTrabajo || row.FechaCreacion),
       hora: clean(row.FechaCreacion).split('T')[1]?.slice(0, 5) || '',
-      creador: clean(creator?.NombreCompleto || creator?.Nombre || creator?.NombreUsuario || row.Tecnicos || row.CreadoPor, 'Sin responsable'),
+      creador: deviceResponsible(row, usersById),
       mantenimientoId: maintenance.MantenimientoID,
       tituloMantenimiento: maintenance.TituloMantenimiento || 'Sin título',
       estadoMantenimiento: maintenance.Estado || 'Sin estado',
@@ -354,16 +438,28 @@ async function maintenanceMetrics({ payload = {} }) {
 
   const operating = filteredDevices.filter((row) => positive(row.Funcionamiento)).length;
   const failing = filteredDevices.length - operating;
-  const activeUse = filteredDevices.filter((row) => !stored(row.EnUso) && normalized(row.EnUso).includes('uso')).length;
+  const activeUse = filteredDevices.filter((row) => activelyUsed(row.EnUso)).length;
   const storedCount = filteredDevices.filter((row) => stored(row.EnUso)).length;
 
   return {
-    filtersApplied: { cliente: client, fecha: date, funcionamiento: functioning, enUso: inUse },
+    filtersApplied: {
+      cliente: client,
+      fecha: date,
+      funcionamiento: functioning,
+      enUso: inUse,
+      categoria: category,
+      funcionamientoGrupo: functioningGroup,
+      enUsoGrupo: useGroup,
+      evidencia: evidence,
+      responsable: responsible,
+    },
     options: {
       clientes: uniqueSorted(allMaintenances.map((row) => row.Cliente)),
       fechas: uniqueSorted(clientFiltered.map((row) => dateOnly(row.Fecha))).reverse(),
       funcionamiento: uniqueSorted(selectedDevices.map((row) => row.Funcionamiento)),
       enUso: uniqueSorted(selectedDevices.map((row) => row.EnUso)),
+      categorias: uniqueSorted(selectedDevices.map((row) => categoryLabel(row.Categoria || row.TipoDispositivo))),
+      responsables: uniqueSorted(selectedDevices.map((row) => deviceResponsible(row, usersById))),
     },
     totals: {
       mantenimientos: selectedMaintenances.length,
