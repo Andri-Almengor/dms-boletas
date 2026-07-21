@@ -68,6 +68,7 @@ export default function MaintenanceDeviceEditor({
   const [deletingImageId, setDeletingImageId] = useState('');
   const [evidenceError, setEvidenceError] = useState('');
   const [loadedTechnicians, setLoadedTechnicians] = useState([]);
+  const [startedAsNew] = useState(() => !device.id);
 
   useEffect(() => {
     document.body.classList.add('maintenance-device-editor-open');
@@ -154,7 +155,7 @@ export default function MaintenanceDeviceEditor({
   }
 
   const totalEvidence = Number(device.images?.length || 0) + Number(device.newImages?.length || 0);
-  const isNewDevice = !device.id;
+  const isNewDevice = startedAsNew;
 
   return <div className="maintenance-device-editor" data-offline-editing-surface>
     <div className="page-header maintenance-device-editor__header">
