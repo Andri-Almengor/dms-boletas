@@ -88,6 +88,10 @@ function getCachedTable(sheetName) {
 export function invalidateTableCache(sheetName) {
   tableCache.delete(sheetName);
 }
+function invalidateSheetCaches(sheetName) {
+  tableCache.delete(sheetName);
+  headerCache.delete(sheetName);
+}
 
 async function flushPendingReads() {
   readFlushTimer = null;
@@ -173,11 +177,69 @@ export async function findById(sheetName, idValue, idColumn = TABLES[sheetName]?
   return row;
 }
 
-export async function appendRow(sheetName, record) {
+export async function ensureColumns(sheetName, requestedColumns = []) {
+  const columns = [...new Set((requestedColumns || []).map((value) => String(value || '').trim()).filter(Boolean))];
+  if (!columns.length) return getHeaders(sheetName);
+  const headers = await getHeaders(sheetName, true);
+  const missing = columns.filter((column) => !headers.includes(column));
+  if (!missing.length) return headers;
+
+  const { data } = await withQuotaRetry(() => sheetsApi.spreadsheets.get({
+    spreadsheetId: env.sheetId,
+    fields: 'sheets(properties(sheetId,title,gridProperties(columnCount)))',
+  }));
+  const metadata = (data.sheets || []).find((sheet) => sheet.properties?.title === sheetName)?.properties;
+  if (!metadata) throw new Error(`No se encontró la hoja ${sheetName}.`);
+  const requiredColumns = headers.length + missing.length;
+  const currentColumns = Number(metadata.gridProperties?.columnCount || 0);
+  if (currentColumns < requiredColumns) {
+    await withQuotaRetry(() => sheetsApi.spreadsheets.batchUpdate({
+      spreadsheetId: env.sheetId,
+      requestBody: {
+        requests: [{
+          appendDimension: {
+            sheetId: metadata.sheetId,
+            dimension: 'COLUMNS',
+            length: requiredColumns - currentColumns,
+          },
+        }],
+      },
+    }));
+  }
+
+  const start = columnLetter(headers.length);
+  const end = columnLetter(requiredColumns - 1);
+  await withQuotaRetry(() => sheetsApi.spreadsheets.values.update({
+    spreadsheetId: env.sheetId,
+    range: `${quote(sheetName)}!${start}1:${end}1`,
+    valueInputOption: 'RAW',
+    requestBody: { values: [missing] },
+  }));
+  invalidateSheetCaches(sheetName);
+  return getHeaders(sheetName, true);
+}
+
+export async function appendRows(sheetName, records = [], options = {}) {
+  if (!records.length) return [];
   const headers = await getHeaders(sheetName);
   if (!headers.length) throw new Error(`La hoja ${sheetName} no tiene encabezados.`);
-  await withQuotaRetry(() => sheetsApi.spreadsheets.values.append({ spreadsheetId: env.sheetId, range: `${quote(sheetName)}!A1`, valueInputOption: 'USER_ENTERED', insertDataOption: 'INSERT_ROWS', requestBody: { values: [headers.map((header) => writable(record[header]))] } }));
+  const chunkSize = Math.max(1, Math.min(500, Number(options.chunkSize || 300)));
+  for (let offset = 0; offset < records.length; offset += chunkSize) {
+    const chunk = records.slice(offset, offset + chunkSize);
+    await withQuotaRetry(() => sheetsApi.spreadsheets.values.append({
+      spreadsheetId: env.sheetId,
+      range: `${quote(sheetName)}!A1`,
+      valueInputOption: 'USER_ENTERED',
+      insertDataOption: 'INSERT_ROWS',
+      requestBody: { values: chunk.map((record) => headers.map((header) => writable(record[header]))) },
+    }));
+  }
   invalidateTableCache(sheetName);
+  return records;
+}
+
+export async function appendRow(sheetName, record) {
+  await appendRows(sheetName, [record], { chunkSize: 1 });
   return record;
 }
 
