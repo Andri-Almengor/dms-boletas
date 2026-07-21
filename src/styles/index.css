@@ -33,4 +33,5 @@
 @import './public-signature.css';
 @import './ticket-multi-visits.css';
 @import './metrics.css';
+@import './metrics-desktop-fixes.css';
 @import './legacy-ticket-import.css';
