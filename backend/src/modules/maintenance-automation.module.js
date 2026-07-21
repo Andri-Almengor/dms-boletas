@@ -3,6 +3,7 @@ import { asArray, nowIso, pick } from '../core/utils.js';
 import { findById, readTable, updateRow } from '../infra/sheets.repository.js';
 import { maintenanceHandlers } from './maintenance.module.js';
 import { maintenanceReportAccessHandlers } from './maintenance-report-access.module.js';
+import { ticketDeliveryHandlers } from './ticket-delivery.module.js';
 import {
   generateMaintenanceTickets,
   MAINTENANCE_TICKET_COLUMNS,
@@ -128,6 +129,41 @@ async function deviceAutosave(ctx) {
   return { ...saved, autosaved: true, metadataSaved: true, throttled: Boolean(base?.throttled) };
 }
 
+/**
+ * Las boletas finalizadas de una ejecución anterior pueden ser reutilizadas
+ * cuando no cambió el trabajo técnico. En ese caso se vuelve a crear su PDF
+ * para garantizar que la firma general recién disponible quede insertada.
+ */
+async function refreshReusedSignedReports(ctx, ticketGeneration) {
+  const reusedTickets = (ticketGeneration?.tickets || []).filter((ticket) => ticket.reused);
+  const refreshed = [];
+
+  for (const ticket of reusedTickets) {
+    const systemContext = {
+      ...ctx,
+      permissions: [...new Set([
+        ...(ctx.permissions || []),
+        'USUARIOS_GESTIONAR',
+        'BOLETAS_VER',
+        'BOLETAS_EDITAR',
+      ])],
+      payload: {
+        boletaUid: ticket.ticketId,
+        BoletaUID: ticket.ticketId,
+        id: ticket.ticketId,
+      },
+    };
+    const report = await ticketDeliveryHandlers.generatePdf(systemContext);
+    refreshed.push({
+      ticketId: ticket.ticketId,
+      pdfUrl: report.pdfUrl || '',
+      signatureIncluded: true,
+    });
+  }
+
+  return refreshed;
+}
+
 async function finalize(ctx) {
   const maintenanceId = clean(pick(ctx.payload, ['maintenanceId', 'MantenimientoID', 'id']));
   const testMode = Boolean(ctx.payload.testMode || ctx.payload.prueba);
@@ -151,8 +187,10 @@ async function finalize(ctx) {
 
   await ensureSheetColumns('Mantenimiento', MAINTENANCE_TICKET_COLUMNS);
   let ticketGeneration;
+  let refreshedSignedReports = [];
   try {
     ticketGeneration = await generateMaintenanceTickets(ctx, maintenanceId);
+    refreshedSignedReports = await refreshReusedSignedReports(ctx, ticketGeneration);
   } catch (error) {
     await updateRow('Mantenimiento', maintenanceId, {
       EstadoBoletasMantenimiento: 'ERROR',
@@ -166,8 +204,11 @@ async function finalize(ctx) {
   const result = await maintenanceReportAccessHandlers.finalize(ctx);
   return {
     ...result,
-    ticketGeneration,
-    message: `Mantenimiento finalizado. La firma general del cliente fue aplicada y se generaron y enviaron ${ticketGeneration.ticketCount} boleta(s) por fecha y grupo técnico.`,
+    ticketGeneration: {
+      ...ticketGeneration,
+      refreshedSignedReports,
+    },
+    message: `Mantenimiento finalizado. La firma general del cliente fue aplicada y se generaron y enviaron ${ticketGeneration.ticketCount} boleta(s) por fecha y grupo técnico.${refreshedSignedReports.length ? ` Se regeneraron ${refreshedSignedReports.length} PDF(s) anteriores con la firma.` : ''}`,
   };
 }
 
