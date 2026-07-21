@@ -80,10 +80,15 @@ export default function useMaintenanceForm({ editing, maintenanceId }) {
   const [deviceSaving, setDeviceSaving] = useState(false);
   const [deviceAutosaveStatus, setDeviceAutosaveStatus] = useState('idle');
   const [error, setError] = useState('');
+  const activeDeviceRef = useRef(null);
   const deviceSavePromiseRef = useRef(null);
   const lastSavedDeviceSignatureRef = useRef('');
   const failedDeviceSignatureRef = useRef('');
   const draftConsumedRef = useRef(false);
+
+  useEffect(() => {
+    activeDeviceRef.current = activeDevice;
+  }, [activeDevice]);
 
   useEffect(() => {
     let active = true;
@@ -137,6 +142,7 @@ export default function useMaintenanceForm({ editing, maintenanceId }) {
   }
 
   function openDevice(device) {
+    activeDeviceRef.current = device;
     lastSavedDeviceSignatureRef.current = device?.id ? deviceSignature(device) : '';
     failedDeviceSignatureRef.current = '';
     setDeviceAutosaveStatus(device?.id ? 'server' : 'idle');
@@ -177,7 +183,10 @@ export default function useMaintenanceForm({ editing, maintenanceId }) {
       try { localStorage.setItem(localDraftKey(maintenanceId), JSON.stringify(serializableDevice(device))); } catch { /* El borrador local es auxiliar. */ }
       lastSavedDeviceSignatureRef.current = snapshotSignature;
       setDeviceAutosaveStatus('local');
-      if (closeAfter) setActiveDevice(null);
+      if (closeAfter) {
+        setActiveDevice(null);
+        window.dispatchEvent(new CustomEvent('dms-offline-editing-complete'));
+      }
       return device;
     }
 
@@ -187,10 +196,15 @@ export default function useMaintenanceForm({ editing, maintenanceId }) {
       return null;
     }
 
-    if (deviceSavePromiseRef.current) return deviceSavePromiseRef.current;
+    if (deviceSavePromiseRef.current) {
+      if (automatic) return deviceSavePromiseRef.current;
+      try { await deviceSavePromiseRef.current; } catch { /* El guardado manual vuelve a intentarlo con la versión más reciente. */ }
+      const latest = activeDeviceRef.current || device;
+      return commitActiveDevice(latest, { automatic: false, closeAfter });
+    }
 
     const task = (async () => {
-      setDeviceSaving(true);
+      if (!automatic) setDeviceSaving(true);
       setDeviceAutosaveStatus('saving');
       try {
         const route = device.id
@@ -246,7 +260,10 @@ export default function useMaintenanceForm({ editing, maintenanceId }) {
         }
         setError('');
         try { localStorage.removeItem(localDraftKey(maintenanceId)); } catch { /* Sin efecto sobre el guardado. */ }
-        if (closeAfter && !saved?.throttled) setActiveDevice(null);
+        if (closeAfter && !saved?.throttled) {
+          setActiveDevice(null);
+          window.dispatchEvent(new CustomEvent('dms-offline-editing-complete'));
+        }
         return savedSnapshot;
       } catch (err) {
         if (automatic) failedDeviceSignatureRef.current = snapshotSignature;
@@ -254,7 +271,7 @@ export default function useMaintenanceForm({ editing, maintenanceId }) {
         if (!automatic) setError(err.message);
         throw err;
       } finally {
-        setDeviceSaving(false);
+        if (!automatic) setDeviceSaving(false);
         deviceSavePromiseRef.current = null;
       }
     })();
@@ -295,10 +312,23 @@ export default function useMaintenanceForm({ editing, maintenanceId }) {
   }, [activeDevice, commitActiveDevice, deviceSaving, editing, maintenanceId, readOnly, saving]);
 
   async function closeActiveDevice() {
-    if (!activeDevice) return;
+    if (!activeDevice) return null;
     try {
-      await commitActiveDevice(activeDevice, { automatic: false, closeAfter: true });
-    } catch { /* El editor permanece abierto para permitir reintentar. */ }
+      return await commitActiveDevice(activeDevice, { automatic: false, closeAfter: true });
+    } catch {
+      return null;
+    }
+  }
+
+  async function saveAndAddAnotherDevice() {
+    if (!activeDevice) return null;
+    try {
+      const saved = await commitActiveDevice(activeDevice, { automatic: false, closeAfter: false });
+      if (saved) openDevice(createDeviceForForm());
+      return saved;
+    } catch {
+      return null;
+    }
   }
 
   async function removeDevice(device) {
@@ -381,6 +411,7 @@ export default function useMaintenanceForm({ editing, maintenanceId }) {
     saveActiveDevice,
     commitActiveDevice,
     closeActiveDevice,
+    saveAndAddAnotherDevice,
     removeDevice,
     persist,
     createDevice: createDeviceForForm,
