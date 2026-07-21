@@ -18,10 +18,11 @@ export default function AppShell() {
   const navigate = useNavigate();
   const location = useLocation();
   const [drawerOpen, setDrawerOpen] = useState(false);
+  const isAdmin = hasPermission('USUARIOS_GESTIONAR');
   const canViewTickets = hasPermission('BOLETAS_VER');
   const canViewUsers = hasPermission('USUARIOS_VER');
   const canViewClients = hasPermission('CLIENTES_VER');
-  const canViewCatalogs = hasPermission('CATALOGOS_VER') || hasPermission('CATALOGOS_GESTIONAR') || hasPermission('USUARIOS_GESTIONAR');
+  const canViewCatalogs = hasPermission('CATALOGOS_VER') || hasPermission('CATALOGOS_GESTIONAR') || isAdmin;
   const canCreateTickets = hasPermission('BOLETAS_CREAR');
   const canViewMaintenance = hasPermission('MANTENIMIENTOS_VER') || hasPermission('MANTENIMIENTOS_CREAR') || hasPermission('MANTENIMIENTOS_EDITAR') || hasPermission('MANTENIMIENTOS_GESTIONAR') || canViewTickets;
   const isWorkflowForm = location.pathname === '/boletas/nueva'
@@ -53,13 +54,14 @@ export default function AppShell() {
     <OfflineSyncManager />
     <div className={`drawer-backdrop${drawerOpen ? ' is-open' : ''}`} onClick={() => setDrawerOpen(false)} aria-hidden="true" />
     <aside className={`side-drawer${drawerOpen ? ' is-open' : ''}`} aria-hidden={!drawerOpen}>
-      <div className="side-drawer__profile"><div className="avatar avatar--large">{initials(user?.NombreCompleto)}</div><div><strong>{user?.NombreCompleto}</strong><span>{hasPermission('USUARIOS_GESTIONAR') ? 'Administrador' : 'Técnico'}</span></div></div>
+      <div className="side-drawer__profile"><div className="avatar avatar--large">{initials(user?.NombreCompleto)}</div><div><strong>{user?.NombreCompleto}</strong><span>{isAdmin ? 'Administrador' : 'Técnico'}</span></div></div>
       <nav className="side-drawer__nav">
         <NavLink to="/" end><Icon name="home" /> Inicio</NavLink>
         {canViewTickets && <NavLink to="/boletas/pendientes"><Icon name="pending_actions" /> Boletas pendientes</NavLink>}
         {canCreateTickets && <NavLink to="/boletas/nueva"><Icon name="add_circle" /> Crear boleta</NavLink>}
         {canViewTickets && <NavLink to="/boletas/finalizadas"><Icon name="task_alt" /> Boletas finalizadas</NavLink>}
         {canViewMaintenance && <NavLink to="/mantenimientos"><Icon name="engineering" /> Mantenimientos</NavLink>}
+        {isAdmin && <NavLink to="/metricas"><Icon name="monitoring" /> Métricas</NavLink>}
         <NavLink to="/conocimiento"><Icon name="menu_book" /> Base de conocimientos</NavLink>
         {canViewClients && <NavLink to="/clientes"><Icon name="groups" /> Clientes</NavLink>}
         {canViewCatalogs && <NavLink to="/catalogos"><Icon name="inventory_2" /> Catálogos</NavLink>}

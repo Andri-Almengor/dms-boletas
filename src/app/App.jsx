@@ -8,6 +8,7 @@ import LoginPage from '../pages/LoginPage';
 import MorePage from '../pages/MorePage';
 import CatalogsPage from '../pages/admin/CatalogsPage';
 import ClientsPage from '../pages/admin/ClientsPage';
+import MetricsPage from '../pages/admin/MetricsPage';
 import KnowledgeCategoriesPage from '../pages/knowledge/KnowledgeCategoriesPage';
 import KnowledgeDetailPage from '../pages/knowledge/KnowledgeDetailPage';
 import KnowledgeEditorPage from '../pages/knowledge/KnowledgeEditorPage';
@@ -64,6 +65,8 @@ export default function App() {
         <Route path="clientes" element={<PermissionRoute permission="CLIENTES_VER"><ClientsPage /></PermissionRoute>} />
         <Route path="catalogos" element={<PermissionRoute anyOf={['CATALOGOS_VER','CATALOGOS_GESTIONAR','USUARIOS_GESTIONAR']}><CatalogsPage /></PermissionRoute>} />
         <Route path="categorias" element={<Navigate to="/catalogos" replace />} />
+        <Route path="metricas" element={<PermissionRoute permission="USUARIOS_GESTIONAR"><MetricsPage /></PermissionRoute>} />
+        <Route path="dashboard" element={<Navigate to="/metricas" replace />} />
         <Route path="encuestas" element={<PermissionRoute permission="USUARIOS_GESTIONAR"><SurveysAdminPage /></PermissionRoute>} />
         <Route path="encuestas/:encuestaId" element={<PermissionRoute permission="USUARIOS_GESTIONAR"><SurveyDetailPage /></PermissionRoute>} />
         <Route path="cambiar-contrasena" element={<ChangePasswordPage />} />
