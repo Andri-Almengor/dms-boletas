@@ -1,0 +1,131 @@
+.metrics-kpi--interactive {
+  width: 100%;
+  appearance: none;
+  color: inherit;
+  font: inherit;
+  text-align: left;
+  cursor: pointer;
+  transition: transform .16s ease, border-color .16s ease, box-shadow .16s ease, background .16s ease;
+}
+
+.metrics-kpi--interactive:hover {
+  transform: translateY(-2px);
+  border-color: var(--primary);
+  box-shadow: 0 10px 24px rgba(175, 16, 26, .13);
+}
+
+.metrics-kpi--interactive:focus-visible,
+.metrics-table--interactive tbody tr:focus-visible,
+.metrics-inline-filter:focus-visible,
+.metrics-usage-list > button:focus-visible {
+  outline: 3px solid rgba(175, 16, 26, .24);
+  outline-offset: 2px;
+}
+
+.metrics-kpi--interactive.is-active {
+  border-color: var(--primary);
+  box-shadow: 0 0 0 3px rgba(175, 16, 26, .12), var(--shadow-sm);
+}
+
+.metrics-kpi--primary.metrics-kpi--interactive.is-active {
+  box-shadow: 0 0 0 3px rgba(175, 16, 26, .2), 0 12px 28px rgba(175, 16, 26, .24);
+}
+
+.metrics-table--interactive tbody tr {
+  cursor: pointer;
+  transition: background .15s ease, box-shadow .15s ease;
+}
+
+.metrics-table--interactive tbody tr:hover td,
+.metrics-table--interactive tbody tr.is-active td {
+  background: var(--primary-soft);
+}
+
+.metrics-table--interactive tbody tr.is-active {
+  box-shadow: inset 4px 0 0 var(--primary);
+}
+
+.metrics-inline-filter:not(.metrics-status) {
+  max-width: 100%;
+  margin: 0;
+  padding: 0;
+  border: 0;
+  background: transparent;
+  color: inherit;
+  font: inherit;
+  line-height: inherit;
+  text-align: left;
+  white-space: normal;
+  overflow-wrap: anywhere;
+  text-decoration: underline dotted rgba(175, 16, 26, .58);
+  text-underline-offset: 3px;
+  cursor: pointer;
+}
+
+.metrics-inline-filter:not(.metrics-status):hover {
+  color: var(--primary);
+  text-decoration-style: solid;
+}
+
+.metrics-status.metrics-inline-filter {
+  border: 0;
+  cursor: pointer;
+  transition: transform .15s ease, box-shadow .15s ease;
+}
+
+.metrics-status.metrics-inline-filter:hover {
+  transform: translateY(-1px);
+  box-shadow: 0 5px 12px rgba(48, 48, 48, .12);
+}
+
+.metrics-inline-filter-list {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 4px 8px;
+}
+
+.metrics-usage-list > button {
+  width: 100%;
+  display: grid;
+  gap: 8px;
+  padding: 12px;
+  border: 1px solid var(--outline-soft);
+  border-radius: 11px;
+  background: #fff;
+  color: inherit;
+  font: inherit;
+  text-align: left;
+  cursor: pointer;
+  transition: border-color .15s ease, background .15s ease, transform .15s ease;
+}
+
+.metrics-usage-list > button > span {
+  display: flex;
+  justify-content: space-between;
+  gap: 12px;
+}
+
+.metrics-usage-list > button:hover,
+.metrics-usage-list > button.is-active {
+  border-color: var(--primary);
+  background: var(--primary-soft);
+}
+
+.metrics-usage-list > button:hover {
+  transform: translateY(-1px);
+}
+
+.metrics-ticket-card .metrics-inline-filter-list .metrics-inline-filter:not(:last-child)::after {
+  content: ',';
+  color: var(--muted);
+  text-decoration: none;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .metrics-kpi--interactive,
+  .metrics-table--interactive tbody tr,
+  .metrics-status.metrics-inline-filter,
+  .metrics-usage-list > button {
+    transition: none;
+  }
+}

@@ -7,13 +7,28 @@ export function formatMetric(value, maximumFractionDigits = 2) {
   return new Intl.NumberFormat('es-CR', { maximumFractionDigits }).format(number);
 }
 
-export function MetricCard({ icon, label, value, note, tone = 'default', progress = null }) {
-  return <article className={`metrics-kpi metrics-kpi--${tone}`}>
+export function MetricCard({
+  icon,
+  label,
+  value,
+  note,
+  tone = 'default',
+  progress = null,
+  onClick = null,
+  active = false,
+  actionLabel = '',
+}) {
+  const content = <>
     <div className="metrics-kpi__top"><span>{label}</span><span className="metrics-kpi__icon"><Icon name={icon} /></span></div>
     <strong>{value}</strong>
     {progress !== null && <div className="metrics-progress" aria-label={`${label}: ${progress}%`}><span style={{ width: `${Math.max(0, Math.min(100, Number(progress) || 0))}%` }} /></div>}
     {note && <small>{note}</small>}
-  </article>;
+  </>;
+  const className = `metrics-kpi metrics-kpi--${tone}${onClick ? ' metrics-kpi--interactive' : ''}${active ? ' is-active' : ''}`;
+  if (onClick) {
+    return <button type="button" className={className} onClick={onClick} aria-pressed={active} title={actionLabel || `Filtrar por ${label}`}>{content}</button>;
+  }
+  return <article className={className}>{content}</article>;
 }
 
 export function MetricsPanel({ title, hint, children, className = '' }) {
@@ -48,7 +63,7 @@ export function BarDistribution({ rows = [], onSelect, selected = '', emptyText 
   return <div className="metrics-bars">
     {rows.map(([label, value]) => {
       const active = selected && String(selected) === String(label);
-      return <button type="button" key={label} className={`metrics-bar-row${active ? ' is-active' : ''}`} onClick={() => onSelect?.(label)}>
+      return <button type="button" key={label} className={`metrics-bar-row${active ? ' is-active' : ''}`} onClick={() => onSelect?.(label)} aria-pressed={Boolean(active)}>
         <span className="metrics-bar-row__meta"><strong>{label}</strong><b>{formatMetric(value)}</b></span>
         <span className="metrics-bar-row__track"><span style={{ width: `${Math.max(4, Math.round(((Number(value) || 0) / max) * 100))}%` }} /></span>
       </button>;
@@ -60,7 +75,7 @@ export function DateColumns({ rows = [], onSelect, selected = '' }) {
   if (!rows.length) return <MetricsEmpty>No hay fechas disponibles.</MetricsEmpty>;
   const max = Math.max(...rows.map((row) => Number(row[1]) || 0), 1);
   return <div className="metrics-date-chart" role="list">
-    {rows.map(([label, value]) => <button type="button" role="listitem" key={label} className={String(selected) === String(label) ? 'is-active' : ''} onClick={() => onSelect?.(label)} title={`${label}: ${value}`}>
+    {rows.map(([label, value]) => <button type="button" role="listitem" key={label} className={String(selected) === String(label) ? 'is-active' : ''} onClick={() => onSelect?.(label)} aria-pressed={String(selected) === String(label)} title={`${label}: ${value}`}>
       <span className="metrics-date-chart__value">{formatMetric(value, 0)}</span>
       <span className="metrics-date-chart__column"><span style={{ height: `${Math.max(8, Math.round(((Number(value) || 0) / max) * 100))}%` }} /></span>
       <small>{label}</small>
@@ -81,9 +96,13 @@ export function DonutBreakdown({ total = 0, items = [], onSelect, selected = '' 
   return <div className="metrics-donut-layout">
     <div className="metrics-donut" style={{ background }}><div><strong>{formatMetric(safeTotal, 0)}</strong><span>Total</span></div></div>
     <div className="metrics-legend">
-      {items.map((item, index) => <button type="button" key={item.label} className={String(selected) === String(item.filterValue || item.label) ? 'is-active' : ''} onClick={() => onSelect?.(item.filterValue || item.label)}>
-        <span><i style={{ background: item.color || colors[index % colors.length] }} />{item.label}</span><strong>{formatMetric(item.value, 0)}</strong>
-      </button>)}
+      {items.map((item, index) => {
+        const filterValue = item.filterValue || item.label;
+        const active = String(selected) === String(filterValue);
+        return <button type="button" key={item.label} className={active ? 'is-active' : ''} onClick={() => onSelect?.(filterValue)} aria-pressed={active}>
+          <span><i style={{ background: item.color || colors[index % colors.length] }} />{item.label}</span><strong>{formatMetric(item.value, 0)}</strong>
+        </button>;
+      })}
     </div>
   </div>;
 }
