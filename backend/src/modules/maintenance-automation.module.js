@@ -16,7 +16,7 @@ import {
 } from '../services/maintenance-signature-request.service.js';
 import { ensureSheetColumns } from '../services/sheet-columns.service.js';
 
-const DEVICE_WORK_COLUMNS = ['FechaTrabajo', 'TecnicoIDsJSON', 'Tecnicos'];
+const DEVICE_WORK_COLUMNS = ['FechaTrabajo', 'FechaRegistroDispositivo', 'TecnicoIDsJSON', 'Tecnicos'];
 
 function clean(value) {
   return String(value ?? '').trim();
@@ -66,9 +66,16 @@ async function resolveDeviceWorkMetadata(payload = {}, existing = null) {
   );
   if (!date) throw badRequest('Indique la fecha de trabajo del dispositivo.');
 
+  const registeredAt = clean(pick(
+    payload,
+    ['FechaRegistroDispositivo', 'fechaRegistroDispositivo'],
+    existing?.FechaRegistroDispositivo || existing?.FechaCreacion || nowIso(),
+  ));
+
   return {
     maintenanceId,
     FechaTrabajo: date,
+    FechaRegistroDispositivo: registeredAt,
     TecnicoIDsJSON: JSON.stringify(ids),
     Tecnicos: names.join(', '),
     technicianIds: ids,
@@ -84,6 +91,8 @@ function contextWithMetadata(ctx, metadata) {
       MantenimientoID: metadata.maintenanceId,
       FechaTrabajo: metadata.FechaTrabajo,
       fechaTrabajo: metadata.FechaTrabajo,
+      FechaRegistroDispositivo: metadata.FechaRegistroDispositivo,
+      fechaRegistroDispositivo: metadata.FechaRegistroDispositivo,
       TecnicoIDs: metadata.technicianIds,
       tecnicoIds: metadata.technicianIds,
       TecnicoIDsJSON: metadata.TecnicoIDsJSON,
@@ -95,6 +104,7 @@ function contextWithMetadata(ctx, metadata) {
 async function persistMetadata(deviceId, metadata, actor) {
   return updateRow('Evidencia_Mantenimientos', deviceId, {
     FechaTrabajo: metadata.FechaTrabajo,
+    FechaRegistroDispositivo: metadata.FechaRegistroDispositivo,
     TecnicoIDsJSON: metadata.TecnicoIDsJSON,
     Tecnicos: metadata.Tecnicos,
     ActualizadoPor: actor,
