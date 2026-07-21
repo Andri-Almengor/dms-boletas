@@ -159,9 +159,9 @@ async function ticketMetrics({ payload = {} }) {
     increment(byFailureType, row.TipoFalla || 'Sin tipo de falla');
     increment(byCategory, row.Categoria || 'Sin categoría');
 
-    const share = assignees.length ? number(row.HorasTotales) / assignees.length : 0;
-    if (assignees.length) assignees.forEach((name) => increment(assignedHours, name, share));
-    else increment(assignedHours, 'Sin asignar', number(row.HorasTotales));
+    const ticketHours = number(row.HorasTotales);
+    if (assignees.length) assignees.forEach((name) => increment(assignedHours, name, ticketHours));
+    else increment(assignedHours, 'Sin asignar', ticketHours);
 
     details.push({
       id: row.BoletaID || row.BoletaUID,

@@ -80,6 +80,48 @@ function dateOnly(value, fallback = '') {
   return match?.[1] || fallback;
 }
 
+const COSTA_RICA_TIME = new Intl.DateTimeFormat('en-GB', {
+  timeZone: 'America/Costa_Rica',
+  hour: '2-digit',
+  minute: '2-digit',
+  hour12: false,
+  hourCycle: 'h23',
+});
+
+function deviceRegistrationPoint(device = {}) {
+  const raw = clean(
+    device.FechaRegistroDispositivo
+      || device.FechaCreacion
+      || device.FechaActualizacion,
+  );
+  if (!raw) return null;
+  const timestamp = Date.parse(raw);
+  return Number.isFinite(timestamp) ? { raw, timestamp } : null;
+}
+
+function groupWorkTime(devices = []) {
+  const points = devices
+    .map(deviceRegistrationPoint)
+    .filter(Boolean)
+    .sort((left, right) => left.timestamp - right.timestamp);
+  if (!points.length) return { startTime: '', endTime: '', totalHours: 0 };
+
+  const first = points[0];
+  const last = points[points.length - 1];
+  const elapsedMs = Math.max(0, last.timestamp - first.timestamp);
+  const totalHours = elapsedMs <= 0
+    ? 0
+    : elapsedMs <= 60 * 60 * 1000
+      ? 1
+      : Number((elapsedMs / (60 * 60 * 1000)).toFixed(2));
+
+  return {
+    startTime: COSTA_RICA_TIME.format(new Date(first.timestamp)),
+    endTime: COSTA_RICA_TIME.format(new Date(last.timestamp)),
+    totalHours,
+  };
+}
+
 function parseAnswers(device = {}) {
   const source = device.RespuestasJSON || device.respuestas || {};
   if (typeof source === 'object' && source !== null) return source;
@@ -196,10 +238,12 @@ function buildGroups(bundle) {
     groups.get(key).devices.push(device);
   }
 
-  return [...groups.values()].sort((left, right) => {
-    const byDate = left.date.localeCompare(right.date);
-    return byDate || left.technicians.map((item) => item.name).join(', ').localeCompare(right.technicians.map((item) => item.name).join(', '), 'es');
-  });
+  return [...groups.values()]
+    .map((group) => ({ ...group, ...groupWorkTime(group.devices) }))
+    .sort((left, right) => {
+      const byDate = left.date.localeCompare(right.date);
+      return byDate || left.technicians.map((item) => item.name).join(', ').localeCompare(right.technicians.map((item) => item.name).join(', '), 'es');
+    });
 }
 
 function supervisorFor(bundle) {
@@ -346,6 +390,7 @@ async function buildDrafts(maintenanceId) {
         enUso: device.EnUso,
         estado: device.Estado,
         observacion: device.Observacion,
+        registeredAt: device.FechaRegistroDispositivo || device.FechaCreacion,
       })),
       images: bundle.images
         .filter((image) => group.devices.some((device) => String(device.EvidenciaMantenimientoID) === String(image.DispositivoMantenimientoRef)))
@@ -444,9 +489,9 @@ async function upsertGeneratedTicket(ctx, item) {
     Titulo: clean(draft.titulo, `Mantenimiento ${group.date}`).slice(0, 120),
     Estado: unchangedFinalized ? existing.Estado : 'PENDIENTE',
     Fecha: group.date,
-    HoraInicio: '',
-    HoraFinal: '',
-    HorasTotales: 0,
+    HoraInicio: group.startTime,
+    HoraFinal: group.endTime,
+    HorasTotales: group.totalHours,
     ClienteID: maintenance.ClienteID,
     Cliente: maintenance.Cliente || bundle.client?.Nombre || '',
     UbicacionID: maintenance.UbicacionID || '',
@@ -514,6 +559,9 @@ async function upsertGeneratedTicket(ctx, item) {
     ticketNumber: stored.BoletaID || ticketId,
     title: stored.Titulo || payload.Titulo,
     date: group.date,
+    startTime: group.startTime,
+    endTime: group.endTime,
+    totalHours: group.totalHours,
     technicianIds: group.technicianIds,
     technicians: group.technicians.map((technician) => technician.name),
     deviceCount: group.devices.length,
