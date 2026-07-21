@@ -62,6 +62,7 @@ export default function AppShell() {
         {canViewTickets && <NavLink to="/boletas/finalizadas"><Icon name="task_alt" /> Boletas finalizadas</NavLink>}
         {canViewMaintenance && <NavLink to="/mantenimientos"><Icon name="engineering" /> Mantenimientos</NavLink>}
         {isAdmin && <NavLink to="/metricas"><Icon name="monitoring" /> Métricas</NavLink>}
+        {isAdmin && <NavLink to="/administracion/importar-boletas"><Icon name="upload_file" /> Importar boletas anteriores</NavLink>}
         <NavLink to="/conocimiento"><Icon name="menu_book" /> Base de conocimientos</NavLink>
         {canViewClients && <NavLink to="/clientes"><Icon name="groups" /> Clientes</NavLink>}
         {canViewCatalogs && <NavLink to="/catalogos"><Icon name="inventory_2" /> Catálogos</NavLink>}

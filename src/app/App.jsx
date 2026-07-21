@@ -8,6 +8,7 @@ import LoginPage from '../pages/LoginPage';
 import MorePage from '../pages/MorePage';
 import CatalogsPage from '../pages/admin/CatalogsPage';
 import ClientsPage from '../pages/admin/ClientsPage';
+import LegacyTicketsImportPage from '../pages/admin/LegacyTicketsImportPage';
 import MetricsPage from '../pages/admin/MetricsPage';
 import KnowledgeCategoriesPage from '../pages/knowledge/KnowledgeCategoriesPage';
 import KnowledgeDetailPage from '../pages/knowledge/KnowledgeDetailPage';
@@ -67,6 +68,7 @@ export default function App() {
         <Route path="categorias" element={<Navigate to="/catalogos" replace />} />
         <Route path="metricas" element={<PermissionRoute permission="USUARIOS_GESTIONAR"><MetricsPage /></PermissionRoute>} />
         <Route path="dashboard" element={<Navigate to="/metricas" replace />} />
+        <Route path="administracion/importar-boletas" element={<PermissionRoute permission="USUARIOS_GESTIONAR"><LegacyTicketsImportPage /></PermissionRoute>} />
         <Route path="encuestas" element={<PermissionRoute permission="USUARIOS_GESTIONAR"><SurveysAdminPage /></PermissionRoute>} />
         <Route path="encuestas/:encuestaId" element={<PermissionRoute permission="USUARIOS_GESTIONAR"><SurveyDetailPage /></PermissionRoute>} />
         <Route path="cambiar-contrasena" element={<ChangePasswordPage />} />
