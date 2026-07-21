@@ -1,9 +1,16 @@
 import React from 'react';
 import Icon from '../common/Icon';
 
-const labels = { idle: 'Sin cambios pendientes', saving: 'Guardando...', local: 'Guardado localmente', server: 'Guardado en servidor', restored: 'Borrador recuperado', error: 'Error al guardar' };
+const labels = {
+  idle: 'Listo para guardar',
+  saving: 'Guardando en segundo plano...',
+  local: 'Guardado en este dispositivo',
+  server: 'Sincronizado',
+  restored: 'Borrador recuperado',
+  error: 'Pendiente de reintento',
+};
 
 export default function AutosaveIndicator({ status = 'idle' }) {
-  const icon = status === 'saving' ? 'sync' : status === 'error' ? 'error' : 'cloud_done';
-  return <span className={`autosave-indicator autosave-indicator--${status}`}><Icon name={icon} /> {labels[status] || labels.idle}</span>;
+  const icon = status === 'saving' ? 'sync' : status === 'error' ? 'cloud_off' : status === 'local' ? 'save' : 'cloud_done';
+  return <span className={`autosave-indicator autosave-indicator--${status}`} role="status" aria-live="polite"><Icon name={icon} /> {labels[status] || labels.idle}</span>;
 }

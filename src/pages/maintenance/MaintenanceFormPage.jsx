@@ -53,15 +53,17 @@ export default function MaintenanceFormPage({ mode = 'create' }) {
   if (state.loading) return <div className="page"><div className="state-card state-card--loading"><Icon name="progress_activity" />Cargando mantenimiento...</div></div>;
 
   if (state.activeDevice) {
-    return <div className="page page--narrow maintenance-form-page">
+    return <div className="page page--narrow maintenance-form-page maintenance-device-form-page">
       <MaintenanceDeviceEditor
         device={state.activeDevice}
         equipmentOptions={state.equipment.map((item) => ({ value: item.id, label: item.name }))}
+        technicians={state.technicians}
         disabled={state.readOnly || state.saving}
         isAdmin={state.isAdmin}
         onChange={state.setActiveDevice}
         onClose={state.closeActiveDevice}
         onSubmit={state.closeActiveDevice}
+        onSubmitAndContinue={!state.activeDevice.id ? state.saveAndAddAnotherDevice : undefined}
         onDelete={() => state.removeDevice(state.activeDevice)}
         submitting={state.deviceSaving}
         autosaveStatus={state.deviceAutosaveStatus}
