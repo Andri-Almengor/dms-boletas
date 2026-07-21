@@ -1,0 +1,161 @@
+name: Apply maintenance time and hours fix
+
+on:
+  push:
+    branches:
+      - fix/maintenance-desktop-times-metrics-hours
+    paths:
+      - .github/workflows/apply-maintenance-time-hours-fix.yml
+
+permissions:
+  contents: write
+
+jobs:
+  apply-fix:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout branch
+        uses: actions/checkout@v4
+        with:
+          ref: fix/maintenance-desktop-times-metrics-hours
+          fetch-depth: 0
+
+      - name: Patch generated ticket times and technician hours
+        shell: python
+        run: |
+          from pathlib import Path
+
+          ticket_path = Path('backend/src/services/maintenance-ticket-generation.service.js')
+          ticket = ticket_path.read_text(encoding='utf-8')
+
+          anchor = """function dateOnly(value, fallback = '') {
+            const match = clean(value).match(/^(\\d{4}-\\d{2}-\\d{2})/);
+            return match?.[1] || fallback;
+          }
+          """
+          helper = anchor + """
+          const COSTA_RICA_TIME = new Intl.DateTimeFormat('en-GB', {
+            timeZone: 'America/Costa_Rica',
+            hour: '2-digit',
+            minute: '2-digit',
+            hour12: false,
+            hourCycle: 'h23',
+          });
+
+          function deviceRegistrationPoint(device = {}) {
+            const raw = clean(
+              device.FechaRegistroDispositivo
+                || device.FechaCreacion
+                || device.FechaActualizacion,
+            );
+            if (!raw) return null;
+            const timestamp = Date.parse(raw);
+            return Number.isFinite(timestamp) ? { raw, timestamp } : null;
+          }
+
+          function groupWorkTime(devices = []) {
+            const points = devices
+              .map(deviceRegistrationPoint)
+              .filter(Boolean)
+              .sort((left, right) => left.timestamp - right.timestamp);
+            if (!points.length) return { startTime: '', endTime: '', totalHours: 0 };
+
+            const first = points[0];
+            const last = points[points.length - 1];
+            const elapsedMs = Math.max(0, last.timestamp - first.timestamp);
+            const totalHours = elapsedMs <= 0
+              ? 0
+              : elapsedMs <= 60 * 60 * 1000
+                ? 1
+                : Number((elapsedMs / (60 * 60 * 1000)).toFixed(2));
+
+            return {
+              startTime: COSTA_RICA_TIME.format(new Date(first.timestamp)),
+              endTime: COSTA_RICA_TIME.format(new Date(last.timestamp)),
+              totalHours,
+            };
+          }
+          """
+          if anchor not in ticket:
+            raise SystemExit('No se encontró el punto para insertar el cálculo de horas del grupo.')
+          ticket = ticket.replace(anchor, helper, 1)
+
+          old_groups = """  return [...groups.values()].sort((left, right) => {
+              const byDate = left.date.localeCompare(right.date);
+              return byDate || left.technicians.map((item) => item.name).join(', ').localeCompare(right.technicians.map((item) => item.name).join(', '), 'es');
+            });
+          """
+          new_groups = """  return [...groups.values()]
+              .map((group) => ({ ...group, ...groupWorkTime(group.devices) }))
+              .sort((left, right) => {
+                const byDate = left.date.localeCompare(right.date);
+                return byDate || left.technicians.map((item) => item.name).join(', ').localeCompare(right.technicians.map((item) => item.name).join(', '), 'es');
+              });
+          """
+          if old_groups not in ticket:
+            raise SystemExit('No se encontró el retorno de grupos de mantenimiento.')
+          ticket = ticket.replace(old_groups, new_groups, 1)
+
+          old_fingerprint = """        estado: device.Estado,
+                  observacion: device.Observacion,
+                })),
+          """
+          new_fingerprint = """        estado: device.Estado,
+                  observacion: device.Observacion,
+                  registeredAt: device.FechaRegistroDispositivo || device.FechaCreacion,
+                })),
+          """
+          if old_fingerprint not in ticket:
+            raise SystemExit('No se encontró la huella de los dispositivos.')
+          ticket = ticket.replace(old_fingerprint, new_fingerprint, 1)
+
+          old_times = """    Fecha: group.date,
+              HoraInicio: '',
+              HoraFinal: '',
+              HorasTotales: 0,
+          """
+          new_times = """    Fecha: group.date,
+              HoraInicio: group.startTime,
+              HoraFinal: group.endTime,
+              HorasTotales: group.totalHours,
+          """
+          if old_times not in ticket:
+            raise SystemExit('No se encontraron las horas vacías de la boleta generada.')
+          ticket = ticket.replace(old_times, new_times, 1)
+
+          old_result = """    date: group.date,
+              technicianIds: group.technicianIds,
+          """
+          new_result = """    date: group.date,
+              startTime: group.startTime,
+              endTime: group.endTime,
+              totalHours: group.totalHours,
+              technicianIds: group.technicianIds,
+          """
+          if old_result not in ticket:
+            raise SystemExit('No se encontró el resultado de la boleta generada.')
+          ticket = ticket.replace(old_result, new_result, 1)
+          ticket_path.write_text(ticket, encoding='utf-8')
+
+          metrics_path = Path('backend/src/modules/metrics.module.js')
+          metrics = metrics_path.read_text(encoding='utf-8')
+          old_hours = """    const share = assignees.length ? number(row.HorasTotales) / assignees.length : 0;
+              if (assignees.length) assignees.forEach((name) => increment(assignedHours, name, share));
+              else increment(assignedHours, 'Sin asignar', number(row.HorasTotales));
+          """
+          new_hours = """    const ticketHours = number(row.HorasTotales);
+              if (assignees.length) assignees.forEach((name) => increment(assignedHours, name, ticketHours));
+              else increment(assignedHours, 'Sin asignar', ticketHours);
+          """
+          if old_hours not in metrics:
+            raise SystemExit('No se encontró la división de horas entre técnicos.')
+          metrics = metrics.replace(old_hours, new_hours, 1)
+          metrics_path.write_text(metrics, encoding='utf-8')
+
+      - name: Commit patched files
+        run: |
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add backend/src/services/maintenance-ticket-generation.service.js backend/src/modules/metrics.module.js
+          git commit -m "fix: calcular tiempos de mantenimiento y horas completas por técnico"
+          git push origin HEAD:fix/maintenance-desktop-times-metrics-hours
