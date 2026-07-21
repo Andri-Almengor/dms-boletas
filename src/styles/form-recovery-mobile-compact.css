@@ -1,0 +1,111 @@
+@media (max-width: 620px) {
+  .form-recovery-status {
+    top: calc(var(--top-bar-height, 64px) + env(safe-area-inset-top, 0px) + 8px);
+    right: 10px;
+    bottom: auto;
+    left: auto;
+    width: 44px;
+    height: 44px;
+    min-width: 44px;
+    max-height: 44px;
+    padding: 0;
+    overflow: hidden;
+    border-radius: 999px;
+    grid-template-columns: 44px;
+    gap: 0;
+    cursor: pointer;
+    transform: none;
+    transition: width .18s ease, max-height .18s ease, border-radius .18s ease, padding .18s ease;
+  }
+
+  .form-recovery-status > .material-symbols-outlined {
+    width: 44px;
+    height: 44px;
+    border-radius: 999px;
+    display: grid;
+    place-items: center;
+    font-size: 22px;
+  }
+
+  .form-recovery-status > div,
+  .form-recovery-status > button {
+    display: none;
+  }
+
+  .form-recovery-status:focus-visible {
+    outline: 3px solid rgba(175,16,26,.22);
+    outline-offset: 3px;
+  }
+
+  .form-recovery-status--saving > .material-symbols-outlined {
+    color: var(--primary);
+    background: var(--primary-soft);
+  }
+
+  .form-recovery-status--local > .material-symbols-outlined,
+  .form-recovery-status--restored > .material-symbols-outlined {
+    color: #0e6745;
+    background: var(--success-soft);
+  }
+
+  .form-recovery-status--error > .material-symbols-outlined {
+    color: var(--danger);
+    background: var(--danger-soft);
+  }
+
+  .form-recovery-status.is-mobile-expanded {
+    width: min(310px, calc(100vw - 20px));
+    height: auto;
+    min-width: 0;
+    max-height: 190px;
+    padding: 9px 10px;
+    border-radius: 14px;
+    grid-template-columns: 36px minmax(0,1fr);
+    gap: 9px;
+    cursor: default;
+  }
+
+  .form-recovery-status.is-mobile-expanded > .material-symbols-outlined {
+    width: 36px;
+    height: 36px;
+    font-size: 20px;
+  }
+
+  .form-recovery-status.is-mobile-expanded > div {
+    min-width: 0;
+    display: block;
+  }
+
+  .form-recovery-status.is-mobile-expanded > button {
+    grid-column: 1 / -1;
+    width: 100%;
+    min-height: 38px;
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+  }
+
+  .form-recovery-status.is-mobile-expanded strong {
+    font-size: .76rem;
+  }
+
+  .form-recovery-status.is-mobile-expanded small {
+    margin-top: 2px;
+    font-size: .68rem;
+    line-height: 1.35;
+  }
+
+  body:has(.app-shell--form) .form-recovery-status {
+    top: calc(env(safe-area-inset-top, 0px) + 8px);
+  }
+
+  body.maintenance-device-editor-open .form-recovery-status {
+    top: calc(env(safe-area-inset-top, 0px) + 64px);
+    right: 10px;
+    bottom: auto;
+  }
+
+  body.maintenance-device-editor-open .form-recovery-status.is-mobile-expanded {
+    width: min(300px, calc(100vw - 20px));
+  }
+}
