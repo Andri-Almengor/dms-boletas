@@ -1,0 +1,73 @@
+.metrics-page {
+  width: min(100%, 1560px);
+  max-width: none;
+}
+
+.metrics-dashboard,
+.metrics-panel,
+.metrics-kpi,
+.metrics-ticket-card {
+  min-width: 0;
+}
+
+.metrics-kpi {
+  overflow: hidden;
+}
+
+.metrics-kpi__top > span:first-child {
+  min-width: 0;
+  overflow-wrap: anywhere;
+}
+
+.metrics-kpi__icon {
+  flex: 0 0 36px;
+  overflow: hidden;
+}
+
+.metrics-kpi__icon .material-symbols-outlined {
+  max-width: 100%;
+  font-size: 22px;
+}
+
+.metrics-ticket-card {
+  overflow: hidden;
+}
+
+.metrics-ticket-card header > div,
+.metrics-ticket-card dl > div {
+  min-width: 0;
+}
+
+.metrics-ticket-card header .metrics-status {
+  flex: 0 0 auto;
+}
+
+.metrics-ticket-card h3,
+.metrics-ticket-card dd {
+  overflow-wrap: anywhere;
+  word-break: break-word;
+}
+
+.metrics-ticket-card dd {
+  white-space: normal;
+  line-height: 1.35;
+}
+
+@media (min-width: 681px) {
+  .metrics-ticket-grid {
+    grid-template-columns: repeat(auto-fit, minmax(320px, 1fr));
+    align-items: stretch;
+  }
+}
+
+@media (min-width: 1201px) {
+  .metrics-kpi-grid {
+    grid-template-columns: repeat(6, minmax(175px, 1fr));
+  }
+}
+
+@media (min-width: 1500px) {
+  .metrics-page {
+    padding-inline: 24px;
+  }
+}
