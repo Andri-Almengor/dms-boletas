@@ -1,17 +1,29 @@
 import { createHash } from 'node:crypto';
 import { badRequest } from '../core/errors.js';
 import { nowIso } from '../core/utils.js';
-import { appendRows, ensureColumns, readTables } from '../infra/sheets.repository.js';
+import { env } from '../config/env.js';
+import {
+  appendRows,
+  ensureColumns,
+  getHeaders,
+  invalidateTableCache,
+  readTables,
+} from '../infra/sheets.repository.js';
+import { sheetsApi } from '../infra/google.js';
 import { audit } from '../services/audit.service.js';
 
 const MAX_TICKETS = 1000;
 const LEGACY_TICKET_COLUMNS = [
   'OrigenDatos',
   'ImportacionID',
+  'ImportacionEstado',
+  'ImportacionRevertidaEn',
+  'ImportacionRevertidaPor',
   'BoletaIDLegacy',
   'FilaLegacy',
   'ClienteRefLegacy',
   'AsignadoALegacy',
+  'CreadorLegacy',
   'FirmaLegacyURL',
   'EvidenciasLegacy',
 ];
@@ -85,6 +97,14 @@ function number(value, fallback = 0) {
   return Number.isFinite(parsed) ? parsed : fallback;
 }
 
+function activeRecord(row = {}) {
+  return row.Activo !== false && normalized(row.Activo || 'true') !== 'false';
+}
+
+function revertedImport(row = {}) {
+  return normalized(row.ImportacionEstado) === 'revertida' || Boolean(clean(row.ImportacionRevertidaEn));
+}
+
 function sanitizeTicket(source, importId) {
   const sourceRow = Math.max(1, Math.trunc(number(source?.sourceRow, 1)));
   const fallback = `${importId.slice(0, 20)}:${sourceRow}`;
@@ -96,6 +116,7 @@ function sanitizeTicket(source, importId) {
     title: clean(source?.title, 1000),
     state: status(source?.status),
     reason: clean(source?.reason),
+    creatorText: clean(source?.creatorText, 1000),
     assignedText: clean(source?.assignedText, 3000),
     legacyClientRef: clean(source?.legacyClientRef, 500),
     clientName: clean(source?.clientName, 1000),
@@ -122,7 +143,7 @@ function sanitizeTicket(source, importId) {
     evidenceRefs: clean(source?.evidenceRefs, 10000),
   };
   if (!ticket.legacyUid || !ticket.title || !ticket.clientName) {
-    throw badRequest(`La fila ${sourceRow} no contiene UID, título o cliente.`);
+    throw badRequest(`La fila ${sourceRow} no contiene identificador, título o cliente.`);
   }
   return ticket;
 }
@@ -137,9 +158,14 @@ function sanitizeClient(source) {
   };
 }
 
-function payload(ctx) {
-  const importId = clean(ctx.payload?.importId, 128);
+function validatedImportId(value) {
+  const importId = clean(value, 128);
   if (!/^[a-f0-9]{32,128}$/i.test(importId)) throw badRequest('El identificador del archivo de importación no es válido.');
+  return importId;
+}
+
+function payload(ctx) {
+  const importId = validatedImportId(ctx.payload?.importId);
   const sourceTickets = Array.isArray(ctx.payload?.tickets) ? ctx.payload.tickets : [];
   if (!sourceTickets.length) throw badRequest('El archivo no contiene boletas para importar.');
   if (sourceTickets.length > MAX_TICKETS) throw badRequest(`La importación admite un máximo de ${MAX_TICKETS} boletas.`);
@@ -148,6 +174,10 @@ function payload(ctx) {
   if (uniqueUids.size !== tickets.length) throw badRequest('El archivo contiene identificadores de boleta repetidos.');
   const clients = (Array.isArray(ctx.payload?.clients) ? ctx.payload.clients : []).map(sanitizeClient).filter((client) => client.name);
   return { importId, tickets, clients };
+}
+
+function rollbackPayload(ctx) {
+  return { importId: validatedImportId(ctx.payload?.importId) };
 }
 
 function clientNames(row = {}) {
@@ -175,18 +205,24 @@ function findUser(part, userIndex) {
 
 function buildIndexes(tables) {
   const clientIndex = new Map();
-  (tables.Clientes || []).forEach((client) => clientNames(client).forEach((name) => {
+  (tables.Clientes || []).filter(activeRecord).forEach((client) => clientNames(client).forEach((name) => {
     if (!clientIndex.has(name)) clientIndex.set(name, client);
   }));
   const userIndex = new Map();
-  (tables.Usuarios || []).forEach((user) => userKeys(user).forEach((key) => {
+  (tables.Usuarios || []).filter(activeRecord).forEach((user) => userKeys(user).forEach((key) => {
     if (!userIndex.has(key)) userIndex.set(key, user);
   }));
   return { clientIndex, userIndex };
 }
 
+function reservingTickets(rows = []) {
+  return rows.filter((row) => !revertedImport(row));
+}
+
 function allocateNumbers(tickets, currentTickets) {
-  const used = new Set((currentTickets || []).map((row) => Math.trunc(number(row.BoletaID))).filter((value) => value > 0));
+  const used = new Set(reservingTickets(currentTickets)
+    .map((row) => Math.trunc(number(row.BoletaID)))
+    .filter((value) => value > 0));
   let next = Math.max(0, ...used) + 1;
   const allocation = new Map();
   let renumbered = 0;
@@ -207,7 +243,8 @@ function allocateNumbers(tickets, currentTickets) {
 }
 
 function previewData(source, tables) {
-  const existingByUid = new Map((tables.Boletas || []).map((row) => [clean(row.BoletaUID), row]));
+  const currentTickets = reservingTickets(tables.Boletas || []);
+  const existingByUid = new Map(currentTickets.map((row) => [clean(row.BoletaUID), row]));
   const pendingTickets = source.tickets.filter((ticket) => !existingByUid.has(ticket.uid));
   const indexes = buildIndexes(tables);
   const missingClientNames = [...new Set(pendingTickets.map((ticket) => ticket.clientName).filter((name) => !indexes.clientIndex.has(normalized(name))))];
@@ -215,7 +252,7 @@ function previewData(source, tables) {
   pendingTickets.forEach((ticket) => assignedParts(ticket.assignedText).forEach((part) => {
     if (!findUser(part, indexes.userIndex)) unmatchedTechnicians.add(part);
   }));
-  const { renumbered } = allocateNumbers(pendingTickets, tables.Boletas || []);
+  const { renumbered } = allocateNumbers(pendingTickets, currentTickets);
   const finalCount = pendingTickets.filter((ticket) => ticket.state === 'FINALIZADA').length;
   const pendingCount = pendingTickets.filter((ticket) => ticket.state === 'PENDIENTE').length;
   return {
@@ -233,10 +270,100 @@ function previewData(source, tables) {
   };
 }
 
+function rollbackPreviewData(importId, tables) {
+  const allImportedTickets = (tables.Boletas || []).filter((row) => (
+    clean(row.ImportacionID) === importId
+    && normalized(row.OrigenDatos) === 'appsheet anterior'
+  ));
+  const activeTickets = allImportedTickets.filter((row) => activeRecord(row) && !revertedImport(row));
+  const ticketIds = new Set(activeTickets.map((row) => clean(row.BoletaUID)).filter(Boolean));
+  const activeAssignments = (tables.BoletaAsignados || []).filter((row) => (
+    ticketIds.has(clean(row.BoletaUID)) && activeRecord(row)
+  ));
+  const importedClients = (tables.Clientes || []).filter((row) => (
+    clean(row.ImportacionID) === importId
+    && normalized(row.OrigenDatos) === 'appsheet anterior'
+    && activeRecord(row)
+  ));
+
+  return {
+    importId,
+    foundTickets: allImportedTickets.length,
+    activeTickets: activeTickets.length,
+    activeAssignments: activeAssignments.length,
+    importedClients: importedClients.length,
+    alreadyReverted: allImportedTickets.length - activeTickets.length,
+    canRollback: activeTickets.length > 0,
+  };
+}
+
+function operationName(ctx) {
+  return normalized(ctx.payload?.operation || ctx.payload?.mode || ctx.payload?.accion);
+}
+
 async function preview(ctx) {
+  if (operationName(ctx) === 'rollback' || operationName(ctx) === 'revertir') {
+    const { importId } = rollbackPayload(ctx);
+    const tables = await readTables(['Boletas', 'Clientes', 'BoletaAsignados']);
+    return rollbackPreviewData(importId, tables);
+  }
   const source = payload(ctx);
   const tables = await readTables(['Boletas', 'Clientes', 'Usuarios']);
   return previewData(source, tables);
+}
+
+function quote(name) {
+  return `'${String(name).replace(/'/g, "''")}'`;
+}
+
+function columnLetter(index) {
+  let result = '';
+  let value = index + 1;
+  while (value > 0) {
+    const remainder = (value - 1) % 26;
+    result = String.fromCharCode(65 + remainder) + result;
+    value = Math.floor((value - 1) / 26);
+  }
+  return result;
+}
+
+function writable(value) {
+  if (value === undefined || value === null) return '';
+  if (typeof value === 'object') return JSON.stringify(value);
+  return value;
+}
+
+async function batchPatchRows(sheetName, rows, changes, idColumn) {
+  if (!changes.length) return 0;
+  const headers = await getHeaders(sheetName, true);
+  const rowById = new Map(rows.map((row) => [clean(row[idColumn]), row]));
+  const data = [];
+
+  changes.forEach(({ id, patch }) => {
+    const current = rowById.get(clean(id));
+    if (!current?.__rowNumber) return;
+    Object.entries(patch || {}).forEach(([header, value]) => {
+      const columnIndex = headers.indexOf(header);
+      if (columnIndex < 0) return;
+      data.push({
+        range: `${quote(sheetName)}!${columnLetter(columnIndex)}${current.__rowNumber}`,
+        values: [[writable(value)]],
+      });
+    });
+  });
+
+  const chunkSize = 450;
+  for (let offset = 0; offset < data.length; offset += chunkSize) {
+    await sheetsApi.spreadsheets.values.batchUpdate({
+      spreadsheetId: env.sheetId,
+      requestBody: {
+        valueInputOption: 'USER_ENTERED',
+        data: data.slice(offset, offset + chunkSize),
+      },
+    });
+  }
+  invalidateTableCache(sheetName);
+  return changes.length;
 }
 
 async function commitInternal(ctx) {
@@ -245,13 +372,14 @@ async function commitInternal(ctx) {
   await ensureColumns('Clientes', LEGACY_CLIENT_COLUMNS);
   const tables = await readTables(['Boletas', 'Clientes', 'Usuarios', 'BoletaAsignados'], { force: true });
   const previewResult = previewData(source, tables);
-  const existingByUid = new Map((tables.Boletas || []).map((row) => [clean(row.BoletaUID), row]));
+  const currentTickets = reservingTickets(tables.Boletas || []);
+  const existingByUid = new Map(currentTickets.map((row) => [clean(row.BoletaUID), row]));
   const pendingTickets = source.tickets.filter((ticket) => !existingByUid.has(ticket.uid));
   const { clientIndex, userIndex } = buildIndexes(tables);
   const sourceClientIndex = new Map(source.clients.map((client) => [normalized(client.name), client]));
   const clientsToCreate = [];
 
-  [...new Set(source.tickets.map((ticket) => ticket.clientName))].forEach((name) => {
+  [...new Set(pendingTickets.map((ticket) => ticket.clientName))].forEach((name) => {
     const key = normalized(name);
     if (!key || clientIndex.has(key)) return;
     const sourceClient = sourceClientIndex.get(key) || { name };
@@ -277,7 +405,7 @@ async function commitInternal(ctx) {
   });
 
   if (clientsToCreate.length) await appendRows('Clientes', clientsToCreate);
-  const { allocation, renumbered } = allocateNumbers(pendingTickets, tables.Boletas || []);
+  const { allocation, renumbered } = allocateNumbers(pendingTickets, currentTickets);
   const importedAt = nowIso();
   const ticketRows = pendingTickets.map((ticket) => {
     const client = clientIndex.get(normalized(ticket.clientName));
@@ -325,10 +453,14 @@ async function commitInternal(ctx) {
       FechaActualizacion: importedAt,
       OrigenDatos: 'APPSHEET_ANTERIOR',
       ImportacionID: source.importId,
+      ImportacionEstado: 'ACTIVA',
+      ImportacionRevertidaEn: '',
+      ImportacionRevertidaPor: '',
       BoletaIDLegacy: ticket.legacyNumber ?? '',
       FilaLegacy: ticket.sourceRow,
       ClienteRefLegacy: ticket.legacyClientRef,
       AsignadoALegacy: ticket.assignedText,
+      CreadorLegacy: ticket.creatorText,
       FirmaLegacyURL: ticket.signatureUrl,
       EvidenciasLegacy: ticket.evidenceRefs,
     };
@@ -338,7 +470,7 @@ async function commitInternal(ctx) {
   const currentAssignments = new Set((tables.BoletaAsignados || []).map((row) => clean(row.BoletaAsignadoID)));
   const assignments = [];
   const unmatched = new Set();
-  source.tickets.forEach((ticket) => {
+  pendingTickets.forEach((ticket) => {
     assignedParts(ticket.assignedText).forEach((part) => {
       const user = findUser(part, userIndex);
       if (!user) {
@@ -384,8 +516,71 @@ async function commitInternal(ctx) {
   return result;
 }
 
+async function rollbackInternal(ctx) {
+  const { importId } = rollbackPayload(ctx);
+  await ensureColumns('Boletas', LEGACY_TICKET_COLUMNS);
+  const tables = await readTables(['Boletas', 'Clientes', 'BoletaAsignados'], { force: true });
+  const previewResult = rollbackPreviewData(importId, tables);
+  const tickets = (tables.Boletas || []).filter((row) => (
+    clean(row.ImportacionID) === importId
+    && normalized(row.OrigenDatos) === 'appsheet anterior'
+    && activeRecord(row)
+    && !revertedImport(row)
+  ));
+
+  if (!tickets.length) {
+    return {
+      importId,
+      revertedTickets: 0,
+      revertedAssignments: 0,
+      preservedClients: previewResult.importedClients,
+      message: 'Esta importación ya estaba deshecha o no se encontró activa.',
+    };
+  }
+
+  const revertedAt = nowIso();
+  const ticketIds = new Set(tickets.map((row) => clean(row.BoletaUID)));
+  const assignments = (tables.BoletaAsignados || []).filter((row) => (
+    ticketIds.has(clean(row.BoletaUID)) && activeRecord(row)
+  ));
+
+  await batchPatchRows('Boletas', tables.Boletas || [], tickets.map((row) => ({
+    id: row.BoletaUID,
+    patch: {
+      Activo: false,
+      ImportacionEstado: 'REVERTIDA',
+      ImportacionRevertidaEn: revertedAt,
+      ImportacionRevertidaPor: ctx.user.UsuarioID,
+      ActualizadoPor: ctx.user.UsuarioID,
+      FechaActualizacion: revertedAt,
+    },
+  })), 'BoletaUID');
+
+  await batchPatchRows('BoletaAsignados', tables.BoletaAsignados || [], assignments.map((row) => ({
+    id: row.BoletaAsignadoID,
+    patch: { Activo: false },
+  })), 'BoletaAsignadoID');
+
+  const result = {
+    importId,
+    revertedTickets: tickets.length,
+    revertedAssignments: assignments.length,
+    preservedClients: previewResult.importedClients,
+    message: `Se deshicieron ${tickets.length} boletas de la importación seleccionada. Los clientes se conservaron para evitar romper referencias y poder reutilizarlos en la versión depurada.`,
+  };
+
+  await audit(ctx, 'REVERTIR_IMPORTACION_BOLETAS_HISTORICAS', 'Boletas', importId, null, {
+    ...result,
+    preview: previewResult,
+  }).catch(() => {});
+  return result;
+}
+
 async function commit(ctx) {
-  const operation = importTail.then(() => commitInternal(ctx), () => commitInternal(ctx));
+  const runner = operationName(ctx) === 'rollback' || operationName(ctx) === 'revertir'
+    ? rollbackInternal
+    : commitInternal;
+  const operation = importTail.then(() => runner(ctx), () => runner(ctx));
   importTail = operation.catch(() => {});
   return operation;
 }
