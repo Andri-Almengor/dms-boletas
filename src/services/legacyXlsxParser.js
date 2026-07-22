@@ -117,6 +117,17 @@ function columnIndex(reference) {
   return Math.max(0, result - 1);
 }
 
+function columnLetters(index) {
+  let result = '';
+  let value = Number(index) + 1;
+  while (value > 0) {
+    const remainder = (value - 1) % 26;
+    result = String.fromCharCode(65 + remainder) + result;
+    value = Math.floor((value - 1) / 26);
+  }
+  return result || 'A';
+}
+
 function sheetRelationshipsPath(sheetPath) {
   const parts = sheetPath.split('/');
   const fileName = parts.pop();
@@ -208,12 +219,69 @@ function urlValue(value, hyperlink = '') {
   return /^https?:\/\//i.test(text) ? text : '';
 }
 
-function looksLikeHeader(row) {
-  const values = row.values.map((value) => clean(value).toLowerCase());
-  return values.includes('boletauid') || values.includes('id') || values.includes('título') || values.includes('titulo');
+function normalizeHeader(value) {
+  return clean(value)
+    .normalize('NFD')
+    .replace(/[\u0300-\u036f]/g, '')
+    .toLowerCase()
+    .replace(/[^a-z0-9]+/g, '');
 }
 
-function mapLegacyTicket(row, hyperlinks) {
+function headerMap(row) {
+  const map = new Map();
+  row.values.forEach((value, index) => {
+    const key = normalizeHeader(value);
+    if (key && !map.has(key)) map.set(key, index);
+  });
+  return map;
+}
+
+function headerIndex(headers, aliases) {
+  for (const alias of aliases) {
+    const index = headers.get(normalizeHeader(alias));
+    if (index !== undefined) return index;
+  }
+  return -1;
+}
+
+function valueByHeader(row, headers, aliases) {
+  const index = headerIndex(headers, aliases);
+  return index < 0 ? '' : row.values[index] ?? '';
+}
+
+function linkByHeader(row, headers, hyperlinks, aliases) {
+  const index = headerIndex(headers, aliases);
+  if (index < 0) return '';
+  return hyperlinks.get(`${columnLetters(index)}${row.rowNumber}`) || '';
+}
+
+function stableHash(value) {
+  let result = 2166136261;
+  const text = String(value || '');
+  for (let index = 0; index < text.length; index += 1) {
+    result ^= text.charCodeAt(index);
+    result = Math.imul(result, 16777619);
+  }
+  return (result >>> 0).toString(16).padStart(8, '0');
+}
+
+function looksLikeHeader(row) {
+  const values = new Set(row.values.map(normalizeHeader).filter(Boolean));
+  return values.has('boletauid')
+    || values.has('id')
+    || values.has('titulo')
+    || (values.has('cliente') && values.has('estado'));
+}
+
+function looksLikeClientHeader(row) {
+  const values = new Set(row.values.map(normalizeHeader).filter(Boolean));
+  return values.has('clientes')
+    || values.has('nombredelcontacto')
+    || values.has('correoelectronico')
+    || values.has('direcciondeenvio');
+}
+
+function mapLegacyTicketPositional(row, hyperlinks) {
   const cell = (index) => row.values[index] ?? '';
   const link = (column) => hyperlinks.get(`${column}${row.rowNumber}`) || '';
   const legacyNumber = Number(cell(1));
@@ -224,6 +292,7 @@ function mapLegacyTicket(row, hyperlinks) {
     title: clean(cell(2)),
     status: clean(cell(3)),
     reason: clean(cell(4)),
+    creatorText: '',
     assignedText: clean(cell(5)),
     legacyClientRef: clean(cell(6)),
     clientName: clean(cell(7)),
@@ -252,6 +321,89 @@ function mapLegacyTicket(row, hyperlinks) {
   };
 }
 
+function mapHeaderTicket(row, headers, hyperlinks) {
+  const legacyNumberValue = valueByHeader(row, headers, ['ID', 'BoletaID', 'Número', 'Numero']);
+  const legacyNumber = Number(legacyNumberValue);
+  const title = clean(valueByHeader(row, headers, ['Título', 'Titulo']));
+  const clientName = clean(valueByHeader(row, headers, ['Cliente', 'Clientes']));
+  const date = excelDate(valueByHeader(row, headers, ['Fecha']));
+  const creatorText = clean(valueByHeader(row, headers, ['Creador', 'Creado por', 'CreadoPor']));
+  const explicitUid = clean(valueByHeader(row, headers, ['BoletaUID', 'UID', 'Row ID', 'RowID']));
+  const stableUid = `depurada:${Number.isFinite(legacyNumber) ? legacyNumber : row.rowNumber}:${stableHash(`${title}|${clientName}|${date}|${creatorText}`)}`;
+  const signatureValue = valueByHeader(row, headers, ['Firma', 'FirmaURL', 'Firma URL']);
+  const documentValue = valueByHeader(row, headers, ['DocumentoURL', 'Documento URL', 'Documento']);
+  const pdfValue = valueByHeader(row, headers, ['PDFURL', 'PDF URL', 'PDF']);
+
+  return {
+    sourceRow: row.rowNumber,
+    legacyUid: explicitUid || stableUid,
+    legacyNumber: Number.isFinite(legacyNumber) ? legacyNumber : null,
+    title,
+    status: clean(valueByHeader(row, headers, ['Estado'])),
+    reason: clean(valueByHeader(row, headers, ['Razon_visita', 'Razón_visita', 'Razon visita', 'Razón de visita'])),
+    creatorText,
+    assignedText: clean(valueByHeader(row, headers, ['AsignadoA', 'Asignado a', 'Técnicos', 'Tecnicos'])),
+    legacyClientRef: clean(valueByHeader(row, headers, ['ClienteRef', 'Cliente Ref', 'ClienteID'])),
+    clientName,
+    date,
+    category: clean(valueByHeader(row, headers, ['Categoría', 'Categoria'])),
+    signatureUrl: urlValue(signatureValue, linkByHeader(row, headers, hyperlinks, ['Firma', 'FirmaURL', 'Firma URL'])),
+    signatureLabel: clean(signatureValue),
+    result: clean(valueByHeader(row, headers, ['Resultado'])),
+    totalHours: Number.isFinite(Number(valueByHeader(row, headers, ['HorasTotales', 'Horas Totales'])))
+      ? Number(valueByHeader(row, headers, ['HorasTotales', 'Horas Totales']))
+      : 0,
+    startTime: excelTime(valueByHeader(row, headers, ['Hora de inicio', 'HoraInicio', 'Hora inicio'])),
+    endTime: excelTime(valueByHeader(row, headers, ['Hora de Finalización', 'Hora de Finalizacion', 'HoraFinal', 'Hora final'])),
+    location: clean(valueByHeader(row, headers, ['Ubicación', 'Ubicacion'])),
+    manufacturer: clean(valueByHeader(row, headers, ['Fabricante'])),
+    model: clean(valueByHeader(row, headers, ['Modelo'])),
+    serial: clean(valueByHeader(row, headers, ['Serie'])),
+    supervisor: clean(valueByHeader(row, headers, ['Supervisor'])),
+    tests: clean(valueByHeader(row, headers, ['Pruebas realizadas', 'PruebasRealizadas'])),
+    recommendations: clean(valueByHeader(row, headers, ['Recomendaciones'])),
+    description: clean(valueByHeader(row, headers, ['Descripción', 'Descripcion'])),
+    equipmentLocation: clean(valueByHeader(row, headers, ['Ubicacion_equipo', 'Ubicación_equipo', 'Ubicacion equipo'])),
+    documentUrl: urlValue(documentValue, linkByHeader(row, headers, hyperlinks, ['DocumentoURL', 'Documento URL', 'Documento'])),
+    pdfUrl: urlValue(pdfValue, linkByHeader(row, headers, hyperlinks, ['PDFURL', 'PDF URL', 'PDF'])),
+    clientEmail: clean(valueByHeader(row, headers, ['Correo_Cliente', 'Correo Cliente', 'CorreoCliente'])),
+    failureType: clean(valueByHeader(row, headers, ['Tipo de falla', 'TipoFalla'])),
+    evidenceRefs: clean(valueByHeader(row, headers, ['Evidencias', 'EvidenciasLegacy', 'Related Evidencias'])),
+  };
+}
+
+function mapClientPositional(row) {
+  return {
+    sourceRow: row.rowNumber,
+    name: clean(row.values[0]),
+    contact: clean(row.values[1]),
+    phone: clean(row.values[2]),
+    email: clean(row.values[3]),
+    address: clean(row.values[4]),
+  };
+}
+
+function mapHeaderClient(row, headers) {
+  return {
+    sourceRow: row.rowNumber,
+    name: clean(valueByHeader(row, headers, ['Clientes', 'Cliente', 'Nombre', 'Razón Social', 'RazonSocial'])),
+    contact: clean(valueByHeader(row, headers, ['Nombre del contacto', 'Contacto'])),
+    phone: clean(valueByHeader(row, headers, ['Números de teléfono', 'Numeros de telefono', 'Teléfono', 'Telefono'])),
+    email: clean(valueByHeader(row, headers, ['Correo electrónico', 'Correo electronico', 'Correo', 'Email'])),
+    address: clean(valueByHeader(row, headers, ['Dirección de envío', 'Direccion de envio', 'Dirección', 'Direccion'])),
+  };
+}
+
+function uniqueTicketUids(tickets) {
+  const used = new Set();
+  return tickets.map((ticket) => {
+    let uid = ticket.legacyUid;
+    if (used.has(uid)) uid = `${uid}:${ticket.sourceRow}`;
+    used.add(uid);
+    return { ...ticket, legacyUid: uid };
+  });
+}
+
 async function fileHash(buffer) {
   const digest = await crypto.subtle.digest('SHA-256', buffer);
   return [...new Uint8Array(digest)].map((byte) => byte.toString(16).padStart(2, '0')).join('');
@@ -270,25 +422,26 @@ export async function parseLegacyTicketsWorkbook(file) {
   if (!ticketDefinition) throw new Error('El archivo no contiene la hoja Boletas.');
   const clientDefinition = sheets.find((sheet) => sheet.name.toLowerCase() === 'clientes');
   const ticketSheet = readSheet(entries, ticketDefinition.path, strings);
-  const ticketRows = ticketSheet.rows.filter((row, index) => !(index === 0 && looksLikeHeader(row)));
-  const tickets = ticketRows.map((row) => mapLegacyTicket(row, ticketSheet.hyperlinks))
-    .filter((ticket) => ticket.legacyUid && ticket.title && ticket.clientName);
+  const ticketHeaderRow = ticketSheet.rows[0] && looksLikeHeader(ticketSheet.rows[0]) ? ticketSheet.rows[0] : null;
+  const ticketHeaders = ticketHeaderRow ? headerMap(ticketHeaderRow) : null;
+  const ticketRows = ticketHeaderRow ? ticketSheet.rows.slice(1) : ticketSheet.rows;
+  const mappedTickets = ticketRows.map((row) => (
+    ticketHeaders
+      ? mapHeaderTicket(row, ticketHeaders, ticketSheet.hyperlinks)
+      : mapLegacyTicketPositional(row, ticketSheet.hyperlinks)
+  )).filter((ticket) => ticket.legacyUid && ticket.title && ticket.clientName);
+  const tickets = uniqueTicketUids(mappedTickets);
 
   if (!tickets.length) throw new Error('No se encontraron boletas válidas en el archivo.');
 
   let clients = [];
   if (clientDefinition) {
     const clientSheet = readSheet(entries, clientDefinition.path, strings);
-    clients = clientSheet.rows
-      .filter((row, index) => !(index === 0 && looksLikeHeader(row)))
-      .map((row) => ({
-        sourceRow: row.rowNumber,
-        name: clean(row.values[0]),
-        contact: clean(row.values[1]),
-        phone: clean(row.values[2]),
-        email: clean(row.values[3]),
-        address: clean(row.values[4]),
-      }))
+    const clientHeaderRow = clientSheet.rows[0] && looksLikeClientHeader(clientSheet.rows[0]) ? clientSheet.rows[0] : null;
+    const clientHeaders = clientHeaderRow ? headerMap(clientHeaderRow) : null;
+    const clientRows = clientHeaderRow ? clientSheet.rows.slice(1) : clientSheet.rows;
+    clients = clientRows
+      .map((row) => (clientHeaders ? mapHeaderClient(row, clientHeaders) : mapClientPositional(row)))
       .filter((client) => client.name);
   }
 
@@ -302,19 +455,22 @@ export async function parseLegacyTicketsWorkbook(file) {
     result[key] = (result[key] || 0) + 1;
     return result;
   }, {});
+  const finiteNumbers = tickets.map((ticket) => ticket.legacyNumber).filter(Number.isFinite);
 
   return {
     importId: await fileHash(buffer),
     fileName: file.name,
+    format: ticketHeaders ? 'DEPURADA_CON_ENCABEZADOS' : 'EXPORTACION_ORIGINAL',
     tickets,
     clients,
     summary: {
       tickets: tickets.length,
       clients: new Set(tickets.map((ticket) => ticket.clientName)).size,
-      firstNumber: Math.min(...tickets.map((ticket) => ticket.legacyNumber).filter(Number.isFinite)),
-      lastNumber: Math.max(...tickets.map((ticket) => ticket.legacyNumber).filter(Number.isFinite)),
+      firstNumber: finiteNumbers.length ? Math.min(...finiteNumbers) : '',
+      lastNumber: finiteNumbers.length ? Math.max(...finiteNumbers) : '',
       duplicateNumbers,
       statuses,
+      format: ticketHeaders ? 'Depurada con encabezados' : 'Exportación original',
     },
   };
 }
