@@ -1,0 +1,117 @@
+@media (min-width: 761px) {
+  .maintenance-device-form-page {
+    width: min(100%, 1180px);
+  }
+
+  .maintenance-device-editor__content {
+    gap: 18px;
+  }
+
+  .maintenance-device-work-grid {
+    grid-template-columns: minmax(260px, .72fr) minmax(420px, 1.28fr);
+    gap: 22px;
+  }
+
+  .maintenance-device-technicians-field {
+    position: relative;
+  }
+
+  .maintenance-device-technicians-field .technician-select {
+    gap: 9px;
+  }
+
+  .technician-select__search {
+    position: relative;
+  }
+
+  .technician-select__search .form-control {
+    padding-right: 48px;
+  }
+
+  .technician-select__toggle {
+    position: absolute;
+    top: 50%;
+    right: 8px;
+    width: 34px;
+    height: 34px;
+    padding: 0;
+    border: 0;
+    border-radius: 9px;
+    background: var(--surface-container);
+    color: var(--primary);
+    display: grid;
+    place-items: center;
+    transform: translateY(-50%);
+    cursor: pointer;
+  }
+
+  .technician-select__toggle:hover,
+  .technician-select__toggle:focus-visible {
+    background: var(--primary-soft);
+    outline: none;
+  }
+
+  .technician-select__toggle .material-symbols-outlined {
+    font-size: 21px;
+  }
+
+  .maintenance-device-technicians-field .technician-chips {
+    min-height: 30px;
+  }
+
+  .maintenance-device-technicians-field .technician-options {
+    max-height: 0;
+    padding: 0 4px;
+    overflow: hidden;
+    opacity: 0;
+    visibility: hidden;
+    transform: translateY(-6px);
+    transition: max-height .2s ease, opacity .16s ease, transform .16s ease, visibility .16s ease;
+  }
+
+  .maintenance-device-technicians-field .technician-select.is-options-open .technician-options {
+    max-height: 278px;
+    padding: 4px;
+    overflow-y: auto;
+    opacity: 1;
+    visibility: visible;
+    transform: translateY(0);
+    scrollbar-width: thin;
+  }
+
+  .maintenance-device-technicians-field .technician-options label {
+    min-height: 56px;
+    padding: 8px 11px;
+  }
+
+  .technician-select__empty {
+    padding: 16px;
+    border: 1px dashed var(--outline-soft);
+    border-radius: 11px;
+    text-align: center;
+  }
+
+  .maintenance-device-editor__actions {
+    position: static;
+    z-index: auto;
+    bottom: auto;
+    margin-top: 4px;
+    padding: 12px 0 0;
+    border: 0;
+    border-top: 1px solid var(--outline-soft);
+    border-radius: 0;
+    background: transparent;
+    box-shadow: none;
+    backdrop-filter: none;
+  }
+
+  .maintenance-device-editor__actions .button {
+    min-height: 46px;
+  }
+}
+
+@media (max-width: 760px) {
+  .technician-select__toggle {
+    display: none;
+  }
+}
