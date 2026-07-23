@@ -21,14 +21,14 @@ export default function MaintenanceDetailPage() {
   const { maintenanceId } = useParams();
   const navigate = useNavigate();
   const { sessionToken, hasPermission } = useAuth();
-  const isAdmin = hasPermission('USUARIOS_GESTIONAR')
+  const isAdministrator = hasPermission('USUARIOS_GESTIONAR');
+  const isAdmin = isAdministrator
     || hasPermission('MANTENIMIENTOS_ELIMINAR')
     || hasPermission('MANTENIMIENTOS_GESTIONAR');
   const canEdit = isAdmin
     || hasPermission('MANTENIMIENTOS_EDITAR')
     || hasPermission('MANTENIMIENTOS_GESTIONAR')
     || hasPermission('BOLETAS_EDITAR');
-  const canFinalize = hasPermission('MANTENIMIENTOS_FINALIZAR') || hasPermission('BOLETAS_FINALIZAR') || canEdit;
   const [data, setData] = useState(null);
   const [loading, setLoading] = useState(true);
   const [working, setWorking] = useState('');
@@ -70,11 +70,7 @@ export default function MaintenanceDetailPage() {
   const offlinePending = Boolean(pick(row, ['OfflinePendiente'], false));
   const driveFolderUrl = pick(row, ['CarpetaDriveURL', 'MaintenanceFolderURL']);
   const generatedTicketCount = Number(pick(row, ['BoletasGeneradasCantidad'], 0) || 0);
-  const signatureRegistered = maintenanceSigned || Boolean(pick(row, [
-    'FirmaArchivoID',
-    'FirmaURL',
-    'Firma',
-  ]));
+  const signatureRegistered = maintenanceSigned || Boolean(pick(row, ['FirmaArchivoID', 'FirmaURL', 'Firma']));
 
   async function action(type) {
     if (type === 'delete' && !window.confirm('¿Eliminar este mantenimiento y todos sus dispositivos?')) return;
@@ -135,7 +131,7 @@ export default function MaintenanceDetailPage() {
   }
 
   function addDevice() {
-    navigate(`/mantenimientos/${encodeURIComponent(maintenanceId)}/editar?step=devices`);
+    navigate(`/mantenimientos/${encodeURIComponent(maintenanceId)}/editar?directDevice=1&newDevice=1`);
   }
 
   function editDevice(device) {
@@ -144,16 +140,11 @@ export default function MaintenanceDetailPage() {
       setError('No fue posible identificar el dispositivo seleccionado.');
       return;
     }
-    navigate(`/mantenimientos/${encodeURIComponent(maintenanceId)}/editar?step=devices&device=${encodeURIComponent(id)}`);
+    navigate(`/mantenimientos/${encodeURIComponent(maintenanceId)}/editar?directDevice=1&device=${encodeURIComponent(id)}`);
   }
 
-  if (loading) {
-    return <div className="page"><div className="state-card state-card--loading"><Icon name="progress_activity" />Cargando mantenimiento...</div></div>;
-  }
-
-  if (!data) {
-    return <div className="page"><div className="empty-state"><Icon name="error" /><h2>No se encontró el mantenimiento</h2><p>{error}</p></div></div>;
-  }
+  if (loading) return <div className="page"><div className="state-card state-card--loading"><Icon name="progress_activity" />Cargando mantenimiento...</div></div>;
+  if (!data) return <div className="page"><div className="empty-state"><Icon name="error" /><h2>No se encontró el mantenimiento</h2><p>{error}</p></div></div>;
 
   return (
     <div className="page maintenance-detail-page maintenance-detail-page--inventory">
@@ -229,7 +220,7 @@ export default function MaintenanceDetailPage() {
       />
 
       <section className="maintenance-detail-footer-actions">
-        {pending && !offlinePending && canFinalize && devices.length > 0 && <button className="button button--primary" type="button" onClick={() => action('finalize')} disabled={Boolean(working) || !signatureRegistered} title={!signatureRegistered ? 'El cliente debe firmar el mantenimiento general antes de finalizar' : 'Finalizar mantenimiento y generar boletas firmadas'}><Icon name="task_alt" />{working === 'finalize' ? 'Generando boletas y finalizando...' : signatureRegistered ? 'Finalizar mantenimiento' : 'Firma pendiente'}</button>}
+        {pending && !offlinePending && isAdministrator && devices.length > 0 && <button className="button button--primary" type="button" onClick={() => action('finalize')} disabled={Boolean(working) || !signatureRegistered} title={!signatureRegistered ? 'El cliente debe firmar el mantenimiento general antes de finalizar' : 'Finalizar mantenimiento y generar boletas firmadas'}><Icon name="task_alt" />{working === 'finalize' ? 'Generando boletas y finalizando...' : signatureRegistered ? 'Finalizar mantenimiento' : 'Firma pendiente'}</button>}
         {status === 'FINALIZADO' && isAdmin && <button className="button button--secondary" type="button" onClick={() => action('reopen')} disabled={Boolean(working)}><Icon name="undo" />Volver a pendiente</button>}
         {isAdmin && <button className="button button--danger" type="button" onClick={() => action('delete')} disabled={Boolean(working)}><Icon name="delete" />Eliminar</button>}
       </section>
