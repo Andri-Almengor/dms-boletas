@@ -1,0 +1,358 @@
+/* Cobertura adicional del modo oscuro.
+ * Este archivo se carga después del resto de estilos para neutralizar fondos
+ * blancos declarados directamente en módulos antiguos sin afectar el modo claro.
+ */
+
+:root[data-theme='dark'] {
+  --dark-surface-raised: #211d1d;
+  --dark-surface-soft: #191616;
+  --dark-surface-hover: #2a2525;
+  --dark-border: #4e3c3b;
+}
+
+/* Tarjetas y paneles generales que todavía usaban blanco fijo. */
+:root[data-theme='dark'] :is(
+  .install-app-card,
+  .module-record-card,
+  .maintenance-card,
+  .maintenance-list-filters,
+  .maintenance-category-section,
+  .maintenance-detail-device,
+  .maintenance-image-section,
+  .maintenance-image-grid article,
+  .maintenance-device-list > button,
+  .maintenance-inventory-panel,
+  .maintenance-device-table-wrap,
+  .maintenance-inventory-table-wrap,
+  .maintenance-device-pagination,
+  .maintenance-inventory-checklist > div,
+  .maintenance-inventory-images figure,
+  .client-location-form,
+  .client-equipment-location-form,
+  .client-location-card,
+  .client-equipment-location-card,
+  .client-supervisor-form,
+  .client-supervisor-card,
+  .ticket-status-card,
+  .ticket-detail-section,
+  .signature-display,
+  .ticket-evidence-grid article,
+  .ticket-evidence-add,
+  .signature-pad,
+  .knowledge-search,
+  .knowledge-detail-meta,
+  .knowledge-document,
+  .knowledge-video-card,
+  .knowledge-attachment-list > button,
+  .knowledge-editor,
+  .knowledge-file-list article,
+  .knowledge-category-admin-grid > article,
+  .metrics-search,
+  .metrics-state
+) {
+  background: var(--dark-surface-raised) !important;
+  color: var(--text) !important;
+  border-color: var(--dark-border) !important;
+}
+
+/* Contenedores flotantes y barras adhesivas. */
+:root[data-theme='dark'] :is(
+  .maintenance-device-toolbar,
+  .ticket-detail-actions,
+  .ticket-form-actions,
+  .knowledge-editor-actions
+) {
+  background: rgba(33, 29, 29, .97) !important;
+  color: var(--text) !important;
+  border-color: var(--dark-border) !important;
+  box-shadow: 0 10px 30px rgba(0, 0, 0, .34) !important;
+  backdrop-filter: blur(14px);
+}
+
+/* Controles que conservaban un fondo blanco independiente. */
+:root[data-theme='dark'] :is(
+  .maintenance-status-tabs button,
+  .maintenance-device-category-chips button,
+  .knowledge-filter-row > button,
+  .knowledge-mine-toggle span,
+  .knowledge-editor__toolbar button,
+  .knowledge-editor__toolbar select,
+  .metrics-bar-row,
+  .metrics-legend button
+) {
+  background: var(--dark-surface-raised) !important;
+  color: var(--muted) !important;
+  border-color: var(--dark-border) !important;
+}
+
+:root[data-theme='dark'] :is(
+  .maintenance-status-tabs button,
+  .maintenance-device-category-chips button,
+  .knowledge-filter-row > button,
+  .knowledge-mine-toggle span,
+  .metrics-bar-row,
+  .metrics-legend button
+):hover {
+  background: var(--dark-surface-hover) !important;
+  color: var(--text) !important;
+}
+
+:root[data-theme='dark'] :is(
+  .maintenance-status-tabs button.is-active,
+  .maintenance-device-category-chips button.is-active,
+  .knowledge-filter-row > button.is-active,
+  .knowledge-mine-toggle input:checked + span,
+  .metrics-bar-row.is-active,
+  .metrics-legend button.is-active
+) {
+  background: var(--primary-soft) !important;
+  color: var(--primary) !important;
+  border-color: var(--primary) !important;
+}
+
+:root[data-theme='dark'] .maintenance-status-tabs button.is-active,
+:root[data-theme='dark'] .knowledge-filter-row > button.is-active {
+  background: var(--primary) !important;
+  color: #fff !important;
+}
+
+/* Formularios, búsquedas y filtros. */
+:root[data-theme='dark'] :is(
+  .maintenance-device-toolbar select,
+  .maintenance-device-search,
+  .metrics-filters select,
+  .metrics-search input,
+  .knowledge-search input,
+  .search-bar input
+) {
+  background: var(--dark-surface-raised) !important;
+  color: var(--text) !important;
+  border-color: var(--outline) !important;
+}
+
+:root[data-theme='dark'] .maintenance-device-search input,
+:root[data-theme='dark'] .knowledge-search input,
+:root[data-theme='dark'] .metrics-search input,
+:root[data-theme='dark'] .search-bar input {
+  background: transparent !important;
+}
+
+:root[data-theme='dark'] :is(
+  .maintenance-list-filters,
+  .metrics-filters,
+  .client-locations__content,
+  .client-supervisors__content,
+  .client-equipment-locations,
+  .knowledge-editor__toolbar
+) {
+  background: var(--dark-surface-soft) !important;
+  border-color: var(--dark-border) !important;
+}
+
+/* Tablas de inventario y métricas. */
+:root[data-theme='dark'] :is(
+  .maintenance-device-table,
+  .maintenance-inventory-table,
+  .metrics-table
+) {
+  background: var(--dark-surface-raised) !important;
+  color: var(--text) !important;
+}
+
+:root[data-theme='dark'] :is(
+  .maintenance-device-table th,
+  .maintenance-inventory-table th,
+  .metrics-table th
+) {
+  background: var(--dark-surface-soft) !important;
+  color: var(--muted) !important;
+  border-color: var(--dark-border) !important;
+}
+
+:root[data-theme='dark'] :is(
+  .maintenance-device-table td,
+  .maintenance-inventory-table td,
+  .metrics-table td
+) {
+  background: transparent !important;
+  color: var(--text) !important;
+  border-color: var(--dark-border) !important;
+}
+
+:root[data-theme='dark'] :is(
+  .maintenance-device-table tbody tr,
+  .maintenance-inventory-table tbody tr,
+  .metrics-table tbody tr
+) {
+  background: var(--dark-surface-raised) !important;
+}
+
+:root[data-theme='dark'] :is(
+  .maintenance-device-table tbody tr:hover,
+  .maintenance-inventory-table tbody tr:not(.maintenance-inventory-expanded-row):hover,
+  .metrics-table tbody tr:hover
+) {
+  background: var(--dark-surface-hover) !important;
+}
+
+:root[data-theme='dark'] .maintenance-inventory-table tr.is-expanded,
+:root[data-theme='dark'] .maintenance-inventory-expanded-row > td {
+  background: var(--dark-surface-hover) !important;
+}
+
+/* Mantenimientos: tarjetas, barras de progreso y estados. */
+:root[data-theme='dark'] .maintenance-progress-mini div,
+:root[data-theme='dark'] .maintenance-device-summary--compact > div,
+:root[data-theme='dark'] .maintenance-answer-grid > div,
+:root[data-theme='dark'] .maintenance-inventory-observation {
+  background: var(--dark-surface-soft) !important;
+  color: var(--text) !important;
+  border-color: var(--dark-border) !important;
+}
+
+:root[data-theme='dark'] .maintenance-category-section__toggle {
+  background: var(--dark-surface-raised) !important;
+  color: var(--text) !important;
+}
+
+:root[data-theme='dark'] .maintenance-category-section__toggle:hover,
+:root[data-theme='dark'] .maintenance-category-section__toggle:focus-visible {
+  background: var(--dark-surface-hover) !important;
+}
+
+:root[data-theme='dark'] .maintenance-device-compact-state.is-good,
+:root[data-theme='dark'] .maintenance-device-mobile-row em.is-good,
+:root[data-theme='dark'] .maintenance-inventory-mobile-toggle em.is-good,
+:root[data-theme='dark'] .maintenance-device-state.is-good,
+:root[data-theme='dark'] .maintenance-inventory-checklist .is-good {
+  background: #15382b !important;
+  color: #8be3ba !important;
+  border-color: #32664f !important;
+}
+
+:root[data-theme='dark'] .maintenance-device-compact-state.is-warning,
+:root[data-theme='dark'] .maintenance-device-mobile-row em.is-warning,
+:root[data-theme='dark'] .maintenance-inventory-mobile-toggle em.is-warning,
+:root[data-theme='dark'] .maintenance-device-state.is-bad,
+:root[data-theme='dark'] .maintenance-inventory-checklist .is-warning {
+  background: #3b2b12 !important;
+  color: #ffd490 !important;
+  border-color: #765526 !important;
+}
+
+:root[data-theme='dark'] .maintenance-inventory-offline-note {
+  background: #3b2b12 !important;
+  color: #ffd490 !important;
+  border-color: #765526 !important;
+}
+
+/* Clientes: tarjetas principales y paneles internos. */
+:root[data-theme='dark'] .module-record-card__extra,
+:root[data-theme='dark'] .client-management-panels,
+:root[data-theme='dark'] .client-locations,
+:root[data-theme='dark'] .client-supervisors {
+  border-color: var(--dark-border) !important;
+}
+
+:root[data-theme='dark'] .module-record-card__icon,
+:root[data-theme='dark'] .client-location-card__icon,
+:root[data-theme='dark'] .client-equipment-location-card > span,
+:root[data-theme='dark'] .client-supervisor-card__avatar,
+:root[data-theme='dark'] .quick-card__icon,
+:root[data-theme='dark'] .menu-row__icon {
+  background: var(--dark-surface-hover) !important;
+  color: var(--primary) !important;
+}
+
+:root[data-theme='dark'] .icon-button--danger {
+  background: var(--danger-soft) !important;
+  color: var(--danger) !important;
+  border-color: #81403c !important;
+}
+
+/* Base de conocimiento. */
+:root[data-theme='dark'] .knowledge-problem-card__icon {
+  background: var(--dark-surface-raised) !important;
+  color: var(--primary) !important;
+}
+
+:root[data-theme='dark'] .knowledge-document blockquote,
+:root[data-theme='dark'] .knowledge-editor__document blockquote,
+:root[data-theme='dark'] .knowledge-file-drop {
+  background: var(--dark-surface-soft) !important;
+  border-color: var(--dark-border) !important;
+}
+
+:root[data-theme='dark'] .knowledge-category-chip {
+  background: var(--dark-surface-hover) !important;
+  color: var(--primary) !important;
+}
+
+/* Métricas: distribución, leyendas y buscador. */
+:root[data-theme='dark'] .metrics-bar-row__track,
+:root[data-theme='dark'] .metrics-progress--primary,
+:root[data-theme='dark'] .metrics-progress--muted {
+  background: #3a3333 !important;
+}
+
+:root[data-theme='dark'] .metrics-table tbody tr:hover td {
+  background: transparent !important;
+}
+
+/* Estados y textos que quedaban casi invisibles sobre fondos claros. */
+:root[data-theme='dark'] .status-chip--pending {
+  background: var(--warning-soft) !important;
+  color: #ffd490 !important;
+}
+
+:root[data-theme='dark'] .ticket-status--pending {
+  background: var(--warning-soft) !important;
+  color: #ffd490 !important;
+  border-color: #765526 !important;
+}
+
+:root[data-theme='dark'] .ticket-status--finished {
+  background: var(--success-soft) !important;
+  color: #8be3ba !important;
+  border-color: #32664f !important;
+}
+
+:root[data-theme='dark'] :is(
+  .maintenance-card h2,
+  .module-record-card h2,
+  .knowledge-card h2,
+  .client-location-card strong,
+  .client-supervisor-card strong,
+  .maintenance-inventory-name strong,
+  .maintenance-device-name-button strong
+) {
+  color: var(--text) !important;
+}
+
+:root[data-theme='dark'] :is(
+  .maintenance-card p,
+  .maintenance-card__meta,
+  .module-record-card p,
+  .knowledge-card > p,
+  .client-location-card__body > span,
+  .client-location-card__body > small,
+  .client-supervisor-card__body > span,
+  .client-supervisor-card__body > div > span
+) {
+  color: var(--muted) !important;
+}
+
+/* El lienzo de firma permanece blanco para conservar el trazo negro legible. */
+:root[data-theme='dark'] .signature-pad canvas {
+  background: repeating-linear-gradient(0deg, #fff 0, #fff 37px, #eee 38px) !important;
+}
+
+@media (max-width: 760px) {
+  :root[data-theme='dark'] .maintenance-device-mobile-row,
+  :root[data-theme='dark'] .maintenance-inventory-mobile-toggle,
+  :root[data-theme='dark'] .maintenance-inventory-expanded {
+    background: var(--dark-surface-raised) !important;
+    color: var(--text) !important;
+    border-color: var(--dark-border) !important;
+  }
+}
