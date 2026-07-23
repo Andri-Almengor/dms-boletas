@@ -5,6 +5,7 @@ import Icon from '../../components/common/Icon';
 import MaintenanceDeviceInventory from '../../components/maintenance/MaintenanceDeviceInventory';
 import MaintenanceEvidenceEditor from '../../components/maintenance/MaintenanceEvidenceEditor';
 import MaintenanceEvidenceUploader from '../../components/maintenance/MaintenanceEvidenceUploader';
+import MaintenanceQuickDeviceCreator from '../../components/maintenance/MaintenanceQuickDeviceCreator';
 import MaintenanceSignatureCard from '../../components/maintenance/MaintenanceSignatureCard';
 import { MODULE_ROUTES, pick, requestAvailable } from '../../services/moduleApi';
 
@@ -34,6 +35,7 @@ export default function MaintenanceDetailPage() {
   const [working, setWorking] = useState('');
   const [error, setError] = useState('');
   const [notice, setNotice] = useState('');
+  const [quickDeviceOpen, setQuickDeviceOpen] = useState(false);
   const [evidenceDevice, setEvidenceDevice] = useState(null);
   const [quickEvidenceOpen, setQuickEvidenceOpen] = useState(false);
   const [editingEvidence, setEditingEvidence] = useState(null);
@@ -131,7 +133,9 @@ export default function MaintenanceDetailPage() {
   }
 
   function addDevice() {
-    navigate(`/mantenimientos/${encodeURIComponent(maintenanceId)}/editar?directDevice=1&newDevice=1`);
+    setError('');
+    setNotice('');
+    setQuickDeviceOpen(true);
   }
 
   function editDevice(device) {
@@ -225,6 +229,7 @@ export default function MaintenanceDetailPage() {
         {isAdmin && <button className="button button--danger" type="button" onClick={() => action('delete')} disabled={Boolean(working)}><Icon name="delete" />Eliminar</button>}
       </section>
 
+      {quickDeviceOpen && <MaintenanceQuickDeviceCreator maintenanceId={maintenanceId} sessionToken={sessionToken} onClose={() => setQuickDeviceOpen(false)} onCreated={() => load({ silent: true })} />}
       {evidenceDevice && <MaintenanceEvidenceUploader device={evidenceDevice} maintenanceId={maintenanceId} sessionToken={sessionToken} onClose={() => setEvidenceDevice(null)} onUploaded={() => load({ silent: true })} />}
       {quickEvidenceOpen && <MaintenanceEvidenceUploader devices={devices} maintenanceId={maintenanceId} sessionToken={sessionToken} onClose={() => setQuickEvidenceOpen(false)} onUploaded={() => load({ silent: true })} />}
       {editingEvidence && <MaintenanceEvidenceEditor image={editingEvidence.image} device={editingEvidence.device} maintenanceId={maintenanceId} sessionToken={sessionToken} isAdmin={isAdmin} onClose={() => setEditingEvidence(null)} onUpdated={() => load({ silent: true })} />}
