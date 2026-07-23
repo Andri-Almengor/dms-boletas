@@ -1,0 +1,199 @@
+/* Ajustes puntuales de modo oscuro para los últimos paneles heredados.
+ * Se importa al final para prevalecer sobre fondos claros definidos directamente.
+ */
+
+:root[data-theme='dark'] {
+  --dark-gap-surface: #211d1d;
+  --dark-gap-surface-soft: #191616;
+  --dark-gap-surface-hover: #2a2525;
+  --dark-gap-border: #4e3c3b;
+}
+
+/* Firma pública dentro del detalle de boletas y mantenimientos. */
+:root[data-theme='dark'] .ticket-public-signature-card {
+  background: linear-gradient(145deg, #251d1e, var(--dark-gap-surface)) !important;
+  color: var(--text) !important;
+  border-color: var(--dark-gap-border) !important;
+  box-shadow: var(--shadow-sm);
+}
+
+:root[data-theme='dark'] .ticket-public-signature-card__heading strong {
+  color: var(--text) !important;
+}
+
+:root[data-theme='dark'] .ticket-public-signature-card__heading span,
+:root[data-theme='dark'] .ticket-public-signature-card .field-hint {
+  color: var(--muted) !important;
+}
+
+:root[data-theme='dark'] .ticket-public-signature-card__link {
+  background: var(--dark-gap-surface-soft) !important;
+  color: var(--text) !important;
+  border-color: var(--outline) !important;
+}
+
+:root[data-theme='dark'] .ticket-public-signature-card--signed {
+  background: linear-gradient(145deg, #173227, #142a22) !important;
+  border-color: #32664f !important;
+}
+
+:root[data-theme='dark'] .ticket-public-signature-card--signed .ticket-public-signature-card__heading > .material-symbols-outlined,
+:root[data-theme='dark'] .ticket-public-signature-card--signed .ticket-public-signature-card__heading strong {
+  color: #8be3ba !important;
+}
+
+:root[data-theme='dark'] .ticket-public-signature-card--signed .ticket-public-signature-card__heading span {
+  color: #b8d9ca !important;
+}
+
+/* Evidencias expandidas del inventario de mantenimiento. */
+:root[data-theme='dark'] .maintenance-inventory-images figure {
+  background: var(--dark-gap-surface) !important;
+  color: var(--text) !important;
+  border-color: var(--dark-gap-border) !important;
+}
+
+:root[data-theme='dark'] .maintenance-inventory-images figure > .maintenance-evidence-image,
+:root[data-theme='dark'] .maintenance-evidence-image--error {
+  background: var(--dark-gap-surface-soft) !important;
+  color: var(--muted) !important;
+  border: 1px solid var(--dark-gap-border) !important;
+  box-shadow: none !important;
+}
+
+:root[data-theme='dark'] .maintenance-evidence-image__loading,
+:root[data-theme='dark'] .maintenance-evidence-image--error {
+  color: var(--muted) !important;
+}
+
+:root[data-theme='dark'] .maintenance-evidence-image__loading .material-symbols-outlined,
+:root[data-theme='dark'] .maintenance-evidence-image--error > .material-symbols-outlined {
+  color: var(--primary) !important;
+}
+
+:root[data-theme='dark'] .maintenance-evidence-image--error button {
+  background: var(--dark-gap-surface-hover) !important;
+  color: var(--primary) !important;
+  border-color: var(--dark-gap-border) !important;
+}
+
+:root[data-theme='dark'] .maintenance-inventory-images figcaption {
+  background: var(--dark-gap-surface) !important;
+  color: var(--text) !important;
+}
+
+:root[data-theme='dark'] .maintenance-inventory-images figcaption span {
+  color: var(--muted) !important;
+}
+
+:root[data-theme='dark'] .maintenance-inventory-images figure > button:not(.maintenance-evidence-image) {
+  width: 100%;
+  min-height: 42px;
+  border: 0 !important;
+  border-top: 1px solid var(--dark-gap-border) !important;
+  background: var(--dark-gap-surface-soft) !important;
+  color: var(--primary) !important;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 7px;
+  font-weight: 750;
+}
+
+:root[data-theme='dark'] .maintenance-inventory-images figure > button:not(.maintenance-evidence-image):hover {
+  background: var(--dark-gap-surface-hover) !important;
+}
+
+/* Seguimiento de visitas relacionadas. */
+:root[data-theme='dark'] .ticket-visit-group-panel {
+  background: linear-gradient(145deg, #211d1d, #191616) !important;
+  color: var(--text) !important;
+  border-color: var(--dark-gap-border) !important;
+  box-shadow: 0 12px 32px rgba(0, 0, 0, .28) !important;
+}
+
+:root[data-theme='dark'] .ticket-visit-group-panel__heading h2,
+:root[data-theme='dark'] .ticket-visit-card__content strong,
+:root[data-theme='dark'] .ticket-visit-card__content p {
+  color: var(--text) !important;
+}
+
+:root[data-theme='dark'] .ticket-visit-group-panel__heading p,
+:root[data-theme='dark'] .ticket-visit-card__content small,
+:root[data-theme='dark'] .ticket-visit-card__meta {
+  color: var(--muted) !important;
+}
+
+:root[data-theme='dark'] .ticket-visit-card {
+  background: var(--dark-gap-surface) !important;
+  color: var(--text) !important;
+  border-color: var(--dark-gap-border) !important;
+}
+
+:root[data-theme='dark'] .ticket-visit-card.is-current {
+  border-color: var(--primary) !important;
+  box-shadow: inset 4px 0 0 var(--primary) !important;
+}
+
+:root[data-theme='dark'] .ticket-visit-card__number {
+  background: var(--primary-soft) !important;
+  color: var(--primary) !important;
+}
+
+:root[data-theme='dark'] .ticket-visit-group-panel__shared {
+  background: var(--success-soft) !important;
+  color: #8be3ba !important;
+  border: 1px solid #32664f;
+}
+
+:root[data-theme='dark'] .ticket-visit-card__meta .is-finished {
+  color: #8be3ba !important;
+}
+
+:root[data-theme='dark'] .ticket-visit-card__meta .is-pending {
+  color: #ffd490 !important;
+}
+
+/* Contextos de visita mostrados dentro de la firma pública. */
+:root[data-theme='dark'] .public-signature-visits article,
+:root[data-theme='dark'] .public-signature-context > article,
+:root[data-theme='dark'] .public-signature-context.is-compact > article {
+  background: var(--dark-gap-surface) !important;
+  color: var(--text) !important;
+  border-color: var(--dark-gap-border) !important;
+}
+
+:root[data-theme='dark'] .public-signature-context > article > p,
+:root[data-theme='dark'] .public-signature-visits .public-signature-context > article > p {
+  color: var(--text) !important;
+}
+
+/* Panel de enlaces de documentos de la boleta. */
+:root[data-theme='dark'] .document-links {
+  padding: 18px !important;
+  border: 1px solid var(--dark-gap-border) !important;
+  border-radius: var(--radius-md) !important;
+  background: var(--dark-gap-surface) !important;
+  color: var(--text) !important;
+  box-shadow: var(--shadow-sm);
+}
+
+:root[data-theme='dark'] .document-links h2 {
+  color: var(--text) !important;
+}
+
+:root[data-theme='dark'] .document-links .button--secondary {
+  background: var(--dark-gap-surface-soft) !important;
+  color: var(--text) !important;
+  border-color: var(--dark-gap-border) !important;
+}
+
+:root[data-theme='dark'] .document-links .button--secondary:hover {
+  background: var(--dark-gap-surface-hover) !important;
+}
+
+@media (max-width: 720px) {
+  :root[data-theme='dark'] .ticket-visit-card__actions {
+    border-top-color: var(--dark-gap-border) !important;
+  }
+}
