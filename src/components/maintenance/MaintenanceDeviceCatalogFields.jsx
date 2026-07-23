@@ -2,11 +2,24 @@ import React, { useEffect, useMemo, useState } from 'react';
 import { useAuth } from '../../AuthContext';
 import DependentSelect from '../forms/DependentSelect';
 import InlineCreateModal from '../forms/InlineCreateModal';
-import { MAINTENANCE_CATEGORIES, createEmptyChecklist } from '../../config/maintenanceCategories';
+import {
+  MAINTENANCE_CATEGORIES,
+  canonicalMaintenanceCategoryName,
+  createEmptyChecklist,
+} from '../../config/maintenanceCategories';
 import { MODULE_ROUTES, normalizeItems, pick, requestAvailable, toBoolean, toOption } from '../../services/moduleApi';
 
 function Field({ label, multiline = false, ...props }) {
   return <label className="field-group"><span className="field-label">{label}</span>{multiline ? <textarea className="form-control ticket-textarea" rows="4" {...props} /> : <input className="form-control" {...props} />}</label>;
+}
+
+function normalized(value = '') {
+  return String(value)
+    .normalize('NFD')
+    .replace(/[\u0300-\u036f]/g, '')
+    .trim()
+    .toLowerCase()
+    .replace(/\s+/g, ' ');
 }
 
 function optionList(rows, valueKeys) {
@@ -15,6 +28,28 @@ function optionList(rows, valueKeys) {
 
 function findById(rows, value, keys) {
   return rows.find((row) => keys.some((key) => String(row?.[key] || '') === String(value || '')));
+}
+
+function addCurrentOption(options, value, label) {
+  const cleanLabel = String(label || '').trim();
+  const cleanValue = String(value || '').trim();
+  if (!cleanLabel) return options;
+  if (cleanValue && options.some((item) => String(item.value) === cleanValue)) return options;
+  if (!cleanValue && options.some((item) => normalized(item.label) === normalized(cleanLabel))) return options;
+  return [...options, { value: cleanValue || `legacy:${cleanLabel}`, label: cleanLabel }];
+}
+
+function uniqueOptions(options, canonicalLabels = false) {
+  const seenValues = new Set();
+  const seenLabels = new Set();
+  return options.filter((option) => {
+    const valueKey = String(option.value || '');
+    const labelKey = normalized(canonicalLabels ? canonicalMaintenanceCategoryName(option.label) : option.label);
+    if (seenValues.has(valueKey) || seenLabels.has(labelKey)) return false;
+    seenValues.add(valueKey);
+    seenLabels.add(labelKey);
+    return true;
+  });
 }
 
 export default function MaintenanceDeviceCatalogFields({ device, onChange, disabled = false }) {
@@ -63,29 +98,53 @@ export default function MaintenanceDeviceCatalogFields({ device, onChange, disab
   useEffect(() => {
     if (loading) return;
     const values = {};
-    if (!device.tipoDispositivoId && device.categoria) {
-      const row = catalogs.deviceTypes.find((item) => String(pick(item, ['Nombre'])).localeCompare(device.categoria, 'es', { sensitivity: 'base' }) === 0);
-      if (row) values.tipoDispositivoId = String(pick(row, ['TipoDispositivoID', 'ID', 'id']));
+    const canonicalCategory = canonicalMaintenanceCategoryName(device.categoria);
+    const typeById = findById(catalogs.deviceTypes, device.tipoDispositivoId, ['TipoDispositivoID', 'ID', 'id']);
+    const typeByName = catalogs.deviceTypes.find((item) => (
+      canonicalMaintenanceCategoryName(pick(item, ['Nombre'])) === canonicalCategory
+      || normalized(pick(item, ['Nombre'])) === normalized(device.categoria)
+    ));
+    const resolvedType = typeById || typeByName;
+    if (resolvedType) {
+      const resolvedId = String(pick(resolvedType, ['TipoDispositivoID', 'ID', 'id']));
+      const resolvedName = canonicalMaintenanceCategoryName(pick(resolvedType, ['Nombre'], canonicalCategory));
+      if (!device.tipoDispositivoId && resolvedId) values.tipoDispositivoId = resolvedId;
+      if (device.categoria !== resolvedName) values.categoria = resolvedName;
+    } else if (device.categoria !== canonicalCategory) {
+      values.categoria = canonicalCategory;
     }
-    if (!device.fabricanteId && device.fabricante) {
-      const row = catalogs.manufacturers.find((item) => String(pick(item, ['Nombre'])).localeCompare(device.fabricante, 'es', { sensitivity: 'base' }) === 0);
-      if (row) values.fabricanteId = String(pick(row, ['FabricanteID', 'ID', 'id']));
+
+    const manufacturerById = findById(catalogs.manufacturers, device.fabricanteId, ['FabricanteID', 'ID', 'id']);
+    const manufacturerByName = catalogs.manufacturers.find((item) => normalized(pick(item, ['Nombre'])) === normalized(device.fabricante));
+    const resolvedManufacturer = manufacturerById || manufacturerByName;
+    if (resolvedManufacturer) {
+      const resolvedId = String(pick(resolvedManufacturer, ['FabricanteID', 'ID', 'id']));
+      const resolvedName = pick(resolvedManufacturer, ['Nombre']);
+      if (!device.fabricanteId && resolvedId) values.fabricanteId = resolvedId;
+      if (!device.fabricante && resolvedName) values.fabricante = resolvedName;
     }
-    if (!device.modeloId && device.modelo) {
-      const row = catalogs.models.find((item) => String(pick(item, ['Nombre'])).localeCompare(device.modelo, 'es', { sensitivity: 'base' }) === 0);
-      if (row) values.modeloId = String(pick(row, ['ModeloID', 'ID', 'id']));
+
+    const modelById = findById(catalogs.models, device.modeloId, ['ModeloID', 'ID', 'id']);
+    const modelByName = catalogs.models.find((item) => normalized(pick(item, ['Nombre'])) === normalized(device.modelo));
+    const resolvedModel = modelById || modelByName;
+    if (resolvedModel) {
+      const resolvedId = String(pick(resolvedModel, ['ModeloID', 'ID', 'id']));
+      const resolvedName = pick(resolvedModel, ['Nombre']);
+      if (!device.modeloId && resolvedId) values.modeloId = resolvedId;
+      if (!device.modelo && resolvedName) values.modelo = resolvedName;
     }
+
     if (Object.keys(values).length) patch(values);
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [loading]);
 
   const typeOptions = useMemo(() => {
-    const fromCatalog = optionList(catalogs.deviceTypes, ['TipoDispositivoID', 'ID', 'id']);
-    const base = fromCatalog.length ? [...fromCatalog] : MAINTENANCE_CATEGORIES.map((item) => ({ value: `legacy:${item.key}`, label: item.key }));
-    if (device.categoria && !base.some((item) => item.label.localeCompare(device.categoria, 'es', { sensitivity: 'base' }) === 0)) {
-      base.push({ value: device.tipoDispositivoId || `legacy:${device.categoria}`, label: device.categoria });
-    }
-    return base;
+    const fromCatalog = optionList(catalogs.deviceTypes, ['TipoDispositivoID', 'ID', 'id'])
+      .map((item) => ({ ...item, label: canonicalMaintenanceCategoryName(item.label) }));
+    const base = fromCatalog.length
+      ? fromCatalog
+      : MAINTENANCE_CATEGORIES.map((item) => ({ value: `legacy:${item.key}`, label: item.key }));
+    return uniqueOptions(addCurrentOption(base, device.tipoDispositivoId, canonicalMaintenanceCategoryName(device.categoria)), true);
   }, [catalogs.deviceTypes, device.categoria, device.tipoDispositivoId]);
 
   const relationManufacturerIds = useMemo(() => catalogs.relations
@@ -95,18 +154,27 @@ export default function MaintenanceDeviceCatalogFields({ device, onChange, disab
   const manufacturerRows = relationManufacturerIds.length
     ? catalogs.manufacturers.filter((item) => relationManufacturerIds.includes(String(pick(item, ['FabricanteID', 'ID', 'id']))))
     : catalogs.manufacturers;
-  const manufacturerOptions = optionList(manufacturerRows, ['FabricanteID', 'ID', 'id']);
+  const manufacturerOptions = uniqueOptions(addCurrentOption(
+    optionList(manufacturerRows, ['FabricanteID', 'ID', 'id']),
+    device.fabricanteId,
+    device.fabricante,
+  ));
+
   const modelRows = catalogs.models.filter((item) => (
     (!device.tipoDispositivoId || String(pick(item, ['TipoDispositivoID'])) === String(device.tipoDispositivoId))
     && (!device.fabricanteId || String(pick(item, ['FabricanteID'])) === String(device.fabricanteId))
   ));
-  const modelOptions = optionList(modelRows, ['ModeloID', 'ID', 'id']);
+  const modelOptions = uniqueOptions(addCurrentOption(
+    optionList(modelRows, ['ModeloID', 'ID', 'id']),
+    device.modeloId,
+    device.modelo,
+  ));
 
   function selectDeviceType(event) {
     const value = event.target.value;
     const row = findById(catalogs.deviceTypes, value, ['TipoDispositivoID', 'ID', 'id']);
     const selected = typeOptions.find((item) => item.value === value);
-    const name = pick(row, ['Nombre'], selected?.label || value.replace(/^legacy:/, ''));
+    const name = canonicalMaintenanceCategoryName(pick(row, ['Nombre'], selected?.label || value.replace(/^legacy:/, '')));
     const hasAnswers = Object.values(device.respuestas || {}).some(Boolean);
     if (name !== device.categoria && hasAnswers && !window.confirm('Al cambiar el tipo de dispositivo se reiniciará el checklist actual. ¿Desea continuar?')) return;
     patch({
@@ -120,13 +188,13 @@ export default function MaintenanceDeviceCatalogFields({ device, onChange, disab
   function selectManufacturer(event) {
     const value = event.target.value;
     const row = findById(catalogs.manufacturers, value, ['FabricanteID', 'ID', 'id']);
-    patch({ fabricanteId: value, fabricante: pick(row, ['Nombre']), modeloId: '', modelo: '' });
+    patch({ fabricanteId: value, fabricante: pick(row, ['Nombre'], device.fabricante), modeloId: '', modelo: '' });
   }
 
   function selectModel(event) {
     const value = event.target.value;
     const row = findById(catalogs.models, value, ['ModeloID', 'ID', 'id']);
-    patch({ modeloId: value, modelo: pick(row, ['Nombre']) });
+    patch({ modeloId: value, modelo: pick(row, ['Nombre'], device.modelo) });
   }
 
   function openModal(type) {
@@ -150,7 +218,7 @@ export default function MaintenanceDeviceCatalogFields({ device, onChange, disab
       let result;
       if (type === 'device') {
         result = await requestAvailable(MODULE_ROUTES.deviceTypes.create, { nombre: values.nombre, descripcion: values.descripcion, activo: true }, sessionToken);
-        const name = pick(result, ['Nombre'], values.nombre);
+        const name = canonicalMaintenanceCategoryName(pick(result, ['Nombre'], values.nombre));
         patch({ tipoDispositivoId: String(pick(result, ['TipoDispositivoID', 'ID', 'id'])), categoria: name, fabricanteId: '', fabricante: '', modeloId: '', modelo: '', respuestas: createEmptyChecklist(name) });
       }
       if (type === 'manufacturer') {
@@ -172,12 +240,14 @@ export default function MaintenanceDeviceCatalogFields({ device, onChange, disab
     }
   }
 
+  const selectedTypeValue = device.tipoDispositivoId || (device.categoria ? `legacy:${canonicalMaintenanceCategoryName(device.categoria)}` : '');
+
   return <>
     {error && <div className="alert alert--error"><span>{error}</span></div>}
-    <DependentSelect label="Tipo de dispositivo *" value={device.tipoDispositivoId || (device.categoria ? `legacy:${device.categoria}` : '')} options={typeOptions} required loading={loading} canAdd={manageCatalogs} onAdd={() => openModal('device')} onChange={selectDeviceType} disabled={disabled} />
+    <DependentSelect label="Tipo de dispositivo *" value={selectedTypeValue} options={typeOptions} required loading={loading} canAdd={manageCatalogs} onAdd={() => openModal('device')} onChange={selectDeviceType} disabled={disabled} />
     <div className="ticket-form-grid">
-      <DependentSelect label="Fabricante" value={device.fabricanteId} options={manufacturerOptions} loading={loading} disabled={disabled || !device.tipoDispositivoId} canAdd={manageCatalogs && Boolean(device.tipoDispositivoId)} onAdd={() => openModal('manufacturer')} onChange={selectManufacturer} />
-      <DependentSelect label="Modelo" value={device.modeloId} options={modelOptions} loading={loading} disabled={disabled || !device.tipoDispositivoId || !device.fabricanteId} canAdd={manageCatalogs && Boolean(device.fabricanteId)} onAdd={() => openModal('model')} onChange={selectModel} />
+      <DependentSelect label="Fabricante" value={device.fabricanteId} options={manufacturerOptions} loading={loading} disabled={disabled || !selectedTypeValue} canAdd={manageCatalogs && Boolean(selectedTypeValue)} onAdd={() => openModal('manufacturer')} onChange={selectManufacturer} />
+      <DependentSelect label="Modelo" value={device.modeloId} options={modelOptions} loading={loading} disabled={disabled || !selectedTypeValue || !device.fabricanteId} canAdd={manageCatalogs && Boolean(device.fabricanteId)} onAdd={() => openModal('model')} onChange={selectModel} />
     </div>
     <InlineCreateModal open={Boolean(modal)} title={modal?.type === 'device' ? 'Agregar tipo de dispositivo' : modal?.type === 'manufacturer' ? 'Agregar fabricante' : 'Agregar modelo'} description="El registro quedará disponible tanto en boletas como en mantenimientos." saving={modalSaving} error={modalError} onClose={() => setModal(null)} onSubmit={submitModal}>{modal && <><Field label="Nombre" name="nombre" value={modal.values.nombre} onChange={modalUpdate} required />{['device', 'model'].includes(modal.type) && <Field label="Descripción" multiline name="descripcion" value={modal.values.descripcion} onChange={modalUpdate} />}{modal.type === 'model' && <Field label="Imagen de referencia (URL)" name="imagenReferenciaURL" value={modal.values.imagenReferenciaURL} onChange={modalUpdate} />}</>}</InlineCreateModal>
   </>;
