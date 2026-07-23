@@ -85,19 +85,6 @@ export default function MaintenanceQuickDeviceCreator({
   }, [maintenanceId, sessionToken]);
 
   async function save() {
-    if (!device.categoria) {
-      setError('La categoría es obligatoria.');
-      return;
-    }
-    if (!device.zona.trim()) {
-      setError('La ubicación específica del dispositivo es obligatoria.');
-      return;
-    }
-    if (!device.nombre.trim()) {
-      setError('El nombre del dispositivo es obligatorio.');
-      return;
-    }
-
     setSaving(true);
     setError('');
     try {
@@ -120,7 +107,7 @@ export default function MaintenanceQuickDeviceCreator({
         );
       }
 
-      const pendingImages = [...device.newImages];
+      const pendingImages = [...(device.newImages || [])];
       for (const image of pendingImages) {
         await requestAvailable(
           MODULE_ROUTES.maintenance.imageUpload,
@@ -174,6 +161,7 @@ export default function MaintenanceQuickDeviceCreator({
               disabled={saving}
               isAdmin={false}
               onChange={setDevice}
+              onCancel={onClose}
               onClose={onClose}
               onSubmit={save}
               submitLabel="Guardar dispositivo"
