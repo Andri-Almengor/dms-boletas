@@ -77,16 +77,23 @@ function maintenancePayload(payload, before = {}) {
   return row;
 }
 
-function devicePayload(payload, before = {}) {
+function devicePayload(payload, before = {}, users = []) {
   let answers = payload.respuestas || payload.answers || payload.RespuestasJSON || before.RespuestasJSON || {};
   if (typeof answers === 'string') {
     try { answers = JSON.parse(answers); } catch { answers = {}; }
   }
+  const technicianIds = asArray(pick(payload, ['TecnicoIDs', 'tecnicoIds', 'TecnicoIDsJSON'], before.TecnicoIDsJSON));
+  const technicianNames = technicianIds
+    .map((id) => users.find((user) => String(user.UsuarioID) === String(id))?.NombreCompleto || id)
+    .join(', ');
   return {
     UbicacionEquipoID: pick(payload, ['UbicacionEquipoID', 'ubicacionEquipoId'], before.UbicacionEquipoID),
     Zona: pick(payload, ['Zona', 'zona'], before.Zona),
+    FechaTrabajo: pick(payload, ['FechaTrabajo', 'fechaTrabajo'], before.FechaTrabajo || before.FechaCreacion),
+    TecnicoIDsJSON: JSON.stringify(technicianIds),
+    Tecnicos: technicianNames || pick(payload, ['Tecnicos', 'tecnicos'], before.Tecnicos),
     Categoria: pick(payload, ['Categoria', 'categoria', 'TipoDispositivo'], before.Categoria),
-    NombreDispositivo: pick(payload, ['NombreDispositivo', 'nombre'], before.NombreDispositivo),
+    NombreDispositivo: pick(payload, ['NombreDispositivo', 'NombreEquipo', 'nombre'], before.NombreDispositivo),
     TipoDispositivoID: pick(payload, ['TipoDispositivoID', 'tipoDispositivoId'], before.TipoDispositivoID),
     TipoDispositivo: pick(payload, ['TipoDispositivo', 'categoria'], before.TipoDispositivo || before.Categoria),
     FabricanteID: pick(payload, ['FabricanteID', 'fabricanteId'], before.FabricanteID),
@@ -97,14 +104,14 @@ function devicePayload(payload, before = {}) {
     Funcionamiento: pick(payload, ['Funcionamiento', 'funcionamiento'], before.Funcionamiento),
     EnUso: pick(payload, ['EnUso', 'enUso'], before.EnUso),
     Estado: pick(payload, ['Estado', 'estado'], before.Estado || 'Correcto'),
-    Observacion: pick(payload, ['Observacion', 'observacion'], before.Observacion),
+    Observacion: pick(payload, ['Observacion', 'Observaciones', 'observacion'], before.Observacion),
     RespuestasJSON: JSON.stringify(answers),
     ...Object.fromEntries(Object.entries(answers).map(([key, value]) => [key.charAt(0).toUpperCase() + key.slice(1), value])),
   };
 }
 
-function changedDevicePatch(before, payload, userId) {
-  const candidate = devicePayload(payload, before);
+function changedDevicePatch(before, payload, userId, users = []) {
+  const candidate = devicePayload(payload, before, users);
   const changed = Object.fromEntries(Object.entries(candidate).filter(([key, value]) => !sameValue(before[key], value)));
   if (!Object.keys(changed).length) return {};
   return { ...changed, ActualizadoPor: userId, FechaActualizacion: nowIso() };
@@ -206,7 +213,8 @@ export const maintenanceHandlers = {
   },
 
   deviceCreate: async (ctx) => withDeviceCreateLock(async () => {
-    const payload = devicePayload(ctx.payload);
+    const users = await readTable('Usuarios');
+    const payload = devicePayload(ctx.payload, {}, users);
     const maintenanceId = pick(ctx.payload, ['maintenanceId', 'MantenimientoID', 'MantenimientoRef']);
     const requestedId = String(pick(ctx.payload, ['deviceId', 'EvidenciaMantenimientoID'], '')).trim();
     if (requestedId && !validClientGeneratedId(requestedId)) throw badRequest('El identificador local del dispositivo no es válido.');
@@ -238,7 +246,8 @@ export const maintenanceHandlers = {
   deviceUpdate: async (ctx) => {
     const id = pick(ctx.payload, ['deviceId', 'EvidenciaMantenimientoID']);
     const before = await findById('Evidencia_Mantenimientos', id);
-    const patch = changedDevicePatch(before, ctx.payload, ctx.user.UsuarioID);
+    const users = await readTable('Usuarios');
+    const patch = changedDevicePatch(before, ctx.payload, ctx.user.UsuarioID, users);
     return Object.keys(patch).length ? updateRow('Evidencia_Mantenimientos', id, patch) : before;
   },
 
@@ -252,7 +261,8 @@ export const maintenanceHandlers = {
     deviceAutosaveWriteTimes.set(id, now);
     try {
       const before = await findById('Evidencia_Mantenimientos', id);
-      const patch = changedDevicePatch(before, ctx.payload, ctx.user.UsuarioID);
+      const users = await readTable('Usuarios');
+      const patch = changedDevicePatch(before, ctx.payload, ctx.user.UsuarioID, users);
       if (!Object.keys(patch).length) return { ...before, autosaved: false, unchanged: true };
       const after = await updateRow('Evidencia_Mantenimientos', id, patch);
       return { ...after, autosaved: true };
