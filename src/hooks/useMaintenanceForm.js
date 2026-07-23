@@ -260,17 +260,6 @@ export default function useMaintenanceForm({ editing, maintenanceId }) {
 
   async function commitActiveDevice(device, { closeAfter = false } = {}) {
     if (!device) return null;
-    const valid = Boolean(
-      device.categoria
-      && device.nombre?.trim()
-      && device.zona?.trim()
-      && device.fechaTrabajo
-      && (device.tecnicoIds || []).length,
-    );
-    if (!valid) {
-      setError('Tipo, nombre, ubicación específica, fecha de trabajo y al menos un técnico son obligatorios.');
-      return null;
-    }
 
     if (!editing || !maintenanceId) {
       saveActiveDevice(device);
@@ -401,7 +390,6 @@ export default function useMaintenanceForm({ editing, maintenanceId }) {
     if (!form.titulo.trim()) return 'El título es obligatorio.';
     if (!form.clienteId) return 'Selecciona un cliente.';
     if (!form.responsables.length) return 'Selecciona al menos un responsable.';
-    if (devices.some((item) => !item.nombre.trim() || !item.zona.trim())) return 'Cada dispositivo necesita nombre y ubicación específica.';
     return '';
   }
 
