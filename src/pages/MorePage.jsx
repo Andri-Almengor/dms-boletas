@@ -4,6 +4,7 @@ import { useAuth } from '../AuthContext';
 import Icon from '../components/common/Icon';
 import InstallAppCard from '../components/pwa/InstallAppCard';
 import { getOfflineStorageStats } from '../services/offlineStore';
+import { applyTheme, getStoredTheme } from '../services/theme';
 
 function initials(name = '') {
   const parts = String(name).trim().split(/\s+/).filter(Boolean);
@@ -14,9 +15,27 @@ function MenuRow({ to, icon, label, note }) {
   return <Link to={to} className="menu-row"><span className="menu-row__icon"><Icon name={icon} /></span><div><strong>{label}</strong>{note && <small>{note}</small>}</div><Icon name="chevron_right" /></Link>;
 }
 
+function AppearanceSelector({ theme, onChange }) {
+  const choices = [
+    { value: 'light', icon: 'light_mode', label: 'Modo claro', note: 'Apariencia actual' },
+    { value: 'dark', icon: 'dark_mode', label: 'Modo oscuro', note: 'Reduce el brillo de la interfaz' },
+  ];
+  return <section className="appearance-selector" aria-label="Apariencia de la aplicación">
+    <div className="appearance-selector__heading"><span className="menu-row__icon"><Icon name="palette" /></span><div><strong>Apariencia</strong><small>Elija cómo desea ver la aplicación en este dispositivo.</small></div></div>
+    <div className="appearance-selector__options">
+      {choices.map((choice) => <button key={choice.value} type="button" className={`appearance-option${theme === choice.value ? ' is-selected' : ''}`} onClick={() => onChange(choice.value)} aria-pressed={theme === choice.value}>
+        <span className={`appearance-option__preview appearance-option__preview--${choice.value}`}><span /><span /><span /></span>
+        <span className="appearance-option__copy"><Icon name={choice.icon} /><span><strong>{choice.label}</strong><small>{choice.note}</small></span></span>
+        <span className="appearance-option__check"><Icon name={theme === choice.value ? 'check_circle' : 'radio_button_unchecked'} /></span>
+      </button>)}
+    </div>
+  </section>;
+}
+
 export default function MorePage() {
   const { user, logout, hasPermission } = useAuth();
   const navigate = useNavigate();
+  const [theme, setTheme] = useState(() => getStoredTheme());
   const [offlineStats, setOfflineStats] = useState(null);
   const [syncing, setSyncing] = useState(false);
   const [syncMessage, setSyncMessage] = useState('');
@@ -57,6 +76,9 @@ export default function MorePage() {
       setSyncing(false);
       setSyncMessage('No hay conexión. Los cambios permanecen guardados en este dispositivo.');
     };
+    const handleTheme = (event) => {
+      if (active && event.detail?.theme) setTheme(event.detail.theme);
+    };
 
     load();
     window.addEventListener('online', handleOnline);
@@ -65,6 +87,7 @@ export default function MorePage() {
     window.addEventListener('dms-offline-sync-start', handleStart);
     window.addEventListener('dms-offline-sync-complete', handleComplete);
     window.addEventListener('dms-offline-sync-error', handleError);
+    window.addEventListener('dms-theme-change', handleTheme);
     return () => {
       active = false;
       window.removeEventListener('online', handleOnline);
@@ -73,6 +96,7 @@ export default function MorePage() {
       window.removeEventListener('dms-offline-sync-start', handleStart);
       window.removeEventListener('dms-offline-sync-complete', handleComplete);
       window.removeEventListener('dms-offline-sync-error', handleError);
+      window.removeEventListener('dms-theme-change', handleTheme);
     };
   }, []);
 
@@ -90,6 +114,10 @@ export default function MorePage() {
     }));
   }
 
+  function changeTheme(nextTheme) {
+    setTheme(applyTheme(nextTheme));
+  }
+
   const offlineNote = offlineStats
     ? `${offlineStats.percent}% descargado · ${offlineStats.totalRecords.toLocaleString('es-CR')} registros · ${offlineStats.pendingCount} pendiente${offlineStats.pendingCount === 1 ? '' : 's'}`
     : 'Revise clientes, ubicaciones, dispositivos y cambios disponibles sin internet';
@@ -102,7 +130,7 @@ export default function MorePage() {
 
   return <div className="page more-page">
     <section className="profile-card more-page__profile"><span className="profile-card__accent" /><div className="avatar avatar--xlarge">{initials(user?.NombreCompleto)}</div><div><h1>{user?.NombreCompleto}</h1><p>{isAdmin ? 'Administrador' : 'Técnico'}</p><span className="status-chip status-chip--active">{user?.Estado || 'ACTIVO'}</span></div></section>
-    <section className="menu-section"><h2>Aplicación</h2><InstallAppCard /><div className="menu-list more-page__offline-menu"><MenuRow to="/mas/contenido-offline" icon="download_for_offline" label="Contenido sin conexión" note={offlineNote} /><button type="button" className="menu-row more-sync-row" onClick={forceSync} disabled={!online || syncing}><span className="menu-row__icon"><Icon name={syncing ? 'sync' : online ? 'sync_alt' : 'cloud_off'} /></span><div><strong>{syncing ? 'Sincronizando...' : 'Forzar sincronización'}</strong><small>{syncNote}</small></div><Icon name={syncing ? 'progress_activity' : 'refresh'} /></button></div></section>
+    <section className="menu-section"><h2>Aplicación</h2><AppearanceSelector theme={theme} onChange={changeTheme} /><InstallAppCard /><div className="menu-list more-page__offline-menu"><MenuRow to="/mas/contenido-offline" icon="download_for_offline" label="Contenido sin conexión" note={offlineNote} /><button type="button" className="menu-row more-sync-row" onClick={forceSync} disabled={!online || syncing}><span className="menu-row__icon"><Icon name={syncing ? 'sync' : online ? 'sync_alt' : 'cloud_off'} /></span><div><strong>{syncing ? 'Sincronizando...' : 'Forzar sincronización'}</strong><small>{syncNote}</small></div><Icon name={syncing ? 'progress_activity' : 'refresh'} /></button></div></section>
     <section className="menu-section"><h2>Operación técnica</h2><div className="menu-list">{canViewMaintenance && <MenuRow to="/mantenimientos" icon="engineering" label="Mantenimientos" note="Equipos, checklists, evidencias, Excel y presentaciones" />}</div></section>
     <section className="menu-section"><h2>Documentación</h2><div className="menu-list"><MenuRow to="/conocimiento" icon="menu_book" label="Base de conocimientos" note="Tutoriales, videos y procedimientos técnicos" />{canManageKnowledgeCategories && <MenuRow to="/conocimiento/categorias" icon="category" label="Categorías de conocimiento" note="Lenel, Milestone, Axis y otras tecnologías" />}</div></section>
     <section className="menu-section"><h2>Administración</h2><div className="menu-list">{isAdmin && <MenuRow to="/metricas" icon="monitoring" label="Métricas operativas" note="Dashboards de boletas y mantenimientos" />}{isAdmin && <MenuRow to="/administracion/importar-boletas" icon="upload_file" label="Importar boletas anteriores" note="Migrar el historial XLSX de la aplicación anterior" />}{hasPermission('CLIENTES_VER') && <MenuRow to="/clientes" icon="groups" label="Clientes" note="Clientes, ubicaciones y contactos" />}{isAdmin && <MenuRow to="/encuestas" icon="rate_review" label="Encuestas de servicio" note="Preguntas, calificaciones y boletas relacionadas" />}{hasPermission('USUARIOS_VER') && <MenuRow to="/usuarios" icon="person_search" label="Usuarios" note="Accesos, roles y permisos" />}{(hasPermission('CATALOGOS_VER') || hasPermission('CATALOGOS_GESTIONAR')) && <MenuRow to="/catalogos" icon="inventory_2" label="Catálogos" note="Categorías, dispositivos, fabricantes y modelos" />}<MenuRow to="/cambiar-contrasena" icon="lock_reset" label="Cambiar contraseña" note="Seguridad de la cuenta" /></div></section>
