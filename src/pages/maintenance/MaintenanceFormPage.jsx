@@ -1,5 +1,5 @@
 import React, { useEffect, useRef, useState } from 'react';
-import { Navigate, useParams, useSearchParams } from 'react-router-dom';
+import { Navigate, useNavigate, useParams, useSearchParams } from 'react-router-dom';
 import Icon from '../../components/common/Icon';
 import InlineCreateModal from '../../components/forms/InlineCreateModal';
 import MaintenanceDeviceEditor from '../../components/maintenance/MaintenanceDeviceEditor';
@@ -17,9 +17,12 @@ function Field({ label, multiline = false, ...props }) {
 
 export default function MaintenanceFormPage({ mode = 'create' }) {
   const { maintenanceId } = useParams();
+  const navigate = useNavigate();
   const [searchParams] = useSearchParams();
   const editing = mode === 'edit';
-  const requestedStep = searchParams.get('step') === 'devices' ? 2 : 0;
+  const directDeviceMode = editing && searchParams.get('directDevice') === '1';
+  const requestedNewDevice = directDeviceMode && searchParams.get('newDevice') === '1';
+  const requestedStep = searchParams.get('step') === 'devices' || directDeviceMode ? 2 : 0;
   const requestedDeviceId = String(searchParams.get('device') || '');
   const requestedDeviceOpenedRef = useRef('');
   const state = useMaintenanceForm({ editing, maintenanceId });
@@ -27,13 +30,23 @@ export default function MaintenanceFormPage({ mode = 'create' }) {
   const [modal, setModal] = useState(null);
   const [modalError, setModalError] = useState('');
   const [modalSaving, setModalSaving] = useState(false);
+  const detailUrl = `/mantenimientos/${encodeURIComponent(maintenanceId)}`;
 
   useEffect(() => {
-    if (searchParams.get('step') === 'devices') setStep(2);
-  }, [searchParams]);
+    if (searchParams.get('step') === 'devices' || directDeviceMode) setStep(2);
+  }, [searchParams, directDeviceMode]);
 
   useEffect(() => {
-    if (!editing || state.loading || !requestedDeviceId || state.activeDevice) return;
+    if (!editing || state.loading || !requestedNewDevice || state.activeDevice) return;
+    if (requestedDeviceOpenedRef.current === '__new__') return;
+    requestedDeviceOpenedRef.current = '__new__';
+    state.openDevice(state.createDevice());
+    // Las funciones del hook cambian por render; la referencia evita abrir dos veces.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [editing, requestedNewDevice, state.loading, state.activeDevice]);
+
+  useEffect(() => {
+    if (!editing || state.loading || requestedNewDevice || !requestedDeviceId || state.activeDevice) return;
     if (requestedDeviceOpenedRef.current === requestedDeviceId) return;
     if (!state.devices.length) return;
 
@@ -49,10 +62,27 @@ export default function MaintenanceFormPage({ mode = 'create' }) {
     state.openDevice(selected);
     // state.openDevice cambia en cada render; la apertura se controla con la referencia.
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [editing, requestedDeviceId, state.loading, state.devices, state.activeDevice]);
+  }, [editing, requestedDeviceId, requestedNewDevice, state.loading, state.devices, state.activeDevice]);
 
   if (!state.allowed) return <Navigate to="/mantenimientos" replace />;
   if (state.loading) return <div className="page"><div className="state-card state-card--loading"><Icon name="progress_activity" />Cargando mantenimiento...</div></div>;
+
+  async function saveDevice() {
+    const saved = await state.closeActiveDevice();
+    if (saved && directDeviceMode) navigate(detailUrl, { replace: true });
+    return saved;
+  }
+
+  function cancelDevice() {
+    const cancelled = state.cancelActiveDevice();
+    if (cancelled && directDeviceMode) navigate(detailUrl, { replace: true });
+    return cancelled;
+  }
+
+  async function deleteDevice() {
+    await state.removeDevice(state.activeDevice);
+    if (directDeviceMode) navigate(detailUrl, { replace: true });
+  }
 
   if (state.activeDevice) {
     return <div className="page page--narrow maintenance-form-page maintenance-device-form-page">
@@ -63,15 +93,19 @@ export default function MaintenanceFormPage({ mode = 'create' }) {
         disabled={state.readOnly || state.saving}
         isAdmin={state.isAdmin}
         onChange={state.setActiveDevice}
-        onCancel={state.cancelActiveDevice}
-        onClose={state.cancelActiveDevice}
-        onSubmit={state.closeActiveDevice}
-        onSubmitAndContinue={!state.activeDevice.id ? state.saveAndAddAnotherDevice : undefined}
-        onDelete={() => state.removeDevice(state.activeDevice)}
+        onCancel={cancelDevice}
+        onClose={cancelDevice}
+        onSubmit={saveDevice}
+        onSubmitAndContinue={!directDeviceMode && !state.activeDevice.id ? state.saveAndAddAnotherDevice : undefined}
+        onDelete={deleteDevice}
         submitting={state.deviceSaving}
         autosaveStatus={state.deviceAutosaveStatus}
       />
     </div>;
+  }
+
+  if (directDeviceMode) {
+    return <div className="page"><div className="state-card state-card--loading"><Icon name="progress_activity" />Abriendo formulario del dispositivo...</div></div>;
   }
 
   function openModal(type) {

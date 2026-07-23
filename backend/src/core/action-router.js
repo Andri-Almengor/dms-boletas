@@ -123,12 +123,11 @@ const maintenanceAliases={list:['maintenance.list','mantenimientos.list'],get:['
 const maintenanceReadPermissions=['MANTENIMIENTOS_VER','MANTENIMIENTOS_CREAR','MANTENIMIENTOS_EDITAR','MANTENIMIENTOS_GESTIONAR','BOLETAS_VER'];
 const maintenanceCreatePermissions=['MANTENIMIENTOS_CREAR','MANTENIMIENTOS_GESTIONAR','BOLETAS_CREAR'];
 const maintenanceEditPermissions=['MANTENIMIENTOS_EDITAR','MANTENIMIENTOS_GESTIONAR','BOLETAS_EDITAR'];
-const maintenanceFinalizePermissions=['MANTENIMIENTOS_FINALIZAR','MANTENIMIENTOS_EDITAR','MANTENIMIENTOS_GESTIONAR','BOLETAS_FINALIZAR','BOLETAS_EDITAR'];
 for(const [key,names] of Object.entries(maintenanceAliases)) {
   let permission=maintenanceEditPermissions;
   if(['list','get','mediaGet','config','signatureLink'].includes(key)) permission=maintenanceReadPermissions;
   else if(key==='create') permission=maintenanceCreatePermissions;
-  else if(key==='finalize') permission=maintenanceFinalizePermissions;
+  else if(key==='finalize') permission='USUARIOS_GESTIONAR';
   else if(['ticketGenerationTest','signatureTestLink'].includes(key)) permission=['USUARIOS_GESTIONAR','MANTENIMIENTOS_GESTIONAR','MANTENIMIENTOS_ELIMINAR'];
   const handler = key === 'signatureLink'
     ? maintenanceSignatureHandlers.link
