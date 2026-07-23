@@ -1,5 +1,5 @@
 import React, { useEffect, useRef, useState } from 'react';
-import { Navigate, useNavigate, useParams, useSearchParams } from 'react-router-dom';
+import { Navigate, useParams, useSearchParams } from 'react-router-dom';
 import Icon from '../../components/common/Icon';
 import InlineCreateModal from '../../components/forms/InlineCreateModal';
 import MaintenanceDeviceEditor from '../../components/maintenance/MaintenanceDeviceEditor';
@@ -17,7 +17,6 @@ function Field({ label, multiline = false, ...props }) {
 
 export default function MaintenanceFormPage({ mode = 'create' }) {
   const { maintenanceId } = useParams();
-  const navigate = useNavigate();
   const [searchParams] = useSearchParams();
   const editing = mode === 'edit';
   const requestedStep = searchParams.get('step') === 'devices' ? 2 : 0;
@@ -36,6 +35,8 @@ export default function MaintenanceFormPage({ mode = 'create' }) {
   useEffect(() => {
     if (!editing || state.loading || !requestedDeviceId || state.activeDevice) return;
     if (requestedDeviceOpenedRef.current === requestedDeviceId) return;
+    if (!state.devices.length) return;
+
     const selected = state.devices.find((device) => String(device.id || device.localId) === requestedDeviceId);
     if (!selected) {
       requestedDeviceOpenedRef.current = requestedDeviceId;
@@ -43,6 +44,7 @@ export default function MaintenanceFormPage({ mode = 'create' }) {
       setStep(2);
       return;
     }
+
     requestedDeviceOpenedRef.current = requestedDeviceId;
     state.openDevice(selected);
     // state.openDevice cambia en cada render; la apertura se controla con la referencia.
@@ -61,7 +63,8 @@ export default function MaintenanceFormPage({ mode = 'create' }) {
         disabled={state.readOnly || state.saving}
         isAdmin={state.isAdmin}
         onChange={state.setActiveDevice}
-        onClose={state.closeActiveDevice}
+        onCancel={state.cancelActiveDevice}
+        onClose={state.cancelActiveDevice}
         onSubmit={state.closeActiveDevice}
         onSubmitAndContinue={!state.activeDevice.id ? state.saveAndAddAnotherDevice : undefined}
         onDelete={() => state.removeDevice(state.activeDevice)}
@@ -117,7 +120,7 @@ export default function MaintenanceFormPage({ mode = 'create' }) {
 
   return <div className="page page--narrow maintenance-form-page">
     <div className="page-header ticket-form-header">
-      <button className="icon-button" type="button" onClick={() => navigate(editing ? `/mantenimientos/${encodeURIComponent(maintenanceId)}` : '/mantenimientos')}><Icon name="close" /></button>
+      <button className="icon-button" type="button" onClick={state.cancelMaintenanceChanges} aria-label="Cancelar edición"><Icon name="close" /></button>
       <div><span className="eyebrow">Flujo de mantenimiento</span><h1>{editing ? 'Editar mantenimiento' : 'Crear mantenimiento'}</h1></div>
       <span className={`status-chip ${state.form.estado === 'FINALIZADO' ? 'status-chip--active' : 'status-chip--pending'}`}>{state.form.estado}</span>
     </div>
@@ -130,7 +133,8 @@ export default function MaintenanceFormPage({ mode = 'create' }) {
       {step === 2 && <MaintenanceDevicesStep devices={state.devices} expectedTotal={state.expectedTotal} disabled={state.readOnly} canCreateEquipment={state.canCreateLocation && Boolean(state.form.ubicacionId)} onAddEquipment={() => openModal('equipment')} onAddDevice={() => state.openDevice(state.createDevice())} onOpenDevice={state.openDevice} />}
       {step === 3 && <MaintenanceReviewStep form={state.form} devices={state.devices} registered={state.registered} expectedTotal={state.expectedTotal} disabled={state.readOnly} saving={state.saving} onSave={() => state.persist('pending')} onFinalize={() => state.persist('finalize')} />}
     </section>
-    <div className="ticket-form-actions">
+    <div className="ticket-form-actions maintenance-form-navigation-actions">
+      <button className="button button--ghost" type="button" onClick={state.cancelMaintenanceChanges} disabled={state.saving}><Icon name="close" />Cancelar</button>
       <button className="button button--secondary" type="button" onClick={() => setStep((value) => Math.max(0, value - 1))} disabled={step === 0 || state.saving}><Icon name="chevron_left" />Anterior</button>
       {step < MAINTENANCE_STEPS.length - 1
         ? <button className="button button--primary" type="button" onClick={() => setStep((value) => value + 1)} disabled={state.saving}>Siguiente<Icon name="chevron_right" /></button>
