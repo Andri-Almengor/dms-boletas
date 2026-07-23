@@ -9,8 +9,11 @@ import './services/maintenanceRoutes';
 import './services/operationalRoutes';
 import './services/operationalCreateRoutes';
 import './services/ticketVisitOfflineSync';
+import { initializeTheme } from './services/theme';
 import App from './App';
 import './styles/index.css';
+
+initializeTheme();
 
 if ('serviceWorker' in navigator && import.meta.env.PROD) {
   window.addEventListener('load', () => {
