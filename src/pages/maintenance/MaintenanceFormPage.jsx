@@ -1,5 +1,6 @@
 import React, { useEffect, useRef, useState } from 'react';
 import { Navigate, useNavigate, useParams, useSearchParams } from 'react-router-dom';
+import { useAuth } from '../../AuthContext';
 import Icon from '../../components/common/Icon';
 import InlineCreateModal from '../../components/forms/InlineCreateModal';
 import MaintenanceDeviceEditor from '../../components/maintenance/MaintenanceDeviceEditor';
@@ -18,8 +19,10 @@ function Field({ label, multiline = false, ...props }) {
 export default function MaintenanceFormPage({ mode = 'create' }) {
   const { maintenanceId } = useParams();
   const navigate = useNavigate();
+  const { hasPermission } = useAuth();
   const [searchParams] = useSearchParams();
   const editing = mode === 'edit';
+  const isAdministrator = hasPermission('USUARIOS_GESTIONAR');
   const directDeviceMode = editing && searchParams.get('directDevice') === '1';
   const requestedNewDevice = directDeviceMode && searchParams.get('newDevice') === '1';
   const requestedStep = searchParams.get('step') === 'devices' || directDeviceMode ? 2 : 0;
@@ -165,7 +168,7 @@ export default function MaintenanceFormPage({ mode = 'create' }) {
       {step === 0 && <MaintenanceGeneralStep form={state.form} setForm={state.setForm} clients={state.clients} locations={state.locations} technicians={state.technicians} disabled={state.readOnly} canCreateLocation={state.canCreateLocation} onAddLocation={() => openModal('location')} />}
       {step === 1 && <MaintenanceCountsStep counts={state.form.counts} registered={state.registered} disabled={state.readOnly} onChange={state.updateCount} />}
       {step === 2 && <MaintenanceDevicesStep devices={state.devices} expectedTotal={state.expectedTotal} disabled={state.readOnly} canCreateEquipment={state.canCreateLocation && Boolean(state.form.ubicacionId)} onAddEquipment={() => openModal('equipment')} onAddDevice={() => state.openDevice(state.createDevice())} onOpenDevice={state.openDevice} />}
-      {step === 3 && <MaintenanceReviewStep form={state.form} devices={state.devices} registered={state.registered} expectedTotal={state.expectedTotal} disabled={state.readOnly} saving={state.saving} onSave={() => state.persist('pending')} onFinalize={() => state.persist('finalize')} />}
+      {step === 3 && <MaintenanceReviewStep form={state.form} devices={state.devices} registered={state.registered} expectedTotal={state.expectedTotal} disabled={state.readOnly} saving={state.saving} onSave={() => state.persist('pending')} onFinalize={() => state.persist('finalize')} canFinalize={isAdministrator} />}
     </section>
     <div className="ticket-form-actions maintenance-form-navigation-actions">
       <button className="button button--ghost" type="button" onClick={state.cancelMaintenanceChanges} disabled={state.saving}><Icon name="close" />Cancelar</button>
