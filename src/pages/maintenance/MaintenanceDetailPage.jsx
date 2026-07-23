@@ -24,7 +24,10 @@ export default function MaintenanceDetailPage() {
   const isAdmin = hasPermission('USUARIOS_GESTIONAR')
     || hasPermission('MANTENIMIENTOS_ELIMINAR')
     || hasPermission('MANTENIMIENTOS_GESTIONAR');
-  const canEdit = hasPermission('MANTENIMIENTOS_EDITAR') || hasPermission('BOLETAS_EDITAR');
+  const canEdit = isAdmin
+    || hasPermission('MANTENIMIENTOS_EDITAR')
+    || hasPermission('MANTENIMIENTOS_GESTIONAR')
+    || hasPermission('BOLETAS_EDITAR');
   const canFinalize = hasPermission('MANTENIMIENTOS_FINALIZAR') || hasPermission('BOLETAS_FINALIZAR') || canEdit;
   const [data, setData] = useState(null);
   const [loading, setLoading] = useState(true);
