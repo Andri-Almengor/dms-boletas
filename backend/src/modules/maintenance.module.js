@@ -13,7 +13,7 @@ let maintenanceDeviceCreateTail = Promise.resolve();
 let maintenanceImageCreateTail = Promise.resolve();
 
 const CATEGORY_CONFIG = [
-  { key: 'Cámaras', countField: 'CantCámaras', questions: [['limpieza', 'Limpieza'], ['alimentacion', 'Alimentación'], ['conexion', 'Conexión'], ['montaje', 'Montaje'], ['visualizacion', 'Visualización']] },
+  { key: 'Cámara', countField: 'CantCámaras', questions: [['limpieza', 'Limpieza'], ['alimentacion', 'Alimentación'], ['conexion', 'Conexión'], ['montaje', 'Montaje'], ['visualizacion', 'Visualización']] },
   { key: 'Puertas', countField: 'CantPuertas', questions: [['lector', 'Lector'], ['cerradura', 'Cerradura'], ['funcion', 'Función'], ['contactos', 'Contactos']] },
   { key: 'Servidor', countField: 'CantServidores', questions: [['limpieza', 'Limpieza'], ['alimentacion', 'Alimentación'], ['conexiones', 'Conexiones'], ['servicios', 'Servicios'], ['almacenamiento', 'Almacenamiento'], ['respaldo', 'Respaldo']] },
   { key: 'Grabador', countField: 'CantGrabadores', questions: [['limpieza', 'Limpieza'], ['alimentacion', 'Alimentación'], ['conexiones', 'Conexiones'], ['grabacion', 'Grabación'], ['visualizacion', 'Visualización'], ['almacenamiento', 'Almacenamiento']] },
@@ -54,6 +54,17 @@ function sameValue(left, right) {
   return String(left ?? '').trim() === String(right ?? '').trim();
 }
 
+function normalizeCategoryName(value) {
+  const text = String(value || '').trim();
+  const normalized = text
+    .normalize('NFD')
+    .replace(/[\u0300-\u036f]/g, '')
+    .toLowerCase()
+    .replace(/\s+/g, ' ');
+  if (normalized === 'camara' || normalized === 'camaras') return 'Cámara';
+  return text;
+}
+
 function maintenancePayload(payload, before = {}) {
   const counts = payload.counts || payload.cantidades || (() => {
     try { return JSON.parse(payload.CantidadesJSON || '{}'); } catch { return {}; }
@@ -82,13 +93,18 @@ function devicePayload(payload, before = {}) {
   if (typeof answers === 'string') {
     try { answers = JSON.parse(answers); } catch { answers = {}; }
   }
+  const category = normalizeCategoryName(pick(
+    payload,
+    ['TipoDispositivo', 'Categoria', 'categoria'],
+    before.TipoDispositivo || before.Categoria,
+  ));
   return {
     UbicacionEquipoID: pick(payload, ['UbicacionEquipoID', 'ubicacionEquipoId'], before.UbicacionEquipoID),
     Zona: pick(payload, ['Zona', 'zona'], before.Zona),
-    Categoria: pick(payload, ['Categoria', 'categoria', 'TipoDispositivo'], before.Categoria),
+    Categoria: category,
     NombreDispositivo: pick(payload, ['NombreDispositivo', 'nombre'], before.NombreDispositivo),
     TipoDispositivoID: pick(payload, ['TipoDispositivoID', 'tipoDispositivoId'], before.TipoDispositivoID),
-    TipoDispositivo: pick(payload, ['TipoDispositivo', 'categoria'], before.TipoDispositivo || before.Categoria),
+    TipoDispositivo: category,
     FabricanteID: pick(payload, ['FabricanteID', 'fabricanteId'], before.FabricanteID),
     Fabricante: pick(payload, ['Fabricante', 'fabricante'], before.Fabricante),
     ModeloID: pick(payload, ['ModeloID', 'modeloId'], before.ModeloID),
@@ -117,12 +133,17 @@ async function enrich(row) {
   return {
     mantenimiento: row,
     responsables: asArray(row.ResponsableIDsJSON).map((UsuarioID) => ({ UsuarioID })),
-    dispositivos: devices.map((device) => ({
-      ...device,
-      Imagenes: images
-        .filter((image) => String(image.DispositivoMantenimientoRef) === String(device.EvidenciaMantenimientoID) && image.Activo !== false)
-        .map((image) => ({ ...image, PreviewURL: image.DriveFileID ? `https://drive.google.com/thumbnail?id=${encodeURIComponent(image.DriveFileID)}&sz=w1200` : image.DriveURL })),
-    })),
+    dispositivos: devices.map((device) => {
+      const category = normalizeCategoryName(device.TipoDispositivo || device.Categoria);
+      return {
+        ...device,
+        Categoria: category,
+        TipoDispositivo: category,
+        Imagenes: images
+          .filter((image) => String(image.DispositivoMantenimientoRef) === String(device.EvidenciaMantenimientoID) && image.Activo !== false)
+          .map((image) => ({ ...image, PreviewURL: image.DriveFileID ? `https://drive.google.com/thumbnail?id=${encodeURIComponent(image.DriveFileID)}&sz=w1200` : image.DriveURL })),
+      };
+    }),
   };
 }
 

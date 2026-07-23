@@ -51,6 +51,7 @@ export default function MaintenanceDeviceEditor({
   isAdmin,
   onChange,
   onClose,
+  onCancel,
   onDelete,
   onSubmit,
   onSubmitAndContinue,
@@ -61,6 +62,7 @@ export default function MaintenanceDeviceEditor({
   const { sessionToken, hasPermission } = useAuth();
   const category = getMaintenanceCategory(device.categoria);
   const locked = disabled || submitting;
+  const cancel = onCancel || onClose;
   const canDeleteEvidence = isAdmin
     || hasPermission('MANTENIMIENTOS_EDITAR')
     || hasPermission('MANTENIMIENTOS_GESTIONAR')
@@ -159,7 +161,7 @@ export default function MaintenanceDeviceEditor({
 
   return <div className="maintenance-device-editor" data-offline-editing-surface>
     <div className="page-header maintenance-device-editor__header">
-      <button className="icon-button maintenance-device-editor__back" type="button" onClick={onClose} disabled={submitting} aria-label="Volver a dispositivos"><Icon name="arrow_back" /></button>
+      <button className="icon-button maintenance-device-editor__back" type="button" onClick={cancel} disabled={submitting} aria-label="Cancelar y volver a dispositivos"><Icon name="arrow_back" /></button>
       <div className="maintenance-device-editor__title"><span className="eyebrow">Dispositivo del mantenimiento</span><h2>{isNewDevice ? 'Nuevo dispositivo' : 'Editar dispositivo'}</h2></div>
       <div className="maintenance-device-editor__sync"><AutosaveIndicator status={autosaveStatus} /></div>
       {isAdmin && device.id ? <button className="icon-button icon-button--danger maintenance-device-editor__delete" type="button" onClick={onDelete} disabled={locked} aria-label="Eliminar dispositivo"><Icon name="delete" /></button> : <span className="maintenance-device-editor__delete-placeholder" />}
@@ -167,7 +169,7 @@ export default function MaintenanceDeviceEditor({
 
     <div className="stack-form maintenance-device-editor__content">
       <section className="form-card maintenance-device-section-card maintenance-device-identification-card">
-        <div className="form-card__heading"><span className="section-marker" /><div><h3>Identificación y ubicación</h3><p>Complete primero los campos obligatorios para que el dispositivo pueda guardarse y sincronizarse.</p></div></div>
+        <div className="form-card__heading"><span className="section-marker" /><div><h3>Identificación y ubicación</h3><p>Los datos existentes se cargan para modificarlos. Los cambios se aplican únicamente al guardar.</p></div></div>
         <div className="maintenance-device-fields-grid">
           <div className="maintenance-device-fields-grid__full"><MaintenanceDeviceCatalogFields device={device} onChange={onChange} disabled={locked} /></div>
           <label className="field-group"><span className="field-label">Ubicación del equipo</span><select className="form-control" value={device.ubicacionEquipoId} onChange={(event) => patch({ ubicacionEquipoId: event.target.value, zona: equipmentOptions.find((item) => item.value === event.target.value)?.label || device.zona })} disabled={locked}><option value="">Seleccione una opción</option>{equipmentOptions.map((item) => <option key={item.value} value={item.value}>{item.label}</option>)}</select></label>
@@ -204,7 +206,7 @@ export default function MaintenanceDeviceEditor({
       </section>
 
       <section className="maintenance-image-section maintenance-device-section-card">
-        <div className="form-card__heading"><span className="section-marker" /><div><h3>Evidencias del dispositivo</h3><p>Tome una fotografía con la cámara o seleccione varias imágenes. Permanecen guardadas mientras termina de editar.</p></div><span className="maintenance-device-evidence-total">{totalEvidence}</span></div>
+        <div className="form-card__heading"><span className="section-marker" /><div><h3>Evidencias del dispositivo</h3><p>Tome una fotografía con la cámara o seleccione varias imágenes. Se subirán al guardar el dispositivo.</p></div><span className="maintenance-device-evidence-total">{totalEvidence}</span></div>
         {evidenceError && <div className="alert alert--error" role="alert"><Icon name="error" /><span>{evidenceError}</span></div>}
         {!locked && <div className="maintenance-evidence-picker maintenance-device-evidence-picker">
           <label className="button button--primary maintenance-device-camera-button">
@@ -242,8 +244,9 @@ export default function MaintenanceDeviceEditor({
 
       <footer className="maintenance-device-editor__actions">
         <div className="maintenance-device-editor__actions-status"><AutosaveIndicator status={autosaveStatus} /></div>
+        <button className="button button--ghost maintenance-device-cancel-button" type="button" onClick={cancel} disabled={submitting}><Icon name="close" />Cancelar</button>
         {onSubmitAndContinue && isNewDevice && !locked && <button className="button button--secondary" type="button" onClick={onSubmitAndContinue}><Icon name="add_circle" />Guardar y agregar otro</button>}
-        <button className="button button--primary" type="button" onClick={onSubmit || onClose} disabled={locked}><Icon name={submitting ? 'progress_activity' : 'check'} /> {submitting ? 'Guardando dispositivo...' : submitLabel}</button>
+        <button className="button button--primary" type="button" onClick={onSubmit} disabled={locked || !onSubmit}><Icon name={submitting ? 'progress_activity' : 'check'} /> {submitting ? 'Guardando dispositivo...' : submitLabel}</button>
       </footer>
     </div>
   </div>;

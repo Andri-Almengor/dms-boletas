@@ -1,4 +1,10 @@
-import { MAINTENANCE_CATEGORIES, createEmptyChecklist, createEmptyMaintenanceCounts } from '../../config/maintenanceCategories';
+import {
+  MAINTENANCE_CATEGORIES,
+  canonicalMaintenanceCategoryName,
+  createEmptyChecklist,
+  createEmptyMaintenanceCounts,
+  getMaintenanceCategory,
+} from '../../config/maintenanceCategories';
 import { pick } from '../../services/moduleApi';
 import { todayInCostaRica } from '../../utils/costaRicaDate';
 
@@ -16,27 +22,70 @@ export const EMPTY_MAINTENANCE = {
   responsables: [], descripcion: '', counts: createEmptyMaintenanceCounts(),
 };
 
-function parseTechnicianIds(row = {}) {
-  const source = pick(row, ['TecnicoIDsJSON', 'TecnicoIDs', 'tecnicoIds'], []);
-  if (Array.isArray(source)) return source.map(String).filter(Boolean);
+function parseArray(value) {
+  if (Array.isArray(value)) return value.map(String).filter(Boolean);
   try {
-    const parsed = JSON.parse(source || '[]');
+    const parsed = JSON.parse(value || '[]');
     if (Array.isArray(parsed)) return parsed.map(String).filter(Boolean);
   } catch {
-    return String(source || '').split(/[;,]/).map((item) => item.trim()).filter(Boolean);
+    return String(value || '').split(/[;,]/).map((item) => item.trim()).filter(Boolean);
   }
   return [];
 }
 
-export function createMaintenanceDevice(category = 'Cámaras') {
+function parseTechnicianIds(row = {}) {
+  return parseArray(pick(row, ['TecnicoIDsJSON', 'TecnicoIDs', 'tecnicoIds'], []));
+}
+
+function dateInput(value, fallback = todayInCostaRica()) {
+  const text = String(value || '').trim();
+  const match = text.match(/^(\d{4}-\d{2}-\d{2})/);
+  return match?.[1] || fallback;
+}
+
+function answerValue(row, key) {
+  const upper = `${key.charAt(0).toUpperCase()}${key.slice(1)}`;
+  return pick(row, [key, upper], '');
+}
+
+function parseAnswers(row, categoryName) {
+  let parsed = {};
+  try {
+    parsed = typeof row.RespuestasJSON === 'string'
+      ? JSON.parse(row.RespuestasJSON || '{}')
+      : row.RespuestasJSON || row.respuestas || {};
+  } catch {
+    parsed = {};
+  }
+
+  const answers = { ...createEmptyChecklist(categoryName), ...parsed };
+  getMaintenanceCategory(categoryName).questions.forEach(([key]) => {
+    const explicit = answerValue(row, key);
+    if ((answers[key] === '' || answers[key] === undefined) && explicit !== '') answers[key] = explicit;
+  });
+  return answers;
+}
+
+function mapImage(image) {
+  return {
+    ...image,
+    id: String(pick(image, ['FotoDispositivoID', 'imageId', 'id'])),
+    Tipo: pick(image, ['Tipo', 'tipo'], 'Antes'),
+    Nota: pick(image, ['Nota', 'nota']),
+    dirty: false,
+  };
+}
+
+export function createMaintenanceDevice(category = 'Cámara') {
+  const canonicalCategory = canonicalMaintenanceCategoryName(category);
   return {
     localId: crypto.randomUUID?.() || `${Date.now()}-${Math.random()}`,
     id: '', ubicacionEquipoId: '', zona: '',
     fechaTrabajo: todayInCostaRica(), tecnicoIds: [],
-    tipoDispositivoId: '', categoria: category,
+    tipoDispositivoId: '', categoria: canonicalCategory,
     fabricanteId: '', fabricante: '', modeloId: '', modelo: '',
     nombre: '', serie: '', funcionamiento: '', enUso: '', estado: 'Correcto', observacion: '',
-    respuestas: createEmptyChecklist(category), images: [], newImages: [],
+    respuestas: createEmptyChecklist(canonicalCategory), images: [], newImages: [],
   };
 }
 
@@ -50,47 +99,50 @@ export function mapMaintenance(data) {
     const value = pick(row, [item.countField]);
     if (value !== '') counts[item.countField] = Number(value || 0);
   });
-  let responsables = [];
-  try {
-    responsables = Array.isArray(data?.responsables)
-      ? data.responsables.map((item) => String(pick(item, ['UsuarioID', 'value'], item)))
-      : JSON.parse(row.ResponsableIDsJSON || '[]').map(String);
-  } catch { responsables = []; }
+
+  const responsables = Array.isArray(data?.responsables)
+    ? data.responsables.map((item) => String(pick(item, ['UsuarioID', 'value'], item))).filter(Boolean)
+    : parseArray(pick(row, ['ResponsableIDsJSON', 'ResponsableIDs'], []));
+
   return {
     ...EMPTY_MAINTENANCE,
-    titulo: pick(row, ['TituloMantenimiento']),
-    clienteId: String(pick(row, ['ClienteID', 'ClienteRef'])),
-    cliente: pick(row, ['Cliente', 'ClienteNombre']),
-    ubicacionId: String(pick(row, ['UbicacionID'])),
-    ubicacion: pick(row, ['Ubicacion']),
-    estado: String(pick(row, ['Estado'], 'PENDIENTE')).toUpperCase(),
-    fecha: String(pick(row, ['Fecha'], EMPTY_MAINTENANCE.fecha)).slice(0, 10),
-    fechaFinalizacion: String(pick(row, ['FechaFinalizacion'], EMPTY_MAINTENANCE.fechaFinalizacion)).slice(0, 10),
-    responsables, descripcion: pick(row, ['DescripcionGeneral']), counts,
+    titulo: pick(row, ['TituloMantenimiento', 'titulo']),
+    clienteId: String(pick(row, ['ClienteID', 'ClienteRef', 'clienteId'])),
+    cliente: pick(row, ['Cliente', 'ClienteNombre', 'cliente']),
+    ubicacionId: String(pick(row, ['UbicacionID', 'ubicacionId'])),
+    ubicacion: pick(row, ['Ubicacion', 'ubicacion']),
+    estado: String(pick(row, ['Estado', 'estado'], 'PENDIENTE')).toUpperCase(),
+    fecha: dateInput(pick(row, ['Fecha', 'fecha'], EMPTY_MAINTENANCE.fecha), EMPTY_MAINTENANCE.fecha),
+    fechaFinalizacion: dateInput(pick(row, ['FechaFinalizacion', 'fechaFinalizacion'], EMPTY_MAINTENANCE.fechaFinalizacion), EMPTY_MAINTENANCE.fechaFinalizacion),
+    responsables,
+    descripcion: pick(row, ['DescripcionGeneral', 'descripcion']),
+    counts,
   };
 }
 
-export function mapMaintenanceDevice(row) {
-  let respuestas = {};
-  try { respuestas = typeof row.RespuestasJSON === 'string' ? JSON.parse(row.RespuestasJSON || '{}') : row.RespuestasJSON || {}; } catch { respuestas = {}; }
+export function mapMaintenanceDevice(row = {}) {
+  const category = canonicalMaintenanceCategoryName(pick(row, ['TipoDispositivo', 'Categoria', 'categoria'], 'Cámara'));
   return {
-    localId: String(pick(row, ['EvidenciaMantenimientoID', 'id'], crypto.randomUUID?.() || Date.now())),
-    id: String(pick(row, ['EvidenciaMantenimientoID', 'id'])),
-    ubicacionEquipoId: String(pick(row, ['UbicacionEquipoID'])),
-    zona: pick(row, ['Zona', 'UbicacionEspecifica']),
-    fechaTrabajo: String(pick(row, ['FechaTrabajo', 'FechaCreacion'], todayInCostaRica())).slice(0, 10),
+    localId: String(pick(row, ['EvidenciaMantenimientoID', 'deviceId', 'id'], crypto.randomUUID?.() || Date.now())),
+    id: String(pick(row, ['EvidenciaMantenimientoID', 'deviceId', 'id'])),
+    ubicacionEquipoId: String(pick(row, ['UbicacionEquipoID', 'ubicacionEquipoId'])),
+    zona: pick(row, ['Zona', 'UbicacionEspecifica', 'zona']),
+    fechaTrabajo: dateInput(pick(row, ['FechaTrabajo', 'fechaTrabajo', 'FechaCreacion'], todayInCostaRica())),
     tecnicoIds: parseTechnicianIds(row),
-    tipoDispositivoId: String(pick(row, ['TipoDispositivoID'])),
-    categoria: pick(row, ['TipoDispositivo', 'Categoria'], 'Cámaras'),
-    fabricanteId: String(pick(row, ['FabricanteID'])),
-    fabricante: pick(row, ['Fabricante']),
-    modeloId: String(pick(row, ['ModeloID'])),
-    modelo: pick(row, ['Modelo']),
-    nombre: pick(row, ['NombreDispositivo']),
-    serie: pick(row, ['Serie']),
-    funcionamiento: pick(row, ['Funcionamiento']), enUso: pick(row, ['EnUso']),
-    estado: pick(row, ['Estado'], 'Correcto'), observacion: pick(row, ['Observacion']), respuestas,
-    images: (row.Imagenes || []).map((image) => ({ ...image, id: String(pick(image, ['FotoDispositivoID', 'id'])) })),
+    tipoDispositivoId: String(pick(row, ['TipoDispositivoID', 'tipoDispositivoId'])),
+    categoria: category,
+    fabricanteId: String(pick(row, ['FabricanteID', 'fabricanteId'])),
+    fabricante: pick(row, ['Fabricante', 'fabricante']),
+    modeloId: String(pick(row, ['ModeloID', 'modeloId'])),
+    modelo: pick(row, ['Modelo', 'modelo']),
+    nombre: pick(row, ['NombreDispositivo', 'nombre', 'Nombre']),
+    serie: pick(row, ['Serie', 'serie']),
+    funcionamiento: pick(row, ['Funcionamiento', 'funcionamiento']),
+    enUso: pick(row, ['EnUso', 'enUso']),
+    estado: pick(row, ['Estado', 'estado'], 'Correcto'),
+    observacion: pick(row, ['Observacion', 'observacion']),
+    respuestas: parseAnswers(row, category),
+    images: (row.Imagenes || row.images || []).map(mapImage),
     newImages: [],
   };
 }
@@ -108,6 +160,7 @@ export function maintenancePayload(form, id) {
 
 export function maintenanceDevicePayload(device, maintenanceId) {
   const technicianIds = (device.tecnicoIds || []).map(String).filter(Boolean);
+  const category = canonicalMaintenanceCategoryName(device.categoria);
   return {
     maintenanceId, MantenimientoID: maintenanceId, deviceId: device.id,
     EvidenciaMantenimientoID: device.id, UbicacionEquipoID: device.ubicacionEquipoId,
@@ -118,8 +171,8 @@ export function maintenanceDevicePayload(device, maintenanceId) {
     tecnicoIds: technicianIds,
     TecnicoIDsJSON: JSON.stringify(technicianIds),
     TipoDispositivoID: device.tipoDispositivoId,
-    TipoDispositivo: device.categoria,
-    Categoria: device.categoria,
+    TipoDispositivo: category,
+    Categoria: category,
     FabricanteID: device.fabricanteId,
     Fabricante: device.fabricante,
     ModeloID: device.modeloId,

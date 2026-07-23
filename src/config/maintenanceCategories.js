@@ -1,5 +1,5 @@
 export const MAINTENANCE_CATEGORIES = [
-  { key: 'Cámaras', icon: 'videocam', countField: 'CantCámaras', questions: [['limpieza', '¿Se realizó la limpieza?'], ['alimentacion', '¿La alimentación funciona correctamente?'], ['conexion', '¿La conexión de red o video está correcta?'], ['montaje', '¿El montaje se encuentra firme y en buen estado?'], ['visualizacion', '¿La visualización y grabación son correctas?']] },
+  { key: 'Cámara', icon: 'videocam', countField: 'CantCámaras', questions: [['limpieza', '¿Se realizó la limpieza?'], ['alimentacion', '¿La alimentación funciona correctamente?'], ['conexion', '¿La conexión de red o video está correcta?'], ['montaje', '¿El montaje se encuentra firme y en buen estado?'], ['visualizacion', '¿La visualización y grabación son correctas?']] },
   { key: 'Puertas', icon: 'door_front', countField: 'CantPuertas', questions: [['lector', '¿El lector funciona correctamente?'], ['cerradura', '¿La cerradura funciona correctamente?'], ['funcion', '¿La apertura y cierre funcionan correctamente?'], ['contactos', '¿Los contactos y sensores reportan correctamente?']] },
   { key: 'Servidor', icon: 'dns', countField: 'CantServidores', questions: [['limpieza', '¿Se realizó la limpieza?'], ['alimentacion', '¿La alimentación y UPS están correctas?'], ['conexiones', '¿Las conexiones están correctas?'], ['servicios', '¿Los servicios del sistema están activos?'], ['almacenamiento', '¿El almacenamiento tiene capacidad disponible?'], ['respaldo', '¿El respaldo funciona correctamente?']] },
   { key: 'Grabador', icon: 'storage', countField: 'CantGrabadores', questions: [['limpieza', '¿Se realizó la limpieza?'], ['alimentacion', '¿La alimentación funciona correctamente?'], ['conexiones', '¿Las conexiones están correctas?'], ['grabacion', '¿La grabación funciona correctamente?'], ['visualizacion', '¿La visualización es correcta?'], ['almacenamiento', '¿El almacenamiento está en buen estado?']] },
@@ -13,7 +13,7 @@ export const MAINTENANCE_CATEGORIES = [
 ];
 
 const CATEGORY_ALIASES = new Map([
-  ['camara', 'Cámaras'], ['camaras', 'Cámaras'],
+  ['camara', 'Cámara'], ['camaras', 'Cámara'],
   ['puerta', 'Puertas'], ['puertas', 'Puertas'],
   ['servidor', 'Servidor'], ['servidores', 'Servidor'],
   ['grabador', 'Grabador'], ['grabadores', 'Grabador'], ['nvr', 'Grabador'], ['dvr', 'Grabador'],
@@ -37,11 +37,17 @@ function normalizeCategory(value = '') {
 
 export const MAINTENANCE_CATEGORY_NAMES = MAINTENANCE_CATEGORIES.map((item) => item.key);
 
-export function getMaintenanceCategory(name) {
+export function canonicalMaintenanceCategoryName(name) {
   const normalized = normalizeCategory(name);
   const canonicalName = CATEGORY_ALIASES.get(normalized);
   const matched = MAINTENANCE_CATEGORIES.find((item) => item.key === canonicalName || normalizeCategory(item.key) === normalized);
-  return matched || { key: name || 'Dispositivo', icon: 'devices_other', countField: '', questions: [] };
+  return matched?.key || String(name || '').trim() || 'Dispositivo';
+}
+
+export function getMaintenanceCategory(name) {
+  const canonicalName = canonicalMaintenanceCategoryName(name);
+  const matched = MAINTENANCE_CATEGORIES.find((item) => item.key === canonicalName);
+  return matched || { key: canonicalName, icon: 'devices_other', countField: '', questions: [] };
 }
 
 export function createEmptyMaintenanceCounts() {
