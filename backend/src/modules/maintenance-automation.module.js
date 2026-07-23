@@ -37,23 +37,15 @@ async function resolveDeviceWorkMetadata(payload = {}, existing = null) {
   const maintenanceId = clean(pick(payload, ['maintenanceId', 'MantenimientoID', 'MantenimientoRef'], existing?.MantenimientoRef));
   if (!maintenanceId) throw badRequest('No se indicó el mantenimiento del dispositivo.');
 
-  const [maintenance, users] = await Promise.all([
-    findById('Mantenimiento', maintenanceId),
-    readTable('Usuarios'),
-  ]);
+  await findById('Mantenimiento', maintenanceId);
+  const users = await readTable('Usuarios');
 
-  const requestedIds = asArray(
+  const ids = [...new Set(asArray(
     payload.TecnicoIDsJSON
       || payload.TecnicoIDs
       || payload.tecnicoIds
       || existing?.TecnicoIDsJSON,
-  ).map(clean).filter(Boolean);
-  const fallbackIds = asArray(maintenance.ResponsableIDsJSON || maintenance.ResponsableIDs)
-    .map(clean)
-    .filter(Boolean);
-  const actorFallback = clean(payload.CreadoPor || existing?.CreadoPor || maintenance.CreadoPor);
-  const ids = [...new Set(requestedIds.length ? requestedIds : fallbackIds.length ? fallbackIds : actorFallback ? [actorFallback] : [])].sort();
-  if (!ids.length) throw badRequest('Seleccione al menos un técnico para el dispositivo.');
+  ).map(clean).filter(Boolean))].sort();
 
   const names = ids.map((id) => {
     const user = users.find((item) => String(item.UsuarioID) === id);
@@ -62,9 +54,8 @@ async function resolveDeviceWorkMetadata(payload = {}, existing = null) {
 
   const date = dateOnly(
     pick(payload, ['FechaTrabajo', 'fechaTrabajo'], existing?.FechaTrabajo),
-    dateOnly(existing?.FechaCreacion, dateOnly(maintenance.Fecha, dateOnly(maintenance.FechaCreacion))),
+    '',
   );
-  if (!date) throw badRequest('Indique la fecha de trabajo del dispositivo.');
 
   return {
     maintenanceId,
