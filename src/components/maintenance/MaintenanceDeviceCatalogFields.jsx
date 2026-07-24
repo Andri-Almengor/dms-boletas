@@ -1,5 +1,6 @@
 import React, { useEffect, useMemo, useState } from 'react';
 import { useAuth } from '../../AuthContext';
+import { useMaintenanceCounts } from '../../context/MaintenanceCountsContext';
 import DependentSelect from '../forms/DependentSelect';
 import InlineCreateModal from '../forms/InlineCreateModal';
 import {
@@ -55,6 +56,8 @@ function uniqueOptions(options, canonicalLabels = false) {
 
 export default function MaintenanceDeviceCatalogFields({ device, onChange, disabled = false, maintenanceCounts = null }) {
   const { sessionToken, hasPermission } = useAuth();
+  const inheritedCounts = useMaintenanceCounts();
+  const effectiveCounts = maintenanceCounts || inheritedCounts;
   const manageCatalogs = hasPermission('CATALOGOS_GESTIONAR')
     || hasPermission('MANTENIMIENTOS_CREAR')
     || hasPermission('MANTENIMIENTOS_EDITAR')
@@ -68,7 +71,7 @@ export default function MaintenanceDeviceCatalogFields({ device, onChange, disab
   const [modal, setModal] = useState(null);
   const [modalError, setModalError] = useState('');
   const [modalSaving, setModalSaving] = useState(false);
-  const restrictTypes = Boolean(maintenanceCounts && typeof maintenanceCounts === 'object');
+  const restrictTypes = Boolean(effectiveCounts && typeof effectiveCounts === 'object');
 
   function patch(values) { onChange({ ...device, ...values }); }
 
@@ -100,8 +103,8 @@ export default function MaintenanceDeviceCatalogFields({ device, onChange, disab
 
   const allowedDeviceTypeRows = useMemo(() => {
     if (!restrictTypes) return catalogs.deviceTypes;
-    return catalogs.deviceTypes.filter((row) => Number(maintenanceCounts[maintenanceCountKeyForDeviceType(row)] || 0) > 0);
-  }, [catalogs.deviceTypes, maintenanceCounts, restrictTypes]);
+    return catalogs.deviceTypes.filter((row) => Number(effectiveCounts[maintenanceCountKeyForDeviceType(row)] || 0) > 0);
+  }, [catalogs.deviceTypes, effectiveCounts, restrictTypes]);
 
   useEffect(() => {
     if (loading) return;
@@ -116,7 +119,7 @@ export default function MaintenanceDeviceCatalogFields({ device, onChange, disab
 
     if (!device.id && restrictTypes) {
       const currentAllowed = resolvedType
-        ? Number(maintenanceCounts[maintenanceCountKeyForDeviceType(resolvedType)] || 0) > 0
+        ? Number(effectiveCounts[maintenanceCountKeyForDeviceType(resolvedType)] || 0) > 0
         : false;
       if (!currentAllowed && allowedDeviceTypeRows.length) {
         resolvedType = allowedDeviceTypeRows[0];
@@ -171,18 +174,18 @@ export default function MaintenanceDeviceCatalogFields({ device, onChange, disab
     const base = fromCatalog.length
       ? fromCatalog
       : MAINTENANCE_CATEGORIES
-        .filter((item) => !restrictTypes || Number(maintenanceCounts?.[item.countField] || 0) > 0)
+        .filter((item) => !restrictTypes || Number(effectiveCounts?.[item.countField] || 0) > 0)
         .map((item) => ({ value: `legacy:${item.key}`, label: item.key }));
 
     const currentRow = findById(catalogs.deviceTypes, device.tipoDispositivoId, ['TipoDispositivoID', 'ID', 'id']);
     const currentAllowed = !restrictTypes
       || Boolean(device.id)
-      || (currentRow && Number(maintenanceCounts?.[maintenanceCountKeyForDeviceType(currentRow)] || 0) > 0);
+      || (currentRow && Number(effectiveCounts?.[maintenanceCountKeyForDeviceType(currentRow)] || 0) > 0);
     const withCurrent = currentAllowed
       ? addCurrentOption(base, device.tipoDispositivoId, canonicalMaintenanceCategoryName(device.categoria))
       : base;
     return uniqueOptions(withCurrent, true);
-  }, [allowedDeviceTypeRows, catalogs.deviceTypes, device.categoria, device.id, device.tipoDispositivoId, maintenanceCounts, restrictTypes]);
+  }, [allowedDeviceTypeRows, catalogs.deviceTypes, device.categoria, device.id, device.tipoDispositivoId, effectiveCounts, restrictTypes]);
 
   const relationManufacturerIds = useMemo(() => catalogs.relations
     .filter((item) => String(pick(item, ['TipoDispositivoID'])) === String(device.tipoDispositivoId) && toBoolean(pick(item, ['Activo'], true), true))
