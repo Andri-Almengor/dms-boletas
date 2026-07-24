@@ -10,7 +10,7 @@ import MaintenanceDevicesStep from '../../components/maintenance/MaintenanceDevi
 import MaintenanceReviewStep from '../../components/maintenance/MaintenanceReviewStep';
 import { MaintenanceCountsProvider } from '../../context/MaintenanceCountsContext';
 import { hasSelectedMaintenanceCategory } from '../../config/dynamicMaintenanceTypes';
-import useMaintenanceForm from '../../hooks/useMaintenanceForm';
+import useMaintenanceForm from '../../hooks/useOptimizedMaintenanceForm';
 import { MAINTENANCE_STEPS } from './maintenanceFormData';
 import { MODULE_ROUTES, pick, requestAvailable } from '../../services/moduleApi';
 
