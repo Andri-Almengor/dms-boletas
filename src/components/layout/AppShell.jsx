@@ -32,7 +32,7 @@ export default function AppShell() {
     || location.pathname === '/mantenimientos/nuevo'
     || /^\/mantenimientos\/[^/]+\/editar$/.test(location.pathname);
   const assistantUrl = `/asistente?from=${encodeURIComponent(location.pathname)}`;
-  const showAssistantFab = !isWorkflowForm && location.pathname !== '/asistente';
+  const showAssistantFab = location.pathname !== '/asistente' && location.pathname !== '/cambiar-contrasena';
 
   useEffect(() => {
     if (user?.CambioPasswordObligatorio && location.pathname !== '/cambiar-contrasena') navigate('/cambiar-contrasena', { replace: true });
@@ -76,7 +76,7 @@ export default function AppShell() {
       <button type="button" className="drawer-logout" onClick={handleLogout}><Icon name="logout" /> Cerrar sesión</button>
     </aside>
     <main className="app-content"><Outlet /></main>
-    {showAssistantFab && <NavLink className="assistant-fab" to={assistantUrl} aria-label="Abrir Asistente DMS"><Icon name="smart_toy" /><span>Preguntar</span></NavLink>}
+    {showAssistantFab && <NavLink className={`assistant-fab${isWorkflowForm ? ' assistant-fab--workflow' : ''}`} to={assistantUrl} aria-label="Abrir Asistente DMS" title="Preguntar al Asistente DMS"><Icon name="smart_toy" /><span>Preguntar</span></NavLink>}
     {!isWorkflowForm && <nav className="bottom-nav" aria-label="Navegación principal"><NavigationItem to="/" icon="home" label="Inicio" end />{canViewTickets && <NavigationItem to="/boletas/pendientes" icon="pending_actions" label="Pendientes" />}{canCreateTickets && <NavigationItem to="/boletas/nueva" icon="add" label="Crear" prominent />}{canViewTickets && <NavigationItem to="/boletas/finalizadas" icon="task_alt" label="Finalizadas" />}<NavigationItem to="/mas" icon="more_horiz" label="Más" /></nav>}
   </div>;
 }
