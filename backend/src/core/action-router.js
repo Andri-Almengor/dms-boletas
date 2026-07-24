@@ -67,6 +67,7 @@ const operationalClientDataPermissions = [
   'MANTENIMIENTOS_GESTIONAR',
 ];
 const clientOperationalKeys = new Set(['clientLocations','equipmentLocations','contacts']);
+const maintenanceCatalogCreateKeys = new Set(['deviceTypes','manufacturers','models','deviceManufacturers']);
 
 const crudRouteGroups = [
   ['clients',['clients','clientes']],['clientLocations',['clientLocations','clients.locations','clientes.ubicaciones','ubicacionesCliente']],['equipmentLocations',['equipmentLocations','clients.equipmentLocations','clientes.ubicacionesEquipo','ubicacionesEquipo']],['contacts',['contacts','clients.contacts','clientes.contactos','contactosCliente']],
@@ -81,6 +82,8 @@ for(const [key,prefixes] of crudRouteGroups){for(const prefix of prefixes){
   } else if(clientOperationalKeys.has(key)) {
     createPermission=operationalClientDataPermissions;
     updatePermission='CLIENTES_EDITAR';
+  } else if(maintenanceCatalogCreateKeys.has(key)) {
+    createPermission=operationalCatalogPermissions;
   } else if(key==='knowledgeCategories') {
     createPermission='CONOCIMIENTO_CATEGORIAS_GESTIONAR';
     updatePermission='CONOCIMIENTO_CATEGORIAS_GESTIONAR';
