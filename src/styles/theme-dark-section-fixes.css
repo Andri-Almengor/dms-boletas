@@ -1,0 +1,329 @@
+/* Cobertura final de contraste para pantallas que todavía conservaban
+ * superficies blancas heredadas. Se limita al modo oscuro para no alterar
+ * la apariencia clara ni la estructura de los componentes.
+ */
+
+:root[data-theme='dark'] {
+  --dark-section-surface: #211d1d;
+  --dark-section-surface-soft: #191616;
+  --dark-section-surface-hover: #2a2525;
+  --dark-section-border: #4e3c3b;
+  --dark-section-text: #f6eeee;
+  --dark-section-muted: #cbbdbd;
+}
+
+/* Encuestas: pestañas, preguntas, respuestas y detalle. */
+:root[data-theme='dark'] :is(
+  .survey-admin-tabs,
+  .survey-question-admin-card,
+  .survey-response-card,
+  .survey-detail-summary > div,
+  .survey-related-ticket-card,
+  .public-survey-shell,
+  .public-survey-scale button
+) {
+  background: var(--dark-section-surface) !important;
+  color: var(--dark-section-text) !important;
+  border-color: var(--dark-section-border) !important;
+}
+
+:root[data-theme='dark'] .survey-related-ticket-card {
+  background: linear-gradient(145deg, var(--dark-section-surface), var(--dark-section-surface-soft)) !important;
+}
+
+:root[data-theme='dark'] .survey-admin-tabs button {
+  color: var(--dark-section-muted) !important;
+}
+
+:root[data-theme='dark'] .survey-admin-tabs button:hover:not(.is-active) {
+  background: var(--dark-section-surface-hover) !important;
+  color: var(--dark-section-text) !important;
+}
+
+:root[data-theme='dark'] .survey-admin-tabs button.is-active,
+:root[data-theme='dark'] .public-survey-scale button.is-selected {
+  background: var(--primary) !important;
+  color: #fff !important;
+  border-color: var(--primary) !important;
+}
+
+:root[data-theme='dark'] :is(
+  .survey-question-admin-card strong,
+  .survey-response-card h2,
+  .survey-response-card__score strong,
+  .survey-detail-summary strong,
+  .survey-related-ticket-card strong,
+  .survey-answer-card strong,
+  .public-survey-shell h1,
+  .public-survey-shell h2
+) {
+  color: var(--dark-section-text) !important;
+}
+
+:root[data-theme='dark'] :is(
+  .survey-response-card > p,
+  .survey-response-card__score span,
+  .survey-response-card__meta,
+  .survey-detail-summary span,
+  .survey-related-ticket-card > header > p,
+  .survey-answer-card > div > span,
+  .public-survey-shell p
+) {
+  color: var(--dark-section-muted) !important;
+}
+
+:root[data-theme='dark'] .survey-response-card__score,
+:root[data-theme='dark'] .survey-detail-dates > div,
+:root[data-theme='dark'] .survey-answer-card {
+  background: var(--dark-section-surface-soft) !important;
+  color: var(--dark-section-text) !important;
+  border-color: var(--dark-section-border) !important;
+}
+
+:root[data-theme='dark'] .survey-response-card__score strong,
+:root[data-theme='dark'] .survey-detail-summary small,
+:root[data-theme='dark'] .survey-answer-card__rating {
+  color: var(--primary) !important;
+}
+
+:root[data-theme='dark'] .survey-response-card__icon,
+:root[data-theme='dark'] .survey-question-admin-card__order,
+:root[data-theme='dark'] .survey-answer-card__order {
+  background: var(--dark-section-surface-hover) !important;
+  color: var(--primary) !important;
+}
+
+:root[data-theme='dark'] .survey-response-card__open,
+:root[data-theme='dark'] .survey-related-ticket-card > header,
+:root[data-theme='dark'] .survey-detail-dates {
+  border-color: var(--dark-section-border) !important;
+}
+
+:root[data-theme='dark'] .public-survey-error {
+  background: var(--danger-soft) !important;
+  color: var(--danger) !important;
+  border: 1px solid #81403c;
+}
+
+/* Métricas: barras y distribución de activos. */
+:root[data-theme='dark'] :is(
+  .metrics-bar-row,
+  .metrics-legend button,
+  .metrics-usage-list > button,
+  .metrics-ticket-card
+) {
+  background: var(--dark-section-surface) !important;
+  color: var(--dark-section-text) !important;
+  border-color: var(--dark-section-border) !important;
+}
+
+:root[data-theme='dark'] .metrics-usage-list > button > span,
+:root[data-theme='dark'] .metrics-usage-list > button strong,
+:root[data-theme='dark'] .metrics-usage-list > button b,
+:root[data-theme='dark'] .metrics-bar-row__meta strong {
+  color: var(--dark-section-text) !important;
+}
+
+:root[data-theme='dark'] :is(
+  .metrics-bar-row,
+  .metrics-legend button,
+  .metrics-usage-list > button
+):hover,
+:root[data-theme='dark'] :is(
+  .metrics-bar-row,
+  .metrics-legend button,
+  .metrics-usage-list > button
+).is-active {
+  background: var(--primary-soft) !important;
+  color: var(--dark-section-text) !important;
+  border-color: var(--primary) !important;
+}
+
+:root[data-theme='dark'] .metrics-usage-list > button .metrics-progress,
+:root[data-theme='dark'] .metrics-bar-row__track {
+  background: #3a3333 !important;
+}
+
+/* Flujo de boletas: técnicos, evidencias y copia al cliente. */
+:root[data-theme='dark'] .technician-select__search {
+  background: var(--dark-section-surface) !important;
+  color: var(--dark-section-text) !important;
+  border: 1px solid var(--outline) !important;
+  border-radius: var(--radius-sm);
+}
+
+:root[data-theme='dark'] .technician-select__search input {
+  background: transparent !important;
+  color: var(--dark-section-text) !important;
+  border-color: transparent !important;
+}
+
+:root[data-theme='dark'] .technician-select__search > .material-symbols-outlined {
+  color: var(--primary) !important;
+}
+
+:root[data-theme='dark'] .technician-select__toggle {
+  background: var(--dark-section-surface-hover) !important;
+  color: var(--primary) !important;
+  border-color: var(--dark-section-border) !important;
+}
+
+:root[data-theme='dark'] :is(
+  .technician-options label,
+  .ticket-file-button,
+  .check-card,
+  .evidence-edit-card,
+  .ticket-evidence-add
+) {
+  background: var(--dark-section-surface) !important;
+  color: var(--dark-section-text) !important;
+  border-color: var(--dark-section-border) !important;
+}
+
+:root[data-theme='dark'] .technician-options label:hover {
+  background: var(--dark-section-surface-hover) !important;
+  border-color: var(--outline) !important;
+}
+
+:root[data-theme='dark'] .technician-options label.is-selected {
+  background: var(--primary-soft) !important;
+  border-color: var(--primary) !important;
+}
+
+:root[data-theme='dark'] .technician-options strong,
+:root[data-theme='dark'] .check-card strong,
+:root[data-theme='dark'] .ticket-file-button strong {
+  color: var(--dark-section-text) !important;
+}
+
+:root[data-theme='dark'] .technician-options small,
+:root[data-theme='dark'] .check-card small,
+:root[data-theme='dark'] .ticket-file-button span {
+  color: var(--dark-section-muted) !important;
+  opacity: 1;
+}
+
+:root[data-theme='dark'] .technician-chip button,
+:root[data-theme='dark'] .evidence-remove {
+  background: var(--dark-section-surface-hover) !important;
+  color: var(--primary) !important;
+  border: 1px solid var(--dark-section-border) !important;
+}
+
+:root[data-theme='dark'] .ticket-file-button:hover,
+:root[data-theme='dark'] .check-card:hover,
+:root[data-theme='dark'] .ticket-evidence-add:hover {
+  background: var(--dark-section-surface-hover) !important;
+  border-color: var(--primary) !important;
+}
+
+:root[data-theme='dark'] .evidence-file-icon,
+:root[data-theme='dark'] .evidence-edit-card__fields {
+  background: var(--dark-section-surface-soft) !important;
+  color: var(--primary) !important;
+}
+
+/* Selector múltiple de categorías de la base de conocimiento. */
+:root[data-theme='dark'] .knowledge-category-multiselect {
+  background: var(--dark-section-surface-soft) !important;
+  color: var(--dark-section-text) !important;
+  border-color: var(--dark-section-border) !important;
+}
+
+:root[data-theme='dark'] :is(
+  .knowledge-category-multiselect__summary > strong,
+  .knowledge-category-multiselect__selected > span,
+  .knowledge-category-multiselect__search,
+  .knowledge-category-multiselect__options > label,
+  .knowledge-category-multiselect__empty
+) {
+  background: var(--dark-section-surface) !important;
+  color: var(--dark-section-text) !important;
+  border-color: var(--dark-section-border) !important;
+}
+
+:root[data-theme='dark'] .knowledge-category-multiselect__summary > strong {
+  color: var(--primary) !important;
+}
+
+:root[data-theme='dark'] .knowledge-category-multiselect__search input {
+  background: transparent !important;
+  color: var(--dark-section-text) !important;
+}
+
+:root[data-theme='dark'] .knowledge-category-multiselect__options strong {
+  color: var(--dark-section-text) !important;
+}
+
+:root[data-theme='dark'] .knowledge-category-multiselect__check,
+:root[data-theme='dark'] .knowledge-category-multiselect__selected button {
+  background: var(--dark-section-surface-hover) !important;
+  color: var(--dark-section-muted) !important;
+}
+
+:root[data-theme='dark'] .knowledge-category-multiselect__options > label:hover,
+:root[data-theme='dark'] .knowledge-category-multiselect__options > label.is-selected,
+:root[data-theme='dark'] .knowledge-category-multiselect__selected > span.is-primary {
+  background: var(--primary-soft) !important;
+  color: var(--primary) !important;
+  border-color: var(--primary) !important;
+}
+
+:root[data-theme='dark'] .knowledge-category-multiselect__options > label.is-selected strong {
+  color: var(--dark-section-text) !important;
+}
+
+:root[data-theme='dark'] .knowledge-category-multiselect__options > label.is-selected .knowledge-category-multiselect__check {
+  background: var(--primary) !important;
+  color: #fff !important;
+}
+
+/* Catálogos: pestañas y tarjetas operativas. */
+:root[data-theme='dark'] .catalog-tabs button,
+:root[data-theme='dark'] .catalog-record {
+  background: var(--dark-section-surface) !important;
+  color: var(--dark-section-text) !important;
+  border-color: var(--dark-section-border) !important;
+}
+
+:root[data-theme='dark'] .catalog-tabs button:hover:not(.is-active) {
+  background: var(--dark-section-surface-hover) !important;
+  color: var(--dark-section-text) !important;
+  border-color: var(--outline) !important;
+}
+
+:root[data-theme='dark'] .catalog-tabs button.is-active {
+  background: var(--primary) !important;
+  color: #fff !important;
+  border-color: var(--primary) !important;
+}
+
+:root[data-theme='dark'] .catalog-record h3 {
+  color: var(--dark-section-text) !important;
+}
+
+:root[data-theme='dark'] .catalog-record p {
+  color: var(--dark-section-muted) !important;
+}
+
+:root[data-theme='dark'] .catalog-record__icon {
+  background: var(--dark-section-surface-hover) !important;
+  color: var(--primary) !important;
+}
+
+:root[data-theme='dark'] .catalog-record:hover {
+  border-color: var(--outline) !important;
+  box-shadow: var(--shadow-md);
+}
+
+/* Mantiene legibles los controles deshabilitados sin devolverlos a blanco. */
+:root[data-theme='dark'] :is(
+  .technician-options label,
+  .ticket-file-button,
+  .check-card,
+  .knowledge-category-multiselect__options > label,
+  .catalog-tabs button
+):has(:disabled),
+:root[data-theme='dark'] :is(input, select, textarea, button):disabled {
+  color: var(--dark-section-muted);
+}
