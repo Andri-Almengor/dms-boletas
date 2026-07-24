@@ -69,15 +69,15 @@ export function buildDynamicMaintenanceCategories(deviceTypes = [], {
     const rawName = deviceTypeName(row);
     if (!rawName) continue;
     const key = canonicalMaintenanceCategoryName(rawName);
+    const known = getMaintenanceCategory(key);
     const countField = maintenanceCountKeyForDeviceType(row);
     const typeId = deviceTypeId(row);
-    const dedupeKey = typeId || `${normalized(key)}|${countField}`;
+    const dedupeKey = known.countField || typeId || `${normalized(key)}|${countField}`;
     if (representedKeys.has(dedupeKey)) continue;
 
-    const known = getMaintenanceCategory(key);
     categories.push({
       key,
-      label: rawName,
+      label: known.countField ? key : rawName,
       icon: iconForMaintenanceType(key),
       countField,
       questions: known.questions || [],
