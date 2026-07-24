@@ -4,38 +4,21 @@ import { findById, readTable } from '../infra/sheets.repository.js';
 import { maintenanceAutomationHandlers } from './maintenance-automation.module.js';
 
 const FIXED_COUNT_FIELDS = new Map([
-  ['camara', 'CantCámaras'],
-  ['camaras', 'CantCámaras'],
-  ['puerta', 'CantPuertas'],
-  ['puertas', 'CantPuertas'],
-  ['control de acceso', 'CantPuertas'],
-  ['control acceso', 'CantPuertas'],
-  ['controles de acceso', 'CantPuertas'],
-  ['control de accesos', 'CantPuertas'],
-  ['servidor', 'CantServidores'],
-  ['servidores', 'CantServidores'],
-  ['grabador', 'CantGrabadores'],
-  ['grabadores', 'CantGrabadores'],
-  ['nvr', 'CantGrabadores'],
-  ['dvr', 'CantGrabadores'],
-  ['bocina', 'CantBocinas'],
-  ['bocinas', 'CantBocinas'],
-  ['altavoz', 'CantBocinas'],
-  ['altavoces', 'CantBocinas'],
-  ['sensor perimetral', 'CantSensoresPerimetrales'],
-  ['sensores perimetrales', 'CantSensoresPerimetrales'],
-  ['sensor movimiento', 'CantSensoresMovimiento'],
-  ['sensor de movimiento', 'CantSensoresMovimiento'],
-  ['sensores de movimiento', 'CantSensoresMovimiento'],
-  ['sensor ruptura', 'CantSensorRuptura'],
-  ['sensor de ruptura', 'CantSensorRuptura'],
-  ['sensores de ruptura', 'CantSensorRuptura'],
-  ['impresora', 'CantImpresora'],
-  ['impresoras', 'CantImpresora'],
-  ['gabinete', 'CantGabinetes'],
-  ['gabinetes', 'CantGabinetes'],
-  ['videowall', 'CantVideoWall'],
-  ['video wall', 'CantVideoWall'],
+  ['camara', 'CantCámaras'], ['camaras', 'CantCámaras'],
+  ['puerta', 'CantPuertas'], ['puertas', 'CantPuertas'],
+  ['control de acceso', 'CantPuertas'], ['control acceso', 'CantPuertas'],
+  ['controles de acceso', 'CantPuertas'], ['control de accesos', 'CantPuertas'],
+  ['servidor', 'CantServidores'], ['servidores', 'CantServidores'],
+  ['grabador', 'CantGrabadores'], ['grabadores', 'CantGrabadores'],
+  ['nvr', 'CantGrabadores'], ['dvr', 'CantGrabadores'],
+  ['bocina', 'CantBocinas'], ['bocinas', 'CantBocinas'],
+  ['altavoz', 'CantBocinas'], ['altavoces', 'CantBocinas'],
+  ['sensor perimetral', 'CantSensoresPerimetrales'], ['sensores perimetrales', 'CantSensoresPerimetrales'],
+  ['sensor movimiento', 'CantSensoresMovimiento'], ['sensor de movimiento', 'CantSensoresMovimiento'], ['sensores de movimiento', 'CantSensoresMovimiento'],
+  ['sensor ruptura', 'CantSensorRuptura'], ['sensor de ruptura', 'CantSensorRuptura'], ['sensores de ruptura', 'CantSensorRuptura'],
+  ['impresora', 'CantImpresora'], ['impresoras', 'CantImpresora'],
+  ['gabinete', 'CantGabinetes'], ['gabinetes', 'CantGabinetes'],
+  ['videowall', 'CantVideoWall'], ['video wall', 'CantVideoWall'],
 ]);
 
 function clean(value) {
@@ -73,7 +56,13 @@ function parseCounts(maintenance = {}) {
 function sameTarget(before = {}, target = {}) {
   const beforeTypeId = clean(pick(before, ['TipoDispositivoID', 'tipoDispositivoId']));
   const beforeCategory = normalized(pick(before, ['TipoDispositivo', 'Categoria', 'categoria']));
-  return beforeTypeId === target.typeId && beforeCategory === normalized(target.category);
+  const targetCategory = normalized(target.category);
+
+  if (beforeTypeId && target.typeId && beforeTypeId === target.typeId) return true;
+  const beforeFixed = FIXED_COUNT_FIELDS.get(beforeCategory);
+  const targetFixed = FIXED_COUNT_FIELDS.get(targetCategory);
+  if (beforeFixed && targetFixed && beforeFixed === targetFixed) return true;
+  return !beforeTypeId && !target.typeId && beforeCategory === targetCategory;
 }
 
 async function resolveTarget(payload = {}, before = null) {
