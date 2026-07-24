@@ -7,7 +7,7 @@ import Icon from '../../components/common/Icon';
 const STARTER_QUESTIONS = [
   '¿Qué pasó esta semana en RN?',
   '¿Cuál fue la última boleta de Asamblea?',
-  'Dame las cámaras malas del último mantenimiento de un cliente',
+  'Dame las cámaras malas del último mantenimiento de Confluent',
   '¿Cómo se instala MorphoManager?',
 ];
 
@@ -23,6 +23,8 @@ function initialMessage() {
     sources: [],
     options: [],
     suggestions: STARTER_QUESTIONS,
+    tables: [],
+    stats: [],
   };
 }
 
@@ -50,6 +52,192 @@ function messageId() {
   return crypto.randomUUID?.() || `${Date.now()}-${Math.random()}`;
 }
 
+function text(value, fallback = '—') {
+  const clean = String(value ?? '').trim();
+  return clean || fallback;
+}
+
+function combine(values, separator = ' · ') {
+  const valid = values.map((value) => String(value ?? '').trim()).filter(Boolean);
+  return valid.length ? valid.join(separator) : '—';
+}
+
+function buildPresentation(facts = {}) {
+  const tables = [];
+  const stats = [];
+
+  if (Array.isArray(facts.devices) && facts.devices.length) {
+    tables.push({
+      id: 'attention-devices',
+      title: `${text(facts.category, 'Dispositivos')} que requieren atención`,
+      description: facts.maintenance?.title
+        ? `${facts.maintenance.title}${facts.maintenance.date ? ` · ${facts.maintenance.date}` : ''}`
+        : '',
+      columns: [
+        { key: 'device', label: 'Dispositivo', primary: true },
+        { key: 'zone', label: 'Zona' },
+        { key: 'equipment', label: 'Equipo' },
+        { key: 'serial', label: 'Serie' },
+        { key: 'functioning', label: 'Funcionamiento', status: true },
+        { key: 'inUse', label: 'En uso' },
+        { key: 'state', label: 'Estado', status: true },
+        { key: 'observation', label: 'Observación', wide: true },
+        { key: 'evidence', label: 'Evidencias', numeric: true },
+      ],
+      rows: facts.devices.map((device, index) => ({
+        id: device.id || `${device.name}-${index}`,
+        device: combine([device.name, device.category], ' — '),
+        zone: text(device.zone),
+        equipment: combine([device.manufacturer, device.model]),
+        serial: text(device.serial),
+        functioning: text(device.functioning),
+        inUse: text(device.inUse),
+        state: text(device.state, 'Requiere atención'),
+        observation: text(device.observation),
+        evidence: Number(device.evidenceCount || 0),
+      })),
+    });
+  }
+
+  if (Array.isArray(facts.byQuestion) && facts.byQuestion.length) {
+    tables.push({
+      id: 'survey-questions',
+      title: 'Promedio por pregunta',
+      description: facts.period || '',
+      columns: [
+        { key: 'question', label: 'Pregunta', primary: true, wide: true },
+        { key: 'average', label: 'Promedio', numeric: true, status: true },
+        { key: 'responses', label: 'Respuestas', numeric: true },
+      ],
+      rows: facts.byQuestion.map((item, index) => ({
+        id: `survey-${index}`,
+        question: text(item.question),
+        average: `${Number(item.average || 0).toFixed(2)} / 5`,
+        responses: Number(item.responses || 0),
+      })),
+    });
+  }
+
+  if (Array.isArray(facts.recentTickets) && facts.recentTickets.length) {
+    tables.push({
+      id: 'recent-tickets',
+      title: 'Boletas recientes',
+      columns: [
+        { key: 'number', label: 'Boleta', primary: true },
+        { key: 'date', label: 'Fecha' },
+        { key: 'title', label: 'Trabajo', wide: true },
+        { key: 'status', label: 'Estado', status: true },
+        { key: 'result', label: 'Resultado', wide: true },
+      ],
+      rows: facts.recentTickets.map((ticket) => ({
+        id: ticket.uid,
+        number: `#${text(ticket.number)}`,
+        date: text(ticket.date),
+        title: text(ticket.title),
+        status: text(ticket.status),
+        result: text(ticket.result || ticket.description),
+      })),
+    });
+  }
+
+  if (Array.isArray(facts.recentMaintenances) && facts.recentMaintenances.length) {
+    tables.push({
+      id: 'recent-maintenances',
+      title: 'Mantenimientos recientes',
+      columns: [
+        { key: 'date', label: 'Fecha' },
+        { key: 'title', label: 'Mantenimiento', primary: true, wide: true },
+        { key: 'status', label: 'Estado', status: true },
+        { key: 'devices', label: 'Dispositivos', numeric: true },
+        { key: 'description', label: 'Descripción', wide: true },
+      ],
+      rows: facts.recentMaintenances.map((maintenance) => ({
+        id: maintenance.id,
+        date: text(maintenance.date),
+        title: text(maintenance.title),
+        status: text(maintenance.status),
+        devices: Number(maintenance.registeredDevices || 0),
+        description: text(maintenance.description),
+      })),
+    });
+  }
+
+  if (facts.category && Number.isFinite(Number(facts.registered)) && Number.isFinite(Number(facts.expected))) {
+    stats.push(
+      { label: 'Categoría', value: facts.category, icon: 'category' },
+      { label: 'Registrados', value: Number(facts.registered || 0), icon: 'inventory_2' },
+      { label: 'Esperados', value: Number(facts.expected || 0), icon: 'target' },
+      { label: 'Faltantes', value: Number(facts.missing || 0), icon: 'pending_actions' },
+    );
+  }
+
+  if (Number.isFinite(Number(facts.responded)) && Object.prototype.hasOwnProperty.call(facts, 'average')) {
+    stats.push(
+      { label: 'Encuestas respondidas', value: Number(facts.responded || 0), icon: 'reviews' },
+      { label: 'Promedio general', value: `${Number(facts.average || 0).toFixed(2)} / 5`, icon: 'star' },
+    );
+  }
+
+  return { tables, stats };
+}
+
+function statusClass(value) {
+  const normalized = String(value || '').toLowerCase();
+  if (/mal|falla|atenci|no funciona|pendiente/.test(normalized)) return 'is-danger';
+  if (/correct|bien|si|sí|finaliz|respondida/.test(normalized)) return 'is-success';
+  return 'is-neutral';
+}
+
+function AssistantDataTable({ table }) {
+  return (
+    <section className="assistant-data-card">
+      <header>
+        <div>
+          <span className="assistant-data-card__eyebrow"><Icon name="table_view" /> Resultado detallado</span>
+          <h3>{table.title}</h3>
+          {table.description && <p>{table.description}</p>}
+        </div>
+        <span className="assistant-data-card__count">{table.rows.length}</span>
+      </header>
+      <div className="assistant-data-table-wrap">
+        <table className="assistant-data-table">
+          <thead>
+            <tr>{table.columns.map((column) => <th key={column.key}>{column.label}</th>)}</tr>
+          </thead>
+          <tbody>
+            {table.rows.map((row) => (
+              <tr key={row.id}>
+                {table.columns.map((column) => (
+                  <td key={column.key} data-label={column.label} className={`${column.primary ? 'is-primary' : ''}${column.wide ? ' is-wide' : ''}${column.numeric ? ' is-numeric' : ''}`}>
+                    {column.status
+                      ? <span className={`assistant-data-status ${statusClass(row[column.key])}`}>{text(row[column.key])}</span>
+                      : text(row[column.key])}
+                  </td>
+                ))}
+              </tr>
+            ))}
+          </tbody>
+        </table>
+      </div>
+    </section>
+  );
+}
+
+function AssistantStats({ stats }) {
+  if (!stats?.length) return null;
+  return (
+    <div className="assistant-stat-grid">
+      {stats.map((stat) => (
+        <div key={`${stat.label}-${stat.value}`} className="assistant-stat-card">
+          <Icon name={stat.icon} />
+          <strong>{stat.value}</strong>
+          <span>{stat.label}</span>
+        </div>
+      ))}
+    </div>
+  );
+}
+
 function AssistantMessage({ message, onSuggestion, onOption }) {
   const assistant = message.role === 'assistant';
   return (
@@ -70,6 +258,9 @@ function AssistantMessage({ message, onSuggestion, onOption }) {
             ))}
           </div>
         )}
+
+        <AssistantStats stats={message.stats} />
+        {message.tables?.map((table) => <AssistantDataTable key={table.id} table={table} />)}
 
         {message.sources?.length > 0 && (
           <div className="assistant-sources">
@@ -149,6 +340,7 @@ export default function AssistantPage() {
         history: historyForRequest(nextMessages.slice(0, -1)),
         context: nextContext,
       }, sessionToken);
+      const presentation = buildPresentation(response.facts || {});
       const assistantMessage = {
         id: messageId(),
         role: 'assistant',
@@ -158,13 +350,15 @@ export default function AssistantPage() {
         options: Array.isArray(response.options) ? response.options : [],
         suggestions: Array.isArray(response.suggestions) ? response.suggestions : [],
         resumeQuestion: response.resumeQuestion || question,
+        tables: presentation.tables,
+        stats: presentation.stats,
       };
       setMessages((current) => [...current, assistantMessage]);
       if (response.context && typeof response.context === 'object') setContext(response.context);
     } catch (requestError) {
       const message = requestError?.message || 'No se pudo consultar el asistente.';
       setError(message);
-      setMessages((current) => [...current, { id: messageId(), role: 'assistant', text: message, sources: [], options: [], suggestions: [] }]);
+      setMessages((current) => [...current, { id: messageId(), role: 'assistant', text: message, sources: [], options: [], suggestions: [], tables: [], stats: [] }]);
     } finally {
       setSending(false);
     }
@@ -203,10 +397,13 @@ export default function AssistantPage() {
   return (
     <div className="page assistant-page">
       <header className="assistant-header">
-        <div>
-          <span className="eyebrow">Consulta interna con IA</span>
-          <h1>Asistente DMS</h1>
-          <p>Consulta boletas, mantenimientos, dispositivos y la base de conocimientos usando lenguaje natural.</p>
+        <div className="assistant-header__identity">
+          <div className="assistant-header__bot"><Icon name="smart_toy" /></div>
+          <div>
+            <span className="eyebrow">Consulta interna con IA</span>
+            <h1>Asistente DMS</h1>
+            <p>Consulta boletas, mantenimientos, dispositivos y la base de conocimientos usando lenguaje natural.</p>
+          </div>
         </div>
         <button className="button button--secondary button--compact" type="button" onClick={clearConversation} disabled={sending}>
           <Icon name="delete_sweep" /> Limpiar
@@ -242,14 +439,14 @@ export default function AssistantPage() {
           <div ref={endRef} />
         </div>
 
-        <form className="assistant-composer" onSubmit={submit}>
+        <form className="assistant-composer" onSubmit={submit} data-no-draft>
           {error && <span className="assistant-composer__error"><Icon name="error" />{error}</span>}
           <div>
             <textarea
               value={input}
               onChange={(event) => setInput(event.target.value)}
               onKeyDown={handleKeyDown}
-              placeholder="Ej. ¿Qué pasó esta semana en RN?"
+              placeholder="Ej. Dame las cámaras malas del último mantenimiento de Confluent"
               rows="2"
               maxLength="1200"
               disabled={sending}
@@ -260,7 +457,7 @@ export default function AssistantPage() {
               <span>Enviar</span>
             </button>
           </div>
-          <small>Puede usar nombres incompletos o abreviaciones. Si hay varias coincidencias, el asistente le pedirá seleccionar una.</small>
+          <small>Puede usar nombres incompletos o abreviaciones. Si la respuesta contiene una lista, se mostrará en una tabla adaptable.</small>
         </form>
       </section>
     </div>
