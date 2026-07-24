@@ -1,6 +1,11 @@
 import React, { useEffect, useRef, useState } from 'react';
 import Icon from '../common/Icon';
 import MaintenanceDeviceEditor from './MaintenanceDeviceEditor';
+import { MaintenanceCountsProvider } from '../../context/MaintenanceCountsContext';
+import {
+  hasSelectedMaintenanceCategory,
+  parseMaintenanceCounts,
+} from '../../config/dynamicMaintenanceTypes';
 import {
   createMaintenanceDevice,
   fileToBase64,
@@ -21,6 +26,7 @@ export default function MaintenanceQuickDeviceCreator({
   onCreated,
 }) {
   const [device, setDevice] = useState(() => createMaintenanceDevice());
+  const [maintenanceCounts, setMaintenanceCounts] = useState({});
   const [equipmentOptions, setEquipmentOptions] = useState([]);
   const [maintenanceLocationId, setMaintenanceLocationId] = useState('');
   const [loading, setLoading] = useState(true);
@@ -53,6 +59,14 @@ export default function MaintenanceQuickDeviceCreator({
         if (status !== 'PENDIENTE') {
           setBlocked(true);
           setError('Este mantenimiento ya fue finalizado y no permite agregar dispositivos.');
+          return;
+        }
+
+        const counts = parseMaintenanceCounts(row);
+        setMaintenanceCounts(counts);
+        if (!hasSelectedMaintenanceCategory(counts)) {
+          setBlocked(true);
+          setError('Primero edite el mantenimiento e indique una cantidad mayor que cero para al menos un tipo de dispositivo.');
           return;
         }
 
@@ -157,19 +171,21 @@ export default function MaintenanceQuickDeviceCreator({
         ) : (
           <>
             {error && <div className="alert alert--error"><Icon name="error" /><span>{error}</span></div>}
-            <MaintenanceDeviceEditor
-              device={device}
-              equipmentOptions={equipmentOptions}
-              maintenanceLocationId={maintenanceLocationId}
-              disabled={saving}
-              isAdmin={false}
-              onChange={setDevice}
-              onCancel={onClose}
-              onClose={onClose}
-              onSubmit={save}
-              submitLabel="Guardar dispositivo"
-              submitting={saving}
-            />
+            <MaintenanceCountsProvider counts={maintenanceCounts}>
+              <MaintenanceDeviceEditor
+                device={device}
+                equipmentOptions={equipmentOptions}
+                maintenanceLocationId={maintenanceLocationId}
+                disabled={saving}
+                isAdmin={false}
+                onChange={setDevice}
+                onCancel={onClose}
+                onClose={onClose}
+                onSubmit={save}
+                submitLabel="Guardar dispositivo"
+                submitting={saving}
+              />
+            </MaintenanceCountsProvider>
           </>
         )}
       </section>
