@@ -174,7 +174,7 @@ export default function AssistantPage() {
     const patch = option.type === 'client'
       ? { lastClientId: option.value, lastClientName: option.label }
       : {};
-    sendQuestion(message.resumeQuestion || `Consultar ${option.label}`, patch);
+    sendQuestion(`Me refiero a ${option.label}. ${message.resumeQuestion || 'Continúe con la consulta.'}`, patch);
   }
 
   function clearConversation() {
