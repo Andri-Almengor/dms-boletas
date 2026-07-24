@@ -42,6 +42,11 @@ function getId(row) {
   return String(pick(row, ['MantenimientoID', 'id', 'RowID'], ''));
 }
 
+function safeCount(value) {
+  const amount = Number(value ?? 0);
+  return Number.isFinite(amount) ? Math.max(0, amount) : 0;
+}
+
 function expectedDeviceTotal(row = {}) {
   let storedCounts = {};
   try {
@@ -52,14 +57,22 @@ function expectedDeviceTotal(row = {}) {
     storedCounts = {};
   }
 
-  let hasCategoryCounts = false;
-  const total = MAINTENANCE_COUNT_FIELDS.reduce((sum, field) => {
-    const hasJsonValue = Object.prototype.hasOwnProperty.call(storedCounts, field);
-    const source = hasJsonValue ? storedCounts[field] : row[field];
-    if (source !== undefined && source !== null && source !== '') hasCategoryCounts = true;
-    const amount = Number(source ?? 0);
-    return sum + (Number.isFinite(amount) ? Math.max(0, amount) : 0);
-  }, 0);
+  const validStoredCounts = storedCounts && typeof storedCounts === 'object' && !Array.isArray(storedCounts)
+    ? storedCounts
+    : {};
+  const storedEntries = Object.entries(validStoredCounts);
+  let hasCategoryCounts = storedEntries.length > 0;
+  let total = storedEntries.reduce((sum, [, value]) => sum + safeCount(value), 0);
+
+  // Los mantenimientos históricos pueden tener cantidades solo en columnas físicas.
+  // Se agregan únicamente cuando la misma clave no existe en CantidadesJSON para evitar duplicarlas.
+  for (const field of MAINTENANCE_COUNT_FIELDS) {
+    if (Object.prototype.hasOwnProperty.call(validStoredCounts, field)) continue;
+    const source = row[field];
+    if (source === undefined || source === null || source === '') continue;
+    hasCategoryCounts = true;
+    total += safeCount(source);
+  }
 
   if (hasCategoryCounts) return total;
 
