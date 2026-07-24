@@ -4,6 +4,7 @@ import AutosaveIndicator from '../feedback/AutosaveIndicator';
 import Icon from '../common/Icon';
 import TechnicianMultiSelect from '../forms/TechnicianMultiSelect';
 import MaintenanceDeviceCatalogFields from './MaintenanceDeviceCatalogFields';
+import MaintenanceEquipmentLocationSelect from './MaintenanceEquipmentLocationSelect';
 import MaintenanceEvidenceImage from './MaintenanceEvidenceImage';
 import { getMaintenanceCategory } from '../../config/maintenanceCategories';
 import { MODULE_ROUTES, normalizeItems, pick, requestAvailable } from '../../services/moduleApi';
@@ -46,6 +47,7 @@ function pendingImage(file) {
 export default function MaintenanceDeviceEditor({
   device,
   equipmentOptions = [],
+  maintenanceLocationId = '',
   technicians = [],
   disabled,
   isAdmin,
@@ -169,12 +171,21 @@ export default function MaintenanceDeviceEditor({
 
     <div className="stack-form maintenance-device-editor__content">
       <section className="form-card maintenance-device-section-card maintenance-device-identification-card">
-        <div className="form-card__heading"><span className="section-marker" /><div><h3>Identificación y ubicación</h3><p>Los datos existentes se cargan para modificarlos. Los cambios se aplican únicamente al guardar.</p></div></div>
+        <div className="form-card__heading"><span className="section-marker" /><div><h3>Identificación y ubicación</h3><p>Todos los campos son opcionales. Puede completar solamente la información disponible y agregar nuevos valores en los catálogos.</p></div></div>
         <div className="maintenance-device-fields-grid">
           <div className="maintenance-device-fields-grid__full"><MaintenanceDeviceCatalogFields device={device} onChange={onChange} disabled={locked} /></div>
-          <label className="field-group"><span className="field-label">Ubicación del equipo</span><select className="form-control" value={device.ubicacionEquipoId} onChange={(event) => patch({ ubicacionEquipoId: event.target.value, zona: equipmentOptions.find((item) => item.value === event.target.value)?.label || device.zona })} disabled={locked}><option value="">Seleccione una opción</option>{equipmentOptions.map((item) => <option key={item.value} value={item.value}>{item.label}</option>)}</select></label>
-          <Field label="Ubicación específica del dispositivo *" value={device.zona} onChange={(event) => patch({ zona: event.target.value })} disabled={locked} autoComplete="off" />
-          <Field label="Nombre del dispositivo *" value={device.nombre} onChange={(event) => patch({ nombre: event.target.value })} disabled={locked} autoComplete="off" />
+          <MaintenanceEquipmentLocationSelect
+            locationId={maintenanceLocationId}
+            value={device.ubicacionEquipoId}
+            options={equipmentOptions}
+            disabled={locked}
+            onChange={(ubicacionEquipoId, label) => patch({
+              ubicacionEquipoId,
+              zona: label || device.zona,
+            })}
+          />
+          <Field label="Ubicación específica del dispositivo" value={device.zona} onChange={(event) => patch({ zona: event.target.value })} disabled={locked} autoComplete="off" />
+          <Field label="Nombre del dispositivo" value={device.nombre} onChange={(event) => patch({ nombre: event.target.value })} disabled={locked} autoComplete="off" />
           <Field label="Serie" value={device.serie} onChange={(event) => patch({ serie: event.target.value })} disabled={locked} autoComplete="off" />
         </div>
       </section>
@@ -182,11 +193,11 @@ export default function MaintenanceDeviceEditor({
       <section className="form-card maintenance-device-work-card maintenance-device-section-card">
         <div className="form-card__heading"><span className="section-marker" /><div><h3>Fecha y grupo de trabajo</h3><p>Los dispositivos de la misma fecha y con el mismo grupo formarán una sola boleta automática.</p></div></div>
         <div className="maintenance-device-work-grid">
-          <Field label="Fecha de trabajo *" type="date" value={device.fechaTrabajo || ''} onChange={(event) => patch({ fechaTrabajo: event.target.value })} disabled={locked} />
+          <Field label="Fecha de trabajo" type="date" value={device.fechaTrabajo || ''} onChange={(event) => patch({ fechaTrabajo: event.target.value })} disabled={locked} />
           <div className="field-group maintenance-device-technicians-field">
-            <span className="field-label">Técnicos que realizaron este trabajo *</span>
+            <span className="field-label">Técnicos que realizaron este trabajo</span>
             <TechnicianMultiSelect users={technicianOptions} selectedIds={device.tecnicoIds || []} onChange={(tecnicoIds) => patch({ tecnicoIds })} disabled={locked} />
-            <small className="field-hint">Puede seleccionar varios técnicos.</small>
+            <small className="field-hint">Puede seleccionar varios técnicos o dejar el campo vacío.</small>
           </div>
         </div>
       </section>

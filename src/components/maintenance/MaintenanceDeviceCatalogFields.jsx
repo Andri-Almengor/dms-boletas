@@ -58,6 +58,7 @@ export default function MaintenanceDeviceCatalogFields({ device, onChange, disab
     || hasPermission('MANTENIMIENTOS_CREAR')
     || hasPermission('MANTENIMIENTOS_EDITAR')
     || hasPermission('MANTENIMIENTOS_GESTIONAR')
+    || hasPermission('USUARIOS_GESTIONAR')
     || hasPermission('BOLETAS_CREAR')
     || hasPermission('BOLETAS_EDITAR');
   const [catalogs, setCatalogs] = useState({ deviceTypes: [], manufacturers: [], models: [], relations: [] });
@@ -244,7 +245,7 @@ export default function MaintenanceDeviceCatalogFields({ device, onChange, disab
 
   return <>
     {error && <div className="alert alert--error"><span>{error}</span></div>}
-    <DependentSelect label="Tipo de dispositivo *" value={selectedTypeValue} options={typeOptions} required loading={loading} canAdd={manageCatalogs} onAdd={() => openModal('device')} onChange={selectDeviceType} disabled={disabled} />
+    <DependentSelect label="Tipo de dispositivo" value={selectedTypeValue} options={typeOptions} loading={loading} canAdd={manageCatalogs} onAdd={() => openModal('device')} onChange={selectDeviceType} disabled={disabled} />
     <div className="ticket-form-grid">
       <DependentSelect label="Fabricante" value={device.fabricanteId} options={manufacturerOptions} loading={loading} disabled={disabled || !selectedTypeValue} canAdd={manageCatalogs && Boolean(selectedTypeValue)} onAdd={() => openModal('manufacturer')} onChange={selectManufacturer} />
       <DependentSelect label="Modelo" value={device.modeloId} options={modelOptions} loading={loading} disabled={disabled || !selectedTypeValue || !device.fabricanteId} canAdd={manageCatalogs && Boolean(device.fabricanteId)} onAdd={() => openModal('model')} onChange={selectModel} />

@@ -22,6 +22,7 @@ export default function MaintenanceQuickDeviceCreator({
 }) {
   const [device, setDevice] = useState(() => createMaintenanceDevice());
   const [equipmentOptions, setEquipmentOptions] = useState([]);
+  const [maintenanceLocationId, setMaintenanceLocationId] = useState('');
   const [loading, setLoading] = useState(true);
   const [saving, setSaving] = useState(false);
   const [blocked, setBlocked] = useState(false);
@@ -55,7 +56,8 @@ export default function MaintenanceQuickDeviceCreator({
           return;
         }
 
-        const locationId = String(pick(row, ['UbicacionID']));
+        const locationId = String(pick(row, ['UbicacionID'], ''));
+        setMaintenanceLocationId(locationId);
         if (!locationId) {
           setEquipmentOptions([]);
           return;
@@ -158,6 +160,7 @@ export default function MaintenanceQuickDeviceCreator({
             <MaintenanceDeviceEditor
               device={device}
               equipmentOptions={equipmentOptions}
+              maintenanceLocationId={maintenanceLocationId}
               disabled={saving}
               isAdmin={false}
               onChange={setDevice}
