@@ -1,0 +1,111 @@
+/* Últimos elementos heredados que conservaban fondos claros en modo oscuro. */
+
+:root[data-theme='dark'] .ticket-form-header,
+:root[data-theme='dark'] .maintenance-device-editor__header {
+  background: #211d1d !important;
+  color: var(--text) !important;
+  border-color: #4e3c3b !important;
+  box-shadow: 0 8px 24px rgba(0, 0, 0, .28) !important;
+}
+
+:root[data-theme='dark'] .ticket-form-header h1,
+:root[data-theme='dark'] .maintenance-device-editor__header h2 {
+  color: var(--text) !important;
+}
+
+:root[data-theme='dark'] .ticket-form-header .eyebrow,
+:root[data-theme='dark'] .maintenance-device-editor__header .eyebrow {
+  color: var(--muted) !important;
+}
+
+/* Galería de evidencias de las boletas. */
+:root[data-theme='dark'] .evidence-gallery,
+:root[data-theme='dark'] .evidence-detail-card {
+  background: transparent !important;
+  color: var(--text) !important;
+}
+
+:root[data-theme='dark'] .evidence-detail-card {
+  overflow: hidden;
+  border: 1px solid #4e3c3b !important;
+  border-radius: 14px;
+  background: #211d1d !important;
+  box-shadow: var(--shadow-sm);
+}
+
+:root[data-theme='dark'] .evidence-detail-card > div:not(.evidence-detail-card__actions),
+:root[data-theme='dark'] .evidence-detail-card__actions {
+  background: #211d1d !important;
+  color: var(--text) !important;
+  border-color: #4e3c3b !important;
+}
+
+:root[data-theme='dark'] .evidence-detail-card strong,
+:root[data-theme='dark'] .evidence-detail-card p {
+  color: var(--text) !important;
+}
+
+:root[data-theme='dark'] .evidence-detail-card p {
+  color: var(--muted) !important;
+}
+
+:root[data-theme='dark'] .media-loading,
+:root[data-theme='dark'] .media-error,
+:root[data-theme='dark'] .media-preview-button {
+  background: #191616 !important;
+  color: var(--muted) !important;
+  border-color: #4e3c3b !important;
+}
+
+:root[data-theme='dark'] .media-loading .material-symbols-outlined,
+:root[data-theme='dark'] .media-error .material-symbols-outlined {
+  color: var(--primary) !important;
+}
+
+:root[data-theme='dark'] .media-error button {
+  background: #2a2525 !important;
+  color: var(--primary) !important;
+  border-color: #4e3c3b !important;
+}
+
+:root[data-theme='dark'] .evidence-detail-card__actions button {
+  background: #191616 !important;
+  color: var(--primary) !important;
+  border-color: #4e3c3b !important;
+}
+
+:root[data-theme='dark'] .evidence-detail-card__actions button:hover {
+  background: #2a2525 !important;
+}
+
+/* Formularios de dispositivos y creación de nuevos valores. */
+:root[data-theme='dark'] .maintenance-device-section-card,
+:root[data-theme='dark'] .maintenance-quick-device-modal__panel,
+:root[data-theme='dark'] .inline-create-modal__panel {
+  background: #211d1d !important;
+  color: var(--text) !important;
+  border-color: #4e3c3b !important;
+}
+
+:root[data-theme='dark'] .field-add-button {
+  color: var(--primary) !important;
+}
+
+:root[data-theme='dark'] .field-add-button:hover:not(:disabled) {
+  background: var(--primary-soft) !important;
+}
+
+:root[data-theme='dark'] .select-shell,
+:root[data-theme='dark'] .select-shell select,
+:root[data-theme='dark'] .searchable-select,
+:root[data-theme='dark'] .searchable-select__menu,
+:root[data-theme='dark'] .searchable-select__option {
+  background: #211d1d !important;
+  color: var(--text) !important;
+  border-color: #4e3c3b !important;
+}
+
+:root[data-theme='dark'] .searchable-select__option:hover,
+:root[data-theme='dark'] .searchable-select__option.is-selected {
+  background: #2a2525 !important;
+}
