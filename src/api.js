@@ -62,6 +62,7 @@ function invalidResponseError(response) {
   const error = new Error(temporary
     ? `El servidor se está reiniciando temporalmente (${response.status}). La aplicación reintentará la conexión.`
     : `El backend respondió con un formato inválido (${response.status}).`);
+  error.name = temporary ? 'NetworkError' : 'Error';
   error.code = temporary ? 'BACKEND_TEMPORARILY_UNAVAILABLE' : 'INVALID_BACKEND_RESPONSE';
   error.status = response.status;
   error.retryable = temporary;
@@ -93,11 +94,13 @@ async function performRequest(route, payload, sessionToken) {
   if (!result || typeof result !== 'object') throw invalidResponseError(response);
 
   if (!response.ok || !result.ok) {
+    const temporary = TRANSIENT_BACKEND_STATUSES.has(response.status);
     const error = new Error(result?.error?.message || `Error de comunicación con el backend (${response.status}).`);
-    error.code = result?.error?.code || (TRANSIENT_BACKEND_STATUSES.has(response.status) ? 'BACKEND_TEMPORARILY_UNAVAILABLE' : 'API_ERROR');
+    error.name = temporary ? 'NetworkError' : 'Error';
+    error.code = result?.error?.code || (temporary ? 'BACKEND_TEMPORARILY_UNAVAILABLE' : 'API_ERROR');
     error.details = result?.error?.details || null;
     error.status = response.status;
-    error.retryable = TRANSIENT_BACKEND_STATUSES.has(response.status);
+    error.retryable = temporary;
     throw error;
   }
 
