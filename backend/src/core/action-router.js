@@ -88,7 +88,7 @@ for(const [key,prefixes] of crudRouteGroups){for(const prefix of prefixes){
     createPermission='CONOCIMIENTO_CATEGORIAS_GESTIONAR';
     updatePermission='CONOCIMIENTO_CATEGORIAS_GESTIONAR';
   }
-  add(`${prefix}.list`,c[key].list);add(`${prefix}.get`,c[key].get);add(`${prefix}.create`,c[key].create,createPermission);add(`${prefix}.update`,c[key].update,updatePermission);
+  add(`${prefix}.list`,c[key].list);add(`${prefix}.get`,c[key].get);add(`${prefix}.create`,c[key].create,createPermission);add(`${prefix}.update`,c[key].update,updatePermission);add(`${prefix}.delete`,c[key].delete,updatePermission);
 }}
 
 add(['contacts.delete','clients.contacts.delete','clientes.contactos.delete','contactosCliente.delete'], c.contacts.delete, 'USUARIOS_GESTIONAR');
@@ -106,6 +106,7 @@ for (const [key, prefixes] of [
     add(`${prefix}.get`,c[key].get);
     add(`${prefix}.create`,c[key].create,operationalCatalogPermissions);
     add(`${prefix}.update`,c[key].update,operationalCatalogPermissions);
+    add(`${prefix}.delete`,c[key].delete,operationalCatalogPermissions);
   }
 }
 
