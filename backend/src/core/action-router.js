@@ -5,7 +5,7 @@ import { login, authenticate, logout, changePassword } from '../services/auth.se
 import { safeUser } from '../services/permissions.service.js';
 import { rewriteTechnicalReport } from '../services/gemini.service.js';
 import { rewriteKnowledgeTutorial } from '../services/knowledge-gemini.service.js';
-import { assistantExpandedHandlers } from '../modules/assistant-expanded.module.js';
+import { assistantDeviceCatalogHandlers } from '../modules/assistant-device-catalog.module.js';
 import { usersHandlers } from '../modules/users.module.js';
 import { crudHandlers } from '../modules/crud.module.js';
 import { ticketMultiHandlers as ticketHandlers } from '../modules/ticket-multi.module.js';
@@ -36,7 +36,7 @@ add('users.update',usersHandlers.update,'USUARIOS_GESTIONAR');
 add(['users.password.reset','users.resetPassword','usuarios.contrasena.restablecer'],usersHandlers.resetPassword,'USUARIOS_GESTIONAR');
 add('roles.list',usersHandlers.roles,'USUARIOS_VER');
 add(['config.get','app.config.get'],getClientConfig);
-add(['assistant.chat','asistente.chat'],assistantExpandedHandlers.chat);
+add(['assistant.chat','asistente.chat'],assistantDeviceCatalogHandlers.chat);
 add(['metrics.tickets.get','metricas.boletas.get'],metricsHandlers.tickets,'USUARIOS_GESTIONAR');
 add(['metrics.maintenance.get','metricas.mantenimientos.get'],metricsHandlers.maintenance,'USUARIOS_GESTIONAR');
 add(['legacy.tickets.preview','migracion.boletas.previsualizar'],legacyTicketImportHandlers.preview,'USUARIOS_GESTIONAR');
