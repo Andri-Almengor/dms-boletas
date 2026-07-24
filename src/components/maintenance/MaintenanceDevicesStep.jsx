@@ -31,6 +31,7 @@ export default function MaintenanceDevicesStep({
   devices,
   expectedTotal,
   disabled,
+  canAddDevice = true,
   canCreateEquipment,
   onAddEquipment,
   onAddDevice,
@@ -73,6 +74,10 @@ export default function MaintenanceDevicesStep({
 
   const correct = devices.filter((item) => deviceState(item) === 'CORRECTO').length;
   const evidenceTotal = devices.reduce((sum, item) => sum + evidenceCount(item), 0);
+  const addDisabled = disabled || !canAddDevice;
+  const addTitle = canAddDevice
+    ? 'Agregar un dispositivo al mantenimiento'
+    : 'Primero indique una cantidad mayor que cero en Cantidades esperadas';
 
   return (
     <div className="maintenance-device-manager">
@@ -83,9 +88,16 @@ export default function MaintenanceDevicesStep({
         <div><strong>{evidenceTotal}</strong><span>evidencias</span></div>
       </section>
 
+      {!disabled && !canAddDevice && (
+        <div className="alert alert--warning">
+          <Icon name="info" />
+          <span>Seleccione al menos un tipo con cantidad mayor que cero en el paso “Cantidades esperadas” antes de agregar dispositivos.</span>
+        </div>
+      )}
+
       <div className="maintenance-device-manager__actions">
         {!disabled && (
-          <button className="button button--primary" type="button" onClick={onAddDevice}>
+          <button className="button button--primary" type="button" onClick={onAddDevice} disabled={addDisabled} title={addTitle}>
             <Icon name="add" />Agregar dispositivo
           </button>
         )}
@@ -185,8 +197,8 @@ export default function MaintenanceDevicesStep({
         <div className="empty-state maintenance-device-empty">
           <Icon name="devices_other" />
           <h3>{devices.length ? 'No hay coincidencias' : 'Sin dispositivos registrados'}</h3>
-          <p>{devices.length ? 'Cambie los filtros o el texto de búsqueda.' : 'Puede guardar el mantenimiento vacío y agregar equipos después.'}</p>
-          {!disabled && <button className="button button--primary" type="button" onClick={onAddDevice}><Icon name="add" />Agregar primer dispositivo</button>}
+          <p>{devices.length ? 'Cambie los filtros o el texto de búsqueda.' : canAddDevice ? 'Puede guardar el mantenimiento vacío y agregar equipos después.' : 'Primero seleccione los tipos y cantidades esperadas del mantenimiento.'}</p>
+          {!disabled && <button className="button button--primary" type="button" onClick={onAddDevice} disabled={!canAddDevice} title={addTitle}><Icon name="add" />Agregar primer dispositivo</button>}
         </div>
       )}
     </div>
