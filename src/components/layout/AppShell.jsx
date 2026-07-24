@@ -31,6 +31,8 @@ export default function AppShell() {
     || /\/boletas\/[^/]+\/nueva-visita$/.test(location.pathname)
     || location.pathname === '/mantenimientos/nuevo'
     || /^\/mantenimientos\/[^/]+\/editar$/.test(location.pathname);
+  const assistantUrl = `/asistente?from=${encodeURIComponent(location.pathname)}`;
+  const showAssistantFab = !isWorkflowForm && location.pathname !== '/asistente';
 
   useEffect(() => {
     if (user?.CambioPasswordObligatorio && location.pathname !== '/cambiar-contrasena') navigate('/cambiar-contrasena', { replace: true });
@@ -57,6 +59,7 @@ export default function AppShell() {
       <div className="side-drawer__profile"><div className="avatar avatar--large">{initials(user?.NombreCompleto)}</div><div><strong>{user?.NombreCompleto}</strong><span>{isAdmin ? 'Administrador' : 'Técnico'}</span></div></div>
       <nav className="side-drawer__nav">
         <NavLink to="/" end><Icon name="home" /> Inicio</NavLink>
+        <NavLink to="/asistente"><Icon name="smart_toy" /> Asistente DMS</NavLink>
         {canViewTickets && <NavLink to="/boletas/pendientes"><Icon name="pending_actions" /> Boletas pendientes</NavLink>}
         {canCreateTickets && <NavLink to="/boletas/nueva"><Icon name="add_circle" /> Crear boleta</NavLink>}
         {canViewTickets && <NavLink to="/boletas/finalizadas"><Icon name="task_alt" /> Boletas finalizadas</NavLink>}
@@ -73,6 +76,7 @@ export default function AppShell() {
       <button type="button" className="drawer-logout" onClick={handleLogout}><Icon name="logout" /> Cerrar sesión</button>
     </aside>
     <main className="app-content"><Outlet /></main>
+    {showAssistantFab && <NavLink className="assistant-fab" to={assistantUrl} aria-label="Abrir Asistente DMS"><Icon name="smart_toy" /><span>Preguntar</span></NavLink>}
     {!isWorkflowForm && <nav className="bottom-nav" aria-label="Navegación principal"><NavigationItem to="/" icon="home" label="Inicio" end />{canViewTickets && <NavigationItem to="/boletas/pendientes" icon="pending_actions" label="Pendientes" />}{canCreateTickets && <NavigationItem to="/boletas/nueva" icon="add" label="Crear" prominent />}{canViewTickets && <NavigationItem to="/boletas/finalizadas" icon="task_alt" label="Finalizadas" />}<NavigationItem to="/mas" icon="more_horiz" label="Más" /></nav>}
   </div>;
 }
