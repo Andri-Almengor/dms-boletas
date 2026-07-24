@@ -92,6 +92,7 @@ export default function MaintenanceFormPage({ mode = 'create' }) {
       <MaintenanceDeviceEditor
         device={state.activeDevice}
         equipmentOptions={state.equipment.map((item) => ({ value: item.id, label: item.name }))}
+        maintenanceLocationId={state.form.ubicacionId}
         technicians={state.technicians}
         disabled={state.readOnly || state.saving}
         isAdmin={state.isAdmin}
