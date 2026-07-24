@@ -4,6 +4,20 @@ import { useAuth } from '../../AuthContext';
 import Icon from '../../components/common/Icon';
 import { MODULE_ROUTES, normalizeItems, pick, requestAvailable } from '../../services/moduleApi';
 
+const MAINTENANCE_COUNT_FIELDS = [
+  'CantCámaras',
+  'CantPuertas',
+  'CantServidores',
+  'CantGrabadores',
+  'CantBocinas',
+  'CantSensoresPerimetrales',
+  'CantSensoresMovimiento',
+  'CantSensorRuptura',
+  'CantImpresora',
+  'CantGabinetes',
+  'CantVideoWall',
+];
+
 function formatDate(value) {
   if (!value) return 'Sin fecha';
   const date = new Date(value);
@@ -26,6 +40,29 @@ function dateKey(value) {
 
 function getId(row) {
   return String(pick(row, ['MantenimientoID', 'id', 'RowID'], ''));
+}
+
+function expectedDeviceTotal(row = {}) {
+  for (const key of ['DispositivosEsperados', 'CantidadEsperada']) {
+    if (row[key] !== undefined && row[key] !== null && row[key] !== '') {
+      const direct = Number(row[key]);
+      if (Number.isFinite(direct)) return Math.max(0, direct);
+    }
+  }
+
+  let storedCounts = {};
+  try {
+    storedCounts = typeof row.CantidadesJSON === 'string'
+      ? JSON.parse(row.CantidadesJSON || '{}')
+      : (row.CantidadesJSON || {});
+  } catch {
+    storedCounts = {};
+  }
+
+  return MAINTENANCE_COUNT_FIELDS.reduce((total, field) => {
+    const amount = Number(storedCounts[field] ?? row[field] ?? 0);
+    return total + (Number.isFinite(amount) ? Math.max(0, amount) : 0);
+  }, 0);
 }
 
 export default function MaintenanceListPage() {
@@ -171,7 +208,7 @@ export default function MaintenanceListPage() {
           {filtered.length ? filtered.map((row) => {
             const id = getId(row);
             const completed = Number(pick(row, ['DispositivosRegistrados', 'CantidadDispositivos'], 0));
-            const expected = Number(pick(row, ['DispositivosEsperados', 'CantidadEsperada'], 0));
+            const expected = expectedDeviceTotal(row);
             const detailUrl = id ? `/mantenimientos/${encodeURIComponent(id)}` : '';
             return (
               <article
@@ -190,7 +227,7 @@ export default function MaintenanceListPage() {
                   <span><Icon name="groups" />{pick(row, ['Responsables', 'Responsable'], 'Sin responsables')}</span>
                   <span><Icon name="location_on" />{pick(row, ['Ubicacion'], 'Sin ubicación')}</span>
                 </div>
-                <div className="maintenance-progress-mini"><div><strong>{completed}</strong><span>registrados</span></div><div><strong>{expected || completed}</strong><span>esperados</span></div></div>
+                <div className="maintenance-progress-mini"><div><strong>{completed}</strong><span>registrados</span></div><div><strong>{expected}</strong><span>esperados</span></div></div>
                 <Link className="button button--primary" to={detailUrl}>Ver detalle<Icon name="chevron_right" /></Link>
               </article>
             );
