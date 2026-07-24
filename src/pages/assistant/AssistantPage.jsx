@@ -8,6 +8,7 @@ const STARTER_QUESTIONS = [
   '¿Qué pasó esta semana en RN?',
   '¿Cuál fue la última boleta de Asamblea?',
   'Dame las cámaras malas del último mantenimiento de Confluent',
+  '¿Qué modelos de cámara están registrados en el último mantenimiento de Confluent?',
   '¿Cómo se instala MorphoManager?',
 ];
 
@@ -19,7 +20,7 @@ function initialMessage() {
   return {
     id: 'welcome',
     role: 'assistant',
-    text: 'Puede preguntarme por boletas, mantenimientos, dispositivos, clientes y tutoriales. También entiendo abreviaciones como RN, Asamblea o BCR. Cuando una consulta sea ambigua, le pediré el dato que falta.',
+    text: 'Puede preguntarme por boletas, mantenimientos, dispositivos, fabricantes, modelos, clientes y tutoriales. También entiendo abreviaciones como RN, Asamblea o BCR. Cuando una consulta sea ambigua, le pediré el dato que falta.',
     sources: [],
     options: [],
     suggestions: STARTER_QUESTIONS,
@@ -65,6 +66,51 @@ function combine(values, separator = ' · ') {
 function buildPresentation(facts = {}) {
   const tables = [];
   const stats = [];
+  const catalog = facts.catalogResults;
+
+  if (catalog && Array.isArray(catalog.rows) && catalog.rows.length) {
+    const isManufacturers = catalog.kind === 'manufacturers';
+    const columns = isManufacturers
+      ? [
+        { key: 'name', label: 'Fabricante', primary: true },
+        { key: 'category', label: 'Tipo de dispositivo' },
+        { key: 'count', label: catalog.scope === 'maintenance' ? 'Dispositivos' : 'Modelos', numeric: true },
+        { key: 'description', label: 'Descripción', wide: true },
+        { key: 'status', label: 'Estado', status: true },
+      ]
+      : [
+        { key: 'name', label: 'Modelo', primary: true },
+        { key: 'manufacturer', label: 'Fabricante' },
+        { key: 'category', label: 'Tipo de dispositivo' },
+        ...(catalog.scope === 'maintenance' ? [{ key: 'count', label: 'Dispositivos', numeric: true }] : []),
+        { key: 'description', label: 'Descripción', wide: true },
+        { key: 'status', label: 'Estado', status: true },
+      ];
+
+    tables.push({
+      id: 'catalog-results',
+      title: text(catalog.title, isManufacturers ? 'Fabricantes' : 'Modelos'),
+      description: text(catalog.description, ''),
+      columns,
+      rows: catalog.rows.map((item, index) => ({
+        id: item.id || `catalog-${index}`,
+        name: text(item.name),
+        manufacturer: text(item.manufacturer),
+        category: text(item.category),
+        count: Number(item.count || 0),
+        description: text(item.description),
+        status: text(item.status, catalog.scope === 'maintenance' ? 'Registrado' : 'ACTIVO'),
+      })),
+    });
+
+    stats.push(
+      { label: isManufacturers ? 'Fabricantes' : 'Modelos', value: Number(catalog.totalResults ?? catalog.rows.length), icon: isManufacturers ? 'factory' : 'view_in_ar' },
+      ...(catalog.scope === 'maintenance'
+        ? [{ label: 'Dispositivos relacionados', value: Number(catalog.totalDevices || 0), icon: 'devices' }]
+        : []),
+      ...(catalog.category ? [{ label: 'Tipo', value: catalog.category, icon: 'category' }] : []),
+    );
+  }
 
   if (Array.isArray(facts.devices) && facts.devices.length) {
     tables.push({
@@ -184,7 +230,7 @@ function buildPresentation(facts = {}) {
 function statusClass(value) {
   const normalized = String(value || '').toLowerCase();
   if (/mal|falla|atenci|no funciona|pendiente/.test(normalized)) return 'is-danger';
-  if (/correct|bien|si|sí|finaliz|respondida/.test(normalized)) return 'is-success';
+  if (/correct|bien|si|sí|finaliz|respondida|activo|registrado/.test(normalized)) return 'is-success';
   return 'is-neutral';
 }
 
@@ -268,7 +314,7 @@ function AssistantMessage({ message, onSuggestion, onOption }) {
             <div>
               {message.sources.map((source) => (
                 <Link key={`${source.type}-${source.id}-${source.url}`} to={source.url}>
-                  <Icon name={source.type === 'knowledge' ? 'menu_book' : source.type === 'ticket' ? 'description' : source.type === 'surveys' ? 'reviews' : 'engineering'} />
+                  <Icon name={source.type === 'knowledge' ? 'menu_book' : source.type === 'ticket' ? 'description' : source.type === 'surveys' ? 'reviews' : source.type === 'catalog' ? 'inventory_2' : 'engineering'} />
                   <span>{source.label}</span>
                   <Icon name="chevron_right" />
                 </Link>
@@ -402,7 +448,7 @@ export default function AssistantPage() {
           <div>
             <span className="eyebrow">Consulta interna con IA</span>
             <h1>Asistente DMS</h1>
-            <p>Consulta boletas, mantenimientos, dispositivos y la base de conocimientos usando lenguaje natural.</p>
+            <p>Consulta boletas, mantenimientos, dispositivos, fabricantes, modelos y la base de conocimientos usando lenguaje natural.</p>
           </div>
         </div>
         <button className="button button--secondary button--compact" type="button" onClick={clearConversation} disabled={sending}>
@@ -446,7 +492,7 @@ export default function AssistantPage() {
               value={input}
               onChange={(event) => setInput(event.target.value)}
               onKeyDown={handleKeyDown}
-              placeholder="Ej. Dame las cámaras malas del último mantenimiento de Confluent"
+              placeholder="Ej. ¿Qué modelos de cámara están registrados en el último mantenimiento de Confluent?"
               rows="2"
               maxLength="1200"
               disabled={sending}
@@ -457,7 +503,7 @@ export default function AssistantPage() {
               <span>Enviar</span>
             </button>
           </div>
-          <small>Puede usar nombres incompletos o abreviaciones. Si la respuesta contiene una lista, se mostrará en una tabla adaptable.</small>
+          <small>Puede consultar listas globales del catálogo o fabricantes y modelos realmente registrados en un mantenimiento.</small>
         </form>
       </section>
     </div>
