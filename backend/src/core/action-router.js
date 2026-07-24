@@ -12,7 +12,7 @@ import { ticketMultiHandlers as ticketHandlers } from '../modules/ticket-multi.m
 import { ticketDeliveryHandlers } from '../modules/ticket-delivery.module.js';
 import { ticketGroupSignatureHandlers as ticketSignatureHandlers } from '../modules/ticket-group-signature.module.js';
 import { publicSignatureHandlers } from '../modules/public-signature.module.js';
-import { maintenanceAutomationHandlers } from '../modules/maintenance-automation.module.js';
+import { maintenanceDeviceCountPolicyHandlers as maintenanceAutomationHandlers } from '../modules/maintenance-device-count-policy.module.js';
 import { maintenanceSignatureHandlers } from '../modules/maintenance-signature.module.js';
 import { knowledgeHandlers } from '../modules/knowledge.module.js';
 import { surveyHandlers } from '../modules/survey.module.js';
