@@ -8,6 +8,8 @@ import MaintenanceGeneralStep from '../../components/maintenance/MaintenanceGene
 import MaintenanceCountsStep from '../../components/maintenance/MaintenanceCountsStep';
 import MaintenanceDevicesStep from '../../components/maintenance/MaintenanceDevicesStep';
 import MaintenanceReviewStep from '../../components/maintenance/MaintenanceReviewStep';
+import { MaintenanceCountsProvider } from '../../context/MaintenanceCountsContext';
+import { hasSelectedMaintenanceCategory } from '../../config/dynamicMaintenanceTypes';
 import useMaintenanceForm from '../../hooks/useMaintenanceForm';
 import { MAINTENANCE_STEPS } from './maintenanceFormData';
 import { MODULE_ROUTES, pick, requestAvailable } from '../../services/moduleApi';
@@ -34,6 +36,7 @@ export default function MaintenanceFormPage({ mode = 'create' }) {
   const [modalError, setModalError] = useState('');
   const [modalSaving, setModalSaving] = useState(false);
   const detailUrl = `/mantenimientos/${encodeURIComponent(maintenanceId)}`;
+  const canAddExpectedDevice = hasSelectedMaintenanceCategory(state.form.counts);
 
   useEffect(() => {
     if (searchParams.get('step') === 'devices' || directDeviceMode) setStep(2);
@@ -43,10 +46,14 @@ export default function MaintenanceFormPage({ mode = 'create' }) {
     if (!editing || state.loading || !requestedNewDevice || state.activeDevice) return;
     if (requestedDeviceOpenedRef.current === '__new__') return;
     requestedDeviceOpenedRef.current = '__new__';
+    if (!canAddExpectedDevice) {
+      state.setError('Primero indique una cantidad mayor que cero para al menos un tipo de dispositivo.');
+      return;
+    }
     state.openDevice(state.createDevice());
     // Las funciones del hook cambian por render; la referencia evita abrir dos veces.
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [editing, requestedNewDevice, state.loading, state.activeDevice]);
+  }, [editing, requestedNewDevice, state.loading, state.activeDevice, canAddExpectedDevice]);
 
   useEffect(() => {
     if (!editing || state.loading || requestedNewDevice || !requestedDeviceId || state.activeDevice) return;
@@ -89,26 +96,31 @@ export default function MaintenanceFormPage({ mode = 'create' }) {
 
   if (state.activeDevice) {
     return <div className="page page--narrow maintenance-form-page maintenance-device-form-page">
-      <MaintenanceDeviceEditor
-        device={state.activeDevice}
-        equipmentOptions={state.equipment.map((item) => ({ value: item.id, label: item.name }))}
-        maintenanceLocationId={state.form.ubicacionId}
-        technicians={state.technicians}
-        disabled={state.readOnly || state.saving}
-        isAdmin={state.isAdmin}
-        onChange={state.setActiveDevice}
-        onCancel={cancelDevice}
-        onClose={cancelDevice}
-        onSubmit={saveDevice}
-        onSubmitAndContinue={!directDeviceMode && !state.activeDevice.id ? state.saveAndAddAnotherDevice : undefined}
-        onDelete={deleteDevice}
-        submitting={state.deviceSaving}
-        autosaveStatus={state.deviceAutosaveStatus}
-      />
+      <MaintenanceCountsProvider counts={state.form.counts}>
+        <MaintenanceDeviceEditor
+          device={state.activeDevice}
+          equipmentOptions={state.equipment.map((item) => ({ value: item.id, label: item.name }))}
+          maintenanceLocationId={state.form.ubicacionId}
+          technicians={state.technicians}
+          disabled={state.readOnly || state.saving}
+          isAdmin={state.isAdmin}
+          onChange={state.setActiveDevice}
+          onCancel={cancelDevice}
+          onClose={cancelDevice}
+          onSubmit={saveDevice}
+          onSubmitAndContinue={!directDeviceMode && !state.activeDevice.id ? state.saveAndAddAnotherDevice : undefined}
+          onDelete={deleteDevice}
+          submitting={state.deviceSaving}
+          autosaveStatus={state.deviceAutosaveStatus}
+        />
+      </MaintenanceCountsProvider>
     </div>;
   }
 
   if (directDeviceMode) {
+    if (requestedNewDevice && !canAddExpectedDevice) {
+      return <div className="page"><div className="empty-state"><Icon name="rule" /><h2>Seleccione los tipos del mantenimiento</h2><p>Antes de agregar dispositivos, edite las cantidades esperadas y asigne un valor mayor que cero al menos a un tipo.</p><button className="button button--primary" type="button" onClick={() => navigate(`/mantenimientos/${encodeURIComponent(maintenanceId)}/editar`)}><Icon name="edit" />Editar cantidades</button><button className="button button--secondary" type="button" onClick={() => navigate(detailUrl)}><Icon name="arrow_back" />Volver al detalle</button></div></div>;
+    }
     return <div className="page"><div className="state-card state-card--loading"><Icon name="progress_activity" />Abriendo formulario del dispositivo...</div></div>;
   }
 
@@ -154,6 +166,15 @@ export default function MaintenanceFormPage({ mode = 'create' }) {
     }
   }
 
+  function addDevice() {
+    if (!canAddExpectedDevice) {
+      state.setError('Primero indique una cantidad mayor que cero para al menos un tipo de dispositivo.');
+      setStep(1);
+      return;
+    }
+    state.openDevice(state.createDevice());
+  }
+
   const progress = Math.round(((step + 1) / MAINTENANCE_STEPS.length) * 100);
 
   return <div className="page page--narrow maintenance-form-page">
@@ -168,7 +189,7 @@ export default function MaintenanceFormPage({ mode = 'create' }) {
       {state.error && <div className="alert alert--error"><Icon name="error" /><span>{state.error}</span></div>}
       {step === 0 && <MaintenanceGeneralStep form={state.form} setForm={state.setForm} clients={state.clients} locations={state.locations} technicians={state.technicians} disabled={state.readOnly} canCreateLocation={state.canCreateLocation} onAddLocation={() => openModal('location')} />}
       {step === 1 && <MaintenanceCountsStep counts={state.form.counts} registered={state.registered} disabled={state.readOnly} onChange={state.updateCount} />}
-      {step === 2 && <MaintenanceDevicesStep devices={state.devices} expectedTotal={state.expectedTotal} disabled={state.readOnly} canCreateEquipment={state.canCreateLocation && Boolean(state.form.ubicacionId)} onAddEquipment={() => openModal('equipment')} onAddDevice={() => state.openDevice(state.createDevice())} onOpenDevice={state.openDevice} />}
+      {step === 2 && <MaintenanceDevicesStep devices={state.devices} expectedTotal={state.expectedTotal} disabled={state.readOnly} canAddDevice={canAddExpectedDevice} canCreateEquipment={state.canCreateLocation && Boolean(state.form.ubicacionId)} onAddEquipment={() => openModal('equipment')} onAddDevice={addDevice} onOpenDevice={state.openDevice} />}
       {step === 3 && <MaintenanceReviewStep form={state.form} devices={state.devices} registered={state.registered} expectedTotal={state.expectedTotal} disabled={state.readOnly} saving={state.saving} onSave={() => state.persist('pending')} onFinalize={() => state.persist('finalize')} canFinalize={isAdministrator} />}
     </section>
     <div className="ticket-form-actions maintenance-form-navigation-actions">

@@ -1,5 +1,6 @@
 import React, { useEffect, useMemo, useState } from 'react';
 import { useAuth } from '../../AuthContext';
+import { useMaintenanceCounts } from '../../context/MaintenanceCountsContext';
 import DependentSelect from '../forms/DependentSelect';
 import InlineCreateModal from '../forms/InlineCreateModal';
 import {
@@ -7,6 +8,7 @@ import {
   canonicalMaintenanceCategoryName,
   createEmptyChecklist,
 } from '../../config/maintenanceCategories';
+import { maintenanceCountKeyForDeviceType } from '../../config/dynamicMaintenanceTypes';
 import { MODULE_ROUTES, normalizeItems, pick, requestAvailable, toBoolean, toOption } from '../../services/moduleApi';
 
 function Field({ label, multiline = false, ...props }) {
@@ -52,8 +54,10 @@ function uniqueOptions(options, canonicalLabels = false) {
   });
 }
 
-export default function MaintenanceDeviceCatalogFields({ device, onChange, disabled = false }) {
+export default function MaintenanceDeviceCatalogFields({ device, onChange, disabled = false, maintenanceCounts = null }) {
   const { sessionToken, hasPermission } = useAuth();
+  const inheritedCounts = useMaintenanceCounts();
+  const effectiveCounts = maintenanceCounts || inheritedCounts;
   const manageCatalogs = hasPermission('CATALOGOS_GESTIONAR')
     || hasPermission('MANTENIMIENTOS_CREAR')
     || hasPermission('MANTENIMIENTOS_EDITAR')
@@ -67,6 +71,7 @@ export default function MaintenanceDeviceCatalogFields({ device, onChange, disab
   const [modal, setModal] = useState(null);
   const [modalError, setModalError] = useState('');
   const [modalSaving, setModalSaving] = useState(false);
+  const restrictTypes = Boolean(effectiveCounts && typeof effectiveCounts === 'object');
 
   function patch(values) { onChange({ ...device, ...values }); }
 
@@ -96,6 +101,11 @@ export default function MaintenanceDeviceCatalogFields({ device, onChange, disab
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [sessionToken]);
 
+  const allowedDeviceTypeRows = useMemo(() => {
+    if (!restrictTypes) return catalogs.deviceTypes;
+    return catalogs.deviceTypes.filter((row) => Number(effectiveCounts[maintenanceCountKeyForDeviceType(row)] || 0) > 0);
+  }, [catalogs.deviceTypes, effectiveCounts, restrictTypes]);
+
   useEffect(() => {
     if (loading) return;
     const values = {};
@@ -105,7 +115,25 @@ export default function MaintenanceDeviceCatalogFields({ device, onChange, disab
       canonicalMaintenanceCategoryName(pick(item, ['Nombre'])) === canonicalCategory
       || normalized(pick(item, ['Nombre'])) === normalized(device.categoria)
     ));
-    const resolvedType = typeById || typeByName;
+    let resolvedType = typeById || typeByName;
+
+    if (!device.id && restrictTypes) {
+      const currentAllowed = resolvedType
+        ? Number(effectiveCounts[maintenanceCountKeyForDeviceType(resolvedType)] || 0) > 0
+        : false;
+      if (!currentAllowed && allowedDeviceTypeRows.length) {
+        resolvedType = allowedDeviceTypeRows[0];
+        const resolvedName = canonicalMaintenanceCategoryName(pick(resolvedType, ['Nombre']));
+        values.tipoDispositivoId = String(pick(resolvedType, ['TipoDispositivoID', 'ID', 'id']));
+        values.categoria = resolvedName;
+        values.fabricanteId = '';
+        values.fabricante = '';
+        values.modeloId = '';
+        values.modelo = '';
+        values.respuestas = createEmptyChecklist(resolvedName);
+      }
+    }
+
     if (resolvedType) {
       const resolvedId = String(pick(resolvedType, ['TipoDispositivoID', 'ID', 'id']));
       const resolvedName = canonicalMaintenanceCategoryName(pick(resolvedType, ['Nombre'], canonicalCategory));
@@ -140,13 +168,24 @@ export default function MaintenanceDeviceCatalogFields({ device, onChange, disab
   }, [loading]);
 
   const typeOptions = useMemo(() => {
-    const fromCatalog = optionList(catalogs.deviceTypes, ['TipoDispositivoID', 'ID', 'id'])
+    const sourceRows = restrictTypes ? allowedDeviceTypeRows : catalogs.deviceTypes;
+    const fromCatalog = optionList(sourceRows, ['TipoDispositivoID', 'ID', 'id'])
       .map((item) => ({ ...item, label: canonicalMaintenanceCategoryName(item.label) }));
     const base = fromCatalog.length
       ? fromCatalog
-      : MAINTENANCE_CATEGORIES.map((item) => ({ value: `legacy:${item.key}`, label: item.key }));
-    return uniqueOptions(addCurrentOption(base, device.tipoDispositivoId, canonicalMaintenanceCategoryName(device.categoria)), true);
-  }, [catalogs.deviceTypes, device.categoria, device.tipoDispositivoId]);
+      : MAINTENANCE_CATEGORIES
+        .filter((item) => !restrictTypes || Number(effectiveCounts?.[item.countField] || 0) > 0)
+        .map((item) => ({ value: `legacy:${item.key}`, label: item.key }));
+
+    const currentRow = findById(catalogs.deviceTypes, device.tipoDispositivoId, ['TipoDispositivoID', 'ID', 'id']);
+    const currentAllowed = !restrictTypes
+      || Boolean(device.id)
+      || (currentRow && Number(effectiveCounts?.[maintenanceCountKeyForDeviceType(currentRow)] || 0) > 0);
+    const withCurrent = currentAllowed
+      ? addCurrentOption(base, device.tipoDispositivoId, canonicalMaintenanceCategoryName(device.categoria))
+      : base;
+    return uniqueOptions(withCurrent, true);
+  }, [allowedDeviceTypeRows, catalogs.deviceTypes, device.categoria, device.id, device.tipoDispositivoId, effectiveCounts, restrictTypes]);
 
   const relationManufacturerIds = useMemo(() => catalogs.relations
     .filter((item) => String(pick(item, ['TipoDispositivoID'])) === String(device.tipoDispositivoId) && toBoolean(pick(item, ['Activo'], true), true))
@@ -242,13 +281,15 @@ export default function MaintenanceDeviceCatalogFields({ device, onChange, disab
   }
 
   const selectedTypeValue = device.tipoDispositivoId || (device.categoria ? `legacy:${canonicalMaintenanceCategoryName(device.categoria)}` : '');
+  const noSelectedTypes = restrictTypes && !loading && !typeOptions.length;
 
   return <>
     {error && <div className="alert alert--error"><span>{error}</span></div>}
-    <DependentSelect label="Tipo de dispositivo" value={selectedTypeValue} options={typeOptions} loading={loading} canAdd={manageCatalogs} onAdd={() => openModal('device')} onChange={selectDeviceType} disabled={disabled} />
+    {noSelectedTypes && <div className="alert alert--warning"><span>Primero indique una cantidad mayor que cero para al menos un tipo de dispositivo en “Cantidades esperadas”.</span></div>}
+    <DependentSelect label="Tipo de dispositivo" value={selectedTypeValue} options={typeOptions} loading={loading} canAdd={manageCatalogs && !restrictTypes} onAdd={() => openModal('device')} onChange={selectDeviceType} disabled={disabled || noSelectedTypes} />
     <div className="ticket-form-grid">
-      <DependentSelect label="Fabricante" value={device.fabricanteId} options={manufacturerOptions} loading={loading} disabled={disabled || !selectedTypeValue} canAdd={manageCatalogs && Boolean(selectedTypeValue)} onAdd={() => openModal('manufacturer')} onChange={selectManufacturer} />
-      <DependentSelect label="Modelo" value={device.modeloId} options={modelOptions} loading={loading} disabled={disabled || !selectedTypeValue || !device.fabricanteId} canAdd={manageCatalogs && Boolean(device.fabricanteId)} onAdd={() => openModal('model')} onChange={selectModel} />
+      <DependentSelect label="Fabricante" value={device.fabricanteId} options={manufacturerOptions} loading={loading} disabled={disabled || !selectedTypeValue || noSelectedTypes} canAdd={manageCatalogs && Boolean(selectedTypeValue) && !noSelectedTypes} onAdd={() => openModal('manufacturer')} onChange={selectManufacturer} />
+      <DependentSelect label="Modelo" value={device.modeloId} options={modelOptions} loading={loading} disabled={disabled || !selectedTypeValue || !device.fabricanteId || noSelectedTypes} canAdd={manageCatalogs && Boolean(device.fabricanteId) && !noSelectedTypes} onAdd={() => openModal('model')} onChange={selectModel} />
     </div>
     <InlineCreateModal open={Boolean(modal)} title={modal?.type === 'device' ? 'Agregar tipo de dispositivo' : modal?.type === 'manufacturer' ? 'Agregar fabricante' : 'Agregar modelo'} description="El registro quedará disponible tanto en boletas como en mantenimientos." saving={modalSaving} error={modalError} onClose={() => setModal(null)} onSubmit={submitModal}>{modal && <><Field label="Nombre" name="nombre" value={modal.values.nombre} onChange={modalUpdate} required />{['device', 'model'].includes(modal.type) && <Field label="Descripción" multiline name="descripcion" value={modal.values.descripcion} onChange={modalUpdate} />}{modal.type === 'model' && <Field label="Imagen de referencia (URL)" name="imagenReferenciaURL" value={modal.values.imagenReferenciaURL} onChange={modalUpdate} />}</>}</InlineCreateModal>
   </>;
