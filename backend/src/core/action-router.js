@@ -68,6 +68,7 @@ const operationalClientDataPermissions = [
 ];
 const clientOperationalKeys = new Set(['clientLocations','equipmentLocations','contacts']);
 const maintenanceCatalogCreateKeys = new Set(['deviceTypes','manufacturers','models','deviceManufacturers']);
+const catalogDeleteKeys = new Set(['categories','deviceTypes','manufacturers','models','failureTypes','deviceManufacturers']);
 
 const crudRouteGroups = [
   ['clients',['clients','clientes']],['clientLocations',['clientLocations','clients.locations','clientes.ubicaciones','ubicacionesCliente']],['equipmentLocations',['equipmentLocations','clients.equipmentLocations','clientes.ubicacionesEquipo','ubicacionesEquipo']],['contacts',['contacts','clients.contacts','clientes.contactos','contactosCliente']],
@@ -89,6 +90,7 @@ for(const [key,prefixes] of crudRouteGroups){for(const prefix of prefixes){
     updatePermission='CONOCIMIENTO_CATEGORIAS_GESTIONAR';
   }
   add(`${prefix}.list`,c[key].list);add(`${prefix}.get`,c[key].get);add(`${prefix}.create`,c[key].create,createPermission);add(`${prefix}.update`,c[key].update,updatePermission);
+  if(catalogDeleteKeys.has(key)) add(`${prefix}.delete`,c[key].delete,updatePermission);
 }}
 
 add(['contacts.delete','clients.contacts.delete','clientes.contactos.delete','contactosCliente.delete'], c.contacts.delete, 'USUARIOS_GESTIONAR');

@@ -129,10 +129,10 @@ function DeviceEvidenceUploader({ device, maintenanceId, sessionToken, onClose, 
               <img src={image.previewUrl} alt={image.file.name} />
               <div className="maintenance-evidence-pending-grid__fields">
                 <label>
-                  <span>Tipo</span>
+                  <span>Tipo de evidencia</span>
                   <select value={image.type} onChange={(event) => updateImage(image.localId, { type: event.target.value })} disabled={saving}>
-                    <option>Antes</option>
-                    <option>Despues</option>
+                    <option value="Antes">Antes</option>
+                    <option value="Despues">Después</option>
                   </select>
                 </label>
                 <label>

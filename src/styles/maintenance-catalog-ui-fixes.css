@@ -1,0 +1,139 @@
+/* Correcciones puntuales para el modal de evidencias y la administración de catálogos. */
+
+.catalog-record__actions {
+  grid-column: 1 / -1;
+  width: 100%;
+  padding-top: 12px;
+  border-top: 1px solid var(--outline-soft);
+  display: flex;
+  flex-wrap: wrap;
+  justify-content: flex-end;
+  gap: 8px;
+}
+
+.catalog-record__actions .button {
+  grid-column: auto;
+  min-height: 40px;
+  padding-inline: 13px;
+  justify-self: auto;
+}
+
+.maintenance-evidence-modal__panel {
+  width: min(100%, 900px);
+}
+
+.maintenance-evidence-pending-grid {
+  grid-template-columns: 1fr;
+}
+
+.maintenance-evidence-pending-grid article {
+  min-width: 0;
+  grid-template-columns: minmax(150px, 190px) minmax(0, 1fr) 44px;
+  padding: 12px;
+  gap: 12px;
+  align-items: stretch;
+}
+
+.maintenance-evidence-pending-grid article > img {
+  width: 100%;
+  height: 100%;
+  min-height: 132px;
+  aspect-ratio: 4 / 3;
+}
+
+.maintenance-evidence-pending-grid__fields {
+  align-content: center;
+  grid-template-columns: minmax(145px, .55fr) minmax(200px, 1.45fr);
+  gap: 10px;
+}
+
+.maintenance-evidence-pending-grid__fields label,
+.maintenance-evidence-pending-grid__fields input,
+.maintenance-evidence-pending-grid__fields select {
+  min-width: 0;
+}
+
+.maintenance-evidence-pending-grid__fields input,
+.maintenance-evidence-pending-grid__fields select {
+  background: var(--surface-card);
+  color: var(--text);
+  border-color: var(--outline);
+}
+
+.maintenance-evidence-pending-grid article > .icon-button {
+  align-self: start;
+}
+
+:root[data-theme='dark'] .maintenance-evidence-modal__panel,
+:root[data-theme='dark'] .maintenance-evidence-pending-grid article {
+  background: var(--surface-card);
+  color: var(--text);
+  border-color: var(--outline-soft);
+}
+
+:root[data-theme='dark'] .maintenance-evidence-pending-grid__fields input,
+:root[data-theme='dark'] .maintenance-evidence-pending-grid__fields select {
+  background: var(--surface-low);
+  color: var(--text);
+  border-color: var(--outline);
+}
+
+:root[data-theme='dark'] .catalog-record__actions {
+  border-top-color: var(--outline-soft);
+}
+
+@media (max-width: 720px) {
+  .catalog-record__actions {
+    justify-content: stretch;
+  }
+
+  .catalog-record__actions .button {
+    flex: 1 1 145px;
+  }
+
+  .maintenance-evidence-pending-grid article {
+    grid-template-columns: minmax(118px, 150px) minmax(0, 1fr) 40px;
+  }
+
+  .maintenance-evidence-pending-grid__fields {
+    grid-template-columns: 1fr;
+  }
+}
+
+@media (max-width: 520px) {
+  .catalog-record__actions {
+    display: grid;
+    grid-template-columns: 1fr 1fr;
+  }
+
+  .catalog-record__actions .button {
+    width: 100%;
+  }
+
+  .catalog-record__actions .button--danger {
+    grid-column: 1 / -1;
+  }
+
+  .maintenance-evidence-pending-grid article {
+    grid-template-columns: 1fr;
+    position: relative;
+  }
+
+  .maintenance-evidence-pending-grid article > img {
+    width: 100%;
+    min-height: 180px;
+    aspect-ratio: 16 / 9;
+  }
+
+  .maintenance-evidence-pending-grid article > .icon-button {
+    position: absolute;
+    top: 18px;
+    right: 18px;
+    background: var(--surface-card);
+    box-shadow: var(--shadow-sm);
+  }
+
+  .maintenance-evidence-pending-grid__fields {
+    grid-template-columns: 1fr;
+  }
+}

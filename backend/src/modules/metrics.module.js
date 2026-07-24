@@ -247,7 +247,7 @@ async function ticketMetrics({ payload = {} }) {
 
 const CATEGORY_CONFIG = [
   { label: 'Cámaras', field: 'CantCámaras', aliases: ['camara', 'camaras'] },
-  { label: 'Puertas', field: 'CantPuertas', aliases: ['puerta', 'puertas'] },
+  { label: 'Puertas', field: 'CantPuertas', aliases: ['puerta', 'puertas', 'control de acceso', 'controles de acceso', 'control de accesos', 'control acceso', 'sistema de control de acceso', 'sistemas de control de acceso'] },
   { label: 'Servidor', field: 'CantServidores', aliases: ['servidor', 'servidores'] },
   { label: 'Grabador', field: 'CantGrabadores', aliases: ['grabador', 'grabadores'] },
   { label: 'Bocinas', field: 'CantBocinas', aliases: ['bocina', 'bocinas'] },

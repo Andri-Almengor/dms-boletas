@@ -15,6 +15,9 @@ export const MAINTENANCE_CATEGORIES = [
 const CATEGORY_ALIASES = new Map([
   ['camara', 'Cámara'], ['camaras', 'Cámara'],
   ['puerta', 'Puertas'], ['puertas', 'Puertas'],
+  ['control de acceso', 'Puertas'], ['controles de acceso', 'Puertas'],
+  ['control de accesos', 'Puertas'], ['control acceso', 'Puertas'],
+  ['sistema de control de acceso', 'Puertas'], ['sistemas de control de acceso', 'Puertas'],
   ['servidor', 'Servidor'], ['servidores', 'Servidor'],
   ['grabador', 'Grabador'], ['grabadores', 'Grabador'], ['nvr', 'Grabador'], ['dvr', 'Grabador'],
   ['bocina', 'Bocinas'], ['bocinas', 'Bocinas'], ['altavoz', 'Bocinas'], ['altavoces', 'Bocinas'],
