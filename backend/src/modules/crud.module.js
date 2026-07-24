@@ -180,7 +180,21 @@ export const CRUD_DEFINITIONS = Object.freeze({
 
 export function crudHandlers(definitionKey) {
   const def = CRUD_DEFINITIONS[definitionKey];
-  const idAliases = [def.id, 'id', 'clienteId', 'ubicacionId', 'ubicacionEquipoId', 'contactoId'];
+  const idAliases = [
+    def.id,
+    'id',
+    'clienteId',
+    'ubicacionId',
+    'ubicacionEquipoId',
+    'contactoId',
+    'categoriaId',
+    'tipoDispositivoId',
+    'fabricanteId',
+    'modeloId',
+    'tipoFallaId',
+    'relacionId',
+    'categoriaConocimientoId',
+  ];
   return {
     list: async (ctx) => {
       const { payload } = ctx;
