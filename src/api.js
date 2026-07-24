@@ -1,6 +1,8 @@
 const APPS_SCRIPT_FALLBACK = 'https://script.google.com/macros/s/AKfycbzGZuFbXWJn3y4hbfSGRFeaJfWufu2xaDnoAb9dFZl4DklRXiuFU9-GSb-q2hnY7O6pmQ/exec';
 const SAME_ORIGIN_NODE_API = '/api/action';
 const READ_CACHE_MS = 4000;
+const TRANSIENT_BACKEND_STATUSES = new Set([502, 503, 504]);
+const TRANSIENT_RETRY_DELAYS_MS = [700, 1500, 2800];
 const pendingReads = new Map();
 const recentReads = new Map();
 
@@ -40,6 +42,33 @@ function requestKey(route, payload, sessionToken) {
   return `${String(route)}|${String(sessionToken)}|${JSON.stringify(payload || {})}`;
 }
 
+function wait(milliseconds) {
+  return new Promise((resolve) => globalThis.setTimeout(resolve, milliseconds));
+}
+
+function transientError(error) {
+  const status = Number(error?.status || 0);
+  const code = String(error?.code || '').toUpperCase();
+  const text = `${error?.name || ''} ${error?.message || ''}`.toLowerCase();
+  return TRANSIENT_BACKEND_STATUSES.has(status)
+    || code === 'BACKEND_TEMPORARILY_UNAVAILABLE'
+    || text.includes('failed to fetch')
+    || text.includes('networkerror')
+    || text.includes('load failed');
+}
+
+function invalidResponseError(response) {
+  const temporary = TRANSIENT_BACKEND_STATUSES.has(Number(response.status));
+  const error = new Error(temporary
+    ? `El servidor se está reiniciando temporalmente (${response.status}). La aplicación reintentará la conexión.`
+    : `El backend respondió con un formato inválido (${response.status}).`);
+  error.name = temporary ? 'NetworkError' : 'Error';
+  error.code = temporary ? 'BACKEND_TEMPORARILY_UNAVAILABLE' : 'INVALID_BACKEND_RESPONSE';
+  error.status = response.status;
+  error.retryable = temporary;
+  return error;
+}
+
 async function performRequest(route, payload, sessionToken) {
   if (!API_URL) throw new Error('Falta configurar VITE_API_URL.');
   const requestPayload = preparePayload(route, payload || {});
@@ -54,28 +83,48 @@ async function performRequest(route, payload, sessionToken) {
     body: JSON.stringify({ route, payload: requestPayload, sessionToken }),
   });
 
+  const responseText = await response.text();
   let result;
   try {
-    result = await response.json();
+    result = responseText ? JSON.parse(responseText) : null;
   } catch {
-    throw new Error(`El backend respondió con un formato inválido (${response.status}).`);
+    throw invalidResponseError(response);
   }
 
+  if (!result || typeof result !== 'object') throw invalidResponseError(response);
+
   if (!response.ok || !result.ok) {
+    const temporary = TRANSIENT_BACKEND_STATUSES.has(response.status);
     const error = new Error(result?.error?.message || `Error de comunicación con el backend (${response.status}).`);
-    error.code = result?.error?.code || 'API_ERROR';
+    error.name = temporary ? 'NetworkError' : 'Error';
+    error.code = result?.error?.code || (temporary ? 'BACKEND_TEMPORARILY_UNAVAILABLE' : 'API_ERROR');
     error.details = result?.error?.details || null;
     error.status = response.status;
+    error.retryable = temporary;
     throw error;
   }
 
   return result.data;
 }
 
+async function performRequestWithRetry(route, payload, sessionToken) {
+  let lastError;
+  for (let attempt = 0; attempt <= TRANSIENT_RETRY_DELAYS_MS.length; attempt += 1) {
+    try {
+      return await performRequest(route, payload, sessionToken);
+    } catch (error) {
+      lastError = error;
+      if (!transientError(error) || attempt === TRANSIENT_RETRY_DELAYS_MS.length) throw error;
+      await wait(TRANSIENT_RETRY_DELAYS_MS[attempt]);
+    }
+  }
+  throw lastError;
+}
+
 export async function apiRequest(route, payload = {}, sessionToken = '') {
   if (!isReadRoute(route)) {
     recentReads.clear();
-    return performRequest(route, payload, sessionToken);
+    return performRequestWithRetry(route, payload, sessionToken);
   }
 
   const key = requestKey(route, payload, sessionToken);
@@ -84,7 +133,7 @@ export async function apiRequest(route, payload = {}, sessionToken = '') {
   if (cached) recentReads.delete(key);
   if (pendingReads.has(key)) return pendingReads.get(key);
 
-  const request = performRequest(route, payload, sessionToken)
+  const request = performRequestWithRetry(route, payload, sessionToken)
     .then((data) => {
       const entry = { data, expiresAt: Date.now() + READ_CACHE_MS };
       recentReads.set(key, entry);
