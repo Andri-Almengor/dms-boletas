@@ -4,10 +4,42 @@ import DependentSelect from '../forms/DependentSelect';
 import InlineCreateModal from '../forms/InlineCreateModal';
 import { MODULE_ROUTES, normalizeItems, pick, requestAvailable } from '../../services/moduleApi';
 
-function toOption(row) {
-  const value = String(pick(row, ['UbicacionEquipoID', 'id', 'RowID'], '')).trim();
-  const label = String(pick(row, ['Nombre'], value)).trim();
-  return value ? { value, label } : null;
+const LOCATION_GET_ROUTES = [
+  'clientLocations.get',
+  'clients.locations.get',
+  'clientes.ubicaciones.get',
+  'ubicacionesCliente.get',
+];
+
+function locationView(row) {
+  const id = String(pick(row, ['UbicacionID', 'ubicacionId', 'id', 'RowID'], '')).trim();
+  const name = String(pick(row, ['Nombre', 'nombre'], id)).trim();
+  return id ? { id, name } : null;
+}
+
+function optionFromRow(row, locationMap, fallbackLocationId = '', showParent = false) {
+  const value = String(pick(row, ['UbicacionEquipoID', 'ubicacionEquipoId', 'id', 'RowID'], '')).trim();
+  const name = String(pick(row, ['Nombre', 'nombre'], value)).trim();
+  const parentId = String(pick(row, ['UbicacionID', 'ubicacionId'], fallbackLocationId)).trim();
+  const parentName = locationMap.get(parentId)?.name || '';
+  const label = showParent && parentName ? `${parentName} · ${name}` : name;
+  return value ? {
+    value,
+    label,
+    name,
+    locationId: parentId,
+    locationName: parentName,
+  } : null;
+}
+
+function seedOption(option, locationMap, fallbackLocationId = '', showParent = false) {
+  const value = String(option?.value || '').trim();
+  if (!value) return null;
+  const name = String(option?.name || option?.rawLabel || option?.label || value).trim();
+  const parentId = String(option?.locationId || fallbackLocationId || '').trim();
+  const parentName = String(option?.locationName || locationMap.get(parentId)?.name || '').trim();
+  const label = showParent && parentName ? `${parentName} · ${name}` : name;
+  return { ...option, value, label, name, locationId: parentId, locationName: parentName };
 }
 
 function uniqueOptions(options = []) {
@@ -20,6 +52,15 @@ function uniqueOptions(options = []) {
   });
 }
 
+function sortOptions(options = [], preferredLocationId = '') {
+  return [...options].sort((a, b) => {
+    const aPreferred = String(a.locationId || '') === String(preferredLocationId || '') ? 0 : 1;
+    const bPreferred = String(b.locationId || '') === String(preferredLocationId || '') ? 0 : 1;
+    if (aPreferred !== bPreferred) return aPreferred - bPreferred;
+    return String(a.label || '').localeCompare(String(b.label || ''), 'es', { sensitivity: 'base' });
+  });
+}
+
 export default function MaintenanceEquipmentLocationSelect({
   locationId,
   value,
@@ -29,65 +70,121 @@ export default function MaintenanceEquipmentLocationSelect({
 }) {
   const { sessionToken, hasPermission } = useAuth();
   const [loadedOptions, setLoadedOptions] = useState(options);
+  const [clientLocations, setClientLocations] = useState([]);
   const [loading, setLoading] = useState(false);
   const [modalOpen, setModalOpen] = useState(false);
-  const [modalValues, setModalValues] = useState({ nombre: '', descripcion: '' });
+  const [modalValues, setModalValues] = useState({ nombre: '', descripcion: '', ubicacionId: '' });
   const [modalError, setModalError] = useState('');
   const [modalSaving, setModalSaving] = useState(false);
 
-  const canCreate = Boolean(locationId) && (
-    hasPermission('CLIENTES_DATOS_OPERATIVOS_CREAR')
+  const canManageOperationalData = hasPermission('CLIENTES_DATOS_OPERATIVOS_CREAR')
     || hasPermission('CLIENTES_EDITAR')
     || hasPermission('MANTENIMIENTOS_CREAR')
     || hasPermission('MANTENIMIENTOS_EDITAR')
     || hasPermission('MANTENIMIENTOS_GESTIONAR')
     || hasPermission('USUARIOS_GESTIONAR')
     || hasPermission('BOLETAS_CREAR')
-    || hasPermission('BOLETAS_EDITAR')
-  );
+    || hasPermission('BOLETAS_EDITAR');
 
   useEffect(() => {
-    setLoadedOptions((current) => uniqueOptions([...current, ...options]));
-  }, [options]);
-
-  useEffect(() => {
-    if (!locationId || !sessionToken) {
-      if (!locationId) setLoadedOptions(options);
+    if (!sessionToken) {
+      setLoadedOptions(options);
+      setClientLocations([]);
       return undefined;
     }
 
     let active = true;
-    setLoading(true);
-    requestAvailable(
-      MODULE_ROUTES.clients.equipmentLocationsList,
-      { ubicacionId: locationId, activo: true, page: 1, pageSize: 1000 },
-      sessionToken,
-    )
-      .then((data) => {
-        if (!active) return;
-        setLoadedOptions(uniqueOptions([
-          ...options,
-          ...normalizeItems(data).map(toOption).filter(Boolean),
-        ]));
-      })
-      .catch(() => {
-        // Las opciones recibidas del formulario siguen disponibles aunque falle la recarga.
-      })
-      .finally(() => { if (active) setLoading(false); });
 
+    async function loadClientEquipmentCatalog() {
+      setLoading(true);
+      try {
+        let resolvedClientId = '';
+        let locations = [];
+
+        if (locationId) {
+          try {
+            const currentLocation = await requestAvailable(
+              LOCATION_GET_ROUTES,
+              { id: locationId, ubicacionId: locationId, UbicacionID: locationId },
+              sessionToken,
+            );
+            resolvedClientId = String(pick(currentLocation, ['ClienteID', 'clienteId'], '')).trim();
+          } catch {
+            // Se conserva la ubicación actual aunque no sea posible resolver el cliente.
+          }
+        }
+
+        if (resolvedClientId) {
+          const locationData = await requestAvailable(
+            MODULE_ROUTES.clients.locationsList,
+            { clienteId: resolvedClientId, activo: true, page: 1, pageSize: 1000, sortBy: 'Nombre', sortDir: 'asc' },
+            sessionToken,
+          );
+          locations = normalizeItems(locationData).map(locationView).filter(Boolean);
+        }
+
+        if (!locations.length && locationId) {
+          locations = [{ id: String(locationId), name: '' }];
+        }
+
+        if (!active) return;
+        setClientLocations(locations);
+
+        const locationMap = new Map(locations.map((location) => [location.id, location]));
+        const showParent = locations.length > 1;
+        const results = await Promise.allSettled(locations.map((location) => requestAvailable(
+          MODULE_ROUTES.clients.equipmentLocationsList,
+          { ubicacionId: location.id, UbicacionID: location.id, activo: true, page: 1, pageSize: 1000, sortBy: 'Nombre', sortDir: 'asc' },
+          sessionToken,
+        )));
+
+        const fetched = results.flatMap((result, index) => {
+          if (result.status !== 'fulfilled') return [];
+          const parentId = locations[index]?.id || '';
+          return normalizeItems(result.value)
+            .map((row) => optionFromRow(row, locationMap, parentId, showParent))
+            .filter(Boolean);
+        });
+        const seeded = options
+          .map((option) => seedOption(option, locationMap, locationId, showParent))
+          .filter(Boolean);
+
+        if (!active) return;
+        setLoadedOptions(sortOptions(uniqueOptions([...fetched, ...seeded]), locationId));
+      } catch {
+        if (!active) return;
+        const fallbackMap = new Map();
+        setLoadedOptions(sortOptions(uniqueOptions(options.map((option) => seedOption(option, fallbackMap, locationId, false)).filter(Boolean)), locationId));
+      } finally {
+        if (active) setLoading(false);
+      }
+    }
+
+    loadClientEquipmentCatalog();
     return () => { active = false; };
   }, [locationId, sessionToken, options]);
 
   const currentOptions = useMemo(() => uniqueOptions(loadedOptions), [loadedOptions]);
+  const canCreate = canManageOperationalData && clientLocations.length > 0;
 
   function select(event) {
     const nextValue = String(event.target.value || '');
     const selected = currentOptions.find((option) => option.value === nextValue);
-    onChange?.(nextValue, selected?.label || '');
+    onChange?.(
+      nextValue,
+      selected?.name || selected?.label || '',
+      selected?.locationId || '',
+      selected?.locationName || '',
+    );
   }
 
   function openModal() {
-    setModalValues({ nombre: '', descripcion: '' });
+    const selected = currentOptions.find((option) => option.value === String(value || ''));
+    const preferredLocationId = selected?.locationId
+      || (clientLocations.some((location) => location.id === String(locationId || '')) ? String(locationId) : '')
+      || clientLocations[0]?.id
+      || '';
+    setModalValues({ nombre: '', descripcion: '', ubicacionId: preferredLocationId });
     setModalError('');
     setModalOpen(true);
   }
@@ -95,8 +192,9 @@ export default function MaintenanceEquipmentLocationSelect({
   async function submitModal(event) {
     event.preventDefault();
     const nombre = modalValues.nombre.trim();
-    if (!locationId) {
-      setModalError('Primero debe seleccionarse una ubicación general en el mantenimiento.');
+    const parentLocationId = String(modalValues.ubicacionId || '').trim();
+    if (!parentLocationId) {
+      setModalError('Seleccione la ubicación principal del cliente.');
       return;
     }
     if (!nombre) {
@@ -110,24 +208,47 @@ export default function MaintenanceEquipmentLocationSelect({
       const result = await requestAvailable(
         MODULE_ROUTES.clients.equipmentLocationsCreate,
         {
-          ubicacionId: locationId,
+          ubicacionId: parentLocationId,
+          UbicacionID: parentLocationId,
           nombre,
+          Nombre: nombre,
           descripcion: modalValues.descripcion,
+          Descripcion: modalValues.descripcion,
           activo: true,
+          Activo: true,
         },
         sessionToken,
       );
-      const created = toOption(result);
+      const locationMap = new Map(clientLocations.map((location) => [location.id, location]));
+      const created = optionFromRow(result, locationMap, parentLocationId, clientLocations.length > 1);
       if (!created) throw new Error('El servidor no devolvió la ubicación creada.');
-      setLoadedOptions((current) => uniqueOptions([...current, created]));
-      onChange?.(created.value, created.label);
+      setLoadedOptions((current) => sortOptions(uniqueOptions([...current, created]), locationId));
+      onChange?.(created.value, created.name, created.locationId, created.locationName);
       setModalOpen(false);
+
+      // Actualiza también el catálogo maestro utilizado por boletas, mantenimientos y modo offline.
+      requestAvailable(
+        MODULE_ROUTES.clients.equipmentLocationsList,
+        { page: 1, pageSize: 1000, activo: true, sortBy: 'Nombre', sortDir: 'asc' },
+        sessionToken,
+      ).catch(() => {});
+      window.dispatchEvent(new CustomEvent('dms-client-equipment-catalog-updated', {
+        detail: { locationId: parentLocationId, equipmentLocationId: created.value },
+      }));
     } catch (error) {
       setModalError(error.message || 'No se pudo crear la ubicación del equipo.');
     } finally {
       setModalSaving(false);
     }
   }
+
+  const placeholder = loading
+    ? 'Cargando ubicaciones del cliente...'
+    : clientLocations.length
+      ? 'Seleccione una ubicación del equipo'
+      : locationId
+        ? 'No hay ubicaciones de equipo registradas'
+        : 'Seleccione una ubicación general primero';
 
   return <>
     <DependentSelect
@@ -139,17 +260,29 @@ export default function MaintenanceEquipmentLocationSelect({
       canAdd={canCreate}
       onAdd={openModal}
       onChange={select}
-      placeholder={locationId ? 'Seleccione una opción' : 'Seleccione una ubicación general primero'}
+      placeholder={placeholder}
     />
     <InlineCreateModal
       open={modalOpen}
       title="Agregar ubicación del equipo"
-      description="La nueva ubicación quedará ligada a la ubicación general de este mantenimiento."
+      description="El nuevo valor se guardará en la ficha del cliente y quedará disponible para boletas y mantenimientos."
       saving={modalSaving}
       error={modalError}
       onClose={() => setModalOpen(false)}
       onSubmit={submitModal}
     >
+      {clientLocations.length > 0 && (
+        <label className="field-group">
+          <span className="field-label">Ubicación principal</span>
+          <select
+            className="form-control"
+            value={modalValues.ubicacionId}
+            onChange={(event) => setModalValues((current) => ({ ...current, ubicacionId: event.target.value }))}
+          >
+            {clientLocations.map((location) => <option key={location.id} value={location.id}>{location.name || 'Ubicación del mantenimiento'}</option>)}
+          </select>
+        </label>
+      )}
       <label className="field-group">
         <span className="field-label">Nombre</span>
         <input
