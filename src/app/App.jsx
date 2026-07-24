@@ -11,6 +11,7 @@ import CatalogsPage from '../pages/admin/CatalogsPage';
 import ClientsPage from '../pages/admin/ClientsPage';
 import LegacyTicketsImportPage from '../pages/admin/LegacyTicketsImportPage';
 import MetricsPage from '../pages/admin/MetricsPage';
+import AssistantPage from '../pages/assistant/AssistantPage';
 import KnowledgeCategoriesPage from '../pages/knowledge/KnowledgeCategoriesPage';
 import KnowledgeDetailPage from '../pages/knowledge/KnowledgeDetailPage';
 import KnowledgeEditorPage from '../pages/knowledge/KnowledgeEditorPage';
@@ -49,6 +50,7 @@ export default function App() {
       <Route path="/firmar/:token" element={<PublicSignaturePage />} />
       <Route path="/" element={<ProtectedRoute><AppShell /></ProtectedRoute>}>
         <Route index element={<HomePage />} />
+        <Route path="asistente" element={<AssistantPage />} />
         <Route path="boletas/pendientes" element={<PermissionRoute permission="BOLETAS_VER"><TicketListPage status="PENDIENTE" /></PermissionRoute>} />
         <Route path="boletas/finalizadas" element={<PermissionRoute permission="BOLETAS_VER"><TicketListPage status="FINALIZADA" /></PermissionRoute>} />
         <Route path="boletas/nueva" element={<PermissionRoute permission="BOLETAS_CREAR"><TicketFormPage mode="create" /></PermissionRoute>} />
