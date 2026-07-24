@@ -118,6 +118,9 @@ export default function MaintenanceFormPage({ mode = 'create' }) {
   }
 
   if (directDeviceMode) {
+    if (requestedNewDevice && !canAddExpectedDevice) {
+      return <div className="page"><div className="empty-state"><Icon name="rule" /><h2>Seleccione los tipos del mantenimiento</h2><p>Antes de agregar dispositivos, edite las cantidades esperadas y asigne un valor mayor que cero al menos a un tipo.</p><button className="button button--primary" type="button" onClick={() => navigate(`/mantenimientos/${encodeURIComponent(maintenanceId)}/editar`)}><Icon name="edit" />Editar cantidades</button><button className="button button--secondary" type="button" onClick={() => navigate(detailUrl)}><Icon name="arrow_back" />Volver al detalle</button></div></div>;
+    }
     return <div className="page"><div className="state-card state-card--loading"><Icon name="progress_activity" />Abriendo formulario del dispositivo...</div></div>;
   }
 
