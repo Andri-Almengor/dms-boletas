@@ -18,6 +18,8 @@ function isAppsScriptUrl(value) {
 function isReadRoute(route) {
   const value = String(route || '').toLowerCase();
   return value === 'auth.me'
+    || value === 'assistant.chat'
+    || value === 'asistente.chat'
     || value === 'config.get'
     || value === 'app.config.get'
     || value.endsWith('.list')
