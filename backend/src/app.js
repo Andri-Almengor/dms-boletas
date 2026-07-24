@@ -8,6 +8,7 @@ import './services/ticket-visibility.patch.js';
 import './services/maintenance-evidence-permissions.patch.js';
 import './services/maintenance-ticket-work-time.patch.js';
 import './services/metrics-assigned-hours.patch.js';
+import './services/metrics-dynamic-maintenance-counts.patch.js';
 import { env } from './config/env.js';
 import { dispatchAction } from './core/action-router.js';
 import { AppError } from './core/errors.js';
