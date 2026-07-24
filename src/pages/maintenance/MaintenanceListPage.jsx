@@ -43,13 +43,6 @@ function getId(row) {
 }
 
 function expectedDeviceTotal(row = {}) {
-  for (const key of ['DispositivosEsperados', 'CantidadEsperada']) {
-    if (row[key] !== undefined && row[key] !== null && row[key] !== '') {
-      const direct = Number(row[key]);
-      if (Number.isFinite(direct)) return Math.max(0, direct);
-    }
-  }
-
   let storedCounts = {};
   try {
     storedCounts = typeof row.CantidadesJSON === 'string'
@@ -59,10 +52,25 @@ function expectedDeviceTotal(row = {}) {
     storedCounts = {};
   }
 
-  return MAINTENANCE_COUNT_FIELDS.reduce((total, field) => {
-    const amount = Number(storedCounts[field] ?? row[field] ?? 0);
-    return total + (Number.isFinite(amount) ? Math.max(0, amount) : 0);
+  let hasCategoryCounts = false;
+  const total = MAINTENANCE_COUNT_FIELDS.reduce((sum, field) => {
+    const hasJsonValue = Object.prototype.hasOwnProperty.call(storedCounts, field);
+    const source = hasJsonValue ? storedCounts[field] : row[field];
+    if (source !== undefined && source !== null && source !== '') hasCategoryCounts = true;
+    const amount = Number(source ?? 0);
+    return sum + (Number.isFinite(amount) ? Math.max(0, amount) : 0);
   }, 0);
+
+  if (hasCategoryCounts) return total;
+
+  for (const key of ['DispositivosEsperados', 'CantidadEsperada']) {
+    if (row[key] !== undefined && row[key] !== null && row[key] !== '') {
+      const direct = Number(row[key]);
+      if (Number.isFinite(direct)) return Math.max(0, direct);
+    }
+  }
+
+  return 0;
 }
 
 export default function MaintenanceListPage() {
