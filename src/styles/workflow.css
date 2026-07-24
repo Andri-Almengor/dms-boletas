@@ -47,7 +47,8 @@
 .evidence-remove { position:absolute; top:7px; right:7px; width:34px; height:34px; border:0; border-radius:999px; background:rgba(255,255,255,.94); color:var(--danger); display:grid; place-items:center; box-shadow:var(--shadow-sm); }
 .review-action-grid { display:grid; grid-template-columns:repeat(2,minmax(0,1fr)); gap:9px; }
 .review-action-grid .button:last-child { grid-column:1 / -1; }
-.modal-layer, .filter-drawer-layer { position:fixed; inset:0; z-index:100; display:flex; align-items:flex-end; justify-content:center; }
+.modal-layer { position:fixed; inset:0; z-index:1400; display:flex; align-items:flex-end; justify-content:center; }
+.filter-drawer-layer { position:fixed; inset:0; z-index:100; display:flex; align-items:flex-end; justify-content:center; }
 .modal-backdrop { position:absolute; inset:0; border:0; background:rgba(27,28,28,.48); }
 .inline-modal { width:min(100%,620px); max-height:92vh; overflow:auto; position:relative; z-index:1; padding:20px; border-radius:22px 22px 0 0; background:var(--surface); box-shadow:var(--shadow-md); }
 .inline-modal__header { display:flex; align-items:flex-start; justify-content:space-between; gap:12px; margin-bottom:18px; }
