@@ -5,10 +5,14 @@ import { AppError, notFound } from '../core/errors.js';
 
 const headerCache = new Map();
 const tableCache = new Map();
+const staleTableCache = new Map();
 const inflightReads = new Map();
 const pendingReads = new Map();
-const headerCacheMs = 60_000;
+const headerCacheMs = 5 * 60_000;
 let readFlushTimer = null;
+let activeWrites = 0;
+let lastWriteStartedAt = 0;
+const writeWaiters = [];
 
 function quote(name) { return `'${String(name).replace(/'/g, "''")}'`; }
 function columnLetter(index) {
@@ -47,6 +51,10 @@ function isQuotaError(error) {
   return status === 429 || text.includes('quota exceeded') || text.includes('resource_exhausted') || text.includes('rate limit');
 }
 function sleep(milliseconds) { return new Promise((resolve) => setTimeout(resolve, milliseconds)); }
+function retryAfterMs(error) {
+  const value = Number(error?.response?.headers?.['retry-after'] || error?.response?.headers?.get?.('retry-after') || 0);
+  return Number.isFinite(value) && value > 0 ? value * 1000 : 0;
+}
 async function withQuotaRetry(operation) {
   let lastError;
   for (let attempt = 0; attempt <= env.sheetsQuotaRetries; attempt += 1) {
@@ -55,8 +63,9 @@ async function withQuotaRetry(operation) {
     } catch (error) {
       lastError = error;
       if (!isQuotaError(error) || attempt >= env.sheetsQuotaRetries) break;
-      const jitter = Math.floor(Math.random() * 300);
-      const delay = Math.min(env.sheetsQuotaBackoffMs * (2 ** attempt) + jitter, 8000);
+      const jitter = Math.floor(Math.random() * 500);
+      const exponential = env.sheetsQuotaBackoffMs * (2 ** attempt) + jitter;
+      const delay = Math.max(retryAfterMs(error), Math.min(exponential, env.sheetsQuotaMaxBackoffMs));
       await sleep(delay);
     }
   }
@@ -65,11 +74,36 @@ async function withQuotaRetry(operation) {
       'SHEETS_QUOTA_EXCEEDED',
       'Google Sheets está recibiendo demasiadas lecturas o escrituras. Espere unos segundos y vuelva a intentarlo.',
       429,
-      { retryAfterSeconds: 60 },
+      { retryAfterSeconds: Math.max(5, Math.ceil(env.sheetsQuotaMaxBackoffMs / 1000)) },
     );
   }
   throw lastError;
 }
+
+async function acquireWriteSlot() {
+  if (activeWrites < env.sheetsMaxConcurrentWrites) {
+    activeWrites += 1;
+    return;
+  }
+  await new Promise((resolve) => writeWaiters.push(resolve));
+  activeWrites += 1;
+}
+function releaseWriteSlot() {
+  activeWrites = Math.max(0, activeWrites - 1);
+  writeWaiters.shift()?.();
+}
+async function withWriteSlot(operation) {
+  await acquireWriteSlot();
+  try {
+    const remaining = env.sheetsWriteMinIntervalMs - (Date.now() - lastWriteStartedAt);
+    if (remaining > 0) await sleep(remaining);
+    lastWriteStartedAt = Date.now();
+    return await withQuotaRetry(operation);
+  } finally {
+    releaseWriteSlot();
+  }
+}
+
 function parseTable(values = []) {
   const rows = values.map((row) => [...row]);
   const headers = (rows.shift() || []).map(String);
@@ -80,17 +114,51 @@ function parseTable(values = []) {
   }).filter((item) => item.hasData).map((item) => item.record);
   return { headers: headers.filter(Boolean), records };
 }
-function getCachedTable(sheetName) {
+function getCachedEntry(sheetName) {
   const cached = tableCache.get(sheetName);
   if (!cached || env.sheetsCacheTtlMs <= 0 || Date.now() - cached.at >= env.sheetsCacheTtlMs) return null;
-  return cached.records;
+  return cached;
 }
-export function invalidateTableCache(sheetName) {
-  tableCache.delete(sheetName);
+function getCachedTable(sheetName) { return getCachedEntry(sheetName)?.records || null; }
+function setTableCache(sheetName, records, at = Date.now()) {
+  const entry = { at, records };
+  tableCache.set(sheetName, entry);
+  staleTableCache.set(sheetName, entry);
 }
+export function invalidateTableCache(sheetName) { tableCache.delete(sheetName); }
 function invalidateSheetCaches(sheetName) {
   tableCache.delete(sheetName);
   headerCache.delete(sheetName);
+}
+function parseUpdatedStartRow(updatedRange = '') {
+  const match = String(updatedRange).match(/![A-Z]+(\d+):[A-Z]+\d+$/i);
+  return match ? Number(match[1]) : 0;
+}
+function appendToCachedTable(sheetName, headers, records, updatedRange) {
+  const cached = tableCache.get(sheetName);
+  if (!cached) {
+    invalidateTableCache(sheetName);
+    return;
+  }
+  const fallbackStart = cached.records.reduce((max, row) => Math.max(max, Number(row.__rowNumber || 0)), 1) + 1;
+  const startRow = parseUpdatedStartRow(updatedRange) || fallbackStart;
+  const appended = records.map((record, index) => {
+    const normalized = { __rowNumber: startRow + index };
+    headers.forEach((header) => { normalized[header] = normalizeValue(header, writable(record[header])); });
+    return normalized;
+  });
+  setTableCache(sheetName, [...cached.records, ...appended]);
+}
+function patchCachedRow(sheetName, rowNumber, patch) {
+  const cached = tableCache.get(sheetName);
+  if (!cached) {
+    invalidateTableCache(sheetName);
+    return;
+  }
+  const records = cached.records.map((row) => Number(row.__rowNumber) === Number(rowNumber)
+    ? { ...row, ...patch, __rowNumber: row.__rowNumber }
+    : row);
+  setTableCache(sheetName, records);
 }
 
 async function flushPendingReads() {
@@ -120,7 +188,7 @@ async function flushPendingReads() {
 
     namesToLoad.forEach((sheetName, index) => {
       const parsed = parseTable(data.valueRanges?.[index]?.values || []);
-      tableCache.set(sheetName, { at: Date.now(), records: parsed.records });
+      setTableCache(sheetName, parsed.records);
       headerCache.set(sheetName, { at: Date.now(), headers: parsed.headers });
       inflightReads.delete(sheetName);
       batch.get(sheetName)?.resolve(parsed.records);
@@ -132,11 +200,9 @@ async function flushPendingReads() {
     });
   }
 }
-
 function queueTableRead(sheetName) {
   const existing = inflightReads.get(sheetName);
   if (existing) return existing;
-
   let resolve;
   let reject;
   const promise = new Promise((res, rej) => { resolve = res; reject = rej; });
@@ -152,24 +218,31 @@ export async function getHeaders(sheetName, force = false) {
   await readTable(sheetName, { force });
   return headerCache.get(sheetName)?.headers || [];
 }
-
 export async function readTable(sheetName, options = {}) {
   if (!TABLES[sheetName]) throw new Error(`Tabla no registrada: ${sheetName}`);
+  const cachedEntry = tableCache.get(sheetName);
   if (!options.force) {
     const cached = getCachedTable(sheetName);
     if (cached) return cached;
+  } else if (cachedEntry && Date.now() - cachedEntry.at < env.sheetsForceCoalesceMs) {
+    return cachedEntry.records;
   } else {
     invalidateTableCache(sheetName);
   }
-  return queueTableRead(sheetName);
-}
 
+  try {
+    return await queueTableRead(sheetName);
+  } catch (error) {
+    const stale = staleTableCache.get(sheetName)?.records;
+    if (!options.force && isQuotaError(error) && stale) return stale;
+    throw error;
+  }
+}
 export async function readTables(sheetNames, options = {}) {
   const names = [...new Set(sheetNames || [])];
   const values = await Promise.all(names.map((sheetName) => readTable(sheetName, options)));
   return Object.fromEntries(names.map((sheetName, index) => [sheetName, values[index]]));
 }
-
 export async function findById(sheetName, idValue, idColumn = TABLES[sheetName]?.id) {
   const rows = await readTable(sheetName);
   const row = rows.find((item) => String(item[idColumn] ?? '') === String(idValue ?? ''));
@@ -180,8 +253,12 @@ export async function findById(sheetName, idValue, idColumn = TABLES[sheetName]?
 export async function ensureColumns(sheetName, requestedColumns = []) {
   const columns = [...new Set((requestedColumns || []).map((value) => String(value || '').trim()).filter(Boolean))];
   if (!columns.length) return getHeaders(sheetName);
-  const headers = await getHeaders(sheetName, true);
-  const missing = columns.filter((column) => !headers.includes(column));
+  let headers = await getHeaders(sheetName);
+  let missing = columns.filter((column) => !headers.includes(column));
+  if (!missing.length) return headers;
+
+  headers = await getHeaders(sheetName, true);
+  missing = columns.filter((column) => !headers.includes(column));
   if (!missing.length) return headers;
 
   const { data } = await withQuotaRetry(() => sheetsApi.spreadsheets.get({
@@ -193,23 +270,15 @@ export async function ensureColumns(sheetName, requestedColumns = []) {
   const requiredColumns = headers.length + missing.length;
   const currentColumns = Number(metadata.gridProperties?.columnCount || 0);
   if (currentColumns < requiredColumns) {
-    await withQuotaRetry(() => sheetsApi.spreadsheets.batchUpdate({
+    await withWriteSlot(() => sheetsApi.spreadsheets.batchUpdate({
       spreadsheetId: env.sheetId,
-      requestBody: {
-        requests: [{
-          appendDimension: {
-            sheetId: metadata.sheetId,
-            dimension: 'COLUMNS',
-            length: requiredColumns - currentColumns,
-          },
-        }],
-      },
+      requestBody: { requests: [{ appendDimension: { sheetId: metadata.sheetId, dimension: 'COLUMNS', length: requiredColumns - currentColumns } }] },
     }));
   }
 
   const start = columnLetter(headers.length);
   const end = columnLetter(requiredColumns - 1);
-  await withQuotaRetry(() => sheetsApi.spreadsheets.values.update({
+  await withWriteSlot(() => sheetsApi.spreadsheets.values.update({
     spreadsheetId: env.sheetId,
     range: `${quote(sheetName)}!${start}1:${end}1`,
     valueInputOption: 'RAW',
@@ -226,27 +295,24 @@ export async function appendRows(sheetName, records = [], options = {}) {
   const chunkSize = Math.max(1, Math.min(500, Number(options.chunkSize || 300)));
   for (let offset = 0; offset < records.length; offset += chunkSize) {
     const chunk = records.slice(offset, offset + chunkSize);
-    await withQuotaRetry(() => sheetsApi.spreadsheets.values.append({
+    const response = await withWriteSlot(() => sheetsApi.spreadsheets.values.append({
       spreadsheetId: env.sheetId,
       range: `${quote(sheetName)}!A1`,
       valueInputOption: 'USER_ENTERED',
       insertDataOption: 'INSERT_ROWS',
       requestBody: { values: chunk.map((record) => headers.map((header) => writable(record[header]))) },
     }));
+    appendToCachedTable(sheetName, headers, chunk, response?.data?.updates?.updatedRange);
   }
-  invalidateTableCache(sheetName);
   return records;
 }
-
 export async function appendRow(sheetName, record) {
   await appendRows(sheetName, [record], { chunkSize: 1 });
   return record;
 }
-
 export async function updateRow(sheetName, idValue, patch, idColumn = TABLES[sheetName]?.id) {
   const headers = await getHeaders(sheetName);
   if (!headers.length) throw new Error(`La hoja ${sheetName} no tiene encabezados.`);
-
   const current = await findById(sheetName, idValue, idColumn);
   const merged = { ...current, ...patch };
   const writableFields = Object.entries(patch || {}).filter(([header]) => headers.includes(header));
@@ -256,10 +322,12 @@ export async function updateRow(sheetName, idValue, patch, idColumn = TABLES[she
       const column = columnLetter(headers.indexOf(header));
       return { range: `${quote(sheetName)}!${column}${current.__rowNumber}`, values: [[writable(value)]] };
     });
-
     try {
-      await withQuotaRetry(() => sheetsApi.spreadsheets.values.batchUpdate({ spreadsheetId: env.sheetId, requestBody: { valueInputOption: 'USER_ENTERED', data } }));
-      invalidateTableCache(sheetName);
+      await withWriteSlot(() => sheetsApi.spreadsheets.values.batchUpdate({
+        spreadsheetId: env.sheetId,
+        requestBody: { valueInputOption: 'USER_ENTERED', data },
+      }));
+      patchCachedRow(sheetName, current.__rowNumber, Object.fromEntries(writableFields));
     } catch (error) {
       if (isProtectedRangeError(error)) {
         throw new AppError('SHEET_PROTECTED_RANGE', `La cuenta de servicio no puede editar una o más columnas protegidas de la hoja ${sheetName}.`, 403, { sheetName, rowNumber: current.__rowNumber, columns: writableFields.map(([header]) => header) });
@@ -271,11 +339,9 @@ export async function updateRow(sheetName, idValue, patch, idColumn = TABLES[she
   delete merged.__rowNumber;
   return merged;
 }
-
 export async function softDelete(sheetName, idValue, actor = '') {
   return updateRow(sheetName, idValue, { Activo: false, Estado: 'INACTIVO', ActualizadoPor: actor, FechaActualizacion: new Date().toISOString() });
 }
-
 export function filterRows(rows, payload = {}, searchFields = []) {
   const search = String(payload.search || payload.q || '').trim().toLowerCase();
   let result = rows.filter((row) => {
