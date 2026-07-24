@@ -11,6 +11,19 @@ function normalizedKey(value) {
   return String(value || '').replace(/[^a-z0-9]/gi, '').toLowerCase();
 }
 
+function normalizedName(value) {
+  return String(value || '')
+    .normalize('NFD')
+    .replace(/[\u0300-\u036f]/g, '')
+    .trim()
+    .toLowerCase()
+    .replace(/\s+/g, ' ');
+}
+
+function isActiveRecord(row) {
+  return String(row?.Estado || 'ACTIVO').toUpperCase() !== 'INACTIVO' && row?.Activo !== false;
+}
+
 function payloadHasCanonicalField(payload, canonicalField) {
   const expected = normalizedKey(canonicalField);
   return Object.keys(payload || {}).some((key) => normalizedKey(key) === expected);
@@ -54,6 +67,61 @@ function sanitizeClientRow(row, ctx) {
   const configured = Boolean(row.ChatWebhook || row.ChatWebhookURL);
   const { ChatWebhook: _chatWebhook, ChatWebhookURL: _chatWebhookUrl, ...safe } = row;
   return { ...safe, ChatConfigurado: configured };
+}
+
+async function ensureModelRelationship(ctx, mapped, currentModelId = '') {
+  const typeId = String(mapped.TipoDispositivoID || '').trim();
+  const manufacturerId = String(mapped.FabricanteID || '').trim();
+  const name = String(mapped.Nombre || '').trim();
+
+  if (!typeId || !manufacturerId) {
+    throw badRequest('Para agregar un modelo seleccione primero el tipo de dispositivo y el fabricante.');
+  }
+
+  const [deviceTypes, manufacturers, relations, models] = await Promise.all([
+    readTable('TiposDispositivo'),
+    readTable('Fabricantes'),
+    readTable('TipoDispositivoFabricantes'),
+    readTable('Modelos'),
+  ]);
+
+  const deviceType = deviceTypes.find((row) => String(row.TipoDispositivoID) === typeId && isActiveRecord(row));
+  if (!deviceType) throw badRequest('El tipo de dispositivo seleccionado no existe o está inactivo.');
+
+  const manufacturer = manufacturers.find((row) => String(row.FabricanteID) === manufacturerId && isActiveRecord(row));
+  if (!manufacturer) throw badRequest('El fabricante seleccionado no existe o está inactivo.');
+
+  const duplicate = models.find((row) => (
+    String(row.ModeloID) !== String(currentModelId || '')
+    && String(row.TipoDispositivoID) === typeId
+    && String(row.FabricanteID) === manufacturerId
+    && normalizedName(row.Nombre) === normalizedName(name)
+    && isActiveRecord(row)
+  ));
+
+  const existingRelation = relations.find((row) => (
+    String(row.TipoDispositivoID) === typeId
+    && String(row.FabricanteID) === manufacturerId
+    && isActiveRecord(row)
+  ));
+
+  if (!existingRelation) {
+    const relation = {
+      RelacionID: uuid(),
+      TipoDispositivoID: typeId,
+      FabricanteID: manufacturerId,
+      Activo: true,
+      Estado: 'ACTIVO',
+      CreadoPor: ctx.user.UsuarioID,
+      FechaCreacion: nowIso(),
+      ActualizadoPor: ctx.user.UsuarioID,
+      FechaActualizacion: nowIso(),
+    };
+    await appendRow('TipoDispositivoFabricantes', relation);
+    await audit(ctx, 'CREAR_TIPODISPOSITIVOFABRICANTES', 'TipoDispositivoFabricantes', relation.RelacionID, null, relation);
+  }
+
+  return { duplicate, deviceType, manufacturer };
 }
 
 export const CRUD_DEFINITIONS = Object.freeze({
@@ -119,11 +187,17 @@ export function crudHandlers(definitionKey) {
       let rows = await readTable(def.table);
       const includeInactive = asBool(payload.includeInactive, false) && canIncludeInactive(ctx, definitionKey);
       if (!includeInactive) {
-        rows = rows.filter((row) => String(row.Estado || 'ACTIVO').toUpperCase() !== 'INACTIVO' && row.Activo !== false);
+        rows = rows.filter((row) => isActiveRecord(row));
       }
       if (def.parent) {
         const parentValue = payload[def.parent] ?? payload[def.parent.charAt(0).toLowerCase() + def.parent.slice(1)] ?? payload.clienteId ?? payload.ubicacionId;
         if (parentValue) rows = rows.filter((row) => String(row[def.parent]) === String(parentValue));
+      }
+      if (definitionKey === 'models') {
+        const typeId = pick(payload, ['TipoDispositivoID', 'tipoDispositivoId']);
+        const manufacturerId = pick(payload, ['FabricanteID', 'fabricanteId']);
+        if (typeId) rows = rows.filter((row) => String(row.TipoDispositivoID) === String(typeId));
+        if (manufacturerId) rows = rows.filter((row) => String(row.FabricanteID) === String(manufacturerId));
       }
       const result = filterRows(rows, payload, def.search);
       if (definitionKey === 'clients') result.items = result.items.map((row) => sanitizeClientRow(row, ctx));
@@ -139,6 +213,12 @@ export function crudHandlers(definitionKey) {
       const mapped = def.map(ctx.payload);
       if (!mapped.Nombre && ['clients','clientLocations','equipmentLocations','categories','deviceTypes','manufacturers','models','failureTypes','knowledgeCategories'].includes(definitionKey)) throw badRequest('El nombre es obligatorio.');
       if (def.parent && !mapped[def.parent]) throw badRequest('Falta la relación principal del registro.');
+
+      if (definitionKey === 'models') {
+        const { duplicate } = await ensureModelRelationship(ctx, mapped);
+        if (duplicate) return duplicate;
+      }
+
       const status = mapped.Estado || 'ACTIVO';
       const row = { [def.id]: uuid(), ...mapped, Activo: status !== 'INACTIVO', Estado: status, CreadoPor: ctx.user.UsuarioID, FechaCreacion: nowIso(), ActualizadoPor: ctx.user.UsuarioID, FechaActualizacion: nowIso() };
       await appendRow(def.table, row); await audit(ctx, `CREAR_${def.table.toUpperCase()}`, def.table, row[def.id], null, row); return row;
@@ -148,6 +228,13 @@ export function crudHandlers(definitionKey) {
       const before = (await readTable(def.table)).find((row) => String(row[def.id]) === String(id));
       if (!before) throw badRequest('No se encontró el registro.');
       const mapped = mappedUpdatePatch(definitionKey, def, ctx.payload);
+
+      if (definitionKey === 'models') {
+        const nextModel = { ...before, ...mapped };
+        const { duplicate } = await ensureModelRelationship(ctx, nextModel, id);
+        if (duplicate) throw badRequest('Ya existe un modelo con ese nombre para el mismo tipo de dispositivo y fabricante.');
+      }
+
       const requestedStatus = pick(ctx.payload,['Estado','status'],before.Estado || 'ACTIVO');
       const patch = {
         ...mapped,
