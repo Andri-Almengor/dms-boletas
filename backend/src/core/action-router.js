@@ -5,7 +5,7 @@ import { login, authenticate, logout, changePassword } from '../services/auth.se
 import { safeUser } from '../services/permissions.service.js';
 import { rewriteTechnicalReport } from '../services/gemini.service.js';
 import { rewriteKnowledgeTutorial } from '../services/knowledge-gemini.service.js';
-import { assistantDeviceCatalogHandlers } from '../modules/assistant-device-catalog.module.js';
+import { assistantOperationalReportHandlers } from '../modules/assistant-operational-report.module.js';
 import { usersHandlers } from '../modules/users.module.js';
 import { crudHandlers } from '../modules/crud.module.js';
 import { ticketMultiHandlers as ticketHandlers } from '../modules/ticket-multi.module.js';
@@ -13,6 +13,7 @@ import { ticketDeliveryHandlers } from '../modules/ticket-delivery.module.js';
 import { ticketGroupSignatureHandlers as ticketSignatureHandlers } from '../modules/ticket-group-signature.module.js';
 import { publicSignatureHandlers } from '../modules/public-signature.module.js';
 import { maintenanceDeviceCountPolicyHandlers as maintenanceAutomationHandlers } from '../modules/maintenance-device-count-policy.module.js';
+import { maintenanceScalableImageHandlers } from '../modules/maintenance-scalable-images.module.js';
 import { maintenanceSignatureHandlers } from '../modules/maintenance-signature.module.js';
 import { knowledgeHandlers } from '../modules/knowledge.module.js';
 import { surveyHandlers } from '../modules/survey.module.js';
@@ -36,7 +37,7 @@ add('users.update',usersHandlers.update,'USUARIOS_GESTIONAR');
 add(['users.password.reset','users.resetPassword','usuarios.contrasena.restablecer'],usersHandlers.resetPassword,'USUARIOS_GESTIONAR');
 add('roles.list',usersHandlers.roles,'USUARIOS_VER');
 add(['config.get','app.config.get'],getClientConfig);
-add(['assistant.chat','asistente.chat'],assistantDeviceCatalogHandlers.chat);
+add(['assistant.chat','asistente.chat'],assistantOperationalReportHandlers.chat);
 add(['metrics.tickets.get','metricas.boletas.get'],metricsHandlers.tickets,'USUARIOS_GESTIONAR');
 add(['metrics.maintenance.get','metricas.mantenimientos.get'],metricsHandlers.maintenance,'USUARIOS_GESTIONAR');
 add(['legacy.tickets.preview','migracion.boletas.previsualizar'],legacyTicketImportHandlers.preview,'USUARIOS_GESTIONAR');
@@ -126,7 +127,7 @@ for(const [key,names] of Object.entries(ticketAliases)) {
   add(names,handler,permission);
 }
 
-const maintenanceAliases={list:['maintenance.list','mantenimientos.list'],get:['maintenance.get','mantenimientos.get'],create:['maintenance.create','mantenimientos.create'],update:['maintenance.update','mantenimientos.update'],delete:['maintenance.delete','mantenimientos.delete'],finalize:['maintenance.finalize','mantenimientos.finalize'],reopen:['maintenance.reopen','mantenimientos.reopen'],deviceCreate:['maintenance.devices.create','mantenimientos.dispositivos.create'],deviceUpdate:['maintenance.devices.update','mantenimientos.dispositivos.update'],deviceAutosave:['maintenance.devices.autosave','mantenimientos.dispositivos.autosave'],deviceDelete:['maintenance.devices.delete','mantenimientos.dispositivos.delete'],imageUpload:['maintenance.images.upload','mantenimientos.imagenes.upload'],imageUpdate:['maintenance.images.update','mantenimientos.imagenes.update'],imageDelete:['maintenance.images.delete','mantenimientos.imagenes.delete'],mediaGet:['maintenance.media.get','mantenimientos.media.get'],spreadsheetReport:['maintenance.report.spreadsheet','mantenimientos.reporte.excel'],slidesReport:['maintenance.report.slides','mantenimientos.reporte.presentacion'],ticketGenerationTest:['maintenance.tickets.test','mantenimientos.boletas.probar'],signatureLink:['maintenance.signature.link','mantenimientos.firma.enlace'],signatureTestLink:['maintenance.signature.test.link','mantenimientos.firma.prueba.enlace'],config:['maintenance.config','mantenimientos.config']};
+const maintenanceAliases={list:['maintenance.list','mantenimientos.list'],get:['maintenance.get','mantenimientos.get'],create:['maintenance.create','mantenimientos.create'],update:['maintenance.update','mantenimientos.update'],delete:['maintenance.delete','mantenimientos.delete'],finalize:['maintenance.finalize','mantenimientos.finalize'],reopen:['maintenance.reopen','mantenimientos.reopen'],deviceCreate:['maintenance.devices.create','mantenimientos.dispositivos.create'],deviceUpdate:['maintenance.devices.update','mantenimientos.dispositivos.update'],deviceAutosave:['maintenance.devices.autosave','mantenimientos.dispositivos.autosave'],deviceDelete:['maintenance.devices.delete','mantenimientos.dispositivos.delete'],imageUpload:['maintenance.images.upload','mantenimientos.imagenes.upload'],imageUploadBatch:['maintenance.images.uploadBatch','mantenimientos.imagenes.subirLote'],imageUpdate:['maintenance.images.update','mantenimientos.imagenes.update'],imageUpdateBatch:['maintenance.images.updateBatch','mantenimientos.imagenes.actualizarLote'],imageDelete:['maintenance.images.delete','mantenimientos.imagenes.delete'],mediaGet:['maintenance.media.get','mantenimientos.media.get'],spreadsheetReport:['maintenance.report.spreadsheet','mantenimientos.reporte.excel'],slidesReport:['maintenance.report.slides','mantenimientos.reporte.presentacion'],ticketGenerationTest:['maintenance.tickets.test','mantenimientos.boletas.probar'],signatureLink:['maintenance.signature.link','mantenimientos.firma.enlace'],signatureTestLink:['maintenance.signature.test.link','mantenimientos.firma.prueba.enlace'],config:['maintenance.config','mantenimientos.config']};
 const maintenanceReadPermissions=['MANTENIMIENTOS_VER','MANTENIMIENTOS_CREAR','MANTENIMIENTOS_EDITAR','MANTENIMIENTOS_GESTIONAR','BOLETAS_VER'];
 const maintenanceCreatePermissions=['MANTENIMIENTOS_CREAR','MANTENIMIENTOS_GESTIONAR','BOLETAS_CREAR'];
 const maintenanceEditPermissions=['MANTENIMIENTOS_EDITAR','MANTENIMIENTOS_GESTIONAR','BOLETAS_EDITAR'];
@@ -140,7 +141,11 @@ for(const [key,names] of Object.entries(maintenanceAliases)) {
     ? maintenanceSignatureHandlers.link
     : key === 'signatureTestLink'
       ? maintenanceSignatureHandlers.testLink
-      : maintenanceAutomationHandlers[key];
+      : key === 'imageUploadBatch'
+        ? maintenanceScalableImageHandlers.uploadBatch
+        : key === 'imageUpdateBatch'
+          ? maintenanceScalableImageHandlers.updateBatch
+          : maintenanceAutomationHandlers[key];
   add(names,handler,permission);
 }
 
