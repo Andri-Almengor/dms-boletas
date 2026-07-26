@@ -20,6 +20,8 @@ function normalizedRoute(route) {
 function isReadRoute(route) {
   const value = normalizedRoute(route);
   return value === 'auth.me'
+    || value === 'assistant.chat'
+    || value === 'asistente.chat'
     || value === 'config.get'
     || value === 'app.config.get'
     || value.endsWith('.list')
