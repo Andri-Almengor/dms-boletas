@@ -48,6 +48,14 @@ export const env = Object.freeze({
   sheetsGlobalWriteMinIntervalMs: optionalNumber('SHEETS_GLOBAL_WRITE_MIN_INTERVAL_MS', 1_500, 0),
   sheetsGlobalReadCacheMs: optionalNumber('SHEETS_GLOBAL_READ_CACHE_MS', 15_000, 0),
 
+  // Los límites siguientes son por solicitud, no por mantenimiento. El total
+  // de dispositivos y evidencias permanece abierto; el cliente divide el
+  // trabajo automáticamente en todos los lotes que sean necesarios.
+  maintenanceImageBatchMaxFiles: optionalNumber('MAINTENANCE_IMAGE_BATCH_MAX_FILES', 20, 1),
+  maintenanceImageBatchMaxBase64Chars: optionalNumber('MAINTENANCE_IMAGE_BATCH_MAX_BASE64_CHARS', 22_000_000, 1_000_000),
+  maintenanceImageMetadataBatchMaxItems: optionalNumber('MAINTENANCE_IMAGE_METADATA_BATCH_MAX_ITEMS', 100, 1),
+  maintenanceImageUploadConcurrency: optionalNumber('MAINTENANCE_IMAGE_UPLOAD_CONCURRENCY', 3, 1),
+
   // Auditoría no bloqueante. Varias filas se agregan con una sola escritura.
   auditFlushMs: optionalNumber('AUDIT_FLUSH_MS', 5_000, 500),
   auditBatchSize: optionalNumber('AUDIT_BATCH_SIZE', 100, 1),
