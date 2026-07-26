@@ -2,6 +2,10 @@ import http from 'node:http';
 import { app } from './app.js';
 import { env } from './config/env.js';
 import { concurrencyMiddleware, concurrencySnapshot } from './middleware/concurrency.middleware.js';
+import { readTables } from './infra/sheets.repository.js';
+import { googleSheetsGateSnapshot } from './infra/google.js';
+import { auditQueueSnapshot, flushAuditQueue } from './services/audit.service.js';
+import { actionConcurrencySnapshot } from './services/action-concurrency.service.js';
 
 function mb(value) {
   return Math.round((Number(value || 0) / 1024 / 1024) * 10) / 10;
@@ -23,6 +27,9 @@ function sendHealth(res) {
       heapTotalMb: mb(memory.heapTotal),
     },
     concurrency: concurrencySnapshot(),
+    actions: actionConcurrencySnapshot(),
+    sheets: googleSheetsGateSnapshot(),
+    audit: auditQueueSnapshot(),
   }));
 }
 
@@ -61,13 +68,49 @@ server.maxRequestsPerSocket = 1000;
 server.listen(env.port, '0.0.0.0', () => {
   console.log(`DMS backend escuchando en el puerto ${env.port}`);
   console.log(`Concurrencia HTTP: ${env.httpMaxConcurrentRequests}; solicitudes grandes: ${env.httpMaxConcurrentLargeRequests}`);
+
+  // Una sola lectura batch prepara autenticación, permisos y catálogos antes
+  // de que varios técnicos abran la aplicación al mismo tiempo después de un
+  // reinicio de Render. No bloquea el arranque ni el health check.
+  setTimeout(() => {
+    readTables([
+      'Sesiones',
+      'Usuarios',
+      'Roles',
+      'Permisos',
+      'RolPermisos',
+      'UsuarioPermisos',
+      'Clientes',
+      'ClienteUbicaciones',
+      'ClienteUbicacionesEquipo',
+      'ClienteContactos',
+      'Categorias',
+      'TiposDispositivo',
+      'Fabricantes',
+      'Modelos',
+      'TiposFalla',
+      'TipoDispositivoFabricantes',
+    ]).then(() => {
+      console.log('Caché crítica de Sheets precargada correctamente.');
+    }).catch((error) => {
+      console.warn(`No se pudo precargar la caché de Sheets: ${error.message}`);
+    });
+  }, 750).unref?.();
 });
 
+let shuttingDown = false;
 function shutdown(signal) {
+  if (shuttingDown) return;
+  shuttingDown = true;
   console.log(`${signal}: cerrando servidor...`);
-  server.close(() => process.exit(0));
+
+  server.close(async () => {
+    await flushAuditQueue().catch(() => {});
+    process.exit(0);
+  });
   server.closeIdleConnections?.();
-  setTimeout(() => {
+  setTimeout(async () => {
+    await flushAuditQueue().catch(() => {});
     server.closeAllConnections?.();
     process.exit(1);
   }, env.shutdownGraceMs).unref();

@@ -1,10 +1,12 @@
 const APPS_SCRIPT_FALLBACK = 'https://script.google.com/macros/s/AKfycbzGZuFbXWJn3y4hbfSGRFeaJfWufu2xaDnoAb9dFZl4DklRXiuFU9-GSb-q2hnY7O6pmQ/exec';
 const SAME_ORIGIN_NODE_API = '/api/action';
-const READ_CACHE_MS = 4000;
+const READ_CACHE_MS = 15_000;
+const READ_STALE_MS = 5 * 60_000;
 const TRANSIENT_BACKEND_STATUSES = new Set([502, 503, 504]);
 const TRANSIENT_RETRY_DELAYS_MS = [700, 1500, 2800];
 const pendingReads = new Map();
 const recentReads = new Map();
+let writeEpoch = 0;
 
 export const API_URL = String(
   import.meta.env.VITE_API_URL
@@ -59,6 +61,11 @@ function transientError(error) {
     || text.includes('load failed');
 }
 
+function isSheetsQuotaError(error) {
+  return Number(error?.status || 0) === 429
+    || String(error?.code || '').toUpperCase() === 'SHEETS_QUOTA_EXCEEDED';
+}
+
 function invalidResponseError(response) {
   const temporary = TRANSIENT_BACKEND_STATUSES.has(Number(response.status));
   const error = new Error(temporary
@@ -102,6 +109,7 @@ async function performRequest(route, payload, sessionToken) {
     error.code = result?.error?.code || (temporary ? 'BACKEND_TEMPORARILY_UNAVAILABLE' : 'API_ERROR');
     error.details = result?.error?.details || null;
     error.status = response.status;
+    error.retryAfterSeconds = Number(response.headers.get('retry-after') || error.details?.retryAfterSeconds || 0);
     error.retryable = temporary;
     throw error;
   }
@@ -116,6 +124,8 @@ async function performRequestWithRetry(route, payload, sessionToken) {
       return await performRequest(route, payload, sessionToken);
     } catch (error) {
       lastError = error;
+      // Los 429 de Sheets no se reintentan desde cada navegador. El backend
+      // centraliza el backoff para evitar que muchos teléfonos creen una tormenta.
       if (!transientError(error) || attempt === TRANSIENT_RETRY_DELAYS_MS.length) throw error;
       await wait(TRANSIENT_RETRY_DELAYS_MS[attempt]);
     }
@@ -123,24 +133,82 @@ async function performRequestWithRetry(route, payload, sessionToken) {
   throw lastError;
 }
 
+function writeFamilies(route) {
+  const value = String(route || '').toLowerCase();
+  if (/(maintenance|mantenimientos)/.test(value)) return ['maintenance', 'mantenimientos', 'metricas.mantenimientos', 'metrics.maintenance', 'assistant', 'asistente'];
+  if (/(boletas|tickets)/.test(value)) return ['boletas', 'tickets', 'metricas.boletas', 'metrics.tickets', 'survey', 'encuesta', 'assistant', 'asistente'];
+  if (/(clients|clientes|ubicaciones|contacts|contactos)/.test(value)) return ['clients', 'clientes', 'ubicaciones', 'contacts', 'contactos', 'maintenance', 'mantenimientos', 'boletas', 'tickets', 'assistant', 'asistente'];
+  if (/(catalog|categor|deviceTypes|tiposDispositivo|manufacturers|fabricantes|models|modelos|failureTypes|tiposFalla)/i.test(value)) return ['catalog', 'categor', 'devicetypes', 'tiposdispositivo', 'manufacturers', 'fabricantes', 'models', 'modelos', 'failuretypes', 'tiposfalla', 'maintenance', 'mantenimientos', 'assistant', 'asistente'];
+  if (/(knowledge|conocimiento|tutorial)/.test(value)) return ['knowledge', 'conocimiento', 'tutorial', 'assistant', 'asistente'];
+  if (/(users|usuarios|roles|permissions|permisos|auth)/.test(value)) return ['*'];
+  return [value.split('.')[0]];
+}
+
+function invalidateRelatedReads(route) {
+  const families = writeFamilies(route);
+  if (families.includes('*')) {
+    recentReads.clear();
+    return;
+  }
+  for (const [key, entry] of recentReads.entries()) {
+    const readRoute = String(entry.route || key).toLowerCase();
+    if (families.some((family) => family && readRoute.includes(family))) recentReads.delete(key);
+  }
+}
+
+function notifyDegradedMode(route, error) {
+  try {
+    globalThis.dispatchEvent?.(new CustomEvent('dms-sheets-degraded', {
+      detail: {
+        route,
+        message: 'Se muestran datos recientes guardados mientras Google Sheets recupera disponibilidad.',
+        retryAfterSeconds: error?.retryAfterSeconds || error?.details?.retryAfterSeconds || 60,
+      },
+    }));
+  } catch {
+    // La notificación visual es opcional; nunca debe bloquear la lectura.
+  }
+}
+
 export async function apiRequest(route, payload = {}, sessionToken = '') {
   if (!isReadRoute(route)) {
-    recentReads.clear();
+    writeEpoch += 1;
+    invalidateRelatedReads(route);
     return performRequestWithRetry(route, payload, sessionToken);
   }
 
   const key = requestKey(route, payload, sessionToken);
   const cached = recentReads.get(key);
   if (cached && cached.expiresAt > Date.now()) return cached.data;
-  if (cached) recentReads.delete(key);
+  if (cached && cached.staleUntil <= Date.now()) recentReads.delete(key);
   if (pendingReads.has(key)) return pendingReads.get(key);
 
+  const requestEpoch = writeEpoch;
   const request = performRequestWithRetry(route, payload, sessionToken)
     .then((data) => {
-      const entry = { data, expiresAt: Date.now() + READ_CACHE_MS };
-      recentReads.set(key, entry);
-      setTimeout(() => { if (recentReads.get(key) === entry) recentReads.delete(key); }, READ_CACHE_MS);
+      // Si ocurrió una escritura mientras la lectura estaba en vuelo, no se
+      // conserva una respuesta potencialmente anterior al cambio.
+      if (requestEpoch === writeEpoch) {
+        const entry = {
+          route,
+          data,
+          expiresAt: Date.now() + READ_CACHE_MS,
+          staleUntil: Date.now() + READ_STALE_MS,
+        };
+        recentReads.set(key, entry);
+        setTimeout(() => {
+          if (recentReads.get(key) === entry && entry.staleUntil <= Date.now()) recentReads.delete(key);
+        }, READ_STALE_MS + 1000);
+      }
       return data;
+    })
+    .catch((error) => {
+      const stale = recentReads.get(key);
+      if (isSheetsQuotaError(error) && stale && stale.staleUntil > Date.now()) {
+        notifyDegradedMode(route, error);
+        return stale.data;
+      }
+      throw error;
     })
     .finally(() => pendingReads.delete(key));
 
