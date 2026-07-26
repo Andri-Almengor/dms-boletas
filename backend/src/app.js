@@ -79,6 +79,12 @@ app.use((error, _req, res, _next) => {
   if (status >= 500) console.error(error);
   else console.warn(`[${error.code || 'REQUEST_ERROR'}] ${error.message}`);
 
+  res.setHeader('Cache-Control', 'no-store');
+  if (Number(status) === 429) {
+    const seconds = Math.max(5, Number(error?.details?.retryAfterSeconds || 60));
+    res.setHeader('Retry-After', String(seconds));
+  }
+
   res.status(status).json({
     ok: false,
     error: {
