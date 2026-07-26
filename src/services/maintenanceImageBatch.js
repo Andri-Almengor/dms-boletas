@@ -1,6 +1,8 @@
 import { fileToBase64 } from '../pages/maintenance/maintenanceFormData';
 import { MODULE_ROUTES, pick, requestAvailable } from './moduleApi';
 
+const IMAGE_UPLOAD_BATCH_ROUTES = ['maintenance.images.uploadBatch', 'mantenimientos.imagenes.subirLote'];
+const IMAGE_UPDATE_BATCH_ROUTES = ['maintenance.images.updateBatch', 'mantenimientos.imagenes.actualizarLote'];
 const MAX_FILES_PER_REQUEST = 10;
 const MAX_RAW_BYTES_PER_REQUEST = 10 * 1024 * 1024;
 const MAX_METADATA_UPDATES_PER_REQUEST = 80;
@@ -90,7 +92,7 @@ export async function uploadMaintenanceImagesInBatches({ maintenanceId, deviceId
     })));
 
     try {
-      const result = await requestAvailable(MODULE_ROUTES.maintenance.imageUploadBatch, {
+      const result = await requestAvailable(IMAGE_UPLOAD_BATCH_ROUTES, {
         maintenanceId,
         deviceId,
         images: payloadImages,
@@ -117,7 +119,7 @@ export async function updateMaintenanceImagesInBatches({ maintenanceId, deviceId
   for (const chunk of chunkItems(dirty)) {
     const updates = chunk.map((image) => ({ imageId: image.id, Tipo: image.Tipo, Nota: image.Nota }));
     try {
-      const result = await requestAvailable(MODULE_ROUTES.maintenance.imageUpdateBatch, {
+      const result = await requestAvailable(IMAGE_UPDATE_BATCH_ROUTES, {
         maintenanceId,
         deviceId,
         updates,
