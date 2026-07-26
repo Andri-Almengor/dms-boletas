@@ -15,6 +15,11 @@ function clean(value) {
   return String(value ?? '').trim();
 }
 
+function stableId(prefix) {
+  const random = globalThis.crypto?.randomUUID?.() || `${Date.now()}-${Math.random().toString(16).slice(2)}`;
+  return `${prefix}-${random}`;
+}
+
 function localDraftKey(maintenanceId) {
   return `dms-maintenance-device-draft:${maintenanceId || 'new'}`;
 }
@@ -55,11 +60,17 @@ function failureText(device, metadataFailed = [], uploadFailed = []) {
   return `El dispositivo “${device.nombre || device.NombreDispositivo || 'sin nombre'}” se guardó parcialmente. No se pudieron guardar ${parts.join(' y ')}. Los elementos pendientes permanecen en el formulario para reintentarlos.`;
 }
 
+function idempotentDevice(device) {
+  const id = clean(device?.id || device?.localId) || stableId('dispositivo');
+  return { ...device, id, localId: clean(device?.localId, id) };
+}
+
 export default function useScalableMaintenanceForm({ editing, maintenanceId }) {
   const navigate = useNavigate();
   const base = useOptimizedMaintenanceBase({ editing, maintenanceId });
   const [batchSaving, setBatchSaving] = useState(false);
   const savePromiseRef = useRef(null);
+  const newMaintenanceIdRef = useRef(clean(maintenanceId) || stableId('mantenimiento'));
 
   const saveDeviceToServer = useCallback(async (device, { closeAfter = false } = {}) => {
     if (!device) return null;
@@ -70,9 +81,10 @@ export default function useScalableMaintenanceForm({ editing, maintenanceId }) {
       setBatchSaving(true);
       base.setError('');
       try {
+        const requestDevice = idempotentDevice(device);
         const route = device.id ? MODULE_ROUTES.maintenance.deviceUpdate : MODULE_ROUTES.maintenance.deviceCreate;
-        const saved = await requestAvailable(route, maintenanceDevicePayload(device, maintenanceId), base.sessionToken);
-        const deviceId = clean(pick(saved, ['EvidenciaMantenimientoID', 'deviceId', 'id'], device.id));
+        const saved = await requestAvailable(route, maintenanceDevicePayload(requestDevice, maintenanceId), base.sessionToken);
+        const deviceId = clean(pick(saved, ['EvidenciaMantenimientoID', 'deviceId', 'id'], requestDevice.id));
         if (!deviceId) throw new Error('El backend no devolvió el identificador del dispositivo.');
 
         const metadataResult = await updateMaintenanceImagesInBatches({
@@ -152,18 +164,20 @@ export default function useScalableMaintenanceForm({ editing, maintenanceId }) {
 
     setBatchSaving(true);
     base.setError('');
+    const requestedMaintenanceId = newMaintenanceIdRef.current;
     try {
       const created = await requestAvailable(
         MODULE_ROUTES.maintenance.create,
-        maintenancePayload(base.form, maintenanceId),
+        maintenancePayload(base.form, requestedMaintenanceId),
         base.sessionToken,
       );
-      const id = clean(pick(created?.mantenimiento || created, ['MantenimientoID', 'maintenanceId', 'id'], maintenanceId));
+      const id = clean(pick(created?.mantenimiento || created, ['MantenimientoID', 'maintenanceId', 'id'], requestedMaintenanceId));
       if (!id) throw new Error('El backend no devolvió MantenimientoID.');
 
-      for (const device of base.devices) {
+      for (const originalDevice of base.devices) {
+        const device = idempotentDevice(originalDevice);
         const saved = await requestAvailable(
-          device.id ? MODULE_ROUTES.maintenance.deviceUpdate : MODULE_ROUTES.maintenance.deviceCreate,
+          originalDevice.id ? MODULE_ROUTES.maintenance.deviceUpdate : MODULE_ROUTES.maintenance.deviceCreate,
           maintenanceDevicePayload(device, id),
           base.sessionToken,
         );
@@ -194,7 +208,7 @@ export default function useScalableMaintenanceForm({ editing, maintenanceId }) {
       navigate(`/mantenimientos/${encodeURIComponent(id)}`);
       return created;
     } catch (error) {
-      base.setError(error.message);
+      base.setError(`${error.message} Puede volver a guardar: el mantenimiento, los dispositivos y las evidencias ya procesadas conservarán sus mismos identificadores y no se duplicarán.`);
       return null;
     } finally {
       setBatchSaving(false);
