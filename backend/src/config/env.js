@@ -22,14 +22,37 @@ export const env = Object.freeze({
   googleClientEmail: required('GOOGLE_SERVICE_ACCOUNT_EMAIL'),
   googlePrivateKey: required('GOOGLE_SERVICE_ACCOUNT_PRIVATE_KEY').replace(/\\n/g, '\n'),
   sessionHours: Number(optional('SESSION_HOURS', '12')),
-  sheetsCacheTtlMs: optionalNumber('SHEETS_CACHE_TTL_MS', 30_000),
-  sheetsBatchWindowMs: optionalNumber('SHEETS_BATCH_WINDOW_MS', 25),
-  sheetsForceCoalesceMs: optionalNumber('SHEETS_FORCE_COALESCE_MS', 2_500),
-  sheetsQuotaRetries: optionalNumber('SHEETS_QUOTA_RETRIES', 5),
-  sheetsQuotaBackoffMs: optionalNumber('SHEETS_QUOTA_BACKOFF_MS', 1_000, 100),
-  sheetsQuotaMaxBackoffMs: optionalNumber('SHEETS_QUOTA_MAX_BACKOFF_MS', 30_000, 1_000),
+
+  // Caché y coalescencia de lecturas. Los cambios realizados por esta misma
+  // aplicación actualizan la caché inmediatamente. Los cambios externos
+  // (por ejemplo AppSheet) pueden tardar hasta este TTL en reflejarse.
+  sheetsCacheTtlMs: optionalNumber('SHEETS_CACHE_TTL_MS', 120_000),
+  sheetsBatchWindowMs: optionalNumber('SHEETS_BATCH_WINDOW_MS', 40),
+  sheetsForceCoalesceMs: optionalNumber('SHEETS_FORCE_COALESCE_MS', 5_000),
+
+  // Reintentos del repositorio ante 429/RESOURCE_EXHAUSTED.
+  sheetsQuotaRetries: optionalNumber('SHEETS_QUOTA_RETRIES', 6),
+  sheetsQuotaBackoffMs: optionalNumber('SHEETS_QUOTA_BACKOFF_MS', 1_200, 100),
+  sheetsQuotaMaxBackoffMs: optionalNumber('SHEETS_QUOTA_MAX_BACKOFF_MS', 45_000, 1_000),
+
+  // Límite conservador del repositorio. 1.5 s deja margen frente al límite
+  // de 60 escrituras por minuto de la cuenta de servicio.
   sheetsMaxConcurrentWrites: optionalNumber('SHEETS_MAX_CONCURRENT_WRITES', 1, 1),
-  sheetsWriteMinIntervalMs: optionalNumber('SHEETS_WRITE_MIN_INTERVAL_MS', 1_050, 0),
+  sheetsWriteMinIntervalMs: optionalNumber('SHEETS_WRITE_MIN_INTERVAL_MS', 1_500, 0),
+
+  // Protección global: también cubre llamadas directas a sheetsApi que no
+  // pasan por sheets.repository.js (reportes, migraciones y módulos antiguos).
+  sheetsGlobalMaxConcurrentReads: optionalNumber('SHEETS_GLOBAL_MAX_CONCURRENT_READS', 2, 1),
+  sheetsGlobalReadMinIntervalMs: optionalNumber('SHEETS_GLOBAL_READ_MIN_INTERVAL_MS', 250, 0),
+  sheetsGlobalMaxConcurrentWrites: optionalNumber('SHEETS_GLOBAL_MAX_CONCURRENT_WRITES', 1, 1),
+  sheetsGlobalWriteMinIntervalMs: optionalNumber('SHEETS_GLOBAL_WRITE_MIN_INTERVAL_MS', 1_500, 0),
+  sheetsGlobalReadCacheMs: optionalNumber('SHEETS_GLOBAL_READ_CACHE_MS', 15_000, 0),
+
+  // Auditoría no bloqueante. Varias filas se agregan con una sola escritura.
+  auditFlushMs: optionalNumber('AUDIT_FLUSH_MS', 5_000, 500),
+  auditBatchSize: optionalNumber('AUDIT_BATCH_SIZE', 100, 1),
+  auditMaxBufferedRows: optionalNumber('AUDIT_MAX_BUFFERED_ROWS', 2_000, 100),
+
   httpMaxConcurrentRequests: optionalNumber('HTTP_MAX_CONCURRENT_REQUESTS', 40, 1),
   httpMaxConcurrentLargeRequests: optionalNumber('HTTP_MAX_CONCURRENT_LARGE_REQUESTS', 2, 1),
   httpQueueLimit: optionalNumber('HTTP_QUEUE_LIMIT', 100, 0),
