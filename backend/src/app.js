@@ -12,6 +12,7 @@ import './services/metrics-dynamic-maintenance-counts.patch.js';
 import { env } from './config/env.js';
 import { dispatchAction } from './core/action-router.js';
 import { AppError } from './core/errors.js';
+import { runWithActionConcurrency } from './services/action-concurrency.service.js';
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 const distPath = path.resolve(__dirname, '../../dist');
@@ -40,15 +41,16 @@ app.get('/api/health', (_req, res) => {
 app.post('/api/action', async (req, res, next) => {
   try {
     const body = typeof req.body === 'string' ? JSON.parse(req.body || '{}') : (req.body || {});
+    const route = body.route || body.action;
     const requestOrigin = req.get('origin') || `${req.protocol}://${req.get('host')}`;
-    const data = await dispatchAction({
-      route: body.route || body.action,
+    const data = await runWithActionConcurrency(route, () => dispatchAction({
+      route,
       payload: body.payload || {},
       sessionToken: body.sessionToken || req.headers.authorization?.replace(/^Bearer\s+/i, '') || '',
       ip: req.ip,
       userAgent: req.get('user-agent') || '',
       origin: requestOrigin,
-    });
+    }));
     res.json({ ok: true, data });
   } catch (error) {
     next(error);
