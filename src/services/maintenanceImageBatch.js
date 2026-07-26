@@ -1,3 +1,4 @@
+import { apiRequest } from '../api';
 import { fileToBase64 } from '../pages/maintenance/maintenanceFormData';
 import { MODULE_ROUTES, pick, requestAvailable } from './moduleApi';
 
@@ -42,6 +43,19 @@ function chunkItems(items = [], size = MAX_METADATA_UPDATES_PER_REQUEST) {
 function missingRoute(error) {
   const text = `${error?.code || ''} ${error?.message || ''}`.toLowerCase();
   return text.includes('route_not_found') || text.includes('ruta no encontrada') || text.includes('unknown action');
+}
+
+async function requestOnlineAliases(routes, payload, sessionToken) {
+  let lastError;
+  for (const route of routes) {
+    try {
+      return await apiRequest(route, payload, sessionToken);
+    } catch (error) {
+      lastError = error;
+      if (!missingRoute(error)) throw error;
+    }
+  }
+  throw lastError || new Error('La operación por lote no está disponible.');
 }
 
 function uploadedView(row = {}) {
@@ -92,7 +106,7 @@ export async function uploadMaintenanceImagesInBatches({ maintenanceId, deviceId
     })));
 
     try {
-      const result = await requestAvailable(IMAGE_UPLOAD_BATCH_ROUTES, {
+      const result = await requestOnlineAliases(IMAGE_UPLOAD_BATCH_ROUTES, {
         maintenanceId,
         deviceId,
         images: payloadImages,
@@ -119,7 +133,7 @@ export async function updateMaintenanceImagesInBatches({ maintenanceId, deviceId
   for (const chunk of chunkItems(dirty)) {
     const updates = chunk.map((image) => ({ imageId: image.id, Tipo: image.Tipo, Nota: image.Nota }));
     try {
-      const result = await requestAvailable(IMAGE_UPDATE_BATCH_ROUTES, {
+      const result = await requestOnlineAliases(IMAGE_UPDATE_BATCH_ROUTES, {
         maintenanceId,
         deviceId,
         updates,
