@@ -5,6 +5,7 @@ import { concurrencyMiddleware, concurrencySnapshot } from './middleware/concurr
 import { readTables } from './infra/sheets.repository.js';
 import { googleSheetsGateSnapshot } from './infra/google.js';
 import { auditQueueSnapshot, flushAuditQueue } from './services/audit.service.js';
+import { actionConcurrencySnapshot } from './services/action-concurrency.service.js';
 
 function mb(value) {
   return Math.round((Number(value || 0) / 1024 / 1024) * 10) / 10;
@@ -26,6 +27,7 @@ function sendHealth(res) {
       heapTotalMb: mb(memory.heapTotal),
     },
     concurrency: concurrencySnapshot(),
+    actions: actionConcurrencySnapshot(),
     sheets: googleSheetsGateSnapshot(),
     audit: auditQueueSnapshot(),
   }));
