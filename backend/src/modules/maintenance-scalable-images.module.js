@@ -12,8 +12,9 @@ import { uploadBase64, trashFile } from '../infra/drive.repository.js';
 import { sheetsApi } from '../infra/google.js';
 import { getConfig } from './config.module.js';
 
-function clean(value) {
-  return String(value ?? '').trim();
+function clean(value, fallback = '') {
+  const text = String(value ?? '').trim();
+  return text || fallback;
 }
 
 function validClientGeneratedId(value) {
@@ -128,7 +129,6 @@ async function uploadBatch(ctx) {
 
   const config = await getConfig();
   const folderId = config.EVIDENCIAS_FOLDER_ID || config.ROOT_FOLDER_ID;
-  const uploadedDriveFiles = [];
   const results = await mapWithConcurrency(
     pending,
     env.maintenanceImageUploadConcurrency,
@@ -139,7 +139,6 @@ async function uploadBatch(ctx) {
         fileName: input.fileName,
         folderId,
       });
-      uploadedDriveFiles.push(file);
       return {
         input,
         file,
