@@ -9,6 +9,7 @@ import {
   updateRow,
 } from '../infra/sheets.repository.js';
 import { audit } from '../services/audit.service.js';
+import { createDynamicMaintenanceSpreadsheetReport } from '../services/maintenance-dynamic-spreadsheet.service.js';
 import {
   MAINTENANCE_QUESTION_SHEET,
   assertMaintenanceDeviceType,
@@ -247,4 +248,5 @@ export const maintenanceDynamicQuestionHandlers = {
   deviceCreate,
   deviceUpdate,
   deviceAutosave,
+  spreadsheetReport: createDynamicMaintenanceSpreadsheetReport,
 };
