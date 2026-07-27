@@ -188,6 +188,24 @@ async function config(ctx) {
   };
 }
 
+function preserveHistoricalQuestionText(generated, previous) {
+  const previousByKey = new Map(previous
+    .map((item) => [cleanMaintenanceQuestionValue(item.key || item.Clave), item])
+    .filter(([key]) => key));
+  return generated.map((item) => {
+    const saved = previousByKey.get(cleanMaintenanceQuestionValue(item.key));
+    if (!saved) return item;
+    return {
+      ...item,
+      questionId: cleanMaintenanceQuestionValue(saved.questionId || saved.PreguntaDispositivoID, item.questionId),
+      typeId: cleanMaintenanceQuestionValue(saved.typeId || saved.TipoDispositivoID, item.typeId),
+      label: cleanMaintenanceQuestionValue(saved.label || saved.Pregunta, item.label),
+      order: Number(saved.order ?? saved.Orden ?? item.order),
+      responseType: cleanMaintenanceQuestionValue(saved.responseType || saved.TipoRespuesta, item.responseType),
+    };
+  });
+}
+
 async function contextWithQuestionSnapshot(ctx, before = {}) {
   await ensureMaintenanceQuestionCatalog(ctx.user?.UsuarioID || 'SYSTEM');
   const answers = parseMaintenanceAnswers(
@@ -197,12 +215,16 @@ async function contextWithQuestionSnapshot(ctx, before = {}) {
       || before.RespuestasJSON,
   );
   const nestedSnapshot = parseMaintenanceQuestionSnapshot(answers.__preguntas);
-  const snapshot = await buildMaintenanceQuestionSnapshot({
-    ...ctx.payload,
-    questionDetails: ctx.payload.questionDetails
+  const suppliedSnapshot = parseMaintenanceQuestionSnapshot(
+    ctx.payload.questionDetails
       || ctx.payload.respuestasDetalle
       || nestedSnapshot,
+  );
+  const generatedSnapshot = await buildMaintenanceQuestionSnapshot({
+    ...ctx.payload,
+    questionDetails: suppliedSnapshot,
   }, before);
+  const snapshot = preserveHistoricalQuestionText(generatedSnapshot, suppliedSnapshot);
   const persistedAnswers = {
     ...answers,
     __preguntas: snapshot,
