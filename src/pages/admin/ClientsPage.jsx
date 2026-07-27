@@ -191,7 +191,9 @@ export default function ClientsPage() {
     setModalError('');
     try {
       await requestAvailable(MODULE_ROUTES.clients.delete, { ClienteID: form.id, clienteId: form.id }, sessionToken);
-      closeModal();
+      setSelected(null);
+      setEditing(false);
+      setModalError('');
       await load();
     } catch (deleteError) {
       setModalError(deleteError.message);
