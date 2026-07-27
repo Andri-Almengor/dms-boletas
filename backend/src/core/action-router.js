@@ -15,7 +15,7 @@ import { publicSignatureHandlers } from '../modules/public-signature.module.js';
 import {
   maintenanceDynamicQuestionHandlers as maintenanceAutomationHandlers,
   maintenanceQuestionHandlers,
-} from '../modules/maintenance-dynamic-questions.module.js';
+} from '../modules/maintenance-question-ready.module.js';
 import { maintenanceScalableImageHandlers } from '../modules/maintenance-scalable-images.module.js';
 import { maintenanceSignatureHandlers } from '../modules/maintenance-signature.module.js';
 import { knowledgeHandlers } from '../modules/knowledge.module.js';
