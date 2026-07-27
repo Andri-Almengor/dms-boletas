@@ -1,0 +1,84 @@
+/* Filtros combinables del inventario dentro del detalle del mantenimiento. */
+
+@media (min-width: 881px) {
+  .maintenance-device-toolbar--detail {
+    grid-template-columns: minmax(260px, 1.8fr) repeat(4, minmax(125px, .72fr));
+  }
+}
+
+.maintenance-device-toolbar--detail .maintenance-inventory-inline-filter {
+  min-width: 0;
+  width: 100%;
+}
+
+.maintenance-inventory-active-filters {
+  margin: -3px 0 13px;
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 7px;
+}
+
+.maintenance-inventory-active-filters > span {
+  min-height: 30px;
+  padding: 5px 9px;
+  border-radius: 999px;
+  background: var(--surface-container);
+  color: var(--muted);
+  display: inline-flex;
+  align-items: center;
+  font-size: .68rem;
+}
+
+.maintenance-inventory-active-filters > span strong {
+  margin-right: 4px;
+  color: var(--text);
+}
+
+.maintenance-inventory-active-filters > button {
+  min-width: 0;
+  min-height: 30px;
+  max-width: min(100%, 320px);
+  padding: 5px 8px;
+  border: 1px solid color-mix(in srgb, var(--primary) 36%, var(--outline-soft));
+  border-radius: 999px;
+  background: var(--primary-soft);
+  color: var(--primary);
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  font: inherit;
+  font-size: .68rem;
+  font-weight: 800;
+  cursor: pointer;
+}
+
+.maintenance-inventory-active-filters > button .material-symbols-outlined {
+  flex: 0 0 auto;
+  font-size: 15px;
+}
+
+.maintenance-inventory-active-filters > button .material-symbols-outlined:last-child {
+  margin-left: 2px;
+}
+
+@media (max-width: 880px) {
+  .maintenance-inventory-active-filters {
+    margin-top: 10px;
+  }
+}
+
+@media (max-width: 620px) {
+  .maintenance-inventory-active-filters {
+    align-items: stretch;
+  }
+
+  .maintenance-inventory-active-filters > span {
+    width: 100%;
+    justify-content: center;
+  }
+
+  .maintenance-inventory-active-filters > button {
+    max-width: 100%;
+  }
+}

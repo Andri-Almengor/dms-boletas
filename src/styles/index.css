@@ -31,6 +31,7 @@
 @import './offline-sync-actions.css';
 @import './maintenance-device-inventory.css';
 @import './maintenance-device-actions.css';
+@import './maintenance-inventory-location-filters.css';
 @import './maintenance-device-mobile-ux.css';
 @import './maintenance-device-desktop-fixes.css';
 @import './user-password-reset.css';

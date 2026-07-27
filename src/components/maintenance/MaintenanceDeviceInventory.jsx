@@ -15,6 +15,31 @@ function normalized(value) {
     .trim();
 }
 
+function uniqueSorted(values, fallback) {
+  const labels = new Map();
+  values.forEach((value) => {
+    const label = String(value || '').trim() || fallback;
+    const key = normalized(label);
+    if (!labels.has(key)) labels.set(key, label);
+  });
+  return [...labels.values()].sort((a, b) => String(a).localeCompare(String(b), 'es'));
+}
+
+function deviceType(device) {
+  return pick(device, ['Categoria', 'TipoDispositivoNombre', 'TipoDispositivo', 'deviceTypeName'], 'Sin categoría');
+}
+
+function deviceLocation(device) {
+  return pick(device, [
+    'UbicacionEquipoNombre',
+    'UbicacionEquipo',
+    'Ubicación del equipo',
+    'Zona',
+    'Ubicacion',
+    'equipmentLocationName',
+  ], 'Sin ubicación');
+}
+
 function stateClass(value) {
   const text = normalized(value);
   if (text.startsWith('si') || text === 'correcto') return 'is-good';
@@ -65,28 +90,40 @@ export default function MaintenanceDeviceInventory({
 }) {
   const [query, setQuery] = useState('');
   const [category, setCategory] = useState('TODAS');
+  const [location, setLocation] = useState('TODAS');
   const [stateFilter, setStateFilter] = useState('TODOS');
   const [pageSize, setPageSize] = useState(25);
   const [page, setPage] = useState(1);
   const [expanded, setExpanded] = useState('');
   const [filterOpen, setFilterOpen] = useState(false);
 
-  const categories = useMemo(() => [...new Set(devices.map((item) => pick(item, ['Categoria'], 'Sin categoría')))]
-    .sort((a, b) => String(a).localeCompare(String(b), 'es')), [devices]);
+  const categories = useMemo(
+    () => uniqueSorted(devices.map((item) => deviceType(item)), 'Sin categoría'),
+    [devices],
+  );
+
+  const locations = useMemo(
+    () => uniqueSorted(devices.map((item) => deviceLocation(item)), 'Sin ubicación'),
+    [devices],
+  );
 
   const filtered = useMemo(() => {
     const search = normalized(query);
+    const selectedCategory = normalized(category);
+    const selectedLocation = normalized(location);
     return devices.filter((device) => {
-      const currentCategory = pick(device, ['Categoria'], 'Sin categoría');
+      const currentCategory = deviceType(device);
+      const currentLocation = deviceLocation(device);
       const currentState = stateClass(pick(device, ['Estado']));
-      if (category !== 'TODAS' && currentCategory !== category) return false;
+      if (category !== 'TODAS' && normalized(currentCategory) !== selectedCategory) return false;
+      if (location !== 'TODAS' && normalized(currentLocation) !== selectedLocation) return false;
       if (stateFilter === 'CORRECTOS' && currentState !== 'is-good') return false;
       if (stateFilter === 'ATENCION' && currentState === 'is-good') return false;
       if (!search) return true;
       return [
         pick(device, ['NombreDispositivo']),
         currentCategory,
-        pick(device, ['Zona']),
+        currentLocation,
         pick(device, ['Fabricante']),
         pick(device, ['Modelo']),
         pick(device, ['Serie']),
@@ -94,14 +131,17 @@ export default function MaintenanceDeviceInventory({
         pick(device, ['Observacion']),
       ].some((value) => normalized(value).includes(search));
     });
-  }, [devices, query, category, stateFilter]);
+  }, [devices, query, category, location, stateFilter]);
 
   const totalPages = Math.max(1, Math.ceil(filtered.length / pageSize));
   const visible = filtered.slice((page - 1) * pageSize, page * pageSize);
   const pending = status === 'PENDIENTE';
-  const activeFilterCount = Number(category !== 'TODAS') + Number(stateFilter !== 'TODOS') + Number(pageSize !== 25);
+  const activeFilterCount = Number(category !== 'TODAS')
+    + Number(location !== 'TODAS')
+    + Number(stateFilter !== 'TODOS')
+    + Number(pageSize !== 25);
 
-  useEffect(() => { setPage(1); }, [query, category, stateFilter, pageSize]);
+  useEffect(() => { setPage(1); }, [query, category, location, stateFilter, pageSize]);
   useEffect(() => { if (page > totalPages) setPage(totalPages); }, [page, totalPages]);
 
   function toggle(device) {
@@ -111,13 +151,14 @@ export default function MaintenanceDeviceInventory({
 
   function clearFilters() {
     setCategory('TODAS');
+    setLocation('TODAS');
     setStateFilter('TODOS');
     setPageSize(25);
     setFilterOpen(false);
   }
 
   function expandedContent(device) {
-    const categoryName = pick(device, ['Categoria'], 'Sin categoría');
+    const categoryName = deviceType(device);
     const config = getMaintenanceCategory(categoryName);
     const answers = parseAnswers(device);
     const images = device.Imagenes || [];
@@ -165,9 +206,13 @@ export default function MaintenanceDeviceInventory({
 
   const drawerFields = (
     <>
-      <FilterSelect label="Categoría" value={category} onChange={(event) => setCategory(event.target.value)}>
-        <option value="TODAS">Todas las categorías</option>
+      <FilterSelect label="Tipo de dispositivo" value={category} onChange={(event) => setCategory(event.target.value)}>
+        <option value="TODAS">Todos los tipos</option>
         {categories.map((name) => <option key={name} value={name}>{name}</option>)}
+      </FilterSelect>
+      <FilterSelect label="Ubicación del equipo" value={location} onChange={(event) => setLocation(event.target.value)}>
+        <option value="TODAS">Todas las ubicaciones</option>
+        {locations.map((name) => <option key={name} value={name}>{name}</option>)}
       </FilterSelect>
       <FilterSelect label="Estado" value={stateFilter} onChange={(event) => setStateFilter(event.target.value)}>
         <option value="TODOS">Todos los estados</option>
@@ -183,31 +228,41 @@ export default function MaintenanceDeviceInventory({
   return (
     <section className="maintenance-inventory-panel">
       <div className="maintenance-inventory-heading">
-        <div><span className="eyebrow">INVENTARIO TÉCNICO</span><h2>Dispositivos del mantenimiento</h2><p>Vista compacta optimizada para trabajar con decenas o cientos de equipos.</p></div>
+        <div><span className="eyebrow">INVENTARIO TÉCNICO</span><h2>Dispositivos del mantenimiento</h2><p>Combine tipo de dispositivo, ubicación y estado para localizar grupos específicos de equipos.</p></div>
         {pending && canEdit && <button className="button button--primary" type="button" onClick={onAddDevice}><Icon name="add" />Agregar dispositivo</button>}
       </div>
 
       <div className="maintenance-device-toolbar maintenance-device-toolbar--detail">
-        <label className="maintenance-device-search"><Icon name="search" /><input type="search" value={query} onChange={(event) => setQuery(event.target.value)} placeholder="Buscar nombre, zona, modelo, serie u observación..." /></label>
+        <label className="maintenance-device-search"><Icon name="search" /><input type="search" value={query} onChange={(event) => setQuery(event.target.value)} placeholder="Buscar nombre, ubicación, tipo, modelo, serie u observación..." /></label>
         <button type="button" className="icon-button icon-button--primary maintenance-inventory-filter-trigger" onClick={() => setFilterOpen(true)} aria-label="Abrir filtros de dispositivos">
           <Icon name="tune" />
           {activeFilterCount > 0 && <span>{activeFilterCount}</span>}
         </button>
-        <select className="maintenance-inventory-inline-filter" value={category} onChange={(event) => setCategory(event.target.value)} aria-label="Filtrar por categoría"><option value="TODAS">Todas las categorías</option>{categories.map((name) => <option key={name} value={name}>{name}</option>)}</select>
+        <select className="maintenance-inventory-inline-filter" value={category} onChange={(event) => setCategory(event.target.value)} aria-label="Filtrar por tipo de dispositivo"><option value="TODAS">Todos los tipos</option>{categories.map((name) => <option key={name} value={name}>{name}</option>)}</select>
+        <select className="maintenance-inventory-inline-filter" value={location} onChange={(event) => setLocation(event.target.value)} aria-label="Filtrar por ubicación del equipo"><option value="TODAS">Todas las ubicaciones</option>{locations.map((name) => <option key={name} value={name}>{name}</option>)}</select>
         <select className="maintenance-inventory-inline-filter" value={stateFilter} onChange={(event) => setStateFilter(event.target.value)} aria-label="Filtrar por estado"><option value="TODOS">Todos los estados</option><option value="CORRECTOS">Correctos</option><option value="ATENCION">Requieren atención</option></select>
         <select className="maintenance-inventory-inline-filter" value={pageSize} onChange={(event) => setPageSize(Number(event.target.value))} aria-label="Filas por página">{PAGE_SIZES.map((size) => <option key={size} value={size}>{size} por página</option>)}</select>
       </div>
 
       <div className="maintenance-device-category-chips">
         <button type="button" className={category === 'TODAS' ? 'is-active' : ''} onClick={() => setCategory('TODAS')}>Todos <span>{devices.length}</span></button>
-        {categories.map((name) => <button type="button" key={name} className={category === name ? 'is-active' : ''} onClick={() => setCategory(name)}>{name} <span>{devices.filter((item) => pick(item, ['Categoria'], 'Sin categoría') === name).length}</span></button>)}
+        {categories.map((name) => <button type="button" key={name} className={category === name ? 'is-active' : ''} onClick={() => setCategory(name)}>{name} <span>{devices.filter((item) => normalized(deviceType(item)) === normalized(name)).length}</span></button>)}
       </div>
+
+      {(category !== 'TODAS' || location !== 'TODAS' || stateFilter !== 'TODOS') && (
+        <div className="maintenance-inventory-active-filters" aria-live="polite">
+          <span><strong>{filtered.length}</strong> de {devices.length} dispositivos</span>
+          {category !== 'TODAS' && <button type="button" onClick={() => setCategory('TODAS')}><Icon name="devices_other" />{category}<Icon name="close" /></button>}
+          {location !== 'TODAS' && <button type="button" onClick={() => setLocation('TODAS')}><Icon name="location_on" />{location}<Icon name="close" /></button>}
+          {stateFilter !== 'TODOS' && <button type="button" onClick={() => setStateFilter('TODOS')}><Icon name="rule" />{stateFilter === 'CORRECTOS' ? 'Correctos' : 'Requieren atención'}<Icon name="close" /></button>}
+        </div>
+      )}
 
       {visible.length ? (
         <>
           <div className="maintenance-inventory-table-wrap">
             <table className="maintenance-inventory-table">
-              <thead><tr><th>#</th><th>Nombre</th><th>Categoría</th><th>Ubicación</th><th>Modelo / Serie</th><th>Estado</th><th>Fotos</th><th>Acciones</th></tr></thead>
+              <thead><tr><th>#</th><th>Nombre</th><th>Tipo</th><th>Ubicación del equipo</th><th>Modelo / Serie</th><th>Estado</th><th>Fotos</th><th>Acciones</th></tr></thead>
               <tbody>
                 {visible.map((device, index) => {
                   const id = deviceId(device);
@@ -217,9 +272,9 @@ export default function MaintenanceDeviceInventory({
                     <React.Fragment key={id}>
                       <tr className={open ? 'is-expanded' : ''}>
                         <td>{(page - 1) * pageSize + index + 1}</td>
-                        <td><button type="button" className="maintenance-inventory-name" onClick={() => toggle(device)}><span className="maintenance-device-list__icon"><Icon name={getMaintenanceCategory(pick(device, ['Categoria'])).icon} /></span><span><strong>{pick(device, ['NombreDispositivo'], 'Dispositivo')}</strong>{isOffline(device) && <small><Icon name="cloud_off" />Offline</small>}</span></button></td>
-                        <td>{pick(device, ['Categoria'], 'Sin categoría')}</td>
-                        <td>{pick(device, ['Zona'], 'Sin ubicación')}</td>
+                        <td><button type="button" className="maintenance-inventory-name" onClick={() => toggle(device)}><span className="maintenance-device-list__icon"><Icon name={getMaintenanceCategory(deviceType(device)).icon} /></span><span><strong>{pick(device, ['NombreDispositivo'], 'Dispositivo')}</strong>{isOffline(device) && <small><Icon name="cloud_off" />Offline</small>}</span></button></td>
+                        <td>{deviceType(device)}</td>
+                        <td>{deviceLocation(device)}</td>
                         <td>{[pick(device, ['Modelo']), pick(device, ['Serie'])].filter(Boolean).join(' · ') || 'Sin datos'}</td>
                         <td><span className={`maintenance-device-compact-state ${stateClass(pick(device, ['Estado']))}`}>{stateText(pick(device, ['Estado']))}</span></td>
                         <td><span className="maintenance-device-evidence-count"><Icon name="photo_library" />{images.length}</span></td>
@@ -245,8 +300,8 @@ export default function MaintenanceDeviceInventory({
               return <article key={id} className={`maintenance-inventory-mobile-card${open ? ' is-expanded' : ''}`}>
                 <button type="button" className="maintenance-inventory-mobile-toggle" onClick={() => toggle(device)} aria-expanded={open}>
                   <span className="maintenance-device-mobile-row__number">{(page - 1) * pageSize + index + 1}</span>
-                  <span className="maintenance-device-list__icon"><Icon name={getMaintenanceCategory(pick(device, ['Categoria'])).icon} /></span>
-                  <span><strong>{pick(device, ['NombreDispositivo'], 'Dispositivo')}</strong><small>{pick(device, ['Categoria'], 'Sin categoría')} · {pick(device, ['Zona'], 'Sin ubicación')}</small><span><em className={stateClass(pick(device, ['Estado']))}>{stateText(pick(device, ['Estado']))}</em><em><Icon name="photo_library" />{(device.Imagenes || []).length}</em>{isOffline(device) && <em className="is-offline"><Icon name="cloud_off" />Offline</em>}</span></span>
+                  <span className="maintenance-device-list__icon"><Icon name={getMaintenanceCategory(deviceType(device)).icon} /></span>
+                  <span><strong>{pick(device, ['NombreDispositivo'], 'Dispositivo')}</strong><small>{deviceType(device)} · {deviceLocation(device)}</small><span><em className={stateClass(pick(device, ['Estado']))}>{stateText(pick(device, ['Estado']))}</em><em><Icon name="photo_library" />{(device.Imagenes || []).length}</em>{isOffline(device) && <em className="is-offline"><Icon name="cloud_off" />Offline</em>}</span></span>
                   <Icon name={open ? 'expand_less' : 'expand_more'} />
                 </button>
                 {pending && canEdit && <button type="button" className="maintenance-inventory-mobile-edit" onClick={() => onEditDevice(device)}><Icon name="edit" />Editar dispositivo y evidencias</button>}
@@ -261,7 +316,7 @@ export default function MaintenanceDeviceInventory({
           </nav>
         </>
       ) : (
-        <div className="empty-state maintenance-device-empty"><Icon name="devices_other" /><h2>{devices.length ? 'No hay coincidencias' : 'Sin dispositivos registrados'}</h2><p>{devices.length ? 'Cambie los filtros para ver otros equipos.' : 'Este mantenimiento puede guardarse vacío. Agregue el primer equipo cuando esté listo.'}</p>{pending && canEdit && <button className="button button--primary" type="button" onClick={onAddDevice}><Icon name="add" />Agregar primer dispositivo</button>}</div>
+        <div className="empty-state maintenance-device-empty"><Icon name="devices_other" /><h2>{devices.length ? 'No hay coincidencias' : 'Sin dispositivos registrados'}</h2><p>{devices.length ? 'Cambie la ubicación, el tipo de dispositivo o los demás filtros para ver otros equipos.' : 'Este mantenimiento puede guardarse vacío. Agregue el primer equipo cuando esté listo.'}</p>{pending && canEdit && <button className="button button--primary" type="button" onClick={onAddDevice}><Icon name="add" />Agregar primer dispositivo</button>}</div>
       )}
 
       <FilterDrawer open={filterOpen} title="Filtros de dispositivos" onClose={() => setFilterOpen(false)} onApply={() => { setPage(1); setFilterOpen(false); }} onClear={clearFilters}>
