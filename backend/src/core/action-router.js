@@ -12,7 +12,10 @@ import { ticketMultiHandlers as ticketHandlers } from '../modules/ticket-multi.m
 import { ticketDeliveryHandlers } from '../modules/ticket-delivery.module.js';
 import { ticketGroupSignatureHandlers as ticketSignatureHandlers } from '../modules/ticket-group-signature.module.js';
 import { publicSignatureHandlers } from '../modules/public-signature.module.js';
-import { maintenanceDeviceCountPolicyHandlers as maintenanceAutomationHandlers } from '../modules/maintenance-device-count-policy.module.js';
+import {
+  maintenanceDynamicQuestionHandlers as maintenanceAutomationHandlers,
+  maintenanceQuestionHandlers,
+} from '../modules/maintenance-dynamic-questions.module.js';
 import { maintenanceScalableImageHandlers } from '../modules/maintenance-scalable-images.module.js';
 import { maintenanceSignatureHandlers } from '../modules/maintenance-signature.module.js';
 import { knowledgeHandlers } from '../modules/knowledge.module.js';
@@ -131,6 +134,12 @@ const maintenanceAliases={list:['maintenance.list','mantenimientos.list'],get:['
 const maintenanceReadPermissions=['MANTENIMIENTOS_VER','MANTENIMIENTOS_CREAR','MANTENIMIENTOS_EDITAR','MANTENIMIENTOS_GESTIONAR','BOLETAS_VER'];
 const maintenanceCreatePermissions=['MANTENIMIENTOS_CREAR','MANTENIMIENTOS_GESTIONAR','BOLETAS_CREAR'];
 const maintenanceEditPermissions=['MANTENIMIENTOS_EDITAR','MANTENIMIENTOS_GESTIONAR','BOLETAS_EDITAR'];
+
+add(['maintenance.questions.list','mantenimientos.preguntas.list','catalog.maintenanceQuestions.list'], maintenanceQuestionHandlers.list, ['CATALOGOS_VER','CATALOGOS_GESTIONAR']);
+add(['maintenance.questions.create','mantenimientos.preguntas.create','catalog.maintenanceQuestions.create'], maintenanceQuestionHandlers.create, 'CATALOGOS_GESTIONAR');
+add(['maintenance.questions.update','mantenimientos.preguntas.update','catalog.maintenanceQuestions.update'], maintenanceQuestionHandlers.update, 'CATALOGOS_GESTIONAR');
+add(['maintenance.questions.delete','mantenimientos.preguntas.delete','catalog.maintenanceQuestions.delete'], maintenanceQuestionHandlers.delete, 'CATALOGOS_GESTIONAR');
+
 for(const [key,names] of Object.entries(maintenanceAliases)) {
   let permission=maintenanceEditPermissions;
   if(['list','get','mediaGet','config','signatureLink'].includes(key)) permission=maintenanceReadPermissions;
