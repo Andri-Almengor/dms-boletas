@@ -63,16 +63,8 @@ add(['survey.responses.list','encuestas.respuestas.list'], surveyHandlers.respon
 add(['survey.responses.get','encuestas.respuestas.get'], surveyHandlers.responsesGet, 'USUARIOS_GESTIONAR');
 
 const operationalCatalogPermissions = ['BOLETAS_CREAR','BOLETAS_EDITAR','MANTENIMIENTOS_CREAR','MANTENIMIENTOS_EDITAR','MANTENIMIENTOS_GESTIONAR'];
-const operationalClientDataPermissions = [
-  'CLIENTES_DATOS_OPERATIVOS_CREAR',
-  'CLIENTES_EDITAR',
-  'BOLETAS_CREAR',
-  'BOLETAS_EDITAR',
-  'MANTENIMIENTOS_CREAR',
-  'MANTENIMIENTOS_EDITAR',
-  'MANTENIMIENTOS_GESTIONAR',
-];
 const clientOperationalKeys = new Set(['clientLocations','equipmentLocations','contacts']);
+const clientAdminKeys = new Set(['clients','clientLocations','equipmentLocations','contacts']);
 const maintenanceCatalogCreateKeys = new Set(['deviceTypes','manufacturers','models','deviceManufacturers']);
 const catalogDeleteKeys = new Set(['categories','deviceTypes','manufacturers','models','failureTypes','deviceManufacturers']);
 
@@ -83,12 +75,9 @@ const crudRouteGroups = [
 for(const [key,prefixes] of crudRouteGroups){for(const prefix of prefixes){
   let createPermission='CATALOGOS_GESTIONAR';
   let updatePermission='CATALOGOS_GESTIONAR';
-  if(key==='clients') {
-    createPermission='CLIENTES_CREAR';
-    updatePermission='CLIENTES_EDITAR';
-  } else if(clientOperationalKeys.has(key)) {
-    createPermission=operationalClientDataPermissions;
-    updatePermission='CLIENTES_EDITAR';
+  if(key==='clients' || clientOperationalKeys.has(key)) {
+    createPermission='USUARIOS_GESTIONAR';
+    updatePermission='USUARIOS_GESTIONAR';
   } else if(maintenanceCatalogCreateKeys.has(key)) {
     createPermission=operationalCatalogPermissions;
   } else if(key==='knowledgeCategories') {
@@ -96,10 +85,8 @@ for(const [key,prefixes] of crudRouteGroups){for(const prefix of prefixes){
     updatePermission='CONOCIMIENTO_CATEGORIAS_GESTIONAR';
   }
   add(`${prefix}.list`,c[key].list);add(`${prefix}.get`,c[key].get);add(`${prefix}.create`,c[key].create,createPermission);add(`${prefix}.update`,c[key].update,updatePermission);
-  if(catalogDeleteKeys.has(key)) add(`${prefix}.delete`,c[key].delete,updatePermission);
+  if(catalogDeleteKeys.has(key) || clientAdminKeys.has(key)) add(`${prefix}.delete`,c[key].delete,updatePermission);
 }}
-
-add(['contacts.delete','clients.contacts.delete','clientes.contactos.delete','contactosCliente.delete'], c.contacts.delete, 'USUARIOS_GESTIONAR');
 
 for (const [key, prefixes] of [
   ['categories',['catalog.operational.categories']],
