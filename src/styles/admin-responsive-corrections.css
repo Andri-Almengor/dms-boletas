@@ -100,9 +100,133 @@
 
   .admin-module-page .admin-entity-modal {
     width: 100%;
+    height: calc(100dvh - max(8px, env(safe-area-inset-top)));
+    max-height: calc(100dvh - max(8px, env(safe-area-inset-top)));
+  }
+
+  /*
+   * En Android/WebView la combinación grid + overflow puede calcular una fila
+   * más pequeña que su contenido. En móvil usamos flujo normal para que cada
+   * sección aporte su altura real y nunca se superponga con la siguiente.
+   */
+  .admin-module-page .admin-entity-modal__content {
+    display: block;
+    min-height: 0;
+    overflow-x: hidden;
+    overflow-y: auto;
+    overscroll-behavior-y: contain;
+    -webkit-overflow-scrolling: touch;
+    padding: 16px 16px calc(30px + env(safe-area-inset-bottom));
+  }
+
+  .admin-module-page .admin-entity-modal__content > * {
+    width: 100%;
+    min-width: 0;
+    max-width: 100%;
+  }
+
+  .admin-module-page .admin-entity-modal__content > * + * {
+    margin-top: 16px;
+  }
+
+  .admin-module-page .admin-detail-grid {
+    display: grid;
+    margin: 0;
+  }
+
+  .admin-module-page .admin-related-section {
+    position: relative !important;
+    inset: auto !important;
+    z-index: auto !important;
+    display: block;
+    width: 100%;
+    height: auto !important;
+    min-height: 0 !important;
+    max-height: none !important;
+    margin: 0;
+    overflow: hidden;
+    transform: none !important;
+    align-self: auto;
+    contain: none;
+  }
+
+  .admin-module-page .admin-related-section > header {
+    position: static !important;
+    inset: auto !important;
+    z-index: auto !important;
+    width: 100%;
+    min-height: 0;
+    transform: none !important;
+  }
+
+  .admin-module-page .admin-related-section__content {
+    position: static !important;
+    inset: auto !important;
+    z-index: auto !important;
+    display: grid;
+    grid-template-columns: minmax(0, 1fr);
+    width: 100%;
+    height: auto !important;
+    min-height: 0 !important;
+    max-height: none !important;
+    overflow: visible !important;
+    transform: none !important;
+  }
+
+  .admin-module-page .admin-related-card {
+    position: static !important;
+    inset: auto !important;
+    z-index: auto !important;
+    width: 100%;
+    height: auto !important;
+    min-height: 0;
+    transform: none !important;
+  }
+
+  .admin-module-page .admin-related-card__title {
+    display: grid;
+    grid-template-columns: minmax(0, 1fr) auto;
+    align-items: start;
+  }
+
+  .admin-module-page .admin-related-card__title strong,
+  .admin-module-page .admin-related-card span,
+  .admin-module-page .admin-related-card small {
+    min-width: 0;
+    overflow-wrap: anywhere;
+  }
+}
+
+@media (max-width: 420px) {
+  .admin-module-page .admin-entity-modal__header {
+    padding-inline: 14px 10px;
+    gap: 10px;
+  }
+
+  .admin-module-page .admin-entity-modal__header h2 {
+    font-size: 1.35rem;
+    line-height: 1.2;
   }
 
   .admin-module-page .admin-entity-modal__content {
-    padding-bottom: calc(24px + env(safe-area-inset-bottom));
+    padding-inline: 14px;
+  }
+
+  .admin-module-page .admin-related-section > header {
+    padding: 14px;
+    align-items: flex-start;
+  }
+
+  .admin-module-page .admin-related-section > header h3 {
+    font-size: 1.15rem;
+    line-height: 1.2;
+  }
+
+  .admin-module-page .admin-related-section__content {
+    padding: 12px;
+  }
+
+  .admin-module-page .admin-related-card {
+    padding: 12px;
   }
 }
