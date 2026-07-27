@@ -41,6 +41,10 @@ function emptyValues(type = '') {
   return { tipoDispositivoId: type, pregunta: '', orden: '' };
 }
 
+function panelId(typeIdentifier) {
+  return `maintenance-questions-${clean(typeIdentifier).replace(/[^a-zA-Z0-9_-]/g, '-')}`;
+}
+
 function QuestionModalFields({ values, setValues, deviceTypes, editing }) {
   function change(event) {
     const { name, value } = event.target;
@@ -75,6 +79,7 @@ export default function MaintenanceQuestionsPage() {
   const canManage = hasPermission('CATALOGOS_GESTIONAR') || isAdmin;
   const [deviceTypes, setDeviceTypes] = useState([]);
   const [questions, setQuestions] = useState([]);
+  const [expandedTypes, setExpandedTypes] = useState(() => new Set());
   const [search, setSearch] = useState('');
   const [loading, setLoading] = useState(true);
   const [saving, setSaving] = useState(false);
@@ -120,12 +125,33 @@ export default function MaintenanceQuestionsPage() {
         || group.questions.some((question) => questionText(question).toLowerCase().includes(query)));
   }, [deviceTypes, questions, search]);
 
+  function expandType(id) {
+    if (!id) return;
+    setExpandedTypes((current) => {
+      if (current.has(id)) return current;
+      const next = new Set(current);
+      next.add(id);
+      return next;
+    });
+  }
+
+  function toggleType(id) {
+    setExpandedTypes((current) => {
+      const next = new Set(current);
+      if (next.has(id)) next.delete(id);
+      else next.add(id);
+      return next;
+    });
+  }
+
   function openCreate(group = null) {
+    if (group?.id) expandType(group.id);
     setModal({ mode: 'create', record: null, values: emptyValues(group?.id || '') });
     setModalError('');
   }
 
   function openEdit(question) {
+    expandType(clean(question.TipoDispositivoID));
     setModal({
       mode: 'edit',
       record: question,
@@ -141,8 +167,9 @@ export default function MaintenanceQuestionsPage() {
   async function submit(event) {
     event.preventDefault();
     if (!modal || !canManage) return;
-    const type = deviceTypes.find((item) => typeId(item) === modal.values.tipoDispositivoId);
-    if (!type || !modal.values.tipoDispositivoId) {
+    const selectedTypeId = modal.values.tipoDispositivoId;
+    const type = deviceTypes.find((item) => typeId(item) === selectedTypeId);
+    if (!type || !selectedTypeId) {
       setModalError('Seleccione un tipo de dispositivo válido.');
       return;
     }
@@ -155,7 +182,7 @@ export default function MaintenanceQuestionsPage() {
     setModalError('');
     try {
       const payload = {
-        tipoDispositivoId: modal.values.tipoDispositivoId,
+        tipoDispositivoId: selectedTypeId,
         Pregunta: modal.values.pregunta.trim(),
         ...(modal.values.orden !== '' ? { Orden: Number(modal.values.orden) } : {}),
       };
@@ -169,6 +196,7 @@ export default function MaintenanceQuestionsPage() {
         await requestAvailable(QUESTION_ROUTES.create, payload, sessionToken);
       }
       setModal(null);
+      expandType(selectedTypeId);
       await load();
     } catch (requestError) {
       setModalError(requestError?.message || 'No se pudo guardar la pregunta.');
@@ -218,24 +246,27 @@ export default function MaintenanceQuestionsPage() {
 
   if (!canView) return <Navigate to="/mas" replace />;
 
+  const searching = Boolean(clean(search));
+
   return <div className="page maintenance-questions-page">
     <div className="list-page-heading maintenance-questions-heading">
       <div>
         <span className="eyebrow">Catálogos relacionados</span>
         <h1>Preguntas de mantenimiento</h1>
-        <p>Configure las preguntas de Sí o No que aparecen en cada tipo de dispositivo y en los reportes de Excel.</p>
+        <p>Seleccione un tipo de dispositivo para desplegar y administrar sus preguntas de Sí o No.</p>
       </div>
       {canManage && <button className="button button--primary button--compact" type="button" onClick={() => openCreate()} disabled={saving}><Icon name="add" /> Nueva pregunta</button>}
     </div>
 
     <section className="maintenance-question-explanation">
       <Icon name="account_tree" />
-      <div><strong>Relación automática con el catálogo</strong><span>Cada tipo de dispositivo nuevo aparece en este panel. Las preguntas se relacionan por su identificador y los mantenimientos anteriores conservan una copia histórica.</span></div>
+      <div><strong>Relación automática con el catálogo</strong><span>Los tipos se mantienen agrupados y cerrados para facilitar la navegación. Los resultados de búsqueda se despliegan automáticamente.</span></div>
     </section>
 
     <label className="maintenance-question-search">
       <Icon name="search" />
       <input value={search} onChange={(event) => setSearch(event.target.value)} placeholder="Buscar dispositivo o pregunta" aria-label="Buscar preguntas de mantenimiento" />
+      {search && <button type="button" className="maintenance-question-search__clear" onClick={() => setSearch('')} aria-label="Limpiar búsqueda"><Icon name="close" /></button>}
     </label>
 
     {!canManage && <div className="readonly-notice"><Icon name="visibility" /><span>Modo consulta: puede revisar las preguntas relacionadas, pero no agregarlas, editarlas ni eliminarlas.</span></div>}
@@ -243,29 +274,54 @@ export default function MaintenanceQuestionsPage() {
 
     {loading ? <div className="state-card state-card--loading"><Icon name="progress_activity" /> Cargando tipos y preguntas...</div> : (
       <div className="maintenance-question-type-grid">
-        {groups.map((group) => <section key={group.id} className={`maintenance-question-type-card${group.active ? '' : ' is-inactive'}`}>
-          <header>
-            <span className="maintenance-question-type-card__icon"><Icon name="devices" /></span>
-            <div><h2>{group.name}</h2><p>{group.questions.filter(activeRecord).length} activa{group.questions.filter(activeRecord).length === 1 ? '' : 's'} · {group.questions.length} total</p></div>
-            <span className={`status-chip ${group.active ? 'status-chip--active' : 'status-chip--inactive'}`}>{group.active ? 'ACTIVO' : 'INACTIVO'}</span>
-            {canManage && group.active && <button className="button button--secondary button--compact" type="button" onClick={() => openCreate(group)} disabled={saving}><Icon name="add" />Agregar</button>}
-          </header>
-          <div className="maintenance-question-list">
-            {group.questions.length ? group.questions.map((question) => {
-              const active = activeRecord(question);
-              return <article key={questionId(question)} className={active ? '' : 'is-inactive'}>
-                <span className="maintenance-question-order">{Number(question.Orden || 0)}</span>
-                <div><strong>{questionText(question)}</strong><small>Respuesta: Sí / No · Clave interna: {clean(question.Clave)}</small></div>
-                <span className={`status-chip ${active ? 'status-chip--active' : 'status-chip--inactive'}`}>{active ? 'ACTIVA' : 'INACTIVA'}</span>
-                {canManage && <div className="maintenance-question-actions">
-                  <button className="icon-button" type="button" onClick={() => openEdit(question)} disabled={saving} aria-label="Editar pregunta"><Icon name="edit" /></button>
-                  <button className="icon-button" type="button" onClick={() => toggle(question)} disabled={saving} aria-label={active ? 'Desactivar pregunta' : 'Reactivar pregunta'}><Icon name={active ? 'block' : 'refresh'} /></button>
-                  <button className="icon-button icon-button--danger" type="button" onClick={() => remove(question)} disabled={saving} aria-label="Eliminar pregunta"><Icon name="delete" /></button>
-                </div>}
-              </article>;
-            }) : <div className="maintenance-question-empty"><Icon name="rule" /><span>Este tipo todavía no tiene preguntas específicas.</span>{canManage && group.active && <button type="button" onClick={() => openCreate(group)}>Agregar la primera</button>}</div>}
-          </div>
-        </section>)}
+        {groups.map((group) => {
+          const open = searching || expandedTypes.has(group.id);
+          const activeCount = group.questions.filter(activeRecord).length;
+          const contentId = panelId(group.id);
+          return <section key={group.id} className={`maintenance-question-type-card${group.active ? '' : ' is-inactive'}${open ? ' is-open' : ''}`}>
+            <button
+              className="maintenance-question-type-toggle"
+              type="button"
+              onClick={() => toggleType(group.id)}
+              aria-expanded={open}
+              aria-controls={contentId}
+            >
+              <span className="maintenance-question-type-card__icon"><Icon name="devices" /></span>
+              <span className="maintenance-question-type-card__name">{group.name}</span>
+              <span className="maintenance-question-type-count" aria-label={`${activeCount} preguntas activas`}>{activeCount}</span>
+              <Icon name="expand_more" />
+            </button>
+
+            {open && <div className="maintenance-question-type-content" id={contentId}>
+              <div className="maintenance-question-type-toolbar">
+                <div>
+                  <strong>{activeCount} pregunta{activeCount === 1 ? '' : 's'} activa{activeCount === 1 ? '' : 's'}</strong>
+                  <span>{group.questions.length} registrada{group.questions.length === 1 ? '' : 's'} en total</span>
+                </div>
+                <div className="maintenance-question-type-toolbar__actions">
+                  {!group.active && <span className="status-chip status-chip--inactive">TIPO INACTIVO</span>}
+                  {canManage && group.active && <button className="button button--secondary button--compact" type="button" onClick={() => openCreate(group)} disabled={saving}><Icon name="add" />Agregar pregunta</button>}
+                </div>
+              </div>
+
+              <div className="maintenance-question-list">
+                {group.questions.length ? group.questions.map((question) => {
+                  const active = activeRecord(question);
+                  return <article key={questionId(question)} className={active ? '' : 'is-inactive'}>
+                    <span className="maintenance-question-order">{Number(question.Orden || 0)}</span>
+                    <div><strong>{questionText(question)}</strong><small>Respuesta: Sí / No · Clave interna: {clean(question.Clave)}</small></div>
+                    <span className={`status-chip ${active ? 'status-chip--active' : 'status-chip--inactive'}`}>{active ? 'ACTIVA' : 'INACTIVA'}</span>
+                    {canManage && <div className="maintenance-question-actions">
+                      <button className="icon-button" type="button" onClick={() => openEdit(question)} disabled={saving} aria-label="Editar pregunta"><Icon name="edit" /></button>
+                      <button className="icon-button" type="button" onClick={() => toggle(question)} disabled={saving} aria-label={active ? 'Desactivar pregunta' : 'Reactivar pregunta'}><Icon name={active ? 'block' : 'refresh'} /></button>
+                      <button className="icon-button icon-button--danger" type="button" onClick={() => remove(question)} disabled={saving} aria-label="Eliminar pregunta"><Icon name="delete" /></button>
+                    </div>}
+                  </article>;
+                }) : <div className="maintenance-question-empty"><Icon name="rule" /><span>Este tipo todavía no tiene preguntas específicas.</span>{canManage && group.active && <button type="button" onClick={() => openCreate(group)}>Agregar la primera</button>}</div>}
+              </div>
+            </div>}
+          </section>;
+        })}
         {!groups.length && <div className="empty-state"><Icon name="search_off" /><h2>Sin coincidencias</h2><p>No hay tipos o preguntas que coincidan con la búsqueda.</p></div>}
       </div>
     )}
