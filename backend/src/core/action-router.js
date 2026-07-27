@@ -88,6 +88,15 @@ for(const [key,prefixes] of crudRouteGroups){for(const prefix of prefixes){
   if(catalogDeleteKeys.has(key) || clientAdminKeys.has(key)) add(`${prefix}.delete`,c[key].delete,updatePermission);
 }}
 
+// Alta operativa: permite crear una nueva ubicación del equipo desde boletas
+// y mantenimientos sin habilitar la administración completa de Clientes.
+add([
+  'clients.operational.equipmentLocations.create',
+  'equipmentLocations.operational.create',
+  'clientes.ubicacionesEquipo.operational.create',
+  'ubicacionesEquipo.operational.create',
+], c.equipmentLocations.create, operationalCatalogPermissions);
+
 for (const [key, prefixes] of [
   ['categories',['catalog.operational.categories']],
   ['deviceTypes',['catalog.operational.deviceTypes']],

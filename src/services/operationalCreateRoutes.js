@@ -8,3 +8,4 @@ prepend(MODULE_ROUTES.failureTypes.create, 'catalog.operational.failureTypes.cre
 prepend(MODULE_ROUTES.deviceTypes.create, 'catalog.operational.deviceTypes.create');
 prepend(MODULE_ROUTES.manufacturers.create, 'catalog.operational.manufacturers.create');
 prepend(MODULE_ROUTES.models.create, 'catalog.operational.models.create');
+prepend(MODULE_ROUTES.clients.equipmentLocationsCreate, 'clients.operational.equipmentLocations.create');
