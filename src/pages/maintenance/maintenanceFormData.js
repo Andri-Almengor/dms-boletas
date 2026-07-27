@@ -48,7 +48,7 @@ function answerValue(row, key) {
   return pick(row, [key, upper], '');
 }
 
-function parseAnswers(row, categoryName) {
+function parseAnswersBundle(row, categoryName) {
   let parsed = {};
   try {
     parsed = typeof row.RespuestasJSON === 'string'
@@ -58,12 +58,30 @@ function parseAnswers(row, categoryName) {
     parsed = {};
   }
 
-  const answers = { ...createEmptyChecklist(categoryName), ...parsed };
+  const questionDetails = Array.isArray(parsed.__preguntas)
+    ? parsed.__preguntas.map((item) => ({
+      questionId: String(item.questionId || item.PreguntaDispositivoID || ''),
+      typeId: String(item.typeId || item.TipoDispositivoID || ''),
+      key: String(item.key || item.Clave || ''),
+      label: String(item.label || item.Pregunta || item.key || ''),
+      order: Number(item.order ?? item.Orden ?? 0),
+      responseType: String(item.responseType || item.TipoRespuesta || 'SI_NO'),
+      value: String(item.value ?? ''),
+      activeAtSave: item.activeAtSave !== false,
+      historical: item.activeAtSave === false,
+    })).filter((item) => item.key)
+    : [];
+
+  const { __preguntas: _questionMetadata, ...plainAnswers } = parsed;
+  const answers = { ...createEmptyChecklist(categoryName), ...plainAnswers };
+  questionDetails.forEach((item) => {
+    if ((answers[item.key] === '' || answers[item.key] === undefined) && item.value !== '') answers[item.key] = item.value;
+  });
   getMaintenanceCategory(categoryName).questions.forEach(([key]) => {
     const explicit = answerValue(row, key);
     if ((answers[key] === '' || answers[key] === undefined) && explicit !== '') answers[key] = explicit;
   });
-  return answers;
+  return { answers, questionDetails };
 }
 
 function mapImage(image) {
@@ -85,7 +103,7 @@ export function createMaintenanceDevice(category = 'Cámara') {
     tipoDispositivoId: '', categoria: canonicalCategory,
     fabricanteId: '', fabricante: '', modeloId: '', modelo: '',
     nombre: '', serie: '', funcionamiento: '', enUso: '', estado: 'Correcto', observacion: '',
-    respuestas: createEmptyChecklist(canonicalCategory), images: [], newImages: [],
+    respuestas: createEmptyChecklist(canonicalCategory), questionDetails: [], images: [], newImages: [],
   };
 }
 
@@ -122,6 +140,7 @@ export function mapMaintenance(data) {
 
 export function mapMaintenanceDevice(row = {}) {
   const category = canonicalMaintenanceCategoryName(pick(row, ['TipoDispositivo', 'Categoria', 'categoria'], 'Cámara'));
+  const bundle = parseAnswersBundle(row, category);
   return {
     localId: String(pick(row, ['EvidenciaMantenimientoID', 'deviceId', 'id'], crypto.randomUUID?.() || Date.now())),
     id: String(pick(row, ['EvidenciaMantenimientoID', 'deviceId', 'id'])),
@@ -141,7 +160,8 @@ export function mapMaintenanceDevice(row = {}) {
     enUso: pick(row, ['EnUso', 'enUso']),
     estado: pick(row, ['Estado', 'estado'], 'Correcto'),
     observacion: pick(row, ['Observacion', 'observacion']),
-    respuestas: parseAnswers(row, category),
+    respuestas: bundle.answers,
+    questionDetails: bundle.questionDetails,
     images: (row.Imagenes || row.images || []).map(mapImage),
     newImages: [],
   };
@@ -180,6 +200,8 @@ export function maintenanceDevicePayload(device, maintenanceId) {
     NombreDispositivo: device.nombre,
     Serie: device.serie, Funcionamiento: device.funcionamiento,
     EnUso: device.enUso, Estado: device.estado, Observacion: device.observacion,
+    questionDetails: device.questionDetails || [],
+    respuestasDetalle: device.questionDetails || [],
     RespuestasJSON: JSON.stringify(device.respuestas), ...device.respuestas,
   };
 }
