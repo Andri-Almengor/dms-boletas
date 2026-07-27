@@ -145,11 +145,11 @@ export default function SurveysAdminPage() {
     {error && <div className="alert alert--error"><Icon name="error" /><span>{error}</span></div>}
 
     {loading ? <div className="state-card state-card--loading"><Icon name="progress_activity" />Cargando encuestas...</div> : tab === 'questions' ? (
-      <div className="admin-mini-card-grid">
-        {sortedQuestions.map((question) => <article className={`admin-mini-card${question.status === 'INACTIVO' ? ' is-inactive' : ''}`} key={question.id}>
+      <div className="admin-mini-card-grid admin-mini-card-grid--questions">
+        {sortedQuestions.map((question) => <article className={`admin-mini-card admin-mini-card--question${question.status === 'INACTIVO' ? ' is-inactive' : ''}`} key={question.id}>
           <span className="admin-mini-card__icon"><Icon name="quiz" /></span>
-          <div className="admin-mini-card__body"><strong>{question.text}</strong><span>Orden {question.order}</span><small>{question.status}</small></div>
-          <button className="icon-button icon-button--outlined admin-mini-card__action" type="button" onClick={() => openQuestion(question)} aria-label="Editar pregunta"><Icon name="edit" /></button>
+          <div className="admin-mini-card__body"><strong title={question.text}>{question.text}</strong><span>Orden {question.order}</span><small>{question.status}</small></div>
+          <button className="icon-button icon-button--outlined admin-mini-card__action" type="button" onClick={() => openQuestion(question)} aria-label={`Editar pregunta: ${question.text}`}><Icon name="edit" /></button>
         </article>)}
         {!sortedQuestions.length && <div className="empty-state"><Icon name="quiz" /><h2>Sin preguntas</h2><p>Agregue la primera pregunta de satisfacción.</p></div>}
       </div>
