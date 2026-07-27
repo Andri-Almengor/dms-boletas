@@ -8,6 +8,7 @@ import TicketHoursCeilingBridge from './components/forms/TicketHoursCeilingBridg
 import './services/maintenanceRoutes';
 import './services/operationalRoutes';
 import './services/operationalCreateRoutes';
+import './services/clientAdminRoutes';
 import './services/ticketVisitOfflineSync';
 import { initializeTheme } from './services/theme';
 import App from './App';
