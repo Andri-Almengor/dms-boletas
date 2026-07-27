@@ -32,6 +32,18 @@ function questionView(row = {}) {
   };
 }
 
+function savedQuestionView(row = {}) {
+  return {
+    questionId: clean(row.questionId || row.id || row.PreguntaDispositivoID),
+    typeId: clean(row.typeId || row.TipoDispositivoID),
+    key: clean(row.key || row.Clave),
+    label: clean(row.label || row.Pregunta),
+    order: Number(row.order ?? row.Orden ?? 0),
+    responseType: clean(row.responseType || row.TipoRespuesta || 'SI_NO'),
+    value: clean(row.value),
+  };
+}
+
 export default function useMaintenanceQuestionCatalog(sessionToken) {
   const [questions, setQuestions] = useState([]);
   const [loading, setLoading] = useState(Boolean(sessionToken));
@@ -77,11 +89,29 @@ export default function useMaintenanceQuestionCatalog(sessionToken) {
 
   function forDevice(device = {}) {
     const typeId = clean(device.tipoDispositivoId || device.TipoDispositivoID);
-    if (typeId && byTypeId.has(typeId)) return byTypeId.get(typeId);
     const category = normalized(device.categoria || device.TipoDispositivo || device.Categoria);
-    return questions
-      .filter((question) => normalized(question.typeName) === category)
-      .sort((left, right) => left.order - right.order || left.label.localeCompare(right.label, 'es'));
+    const selected = typeId && byTypeId.has(typeId)
+      ? byTypeId.get(typeId)
+      : questions
+        .filter((question) => normalized(question.typeName) === category)
+        .sort((left, right) => left.order - right.order || left.label.localeCompare(right.label, 'es'));
+    const savedByKey = new Map((device.questionDetails || [])
+      .map(savedQuestionView)
+      .filter((item) => item.key && (!item.typeId || !typeId || item.typeId === typeId))
+      .map((item) => [item.key, item]));
+
+    return selected.map((question) => {
+      const saved = savedByKey.get(question.key);
+      if (!saved) return question;
+      return {
+        ...question,
+        questionId: saved.questionId || question.questionId,
+        label: saved.label || question.label,
+        order: saved.order || question.order,
+        responseType: saved.responseType || question.responseType,
+        value: saved.value,
+      };
+    });
   }
 
   return { questions, forDevice, loading, error };
