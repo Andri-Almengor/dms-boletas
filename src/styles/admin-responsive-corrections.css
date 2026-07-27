@@ -1,0 +1,108 @@
+/* Ajustes específicos para pantallas administrativas con tarjetas y ventanas. */
+
+.catalog-page .admin-mini-card-grid {
+  grid-template-columns: repeat(auto-fit, minmax(min(100%, 320px), 1fr));
+  gap: 14px;
+}
+
+.catalog-page .admin-mini-card {
+  min-height: 118px;
+  align-items: start;
+}
+
+.catalog-page .admin-mini-card__body strong {
+  display: -webkit-box;
+  -webkit-box-orient: vertical;
+  -webkit-line-clamp: 3;
+  overflow: hidden;
+  line-height: 1.3;
+  overflow-wrap: break-word;
+  word-break: normal;
+}
+
+.catalog-page .admin-mini-card__body span {
+  display: -webkit-box;
+  -webkit-box-orient: vertical;
+  -webkit-line-clamp: 2;
+  overflow: hidden;
+}
+
+.catalog-page .admin-mini-card__action {
+  align-self: center;
+}
+
+/* Clientes necesita una ventana más amplia y una lectura en columnas en PC. */
+.admin-module-page .admin-entity-modal {
+  width: min(100%, 1180px);
+}
+
+.admin-module-page .admin-entity-modal__content {
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  padding-bottom: 30px;
+}
+
+.admin-module-page .admin-detail-grid,
+.admin-module-page .admin-entity-modal__content > .alert,
+.admin-module-page .admin-entity-modal__content > .state-card,
+.admin-module-page .admin-entity-modal__content > .stack-form,
+.admin-module-page .admin-related-section:last-of-type {
+  grid-column: 1 / -1;
+}
+
+.admin-module-page .admin-related-section {
+  max-height: none;
+  align-self: start;
+}
+
+.admin-module-page .admin-related-section__content {
+  max-height: none;
+  overflow: visible;
+}
+
+.admin-module-page .admin-entity-modal__content::-webkit-scrollbar {
+  width: 10px;
+}
+
+.admin-module-page .admin-entity-modal__content::-webkit-scrollbar-thumb {
+  border: 3px solid transparent;
+  border-radius: 999px;
+  background: color-mix(in srgb, var(--text-muted) 45%, transparent);
+  background-clip: padding-box;
+}
+
+@media (max-width: 980px) {
+  .admin-module-page .admin-entity-modal__content {
+    grid-template-columns: 1fr;
+  }
+
+  .admin-module-page .admin-detail-grid,
+  .admin-module-page .admin-entity-modal__content > .alert,
+  .admin-module-page .admin-entity-modal__content > .state-card,
+  .admin-module-page .admin-entity-modal__content > .stack-form,
+  .admin-module-page .admin-related-section:last-of-type {
+    grid-column: auto;
+  }
+}
+
+@media (max-width: 760px) {
+  .catalog-page .admin-mini-card-grid {
+    grid-template-columns: 1fr;
+  }
+
+  .catalog-page .admin-mini-card {
+    min-height: 104px;
+    align-items: center;
+  }
+
+  .catalog-page .admin-mini-card__body strong {
+    -webkit-line-clamp: 3;
+  }
+
+  .admin-module-page .admin-entity-modal {
+    width: 100%;
+  }
+
+  .admin-module-page .admin-entity-modal__content {
+    padding-bottom: calc(24px + env(safe-area-inset-bottom));
+  }
+}
