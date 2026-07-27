@@ -10,7 +10,6 @@ import {
 } from '../infra/sheets.repository.js';
 import { audit } from '../services/audit.service.js';
 import {
-  DEVICE_QUESTION_SNAPSHOT_COLUMN,
   MAINTENANCE_QUESTION_SHEET,
   assertMaintenanceDeviceType,
   buildMaintenanceQuestionSnapshot,
@@ -19,9 +18,10 @@ import {
   isActiveMaintenanceQuestion,
   maintenanceQuestionClientView,
   normalizeMaintenanceQuestionValue,
+  parseMaintenanceAnswers,
+  parseMaintenanceQuestionSnapshot,
   readMaintenanceQuestions,
 } from '../services/maintenance-question-catalog.service.js';
-import { ensureSheetColumns } from '../services/sheet-columns.service.js';
 import { maintenanceDeviceCountPolicyHandlers } from './maintenance-device-count-policy.module.js';
 
 let questionWriteTail = Promise.resolve();
@@ -189,14 +189,30 @@ async function config(ctx) {
 
 async function contextWithQuestionSnapshot(ctx, before = {}) {
   await ensureMaintenanceQuestionCatalog(ctx.user?.UsuarioID || 'SYSTEM');
-  await ensureSheetColumns('Evidencia_Mantenimientos', [DEVICE_QUESTION_SNAPSHOT_COLUMN]);
-  const snapshot = await buildMaintenanceQuestionSnapshot(ctx.payload, before);
+  const answers = parseMaintenanceAnswers(
+    ctx.payload.respuestas
+      || ctx.payload.answers
+      || ctx.payload.RespuestasJSON
+      || before.RespuestasJSON,
+  );
+  const nestedSnapshot = parseMaintenanceQuestionSnapshot(answers.__preguntas);
+  const snapshot = await buildMaintenanceQuestionSnapshot({
+    ...ctx.payload,
+    questionDetails: ctx.payload.questionDetails
+      || ctx.payload.respuestasDetalle
+      || nestedSnapshot,
+  }, before);
+  const persistedAnswers = {
+    ...answers,
+    __preguntas: snapshot,
+  };
   return {
     ...ctx,
     payload: {
       ...ctx.payload,
-      RespuestasDetalleJSON: JSON.stringify(snapshot),
-      respuestasDetalle: snapshot,
+      respuestas: persistedAnswers,
+      answers: persistedAnswers,
+      RespuestasJSON: JSON.stringify(persistedAnswers),
       questionDetails: snapshot,
     },
   };
