@@ -7,6 +7,7 @@ import MaintenanceDeviceCatalogFields from './MaintenanceDeviceCatalogFields';
 import MaintenanceEquipmentLocationSelect from './MaintenanceEquipmentLocationSelect';
 import MaintenanceEvidenceImage from './MaintenanceEvidenceImage';
 import { getMaintenanceCategory } from '../../config/maintenanceCategories';
+import useMaintenanceQuestionCatalog from '../../hooks/useMaintenanceQuestionCatalog';
 import { MODULE_ROUTES, normalizeItems, pick, requestAvailable } from '../../services/moduleApi';
 
 const MAX_IMAGE_BYTES = 15 * 1024 * 1024;
@@ -15,8 +16,8 @@ function Field({ label, multiline = false, ...props }) {
   return <label className="field-group"><span className="field-label">{label}</span>{multiline ? <textarea className="form-control ticket-textarea" rows="5" {...props} /> : <input className="form-control" {...props} />}</label>;
 }
 
-function Choice({ label, value, onChange, options = ['Sí', 'No'], disabled = false }) {
-  return <div className="field-group"><span className="field-label">{label}</span><div className="maintenance-choice">{options.map((option) => <button type="button" key={option} className={value === option ? 'is-selected' : ''} onClick={() => onChange(option)} disabled={disabled}>{option}</button>)}</div></div>;
+function Choice({ label, value, onChange, options = ['Sí', 'No'], disabled = false, note = '' }) {
+  return <div className="field-group maintenance-dynamic-question"><span className="field-label">{label}</span>{note && <small className="field-hint">{note}</small>}<div className="maintenance-choice">{options.map((option) => <button type="button" key={option} className={value === option ? 'is-selected' : ''} onClick={() => onChange(option)} disabled={disabled}>{option}</button>)}</div></div>;
 }
 
 function currentRoute() {
@@ -44,6 +45,20 @@ function pendingImage(file) {
   };
 }
 
+function normalizeQuestion(item = {}, index = 0) {
+  return {
+    questionId: String(item.questionId || item.id || item.PreguntaDispositivoID || ''),
+    typeId: String(item.typeId || item.TipoDispositivoID || ''),
+    key: String(item.key || item.Clave || ''),
+    label: String(item.label || item.Pregunta || item.key || ''),
+    order: Number(item.order ?? item.Orden ?? (index + 1) * 10),
+    responseType: String(item.responseType || item.TipoRespuesta || 'SI_NO'),
+    value: String(item.value ?? ''),
+    activeAtSave: item.activeAtSave !== false,
+    historical: Boolean(item.historical || item.activeAtSave === false),
+  };
+}
+
 export default function MaintenanceDeviceEditor({
   device,
   equipmentOptions = [],
@@ -63,6 +78,7 @@ export default function MaintenanceDeviceEditor({
 }) {
   const { sessionToken, hasPermission } = useAuth();
   const category = getMaintenanceCategory(device.categoria);
+  const questionCatalog = useMaintenanceQuestionCatalog(sessionToken);
   const locked = disabled || submitting;
   const cancel = onCancel || onClose;
   const canDeleteEvidence = isAdmin
@@ -102,7 +118,75 @@ export default function MaintenanceDeviceEditor({
     [technicians, loadedTechnicians],
   );
 
+  const dynamicQuestions = useMemo(() => {
+    const currentTypeId = String(device.tipoDispositivoId || '');
+    const catalogQuestions = questionCatalog.forDevice(device).map(normalizeQuestion);
+    const historical = (device.questionDetails || [])
+      .map(normalizeQuestion)
+      .filter((item) => item.key && (!item.typeId || !currentTypeId || item.typeId === currentTypeId));
+    const historicalByKey = new Map(historical.map((item) => [item.key, item]));
+    const activeKeys = new Set(catalogQuestions.map((item) => item.key));
+
+    const active = catalogQuestions.map((question) => ({
+      ...question,
+      value: String(device.respuestas?.[question.key] ?? historicalByKey.get(question.key)?.value ?? ''),
+      historical: false,
+      activeAtSave: true,
+    }));
+    const inactiveHistorical = historical
+      .filter((item) => !activeKeys.has(item.key) && (item.value || item.label))
+      .map((item) => ({ ...item, value: String(device.respuestas?.[item.key] ?? item.value ?? ''), historical: true }));
+
+    if (active.length || inactiveHistorical.length || (!questionCatalog.loading && !questionCatalog.error)) {
+      return [...active, ...inactiveHistorical].sort((left, right) => left.order - right.order || left.label.localeCompare(right.label, 'es'));
+    }
+
+    return category.questions.map(([key, label], index) => ({
+      questionId: `legacy:${key}`,
+      typeId: currentTypeId,
+      key,
+      label,
+      order: (index + 1) * 10,
+      responseType: 'SI_NO',
+      value: String(device.respuestas?.[key] || ''),
+      activeAtSave: true,
+      historical: false,
+    }));
+  }, [category.questions, device, questionCatalog]);
+
   function patch(values) { onChange({ ...device, ...values }); }
+
+  function updateCatalogDevice(nextDevice) {
+    const previousType = String(device.tipoDispositivoId || device.categoria || '');
+    const nextType = String(nextDevice.tipoDispositivoId || nextDevice.categoria || '');
+    if (previousType && nextType && previousType !== nextType) {
+      onChange({ ...nextDevice, respuestas: {}, questionDetails: [] });
+      return;
+    }
+    onChange(nextDevice);
+  }
+
+  function updateQuestion(question, value) {
+    const details = [...(device.questionDetails || [])];
+    const index = details.findIndex((item) => String(item.key || item.Clave) === question.key);
+    const nextDetail = {
+      questionId: question.questionId,
+      typeId: question.typeId || String(device.tipoDispositivoId || ''),
+      key: question.key,
+      label: question.label,
+      order: question.order,
+      responseType: question.responseType || 'SI_NO',
+      value,
+      activeAtSave: !question.historical,
+      historical: question.historical,
+    };
+    if (index >= 0) details[index] = { ...details[index], ...nextDetail };
+    else details.push(nextDetail);
+    patch({
+      respuestas: { ...(device.respuestas || {}), [question.key]: value },
+      questionDetails: details,
+    });
+  }
 
   function addFiles(event) {
     const files = Array.from(event.target.files || []);
@@ -173,7 +257,7 @@ export default function MaintenanceDeviceEditor({
       <section className="form-card maintenance-device-section-card maintenance-device-identification-card">
         <div className="form-card__heading"><span className="section-marker" /><div><h3>Identificación y ubicación</h3><p>Todos los campos son opcionales. Puede completar solamente la información disponible y agregar nuevos valores en los catálogos.</p></div></div>
         <div className="maintenance-device-fields-grid">
-          <div className="maintenance-device-fields-grid__full"><MaintenanceDeviceCatalogFields device={device} onChange={onChange} disabled={locked} /></div>
+          <div className="maintenance-device-fields-grid__full"><MaintenanceDeviceCatalogFields device={device} onChange={updateCatalogDevice} disabled={locked} /></div>
           <MaintenanceEquipmentLocationSelect
             locationId={maintenanceLocationId}
             value={device.ubicacionEquipoId}
@@ -203,11 +287,20 @@ export default function MaintenanceDeviceEditor({
       </section>
 
       <section className="maintenance-checklist maintenance-device-section-card">
-        <h3><Icon name={category.icon} /> Checklist de {category.key}</h3>
+        <h3><Icon name={category.icon} /> Checklist de {device.categoria || category.key}</h3>
         <Choice label="¿El dispositivo está funcionando correctamente?" value={device.funcionamiento} onChange={(value) => patch({ funcionamiento: value })} disabled={locked} />
         <Choice label="¿El dispositivo está en uso?" value={device.enUso} onChange={(value) => patch({ enUso: value })} options={['Sí, en uso', 'No, está guardado', 'No']} disabled={locked} />
-        {category.questions.map(([key, label]) => <Choice key={key} label={label} value={device.respuestas[key] || ''} onChange={(value) => patch({ respuestas: { ...device.respuestas, [key]: value } })} disabled={locked} />)}
-        {!category.questions.length && <div className="info-box"><Icon name="info" /><p>Este tipo no tiene preguntas específicas. Registre funcionamiento, uso, estado y observaciones.</p></div>}
+        {questionCatalog.loading && <div className="maintenance-question-state"><Icon name="progress_activity" /><span>Cargando preguntas relacionadas con el tipo de dispositivo...</span></div>}
+        {dynamicQuestions.map((question) => <Choice
+          key={`${question.questionId || question.key}-${question.key}`}
+          label={question.label}
+          value={String(device.respuestas?.[question.key] ?? question.value ?? '')}
+          onChange={(value) => updateQuestion(question, value)}
+          disabled={locked || question.historical}
+          note={question.historical ? 'Pregunta histórica: fue eliminada o desactivada después de este mantenimiento.' : ''}
+        />)}
+        {!questionCatalog.loading && !dynamicQuestions.length && <div className="info-box"><Icon name="info" /><p>Este tipo no tiene preguntas específicas activas. Puede agregarlas desde Administración → Preguntas de mantenimiento.</p></div>}
+        {questionCatalog.error && <div className="info-box maintenance-question-warning"><Icon name="cloud_off" /><p>No se pudo actualizar el catálogo de preguntas. Se muestran las preguntas compatibles disponibles en el dispositivo.</p></div>}
         <Choice label="Estado" value={device.estado} onChange={(value) => patch({ estado: value })} options={['Correcto', 'Mal estado']} disabled={locked} />
       </section>
 
