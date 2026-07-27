@@ -5,7 +5,7 @@ import { login, authenticate, logout, changePassword } from '../services/auth.se
 import { safeUser } from '../services/permissions.service.js';
 import { rewriteTechnicalReport } from '../services/gemini.service.js';
 import { rewriteKnowledgeTutorial } from '../services/knowledge-gemini.service.js';
-import { assistantOperationalReportHandlers } from '../modules/assistant-operational-report.module.js';
+import { assistantDynamicMaintenanceQuestionHandlers as assistantOperationalReportHandlers } from '../modules/assistant-dynamic-maintenance-questions.module.js';
 import { usersHandlers } from '../modules/users.module.js';
 import { crudHandlers } from '../modules/crud.module.js';
 import { ticketMultiHandlers as ticketHandlers } from '../modules/ticket-multi.module.js';
