@@ -2,6 +2,7 @@ import React, { useEffect, useMemo, useState } from 'react';
 import { Link, useNavigate } from 'react-router-dom';
 import { useAuth } from '../../AuthContext';
 import Icon from '../../components/common/Icon';
+import FilterDrawer from '../../components/forms/FilterDrawer';
 import { MODULE_ROUTES, normalizeItems, pick, requestAvailable } from '../../services/moduleApi';
 
 const MAINTENANCE_COUNT_FIELDS = [
@@ -17,6 +18,12 @@ const MAINTENANCE_COUNT_FIELDS = [
   'CantGabinetes',
   'CantVideoWall',
 ];
+
+const EMPTY_FILTERS = Object.freeze({
+  client: '',
+  dateFrom: '',
+  dateTo: '',
+});
 
 function formatDate(value) {
   if (!value) return 'Sin fecha';
@@ -86,6 +93,10 @@ function expectedDeviceTotal(row = {}) {
   return 0;
 }
 
+function invalidDateRange(filters) {
+  return Boolean(filters.dateFrom && filters.dateTo && filters.dateFrom > filters.dateTo);
+}
+
 export default function MaintenanceListPage() {
   const { sessionToken, hasPermission } = useAuth();
   const navigate = useNavigate();
@@ -93,9 +104,9 @@ export default function MaintenanceListPage() {
   const [records, setRecords] = useState([]);
   const [status, setStatus] = useState('PENDIENTE');
   const [search, setSearch] = useState('');
-  const [client, setClient] = useState('');
-  const [dateFrom, setDateFrom] = useState('');
-  const [dateTo, setDateTo] = useState('');
+  const [filters, setFilters] = useState(EMPTY_FILTERS);
+  const [draftFilters, setDraftFilters] = useState(EMPTY_FILTERS);
+  const [filterOpen, setFilterOpen] = useState(false);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState('');
 
@@ -132,11 +143,11 @@ export default function MaintenanceListPage() {
       if (rowStatus !== status) return false;
 
       const rowClient = String(pick(row, ['Cliente', 'ClienteRef'], '')).trim();
-      if (client && rowClient !== client) return false;
+      if (filters.client && rowClient !== filters.client) return false;
 
       const rowDate = dateKey(pick(row, ['Fecha']));
-      if (dateFrom && (!rowDate || rowDate < dateFrom)) return false;
-      if (dateTo && (!rowDate || rowDate > dateTo)) return false;
+      if (filters.dateFrom && (!rowDate || rowDate < filters.dateFrom)) return false;
+      if (filters.dateTo && (!rowDate || rowDate > filters.dateTo)) return false;
 
       if (!query) return true;
       return [
@@ -146,15 +157,35 @@ export default function MaintenanceListPage() {
         pick(row, ['DescripcionGeneral']),
       ].join(' ').toLowerCase().includes(query);
     });
-  }, [records, status, search, client, dateFrom, dateTo]);
+  }, [records, status, search, filters]);
 
-  const hasFilters = Boolean(search || client || dateFrom || dateTo);
+  const activeFilterCount = Object.values(filters).filter(Boolean).length;
+
+  function openFilters() {
+    setDraftFilters({ ...filters });
+    setError('');
+    setFilterOpen(true);
+  }
+
+  function setDraftFilter(name, value) {
+    setDraftFilters((current) => ({ ...current, [name]: value }));
+  }
+
+  function applyFilters() {
+    if (invalidDateRange(draftFilters)) {
+      setError('La fecha inicial no puede ser posterior a la fecha final.');
+      return;
+    }
+    setFilters({ ...draftFilters });
+    setFilterOpen(false);
+    setError('');
+  }
 
   function clearFilters() {
-    setSearch('');
-    setClient('');
-    setDateFrom('');
-    setDateTo('');
+    setFilters(EMPTY_FILTERS);
+    setDraftFilters(EMPTY_FILTERS);
+    setFilterOpen(false);
+    setError('');
   }
 
   function openCard(event, detailUrl) {
@@ -180,44 +211,21 @@ export default function MaintenanceListPage() {
         <button type="button" className={status === 'FINALIZADO' ? 'is-active' : ''} onClick={() => setStatus('FINALIZADO')}><Icon name="task_alt" />Finalizados</button>
       </div>
 
-      <section className="maintenance-list-filters" aria-label="Filtros de mantenimiento">
-        <label className="maintenance-list-filters__search">
-          <span>Buscar</span>
-          <div className="knowledge-search maintenance-search">
-            <Icon name="search" />
-            <input value={search} onChange={(event) => setSearch(event.target.value)} placeholder="Título, cliente o responsable..." />
-            <button type="button" className="icon-button" onClick={load} aria-label="Actualizar"><Icon name="refresh" /></button>
-          </div>
-        </label>
-
-        <label>
-          <span>Cliente</span>
-          <select className="form-control" value={client} onChange={(event) => setClient(event.target.value)}>
-            <option value="">Todos los clientes</option>
-            {clientOptions.map((option) => <option key={option} value={option}>{option}</option>)}
-          </select>
-        </label>
-
-        <label>
-          <span>Desde</span>
-          <input className="form-control" type="date" value={dateFrom} onChange={(event) => setDateFrom(event.target.value)} />
-        </label>
-
-        <label>
-          <span>Hasta</span>
-          <input className="form-control" type="date" value={dateTo} min={dateFrom || undefined} onChange={(event) => setDateTo(event.target.value)} />
-        </label>
-
-        {hasFilters && (
-          <button className="button button--ghost button--compact maintenance-list-filters__clear" type="button" onClick={clearFilters}>
-            <Icon name="filter_alt_off" />Limpiar
-          </button>
-        )}
-      </section>
+      <form className="search-bar maintenance-list-search-bar" onSubmit={(event) => event.preventDefault()}>
+        <Icon name="search" />
+        <input value={search} onChange={(event) => setSearch(event.target.value)} placeholder="Buscar título, cliente o responsable..." aria-label="Buscar mantenimientos" />
+        <button type="button" className="icon-button icon-button--primary filter-trigger" onClick={openFilters} aria-label="Abrir filtros de mantenimientos">
+          <Icon name="tune" className="filter-trigger__glyph" />
+          {activeFilterCount > 0 && <span className="filter-trigger__count">{activeFilterCount}</span>}
+        </button>
+      </form>
 
       <div className="maintenance-results-summary">
         <span><strong>{filtered.length}</strong> mantenimiento{filtered.length === 1 ? '' : 's'}</span>
-        {(client || dateFrom || dateTo) && <span>Filtros aplicados</span>}
+        <div className="maintenance-results-summary__actions">
+          {activeFilterCount > 0 && <span>Filtros aplicados</span>}
+          <button className="icon-button icon-button--outlined" type="button" onClick={load} disabled={loading} aria-label="Actualizar mantenimientos"><Icon name={loading ? 'progress_activity' : 'refresh'} /></button>
+        </div>
       </div>
 
       {error && <div className="alert alert--error"><Icon name="error" /><span>{error}</span></div>}
@@ -257,6 +265,20 @@ export default function MaintenanceListPage() {
           )}
         </div>
       )}
+
+      <FilterDrawer open={filterOpen} title="Filtros de mantenimientos" onClose={() => setFilterOpen(false)} onApply={applyFilters} onClear={clearFilters}>
+        <label className="field-group">
+          <span className="field-label">Cliente</span>
+          <select className="form-control" value={draftFilters.client} onChange={(event) => setDraftFilter('client', event.target.value)}>
+            <option value="">Todos los clientes</option>
+            {clientOptions.map((option) => <option key={option} value={option}>{option}</option>)}
+          </select>
+        </label>
+        <div className="ticket-form-grid">
+          <label className="field-group"><span className="field-label">Desde</span><input className="form-control" type="date" value={draftFilters.dateFrom} max={draftFilters.dateTo || undefined} onChange={(event) => setDraftFilter('dateFrom', event.target.value)} /></label>
+          <label className="field-group"><span className="field-label">Hasta</span><input className="form-control" type="date" value={draftFilters.dateTo} min={draftFilters.dateFrom || undefined} onChange={(event) => setDraftFilter('dateTo', event.target.value)} /></label>
+        </div>
+      </FilterDrawer>
     </div>
   );
 }
