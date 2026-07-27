@@ -268,9 +268,15 @@ function setupRequests(sheetId, section, first) {
     { mergeCells: { range: { sheetId, startRowIndex: 0, endRowIndex: 1, startColumnIndex: 0, endColumnIndex: columnCount }, mergeType: 'MERGE_ALL' } },
     { repeatCell: { range: { sheetId, startRowIndex: 0, endRowIndex: 1, startColumnIndex: 0, endColumnIndex: columnCount }, cell: { userEnteredFormat: { backgroundColor: DMS_RED, horizontalAlignment: 'CENTER', verticalAlignment: 'MIDDLE', textFormat: { foregroundColor: { red: 1, green: 1, blue: 1 }, bold: true, fontSize: 14 } } }, fields: 'userEnteredFormat' } },
     { repeatCell: { range: { sheetId, startRowIndex: 1, endRowIndex: 2, startColumnIndex: 0, endColumnIndex: columnCount }, cell: { userEnteredFormat: { backgroundColor: HEADER_GRAY, horizontalAlignment: 'CENTER', verticalAlignment: 'MIDDLE', wrapStrategy: 'WRAP', textFormat: { bold: true, fontSize: 10 } } }, fields: 'userEnteredFormat' } },
+    { updateDimensionProperties: { range: { sheetId, dimension: 'ROWS', startIndex: 0, endIndex: 1 }, properties: { pixelSize: 30 }, fields: 'pixelSize' } },
+    { updateDimensionProperties: { range: { sheetId, dimension: 'ROWS', startIndex: 1, endIndex: 2 }, properties: { pixelSize: 42 }, fields: 'pixelSize' } },
   );
   if (section.rows.length) {
-    requests.push({ repeatCell: { range: { sheetId, startRowIndex: 2, endRowIndex: section.rows.length + 2, startColumnIndex: 0, endColumnIndex: columnCount }, cell: { userEnteredFormat: { verticalAlignment: 'MIDDLE', wrapStrategy: 'WRAP' } }, fields: 'userEnteredFormat.verticalAlignment,userEnteredFormat.wrapStrategy' } });
+    requests.push(
+      { repeatCell: { range: { sheetId, startRowIndex: 2, endRowIndex: section.rows.length + 2, startColumnIndex: 0, endColumnIndex: columnCount }, cell: { userEnteredFormat: { verticalAlignment: 'MIDDLE', wrapStrategy: 'WRAP' } }, fields: 'userEnteredFormat.verticalAlignment,userEnteredFormat.wrapStrategy' } },
+      { repeatCell: { range: { sheetId, startRowIndex: 2, endRowIndex: section.rows.length + 2, startColumnIndex: 0, endColumnIndex: 1 }, cell: { userEnteredFormat: { textFormat: { bold: true } } }, fields: 'userEnteredFormat.textFormat.bold' } },
+      { updateBorders: { range: { sheetId, startRowIndex: 1, endRowIndex: section.rows.length + 2, startColumnIndex: 0, endColumnIndex: columnCount }, top: { style: 'SOLID', color: HEADER_GRAY }, bottom: { style: 'SOLID', color: HEADER_GRAY }, left: { style: 'SOLID', color: HEADER_GRAY }, right: { style: 'SOLID', color: HEADER_GRAY }, innerHorizontal: { style: 'SOLID', color: HEADER_GRAY }, innerVertical: { style: 'SOLID', color: HEADER_GRAY } } },
+    );
     for (let column = questionStart; column < questionEnd; column += 1) {
       requests.push({ repeatCell: { range: { sheetId, startRowIndex: 2, endRowIndex: section.rows.length + 2, startColumnIndex: column, endColumnIndex: column + 1 }, cell: { userEnteredFormat: { horizontalAlignment: 'CENTER', textFormat: { bold: true, fontSize: 14 } } }, fields: 'userEnteredFormat.horizontalAlignment,userEnteredFormat.textFormat' } });
     }
@@ -287,13 +293,35 @@ function setupRequests(sheetId, section, first) {
 }
 
 function linkRequests(sheetId, section) {
-  return section.rows.flatMap((row, rowIndex) => row.links.map((link) => ({
-    updateCells: {
-      range: { sheetId, startRowIndex: rowIndex + 2, endRowIndex: rowIndex + 3, startColumnIndex: link.column, endColumnIndex: link.column + 1 },
-      rows: [{ values: [{ userEnteredFormat: { textFormat: { foregroundColor: LINK_BLUE, underline: true } }, textFormatRuns: [], hyperlink: link.url }] }],
-      fields: 'userEnteredFormat.textFormat,hyperlink',
-    },
-  })));
+  const requests = [];
+  section.rows.forEach((row, rowIndex) => {
+    row.links.forEach((link) => {
+      requests.push({
+        updateCells: {
+          range: {
+            sheetId,
+            startRowIndex: rowIndex + 2,
+            endRowIndex: rowIndex + 3,
+            startColumnIndex: link.column,
+            endColumnIndex: link.column + 1,
+          },
+          rows: [{
+            values: [{
+              userEnteredFormat: {
+                textFormat: {
+                  foregroundColor: LINK_BLUE,
+                  underline: true,
+                  link: { uri: link.url },
+                },
+              },
+            }],
+          }],
+          fields: 'userEnteredFormat.textFormat',
+        },
+      });
+    });
+  });
+  return requests;
 }
 
 async function reportFolderId() {
@@ -330,7 +358,7 @@ async function shareWithUser(fileId, ctx) {
   }
 }
 
-async function batchUpdate(spreadsheetId, requests, chunkSize = 350) {
+async function batchUpdate(spreadsheetId, requests, chunkSize = 180) {
   for (let index = 0; index < requests.length; index += chunkSize) {
     await sheetsApi.spreadsheets.batchUpdate({
       spreadsheetId,
