@@ -10,6 +10,7 @@ import MorePage from '../pages/MorePage';
 import CatalogsPage from '../pages/admin/CatalogsPage';
 import ClientsPage from '../pages/admin/ClientsPage';
 import LegacyTicketsImportPage from '../pages/admin/LegacyTicketsImportPage';
+import MaintenanceQuestionsPage from '../pages/admin/MaintenanceQuestionsPage';
 import MetricsPage from '../pages/admin/MetricsPage';
 import AssistantPage from '../pages/assistant/AssistantPage';
 import KnowledgeCategoriesPage from '../pages/knowledge/KnowledgeCategoriesPage';
@@ -39,6 +40,7 @@ const MAINTENANCE_VIEW = ['MANTENIMIENTOS_VER','MANTENIMIENTOS_CREAR','MANTENIMI
 const MAINTENANCE_CREATE = ['MANTENIMIENTOS_CREAR','MANTENIMIENTOS_GESTIONAR','BOLETAS_CREAR','USUARIOS_GESTIONAR'];
 const MAINTENANCE_EDIT = ['MANTENIMIENTOS_EDITAR','MANTENIMIENTOS_GESTIONAR','BOLETAS_EDITAR','USUARIOS_GESTIONAR'];
 const KNOWLEDGE_CREATE = ['CONOCIMIENTO_CREAR','CONOCIMIENTO_GESTIONAR','BOLETAS_CREAR','USUARIOS_GESTIONAR'];
+const CATALOG_VIEW = ['CATALOGOS_VER','CATALOGOS_GESTIONAR','USUARIOS_GESTIONAR'];
 
 export default function App() {
   return <>
@@ -68,7 +70,8 @@ export default function App() {
         <Route path="conocimiento/:tutorialId" element={<KnowledgeDetailPage />} />
         <Route path="conocimiento/:tutorialId/editar" element={<KnowledgeEditorPage mode="edit" />} />
         <Route path="clientes" element={<PermissionRoute permission="CLIENTES_VER"><ClientsPage /></PermissionRoute>} />
-        <Route path="catalogos" element={<PermissionRoute anyOf={['CATALOGOS_VER','CATALOGOS_GESTIONAR','USUARIOS_GESTIONAR']}><CatalogsPage /></PermissionRoute>} />
+        <Route path="catalogos" element={<PermissionRoute anyOf={CATALOG_VIEW}><CatalogsPage /></PermissionRoute>} />
+        <Route path="catalogos/preguntas-mantenimiento" element={<PermissionRoute anyOf={CATALOG_VIEW}><MaintenanceQuestionsPage /></PermissionRoute>} />
         <Route path="categorias" element={<Navigate to="/catalogos" replace />} />
         <Route path="metricas" element={<PermissionRoute permission="USUARIOS_GESTIONAR"><MetricsPage /></PermissionRoute>} />
         <Route path="dashboard" element={<Navigate to="/metricas" replace />} />
