@@ -131,11 +131,40 @@ export default function MorePage() {
 
   return <div className="page more-page">
     <section className="profile-card more-page__profile"><span className="profile-card__accent" /><div className="avatar avatar--xlarge">{initials(user?.NombreCompleto)}</div><div><h1>{user?.NombreCompleto}</h1><p>{isAdmin ? 'Administrador' : 'Técnico'}</p><span className="status-chip status-chip--active">{user?.Estado || 'ACTIVO'}</span></div></section>
-    <section className="menu-section"><h2>Aplicación</h2><AppearanceSelector theme={theme} onChange={changeTheme} /><InstallAppCard /><div className="menu-list more-page__offline-menu"><MenuRow to="/mas/contenido-offline" icon="download_for_offline" label="Contenido sin conexión" note={offlineNote} /><button type="button" className="menu-row more-sync-row" onClick={forceSync} disabled={!online || syncing}><span className="menu-row__icon"><Icon name={syncing ? 'sync' : online ? 'sync_alt' : 'cloud_off'} /></span><div><strong>{syncing ? 'Sincronizando...' : 'Forzar sincronización'}</strong><small>{syncNote}</small></div><Icon name={syncing ? 'progress_activity' : 'refresh'} /></button></div></section>
-    <section className="menu-section"><h2>Operación técnica</h2><div className="menu-list">{canViewMaintenance && <MenuRow to="/mantenimientos" icon="engineering" label="Mantenimientos" note="Equipos, checklists, evidencias, Excel y presentaciones" />}</div></section>
-    <section className="menu-section"><h2>Documentación</h2><div className="menu-list"><MenuRow to="/conocimiento" icon="menu_book" label="Base de conocimientos" note="Tutoriales, videos y procedimientos técnicos" />{canManageKnowledgeCategories && <MenuRow to="/conocimiento/categorias" icon="category" label="Categorías de conocimiento" note="Lenel, Milestone, Axis y otras tecnologías" />}</div></section>
-    <section className="menu-section"><h2>Administración</h2><div className="menu-list">{isAdmin && <MenuRow to="/metricas" icon="monitoring" label="Métricas operativas" note="Dashboards de boletas y mantenimientos" />}{isAdmin && <MenuRow to="/administracion/importar-boletas" icon="upload_file" label="Importar boletas anteriores" note="Migrar el historial XLSX de la aplicación anterior" />}{hasPermission('CLIENTES_VER') && <MenuRow to="/clientes" icon="groups" label="Clientes" note="Clientes, ubicaciones y contactos" />}{isAdmin && <MenuRow to="/encuestas" icon="rate_review" label="Encuestas de servicio" note="Preguntas, calificaciones y boletas relacionadas" />}{hasPermission('USUARIOS_VER') && <MenuRow to="/usuarios" icon="person_search" label="Usuarios" note="Accesos, roles y permisos" />}{canViewCatalogs && <MenuRow to="/catalogos" icon="inventory_2" label="Catálogos" note="Categorías, dispositivos, fabricantes y modelos" />}{canViewCatalogs && <MenuRow to="/catalogos/preguntas-mantenimiento" icon="rule" label="Preguntas de mantenimiento" note="Preguntas Sí/No relacionadas con cada tipo de dispositivo" />}<MenuRow to="/cambiar-contrasena" icon="lock_reset" label="Cambiar contraseña" note="Seguridad de la cuenta" /></div></section>
-    <section className="menu-section more-page__session"><h2>Sesión</h2><button type="button" className="logout-row" onClick={handleLogout}><span className="menu-row__icon"><Icon name="logout" /></span><div><strong>Cerrar sesión</strong><small>Salir de forma segura</small></div></button></section>
+
+    <div className="more-page__columns">
+      <div className="more-page__column more-page__column--left">
+        <section className="menu-section more-page__section more-page__section--application">
+          <h2>Aplicación</h2>
+          <AppearanceSelector theme={theme} onChange={changeTheme} />
+          <InstallAppCard />
+          <div className="menu-list more-page__offline-menu"><MenuRow to="/mas/contenido-offline" icon="download_for_offline" label="Contenido sin conexión" note={offlineNote} /><button type="button" className="menu-row more-sync-row" onClick={forceSync} disabled={!online || syncing}><span className="menu-row__icon"><Icon name={syncing ? 'sync' : online ? 'sync_alt' : 'cloud_off'} /></span><div><strong>{syncing ? 'Sincronizando...' : 'Forzar sincronización'}</strong><small>{syncNote}</small></div><Icon name={syncing ? 'progress_activity' : 'refresh'} /></button></div>
+        </section>
+
+        <section className="menu-section more-page__section more-page__section--documentation">
+          <h2>Documentación</h2>
+          <div className="menu-list"><MenuRow to="/conocimiento" icon="menu_book" label="Base de conocimientos" note="Tutoriales, videos y procedimientos técnicos" />{canManageKnowledgeCategories && <MenuRow to="/conocimiento/categorias" icon="category" label="Categorías de conocimiento" note="Lenel, Milestone, Axis y otras tecnologías" />}</div>
+        </section>
+      </div>
+
+      <div className="more-page__column more-page__column--right">
+        {canViewMaintenance && <section className="menu-section more-page__section more-page__section--operation">
+          <h2>Operación técnica</h2>
+          <div className="menu-list"><MenuRow to="/mantenimientos" icon="engineering" label="Mantenimientos" note="Equipos, checklists, evidencias, Excel y presentaciones" /></div>
+        </section>}
+
+        <section className="menu-section more-page__section more-page__section--administration">
+          <h2>Administración</h2>
+          <div className="menu-list">{isAdmin && <MenuRow to="/metricas" icon="monitoring" label="Métricas operativas" note="Dashboards de boletas y mantenimientos" />}{isAdmin && <MenuRow to="/administracion/importar-boletas" icon="upload_file" label="Importar boletas anteriores" note="Migrar el historial XLSX de la aplicación anterior" />}{hasPermission('CLIENTES_VER') && <MenuRow to="/clientes" icon="groups" label="Clientes" note="Clientes, ubicaciones y contactos" />}{isAdmin && <MenuRow to="/encuestas" icon="rate_review" label="Encuestas de servicio" note="Preguntas, calificaciones y boletas relacionadas" />}{hasPermission('USUARIOS_VER') && <MenuRow to="/usuarios" icon="person_search" label="Usuarios" note="Accesos, roles y permisos" />}{canViewCatalogs && <MenuRow to="/catalogos" icon="inventory_2" label="Catálogos" note="Categorías, dispositivos, fabricantes y modelos" />}{canViewCatalogs && <MenuRow to="/catalogos/preguntas-mantenimiento" icon="rule" label="Preguntas de mantenimiento" note="Preguntas Sí/No relacionadas con cada tipo de dispositivo" />}<MenuRow to="/cambiar-contrasena" icon="lock_reset" label="Cambiar contraseña" note="Seguridad de la cuenta" /></div>
+        </section>
+
+        <section className="menu-section more-page__section more-page__section--session">
+          <h2>Sesión</h2>
+          <button type="button" className="logout-row" onClick={handleLogout}><span className="menu-row__icon"><Icon name="logout" /></span><div><strong>Cerrar sesión</strong><small>Salir de forma segura</small></div></button>
+        </section>
+      </div>
+    </div>
+
     <footer className="app-meta more-page__footer">DMS Boletas · Aplicación web instalable</footer>
   </div>;
 }
