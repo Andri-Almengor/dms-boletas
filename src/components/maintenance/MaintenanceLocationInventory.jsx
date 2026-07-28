@@ -1,4 +1,5 @@
 import React, { useEffect, useMemo, useState } from 'react';
+import { useAuth } from '../../AuthContext';
 import Icon from '../common/Icon';
 import FilterDrawer from '../forms/FilterDrawer';
 import MaintenanceEvidenceImage from './MaintenanceEvidenceImage';
@@ -145,6 +146,7 @@ export default function MaintenanceLocationInventory({
   onAddEvidence,
   onEditEvidence,
 }) {
+  const { hasPermission } = useAuth();
   const [query, setQuery] = useState('');
   const [category, setCategory] = useState('TODAS');
   const [location, setLocation] = useState('TODAS');
@@ -153,6 +155,9 @@ export default function MaintenanceLocationInventory({
   const [openGroups, setOpenGroups] = useState(() => new Set());
   const [filterOpen, setFilterOpen] = useState(false);
 
+  const canRemoveLocations = hasPermission('USUARIOS_GESTIONAR')
+    || hasPermission('MANTENIMIENTOS_GESTIONAR')
+    || hasPermission('MANTENIMIENTOS_ELIMINAR');
   const groups = useMemo(() => buildGroups(locations, devices), [locations, devices]);
   const categories = useMemo(() => uniqueTypes(devices), [devices]);
   const pending = status === 'PENDIENTE';
@@ -285,7 +290,7 @@ export default function MaintenanceLocationInventory({
             </button>
             {pending && canEdit && <div className="maintenance-location-work-group__actions">
               {group.available && !group.legacy && <button className="button button--primary button--compact" type="button" onClick={() => onAddDevice(group)}><Icon name="add" />Agregar dispositivo</button>}
-              {!group.legacy && <button className="icon-button icon-button--danger" type="button" onClick={() => onRemoveLocation(group)} disabled={usedCount > 0} title={usedCount > 0 ? 'Mueva o elimine primero los dispositivos de esta ubicación' : 'Quitar ubicación del mantenimiento'} aria-label={`Quitar ${group.name}`}><Icon name="delete" /></button>}
+              {canRemoveLocations && !group.legacy && <button className="icon-button icon-button--danger" type="button" onClick={() => onRemoveLocation(group)} disabled={usedCount > 0} title={usedCount > 0 ? 'Mueva o elimine primero los dispositivos de esta ubicación' : 'Quitar ubicación del mantenimiento'} aria-label={`Quitar ${group.name}`}><Icon name="delete" /></button>}
             </div>}
           </div>
 
