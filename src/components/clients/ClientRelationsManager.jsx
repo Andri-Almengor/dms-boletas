@@ -80,6 +80,43 @@ function supervisorView(record = {}) {
   };
 }
 
+function BulkToolbar({
+  allSelected,
+  selectedCount,
+  totalSelectable,
+  label,
+  busy,
+  busyKey,
+  onToggleAll,
+  onDelete,
+}) {
+  return <div className="client-equipment-bulk-toolbar">
+    <label className="client-equipment-bulk-toggle">
+      <input
+        type="checkbox"
+        checked={allSelected}
+        onChange={onToggleAll}
+        disabled={Boolean(busy) || !totalSelectable}
+      />
+      <Icon name={allSelected ? 'check_box' : selectedCount ? 'indeterminate_check_box' : 'check_box_outline_blank'} />
+      <span>{allSelected ? 'Deseleccionar todas' : label}</span>
+    </label>
+    <span className="client-equipment-bulk-count">
+      {selectedCount} seleccionada{selectedCount === 1 ? '' : 's'}
+      {!totalSelectable ? ' · ninguna disponible' : ''}
+    </span>
+    <button
+      className="button button--danger button--compact"
+      type="button"
+      onClick={onDelete}
+      disabled={Boolean(busy) || !selectedCount}
+    >
+      <Icon name={busy === busyKey ? 'progress_activity' : 'delete_sweep'} />
+      Eliminar seleccionadas
+    </button>
+  </div>;
+}
+
 export default function ClientRelationsManager({
   clientId,
   clientName,
@@ -95,6 +132,7 @@ export default function ClientRelationsManager({
   const [error, setError] = useState('');
   const [notice, setNotice] = useState('');
   const [openLocations, setOpenLocations] = useState(() => new Set());
+  const [selectedLocationIds, setSelectedLocationIds] = useState(() => new Set());
   const [selectedEquipmentIds, setSelectedEquipmentIds] = useState(() => new Set());
 
   const locationItems = useMemo(() => locations.map(locationView), [locations]);
@@ -113,14 +151,24 @@ export default function ClientRelationsManager({
     return grouped;
   }, [locationItems, equipmentItems]);
 
+  const deletableLocations = useMemo(
+    () => locationItems.filter((item) => !(equipmentByLocation.get(item.id) || []).length),
+    [locationItems, equipmentByLocation],
+  );
+  const selectedLocations = useMemo(
+    () => deletableLocations.filter((item) => selectedLocationIds.has(item.id)),
+    [deletableLocations, selectedLocationIds],
+  );
   const selectedEquipment = useMemo(
     () => equipmentItems.filter((item) => selectedEquipmentIds.has(item.id)),
     [equipmentItems, selectedEquipmentIds],
   );
+  const allLocationsSelected = deletableLocations.length > 0 && selectedLocations.length === deletableLocations.length;
   const allEquipmentSelected = equipmentItems.length > 0 && selectedEquipment.length === equipmentItems.length;
 
   useEffect(() => {
     setOpenLocations(new Set(locationItems.map((item) => item.id)));
+    setSelectedLocationIds(new Set());
     setSelectedEquipmentIds(new Set());
     setEditor(null);
     setError('');
@@ -134,6 +182,11 @@ export default function ClientRelationsManager({
       return next;
     });
   }, [locationItems]);
+
+  useEffect(() => {
+    const validIds = new Set(deletableLocations.map((item) => item.id));
+    setSelectedLocationIds((current) => new Set([...current].filter((id) => validIds.has(id))));
+  }, [deletableLocations]);
 
   useEffect(() => {
     const validIds = new Set(equipmentItems.map((item) => item.id));
@@ -178,9 +231,7 @@ export default function ClientRelationsManager({
   function editEquipment(item = EMPTY_EQUIPMENT, parentId = '') {
     const resolvedParentId = item.parentId || parentId || locationItems[0]?.id || '';
     clearMessages();
-    if (resolvedParentId) {
-      setOpenLocations((current) => new Set([...current, resolvedParentId]));
-    }
+    if (resolvedParentId) setOpenLocations((current) => new Set([...current, resolvedParentId]));
     setEditor({
       type: 'equipment',
       values: { ...EMPTY_EQUIPMENT, ...item, parentId: resolvedParentId },
@@ -194,6 +245,27 @@ export default function ClientRelationsManager({
 
   function updateEditor(values) {
     setEditor((current) => current ? ({ ...current, values: { ...current.values, ...values } }) : current);
+  }
+
+  function toggleLocationSelection(item) {
+    const children = equipmentByLocation.get(item.id) || [];
+    if (children.length) {
+      setOpenLocations((current) => new Set([...current, item.id]));
+      setError(`La sede “${item.nombre || 'Sin nombre'}” no puede seleccionarse porque todavía tiene ${children.length} ubicación${children.length === 1 ? '' : 'es'} del equipo.`);
+      return;
+    }
+    setSelectedLocationIds((current) => {
+      const next = new Set(current);
+      if (next.has(item.id)) next.delete(item.id);
+      else next.add(item.id);
+      return next;
+    });
+  }
+
+  function toggleAllLocations() {
+    setSelectedLocationIds(allLocationsSelected
+      ? new Set()
+      : new Set(deletableLocations.map((item) => item.id)));
   }
 
   function toggleEquipmentSelection(itemId) {
@@ -320,6 +392,13 @@ export default function ClientRelationsManager({
     }, sessionToken);
   }
 
+  async function deleteLocationRecord(item) {
+    return requestAvailable(LOCATION_DELETE_ROUTES, {
+      UbicacionID: item.id,
+      ubicacionId: item.id,
+    }, sessionToken);
+  }
+
   async function removeEquipment(item) {
     if (!window.confirm(`¿Eliminar la ubicación del equipo “${item.nombre || 'Sin nombre'}”?`)) return;
     setBusy(`equipment-${item.id}`);
@@ -382,10 +461,12 @@ export default function ClientRelationsManager({
     setBusy(`location-${item.id}`);
     clearMessages();
     try {
-      await requestAvailable(LOCATION_DELETE_ROUTES, {
-        UbicacionID: item.id,
-        ubicacionId: item.id,
-      }, sessionToken);
+      await deleteLocationRecord(item);
+      setSelectedLocationIds((current) => {
+        const next = new Set(current);
+        next.delete(item.id);
+        return next;
+      });
       if (editor?.type === 'location' && editor.values.id === item.id) setEditor(null);
       await refreshRelations();
       setNotice(`La sede o zona “${item.nombre || 'Sin nombre'}” fue eliminada.`);
@@ -394,6 +475,41 @@ export default function ClientRelationsManager({
     } finally {
       setBusy('');
     }
+  }
+
+  async function removeSelectedLocations() {
+    if (!selectedLocations.length) return;
+    const count = selectedLocations.length;
+    if (!window.confirm(`¿Eliminar ${count} sede${count === 1 ? '' : 's'} o zona${count === 1 ? '' : 's'} seleccionada${count === 1 ? '' : 's'}?`)) return;
+
+    setBusy('location-bulk');
+    clearMessages();
+    const failed = [];
+    let removed = 0;
+    for (const item of selectedLocations) {
+      const children = equipmentByLocation.get(item.id) || [];
+      if (children.length) {
+        failed.push({ item, message: 'Tiene ubicaciones del equipo relacionadas' });
+        continue;
+      }
+      try {
+        await deleteLocationRecord(item);
+        removed += 1;
+      } catch (deleteError) {
+        failed.push({ item, message: deleteError.message || 'Error desconocido' });
+      }
+    }
+
+    if (editor?.type === 'location' && selectedLocationIds.has(editor.values.id) && !failed.some(({ item }) => item.id === editor.values.id)) {
+      setEditor(null);
+    }
+    setSelectedLocationIds(new Set(failed.map(({ item }) => item.id)));
+    await refreshRelations();
+    if (removed) setNotice(`${removed} sede${removed === 1 ? '' : 's'} o zona${removed === 1 ? '' : 's'} eliminada${removed === 1 ? '' : 's'} correctamente.`);
+    if (failed.length) {
+      setError(`No se pudieron eliminar ${failed.length}: ${failed.map(({ item }) => item.nombre || item.id).join(', ')}. Revise que no tengan ubicaciones del equipo relacionadas.`);
+    }
+    setBusy('');
   }
 
   async function removeSupervisor(item) {
@@ -477,32 +593,53 @@ export default function ClientRelationsManager({
         <section className="client-relations-group client-relations-group--locations">
           <header><div><h4>Sedes y ubicaciones del equipo</h4><p>Cada ubicación del equipo aparece debajo de su sede o zona principal.</p></div><span className="status-chip status-chip--neutral">{locationItems.length}</span></header>
           <div className="client-relations-group__content">
-            {equipmentItems.length > 0 && <div className="client-equipment-bulk-toolbar">
-              <label className="client-equipment-bulk-toggle">
-                <input type="checkbox" checked={allEquipmentSelected} onChange={toggleAllEquipment} disabled={Boolean(busy)} />
-                <Icon name={allEquipmentSelected ? 'check_box' : selectedEquipment.length ? 'indeterminate_check_box' : 'check_box_outline_blank'} />
-                <span>{allEquipmentSelected ? 'Deseleccionar todas' : 'Seleccionar ubicaciones del equipo'}</span>
-              </label>
-              <span className="client-equipment-bulk-count">{selectedEquipment.length} seleccionada{selectedEquipment.length === 1 ? '' : 's'}</span>
-              <button className="button button--danger button--compact" type="button" onClick={removeSelectedEquipment} disabled={Boolean(busy) || !selectedEquipment.length}><Icon name={busy === 'equipment-bulk' ? 'progress_activity' : 'delete_sweep'} />Eliminar seleccionadas</button>
-            </div>}
+            {locationItems.length > 0 && <BulkToolbar
+              allSelected={allLocationsSelected}
+              selectedCount={selectedLocations.length}
+              totalSelectable={deletableLocations.length}
+              label="Seleccionar sedes o zonas vacías"
+              busy={busy}
+              busyKey="location-bulk"
+              onToggleAll={toggleAllLocations}
+              onDelete={removeSelectedLocations}
+            />}
+
+            {equipmentItems.length > 0 && <BulkToolbar
+              allSelected={allEquipmentSelected}
+              selectedCount={selectedEquipment.length}
+              totalSelectable={equipmentItems.length}
+              label="Seleccionar ubicaciones del equipo"
+              busy={busy}
+              busyKey="equipment-bulk"
+              onToggleAll={toggleAllEquipment}
+              onDelete={removeSelectedEquipment}
+            />}
 
             {locationItems.map((location) => {
               const children = equipmentByLocation.get(location.id) || [];
               const opened = openLocations.has(location.id);
-              return <article className="client-site-card" key={location.id}>
+              const selected = selectedLocationIds.has(location.id);
+              const selectable = children.length === 0;
+              return <article className={`client-site-card client-site-card--selectable${selected ? ' is-selected' : ''}`} key={location.id}>
                 <div className="client-site-card__main">
+                  <label
+                    className="client-location-selection-toggle"
+                    title={selectable ? `Seleccionar ${location.nombre || 'sede'}` : 'Primero elimine o mueva sus ubicaciones del equipo'}
+                  >
+                    <input type="checkbox" checked={selected} onChange={() => toggleLocationSelection(location)} disabled={Boolean(busy) || !selectable} />
+                    <Icon name={selected ? 'check_box' : 'check_box_outline_blank'} />
+                  </label>
                   <button className="client-site-card__toggle" type="button" onClick={() => toggleLocation(location.id)} aria-expanded={opened} aria-label={`${opened ? 'Ocultar' : 'Mostrar'} ubicaciones del equipo de ${location.nombre}`}><span><Icon name="location_city" /></span><Icon name={opened ? 'expand_less' : 'expand_more'} /></button>
                   <div className="client-site-card__body"><div><strong>{location.nombre || 'Sin nombre'}</strong><span className={`status-chip ${location.status === 'INACTIVO' ? 'status-chip--inactive' : 'status-chip--active'}`}>{location.status}</span></div><span>{location.direccion || 'Sin dirección'}</span>{location.notas && <small>{location.notas}</small>}<small>{children.length} ubicación{children.length === 1 ? '' : 'es'} del equipo</small></div>
                   <div className="client-relation-actions"><button className="icon-button icon-button--outlined" type="button" onClick={() => editEquipment(undefined, location.id)} disabled={Boolean(busy)} aria-label={`Agregar ubicación del equipo en ${location.nombre}`}><Icon name="add_location" /></button><button className="icon-button icon-button--outlined" type="button" onClick={() => editLocation(location)} disabled={Boolean(busy)} aria-label={`Editar ${location.nombre}`}><Icon name="edit" /></button><button className="icon-button icon-button--danger" type="button" onClick={() => removeLocation(location)} disabled={Boolean(busy)} aria-label={`Eliminar ${location.nombre}`}><Icon name={busy === `location-${location.id}` ? 'progress_activity' : 'delete'} /></button></div>
                 </div>
                 {opened && <div className="client-site-card__equipment">
                   {children.length ? children.map((item) => {
-                    const selected = selectedEquipmentIds.has(item.id);
-                    return <article className={`client-equipment-relation-card client-equipment-relation-card--selectable${selected ? ' is-selected' : ''}`} key={item.id}>
+                    const equipmentSelected = selectedEquipmentIds.has(item.id);
+                    return <article className={`client-equipment-relation-card client-equipment-relation-card--selectable${equipmentSelected ? ' is-selected' : ''}`} key={item.id}>
                       <label className="client-equipment-selection-toggle" title={`Seleccionar ${item.nombre || 'ubicación'}`}>
-                        <input type="checkbox" checked={selected} onChange={() => toggleEquipmentSelection(item.id)} disabled={Boolean(busy)} />
-                        <Icon name={selected ? 'check_box' : 'check_box_outline_blank'} />
+                        <input type="checkbox" checked={equipmentSelected} onChange={() => toggleEquipmentSelection(item.id)} disabled={Boolean(busy)} />
+                        <Icon name={equipmentSelected ? 'check_box' : 'check_box_outline_blank'} />
                       </label>
                       <span className="client-equipment-relation-card__icon"><Icon name="my_location" /></span>
                       <div><div><strong>{item.nombre || 'Sin nombre'}</strong><span className={`status-chip ${item.status === 'INACTIVO' ? 'status-chip--inactive' : 'status-chip--active'}`}>{item.status}</span></div><small>{item.descripcion || 'Sin descripción'}</small></div>
