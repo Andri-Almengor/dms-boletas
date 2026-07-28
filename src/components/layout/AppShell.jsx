@@ -25,6 +25,7 @@ export default function AppShell() {
   const canViewCatalogs = hasPermission('CATALOGOS_VER') || hasPermission('CATALOGOS_GESTIONAR') || isAdmin;
   const canCreateTickets = hasPermission('BOLETAS_CREAR');
   const canViewMaintenance = hasPermission('MANTENIMIENTOS_VER') || hasPermission('MANTENIMIENTOS_CREAR') || hasPermission('MANTENIMIENTOS_EDITAR') || hasPermission('MANTENIMIENTOS_GESTIONAR') || canViewTickets;
+  const isAssistantPage = location.pathname === '/asistente';
   const isWorkflowForm = location.pathname === '/boletas/nueva'
     || /^\/boletas\/[^/]+\/editar$/.test(location.pathname)
     || /\/boletas\/[^/]+\/edicion-rapida\//.test(location.pathname)
@@ -32,7 +33,9 @@ export default function AppShell() {
     || location.pathname === '/mantenimientos/nuevo'
     || /^\/mantenimientos\/[^/]+\/editar$/.test(location.pathname);
   const assistantUrl = `/asistente?from=${encodeURIComponent(location.pathname)}`;
-  const showAssistantFab = location.pathname !== '/asistente' && location.pathname !== '/cambiar-contrasena';
+  const assistantFrom = new URLSearchParams(location.search).get('from') || '/';
+  const assistantReturnUrl = assistantFrom.startsWith('/') ? assistantFrom : '/';
+  const showAssistantFab = !isAssistantPage && location.pathname !== '/cambiar-contrasena';
 
   useEffect(() => {
     if (user?.CambioPasswordObligatorio && location.pathname !== '/cambiar-contrasena') navigate('/cambiar-contrasena', { replace: true });
@@ -51,8 +54,15 @@ export default function AppShell() {
   }, [drawerOpen]);
   async function handleLogout() { await logout(); navigate('/login', { replace: true }); }
 
-  return <div className={`app-shell${isWorkflowForm ? ' app-shell--form' : ''}`}>
-    {!isWorkflowForm && <header className="top-bar"><button type="button" className="icon-button" onClick={() => setDrawerOpen(true)} aria-label="Abrir menú" aria-expanded={drawerOpen}><Icon name="menu" /></button><NavLink to="/" className="top-bar__brand">DMS Boletas</NavLink><NavLink to="/mas" className="avatar avatar--small" aria-label="Abrir perfil">{initials(user?.NombreCompleto)}</NavLink></header>}
+  return <div className={`app-shell${isWorkflowForm ? ' app-shell--form' : ''}${isAssistantPage ? ' app-shell--assistant' : ''}`}>
+    {!isWorkflowForm && !isAssistantPage && <header className="top-bar"><button type="button" className="icon-button" onClick={() => setDrawerOpen(true)} aria-label="Abrir menú" aria-expanded={drawerOpen}><Icon name="menu" /></button><NavLink to="/" className="top-bar__brand">DMS Boletas</NavLink><NavLink to="/mas" className="avatar avatar--small" aria-label="Abrir perfil">{initials(user?.NombreCompleto)}</NavLink></header>}
+    {isAssistantPage && <header className="assistant-route-bar">
+      <div className="assistant-route-bar__identity">
+        <span className="assistant-route-bar__bot"><Icon name="smart_toy" filled /></span>
+        <div><strong>DMS Assistant</strong><span><i />En línea</span></div>
+      </div>
+      <NavLink className="assistant-route-bar__close" to={assistantReturnUrl} aria-label="Cerrar Asistente DMS" title="Cerrar"><Icon name="close" /></NavLink>
+    </header>}
     <OfflineSyncManager />
     <div className={`drawer-backdrop${drawerOpen ? ' is-open' : ''}`} onClick={() => setDrawerOpen(false)} aria-hidden="true" />
     <aside className={`side-drawer${drawerOpen ? ' is-open' : ''}`} aria-hidden={!drawerOpen}>
@@ -76,7 +86,7 @@ export default function AppShell() {
       <button type="button" className="drawer-logout" onClick={handleLogout}><Icon name="logout" /> Cerrar sesión</button>
     </aside>
     <main className="app-content"><Outlet /></main>
-    {showAssistantFab && <NavLink className={`assistant-fab${isWorkflowForm ? ' assistant-fab--workflow' : ''}`} to={assistantUrl} aria-label="Abrir Asistente DMS" title="Preguntar al Asistente DMS"><Icon name="smart_toy" /><span>Preguntar</span></NavLink>}
-    {!isWorkflowForm && <nav className="bottom-nav" aria-label="Navegación principal"><NavigationItem to="/" icon="home" label="Inicio" end />{canViewTickets && <NavigationItem to="/boletas/pendientes" icon="pending_actions" label="Pendientes" />}{canCreateTickets && <NavigationItem to="/boletas/nueva" icon="add" label="Crear" prominent />}{canViewTickets && <NavigationItem to="/boletas/finalizadas" icon="task_alt" label="Finalizadas" />}<NavigationItem to="/mas" icon="more_horiz" label="Más" /></nav>}
+    {showAssistantFab && <NavLink className={`assistant-fab${isWorkflowForm ? ' assistant-fab--workflow' : ''}`} to={assistantUrl} aria-label="Abrir Asistente DMS" title="Preguntar al Asistente DMS"><span className="assistant-fab__icon"><Icon name="smart_toy" filled /></span><span className="assistant-fab__label">Preguntar</span></NavLink>}
+    {!isWorkflowForm && !isAssistantPage && <nav className="bottom-nav" aria-label="Navegación principal"><NavigationItem to="/" icon="home" label="Inicio" end />{canViewTickets && <NavigationItem to="/boletas/pendientes" icon="pending_actions" label="Pendientes" />}{canCreateTickets && <NavigationItem to="/boletas/nueva" icon="add" label="Crear" prominent />}{canViewTickets && <NavigationItem to="/boletas/finalizadas" icon="task_alt" label="Finalizadas" />}<NavigationItem to="/mas" icon="more_horiz" label="Más" /></nav>}
   </div>;
 }
