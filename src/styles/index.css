@@ -38,6 +38,7 @@
 @import './maintenance-inventory-location-filters.css';
 @import './maintenance-device-mobile-ux.css';
 @import './maintenance-device-header-save.css';
+@import './maintenance-device-bulk-move.css';
 @import './maintenance-device-desktop-fixes.css';
 @import './maintenance-location-workflow.css';
 @import './user-password-reset.css';
