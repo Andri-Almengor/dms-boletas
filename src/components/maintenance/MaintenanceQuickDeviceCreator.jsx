@@ -16,18 +16,36 @@ import { MODULE_ROUTES, normalizeItems, pick, requestAvailable } from '../../ser
 function equipmentOption(row) {
   const value = String(pick(row, ['UbicacionEquipoID', 'id', 'RowID']));
   const label = pick(row, ['Nombre'], value);
-  return value ? { value, label } : null;
+  return value ? { value, label, name: label, locationId: String(pick(row, ['UbicacionID'], '')) } : null;
+}
+
+function initialDevice(location) {
+  const base = createMaintenanceDevice();
+  if (!location?.id) return base;
+  return {
+    ...base,
+    ubicacionEquipoId: String(location.id),
+    ubicacionEquipoNombre: String(location.name || ''),
+    zona: String(location.name || ''),
+  };
 }
 
 export default function MaintenanceQuickDeviceCreator({
   maintenanceId,
   sessionToken,
+  initialEquipmentLocation = null,
   onClose,
   onCreated,
 }) {
-  const [device, setDevice] = useState(() => createMaintenanceDevice());
+  const [device, setDevice] = useState(() => initialDevice(initialEquipmentLocation));
   const [maintenanceCounts, setMaintenanceCounts] = useState({});
-  const [equipmentOptions, setEquipmentOptions] = useState([]);
+  const [equipmentOptions, setEquipmentOptions] = useState(() => initialEquipmentLocation?.id ? [{
+    value: String(initialEquipmentLocation.id),
+    label: String(initialEquipmentLocation.name || initialEquipmentLocation.id),
+    name: String(initialEquipmentLocation.name || initialEquipmentLocation.id),
+    locationId: String(initialEquipmentLocation.locationId || ''),
+    locationName: String(initialEquipmentLocation.locationName || ''),
+  }] : []);
   const [maintenanceLocationId, setMaintenanceLocationId] = useState('');
   const [loading, setLoading] = useState(true);
   const [saving, setSaving] = useState(false);
@@ -73,7 +91,7 @@ export default function MaintenanceQuickDeviceCreator({
         const locationId = String(pick(row, ['UbicacionID'], ''));
         setMaintenanceLocationId(locationId);
         if (!locationId) {
-          setEquipmentOptions([]);
+          setEquipmentOptions((current) => current);
           return;
         }
 
@@ -83,7 +101,11 @@ export default function MaintenanceQuickDeviceCreator({
           sessionToken,
         );
         if (!active) return;
-        setEquipmentOptions(normalizeItems(equipmentData).map(equipmentOption).filter(Boolean));
+        const loaded = normalizeItems(equipmentData).map(equipmentOption).filter(Boolean);
+        setEquipmentOptions((current) => {
+          const byId = new Map([...current, ...loaded].map((item) => [String(item.value), item]));
+          return [...byId.values()];
+        });
       } catch (loadError) {
         if (active) setError(loadError.message || 'No se pudo preparar el nuevo dispositivo.');
       } finally {
@@ -170,6 +192,7 @@ export default function MaintenanceQuickDeviceCreator({
           </div>
         ) : (
           <>
+            {initialEquipmentLocation?.id && <div className="maintenance-quick-device-location-banner"><Icon name="location_on" /><div><span>Ubicación del equipo</span><strong>{initialEquipmentLocation.name || 'Ubicación seleccionada'}</strong><small>El dispositivo se guardará dentro de este grupo. Puede cambiar la ubicación desde el formulario.</small></div></div>}
             {error && <div className="alert alert--error"><Icon name="error" /><span>{error}</span></div>}
             <MaintenanceCountsProvider counts={maintenanceCounts}>
               <MaintenanceDeviceEditor
