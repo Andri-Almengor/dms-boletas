@@ -244,6 +244,7 @@ export default function MaintenanceDeviceEditor({
 
   const totalEvidence = Number(device.images?.length || 0) + Number(device.newImages?.length || 0);
   const isNewDevice = startedAsNew;
+  const missingEquipmentLocation = !String(device.ubicacionEquipoId || '').trim();
 
   return <div className="maintenance-device-editor" data-offline-editing-surface>
     <div className="page-header maintenance-device-editor__header">
@@ -255,7 +256,7 @@ export default function MaintenanceDeviceEditor({
 
     <div className="stack-form maintenance-device-editor__content">
       <section className="form-card maintenance-device-section-card maintenance-device-identification-card">
-        <div className="form-card__heading"><span className="section-marker" /><div><h3>Identificación y ubicación</h3><p>Todos los campos son opcionales. Puede completar solamente la información disponible y agregar nuevos valores en los catálogos.</p></div></div>
+        <div className="form-card__heading"><span className="section-marker" /><div><h3>Identificación y ubicación</h3><p>La ubicación del equipo es obligatoria y define cómo se agrupará el dispositivo. Los demás campos pueden completarse según la información disponible.</p></div></div>
         <div className="maintenance-device-fields-grid">
           <div className="maintenance-device-fields-grid__full"><MaintenanceDeviceCatalogFields device={device} onChange={updateCatalogDevice} disabled={locked} /></div>
           <MaintenanceEquipmentLocationSelect
@@ -265,10 +266,11 @@ export default function MaintenanceDeviceEditor({
             disabled={locked}
             onChange={(ubicacionEquipoId, label) => patch({
               ubicacionEquipoId,
-              zona: label || device.zona,
+              ubicacionEquipoNombre: label || '',
+              zona: label || '',
             })}
           />
-          <Field label="Ubicación específica del dispositivo" value={device.zona} onChange={(event) => patch({ zona: event.target.value })} disabled={locked} autoComplete="off" />
+          {missingEquipmentLocation && <div className="info-box maintenance-device-fields-grid__full"><Icon name="location_on" /><p>Seleccione una ubicación del equipo. Este dropdown es el que define la agrupación del dispositivo.</p></div>}
           <Field label="Nombre del dispositivo" value={device.nombre} onChange={(event) => patch({ nombre: event.target.value })} disabled={locked} autoComplete="off" />
           <Field label="Serie" value={device.serie} onChange={(event) => patch({ serie: event.target.value })} disabled={locked} autoComplete="off" />
         </div>
@@ -349,8 +351,8 @@ export default function MaintenanceDeviceEditor({
       <footer className="maintenance-device-editor__actions">
         <div className="maintenance-device-editor__actions-status"><AutosaveIndicator status={autosaveStatus} /></div>
         <button className="button button--ghost maintenance-device-cancel-button" type="button" onClick={cancel} disabled={submitting}><Icon name="close" />Cancelar</button>
-        {onSubmitAndContinue && isNewDevice && !locked && <button className="button button--secondary" type="button" onClick={onSubmitAndContinue}><Icon name="add_circle" />Guardar y agregar otro</button>}
-        <button className="button button--primary" type="button" onClick={onSubmit} disabled={locked || !onSubmit}><Icon name={submitting ? 'progress_activity' : 'check'} /> {submitting ? 'Guardando dispositivo...' : submitLabel}</button>
+        {onSubmitAndContinue && isNewDevice && !locked && <button className="button button--secondary" type="button" onClick={onSubmitAndContinue} disabled={missingEquipmentLocation}><Icon name="add_circle" />Guardar y agregar otro</button>}
+        <button className="button button--primary" type="button" onClick={onSubmit} disabled={locked || !onSubmit || missingEquipmentLocation}><Icon name={submitting ? 'progress_activity' : 'check'} /> {submitting ? 'Guardando dispositivo...' : submitLabel}</button>
       </footer>
     </div>
   </div>;
