@@ -22,7 +22,7 @@ function columnLetter(index) {
   while (value > 0) {
     const remainder = (value - 1) % 26;
     result = String.fromCharCode(65 + remainder) + result;
-    value = Math.floor(value / 26);
+    value = Math.floor((value - 1) / 26);
   }
   return result;
 }
