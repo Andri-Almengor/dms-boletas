@@ -1,5 +1,5 @@
 import React, { useEffect, useMemo, useState } from 'react';
-import { Link, useNavigate } from 'react-router-dom';
+import { Link, useNavigate, useSearchParams } from 'react-router-dom';
 import { useAuth } from '../../AuthContext';
 import Icon from '../../components/common/Icon';
 import FilterDrawer from '../../components/forms/FilterDrawer';
@@ -47,6 +47,11 @@ function dateKey(value) {
 
 function getId(row) {
   return String(pick(row, ['MantenimientoID', 'id', 'RowID'], ''));
+}
+
+function maintenanceStatusFromQuery(value) {
+  const normalized = String(value || '').trim().toUpperCase();
+  return ['FINALIZADO', 'FINALIZADA'].includes(normalized) ? 'FINALIZADO' : 'PENDIENTE';
 }
 
 function safeCount(value) {
@@ -100,9 +105,11 @@ function invalidDateRange(filters) {
 export default function MaintenanceListPage() {
   const { sessionToken, hasPermission } = useAuth();
   const navigate = useNavigate();
+  const [searchParams] = useSearchParams();
+  const requestedStatus = maintenanceStatusFromQuery(searchParams.get('estado'));
   const canCreate = hasPermission('MANTENIMIENTOS_CREAR') || hasPermission('BOLETAS_CREAR');
   const [records, setRecords] = useState([]);
-  const [status, setStatus] = useState('PENDIENTE');
+  const [status, setStatus] = useState(requestedStatus);
   const [search, setSearch] = useState('');
   const [filters, setFilters] = useState(EMPTY_FILTERS);
   const [draftFilters, setDraftFilters] = useState(EMPTY_FILTERS);
@@ -130,6 +137,10 @@ export default function MaintenanceListPage() {
     load();
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [sessionToken]);
+
+  useEffect(() => {
+    setStatus(requestedStatus);
+  }, [requestedStatus]);
 
   const clientOptions = useMemo(() => Array.from(new Set(records
     .map((row) => String(pick(row, ['Cliente', 'ClienteRef'], '')).trim())
