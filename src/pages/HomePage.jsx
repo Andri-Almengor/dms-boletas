@@ -19,8 +19,11 @@ export default function HomePage() {
   const { user, hasPermission, sessionToken } = useAuth();
   const [tickets, setTickets] = useState([]);
   const [counts, setCounts] = useState({ pending: 0, finished: 0 });
+  const [maintenanceCounts, setMaintenanceCounts] = useState({ pending: 0, finished: 0 });
   const [loading, setLoading] = useState(true);
+  const [maintenanceLoading, setMaintenanceLoading] = useState(false);
   const [error, setError] = useState('');
+  const [maintenanceError, setMaintenanceError] = useState('');
   const isAdmin = hasPermission('USUARIOS_GESTIONAR');
   const canViewTickets = hasPermission('BOLETAS_VER');
   const canCreateTickets = hasPermission('BOLETAS_CREAR');
@@ -81,6 +84,50 @@ export default function HomePage() {
     return () => { active = false; };
   }, [sessionToken, canViewTickets]);
 
+  useEffect(() => {
+    let active = true;
+    if (!isAdmin) {
+      setMaintenanceCounts({ pending: 0, finished: 0 });
+      setMaintenanceLoading(false);
+      setMaintenanceError('');
+      return undefined;
+    }
+
+    setMaintenanceLoading(true);
+    setMaintenanceError('');
+    const countPayload = { page: 1, pageSize: 1, activo: true };
+
+    Promise.all([
+      requestAvailable(MODULE_ROUTES.maintenance.list, {
+        ...countPayload,
+        status: 'PENDIENTE',
+        estado: 'PENDIENTE',
+      }, sessionToken),
+      requestAvailable(MODULE_ROUTES.maintenance.list, {
+        ...countPayload,
+        status: 'FINALIZADO',
+        estado: 'FINALIZADO',
+      }, sessionToken),
+    ])
+      .then(([pendingData, finishedData]) => {
+        if (!active) return;
+        setMaintenanceCounts({
+          pending: responseTotal(pendingData),
+          finished: responseTotal(finishedData),
+        });
+      })
+      .catch((loadError) => {
+        if (!active) return;
+        setMaintenanceCounts({ pending: 0, finished: 0 });
+        setMaintenanceError(loadError.message);
+      })
+      .finally(() => {
+        if (active) setMaintenanceLoading(false);
+      });
+
+    return () => { active = false; };
+  }, [sessionToken, isAdmin]);
+
   return (
     <div className="page page--home">
       <section className="welcome-block">
@@ -90,18 +137,29 @@ export default function HomePage() {
       </section>
 
       {error && <div className="alert alert--error"><Icon name="cloud_off" /><span>No se pudieron cargar las boletas: {error}</span></div>}
+      {isAdmin && maintenanceError && <div className="alert alert--error"><Icon name="cloud_off" /><span>No se pudieron cargar los mantenimientos: {maintenanceError}</span></div>}
 
-      {canViewTickets && <section className="stats-grid">
-        <Link className="stat-card stat-card--warning" to="/boletas/pendientes">
+      {(canViewTickets || isAdmin) && <section className={`stats-grid${isAdmin ? ' stats-grid--admin' : ''}`}>
+        {canViewTickets && <Link className="stat-card stat-card--warning" to="/boletas/pendientes">
           <Icon name="pending_actions" />
           <strong>{loading ? '—' : counts.pending}</strong>
           <span>Boletas pendientes</span>
-        </Link>
-        <Link className="stat-card stat-card--success" to="/boletas/finalizadas">
+        </Link>}
+        {canViewTickets && <Link className="stat-card stat-card--success" to="/boletas/finalizadas">
           <Icon name="task_alt" filled />
           <strong>{loading ? '—' : counts.finished}</strong>
           <span>Boletas finalizadas</span>
-        </Link>
+        </Link>}
+        {isAdmin && <Link className="stat-card stat-card--maintenance-pending" to="/mantenimientos?estado=PENDIENTE">
+          <Icon name="engineering" />
+          <strong>{maintenanceLoading ? '—' : maintenanceCounts.pending}</strong>
+          <span>Mantenimientos pendientes</span>
+        </Link>}
+        {isAdmin && <Link className="stat-card stat-card--maintenance-finished" to="/mantenimientos?estado=FINALIZADO">
+          <Icon name="verified" filled />
+          <strong>{maintenanceLoading ? '—' : maintenanceCounts.finished}</strong>
+          <span>Mantenimientos finalizados</span>
+        </Link>}
       </section>}
 
       {canCreateTickets && <Link to="/boletas/nueva" className="primary-cta">
@@ -126,7 +184,7 @@ export default function HomePage() {
         )}
       </section>}
 
-      {!canViewTickets && <div className="empty-state"><Icon name="home" /><h2>Panel operativo</h2><p>Utiliza el menú para acceder a los módulos disponibles para tu cuenta.</p></div>}
+      {!canViewTickets && !isAdmin && <div className="empty-state"><Icon name="home" /><h2>Panel operativo</h2><p>Utiliza el menú para acceder a los módulos disponibles para tu cuenta.</p></div>}
     </div>
   );
 }
