@@ -130,6 +130,7 @@ export default function MaintenanceDeviceInventory({
   const [pageSize, setPageSize] = useState(25);
   const [page, setPage] = useState(1);
   const [expanded, setExpanded] = useState('');
+  const [openGroups, setOpenGroups] = useState(() => new Set());
   const [filterOpen, setFilterOpen] = useState(false);
 
   const categories = useMemo(
@@ -184,10 +185,27 @@ export default function MaintenanceDeviceInventory({
 
   useEffect(() => { setPage(1); }, [query, category, location, stateFilter, pageSize]);
   useEffect(() => { if (page > totalPages) setPage(totalPages); }, [page, totalPages]);
+  useEffect(() => {
+    setOpenGroups(new Set());
+    setExpanded('');
+  }, [query, category, location, stateFilter, pageSize, page]);
 
   function toggle(device) {
     const id = deviceId(device);
     setExpanded((current) => current === id ? '' : id);
+  }
+
+  function toggleLocationGroup(group) {
+    setOpenGroups((current) => {
+      const next = new Set(current);
+      if (next.has(group.key)) {
+        next.delete(group.key);
+        if (group.items.some(({ device }) => deviceId(device) === expanded)) setExpanded('');
+      } else {
+        next.add(group.key);
+      }
+      return next;
+    });
   }
 
   function clearFilters() {
@@ -269,7 +287,7 @@ export default function MaintenanceDeviceInventory({
   return (
     <section className="maintenance-inventory-panel">
       <div className="maintenance-inventory-heading">
-        <div><span className="eyebrow">INVENTARIO TÉCNICO</span><h2>Dispositivos del mantenimiento</h2><p>Los equipos se agrupan por ubicación y se ordenan alfabética y numéricamente dentro de cada grupo.</p></div>
+        <div><span className="eyebrow">INVENTARIO TÉCNICO</span><h2>Dispositivos del mantenimiento</h2><p>Abra una ubicación para ver sus equipos, ordenados alfabética y numéricamente.</p></div>
         {pending && canEdit && <button className="button button--primary" type="button" onClick={onAddDevice}><Icon name="add" />Agregar dispositivo</button>}
       </div>
 
@@ -305,67 +323,94 @@ export default function MaintenanceDeviceInventory({
             <table className="maintenance-inventory-table">
               <thead><tr><th>#</th><th>Nombre</th><th>Tipo</th><th>Ubicación del equipo</th><th>Modelo / Serie</th><th>Estado</th><th>Fotos</th><th>Acciones</th></tr></thead>
               <tbody>
-                {visibleGroups.map((group) => (
-                  <React.Fragment key={group.key}>
-                    <tr className="maintenance-inventory-location-row">
-                      <td colSpan="8"><span><Icon name="location_on" /><strong>{group.label}</strong><small>{group.items.length} equipo{group.items.length === 1 ? '' : 's'} en esta página</small></span></td>
-                    </tr>
-                    {group.items.map(({ device, absoluteIndex }) => {
-                      const id = deviceId(device);
-                      const open = expanded === id;
-                      const images = device.Imagenes || [];
-                      return (
-                        <React.Fragment key={id}>
-                          <tr className={open ? 'is-expanded' : ''}>
-                            <td>{absoluteIndex + 1}</td>
-                            <td><button type="button" className="maintenance-inventory-name" onClick={() => toggle(device)}><span className="maintenance-device-list__icon"><Icon name={getMaintenanceCategory(deviceType(device)).icon} /></span><span><strong>{deviceName(device)}</strong>{isOffline(device) && <small><Icon name="cloud_off" />Offline</small>}</span></button></td>
-                            <td>{deviceType(device)}</td>
-                            <td>{deviceLocation(device)}</td>
-                            <td>{[pick(device, ['Modelo']), pick(device, ['Serie'])].filter(Boolean).join(' · ') || 'Sin datos'}</td>
-                            <td><span className={`maintenance-device-compact-state ${stateClass(pick(device, ['Estado']))}`}>{stateText(pick(device, ['Estado']))}</span></td>
-                            <td><span className="maintenance-device-evidence-count"><Icon name="photo_library" />{images.length}</span></td>
-                            <td>
-                              <div className="maintenance-inventory-row-actions">
-                                {pending && canEdit && <button type="button" className="icon-button" onClick={() => onEditDevice(device)} aria-label={`Editar ${deviceName(device)}`}><Icon name="edit" /></button>}
-                                <button type="button" className="icon-button" onClick={() => toggle(device)} aria-expanded={open} aria-label={`Ver detalle de ${deviceName(device)}`}><Icon name={open ? 'expand_less' : 'expand_more'} /></button>
-                              </div>
-                            </td>
-                          </tr>
-                          {open && <tr className="maintenance-inventory-expanded-row"><td colSpan="8">{expandedContent(device)}</td></tr>}
-                        </React.Fragment>
-                      );
-                    })}
-                  </React.Fragment>
-                ))}
+                {visibleGroups.map((group) => {
+                  const groupOpen = openGroups.has(group.key);
+                  return (
+                    <React.Fragment key={group.key}>
+                      <tr className={`maintenance-inventory-location-row${groupOpen ? ' is-open' : ''}`}>
+                        <td colSpan="8">
+                          <button
+                            type="button"
+                            className="maintenance-inventory-location-toggle"
+                            onClick={() => toggleLocationGroup(group)}
+                            aria-expanded={groupOpen}
+                            aria-label={`${groupOpen ? 'Cerrar' : 'Abrir'} ubicación ${group.label}`}
+                          >
+                            <span className="maintenance-inventory-location-toggle__icon"><Icon name="location_on" /></span>
+                            <span className="maintenance-inventory-location-toggle__text"><strong>{group.label}</strong><small>{group.items.length} equipo{group.items.length === 1 ? '' : 's'} en esta página</small></span>
+                            <Icon name={groupOpen ? 'expand_less' : 'expand_more'} />
+                          </button>
+                        </td>
+                      </tr>
+                      {groupOpen && group.items.map(({ device, absoluteIndex }) => {
+                        const id = deviceId(device);
+                        const open = expanded === id;
+                        const images = device.Imagenes || [];
+                        return (
+                          <React.Fragment key={id}>
+                            <tr className={open ? 'is-expanded' : ''}>
+                              <td>{absoluteIndex + 1}</td>
+                              <td><button type="button" className="maintenance-inventory-name" onClick={() => toggle(device)}><span className="maintenance-device-list__icon"><Icon name={getMaintenanceCategory(deviceType(device)).icon} /></span><span><strong>{deviceName(device)}</strong>{isOffline(device) && <small><Icon name="cloud_off" />Offline</small>}</span></button></td>
+                              <td>{deviceType(device)}</td>
+                              <td>{deviceLocation(device)}</td>
+                              <td>{[pick(device, ['Modelo']), pick(device, ['Serie'])].filter(Boolean).join(' · ') || 'Sin datos'}</td>
+                              <td><span className={`maintenance-device-compact-state ${stateClass(pick(device, ['Estado']))}`}>{stateText(pick(device, ['Estado']))}</span></td>
+                              <td><span className="maintenance-device-evidence-count"><Icon name="photo_library" />{images.length}</span></td>
+                              <td>
+                                <div className="maintenance-inventory-row-actions">
+                                  {pending && canEdit && <button type="button" className="icon-button" onClick={() => onEditDevice(device)} aria-label={`Editar ${deviceName(device)}`}><Icon name="edit" /></button>}
+                                  <button type="button" className="icon-button" onClick={() => toggle(device)} aria-expanded={open} aria-label={`Ver detalle de ${deviceName(device)}`}><Icon name={open ? 'expand_less' : 'expand_more'} /></button>
+                                </div>
+                              </td>
+                            </tr>
+                            {open && <tr className="maintenance-inventory-expanded-row"><td colSpan="8">{expandedContent(device)}</td></tr>}
+                          </React.Fragment>
+                        );
+                      })}
+                    </React.Fragment>
+                  );
+                })}
               </tbody>
             </table>
           </div>
 
           <div className="maintenance-inventory-mobile-list">
-            {visibleGroups.map((group) => (
-              <section className="maintenance-inventory-location-group" key={group.key}>
-                <header className="maintenance-inventory-location-group__heading">
-                  <span><Icon name="location_on" /></span>
-                  <div><strong>{group.label}</strong><small>{group.items.length} equipo{group.items.length === 1 ? '' : 's'} en esta página</small></div>
-                </header>
-                <div className="maintenance-inventory-location-group__devices">
-                  {group.items.map(({ device, absoluteIndex }) => {
-                    const id = deviceId(device);
-                    const open = expanded === id;
-                    return <article key={id} className={`maintenance-inventory-mobile-card${open ? ' is-expanded' : ''}`}>
-                      <button type="button" className="maintenance-inventory-mobile-toggle" onClick={() => toggle(device)} aria-expanded={open}>
-                        <span className="maintenance-device-mobile-row__number">{absoluteIndex + 1}</span>
-                        <span className="maintenance-device-list__icon"><Icon name={getMaintenanceCategory(deviceType(device)).icon} /></span>
-                        <span><strong>{deviceName(device)}</strong><small>{deviceType(device)} · {deviceLocation(device)}</small><span><em className={stateClass(pick(device, ['Estado']))}>{stateText(pick(device, ['Estado']))}</em><em><Icon name="photo_library" />{(device.Imagenes || []).length}</em>{isOffline(device) && <em className="is-offline"><Icon name="cloud_off" />Offline</em>}</span></span>
-                        <Icon name={open ? 'expand_less' : 'expand_more'} />
-                      </button>
-                      {pending && canEdit && <button type="button" className="maintenance-inventory-mobile-edit" onClick={() => onEditDevice(device)}><Icon name="edit" />Editar dispositivo y evidencias</button>}
-                      {open && expandedContent(device)}
-                    </article>;
-                  })}
-                </div>
-              </section>
-            ))}
+            {visibleGroups.map((group) => {
+              const groupOpen = openGroups.has(group.key);
+              return (
+                <section className={`maintenance-inventory-location-group${groupOpen ? ' is-open' : ''}`} key={group.key}>
+                  <button
+                    type="button"
+                    className="maintenance-inventory-location-group__heading"
+                    onClick={() => toggleLocationGroup(group)}
+                    aria-expanded={groupOpen}
+                    aria-label={`${groupOpen ? 'Cerrar' : 'Abrir'} ubicación ${group.label}`}
+                  >
+                    <span><Icon name="location_on" /></span>
+                    <div><strong>{group.label}</strong><small>{group.items.length} equipo{group.items.length === 1 ? '' : 's'} en esta página</small></div>
+                    <Icon name={groupOpen ? 'expand_less' : 'expand_more'} />
+                  </button>
+                  {groupOpen && (
+                    <div className="maintenance-inventory-location-group__devices">
+                      {group.items.map(({ device, absoluteIndex }) => {
+                        const id = deviceId(device);
+                        const open = expanded === id;
+                        return <article key={id} className={`maintenance-inventory-mobile-card${open ? ' is-expanded' : ''}`}>
+                          <button type="button" className="maintenance-inventory-mobile-toggle" onClick={() => toggle(device)} aria-expanded={open}>
+                            <span className="maintenance-device-mobile-row__number">{absoluteIndex + 1}</span>
+                            <span className="maintenance-device-list__icon"><Icon name={getMaintenanceCategory(deviceType(device)).icon} /></span>
+                            <span><strong>{deviceName(device)}</strong><small>{deviceType(device)} · {deviceLocation(device)}</small><span><em className={stateClass(pick(device, ['Estado']))}>{stateText(pick(device, ['Estado']))}</em><em><Icon name="photo_library" />{(device.Imagenes || []).length}</em>{isOffline(device) && <em className="is-offline"><Icon name="cloud_off" />Offline</em>}</span></span>
+                            <Icon name={open ? 'expand_less' : 'expand_more'} />
+                          </button>
+                          {pending && canEdit && <button type="button" className="maintenance-inventory-mobile-edit" onClick={() => onEditDevice(device)}><Icon name="edit" />Editar dispositivo y evidencias</button>}
+                          {open && expandedContent(device)}
+                        </article>;
+                      })}
+                    </div>
+                  )}
+                </section>
+              );
+            })}
           </div>
 
           <nav className="maintenance-device-pagination" aria-label="Paginación de dispositivos">

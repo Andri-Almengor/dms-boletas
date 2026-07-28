@@ -1,0 +1,182 @@
+/* Grupos de dispositivos plegables por ubicación en el detalle del mantenimiento. */
+
+.maintenance-inventory-location-row > td {
+  padding: 0 !important;
+}
+
+.maintenance-inventory-location-toggle {
+  width: 100%;
+  min-width: 0;
+  min-height: 48px;
+  padding: 9px 12px;
+  border: 0;
+  background: transparent;
+  color: var(--text);
+  display: grid;
+  grid-template-columns: 34px minmax(0, 1fr) 24px;
+  align-items: center;
+  gap: 9px;
+  text-align: left;
+  font: inherit;
+  cursor: pointer;
+  transition: background-color .18s ease, color .18s ease;
+}
+
+.maintenance-inventory-location-toggle:hover,
+.maintenance-inventory-location-toggle:focus-visible {
+  background: color-mix(in srgb, var(--primary-soft) 72%, transparent);
+}
+
+.maintenance-inventory-location-toggle:focus-visible,
+.maintenance-inventory-location-group__heading:focus-visible {
+  outline: 2px solid color-mix(in srgb, var(--primary) 45%, transparent);
+  outline-offset: -2px;
+}
+
+.maintenance-inventory-location-toggle__icon {
+  width: 34px;
+  height: 34px;
+  border-radius: 10px;
+  background: var(--primary-soft);
+  color: var(--primary);
+  display: grid;
+  place-items: center;
+}
+
+.maintenance-inventory-location-toggle__icon .material-symbols-outlined {
+  font-size: 19px;
+}
+
+.maintenance-inventory-location-toggle__text {
+  min-width: 0;
+}
+
+.maintenance-inventory-location-toggle__text strong,
+.maintenance-inventory-location-toggle__text small {
+  display: block;
+  min-width: 0;
+  overflow-wrap: break-word;
+}
+
+.maintenance-inventory-location-toggle__text strong {
+  color: var(--text);
+  font-size: .78rem;
+  line-height: 1.25;
+}
+
+.maintenance-inventory-location-toggle__text small {
+  margin-top: 2px;
+  color: var(--muted);
+  font-size: .64rem;
+  font-weight: 700;
+}
+
+.maintenance-inventory-location-toggle > .material-symbols-outlined:last-child {
+  color: var(--muted);
+  font-size: 22px;
+  transition: color .18s ease, transform .18s ease;
+}
+
+.maintenance-inventory-location-row.is-open > td {
+  background: color-mix(in srgb, var(--primary-soft) 38%, var(--surface-low));
+}
+
+.maintenance-inventory-location-row.is-open .maintenance-inventory-location-toggle > .material-symbols-outlined:last-child,
+.maintenance-inventory-location-group.is-open .maintenance-inventory-location-group__heading > .material-symbols-outlined:last-child {
+  color: var(--primary);
+}
+
+.maintenance-inventory-location-group__heading {
+  width: 100%;
+  grid-template-columns: 34px minmax(0, 1fr) 24px;
+  color: var(--text);
+  text-align: left;
+  font: inherit;
+  cursor: pointer;
+  transition: border-color .18s ease, background-color .18s ease, box-shadow .18s ease;
+}
+
+.maintenance-inventory-location-group__heading:hover,
+.maintenance-inventory-location-group__heading:focus-visible {
+  border-color: color-mix(in srgb, var(--primary) 52%, var(--outline-soft));
+  background: color-mix(in srgb, var(--primary-soft) 54%, var(--surface-low));
+}
+
+.maintenance-inventory-location-group__heading > .material-symbols-outlined:last-child {
+  color: var(--muted);
+  font-size: 23px;
+  transition: color .18s ease, transform .18s ease;
+}
+
+.maintenance-inventory-location-group.is-open .maintenance-inventory-location-group__heading {
+  border-color: color-mix(in srgb, var(--primary) 48%, var(--outline-soft));
+  box-shadow: 0 8px 22px color-mix(in srgb, var(--primary) 8%, transparent);
+}
+
+.maintenance-inventory-location-group__devices {
+  animation: maintenance-location-group-reveal .18s ease-out;
+}
+
+@keyframes maintenance-location-group-reveal {
+  from {
+    opacity: 0;
+    transform: translateY(-4px);
+  }
+  to {
+    opacity: 1;
+    transform: translateY(0);
+  }
+}
+
+:root[data-theme='dark'] .maintenance-inventory-location-toggle,
+:root[data-theme='dark'] .maintenance-inventory-location-group__heading {
+  color: var(--text);
+}
+
+:root[data-theme='dark'] .maintenance-inventory-location-row.is-open > td,
+:root[data-theme='dark'] .maintenance-inventory-location-group.is-open .maintenance-inventory-location-group__heading {
+  background: color-mix(in srgb, var(--primary-soft) 30%, var(--surface-low));
+}
+
+@media (max-width: 760px) {
+  .maintenance-inventory-location-group {
+    gap: 8px;
+  }
+
+  .maintenance-inventory-location-group__heading {
+    min-height: 58px;
+    padding: 10px 12px;
+  }
+
+  .maintenance-inventory-location-group__heading strong {
+    font-size: .84rem;
+  }
+
+  .maintenance-inventory-location-group__heading small {
+    font-size: .66rem;
+  }
+}
+
+@media (max-width: 430px) {
+  .maintenance-inventory-location-group__heading {
+    grid-template-columns: 32px minmax(0, 1fr) 22px;
+    padding: 9px 10px;
+    gap: 8px;
+  }
+
+  .maintenance-inventory-location-group__heading > span {
+    width: 32px;
+    height: 32px;
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .maintenance-inventory-location-toggle,
+  .maintenance-inventory-location-toggle > .material-symbols-outlined:last-child,
+  .maintenance-inventory-location-group__heading,
+  .maintenance-inventory-location-group__heading > .material-symbols-outlined:last-child,
+  .maintenance-inventory-location-group__devices {
+    animation: none;
+    transition: none;
+  }
+}
