@@ -15,7 +15,8 @@
 }
 
 .client-equipment-bulk-toggle,
-.client-equipment-selection-toggle {
+.client-equipment-selection-toggle,
+.client-location-selection-toggle {
   position: relative;
   color: var(--text-main);
   display: inline-flex;
@@ -33,7 +34,8 @@
 }
 
 .client-equipment-bulk-toggle input,
-.client-equipment-selection-toggle input {
+.client-equipment-selection-toggle input,
+.client-location-selection-toggle input {
   position: absolute;
   width: 1px;
   height: 1px;
@@ -42,19 +44,22 @@
 }
 
 .client-equipment-bulk-toggle .material-symbols-outlined,
-.client-equipment-selection-toggle .material-symbols-outlined {
+.client-equipment-selection-toggle .material-symbols-outlined,
+.client-location-selection-toggle .material-symbols-outlined {
   color: var(--primary);
 }
 
 .client-equipment-bulk-toggle input:focus-visible + .material-symbols-outlined,
-.client-equipment-selection-toggle input:focus-visible + .material-symbols-outlined {
+.client-equipment-selection-toggle input:focus-visible + .material-symbols-outlined,
+.client-location-selection-toggle input:focus-visible + .material-symbols-outlined {
   outline: 2px solid var(--primary);
   outline-offset: 3px;
   border-radius: 4px;
 }
 
 .client-equipment-bulk-toggle:has(input:disabled),
-.client-equipment-selection-toggle:has(input:disabled) {
+.client-equipment-selection-toggle:has(input:disabled),
+.client-location-selection-toggle:has(input:disabled) {
   cursor: not-allowed;
   opacity: .55;
 }
@@ -64,6 +69,26 @@
   font-size: .7rem;
   font-weight: 700;
   white-space: nowrap;
+}
+
+.client-site-card--selectable .client-site-card__main {
+  grid-template-columns: 30px 42px minmax(0, 1fr) auto;
+}
+
+.client-site-card--selectable.is-selected {
+  border-color: color-mix(in srgb, var(--primary) 64%, var(--outline-soft));
+  background: color-mix(in srgb, var(--primary-soft) 35%, var(--surface-card));
+  box-shadow: inset 3px 0 0 var(--primary);
+}
+
+.client-location-selection-toggle {
+  width: 30px;
+  height: 42px;
+  justify-content: center;
+}
+
+.client-location-selection-toggle .material-symbols-outlined {
+  font-size: 22px;
 }
 
 .client-equipment-relation-card--selectable {
@@ -100,6 +125,14 @@
 
   .client-equipment-bulk-count {
     padding-left: 29px;
+  }
+
+  .client-site-card--selectable .client-site-card__main {
+    grid-template-columns: 30px 40px minmax(0, 1fr);
+  }
+
+  .client-site-card--selectable .client-site-card__main > .client-relation-actions {
+    grid-column: 1 / -1;
   }
 
   .client-equipment-relation-card--selectable {
