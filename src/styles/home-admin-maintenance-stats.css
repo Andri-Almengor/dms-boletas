@@ -1,0 +1,72 @@
+/* Totales administrativos de boletas y mantenimientos en Inicio. */
+
+.stats-grid--admin {
+  grid-template-columns: repeat(4, minmax(0, 1fr));
+}
+
+.stats-grid--admin .stat-card {
+  min-width: 0;
+}
+
+.stat-card--maintenance-pending::before {
+  background: var(--primary);
+}
+
+.stat-card--maintenance-finished::before {
+  background: #3f7fd8;
+}
+
+.stat-card--maintenance-pending > .material-symbols-outlined {
+  color: var(--primary);
+}
+
+.stat-card--maintenance-finished > .material-symbols-outlined {
+  color: #3f7fd8;
+}
+
+.stat-card--maintenance-pending:hover,
+.stat-card--maintenance-pending:focus-visible,
+.stat-card--maintenance-finished:hover,
+.stat-card--maintenance-finished:focus-visible {
+  transform: translateY(-2px);
+  border-color: color-mix(in srgb, var(--primary) 35%, var(--outline-soft));
+  box-shadow: var(--shadow-md);
+}
+
+.stat-card--maintenance-pending,
+.stat-card--maintenance-finished {
+  transition: transform .18s ease, border-color .18s ease, box-shadow .18s ease;
+}
+
+@media (max-width: 900px) {
+  .stats-grid--admin {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
+}
+
+@media (max-width: 430px) {
+  .stats-grid--admin {
+    gap: 10px;
+  }
+
+  .stats-grid--admin .stat-card {
+    min-height: 132px;
+    padding: 15px;
+  }
+
+  .stats-grid--admin .stat-card strong {
+    font-size: 1.55rem;
+  }
+
+  .stats-grid--admin .stat-card span:last-child {
+    font-size: .64rem;
+    line-height: 1.25;
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .stat-card--maintenance-pending,
+  .stat-card--maintenance-finished {
+    transition: none;
+  }
+}
