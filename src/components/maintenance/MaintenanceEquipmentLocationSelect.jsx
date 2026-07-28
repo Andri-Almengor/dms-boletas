@@ -2,13 +2,29 @@ import React, { useEffect, useMemo, useState } from 'react';
 import { useAuth } from '../../AuthContext';
 import DependentSelect from '../forms/DependentSelect';
 import InlineCreateModal from '../forms/InlineCreateModal';
+import Icon from '../common/Icon';
 import { MODULE_ROUTES, normalizeItems, pick, requestAvailable } from '../../services/moduleApi';
+
+const EMPTY_OPTIONS = Object.freeze([]);
 
 const LOCATION_GET_ROUTES = [
   'clientLocations.get',
   'clients.locations.get',
   'clientes.ubicaciones.get',
   'ubicacionesCliente.get',
+];
+
+// Estas rutas permiten que administradores y técnicos con permisos operativos
+// creen ubicaciones desde boletas o mantenimientos, sin darles acceso a eliminar.
+const EQUIPMENT_LOCATION_CREATE_ROUTES = [
+  'clients.operational.equipmentLocations.create',
+  'equipmentLocations.operational.create',
+  'clientes.ubicacionesEquipo.operational.create',
+  'ubicacionesEquipo.operational.create',
+  'equipmentLocations.create',
+  'clients.equipmentLocations.create',
+  'clientes.ubicacionesEquipo.create',
+  'ubicacionesEquipo.create',
 ];
 
 function locationView(row) {
@@ -42,7 +58,7 @@ function seedOption(option, locationMap, fallbackLocationId = '', showParent = f
   return { ...option, value, label, name, locationId: parentId, locationName: parentName };
 }
 
-function uniqueOptions(options = []) {
+function uniqueOptions(options = EMPTY_OPTIONS) {
   const seen = new Set();
   return options.filter((option) => {
     const key = String(option?.value || '').trim();
@@ -52,7 +68,7 @@ function uniqueOptions(options = []) {
   });
 }
 
-function sortOptions(options = [], preferredLocationId = '') {
+function sortOptions(options = EMPTY_OPTIONS, preferredLocationId = '') {
   return [...options].sort((a, b) => {
     const aPreferred = String(a.locationId || '') === String(preferredLocationId || '') ? 0 : 1;
     const bPreferred = String(b.locationId || '') === String(preferredLocationId || '') ? 0 : 1;
@@ -64,7 +80,7 @@ function sortOptions(options = [], preferredLocationId = '') {
 export default function MaintenanceEquipmentLocationSelect({
   locationId,
   value,
-  options = [],
+  options = EMPTY_OPTIONS,
   disabled = false,
   onChange,
 }) {
@@ -72,6 +88,7 @@ export default function MaintenanceEquipmentLocationSelect({
   const [loadedOptions, setLoadedOptions] = useState(options);
   const [clientLocations, setClientLocations] = useState([]);
   const [loading, setLoading] = useState(false);
+  const [catalogError, setCatalogError] = useState('');
   const [modalOpen, setModalOpen] = useState(false);
   const [modalValues, setModalValues] = useState({ nombre: '', descripcion: '', ubicacionId: '' });
   const [modalError, setModalError] = useState('');
@@ -97,6 +114,7 @@ export default function MaintenanceEquipmentLocationSelect({
     if (!sessionToken) {
       setLoadedOptions(options);
       setClientLocations([]);
+      setLoading(false);
       return undefined;
     }
 
@@ -104,6 +122,7 @@ export default function MaintenanceEquipmentLocationSelect({
 
     async function loadClientEquipmentCatalog() {
       setLoading(true);
+      setCatalogError('');
       try {
         let resolvedClientId = '';
         let locations = [];
@@ -117,7 +136,7 @@ export default function MaintenanceEquipmentLocationSelect({
             );
             resolvedClientId = String(pick(currentLocation, ['ClienteID', 'clienteId'], '')).trim();
           } catch {
-            // Se conserva la ubicación actual aunque no sea posible resolver el cliente.
+            // Se conserva la sede actual como respaldo aunque no se pueda resolver el cliente.
           }
         }
 
@@ -158,10 +177,16 @@ export default function MaintenanceEquipmentLocationSelect({
 
         if (!active) return;
         setLoadedOptions(sortOptions(uniqueOptions([...fetched, ...seeded]), locationId));
-      } catch {
+
+        const failedLoads = results.filter((result) => result.status === 'rejected');
+        if (failedLoads.length === results.length && results.length) {
+          setCatalogError('No se pudieron cargar las ubicaciones del equipo. Pulse reintentar.');
+        }
+      } catch (error) {
         if (!active) return;
         const fallbackMap = new Map();
         setLoadedOptions(sortOptions(uniqueOptions(options.map((option) => seedOption(option, fallbackMap, locationId, false)).filter(Boolean)), locationId));
+        setCatalogError(error.message || 'No se pudieron cargar las ubicaciones del equipo.');
       } finally {
         if (active) setLoading(false);
       }
@@ -213,7 +238,7 @@ export default function MaintenanceEquipmentLocationSelect({
     setModalError('');
     try {
       const result = await requestAvailable(
-        MODULE_ROUTES.clients.equipmentLocationsCreate,
+        EQUIPMENT_LOCATION_CREATE_ROUTES,
         {
           ubicacionId: parentLocationId,
           UbicacionID: parentLocationId,
@@ -232,6 +257,9 @@ export default function MaintenanceEquipmentLocationSelect({
       setLoadedOptions((current) => sortOptions(uniqueOptions([...current, created]), locationId));
       onChange?.(created.value, created.name, created.locationId, created.locationName);
       setModalOpen(false);
+      window.dispatchEvent(new CustomEvent('dms-client-equipment-catalog-updated', {
+        detail: { locationId: parentLocationId, equipmentLocationId: created.value },
+      }));
     } catch (error) {
       setModalError(error.message || 'No se pudo crear la ubicación del equipo.');
     } finally {
@@ -259,6 +287,7 @@ export default function MaintenanceEquipmentLocationSelect({
       onChange={select}
       placeholder={placeholder}
     />
+    {catalogError && <div className="alert alert--error maintenance-equipment-location-error"><Icon name="error" /><span>{catalogError}</span><button className="button button--secondary button--compact" type="button" onClick={() => setCatalogRevision((current) => current + 1)} disabled={loading}>Reintentar</button></div>}
     <InlineCreateModal
       open={modalOpen}
       title="Agregar ubicación del equipo"
