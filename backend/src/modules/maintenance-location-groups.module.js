@@ -77,17 +77,18 @@ function withLocationWrite(maintenanceId, operation) {
   const key = clean(maintenanceId);
   const previous = writeTails.get(key) || Promise.resolve();
   const current = previous.catch(() => {}).then(operation);
-  const tracked = current.finally(() => {
-    if (writeTails.get(key) === tracked) writeTails.delete(key);
+  const settled = current.catch(() => {});
+  writeTails.set(key, settled);
+  settled.finally(() => {
+    if (writeTails.get(key) === settled) writeTails.delete(key);
   });
-  writeTails.set(key, tracked.catch(() => {}));
   return current;
 }
 
 async function catalogContext(maintenance) {
   const [equipmentRows, clientLocations] = await Promise.all([
-    readTable('ClienteUbicacionesEquipo', { force: true }),
-    readTable('ClienteUbicaciones', { force: true }),
+    readTable('ClienteUbicacionesEquipo'),
+    readTable('ClienteUbicaciones'),
   ]);
   let clientId = clean(maintenance.ClienteID);
   if (!clientId && maintenance.UbicacionID) {
@@ -215,7 +216,7 @@ async function locationsUpdate(ctx) {
       throw badRequest('Las ubicaciones solo pueden modificarse mientras el mantenimiento está pendiente.');
     }
 
-    const devices = (await readTable('Evidencia_Mantenimientos', { force: true }))
+    const devices = (await readTable('Evidencia_Mantenimientos'))
       .filter((device) => clean(device.MantenimientoRef) === maintenanceId && device.Activo !== false);
     const requestedIds = requestedGroupIds(ctx.payload);
     const requestedSet = new Set(requestedIds);
