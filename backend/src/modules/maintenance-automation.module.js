@@ -17,7 +17,6 @@ import {
 import { ensureSheetColumns } from '../services/sheet-columns.service.js';
 
 const DEVICE_WORK_COLUMNS = ['FechaTrabajo', 'TecnicoIDsJSON', 'Tecnicos'];
-const EMPTY_LOCATION_KEYS = new Set(['', 'na', 'noaplica', 'sinespecificar', 'desconocido', 'ninguna', 'ninguno']);
 
 function clean(value) {
   return String(value ?? '').trim();
@@ -34,29 +33,6 @@ function normalizeCategory(value) {
   return normalized === 'camara' || normalized === 'camaras' ? 'Cámara' : text;
 }
 
-function normalizeCatalogKey(value) {
-  return clean(value)
-    .normalize('NFD')
-    .replace(/[\u0300-\u036f]/g, '')
-    .toLowerCase()
-    .replace(/[^a-z0-9]+/g, '');
-}
-
-function cleanEquipmentName(value) {
-  return clean(value).replace(/\s+/g, ' ');
-}
-
-function isMeaningfulEquipmentName(value) {
-  const key = normalizeCatalogKey(value);
-  return Boolean(key) && !EMPTY_LOCATION_KEYS.has(key);
-}
-
-function isActiveCatalogRow(row = {}) {
-  const active = String(row.Activo ?? row.activo ?? 'true').trim().toLowerCase();
-  const status = String(row.Estado ?? row.estado ?? 'ACTIVO').trim().toUpperCase();
-  return !['false', '0', 'no'].includes(active) && status !== 'INACTIVO';
-}
-
 function parseAnswers(payload = {}) {
   const source = payload.respuestas || payload.answers || payload.RespuestasJSON || {};
   if (typeof source !== 'string') return source || {};
@@ -69,64 +45,37 @@ function isAdmin(ctx) {
     || ctx.permissions?.includes('MANTENIMIENTOS_ELIMINAR');
 }
 
-async function resolveEquipmentLocation({ payload = {}, existing = null, maintenance, actor, learnLocation = true }) {
+async function resolveEquipmentLocation({ payload = {}, existing = null }) {
   const requestedId = clean(pick(payload, ['UbicacionEquipoID', 'ubicacionEquipoId'], existing?.UbicacionEquipoID));
-  const requestedName = cleanEquipmentName(pick(payload, ['Zona', 'zona'], existing?.Zona));
-  const equipmentRows = requestedId || (learnLocation && isMeaningfulEquipmentName(requestedName))
-    ? await readTable('ClienteUbicacionesEquipo', { force: true })
-    : [];
-
-  if (requestedId) {
-    const selected = equipmentRows.find((row) => String(row.UbicacionEquipoID) === requestedId);
-    return {
-      UbicacionEquipoID: requestedId,
-      Zona: requestedName || cleanEquipmentName(pick(selected, ['Nombre', 'nombre'], existing?.Zona)),
-    };
+  if (!requestedId) {
+    throw badRequest('Seleccione una ubicación del equipo para guardar el dispositivo.');
   }
 
-  if (!learnLocation || !isMeaningfulEquipmentName(requestedName)) {
-    return { UbicacionEquipoID: '', Zona: requestedName };
+  const equipmentRows = await readTable('ClienteUbicacionesEquipo', { force: true });
+  const selected = equipmentRows.find((row) => String(pick(row, ['UbicacionEquipoID', 'ubicacionEquipoId'])) === requestedId);
+  if (!selected) {
+    throw badRequest('La ubicación del equipo seleccionada ya no existe. Actualice el catálogo y selecciónela nuevamente.');
   }
 
-  const parentLocationId = clean(pick(payload, ['UbicacionID', 'ubicacionId'], maintenance?.UbicacionID));
-  if (!parentLocationId) return { UbicacionEquipoID: '', Zona: requestedName };
-
-  const key = normalizeCatalogKey(requestedName);
-  const duplicate = equipmentRows.find((row) => (
-    String(pick(row, ['UbicacionID', 'ubicacionId'])) === parentLocationId
-    && isActiveCatalogRow(row)
-    && normalizeCatalogKey(pick(row, ['Nombre', 'nombre'])) === key
-  ));
-
-  if (duplicate) {
-    return {
-      UbicacionEquipoID: clean(pick(duplicate, ['UbicacionEquipoID', 'ubicacionEquipoId'])),
-      Zona: cleanEquipmentName(pick(duplicate, ['Nombre', 'nombre'], requestedName)),
-    };
+  const selectedName = clean(pick(selected, ['Nombre', 'nombre']));
+  if (!selectedName) {
+    throw badRequest('La ubicación del equipo seleccionada no tiene un nombre válido.');
   }
 
-  const timestamp = nowIso();
-  const created = {
-    UbicacionEquipoID: uuid(),
-    UbicacionID: parentLocationId,
-    Nombre: requestedName,
-    Descripcion: 'Creada automáticamente desde un dispositivo de mantenimiento para reutilizarla en clientes, boletas y mantenimientos.',
-    Activo: true,
-    Estado: 'ACTIVO',
-    CreadoPor: actor,
-    FechaCreacion: timestamp,
-    ActualizadoPor: actor,
-    FechaActualizacion: timestamp,
+  return {
+    UbicacionEquipoID: requestedId,
+    UbicacionEquipoNombre: selectedName,
+    // La columna Zona se conserva únicamente por compatibilidad con reportes y datos históricos.
+    // Ya no recibe texto libre: siempre replica el nombre del dropdown seleccionado.
+    Zona: selectedName,
   };
-  await appendRow('ClienteUbicacionesEquipo', created);
-  return { UbicacionEquipoID: created.UbicacionEquipoID, Zona: created.Nombre };
 }
 
-async function resolveDeviceWorkMetadata(payload = {}, existing = null, actor = '', learnLocation = true) {
+async function resolveDeviceWorkMetadata(payload = {}, existing = null, actor = '') {
   const maintenanceId = clean(pick(payload, ['maintenanceId', 'MantenimientoID', 'MantenimientoRef'], existing?.MantenimientoRef));
   if (!maintenanceId) throw badRequest('No se indicó el mantenimiento del dispositivo.');
 
-  const maintenance = await findById('Mantenimiento', maintenanceId);
+  await findById('Mantenimiento', maintenanceId);
   const users = await readTable('Usuarios');
   const ids = [...new Set(asArray(
     payload.TecnicoIDsJSON
@@ -139,13 +88,7 @@ async function resolveDeviceWorkMetadata(payload = {}, existing = null, actor = 
     const user = users.find((item) => String(item.UsuarioID) === id);
     return clean(pick(user, ['NombreCompleto', 'Nombre', 'NombreUsuario', 'Correo'], id));
   });
-  const equipmentLocation = await resolveEquipmentLocation({
-    payload,
-    existing,
-    maintenance,
-    actor,
-    learnLocation,
-  });
+  const equipmentLocation = await resolveEquipmentLocation({ payload, existing, actor });
 
   return {
     maintenanceId,
@@ -172,6 +115,8 @@ function contextWithMetadata(ctx, metadata) {
       Tecnicos: metadata.Tecnicos,
       UbicacionEquipoID: metadata.UbicacionEquipoID,
       ubicacionEquipoId: metadata.UbicacionEquipoID,
+      UbicacionEquipoNombre: metadata.UbicacionEquipoNombre,
+      ubicacionEquipoNombre: metadata.UbicacionEquipoNombre,
       Zona: metadata.Zona,
       zona: metadata.Zona,
     },
@@ -179,7 +124,7 @@ function contextWithMetadata(ctx, metadata) {
 }
 
 async function persistMetadata(deviceId, metadata, actor) {
-  return updateRow('Evidencia_Mantenimientos', deviceId, {
+  const saved = await updateRow('Evidencia_Mantenimientos', deviceId, {
     FechaTrabajo: metadata.FechaTrabajo,
     TecnicoIDsJSON: metadata.TecnicoIDsJSON,
     Tecnicos: metadata.Tecnicos,
@@ -188,11 +133,12 @@ async function persistMetadata(deviceId, metadata, actor) {
     ActualizadoPor: actor,
     FechaActualizacion: nowIso(),
   });
+  return { ...saved, UbicacionEquipoNombre: metadata.UbicacionEquipoNombre };
 }
 
 async function deviceCreate(ctx) {
   await ensureSheetColumns('Evidencia_Mantenimientos', DEVICE_WORK_COLUMNS);
-  const metadata = await resolveDeviceWorkMetadata(ctx.payload, null, ctx.user.UsuarioID, true);
+  const metadata = await resolveDeviceWorkMetadata(ctx.payload, null, ctx.user.UsuarioID);
   const requestedId = clean(pick(ctx.payload, ['deviceId', 'EvidenciaMantenimientoID']));
   const id = requestedId || uuid();
   const existing = (await readTable('Evidencia_Mantenimientos', { force: true }))
@@ -205,6 +151,7 @@ async function deviceCreate(ctx) {
     EvidenciaMantenimientoID: id,
     MantenimientoRef: metadata.maintenanceId,
     UbicacionEquipoID: metadata.UbicacionEquipoID,
+    UbicacionEquipoNombre: metadata.UbicacionEquipoNombre,
     Zona: metadata.Zona,
     Categoria: category,
     NombreDispositivo: pick(ctx.payload, ['NombreDispositivo', 'nombre']),
@@ -238,7 +185,7 @@ async function deviceUpdate(ctx) {
   await ensureSheetColumns('Evidencia_Mantenimientos', DEVICE_WORK_COLUMNS);
   const id = clean(pick(ctx.payload, ['deviceId', 'EvidenciaMantenimientoID']));
   const before = await findById('Evidencia_Mantenimientos', id);
-  const metadata = await resolveDeviceWorkMetadata(ctx.payload, before, ctx.user.UsuarioID, true);
+  const metadata = await resolveDeviceWorkMetadata(ctx.payload, before, ctx.user.UsuarioID);
   await maintenanceHandlers.deviceUpdate(contextWithMetadata(ctx, metadata));
   return persistMetadata(id, metadata, ctx.user.UsuarioID);
 }
@@ -247,10 +194,32 @@ async function deviceAutosave(ctx) {
   await ensureSheetColumns('Evidencia_Mantenimientos', DEVICE_WORK_COLUMNS);
   const id = clean(pick(ctx.payload, ['deviceId', 'EvidenciaMantenimientoID']));
   const before = await findById('Evidencia_Mantenimientos', id);
-  const metadata = await resolveDeviceWorkMetadata(ctx.payload, before, ctx.user.UsuarioID, false);
+  const metadata = await resolveDeviceWorkMetadata(ctx.payload, before, ctx.user.UsuarioID);
   const base = await maintenanceHandlers.deviceAutosave(contextWithMetadata(ctx, metadata));
   const saved = await persistMetadata(id, metadata, ctx.user.UsuarioID);
   return { ...saved, autosaved: true, metadataSaved: true, throttled: Boolean(base?.throttled) };
+}
+
+async function get(ctx) {
+  const data = await maintenanceHandlers.get(ctx);
+  const equipmentRows = await readTable('ClienteUbicacionesEquipo');
+  const namesById = new Map(equipmentRows.map((row) => [
+    clean(pick(row, ['UbicacionEquipoID', 'ubicacionEquipoId'])),
+    clean(pick(row, ['Nombre', 'nombre'])),
+  ]));
+
+  return {
+    ...data,
+    dispositivos: (data.dispositivos || []).map((device) => {
+      const equipmentLocationId = clean(pick(device, ['UbicacionEquipoID', 'ubicacionEquipoId']));
+      const equipmentLocationName = namesById.get(equipmentLocationId) || '';
+      return {
+        ...device,
+        UbicacionEquipoNombre: equipmentLocationName,
+        equipmentLocationName,
+      };
+    }),
+  };
 }
 
 async function refreshReusedSignedReports(ctx, ticketGeneration) {
@@ -313,7 +282,7 @@ async function slidesReport(ctx) {
   if (!isAdmin(ctx)) throw forbidden('Solo los administradores pueden crear presentaciones de mantenimiento.');
   const maintenanceId = clean(pick(ctx.payload, ['maintenanceId', 'MantenimientoID', 'id']));
   if (!maintenanceId) throw badRequest('No se indicó el mantenimiento para crear la presentación.');
-  const data = await maintenanceHandlers.get({ ...ctx, payload: { maintenanceId } });
+  const data = await get({ ...ctx, payload: { maintenanceId } });
   const result = await generateMaintenancePresentationWithAppsScript({
     maintenance: data.mantenimiento,
     devices: data.dispositivos || [],
@@ -332,6 +301,7 @@ async function slidesReport(ctx) {
 export const maintenanceAutomationHandlers = {
   ...maintenanceHandlers,
   ...maintenanceReportAccessHandlers,
+  get,
   deviceCreate,
   deviceUpdate,
   deviceAutosave,
