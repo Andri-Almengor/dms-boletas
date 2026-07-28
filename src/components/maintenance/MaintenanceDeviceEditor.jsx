@@ -245,12 +245,25 @@ export default function MaintenanceDeviceEditor({
   const totalEvidence = Number(device.images?.length || 0) + Number(device.newImages?.length || 0);
   const isNewDevice = startedAsNew;
   const missingEquipmentLocation = !String(device.ubicacionEquipoId || '').trim();
+  const submitDisabled = locked || !onSubmit || missingEquipmentLocation;
 
   return <div className="maintenance-device-editor" data-offline-editing-surface>
     <div className="page-header maintenance-device-editor__header">
       <button className="icon-button maintenance-device-editor__back" type="button" onClick={cancel} disabled={submitting} aria-label="Cancelar y volver a dispositivos"><Icon name="arrow_back" /></button>
       <div className="maintenance-device-editor__title"><span className="eyebrow">Dispositivo del mantenimiento</span><h2>{isNewDevice ? 'Nuevo dispositivo' : 'Editar dispositivo'}</h2></div>
-      <div className="maintenance-device-editor__sync"><AutosaveIndicator status={autosaveStatus} /></div>
+      <div className="maintenance-device-editor__sync">
+        <AutosaveIndicator status={autosaveStatus} />
+        <button
+          className="button button--primary button--compact maintenance-device-editor__header-save"
+          type="button"
+          onClick={onSubmit}
+          disabled={submitDisabled}
+          aria-label={submitting ? 'Guardando dispositivo' : submitLabel}
+        >
+          <Icon name={submitting ? 'progress_activity' : 'save'} />
+          <span>{submitting ? 'Guardando...' : submitLabel}</span>
+        </button>
+      </div>
       {isAdmin && device.id ? <button className="icon-button icon-button--danger maintenance-device-editor__delete" type="button" onClick={onDelete} disabled={locked} aria-label="Eliminar dispositivo"><Icon name="delete" /></button> : <span className="maintenance-device-editor__delete-placeholder" />}
     </div>
 
@@ -352,7 +365,7 @@ export default function MaintenanceDeviceEditor({
         <div className="maintenance-device-editor__actions-status"><AutosaveIndicator status={autosaveStatus} /></div>
         <button className="button button--ghost maintenance-device-cancel-button" type="button" onClick={cancel} disabled={submitting}><Icon name="close" />Cancelar</button>
         {onSubmitAndContinue && isNewDevice && !locked && <button className="button button--secondary" type="button" onClick={onSubmitAndContinue} disabled={missingEquipmentLocation}><Icon name="add_circle" />Guardar y agregar otro</button>}
-        <button className="button button--primary" type="button" onClick={onSubmit} disabled={locked || !onSubmit || missingEquipmentLocation}><Icon name={submitting ? 'progress_activity' : 'check'} /> {submitting ? 'Guardando dispositivo...' : submitLabel}</button>
+        <button className="button button--primary" type="button" onClick={onSubmit} disabled={submitDisabled}><Icon name={submitting ? 'progress_activity' : 'check'} /> {submitting ? 'Guardando dispositivo...' : submitLabel}</button>
       </footer>
     </div>
   </div>;
