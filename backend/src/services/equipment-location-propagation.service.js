@@ -22,7 +22,7 @@ function columnLetter(index) {
   while (value > 0) {
     const remainder = (value - 1) % 26;
     result = String.fromCharCode(65 + remainder) + result;
-    value = Math.floor((value - 1) / 26);
+    value = Math.floor(value / 26);
   }
   return result;
 }
@@ -34,7 +34,7 @@ export async function propagateEquipmentLocationName({ equipmentLocationId, name
 
   const [headers, devices] = await Promise.all([
     getHeaders(DEVICE_SHEET),
-    readTable(DEVICE_SHEET, { force: true }),
+    readTable(DEVICE_SHEET),
   ]);
   const related = devices.filter((row) => clean(row.UbicacionEquipoID) === id);
   if (!related.length) return { updatedDevices: 0 };
