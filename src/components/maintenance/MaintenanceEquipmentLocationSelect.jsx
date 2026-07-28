@@ -76,6 +76,7 @@ export default function MaintenanceEquipmentLocationSelect({
   const [modalValues, setModalValues] = useState({ nombre: '', descripcion: '', ubicacionId: '' });
   const [modalError, setModalError] = useState('');
   const [modalSaving, setModalSaving] = useState(false);
+  const [catalogRevision, setCatalogRevision] = useState(0);
 
   const canManageOperationalData = hasPermission('CLIENTES_DATOS_OPERATIVOS_CREAR')
     || hasPermission('CLIENTES_EDITAR')
@@ -85,6 +86,12 @@ export default function MaintenanceEquipmentLocationSelect({
     || hasPermission('USUARIOS_GESTIONAR')
     || hasPermission('BOLETAS_CREAR')
     || hasPermission('BOLETAS_EDITAR');
+
+  useEffect(() => {
+    const refresh = () => setCatalogRevision((current) => current + 1);
+    window.addEventListener('dms-client-equipment-catalog-updated', refresh);
+    return () => window.removeEventListener('dms-client-equipment-catalog-updated', refresh);
+  }, []);
 
   useEffect(() => {
     if (!sessionToken) {
@@ -162,7 +169,7 @@ export default function MaintenanceEquipmentLocationSelect({
 
     loadClientEquipmentCatalog();
     return () => { active = false; };
-  }, [locationId, sessionToken, options]);
+  }, [locationId, sessionToken, options, catalogRevision]);
 
   const currentOptions = useMemo(() => uniqueOptions(loadedOptions), [loadedOptions]);
   const canCreate = canManageOperationalData && clientLocations.length > 0;
@@ -225,16 +232,6 @@ export default function MaintenanceEquipmentLocationSelect({
       setLoadedOptions((current) => sortOptions(uniqueOptions([...current, created]), locationId));
       onChange?.(created.value, created.name, created.locationId, created.locationName);
       setModalOpen(false);
-
-      // Actualiza también el catálogo maestro utilizado por boletas, mantenimientos y modo offline.
-      requestAvailable(
-        MODULE_ROUTES.clients.equipmentLocationsList,
-        { page: 1, pageSize: 1000, activo: true, sortBy: 'Nombre', sortDir: 'asc' },
-        sessionToken,
-      ).catch(() => {});
-      window.dispatchEvent(new CustomEvent('dms-client-equipment-catalog-updated', {
-        detail: { locationId: parentLocationId, equipmentLocationId: created.value },
-      }));
     } catch (error) {
       setModalError(error.message || 'No se pudo crear la ubicación del equipo.');
     } finally {

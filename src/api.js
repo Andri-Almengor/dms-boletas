@@ -156,6 +156,25 @@ function invalidateRelatedReads(route) {
   }
 }
 
+function notifyWriteComplete(route, payload, data) {
+  try {
+    const value = String(route || '').toLowerCase();
+    const detail = {
+      route: String(route || ''),
+      clientId: String(payload?.ClienteID || payload?.clienteId || data?.ClienteID || data?.clienteId || ''),
+      locationId: String(payload?.UbicacionID || payload?.ubicacionId || data?.UbicacionID || data?.ubicacionId || ''),
+      equipmentLocationId: String(payload?.UbicacionEquipoID || payload?.ubicacionEquipoId || data?.UbicacionEquipoID || data?.ubicacionEquipoId || ''),
+      contactId: String(payload?.ContactoID || payload?.contactoId || data?.ContactoID || data?.contactoId || ''),
+    };
+    globalThis.dispatchEvent?.(new CustomEvent('dms-api-write-complete', { detail }));
+    if (/(clients|clientes|clientlocations|ubicacionescliente|equipmentlocations|ubicacionesequipo|contacts|contactos)/.test(value)) {
+      globalThis.dispatchEvent?.(new CustomEvent('dms-client-relations-updated', { detail }));
+    }
+  } catch {
+    // La sincronización visual es complementaria; nunca debe cancelar la escritura confirmada.
+  }
+}
+
 function notifyDegradedMode(route, error) {
   try {
     globalThis.dispatchEvent?.(new CustomEvent('dms-sheets-degraded', {
@@ -174,7 +193,9 @@ export async function apiRequest(route, payload = {}, sessionToken = '') {
   if (!isReadRoute(route)) {
     writeEpoch += 1;
     invalidateRelatedReads(route);
-    return performRequestWithRetry(route, payload, sessionToken);
+    const data = await performRequestWithRetry(route, payload, sessionToken);
+    notifyWriteComplete(route, payload, data);
+    return data;
   }
 
   const key = requestKey(route, payload, sessionToken);

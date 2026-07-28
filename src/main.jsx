@@ -5,6 +5,7 @@ import { AuthProvider } from './AuthContext';
 import MobileTimePickerBridge from './components/forms/MobileTimePickerBridge';
 import TicketEvidenceMultiSelectBridge from './components/forms/TicketEvidenceMultiSelectBridge';
 import TicketHoursCeilingBridge from './components/forms/TicketHoursCeilingBridge';
+import ClientCatalogSyncBridge from './components/system/ClientCatalogSyncBridge';
 import './services/maintenanceRoutes';
 import './services/operationalRoutes';
 import './services/operationalCreateRoutes';
@@ -39,6 +40,7 @@ ReactDOM.createRoot(document.getElementById('root')).render(
     <BrowserRouter>
       <AuthProvider>
         <App />
+        <ClientCatalogSyncBridge />
         <MobileTimePickerBridge />
         <TicketHoursCeilingBridge />
         <TicketEvidenceMultiSelectBridge />
