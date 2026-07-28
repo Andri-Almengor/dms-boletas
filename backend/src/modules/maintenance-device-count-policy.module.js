@@ -1,7 +1,7 @@
 import { badRequest } from '../core/errors.js';
 import { pick } from '../core/utils.js';
 import { findById, readTable } from '../infra/sheets.repository.js';
-import { maintenanceAutomationHandlers } from './maintenance-automation.module.js';
+import { maintenanceLocationGroupHandlers as maintenanceAutomationHandlers } from './maintenance-location-groups.module.js';
 
 const FIXED_COUNT_FIELDS = new Map([
   ['camara', 'CantCámaras'], ['camaras', 'CantCámaras'],
