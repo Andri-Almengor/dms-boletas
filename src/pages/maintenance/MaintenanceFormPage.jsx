@@ -18,6 +18,15 @@ function Field({ label, multiline = false, ...props }) {
   return <label className="field-group"><span className="field-label">{label}</span>{multiline ? <textarea className="form-control ticket-textarea" rows="4" {...props} /> : <input className="form-control" {...props} />}</label>;
 }
 
+function maintenanceDeviceId(device = {}) {
+  return String(pick(device, [
+    'id',
+    'localId',
+    'EvidenciaMantenimientoID',
+    'deviceId',
+  ], '')).trim();
+}
+
 export default function MaintenanceFormPage({ mode = 'create' }) {
   const { maintenanceId } = useParams();
   const navigate = useNavigate();
@@ -28,7 +37,7 @@ export default function MaintenanceFormPage({ mode = 'create' }) {
   const directDeviceMode = editing && searchParams.get('directDevice') === '1';
   const requestedNewDevice = directDeviceMode && searchParams.get('newDevice') === '1';
   const requestedStep = searchParams.get('step') === 'devices' || directDeviceMode ? 2 : 0;
-  const requestedDeviceId = String(searchParams.get('device') || '');
+  const requestedDeviceId = String(searchParams.get('device') || '').trim();
   const requestedDeviceOpenedRef = useRef('');
   const state = useMaintenanceForm({ editing, maintenanceId });
   const [step, setStep] = useState(requestedStep);
@@ -60,7 +69,7 @@ export default function MaintenanceFormPage({ mode = 'create' }) {
     if (requestedDeviceOpenedRef.current === requestedDeviceId) return;
     if (!state.devices.length) return;
 
-    const selected = state.devices.find((device) => String(device.id || device.localId) === requestedDeviceId);
+    const selected = state.devices.find((device) => maintenanceDeviceId(device) === requestedDeviceId);
     if (!selected) {
       requestedDeviceOpenedRef.current = requestedDeviceId;
       state.setError('No se encontró el dispositivo solicitado. Puede seleccionarlo desde la lista.');
