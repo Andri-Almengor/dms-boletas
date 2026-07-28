@@ -23,6 +23,7 @@ import { surveyHandlers } from '../modules/survey.module.js';
 import { metricsHandlers } from '../modules/metrics.module.js';
 import { legacyTicketImportHandlers } from '../modules/legacy-ticket-import.module.js';
 import { getClientConfig } from '../modules/config.module.js';
+import { propagateEquipmentLocationName } from '../services/equipment-location-propagation.service.js';
 
 const c = Object.fromEntries(Object.keys({clients:1,clientLocations:1,equipmentLocations:1,contacts:1,categories:1,deviceTypes:1,manufacturers:1,models:1,failureTypes:1,deviceManufacturers:1,knowledgeCategories:1}).map((key)=>[key,crudHandlers(key)]));
 const routes = new Map();
@@ -87,6 +88,20 @@ for(const [key,prefixes] of crudRouteGroups){for(const prefix of prefixes){
   add(`${prefix}.list`,c[key].list);add(`${prefix}.get`,c[key].get);add(`${prefix}.create`,c[key].create,createPermission);add(`${prefix}.update`,c[key].update,updatePermission);
   if(catalogDeleteKeys.has(key) || clientAdminKeys.has(key)) add(`${prefix}.delete`,c[key].delete,updatePermission);
 }}
+
+const equipmentLocationUpdateAliases = ['equipmentLocations.update','clients.equipmentLocations.update','clientes.ubicacionesEquipo.update','ubicacionesEquipo.update'];
+add(equipmentLocationUpdateAliases, async (ctx) => {
+  const after = await c.equipmentLocations.update(ctx);
+  const requestedName = ctx.payload.Nombre ?? ctx.payload.nombre;
+  if (requestedName !== undefined) {
+    await propagateEquipmentLocationName({
+      equipmentLocationId: after.UbicacionEquipoID,
+      name: after.Nombre,
+      actor: ctx.user.UsuarioID,
+    });
+  }
+  return after;
+}, 'USUARIOS_GESTIONAR');
 
 // Alta operativa: permite crear una nueva ubicación del equipo desde boletas
 // y mantenimientos sin habilitar la administración completa de Clientes.
