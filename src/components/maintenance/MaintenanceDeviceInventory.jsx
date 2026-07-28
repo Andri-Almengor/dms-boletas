@@ -6,6 +6,11 @@ import { getMaintenanceCategory } from '../../config/maintenanceCategories';
 import { pick } from '../../services/moduleApi';
 
 const PAGE_SIZES = [25, 50, 100];
+const NATURAL_COLLATOR = new Intl.Collator('es', {
+  numeric: true,
+  sensitivity: 'base',
+  ignorePunctuation: true,
+});
 
 function normalized(value) {
   return String(value || '')
@@ -15,6 +20,10 @@ function normalized(value) {
     .trim();
 }
 
+function naturalCompare(left, right) {
+  return NATURAL_COLLATOR.compare(String(left || ''), String(right || ''));
+}
+
 function uniqueSorted(values, fallback) {
   const labels = new Map();
   values.forEach((value) => {
@@ -22,7 +31,7 @@ function uniqueSorted(values, fallback) {
     const key = normalized(label);
     if (!labels.has(key)) labels.set(key, label);
   });
-  return [...labels.values()].sort((a, b) => String(a).localeCompare(String(b), 'es'));
+  return [...labels.values()].sort(naturalCompare);
 }
 
 function deviceType(device) {
@@ -38,6 +47,32 @@ function deviceLocation(device) {
     'Ubicacion',
     'equipmentLocationName',
   ], 'Sin ubicación');
+}
+
+function deviceName(device) {
+  return pick(device, ['NombreDispositivo', 'nombre', 'name'], 'Dispositivo');
+}
+
+function compareDevices(left, right) {
+  return naturalCompare(deviceLocation(left), deviceLocation(right))
+    || naturalCompare(deviceName(left), deviceName(right))
+    || naturalCompare(deviceType(left), deviceType(right))
+    || naturalCompare(pick(left, ['Serie']), pick(right, ['Serie']))
+    || naturalCompare(deviceId(left), deviceId(right));
+}
+
+function groupVisibleDevices(items, page, pageSize) {
+  const groups = new Map();
+  items.forEach((device, index) => {
+    const label = String(deviceLocation(device) || 'Sin ubicación').trim() || 'Sin ubicación';
+    const key = normalized(label) || 'sin-ubicacion';
+    if (!groups.has(key)) groups.set(key, { key, label, items: [] });
+    groups.get(key).items.push({
+      device,
+      absoluteIndex: ((page - 1) * pageSize) + index,
+    });
+  });
+  return [...groups.values()];
 }
 
 function stateClass(value) {
@@ -111,30 +146,36 @@ export default function MaintenanceDeviceInventory({
     const search = normalized(query);
     const selectedCategory = normalized(category);
     const selectedLocation = normalized(location);
-    return devices.filter((device) => {
-      const currentCategory = deviceType(device);
-      const currentLocation = deviceLocation(device);
-      const currentState = stateClass(pick(device, ['Estado']));
-      if (category !== 'TODAS' && normalized(currentCategory) !== selectedCategory) return false;
-      if (location !== 'TODAS' && normalized(currentLocation) !== selectedLocation) return false;
-      if (stateFilter === 'CORRECTOS' && currentState !== 'is-good') return false;
-      if (stateFilter === 'ATENCION' && currentState === 'is-good') return false;
-      if (!search) return true;
-      return [
-        pick(device, ['NombreDispositivo']),
-        currentCategory,
-        currentLocation,
-        pick(device, ['Fabricante']),
-        pick(device, ['Modelo']),
-        pick(device, ['Serie']),
-        pick(device, ['Estado']),
-        pick(device, ['Observacion']),
-      ].some((value) => normalized(value).includes(search));
-    });
+    return devices
+      .filter((device) => {
+        const currentCategory = deviceType(device);
+        const currentLocation = deviceLocation(device);
+        const currentState = stateClass(pick(device, ['Estado']));
+        if (category !== 'TODAS' && normalized(currentCategory) !== selectedCategory) return false;
+        if (location !== 'TODAS' && normalized(currentLocation) !== selectedLocation) return false;
+        if (stateFilter === 'CORRECTOS' && currentState !== 'is-good') return false;
+        if (stateFilter === 'ATENCION' && currentState === 'is-good') return false;
+        if (!search) return true;
+        return [
+          deviceName(device),
+          currentCategory,
+          currentLocation,
+          pick(device, ['Fabricante']),
+          pick(device, ['Modelo']),
+          pick(device, ['Serie']),
+          pick(device, ['Estado']),
+          pick(device, ['Observacion']),
+        ].some((value) => normalized(value).includes(search));
+      })
+      .sort(compareDevices);
   }, [devices, query, category, location, stateFilter]);
 
   const totalPages = Math.max(1, Math.ceil(filtered.length / pageSize));
   const visible = filtered.slice((page - 1) * pageSize, page * pageSize);
+  const visibleGroups = useMemo(
+    () => groupVisibleDevices(visible, page, pageSize),
+    [visible, page, pageSize],
+  );
   const pending = status === 'PENDIENTE';
   const activeFilterCount = Number(category !== 'TODAS')
     + Number(location !== 'TODAS')
@@ -168,7 +209,7 @@ export default function MaintenanceDeviceInventory({
         <div className="maintenance-inventory-expanded__heading">
           <div>
             <span className="eyebrow">Detalle del dispositivo</span>
-            <strong>{pick(device, ['NombreDispositivo'], 'Dispositivo')}</strong>
+            <strong>{deviceName(device)}</strong>
           </div>
           {pending && canEdit && (
             <button className="button button--secondary button--compact" type="button" onClick={() => onEditDevice(device)}>
@@ -228,7 +269,7 @@ export default function MaintenanceDeviceInventory({
   return (
     <section className="maintenance-inventory-panel">
       <div className="maintenance-inventory-heading">
-        <div><span className="eyebrow">INVENTARIO TÉCNICO</span><h2>Dispositivos del mantenimiento</h2><p>Combine tipo de dispositivo, ubicación y estado para localizar grupos específicos de equipos.</p></div>
+        <div><span className="eyebrow">INVENTARIO TÉCNICO</span><h2>Dispositivos del mantenimiento</h2><p>Los equipos se agrupan por ubicación y se ordenan alfabética y numéricamente dentro de cada grupo.</p></div>
         {pending && canEdit && <button className="button button--primary" type="button" onClick={onAddDevice}><Icon name="add" />Agregar dispositivo</button>}
       </div>
 
@@ -264,50 +305,67 @@ export default function MaintenanceDeviceInventory({
             <table className="maintenance-inventory-table">
               <thead><tr><th>#</th><th>Nombre</th><th>Tipo</th><th>Ubicación del equipo</th><th>Modelo / Serie</th><th>Estado</th><th>Fotos</th><th>Acciones</th></tr></thead>
               <tbody>
-                {visible.map((device, index) => {
-                  const id = deviceId(device);
-                  const open = expanded === id;
-                  const images = device.Imagenes || [];
-                  return (
-                    <React.Fragment key={id}>
-                      <tr className={open ? 'is-expanded' : ''}>
-                        <td>{(page - 1) * pageSize + index + 1}</td>
-                        <td><button type="button" className="maintenance-inventory-name" onClick={() => toggle(device)}><span className="maintenance-device-list__icon"><Icon name={getMaintenanceCategory(deviceType(device)).icon} /></span><span><strong>{pick(device, ['NombreDispositivo'], 'Dispositivo')}</strong>{isOffline(device) && <small><Icon name="cloud_off" />Offline</small>}</span></button></td>
-                        <td>{deviceType(device)}</td>
-                        <td>{deviceLocation(device)}</td>
-                        <td>{[pick(device, ['Modelo']), pick(device, ['Serie'])].filter(Boolean).join(' · ') || 'Sin datos'}</td>
-                        <td><span className={`maintenance-device-compact-state ${stateClass(pick(device, ['Estado']))}`}>{stateText(pick(device, ['Estado']))}</span></td>
-                        <td><span className="maintenance-device-evidence-count"><Icon name="photo_library" />{images.length}</span></td>
-                        <td>
-                          <div className="maintenance-inventory-row-actions">
-                            {pending && canEdit && <button type="button" className="icon-button" onClick={() => onEditDevice(device)} aria-label={`Editar ${pick(device, ['NombreDispositivo'], 'dispositivo')}`}><Icon name="edit" /></button>}
-                            <button type="button" className="icon-button" onClick={() => toggle(device)} aria-expanded={open} aria-label={`Ver detalle de ${pick(device, ['NombreDispositivo'], 'dispositivo')}`}><Icon name={open ? 'expand_less' : 'expand_more'} /></button>
-                          </div>
-                        </td>
-                      </tr>
-                      {open && <tr className="maintenance-inventory-expanded-row"><td colSpan="8">{expandedContent(device)}</td></tr>}
-                    </React.Fragment>
-                  );
-                })}
+                {visibleGroups.map((group) => (
+                  <React.Fragment key={group.key}>
+                    <tr className="maintenance-inventory-location-row">
+                      <td colSpan="8"><span><Icon name="location_on" /><strong>{group.label}</strong><small>{group.items.length} equipo{group.items.length === 1 ? '' : 's'} en esta página</small></span></td>
+                    </tr>
+                    {group.items.map(({ device, absoluteIndex }) => {
+                      const id = deviceId(device);
+                      const open = expanded === id;
+                      const images = device.Imagenes || [];
+                      return (
+                        <React.Fragment key={id}>
+                          <tr className={open ? 'is-expanded' : ''}>
+                            <td>{absoluteIndex + 1}</td>
+                            <td><button type="button" className="maintenance-inventory-name" onClick={() => toggle(device)}><span className="maintenance-device-list__icon"><Icon name={getMaintenanceCategory(deviceType(device)).icon} /></span><span><strong>{deviceName(device)}</strong>{isOffline(device) && <small><Icon name="cloud_off" />Offline</small>}</span></button></td>
+                            <td>{deviceType(device)}</td>
+                            <td>{deviceLocation(device)}</td>
+                            <td>{[pick(device, ['Modelo']), pick(device, ['Serie'])].filter(Boolean).join(' · ') || 'Sin datos'}</td>
+                            <td><span className={`maintenance-device-compact-state ${stateClass(pick(device, ['Estado']))}`}>{stateText(pick(device, ['Estado']))}</span></td>
+                            <td><span className="maintenance-device-evidence-count"><Icon name="photo_library" />{images.length}</span></td>
+                            <td>
+                              <div className="maintenance-inventory-row-actions">
+                                {pending && canEdit && <button type="button" className="icon-button" onClick={() => onEditDevice(device)} aria-label={`Editar ${deviceName(device)}`}><Icon name="edit" /></button>}
+                                <button type="button" className="icon-button" onClick={() => toggle(device)} aria-expanded={open} aria-label={`Ver detalle de ${deviceName(device)}`}><Icon name={open ? 'expand_less' : 'expand_more'} /></button>
+                              </div>
+                            </td>
+                          </tr>
+                          {open && <tr className="maintenance-inventory-expanded-row"><td colSpan="8">{expandedContent(device)}</td></tr>}
+                        </React.Fragment>
+                      );
+                    })}
+                  </React.Fragment>
+                ))}
               </tbody>
             </table>
           </div>
 
           <div className="maintenance-inventory-mobile-list">
-            {visible.map((device, index) => {
-              const id = deviceId(device);
-              const open = expanded === id;
-              return <article key={id} className={`maintenance-inventory-mobile-card${open ? ' is-expanded' : ''}`}>
-                <button type="button" className="maintenance-inventory-mobile-toggle" onClick={() => toggle(device)} aria-expanded={open}>
-                  <span className="maintenance-device-mobile-row__number">{(page - 1) * pageSize + index + 1}</span>
-                  <span className="maintenance-device-list__icon"><Icon name={getMaintenanceCategory(deviceType(device)).icon} /></span>
-                  <span><strong>{pick(device, ['NombreDispositivo'], 'Dispositivo')}</strong><small>{deviceType(device)} · {deviceLocation(device)}</small><span><em className={stateClass(pick(device, ['Estado']))}>{stateText(pick(device, ['Estado']))}</em><em><Icon name="photo_library" />{(device.Imagenes || []).length}</em>{isOffline(device) && <em className="is-offline"><Icon name="cloud_off" />Offline</em>}</span></span>
-                  <Icon name={open ? 'expand_less' : 'expand_more'} />
-                </button>
-                {pending && canEdit && <button type="button" className="maintenance-inventory-mobile-edit" onClick={() => onEditDevice(device)}><Icon name="edit" />Editar dispositivo y evidencias</button>}
-                {open && expandedContent(device)}
-              </article>;
-            })}
+            {visibleGroups.map((group) => (
+              <section className="maintenance-inventory-location-group" key={group.key}>
+                <header className="maintenance-inventory-location-group__heading">
+                  <span><Icon name="location_on" /></span>
+                  <div><strong>{group.label}</strong><small>{group.items.length} equipo{group.items.length === 1 ? '' : 's'} en esta página</small></div>
+                </header>
+                <div className="maintenance-inventory-location-group__devices">
+                  {group.items.map(({ device, absoluteIndex }) => {
+                    const id = deviceId(device);
+                    const open = expanded === id;
+                    return <article key={id} className={`maintenance-inventory-mobile-card${open ? ' is-expanded' : ''}`}>
+                      <button type="button" className="maintenance-inventory-mobile-toggle" onClick={() => toggle(device)} aria-expanded={open}>
+                        <span className="maintenance-device-mobile-row__number">{absoluteIndex + 1}</span>
+                        <span className="maintenance-device-list__icon"><Icon name={getMaintenanceCategory(deviceType(device)).icon} /></span>
+                        <span><strong>{deviceName(device)}</strong><small>{deviceType(device)} · {deviceLocation(device)}</small><span><em className={stateClass(pick(device, ['Estado']))}>{stateText(pick(device, ['Estado']))}</em><em><Icon name="photo_library" />{(device.Imagenes || []).length}</em>{isOffline(device) && <em className="is-offline"><Icon name="cloud_off" />Offline</em>}</span></span>
+                        <Icon name={open ? 'expand_less' : 'expand_more'} />
+                      </button>
+                      {pending && canEdit && <button type="button" className="maintenance-inventory-mobile-edit" onClick={() => onEditDevice(device)}><Icon name="edit" />Editar dispositivo y evidencias</button>}
+                      {open && expandedContent(device)}
+                    </article>;
+                  })}
+                </div>
+              </section>
+            ))}
           </div>
 
           <nav className="maintenance-device-pagination" aria-label="Paginación de dispositivos">

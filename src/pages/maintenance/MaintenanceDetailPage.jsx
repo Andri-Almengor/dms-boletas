@@ -18,6 +18,37 @@ function date(value) {
   return new Intl.DateTimeFormat('es-CR', { dateStyle: 'long' }).format(parsed);
 }
 
+function MaintenanceMobileFold({
+  id,
+  title,
+  subtitle,
+  icon,
+  badge,
+  badgeClass = '',
+  open,
+  onToggle,
+  children,
+  className = '',
+}) {
+  return (
+    <section className={`maintenance-mobile-fold${open ? ' is-open' : ''}${className ? ` ${className}` : ''}`}>
+      <button
+        className="maintenance-mobile-fold__trigger"
+        type="button"
+        onClick={onToggle}
+        aria-expanded={open}
+        aria-controls={id}
+      >
+        <span className="maintenance-mobile-fold__icon"><Icon name={icon} /></span>
+        <span className="maintenance-mobile-fold__text"><strong>{title}</strong><small>{subtitle}</small></span>
+        {badge && <span className={`maintenance-mobile-fold__badge ${badgeClass}`}>{badge}</span>}
+        <Icon name={open ? 'expand_less' : 'expand_more'} />
+      </button>
+      <div className="maintenance-mobile-fold__content" id={id}>{children}</div>
+    </section>
+  );
+}
+
 export default function MaintenanceDetailPage() {
   const { maintenanceId } = useParams();
   const navigate = useNavigate();
@@ -40,6 +71,8 @@ export default function MaintenanceDetailPage() {
   const [quickEvidenceOpen, setQuickEvidenceOpen] = useState(false);
   const [editingEvidence, setEditingEvidence] = useState(null);
   const [maintenanceSigned, setMaintenanceSigned] = useState(false);
+  const [summaryOpen, setSummaryOpen] = useState(false);
+  const [signatureOpen, setSignatureOpen] = useState(false);
 
   async function load({ silent = false } = {}) {
     if (!silent) setLoading(true);
@@ -73,6 +106,8 @@ export default function MaintenanceDetailPage() {
   const driveFolderUrl = pick(row, ['CarpetaDriveURL', 'MaintenanceFolderURL']);
   const generatedTicketCount = Number(pick(row, ['BoletasGeneradasCantidad'], 0) || 0);
   const signatureRegistered = maintenanceSigned || Boolean(pick(row, ['FirmaArchivoID', 'FirmaURL', 'Firma']));
+  const clientName = pick(row, ['Cliente', 'ClienteRef'], 'Sin cliente');
+  const displayStatus = offlinePending ? 'PENDIENTE DE SINCRONIZAR' : status;
 
   async function action(type) {
     if (type === 'delete' && !window.confirm('¿Eliminar este mantenimiento y todos sus dispositivos?')) return;
@@ -164,38 +199,61 @@ export default function MaintenanceDetailPage() {
       {notice && <div className="alert alert--success"><Icon name="check_circle" /><span>{notice}</span></div>}
       {offlinePending && <div className="alert alert--warning maintenance-offline-edit-notice"><Icon name="cloud_off" /><span>Este mantenimiento está guardado en el dispositivo. Puede editarlo, agregar equipos y evidencias. Finalizar y generar reportes aparecerán cuando todo se sincronice.</span></div>}
 
-      <section className="maintenance-detail-summary">
-        <div className="maintenance-detail-summary__hero">
-          <span className="maintenance-card__icon"><Icon name="engineering" /></span>
-          <div>
-            <span className={`status-chip ${status === 'FINALIZADO' ? 'status-chip--active' : 'status-chip--pending'}`}>{offlinePending ? 'PENDIENTE DE SINCRONIZAR' : status}</span>
-            <h2>{pick(row, ['Cliente', 'ClienteRef'], 'Sin cliente')}</h2>
-            <p>{pick(row, ['DescripcionGeneral'], 'Sin descripción general')}</p>
+      <MaintenanceMobileFold
+        id="maintenance-summary-fold-content"
+        title="Información del mantenimiento"
+        subtitle={`${clientName} · ${devices.length} dispositivo${devices.length === 1 ? '' : 's'}`}
+        icon="engineering"
+        badge={displayStatus}
+        badgeClass={status === 'FINALIZADO' ? 'is-complete' : 'is-pending'}
+        open={summaryOpen}
+        onToggle={() => setSummaryOpen((value) => !value)}
+      >
+        <section className="maintenance-detail-summary">
+          <div className="maintenance-detail-summary__hero">
+            <span className="maintenance-card__icon"><Icon name="engineering" /></span>
+            <div>
+              <span className={`status-chip ${status === 'FINALIZADO' ? 'status-chip--active' : 'status-chip--pending'}`}>{displayStatus}</span>
+              <h2>{clientName}</h2>
+              <p>{pick(row, ['DescripcionGeneral'], 'Sin descripción general')}</p>
+            </div>
           </div>
-        </div>
-        <div className="maintenance-detail-summary__grid">
-          <div><Icon name="calendar_month" /><span>Fecha</span><strong>{date(pick(row, ['Fecha']))}</strong></div>
-          <div><Icon name="event_available" /><span>Finalización</span><strong>{date(pick(row, ['FechaFinalizacion']))}</strong></div>
-          <div><Icon name="location_on" /><span>Ubicación</span><strong>{pick(row, ['Ubicacion'], 'Sin ubicación')}</strong></div>
-          <div><Icon name="groups" /><span>Responsables</span><strong>{pick(row, ['Responsables', 'Responsable'], 'Sin responsables')}</strong></div>
-          <div><Icon name="devices_other" /><span>Dispositivos</span><strong>{devices.length}</strong></div>
-          <div><Icon name={signatureRegistered ? 'verified' : 'draw'} /><span>Firma general</span><strong>{signatureRegistered ? 'Registrada' : 'Pendiente'}</strong></div>
-          {generatedTicketCount > 0 && <div><Icon name="receipt_long" /><span>Boletas automáticas</span><strong>{generatedTicketCount}</strong></div>}
-          {pick(row, ['ChatDestino']) && <div><Icon name="forum" /><span>Último destino</span><strong>{pick(row, ['ChatDestino'])}</strong></div>}
-        </div>
-      </section>
+          <div className="maintenance-detail-summary__grid">
+            <div><Icon name="calendar_month" /><span>Fecha</span><strong>{date(pick(row, ['Fecha']))}</strong></div>
+            <div><Icon name="event_available" /><span>Finalización</span><strong>{date(pick(row, ['FechaFinalizacion']))}</strong></div>
+            <div><Icon name="location_on" /><span>Ubicación</span><strong>{pick(row, ['Ubicacion'], 'Sin ubicación')}</strong></div>
+            <div><Icon name="groups" /><span>Responsables</span><strong>{pick(row, ['Responsables', 'Responsable'], 'Sin responsables')}</strong></div>
+            <div><Icon name="devices_other" /><span>Dispositivos</span><strong>{devices.length}</strong></div>
+            <div><Icon name={signatureRegistered ? 'verified' : 'draw'} /><span>Firma general</span><strong>{signatureRegistered ? 'Registrada' : 'Pendiente'}</strong></div>
+            {generatedTicketCount > 0 && <div><Icon name="receipt_long" /><span>Boletas automáticas</span><strong>{generatedTicketCount}</strong></div>}
+            {pick(row, ['ChatDestino']) && <div><Icon name="forum" /><span>Último destino</span><strong>{pick(row, ['ChatDestino'])}</strong></div>}
+          </div>
+        </section>
+      </MaintenanceMobileFold>
 
       {!offlinePending && (
-        <MaintenanceSignatureCard
-          maintenanceId={maintenanceId}
-          sessionToken={sessionToken}
-          isAdmin={isAdmin}
-          disabled={Boolean(working)}
-          onStatusChange={(signed) => {
-            setMaintenanceSigned(signed);
-            if (signed) load({ silent: true });
-          }}
-        />
+        <MaintenanceMobileFold
+          id="maintenance-signature-fold-content"
+          title="Firma general"
+          subtitle={signatureRegistered ? 'Firma registrada para las boletas automáticas' : 'Abra para copiar o compartir el enlace con el cliente'}
+          icon={signatureRegistered ? 'verified' : 'draw'}
+          badge={signatureRegistered ? 'REGISTRADA' : 'PENDIENTE'}
+          badgeClass={signatureRegistered ? 'is-complete' : 'is-pending'}
+          open={signatureOpen}
+          onToggle={() => setSignatureOpen((value) => !value)}
+          className="maintenance-mobile-fold--signature"
+        >
+          <MaintenanceSignatureCard
+            maintenanceId={maintenanceId}
+            sessionToken={sessionToken}
+            isAdmin={isAdmin}
+            disabled={Boolean(working)}
+            onStatusChange={(signed) => {
+              setMaintenanceSigned(signed);
+              if (signed) load({ silent: true });
+            }}
+          />
+        </MaintenanceMobileFold>
       )}
 
       {(isAdmin || (pending && canEdit)) && (
