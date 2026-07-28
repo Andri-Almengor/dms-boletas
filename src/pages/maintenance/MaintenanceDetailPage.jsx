@@ -1,8 +1,9 @@
-import React, { useEffect, useState } from 'react';
+import React, { useEffect, useMemo, useState } from 'react';
 import { Link, useNavigate, useParams } from 'react-router-dom';
 import { useAuth } from '../../AuthContext';
 import Icon from '../../components/common/Icon';
-import MaintenanceDeviceInventory from '../../components/maintenance/MaintenanceDeviceInventory';
+import MaintenanceLocationInventory from '../../components/maintenance/MaintenanceLocationInventory';
+import MaintenanceLocationPickerModal from '../../components/maintenance/MaintenanceLocationPickerModal';
 import MaintenanceEvidenceEditor from '../../components/maintenance/MaintenanceEvidenceEditor';
 import MaintenanceEvidenceUploader from '../../components/maintenance/MaintenanceEvidenceUploader';
 import MaintenanceQuickDeviceCreator from '../../components/maintenance/MaintenanceQuickDeviceCreator';
@@ -10,12 +11,66 @@ import MaintenanceSignatureCard from '../../components/maintenance/MaintenanceSi
 import { MODULE_ROUTES, pick, requestAvailable } from '../../services/moduleApi';
 
 const MAINTENANCE_TICKET_TEST_ROUTES = ['maintenance.tickets.test', 'mantenimientos.boletas.probar'];
+const MAINTENANCE_LOCATION_UPDATE_ROUTES = [
+  'maintenance.update.locations',
+  'mantenimientos.update.ubicaciones',
+  'maintenance.locations.update',
+  'mantenimientos.ubicaciones.actualizar',
+];
 
 function date(value) {
   if (!value) return 'Sin fecha';
   const parsed = new Date(value);
   if (Number.isNaN(parsed.getTime())) return String(value);
   return new Intl.DateTimeFormat('es-CR', { dateStyle: 'long' }).format(parsed);
+}
+
+function parseJsonArray(value) {
+  if (Array.isArray(value)) return value;
+  try {
+    const parsed = JSON.parse(value || '[]');
+    return Array.isArray(parsed) ? parsed : [];
+  } catch {
+    return [];
+  }
+}
+
+function normalizedLocation(item = {}) {
+  if (typeof item === 'string') return { id: item, name: item, available: true, active: true, deviceCount: 0 };
+  return {
+    ...item,
+    id: String(pick(item, ['id', 'UbicacionEquipoID', 'ubicacionEquipoId', 'value'], '')).trim(),
+    name: String(pick(item, ['name', 'nombre', 'Nombre', 'UbicacionEquipoNombre', 'label'], 'Ubicación no disponible')).trim(),
+    locationId: String(pick(item, ['locationId', 'UbicacionID', 'ubicacionId'], '')).trim(),
+    locationName: String(pick(item, ['locationName', 'UbicacionNombre', 'ubicacionNombre'], '')).trim(),
+    description: String(pick(item, ['description', 'Descripcion', 'descripcion'], '')).trim(),
+    available: item.available !== false,
+    active: item.active !== false,
+    legacy: Boolean(item.legacy),
+    deviceCount: Number(item.deviceCount || 0),
+  };
+}
+
+function locationGroups(data, row, devices) {
+  const explicit = data?.ubicacionesEquipo || data?.equipmentLocations;
+  const stored = Array.isArray(explicit) ? explicit : parseJsonArray(pick(row, ['UbicacionesEquipoJSON'], '[]'));
+  const map = new Map(stored.map(normalizedLocation).filter((item) => item.id).map((item) => [item.id, item]));
+  devices.forEach((device) => {
+    const id = String(pick(device, ['UbicacionEquipoID', 'ubicacionEquipoId'], '')).trim();
+    if (!id || map.has(id)) return;
+    map.set(id, {
+      id,
+      name: String(pick(device, ['UbicacionEquipoNombre', 'Zona', 'equipmentLocationName'], 'Ubicación relacionada')).trim(),
+      locationId: '',
+      locationName: '',
+      description: '',
+      available: true,
+      active: true,
+      legacy: false,
+      deviceCount: 0,
+    });
+  });
+  return [...map.values()];
 }
 
 function MaintenanceMobileFold({
@@ -66,7 +121,8 @@ export default function MaintenanceDetailPage() {
   const [working, setWorking] = useState('');
   const [error, setError] = useState('');
   const [notice, setNotice] = useState('');
-  const [quickDeviceOpen, setQuickDeviceOpen] = useState(false);
+  const [locationPickerOpen, setLocationPickerOpen] = useState(false);
+  const [quickDeviceLocation, setQuickDeviceLocation] = useState(null);
   const [evidenceDevice, setEvidenceDevice] = useState(null);
   const [quickEvidenceOpen, setQuickEvidenceOpen] = useState(false);
   const [editingEvidence, setEditingEvidence] = useState(null);
@@ -91,15 +147,18 @@ export default function MaintenanceDetailPage() {
     const refresh = () => load({ silent: true });
     window.addEventListener('dms-offline-sync-complete', refresh);
     window.addEventListener('dms-offline-queue-change', refresh);
+    window.addEventListener('dms-client-equipment-catalog-updated', refresh);
     return () => {
       window.removeEventListener('dms-offline-sync-complete', refresh);
       window.removeEventListener('dms-offline-queue-change', refresh);
+      window.removeEventListener('dms-client-equipment-catalog-updated', refresh);
     };
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [maintenanceId, sessionToken]);
 
   const row = data?.mantenimiento || data || {};
   const devices = data?.dispositivos || data?.devices || [];
+  const maintenanceLocations = useMemo(() => locationGroups(data, row, devices), [data, row, devices]);
   const status = String(pick(row, ['Estado'], 'PENDIENTE')).toUpperCase();
   const pending = status === 'PENDIENTE';
   const offlinePending = Boolean(pick(row, ['OfflinePendiente'], false));
@@ -167,10 +226,77 @@ export default function MaintenanceDetailPage() {
     }
   }
 
-  function addDevice() {
+  function optimisticLocations(nextLocations) {
+    const serialized = JSON.stringify(nextLocations.map((item) => ({
+      id: item.id,
+      name: item.name,
+      locationId: item.locationId || '',
+      locationName: item.locationName || '',
+    })));
+    setData((current) => ({
+      ...(current || {}),
+      mantenimiento: { ...(current?.mantenimiento || row), UbicacionesEquipoJSON: serialized },
+      ubicacionesEquipo: nextLocations,
+      equipmentLocations: nextLocations,
+    }));
+  }
+
+  async function saveLocations(nextLocations, successMessage) {
+    setWorking('locations');
     setError('');
     setNotice('');
-    setQuickDeviceOpen(true);
+    const previous = maintenanceLocations;
+    optimisticLocations(nextLocations);
+    try {
+      const result = await requestAvailable(MAINTENANCE_LOCATION_UPDATE_ROUTES, {
+        maintenanceId,
+        MantenimientoID: maintenanceId,
+        UbicacionesEquipoJSON: nextLocations.map((item) => ({
+          id: item.id,
+          name: item.name,
+          locationId: item.locationId || '',
+          locationName: item.locationName || '',
+        })),
+        ubicacionesEquipoIds: nextLocations.map((item) => item.id),
+      }, sessionToken);
+      if (Array.isArray(result?.ubicacionesEquipo) || Array.isArray(result?.equipmentLocations)) setData(result);
+      else if (navigator.onLine !== false) await load({ silent: true });
+      setNotice(successMessage);
+      return true;
+    } catch (saveError) {
+      optimisticLocations(previous);
+      setError(saveError.message || 'No se pudieron actualizar las ubicaciones del mantenimiento.');
+      return false;
+    } finally {
+      setWorking('');
+    }
+  }
+
+  async function addLocation(location) {
+    if (!location?.id || maintenanceLocations.some((item) => item.id === location.id)) return false;
+    const saved = await saveLocations([...maintenanceLocations, location], `La ubicación “${location.name}” fue agregada al mantenimiento.`);
+    if (saved) setLocationPickerOpen(false);
+    return saved;
+  }
+
+  async function removeLocation(location) {
+    const used = devices.filter((device) => String(pick(device, ['UbicacionEquipoID', 'ubicacionEquipoId'], '')) === String(location.id));
+    if (used.length) {
+      setError(`La ubicación “${location.name}” tiene ${used.length} dispositivo${used.length === 1 ? '' : 's'}. Muévalos o elimínelos antes de quitar la ubicación.`);
+      return;
+    }
+    if (!window.confirm(`¿Quitar la ubicación “${location.name}” de este mantenimiento? No se eliminará de la ficha del cliente.`)) return;
+    await saveLocations(maintenanceLocations.filter((item) => item.id !== location.id), `La ubicación “${location.name}” fue retirada del mantenimiento.`);
+  }
+
+  function addDevice(location) {
+    if (!location?.id) {
+      setError('Seleccione primero una ubicación del mantenimiento.');
+      return;
+    }
+    setError('');
+    setNotice('');
+    setQuickDeviceLocation(location);
   }
 
   function editDevice(device) {
@@ -197,12 +323,12 @@ export default function MaintenanceDetailPage() {
 
       {error && <div className="alert alert--error"><Icon name="error" /><span>{error}</span></div>}
       {notice && <div className="alert alert--success"><Icon name="check_circle" /><span>{notice}</span></div>}
-      {offlinePending && <div className="alert alert--warning maintenance-offline-edit-notice"><Icon name="cloud_off" /><span>Este mantenimiento está guardado en el dispositivo. Puede editarlo, agregar equipos y evidencias. Finalizar y generar reportes aparecerán cuando todo se sincronice.</span></div>}
+      {offlinePending && <div className="alert alert--warning maintenance-offline-edit-notice"><Icon name="cloud_off" /><span>Este mantenimiento está guardado en el dispositivo. Puede agregar ubicaciones, equipos y evidencias. Finalizar y generar reportes aparecerán cuando todo se sincronice.</span></div>}
 
       <MaintenanceMobileFold
         id="maintenance-summary-fold-content"
         title="Información del mantenimiento"
-        subtitle={`${clientName} · ${devices.length} dispositivo${devices.length === 1 ? '' : 's'}`}
+        subtitle={`${clientName} · ${maintenanceLocations.length} ubicación${maintenanceLocations.length === 1 ? '' : 'es'} · ${devices.length} dispositivo${devices.length === 1 ? '' : 's'}`}
         icon="engineering"
         badge={displayStatus}
         badgeClass={status === 'FINALIZADO' ? 'is-complete' : 'is-pending'}
@@ -221,7 +347,8 @@ export default function MaintenanceDetailPage() {
           <div className="maintenance-detail-summary__grid">
             <div><Icon name="calendar_month" /><span>Fecha</span><strong>{date(pick(row, ['Fecha']))}</strong></div>
             <div><Icon name="event_available" /><span>Finalización</span><strong>{date(pick(row, ['FechaFinalizacion']))}</strong></div>
-            <div><Icon name="location_on" /><span>Ubicación</span><strong>{pick(row, ['Ubicacion'], 'Sin ubicación')}</strong></div>
+            <div><Icon name="location_on" /><span>Sede principal</span><strong>{pick(row, ['Ubicacion'], 'Sin ubicación')}</strong></div>
+            <div><Icon name="my_location" /><span>Ubicaciones del equipo</span><strong>{maintenanceLocations.length}</strong></div>
             <div><Icon name="groups" /><span>Responsables</span><strong>{pick(row, ['Responsables', 'Responsable'], 'Sin responsables')}</strong></div>
             <div><Icon name="devices_other" /><span>Dispositivos</span><strong>{devices.length}</strong></div>
             <div><Icon name={signatureRegistered ? 'verified' : 'draw'} /><span>Firma general</span><strong>{signatureRegistered ? 'Registrada' : 'Pendiente'}</strong></div>
@@ -258,7 +385,7 @@ export default function MaintenanceDetailPage() {
 
       {(isAdmin || (pending && canEdit)) && (
         <section className="maintenance-report-actions" aria-label="Acciones del mantenimiento">
-          {pending && canEdit && <button type="button" className="button button--primary" onClick={addDevice} disabled={Boolean(working)}><Icon name="add" />Agregar dispositivo</button>}
+          {pending && canEdit && <button type="button" className="button button--primary" onClick={() => setLocationPickerOpen(true)} disabled={Boolean(working)}><Icon name="add_location_alt" />Agregar ubicación</button>}
           {pending && canEdit && <button type="button" className="button button--secondary maintenance-quick-evidence-button" onClick={() => setQuickEvidenceOpen(true)} disabled={!devices.length || Boolean(working)} title={devices.length ? 'Agregar evidencia a cualquier dispositivo' : 'Agregue un dispositivo primero'}><Icon name="add_a_photo" />Nueva evidencia</button>}
           {isAdmin && pending && <button type="button" className="button button--secondary" onClick={() => action('ticket-test')} disabled={Boolean(working) || offlinePending || !devices.length} title={offlinePending ? 'Sincronice el mantenimiento antes de probar las boletas' : 'Agrupar por fecha y técnicos, usar Gemini y enviar una vista previa al Chat de pruebas'}><Icon name="receipt_long" />{working === 'ticket-test' ? 'Probando boletas...' : 'Probar boletas automáticas'}</button>}
           {isAdmin && <button type="button" className="button button--secondary" onClick={() => action('test')} disabled={Boolean(working) || offlinePending || !devices.length} title={offlinePending ? 'Sincronice el mantenimiento antes de probar el envío' : 'Crear carpetas, copiar evidencias y enviar al Chat de pruebas sin finalizar'}><Icon name="science" />{working === 'test' ? 'Enviando prueba...' : 'Probar envío'}</button>}
@@ -270,11 +397,14 @@ export default function MaintenanceDetailPage() {
         </section>
       )}
 
-      <MaintenanceDeviceInventory
+      <MaintenanceLocationInventory
         devices={devices}
+        locations={maintenanceLocations}
         status={status}
         canEdit={canEdit}
         sessionToken={sessionToken}
+        onAddLocation={() => setLocationPickerOpen(true)}
+        onRemoveLocation={removeLocation}
         onAddDevice={addDevice}
         onEditDevice={editDevice}
         onAddEvidence={setEvidenceDevice}
@@ -287,7 +417,8 @@ export default function MaintenanceDetailPage() {
         {isAdmin && <button className="button button--danger" type="button" onClick={() => action('delete')} disabled={Boolean(working)}><Icon name="delete" />Eliminar</button>}
       </section>
 
-      {quickDeviceOpen && <MaintenanceQuickDeviceCreator maintenanceId={maintenanceId} sessionToken={sessionToken} onClose={() => setQuickDeviceOpen(false)} onCreated={() => load({ silent: true })} />}
+      <MaintenanceLocationPickerModal open={locationPickerOpen} maintenanceLocationId={String(pick(row, ['UbicacionID'], ''))} existingLocations={maintenanceLocations} saving={working === 'locations'} onClose={() => setLocationPickerOpen(false)} onSave={addLocation} />
+      {quickDeviceLocation && <MaintenanceQuickDeviceCreator maintenanceId={maintenanceId} sessionToken={sessionToken} initialEquipmentLocation={quickDeviceLocation} onClose={() => setQuickDeviceLocation(null)} onCreated={() => load({ silent: true })} />}
       {evidenceDevice && <MaintenanceEvidenceUploader device={evidenceDevice} maintenanceId={maintenanceId} sessionToken={sessionToken} onClose={() => setEvidenceDevice(null)} onUploaded={() => load({ silent: true })} />}
       {quickEvidenceOpen && <MaintenanceEvidenceUploader devices={devices} maintenanceId={maintenanceId} sessionToken={sessionToken} onClose={() => setQuickEvidenceOpen(false)} onUploaded={() => load({ silent: true })} />}
       {editingEvidence && <MaintenanceEvidenceEditor image={editingEvidence.image} device={editingEvidence.device} maintenanceId={maintenanceId} sessionToken={sessionToken} isAdmin={isAdmin} onClose={() => setEditingEvidence(null)} onUpdated={() => load({ silent: true })} />}

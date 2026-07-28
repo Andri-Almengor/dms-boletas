@@ -1,7 +1,7 @@
 import { badRequest } from '../core/errors.js';
 import { pick } from '../core/utils.js';
 import { findById, readTable } from '../infra/sheets.repository.js';
-import { maintenanceAutomationHandlers } from './maintenance-automation.module.js';
+import { maintenanceLocationGroupHandlers as maintenanceAutomationHandlers } from './maintenance-location-groups.module.js';
 
 const FIXED_COUNT_FIELDS = new Map([
   ['camara', 'CantCámaras'], ['camaras', 'CantCámaras'],
@@ -33,6 +33,10 @@ function normalized(value) {
     .replace(/[^a-z0-9]+/g, ' ')
     .replace(/\s+/g, ' ')
     .trim();
+}
+
+function active(row = {}) {
+  return row.Activo !== false && String(row.Estado || 'ACTIVO').toUpperCase() !== 'INACTIVO';
 }
 
 function parseCounts(maintenance = {}) {
@@ -94,6 +98,18 @@ function expectedQuantity(maintenance, target) {
   return 0;
 }
 
+async function validateSelectedLocation(ctx, before = null) {
+  const requestedId = clean(pick(ctx.payload, ['UbicacionEquipoID', 'ubicacionEquipoId'], before?.UbicacionEquipoID));
+  if (!requestedId) throw badRequest('Seleccione una ubicación del equipo.');
+  const rows = await readTable('ClienteUbicacionesEquipo');
+  const selected = rows.find((row) => clean(row.UbicacionEquipoID) === requestedId);
+  if (!selected) throw badRequest('La ubicación del equipo seleccionada ya no existe.');
+  const unchangedHistoricalLocation = before && clean(before.UbicacionEquipoID) === requestedId;
+  if (!active(selected) && !unchangedHistoricalLocation) {
+    throw badRequest(`La ubicación del equipo “${clean(selected.Nombre) || requestedId}” está inactiva. Seleccione una ubicación activa.`);
+  }
+}
+
 async function validateSelectedType(ctx, before = null) {
   const maintenanceId = clean(pick(
     ctx.payload,
@@ -113,6 +129,13 @@ async function validateSelectedType(ctx, before = null) {
   }
 }
 
+async function validateDevice(ctx, before = null) {
+  await Promise.all([
+    validateSelectedType(ctx, before),
+    validateSelectedLocation(ctx, before),
+  ]);
+}
+
 async function deviceCreate(ctx) {
   const requestedId = clean(pick(ctx.payload, ['deviceId', 'EvidenciaMantenimientoID']));
   if (requestedId) {
@@ -120,21 +143,21 @@ async function deviceCreate(ctx) {
       .find((row) => clean(row.EvidenciaMantenimientoID) === requestedId);
     if (existing) return maintenanceAutomationHandlers.deviceCreate(ctx);
   }
-  await validateSelectedType(ctx);
+  await validateDevice(ctx);
   return maintenanceAutomationHandlers.deviceCreate(ctx);
 }
 
 async function deviceUpdate(ctx) {
   const id = clean(pick(ctx.payload, ['deviceId', 'EvidenciaMantenimientoID']));
   const before = await findById('Evidencia_Mantenimientos', id);
-  await validateSelectedType(ctx, before);
+  await validateDevice(ctx, before);
   return maintenanceAutomationHandlers.deviceUpdate(ctx);
 }
 
 async function deviceAutosave(ctx) {
   const id = clean(pick(ctx.payload, ['deviceId', 'EvidenciaMantenimientoID']));
   const before = await findById('Evidencia_Mantenimientos', id);
-  await validateSelectedType(ctx, before);
+  await validateDevice(ctx, before);
   return maintenanceAutomationHandlers.deviceAutosave(ctx);
 }
 

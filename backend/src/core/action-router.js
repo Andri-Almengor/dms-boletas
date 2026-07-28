@@ -23,6 +23,7 @@ import { surveyHandlers } from '../modules/survey.module.js';
 import { metricsHandlers } from '../modules/metrics.module.js';
 import { legacyTicketImportHandlers } from '../modules/legacy-ticket-import.module.js';
 import { getClientConfig } from '../modules/config.module.js';
+import { propagateEquipmentLocationName } from '../services/equipment-location-propagation.service.js';
 
 const c = Object.fromEntries(Object.keys({clients:1,clientLocations:1,equipmentLocations:1,contacts:1,categories:1,deviceTypes:1,manufacturers:1,models:1,failureTypes:1,deviceManufacturers:1,knowledgeCategories:1}).map((key)=>[key,crudHandlers(key)]));
 const routes = new Map();
@@ -88,6 +89,20 @@ for(const [key,prefixes] of crudRouteGroups){for(const prefix of prefixes){
   if(catalogDeleteKeys.has(key) || clientAdminKeys.has(key)) add(`${prefix}.delete`,c[key].delete,updatePermission);
 }}
 
+const equipmentLocationUpdateAliases = ['equipmentLocations.update','clients.equipmentLocations.update','clientes.ubicacionesEquipo.update','ubicacionesEquipo.update'];
+add(equipmentLocationUpdateAliases, async (ctx) => {
+  const after = await c.equipmentLocations.update(ctx);
+  const requestedName = ctx.payload.Nombre ?? ctx.payload.nombre;
+  if (requestedName !== undefined) {
+    await propagateEquipmentLocationName({
+      equipmentLocationId: after.UbicacionEquipoID,
+      name: after.Nombre,
+      actor: ctx.user.UsuarioID,
+    });
+  }
+  return after;
+}, 'USUARIOS_GESTIONAR');
+
 // Alta operativa: permite crear una nueva ubicación del equipo desde boletas
 // y mantenimientos sin habilitar la administración completa de Clientes.
 add([
@@ -126,7 +141,7 @@ for(const [key,names] of Object.entries(ticketAliases)) {
   add(names,handler,permission);
 }
 
-const maintenanceAliases={list:['maintenance.list','mantenimientos.list'],get:['maintenance.get','mantenimientos.get'],create:['maintenance.create','mantenimientos.create'],update:['maintenance.update','mantenimientos.update'],delete:['maintenance.delete','mantenimientos.delete'],finalize:['maintenance.finalize','mantenimientos.finalize'],reopen:['maintenance.reopen','mantenimientos.reopen'],deviceCreate:['maintenance.devices.create','mantenimientos.dispositivos.create'],deviceUpdate:['maintenance.devices.update','mantenimientos.dispositivos.update'],deviceAutosave:['maintenance.devices.autosave','mantenimientos.dispositivos.autosave'],deviceDelete:['maintenance.devices.delete','mantenimientos.dispositivos.delete'],imageUpload:['maintenance.images.upload','mantenimientos.imagenes.upload'],imageUploadBatch:['maintenance.images.uploadBatch','mantenimientos.imagenes.subirLote'],imageUpdate:['maintenance.images.update','mantenimientos.imagenes.update'],imageUpdateBatch:['maintenance.images.updateBatch','mantenimientos.imagenes.actualizarLote'],imageDelete:['maintenance.images.delete','mantenimientos.imagenes.delete'],mediaGet:['maintenance.media.get','mantenimientos.media.get'],spreadsheetReport:['maintenance.report.spreadsheet','mantenimientos.reporte.excel'],slidesReport:['maintenance.report.slides','mantenimientos.reporte.presentacion'],ticketGenerationTest:['maintenance.tickets.test','mantenimientos.boletas.probar'],signatureLink:['maintenance.signature.link','mantenimientos.firma.enlace'],signatureTestLink:['maintenance.signature.test.link','mantenimientos.firma.prueba.enlace'],config:['maintenance.config','mantenimientos.config']};
+const maintenanceAliases={list:['maintenance.list','mantenimientos.list'],get:['maintenance.get','mantenimientos.get'],create:['maintenance.create','mantenimientos.create'],update:['maintenance.update','mantenimientos.update'],locationsUpdate:['maintenance.update.locations','mantenimientos.update.ubicaciones','maintenance.locations.update','mantenimientos.ubicaciones.actualizar'],delete:['maintenance.delete','mantenimientos.delete'],finalize:['maintenance.finalize','mantenimientos.finalize'],reopen:['maintenance.reopen','mantenimientos.reopen'],deviceCreate:['maintenance.devices.create','mantenimientos.dispositivos.create'],deviceUpdate:['maintenance.devices.update','mantenimientos.dispositivos.update'],deviceAutosave:['maintenance.devices.autosave','mantenimientos.dispositivos.autosave'],deviceDelete:['maintenance.devices.delete','mantenimientos.dispositivos.delete'],imageUpload:['maintenance.images.upload','mantenimientos.imagenes.upload'],imageUploadBatch:['maintenance.images.uploadBatch','mantenimientos.imagenes.subirLote'],imageUpdate:['maintenance.images.update','mantenimientos.imagenes.update'],imageUpdateBatch:['maintenance.images.updateBatch','mantenimientos.imagenes.actualizarLote'],imageDelete:['maintenance.images.delete','mantenimientos.imagenes.delete'],mediaGet:['maintenance.media.get','mantenimientos.media.get'],spreadsheetReport:['maintenance.report.spreadsheet','mantenimientos.reporte.excel'],slidesReport:['maintenance.report.slides','mantenimientos.reporte.presentacion'],ticketGenerationTest:['maintenance.tickets.test','mantenimientos.boletas.probar'],signatureLink:['maintenance.signature.link','mantenimientos.firma.enlace'],signatureTestLink:['maintenance.signature.test.link','mantenimientos.firma.prueba.enlace'],config:['maintenance.config','mantenimientos.config']};
 const maintenanceReadPermissions=['MANTENIMIENTOS_VER','MANTENIMIENTOS_CREAR','MANTENIMIENTOS_EDITAR','MANTENIMIENTOS_GESTIONAR','BOLETAS_VER'];
 const maintenanceCreatePermissions=['MANTENIMIENTOS_CREAR','MANTENIMIENTOS_GESTIONAR','BOLETAS_CREAR'];
 const maintenanceEditPermissions=['MANTENIMIENTOS_EDITAR','MANTENIMIENTOS_GESTIONAR','BOLETAS_EDITAR'];
