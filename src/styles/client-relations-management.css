@@ -1,0 +1,366 @@
+/* Administración completa de relaciones dentro del detalle del cliente. */
+
+.admin-entity-modal-layer--client .admin-entity-modal {
+  width: min(100%, 1180px);
+  height: min(940px, calc(100dvh - 24px));
+  max-height: calc(100dvh - 24px);
+}
+
+.admin-entity-modal-layer--client .admin-entity-modal__content {
+  display: block;
+  min-height: 0;
+  overflow-x: hidden;
+  overflow-y: auto;
+  padding: 18px 20px 40px;
+  scroll-padding-block: 20px 120px;
+  overscroll-behavior: contain;
+  -webkit-overflow-scrolling: touch;
+}
+
+.admin-entity-modal-layer--client .admin-entity-modal__content > * + * {
+  margin-top: 16px;
+}
+
+.admin-entity-modal-layer--client .admin-entity-modal__footer {
+  position: relative;
+  z-index: 4;
+  flex: 0 0 auto;
+  box-shadow: 0 -10px 28px color-mix(in srgb, var(--surface-card) 82%, transparent);
+}
+
+.admin-client-readonly-relations {
+  min-width: 0;
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 16px;
+}
+
+.admin-client-relations-workspace {
+  min-width: 0;
+  border: 1px solid var(--outline-soft);
+  border-radius: 18px;
+  background: var(--surface-card);
+  overflow: hidden;
+}
+
+.admin-client-relations-workspace__heading {
+  min-width: 0;
+  padding: 16px 18px;
+  border-bottom: 1px solid var(--outline-soft);
+  background: var(--surface-low);
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) 42px;
+  align-items: start;
+  gap: 14px;
+}
+
+.admin-client-relations-workspace__heading > div {
+  min-width: 0;
+}
+
+.admin-client-relations-workspace__heading h3,
+.admin-client-relations-workspace__heading p {
+  margin: 3px 0 0;
+  overflow-wrap: anywhere;
+}
+
+.admin-client-relations-workspace__heading p {
+  color: var(--text-muted);
+  font-size: .76rem;
+  line-height: 1.45;
+}
+
+.admin-client-relations-tabs {
+  padding: 10px;
+  border-bottom: 1px solid var(--outline-soft);
+  background: var(--surface-card);
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 8px;
+}
+
+.admin-client-relations-tabs button {
+  min-width: 0;
+  min-height: 48px;
+  padding: 9px 12px;
+  border: 1px solid var(--outline-soft);
+  border-radius: 12px;
+  background: var(--surface-low);
+  color: var(--text-main);
+  font: inherit;
+  font-size: .82rem;
+  font-weight: 750;
+  cursor: pointer;
+  display: grid;
+  grid-template-columns: 24px minmax(0, 1fr) auto;
+  align-items: center;
+  gap: 9px;
+  text-align: left;
+}
+
+.admin-client-relations-tabs button:hover,
+.admin-client-relations-tabs button:focus-visible {
+  border-color: color-mix(in srgb, var(--primary) 55%, var(--outline-soft));
+}
+
+.admin-client-relations-tabs button.is-active {
+  border-color: var(--primary);
+  background: var(--primary-soft);
+  color: var(--primary);
+}
+
+.admin-client-relations-tabs button span {
+  min-width: 0;
+  overflow-wrap: anywhere;
+}
+
+.admin-client-relations-tabs button strong {
+  min-width: 28px;
+  height: 28px;
+  padding-inline: 7px;
+  border-radius: 999px;
+  background: color-mix(in srgb, currentColor 12%, transparent);
+  display: inline-grid;
+  place-items: center;
+  font-size: .7rem;
+}
+
+.admin-client-relations-workspace__panel {
+  min-width: 0;
+  padding: 14px;
+}
+
+.client-locations--embedded,
+.client-supervisors--embedded {
+  border: 0;
+}
+
+.client-locations__content--embedded,
+.client-supervisors__content--embedded {
+  padding: 0;
+  border: 0;
+  border-radius: 0;
+  background: transparent;
+  box-shadow: none;
+}
+
+.client-relations-manager__summary {
+  min-width: 0;
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto;
+  align-items: start;
+  gap: 14px;
+}
+
+.client-relations-manager__summary > div:first-child {
+  min-width: 0;
+}
+
+.client-relations-manager__summary strong,
+.client-relations-manager__summary small {
+  display: block;
+  overflow-wrap: anywhere;
+}
+
+.client-relations-manager__summary strong {
+  font-size: 1rem;
+}
+
+.client-relations-manager__summary small {
+  margin-top: 4px;
+  color: var(--text-muted);
+  font-size: .74rem;
+}
+
+.client-relations-manager__summary-actions {
+  display: flex;
+  align-items: center;
+  justify-content: flex-end;
+  gap: 8px;
+}
+
+.client-relations-manager__toolbar {
+  min-width: 0;
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto;
+  align-items: center;
+  gap: 10px;
+}
+
+.client-relations-search {
+  min-width: 0;
+  min-height: 44px;
+  padding: 0 12px;
+  border: 1px solid var(--outline-soft);
+  border-radius: 12px;
+  background: var(--surface-card);
+  display: grid;
+  grid-template-columns: 22px minmax(0, 1fr);
+  align-items: center;
+  gap: 8px;
+}
+
+.client-relations-search--single {
+  width: 100%;
+}
+
+.client-relations-search .material-symbols-outlined {
+  color: var(--text-muted);
+  font-size: 20px;
+}
+
+.client-relations-search input {
+  width: 100%;
+  min-width: 0;
+  height: 42px;
+  border: 0;
+  outline: 0;
+  background: transparent;
+  color: var(--text-main);
+  font: inherit;
+  font-size: .8rem;
+}
+
+.client-location-card.is-inactive,
+.client-equipment-location-card.is-inactive,
+.client-supervisor-card.is-inactive {
+  opacity: .68;
+}
+
+.client-equipment-location-card {
+  grid-template-columns: 34px minmax(0, 1fr) auto;
+}
+
+.client-equipment-location-card__actions {
+  display: flex;
+  align-items: flex-start;
+  gap: 6px;
+}
+
+.client-equipment-location-card__actions .icon-button {
+  width: 36px;
+  height: 36px;
+}
+
+.client-supervisors__list--management {
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+}
+
+.client-supervisor-card__title {
+  min-width: 0;
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 8px;
+}
+
+.client-supervisor-card__title strong {
+  min-width: 0;
+  overflow-wrap: anywhere;
+}
+
+.client-supervisor-card__title .status-chip {
+  flex: 0 0 auto;
+}
+
+.client-supervisor-form__title > div {
+  min-width: 0;
+}
+
+.client-supervisor-form__title strong,
+.client-supervisor-form__title small {
+  display: block;
+  overflow-wrap: anywhere;
+}
+
+.client-supervisor-form__title small {
+  margin-top: 3px;
+  color: var(--text-muted);
+  font-size: .72rem;
+}
+
+@media (max-width: 980px) {
+  .admin-client-readonly-relations,
+  .client-supervisors__list--management {
+    grid-template-columns: 1fr;
+  }
+}
+
+@media (max-width: 760px) {
+  .admin-entity-modal-layer--client .admin-entity-modal {
+    width: 100%;
+    height: calc(100dvh - max(8px, env(safe-area-inset-top)));
+    max-height: calc(100dvh - max(8px, env(safe-area-inset-top)));
+  }
+
+  .admin-entity-modal-layer--client .admin-entity-modal__content {
+    padding: 15px 14px calc(42px + env(safe-area-inset-bottom));
+  }
+
+  .admin-client-relations-workspace__heading {
+    padding: 14px;
+  }
+
+  .admin-client-relations-tabs {
+    position: sticky;
+    top: -1px;
+    z-index: 3;
+    padding: 8px;
+    background: var(--surface-card);
+  }
+
+  .admin-client-relations-tabs button {
+    min-height: 52px;
+    padding: 8px 9px;
+    grid-template-columns: 22px minmax(0, 1fr) auto;
+    font-size: .76rem;
+  }
+
+  .admin-client-relations-workspace__panel {
+    padding: 12px;
+  }
+
+  .client-relations-manager__summary,
+  .client-relations-manager__toolbar {
+    grid-template-columns: 1fr;
+  }
+
+  .client-relations-manager__summary-actions {
+    justify-content: stretch;
+  }
+
+  .client-relations-manager__summary-actions .button {
+    flex: 1 1 auto;
+  }
+
+  .client-relations-manager__toolbar .button {
+    width: 100%;
+  }
+
+  .client-equipment-location-card {
+    grid-template-columns: 32px minmax(0, 1fr);
+  }
+
+  .client-equipment-location-card__actions {
+    grid-column: 1 / -1;
+    justify-content: flex-end;
+  }
+}
+
+@media (max-width: 440px) {
+  .admin-client-relations-tabs button {
+    grid-template-columns: 20px minmax(0, 1fr);
+  }
+
+  .admin-client-relations-tabs button strong {
+    grid-column: 1 / -1;
+    justify-self: start;
+    height: 22px;
+    min-width: 24px;
+  }
+
+  .client-relations-manager__summary-actions {
+    display: grid;
+    grid-template-columns: 42px minmax(0, 1fr);
+  }
+}
