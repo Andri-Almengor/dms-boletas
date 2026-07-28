@@ -1,4 +1,4 @@
-import { badRequest } from '../core/errors.js';
+import { badRequest, forbidden } from '../core/errors.js';
 import { nowIso, pick } from '../core/utils.js';
 import { findById, readTable, updateRow } from '../infra/sheets.repository.js';
 import { audit } from '../services/audit.service.js';
@@ -23,6 +23,12 @@ function normalized(value) {
 
 function isActive(row = {}) {
   return row.Activo !== false && String(row.Estado || 'ACTIVO').toUpperCase() !== 'INACTIVO';
+}
+
+function canRemoveMaintenanceLocations(ctx) {
+  return ctx.permissions?.includes('USUARIOS_GESTIONAR')
+    || ctx.permissions?.includes('MANTENIMIENTOS_GESTIONAR')
+    || ctx.permissions?.includes('MANTENIMIENTOS_ELIMINAR');
 }
 
 function parseArray(value) {
@@ -220,6 +226,13 @@ async function locationsUpdate(ctx) {
       .filter((device) => clean(device.MantenimientoRef) === maintenanceId && device.Activo !== false);
     const requestedIds = requestedGroupIds(ctx.payload);
     const requestedSet = new Set(requestedIds);
+    const storedIds = parseStoredGroups(maintenance).map((group) => group.id).filter(Boolean);
+    const removedIds = storedIds.filter((id) => !requestedSet.has(id));
+
+    if (removedIds.length && !canRemoveMaintenanceLocations(ctx)) {
+      throw forbidden('Los técnicos pueden agregar ubicaciones, pero solo un administrador puede retirarlas del mantenimiento.');
+    }
+
     const usedIds = [...new Set(devices.map((device) => clean(device.UbicacionEquipoID)).filter(Boolean))];
     const missingUsed = usedIds.filter((id) => !requestedSet.has(id));
     if (missingUsed.length) {
