@@ -1,7 +1,6 @@
 import React, { useEffect, useMemo, useState } from 'react';
 import { useAuth } from '../../AuthContext';
-import ClientLocationsPanel from '../../components/clients/ClientLocationsPanel';
-import ClientSupervisorsPanel from '../../components/clients/ClientSupervisorsPanel';
+import ClientRelationsManager from '../../components/clients/ClientRelationsManager';
 import Icon from '../../components/common/Icon';
 import AdminEntityModal from '../../components/forms/AdminEntityModal';
 import { MODULE_ROUTES, normalizeItems, pick, requestAvailable, toBoolean } from '../../services/moduleApi';
@@ -54,6 +53,24 @@ function ClientFields({ form, setForm }) {
   </div>;
 }
 
+function ReadonlyRelations({ related }) {
+  return <div className="client-detail-related-grid">
+    <section className="admin-related-section">
+      <header><div><h3>Sedes y ubicaciones del equipo</h3><p>Ubicaciones principales y espacios relacionados con equipos.</p></div><span className="status-chip status-chip--neutral">{related.locations.length}</span></header>
+      <div className="admin-related-section__content">{related.locations.map((location) => {
+        const locationId = String(pick(location, ['UbicacionID', 'ubicacionId', 'id']));
+        const equipment = related.equipment.filter((item) => String(pick(item, ['UbicacionID', 'ubicacionId'])) === locationId);
+        return <article className="admin-related-card" key={locationId}><div className="admin-related-card__title"><strong>{pick(location, ['Nombre', 'nombre'], 'Sin nombre')}</strong><span>{pick(location, ['Estado'], 'ACTIVO')}</span></div><span>{pick(location, ['Direccion', 'direccion'], 'Sin dirección')}</span><small>{equipment.length ? `Ubicaciones del equipo: ${equipment.map((item) => pick(item, ['Nombre', 'nombre'])).join(', ')}` : 'Sin ubicaciones del equipo'}</small></article>;
+      })}{!related.locations.length && <span>Este cliente no tiene sedes registradas.</span>}</div>
+    </section>
+
+    <section className="admin-related-section">
+      <header><div><h3>Supervisores y contactos</h3><p>Personas relacionadas con boletas y notificaciones.</p></div><span className="status-chip status-chip--neutral">{related.contacts.length}</span></header>
+      <div className="admin-related-section__content">{related.contacts.map((contact, index) => <article className="admin-related-card" key={pick(contact, ['ContactoID', 'id'], index)}><div className="admin-related-card__title"><strong>{pick(contact, ['Nombre', 'nombre'], 'Sin nombre')}</strong><span>{toBoolean(pick(contact, ['EsSupervisor'], false), false) ? 'Supervisor' : 'Contacto'}</span></div><span>{pick(contact, ['Puesto', 'puesto'], 'Sin puesto')}</span><small>{[pick(contact, ['Correo', 'correo']), pick(contact, ['Telefono', 'telefono'])].filter(Boolean).join(' · ') || 'Sin datos de contacto'}</small></article>)}{!related.contacts.length && <span>Este cliente no tiene contactos registrados.</span>}</div>
+    </section>
+  </div>;
+}
+
 export default function ClientsPage() {
   const { sessionToken, hasPermission } = useAuth();
   const isAdmin = hasPermission('USUARIOS_GESTIONAR');
@@ -100,9 +117,9 @@ export default function ClientsPage() {
     setModalError('');
     try {
       const [locationsResult, equipmentResult, contactsResult] = await Promise.allSettled([
-        requestAvailable(MODULE_ROUTES.clients.locationsList, { clienteId: clientId, page: 1, pageSize: 1000, includeInactive: isAdmin, sortBy: 'Nombre', sortDir: 'asc' }, sessionToken),
-        requestAvailable(MODULE_ROUTES.clients.equipmentLocationsList, { page: 1, pageSize: 3000, includeInactive: isAdmin, sortBy: 'Nombre', sortDir: 'asc' }, sessionToken),
-        requestAvailable(MODULE_ROUTES.clients.contactsList, { clienteId: clientId, page: 1, pageSize: 1000, includeInactive: isAdmin, sortBy: 'Nombre', sortDir: 'asc' }, sessionToken),
+        requestAvailable(MODULE_ROUTES.clients.locationsList, { clienteId: clientId, page: 1, pageSize: 1000, includeInactive: false, sortBy: 'Nombre', sortDir: 'asc' }, sessionToken),
+        requestAvailable(MODULE_ROUTES.clients.equipmentLocationsList, { page: 1, pageSize: 3000, includeInactive: false, sortBy: 'Nombre', sortDir: 'asc' }, sessionToken),
+        requestAvailable(MODULE_ROUTES.clients.contactsList, { clienteId: clientId, page: 1, pageSize: 1000, includeInactive: false, sortBy: 'Nombre', sortDir: 'asc' }, sessionToken),
       ]);
       const locations = locationsResult.status === 'fulfilled' ? normalizeItems(locationsResult.value) : [];
       const locationIds = new Set(locations.map((row) => String(pick(row, ['UbicacionID', 'ubicacionId', 'id']))));
@@ -112,7 +129,7 @@ export default function ClientsPage() {
       const contacts = contactsResult.status === 'fulfilled' ? normalizeItems(contactsResult.value) : [];
       setRelated({ locations, equipment, contacts });
       const failures = [locationsResult, equipmentResult, contactsResult].filter((result) => result.status === 'rejected');
-      if (failures.length) setModalError('Algunos datos relacionados no pudieron cargarse. Puede volver a abrir el cliente para reintentar.');
+      if (failures.length) setModalError('Algunos datos relacionados no pudieron cargarse. Pulse actualizar o vuelva a abrir el cliente.');
     } finally {
       setLoadingRelated(false);
     }
@@ -207,7 +224,7 @@ export default function ClientsPage() {
 
   return <div className="page admin-module-page">
     <div className="list-page-heading">
-      <div><span className="eyebrow">Administración</span><h1>Clientes</h1><p>Consulta clientes, sedes, zonas de equipos y contactos relacionados.</p></div>
+      <div><span className="eyebrow">Administración</span><h1>Clientes</h1><p>Consulta clientes, sedes, ubicaciones del equipo y supervisores relacionados.</p></div>
       {isAdmin && <button className="button button--primary button--compact" type="button" onClick={openCreate}><Icon name="add" />Nuevo cliente</button>}
     </div>
 
@@ -237,11 +254,12 @@ export default function ClientsPage() {
     <AdminEntityModal
       open={Boolean(selected)}
       title={selectedView?.name || 'Nuevo cliente'}
-      subtitle={selectedView?.id ? `${related.locations.length} sedes · ${related.equipment.length} zonas · ${supervisors.length} supervisores` : 'Complete los datos para crear el cliente'}
+      subtitle={selectedView?.id ? `${related.locations.length} sedes · ${related.equipment.length} ubicaciones del equipo · ${supervisors.length} supervisores` : 'Complete los datos para crear el cliente'}
       eyebrow={editing ? (selectedView?.id ? 'Editar cliente' : 'Nuevo cliente') : 'Detalle del cliente'}
       icon="corporate_fare"
       onClose={closeModal}
       busy={saving}
+      className="admin-entity-modal-layer--client client-detail-modal"
       footer={!editing && isAdmin && selectedView?.id ? <>
         <button className="button button--danger" type="button" onClick={removeClient} disabled={saving}><Icon name="delete" />Eliminar</button>
         <button className="button button--secondary" type="button" onClick={changeStatus} disabled={saving}><Icon name={selectedView.status === 'INACTIVO' ? 'refresh' : 'block'} />{selectedView.status === 'INACTIVO' ? 'Reactivar' : 'Desactivar'}</button>
@@ -252,7 +270,7 @@ export default function ClientsPage() {
       {editing ? <form className="stack-form" onSubmit={save}>
         <ClientFields form={form} setForm={setForm} />
         <div className="form-actions"><button className="button button--secondary" type="button" onClick={() => selectedView?.id ? setEditing(false) : closeModal()} disabled={saving}>Cancelar</button><button className="button button--primary" disabled={saving}>{saving ? 'Guardando...' : 'Guardar cliente'}</button></div>
-      </form> : <>
+      </form> : <div className="client-detail-layout">
         <div className="admin-detail-grid">
           <div><span>Estado</span><strong>{selectedView?.status || 'ACTIVO'}</strong></div>
           <div><span>Contacto</span><strong>{selectedView?.contacto || 'Sin contacto'}</strong></div>
@@ -263,18 +281,15 @@ export default function ClientsPage() {
           <div><span>Google Chat</span><strong>{selectedView?.chatConfigured ? 'Configurado' : 'Sin configurar'}</strong></div>
         </div>
 
-        {loadingRelated ? <div className="state-card state-card--loading"><Icon name="progress_activity" />Cargando información relacionada...</div> : <>
-          <section className="admin-related-section"><header><div><h3>Sedes y zonas</h3><p>Ubicaciones principales y zonas específicas de equipos.</p></div><span className="status-chip status-chip--neutral">{related.locations.length}</span></header><div className="admin-related-section__content">{related.locations.map((location) => {
-            const locationId = String(pick(location, ['UbicacionID', 'ubicacionId', 'id']));
-            const zones = related.equipment.filter((zone) => String(pick(zone, ['UbicacionID', 'ubicacionId'])) === locationId);
-            return <article className="admin-related-card" key={locationId}><div className="admin-related-card__title"><strong>{pick(location, ['Nombre', 'nombre'], 'Sin nombre')}</strong><span>{pick(location, ['Estado'], 'ACTIVO')}</span></div><span>{pick(location, ['Direccion', 'direccion'], 'Sin dirección')}</span><small>{zones.length ? `Zonas: ${zones.map((zone) => pick(zone, ['Nombre', 'nombre'])).join(', ')}` : 'Sin zonas de equipos'}</small></article>;
-          })}{!related.locations.length && <span>Este cliente no tiene sedes registradas.</span>}</div></section>
-
-          <section className="admin-related-section"><header><div><h3>Supervisores y contactos</h3><p>Personas relacionadas con boletas y notificaciones.</p></div><span className="status-chip status-chip--neutral">{related.contacts.length}</span></header><div className="admin-related-section__content">{related.contacts.map((contact, index) => <article className="admin-related-card" key={pick(contact, ['ContactoID', 'id'], index)}><div className="admin-related-card__title"><strong>{pick(contact, ['Nombre', 'nombre'], 'Sin nombre')}</strong><span>{toBoolean(pick(contact, ['EsSupervisor'], false), false) ? 'Supervisor' : 'Contacto'}</span></div><span>{pick(contact, ['Puesto', 'puesto'], 'Sin puesto')}</span><small>{[pick(contact, ['Correo', 'correo']), pick(contact, ['Telefono', 'telefono'])].filter(Boolean).join(' · ') || 'Sin datos de contacto'}</small></article>)}{!related.contacts.length && <span>Este cliente no tiene contactos registrados.</span>}</div></section>
-
-          {isAdmin && selectedView?.id && <section className="admin-related-section"><header><div><h3>Administrar relaciones</h3><p>Agregar o editar sedes, zonas de equipos y supervisores.</p></div></header><div className="admin-related-section__content"><ClientLocationsPanel clientId={selectedView.id} clientName={selectedView.name} /><ClientSupervisorsPanel clientId={selectedView.id} clientName={selectedView.name} canDelete /></div></section>}
-        </>}
-      </>}
+        {loadingRelated ? <div className="state-card state-card--loading"><Icon name="progress_activity" />Cargando información relacionada...</div> : isAdmin && selectedView?.id ? <ClientRelationsManager
+          clientId={selectedView.id}
+          clientName={selectedView.name}
+          locations={related.locations}
+          equipment={related.equipment}
+          contacts={related.contacts}
+          onRefresh={() => loadRelated(selectedView.id)}
+        /> : <ReadonlyRelations related={related} />}
+      </div>}
     </AdminEntityModal>
   </div>;
 }
