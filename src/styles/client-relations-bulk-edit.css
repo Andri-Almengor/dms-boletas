@@ -1,0 +1,112 @@
+.client-relation-editor {
+  scroll-margin-top: 18px;
+}
+
+.client-equipment-bulk-toolbar {
+  min-width: 0;
+  padding: 10px 11px;
+  border: 1px solid var(--outline-soft);
+  border-radius: 11px;
+  background: var(--surface-low);
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 9px;
+}
+
+.client-equipment-bulk-toggle,
+.client-equipment-selection-toggle {
+  position: relative;
+  color: var(--text-main);
+  display: inline-flex;
+  align-items: center;
+  gap: 7px;
+  cursor: pointer;
+  user-select: none;
+}
+
+.client-equipment-bulk-toggle {
+  min-width: 0;
+  flex: 1 1 230px;
+  font-size: .74rem;
+  font-weight: 750;
+}
+
+.client-equipment-bulk-toggle input,
+.client-equipment-selection-toggle input {
+  position: absolute;
+  width: 1px;
+  height: 1px;
+  opacity: 0;
+  pointer-events: none;
+}
+
+.client-equipment-bulk-toggle .material-symbols-outlined,
+.client-equipment-selection-toggle .material-symbols-outlined {
+  color: var(--primary);
+}
+
+.client-equipment-bulk-toggle input:focus-visible + .material-symbols-outlined,
+.client-equipment-selection-toggle input:focus-visible + .material-symbols-outlined {
+  outline: 2px solid var(--primary);
+  outline-offset: 3px;
+  border-radius: 4px;
+}
+
+.client-equipment-bulk-toggle:has(input:disabled),
+.client-equipment-selection-toggle:has(input:disabled) {
+  cursor: not-allowed;
+  opacity: .55;
+}
+
+.client-equipment-bulk-count {
+  color: var(--text-muted);
+  font-size: .7rem;
+  font-weight: 700;
+  white-space: nowrap;
+}
+
+.client-equipment-relation-card--selectable {
+  grid-template-columns: 30px 36px minmax(0, 1fr) auto;
+  transition: border-color .16s ease, background-color .16s ease, box-shadow .16s ease;
+}
+
+.client-equipment-relation-card--selectable.is-selected {
+  border-color: color-mix(in srgb, var(--primary) 64%, var(--outline-soft));
+  background: color-mix(in srgb, var(--primary-soft) 45%, var(--surface-card));
+  box-shadow: inset 3px 0 0 var(--primary);
+}
+
+.client-equipment-selection-toggle {
+  width: 30px;
+  height: 36px;
+  justify-content: center;
+}
+
+.client-equipment-selection-toggle .material-symbols-outlined {
+  font-size: 22px;
+}
+
+@media (max-width: 760px) {
+  .client-equipment-bulk-toolbar {
+    align-items: stretch;
+  }
+
+  .client-equipment-bulk-toggle,
+  .client-equipment-bulk-count,
+  .client-equipment-bulk-toolbar .button {
+    width: 100%;
+  }
+
+  .client-equipment-bulk-count {
+    padding-left: 29px;
+  }
+
+  .client-equipment-relation-card--selectable {
+    grid-template-columns: 30px 34px minmax(0, 1fr);
+  }
+
+  .client-equipment-relation-card--selectable > .client-relation-actions {
+    grid-column: 1 / -1;
+  }
+}

@@ -1,7 +1,21 @@
-import React, { useEffect, useMemo, useState } from 'react';
+import React, { useEffect, useMemo, useRef, useState } from 'react';
 import { useAuth } from '../../AuthContext';
 import Icon from '../common/Icon';
 import { MODULE_ROUTES, pick, requestAvailable, toBoolean } from '../../services/moduleApi';
+
+const LOCATION_DELETE_ROUTES = [
+  'clientLocations.delete',
+  'clients.locations.delete',
+  'clientes.ubicaciones.delete',
+  'ubicacionesCliente.delete',
+];
+
+const EQUIPMENT_LOCATION_DELETE_ROUTES = [
+  'equipmentLocations.delete',
+  'clients.equipmentLocations.delete',
+  'clientes.ubicacionesEquipo.delete',
+  'ubicacionesEquipo.delete',
+];
 
 const EMPTY_LOCATION = {
   id: '',
@@ -66,12 +80,6 @@ function supervisorView(record = {}) {
   };
 }
 
-function relationId(record, type) {
-  if (type === 'location') return String(pick(record, ['UbicacionID', 'ubicacionId', 'id'], ''));
-  if (type === 'equipment') return String(pick(record, ['UbicacionEquipoID', 'ubicacionEquipoId', 'id'], ''));
-  return String(pick(record, ['ContactoID', 'contactoId', 'id'], ''));
-}
-
 export default function ClientRelationsManager({
   clientId,
   clientName,
@@ -81,10 +89,13 @@ export default function ClientRelationsManager({
   onRefresh,
 }) {
   const { sessionToken } = useAuth();
+  const editorRef = useRef(null);
   const [editor, setEditor] = useState(null);
   const [busy, setBusy] = useState('');
   const [error, setError] = useState('');
+  const [notice, setNotice] = useState('');
   const [openLocations, setOpenLocations] = useState(() => new Set());
+  const [selectedEquipmentIds, setSelectedEquipmentIds] = useState(() => new Set());
 
   const locationItems = useMemo(() => locations.map(locationView), [locations]);
   const equipmentItems = useMemo(() => equipment.map(equipmentView), [equipment]);
@@ -102,10 +113,18 @@ export default function ClientRelationsManager({
     return grouped;
   }, [locationItems, equipmentItems]);
 
+  const selectedEquipment = useMemo(
+    () => equipmentItems.filter((item) => selectedEquipmentIds.has(item.id)),
+    [equipmentItems, selectedEquipmentIds],
+  );
+  const allEquipmentSelected = equipmentItems.length > 0 && selectedEquipment.length === equipmentItems.length;
+
   useEffect(() => {
     setOpenLocations(new Set(locationItems.map((item) => item.id)));
+    setSelectedEquipmentIds(new Set());
     setEditor(null);
     setError('');
+    setNotice('');
   }, [clientId]);
 
   useEffect(() => {
@@ -115,6 +134,32 @@ export default function ClientRelationsManager({
       return next;
     });
   }, [locationItems]);
+
+  useEffect(() => {
+    const validIds = new Set(equipmentItems.map((item) => item.id));
+    setSelectedEquipmentIds((current) => new Set([...current].filter((id) => validIds.has(id))));
+  }, [equipmentItems]);
+
+  useEffect(() => {
+    if (!editor || typeof window === 'undefined') return undefined;
+    const frame = window.requestAnimationFrame(() => {
+      const node = editorRef.current;
+      if (!node) return;
+      node.scrollIntoView({ behavior: 'smooth', block: 'start' });
+      const firstField = node.querySelector('input:not([type="checkbox"]), select, textarea');
+      try {
+        firstField?.focus({ preventScroll: true });
+      } catch {
+        firstField?.focus();
+      }
+    });
+    return () => window.cancelAnimationFrame(frame);
+  }, [editor]);
+
+  function clearMessages() {
+    setError('');
+    setNotice('');
+  }
 
   function toggleLocation(locationId) {
     setOpenLocations((current) => {
@@ -126,25 +171,44 @@ export default function ClientRelationsManager({
   }
 
   function editLocation(item = EMPTY_LOCATION) {
+    clearMessages();
     setEditor({ type: 'location', values: { ...EMPTY_LOCATION, ...item } });
-    setError('');
   }
 
   function editEquipment(item = EMPTY_EQUIPMENT, parentId = '') {
+    const resolvedParentId = item.parentId || parentId || locationItems[0]?.id || '';
+    clearMessages();
+    if (resolvedParentId) {
+      setOpenLocations((current) => new Set([...current, resolvedParentId]));
+    }
     setEditor({
       type: 'equipment',
-      values: { ...EMPTY_EQUIPMENT, ...item, parentId: item.parentId || parentId || locationItems[0]?.id || '' },
+      values: { ...EMPTY_EQUIPMENT, ...item, parentId: resolvedParentId },
     });
-    setError('');
   }
 
   function editSupervisor(item = EMPTY_SUPERVISOR) {
+    clearMessages();
     setEditor({ type: 'supervisor', values: { ...EMPTY_SUPERVISOR, ...item } });
-    setError('');
   }
 
   function updateEditor(values) {
     setEditor((current) => current ? ({ ...current, values: { ...current.values, ...values } }) : current);
+  }
+
+  function toggleEquipmentSelection(itemId) {
+    setSelectedEquipmentIds((current) => {
+      const next = new Set(current);
+      if (next.has(itemId)) next.delete(itemId);
+      else next.add(itemId);
+      return next;
+    });
+  }
+
+  function toggleAllEquipment() {
+    setSelectedEquipmentIds(allEquipmentSelected
+      ? new Set()
+      : new Set(equipmentItems.map((item) => item.id)));
   }
 
   async function refreshRelations() {
@@ -166,7 +230,7 @@ export default function ClientRelationsManager({
     }
 
     setBusy(`save-${type}`);
-    setError('');
+    clearMessages();
     try {
       if (type === 'location') {
         await requestAvailable(
@@ -237,8 +301,11 @@ export default function ClientRelationsManager({
           sessionToken,
         );
       }
+      const actionLabel = values.id ? 'actualizado' : 'creado';
+      const entityLabel = type === 'location' ? 'La sede o zona' : type === 'equipment' ? 'La ubicación del equipo' : 'El supervisor';
       setEditor(null);
       await refreshRelations();
+      setNotice(`${entityLabel} se ha ${actionLabel} correctamente.`);
     } catch (saveError) {
       setError(saveError.message || 'No se pudo guardar la relación.');
     } finally {
@@ -246,22 +313,62 @@ export default function ClientRelationsManager({
     }
   }
 
+  async function deleteEquipmentRecord(item) {
+    return requestAvailable(EQUIPMENT_LOCATION_DELETE_ROUTES, {
+      UbicacionEquipoID: item.id,
+      ubicacionEquipoId: item.id,
+    }, sessionToken);
+  }
+
   async function removeEquipment(item) {
     if (!window.confirm(`¿Eliminar la ubicación del equipo “${item.nombre || 'Sin nombre'}”?`)) return;
     setBusy(`equipment-${item.id}`);
-    setError('');
+    clearMessages();
     try {
-      await requestAvailable(MODULE_ROUTES.clients.equipmentLocationsDelete, {
-        UbicacionEquipoID: item.id,
-        ubicacionEquipoId: item.id,
-      }, sessionToken);
+      await deleteEquipmentRecord(item);
+      setSelectedEquipmentIds((current) => {
+        const next = new Set(current);
+        next.delete(item.id);
+        return next;
+      });
       if (editor?.type === 'equipment' && editor.values.id === item.id) setEditor(null);
       await refreshRelations();
+      setNotice(`La ubicación “${item.nombre || 'Sin nombre'}” fue eliminada.`);
     } catch (deleteError) {
       setError(deleteError.message || 'No se pudo eliminar la ubicación del equipo.');
     } finally {
       setBusy('');
     }
+  }
+
+  async function removeSelectedEquipment() {
+    if (!selectedEquipment.length) return;
+    const count = selectedEquipment.length;
+    if (!window.confirm(`¿Eliminar ${count} ubicación${count === 1 ? '' : 'es'} del equipo seleccionada${count === 1 ? '' : 's'}?`)) return;
+
+    setBusy('equipment-bulk');
+    clearMessages();
+    const failed = [];
+    let removed = 0;
+    for (const item of selectedEquipment) {
+      try {
+        await deleteEquipmentRecord(item);
+        removed += 1;
+      } catch (deleteError) {
+        failed.push({ item, message: deleteError.message || 'Error desconocido' });
+      }
+    }
+
+    if (editor?.type === 'equipment' && selectedEquipmentIds.has(editor.values.id) && !failed.some(({ item }) => item.id === editor.values.id)) {
+      setEditor(null);
+    }
+    setSelectedEquipmentIds(new Set(failed.map(({ item }) => item.id)));
+    await refreshRelations();
+    if (removed) setNotice(`${removed} ubicación${removed === 1 ? '' : 'es'} del equipo eliminada${removed === 1 ? '' : 's'} correctamente.`);
+    if (failed.length) {
+      setError(`No se pudieron eliminar ${failed.length} ubicación${failed.length === 1 ? '' : 'es'}: ${failed.map(({ item }) => item.nombre || item.id).join(', ')}.`);
+    }
+    setBusy('');
   }
 
   async function removeLocation(item) {
@@ -273,14 +380,15 @@ export default function ClientRelationsManager({
     }
     if (!window.confirm(`¿Eliminar la sede o zona “${item.nombre || 'Sin nombre'}”?`)) return;
     setBusy(`location-${item.id}`);
-    setError('');
+    clearMessages();
     try {
-      await requestAvailable(MODULE_ROUTES.clients.locationsDelete, {
+      await requestAvailable(LOCATION_DELETE_ROUTES, {
         UbicacionID: item.id,
         ubicacionId: item.id,
       }, sessionToken);
       if (editor?.type === 'location' && editor.values.id === item.id) setEditor(null);
       await refreshRelations();
+      setNotice(`La sede o zona “${item.nombre || 'Sin nombre'}” fue eliminada.`);
     } catch (deleteError) {
       setError(deleteError.message || 'No se pudo eliminar la sede o zona.');
     } finally {
@@ -291,7 +399,7 @@ export default function ClientRelationsManager({
   async function removeSupervisor(item) {
     if (!window.confirm(`¿Eliminar al supervisor “${item.nombre || 'Sin nombre'}” de ${clientName}?`)) return;
     setBusy(`supervisor-${item.id}`);
-    setError('');
+    clearMessages();
     try {
       await requestAvailable(MODULE_ROUTES.clients.contactsDelete, {
         ContactoID: item.id,
@@ -299,6 +407,7 @@ export default function ClientRelationsManager({
       }, sessionToken);
       if (editor?.type === 'supervisor' && editor.values.id === item.id) setEditor(null);
       await refreshRelations();
+      setNotice(`El supervisor “${item.nombre || 'Sin nombre'}” fue eliminado.`);
     } catch (deleteError) {
       setError(deleteError.message || 'No se pudo eliminar el supervisor.');
     } finally {
@@ -330,9 +439,10 @@ export default function ClientRelationsManager({
       </div>
 
       {error && <div className="alert alert--error" role="alert"><Icon name="error" /><span>{error}</span></div>}
+      {notice && <div className="alert alert--success" role="status"><Icon name="check_circle" /><span>{notice}</span></div>}
 
       {editor && (
-        <form className="client-relation-editor" onSubmit={saveEditor}>
+        <form ref={editorRef} className="client-relation-editor" onSubmit={saveEditor}>
           <div className="client-relation-editor__heading">
             <div>
               <span className="eyebrow">{editor.values.id ? 'EDITAR' : 'NUEVO REGISTRO'}</span>
@@ -359,7 +469,7 @@ export default function ClientRelationsManager({
 
           {editor.type === 'supervisor' && <label className="check-card client-relation-editor__check"><input type="checkbox" checked={Boolean(editor.values.recibeCorreo)} onChange={(event) => updateEditor({ recibeCorreo: event.target.checked })} /><Icon name={editor.values.recibeCorreo ? 'check_box' : 'check_box_outline_blank'} /><div><strong>Recibe correos</strong><small>Incluir a este supervisor en las notificaciones del cliente.</small></div></label>}
 
-          <div className="form-actions"><button className="button button--secondary" type="button" onClick={() => setEditor(null)} disabled={saving}>Cancelar</button><button className="button button--primary" disabled={saving}><Icon name={saving ? 'progress_activity' : 'save'} />{saving ? 'Guardando...' : 'Guardar'}</button></div>
+          <div className="form-actions"><button className="button button--secondary" type="button" onClick={() => setEditor(null)} disabled={saving}>Cancelar</button><button className="button button--primary" type="submit" disabled={saving}><Icon name={saving ? 'progress_activity' : 'save'} />{saving ? 'Guardando...' : 'Guardar'}</button></div>
         </form>
       )}
 
@@ -367,6 +477,16 @@ export default function ClientRelationsManager({
         <section className="client-relations-group client-relations-group--locations">
           <header><div><h4>Sedes y ubicaciones del equipo</h4><p>Cada ubicación del equipo aparece debajo de su sede o zona principal.</p></div><span className="status-chip status-chip--neutral">{locationItems.length}</span></header>
           <div className="client-relations-group__content">
+            {equipmentItems.length > 0 && <div className="client-equipment-bulk-toolbar">
+              <label className="client-equipment-bulk-toggle">
+                <input type="checkbox" checked={allEquipmentSelected} onChange={toggleAllEquipment} disabled={Boolean(busy)} />
+                <Icon name={allEquipmentSelected ? 'check_box' : selectedEquipment.length ? 'indeterminate_check_box' : 'check_box_outline_blank'} />
+                <span>{allEquipmentSelected ? 'Deseleccionar todas' : 'Seleccionar ubicaciones del equipo'}</span>
+              </label>
+              <span className="client-equipment-bulk-count">{selectedEquipment.length} seleccionada{selectedEquipment.length === 1 ? '' : 's'}</span>
+              <button className="button button--danger button--compact" type="button" onClick={removeSelectedEquipment} disabled={Boolean(busy) || !selectedEquipment.length}><Icon name={busy === 'equipment-bulk' ? 'progress_activity' : 'delete_sweep'} />Eliminar seleccionadas</button>
+            </div>}
+
             {locationItems.map((location) => {
               const children = equipmentByLocation.get(location.id) || [];
               const opened = openLocations.has(location.id);
@@ -377,7 +497,18 @@ export default function ClientRelationsManager({
                   <div className="client-relation-actions"><button className="icon-button icon-button--outlined" type="button" onClick={() => editEquipment(undefined, location.id)} disabled={Boolean(busy)} aria-label={`Agregar ubicación del equipo en ${location.nombre}`}><Icon name="add_location" /></button><button className="icon-button icon-button--outlined" type="button" onClick={() => editLocation(location)} disabled={Boolean(busy)} aria-label={`Editar ${location.nombre}`}><Icon name="edit" /></button><button className="icon-button icon-button--danger" type="button" onClick={() => removeLocation(location)} disabled={Boolean(busy)} aria-label={`Eliminar ${location.nombre}`}><Icon name={busy === `location-${location.id}` ? 'progress_activity' : 'delete'} /></button></div>
                 </div>
                 {opened && <div className="client-site-card__equipment">
-                  {children.length ? children.map((item) => <article className="client-equipment-relation-card" key={item.id}><span className="client-equipment-relation-card__icon"><Icon name="my_location" /></span><div><div><strong>{item.nombre || 'Sin nombre'}</strong><span className={`status-chip ${item.status === 'INACTIVO' ? 'status-chip--inactive' : 'status-chip--active'}`}>{item.status}</span></div><small>{item.descripcion || 'Sin descripción'}</small></div><div className="client-relation-actions"><button className="icon-button icon-button--outlined" type="button" onClick={() => editEquipment(item, location.id)} disabled={Boolean(busy)} aria-label={`Editar ${item.nombre}`}><Icon name="edit" /></button><button className="icon-button icon-button--danger" type="button" onClick={() => removeEquipment(item)} disabled={Boolean(busy)} aria-label={`Eliminar ${item.nombre}`}><Icon name={busy === `equipment-${item.id}` ? 'progress_activity' : 'delete'} /></button></div></article>) : <div className="client-relations-empty"><Icon name="location_off" /><span>Esta sede todavía no tiene ubicaciones del equipo.</span><button className="button button--secondary button--compact" type="button" onClick={() => editEquipment(undefined, location.id)} disabled={Boolean(busy)}>Agregar ubicación</button></div>}
+                  {children.length ? children.map((item) => {
+                    const selected = selectedEquipmentIds.has(item.id);
+                    return <article className={`client-equipment-relation-card client-equipment-relation-card--selectable${selected ? ' is-selected' : ''}`} key={item.id}>
+                      <label className="client-equipment-selection-toggle" title={`Seleccionar ${item.nombre || 'ubicación'}`}>
+                        <input type="checkbox" checked={selected} onChange={() => toggleEquipmentSelection(item.id)} disabled={Boolean(busy)} />
+                        <Icon name={selected ? 'check_box' : 'check_box_outline_blank'} />
+                      </label>
+                      <span className="client-equipment-relation-card__icon"><Icon name="my_location" /></span>
+                      <div><div><strong>{item.nombre || 'Sin nombre'}</strong><span className={`status-chip ${item.status === 'INACTIVO' ? 'status-chip--inactive' : 'status-chip--active'}`}>{item.status}</span></div><small>{item.descripcion || 'Sin descripción'}</small></div>
+                      <div className="client-relation-actions"><button className="icon-button icon-button--outlined" type="button" onClick={() => editEquipment(item, location.id)} disabled={Boolean(busy)} aria-label={`Editar ${item.nombre}`}><Icon name="edit" /></button><button className="icon-button icon-button--danger" type="button" onClick={() => removeEquipment(item)} disabled={Boolean(busy)} aria-label={`Eliminar ${item.nombre}`}><Icon name={busy === `equipment-${item.id}` ? 'progress_activity' : 'delete'} /></button></div>
+                    </article>;
+                  }) : <div className="client-relations-empty"><Icon name="location_off" /><span>Esta sede todavía no tiene ubicaciones del equipo.</span><button className="button button--secondary button--compact" type="button" onClick={() => editEquipment(undefined, location.id)} disabled={Boolean(busy)}>Agregar ubicación</button></div>}
                 </div>}
               </article>;
             })}
