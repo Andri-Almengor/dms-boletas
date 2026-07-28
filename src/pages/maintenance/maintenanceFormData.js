@@ -98,7 +98,7 @@ export function createMaintenanceDevice(category = 'Cámara') {
   const canonicalCategory = canonicalMaintenanceCategoryName(category);
   return {
     localId: crypto.randomUUID?.() || `${Date.now()}-${Math.random()}`,
-    id: '', ubicacionEquipoId: '', zona: '',
+    id: '', ubicacionEquipoId: '', ubicacionEquipoNombre: '', zona: '',
     fechaTrabajo: todayInCostaRica(), tecnicoIds: [],
     tipoDispositivoId: '', categoria: canonicalCategory,
     fabricanteId: '', fabricante: '', modeloId: '', modelo: '',
@@ -141,11 +141,21 @@ export function mapMaintenance(data) {
 export function mapMaintenanceDevice(row = {}) {
   const category = canonicalMaintenanceCategoryName(pick(row, ['TipoDispositivo', 'Categoria', 'categoria'], 'Cámara'));
   const bundle = parseAnswersBundle(row, category);
+  const equipmentLocationName = pick(row, [
+    'UbicacionEquipoNombre',
+    'equipmentLocationName',
+    'UbicacionEquipo',
+    'Ubicación del equipo',
+  ]);
+  const legacyLocation = pick(row, ['Zona', 'UbicacionEspecifica', 'zona']);
   return {
     localId: String(pick(row, ['EvidenciaMantenimientoID', 'deviceId', 'id'], crypto.randomUUID?.() || Date.now())),
     id: String(pick(row, ['EvidenciaMantenimientoID', 'deviceId', 'id'])),
     ubicacionEquipoId: String(pick(row, ['UbicacionEquipoID', 'ubicacionEquipoId'])),
-    zona: pick(row, ['Zona', 'UbicacionEspecifica', 'zona']),
+    ubicacionEquipoNombre: equipmentLocationName,
+    // `zona` se conserva como alias visual y de compatibilidad, pero siempre prioriza
+    // el nombre resuelto desde el dropdown de ubicación del equipo.
+    zona: equipmentLocationName || legacyLocation,
     fechaTrabajo: dateInput(pick(row, ['FechaTrabajo', 'fechaTrabajo', 'FechaCreacion'], todayInCostaRica())),
     tecnicoIds: parseTechnicianIds(row),
     tipoDispositivoId: String(pick(row, ['TipoDispositivoID', 'tipoDispositivoId'])),
@@ -181,10 +191,17 @@ export function maintenancePayload(form, id) {
 export function maintenanceDevicePayload(device, maintenanceId) {
   const technicianIds = (device.tecnicoIds || []).map(String).filter(Boolean);
   const category = canonicalMaintenanceCategoryName(device.categoria);
+  const equipmentLocationName = String(device.ubicacionEquipoNombre || device.zona || '').trim();
   return {
     maintenanceId, MantenimientoID: maintenanceId, deviceId: device.id,
-    EvidenciaMantenimientoID: device.id, UbicacionEquipoID: device.ubicacionEquipoId,
-    Zona: device.zona,
+    EvidenciaMantenimientoID: device.id,
+    UbicacionEquipoID: device.ubicacionEquipoId,
+    ubicacionEquipoId: device.ubicacionEquipoId,
+    UbicacionEquipoNombre: equipmentLocationName,
+    ubicacionEquipoNombre: equipmentLocationName,
+    // Compatibilidad con reportes existentes: Zona replica el valor del dropdown.
+    Zona: equipmentLocationName,
+    zona: equipmentLocationName,
     FechaTrabajo: device.fechaTrabajo,
     fechaTrabajo: device.fechaTrabajo,
     TecnicoIDs: technicianIds,
