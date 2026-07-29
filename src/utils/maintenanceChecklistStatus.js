@@ -55,9 +55,11 @@ export function parseMaintenanceAnswers(device = {}) {
 export function maintenanceChecklistCompletion(device = {}, fallbackQuestions = []) {
   const { answers, metadataQuestions } = parseMaintenanceAnswers(device);
   const explicitQuestions = Array.isArray(device.questionDetails) ? device.questionDetails : [];
-  const questionSource = explicitQuestions.length
-    ? explicitQuestions
-    : (metadataQuestions.length ? metadataQuestions : fallbackQuestions);
+  const questionSource = [
+    ...(Array.isArray(fallbackQuestions) ? fallbackQuestions : []),
+    ...metadataQuestions,
+    ...explicitQuestions,
+  ];
   const requiredKeys = [...new Set(questionSource
     .filter(activeQuestion)
     .map(questionKey)
