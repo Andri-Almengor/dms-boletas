@@ -1,5 +1,6 @@
 import React, { useEffect, useRef } from 'react';
 import { useAuth } from '../../AuthContext';
+import useOfflineMode from '../../hooks/useOfflineMode';
 import {
   MODULE_ROUTES,
   OFFLINE_CATALOG_PAYLOAD,
@@ -27,12 +28,13 @@ function scopesForRoute(route) {
 
 export default function ClientCatalogSyncBridge() {
   const { sessionToken } = useAuth();
+  const [offlineEnabled] = useOfflineMode();
   const pendingScopes = useRef(new Set());
   const pendingDetails = useRef([]);
   const timer = useRef(null);
 
   useEffect(() => {
-    if (!sessionToken) return undefined;
+    if (!sessionToken || !offlineEnabled) return undefined;
 
     async function flush() {
       timer.current = null;
@@ -72,7 +74,7 @@ export default function ClientCatalogSyncBridge() {
       scopes.forEach((scope) => pendingScopes.current.add(scope));
       pendingDetails.current.push(event.detail || {});
       if (timer.current) window.clearTimeout(timer.current);
-      timer.current = window.setTimeout(flush, 220);
+      timer.current = window.setTimeout(flush, 350);
     }
 
     window.addEventListener('dms-client-relations-updated', schedule);
@@ -83,7 +85,7 @@ export default function ClientCatalogSyncBridge() {
       pendingScopes.current.clear();
       pendingDetails.current = [];
     };
-  }, [sessionToken]);
+  }, [sessionToken, offlineEnabled]);
 
   return null;
 }

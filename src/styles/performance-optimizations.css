@@ -1,0 +1,255 @@
+.app-route-loading {
+  width: min(100% - 32px, 520px);
+  margin: 24px auto;
+}
+
+.ticket-list-result-count {
+  margin: 2px 0 10px;
+  color: var(--muted);
+  font-size: .76rem;
+}
+
+.ticket-list-load-more,
+.list-load-more {
+  display: flex;
+  justify-content: center;
+  padding: 12px 0 22px;
+}
+
+.ticket-list-load-more .button,
+.list-load-more .button {
+  min-width: 210px;
+}
+
+.ticket-card,
+.maintenance-card,
+.knowledge-card,
+.user-card,
+.admin-mini-card,
+.survey-response-card,
+.metrics-ticket-card,
+.offline-section-row,
+.evidence-edit-card {
+  content-visibility: auto;
+  contain-intrinsic-size: 0 250px;
+}
+
+.maintenance-card,
+.knowledge-card,
+.survey-response-card {
+  contain-intrinsic-size: 0 360px;
+}
+
+.admin-mini-card,
+.offline-section-row {
+  contain-intrinsic-size: 0 96px;
+}
+
+.offline-mode-selector {
+  margin-top: 14px;
+  padding: 14px;
+  border: 1px solid var(--outline-soft);
+  border-radius: var(--radius-md);
+  background: var(--surface-card);
+  color: var(--text);
+  display: grid;
+  grid-template-columns: auto minmax(0, 1fr) auto;
+  align-items: center;
+  gap: 12px;
+}
+
+.offline-mode-selector.is-enabled {
+  border-color: color-mix(in srgb, var(--success) 45%, var(--outline-soft));
+  background: color-mix(in srgb, var(--success-soft) 72%, var(--surface-card));
+}
+
+.offline-mode-selector__copy {
+  min-width: 0;
+  display: grid;
+  gap: 4px;
+}
+
+.offline-mode-selector__copy strong,
+.offline-mode-selector__copy small,
+.offline-mode-selector__copy em {
+  display: block;
+}
+
+.offline-mode-selector__copy small {
+  color: var(--muted);
+  font-size: .72rem;
+  line-height: 1.45;
+}
+
+.offline-mode-selector__copy em {
+  color: var(--warning);
+  font-size: .68rem;
+  font-style: normal;
+  font-weight: 800;
+}
+
+.offline-mode-switch {
+  min-width: 94px;
+  min-height: 42px;
+  padding: 5px 9px 5px 6px;
+  border: 1px solid var(--outline);
+  border-radius: 999px;
+  background: var(--surface-low);
+  color: var(--muted);
+  display: flex;
+  align-items: center;
+  gap: 7px;
+  cursor: pointer;
+}
+
+.offline-mode-switch > span {
+  width: 26px;
+  height: 26px;
+  border-radius: 50%;
+  background: var(--muted);
+  box-shadow: var(--shadow-sm);
+}
+
+.offline-mode-switch > b {
+  font-size: .66rem;
+}
+
+.offline-mode-selector.is-enabled .offline-mode-switch {
+  border-color: var(--success);
+  background: var(--success-soft);
+  color: var(--success);
+}
+
+.offline-mode-selector.is-enabled .offline-mode-switch > span {
+  background: var(--success);
+}
+
+.more-page-inline-message {
+  margin-top: 10px;
+  padding: 9px 11px;
+  border: 1px solid var(--outline-soft);
+  border-radius: 10px;
+  background: var(--surface-low);
+  color: var(--muted);
+  display: flex;
+  align-items: flex-start;
+  gap: 8px;
+  font-size: .72rem;
+}
+
+.more-page-inline-message.is-warning {
+  border-color: color-mix(in srgb, var(--warning) 45%, var(--outline-soft));
+  background: var(--warning-soft);
+  color: var(--text);
+}
+
+.offline-disabled-card {
+  padding: clamp(18px, 4vw, 30px);
+  border: 1px solid var(--outline-soft);
+  border-radius: var(--radius-lg);
+  background: var(--surface-card);
+  box-shadow: var(--shadow-sm);
+  display: grid;
+  grid-template-columns: auto minmax(0, 1fr) auto;
+  align-items: center;
+  gap: 18px;
+}
+
+.offline-disabled-card__icon {
+  width: 58px;
+  height: 58px;
+  border-radius: 16px;
+  background: var(--primary-soft);
+  color: var(--primary);
+  display: grid;
+  place-items: center;
+}
+
+.offline-disabled-card__icon .material-symbols-outlined {
+  font-size: 31px;
+}
+
+.offline-disabled-card h2,
+.offline-disabled-card p {
+  margin: 4px 0;
+}
+
+.offline-disabled-card p {
+  max-width: 680px;
+  color: var(--muted);
+  line-height: 1.55;
+}
+
+.dms-low-resource-device .ticket-card,
+.dms-low-resource-device .maintenance-card,
+.dms-low-resource-device .knowledge-card,
+.dms-low-resource-device .user-card,
+.dms-low-resource-device .admin-mini-card,
+.dms-low-resource-device .survey-response-card,
+.dms-low-resource-device .profile-card,
+.dms-low-resource-device .stat-card,
+.dms-low-resource-device .menu-section,
+.dms-low-resource-device .offline-section-panel,
+.dms-low-resource-device .metrics-panel {
+  box-shadow: none !important;
+}
+
+.dms-low-resource-device .drawer-backdrop,
+.dms-low-resource-device .admin-entity-modal-backdrop,
+.dms-low-resource-device .mobile-time-backdrop {
+  backdrop-filter: none !important;
+  -webkit-backdrop-filter: none !important;
+}
+
+.dms-low-resource-device .assistant-fab,
+.dms-low-resource-device .button,
+.dms-low-resource-device .icon-button,
+.dms-low-resource-device .side-drawer,
+.dms-low-resource-device .drawer-backdrop,
+.dms-low-resource-device .admin-mini-card,
+.dms-low-resource-device .ticket-card,
+.dms-low-resource-device .maintenance-card {
+  transition: none !important;
+}
+
+.dms-low-resource-device .offline-progress-ring,
+.dms-low-resource-device .material-symbols-outlined {
+  animation-duration: .001ms !important;
+  animation-iteration-count: 1 !important;
+}
+
+.dms-data-saver img:not([data-eager-image]) {
+  content-visibility: auto;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  *,
+  *::before,
+  *::after {
+    scroll-behavior: auto !important;
+    animation-duration: .001ms !important;
+    animation-iteration-count: 1 !important;
+    transition-duration: .001ms !important;
+  }
+}
+
+@media (max-width: 720px) {
+  .offline-mode-selector,
+  .offline-disabled-card {
+    grid-template-columns: auto minmax(0, 1fr);
+  }
+
+  .offline-mode-switch,
+  .offline-disabled-card .button {
+    grid-column: 1 / -1;
+    width: 100%;
+    justify-content: center;
+  }
+
+  .ticket-card,
+  .maintenance-card,
+  .knowledge-card,
+  .survey-response-card {
+    contain-intrinsic-size: 0 330px;
+  }
+}

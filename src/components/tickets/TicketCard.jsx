@@ -1,4 +1,4 @@
-import React from 'react';
+import React, { memo } from 'react';
 import { Link, useNavigate } from 'react-router-dom';
 import Icon from '../common/Icon';
 import { pick } from '../../services/moduleApi';
@@ -10,7 +10,7 @@ export function TicketStatusChip({ status }) {
   return <span className={`ticket-status ticket-status--${normalized === 'FINALIZADA' ? 'finished' : normalized === 'ANULADA' ? 'cancelled' : 'pending'}`}>{normalized === 'FINALIZADA' ? 'Finalizado' : normalized === 'ANULADA' ? 'Anulado' : 'Pendiente'}</span>;
 }
 
-export default function TicketCard({ ticket, compact = false, onDelete }) {
+function TicketCard({ ticket, compact = false, onDelete }) {
   const navigate = useNavigate();
   const id = getTicketId(ticket);
   const uid = pick(ticket, ['BoletaUID', 'TicketUID', 'boletaUid', 'uid'], id);
@@ -50,3 +50,5 @@ export default function TicketCard({ ticket, compact = false, onDelete }) {
     {!compact && uid && <div className="ticket-card__actions"><Link className="button button--primary button--compact" to={detailUrl}>Ver detalle</Link>{status !== 'FINALIZADA' && <Link className="icon-button icon-button--outlined" to={`${detailUrl}/editar`} aria-label="Editar boleta"><Icon name="edit" /></Link>}{status === 'FINALIZADA' && pdfUrl && <a className="icon-button icon-button--outlined" href={pdfUrl} target="_blank" rel="noreferrer" aria-label="Abrir PDF"><Icon name="picture_as_pdf" /></a>}{onDelete && <button className="icon-button icon-button--danger" type="button" onClick={() => onDelete(ticket)} aria-label="Anular boleta"><Icon name="delete" /></button>}</div>}
   </article>;
 }
+
+export default memo(TicketCard);

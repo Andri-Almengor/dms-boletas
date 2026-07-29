@@ -1,11 +1,11 @@
-import React from 'react';
+import React, { memo } from 'react';
 import Icon from '../common/Icon';
 
 function currentRoute() {
   return `${window.location.pathname}${window.location.search || ''}`;
 }
 
-export default function EvidenceUploader({ items, onAdd, onUpdate, onRemove, disabled }) {
+function EvidenceUploader({ items, onAdd, onUpdate, onRemove, disabled }) {
   function remove(index) {
     const item = items[index];
     if (item?.file) {
@@ -33,7 +33,7 @@ export default function EvidenceUploader({ items, onAdd, onUpdate, onRemove, dis
         {items.map((item, index) => (
           <article className="evidence-edit-card" key={item.localId || `${item.name}-${index}`}>
             {item.previewUrl
-              ? <img src={item.previewUrl} alt={item.name || `Evidencia ${index + 1}`} />
+              ? <img src={item.previewUrl} alt={item.name || `Evidencia ${index + 1}`} loading="lazy" decoding="async" />
               : <div className="evidence-file-icon"><Icon name="description" /></div>}
             <div className="evidence-edit-card__fields">
               <input className="form-control" value={item.name} onChange={(event) => onUpdate(index, { name: event.target.value })} placeholder="Nombre de la evidencia" disabled={disabled} />
@@ -50,3 +50,5 @@ export default function EvidenceUploader({ items, onAdd, onUpdate, onRemove, dis
     </div>
   );
 }
+
+export default memo(EvidenceUploader);

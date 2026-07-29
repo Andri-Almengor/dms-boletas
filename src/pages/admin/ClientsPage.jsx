@@ -1,10 +1,11 @@
-import React, { useEffect, useMemo, useState } from 'react';
+import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { useAuth } from '../../AuthContext';
 import ClientRelationsManager from '../../components/clients/ClientRelationsManager';
 import Icon from '../../components/common/Icon';
 import AdminEntityModal from '../../components/forms/AdminEntityModal';
 import { MODULE_ROUTES, normalizeItems, pick, requestAvailable, toBoolean } from '../../services/moduleApi';
 
+const PAGE_SIZE = 50;
 const EMPTY = { id: '', name: '', contacto: '', telefono: '', correo: '', direccion: '', sitioWeb: '', chatWebhook: '', status: 'ACTIVO' };
 
 function viewClient(record = {}) {
@@ -39,6 +40,25 @@ function clientPayload(form) {
   };
 }
 
+function mergeClients(current, incoming) {
+  const map = new Map(current.map((item, index) => [viewClient(item).id || `current-${index}`, item]));
+  incoming.forEach((item, index) => map.set(viewClient(item).id || `incoming-${index}`, item));
+  return [...map.values()];
+}
+
+async function mapWithConcurrency(items, concurrency, mapper) {
+  const results = new Array(items.length);
+  let cursor = 0;
+  async function worker() {
+    while (cursor < items.length) {
+      const index = cursor++;
+      results[index] = await mapper(items[index], index);
+    }
+  }
+  await Promise.all(Array.from({ length: Math.min(concurrency, items.length) }, worker));
+  return results;
+}
+
 function ClientFields({ form, setForm }) {
   const change = (name) => (event) => setForm((current) => ({ ...current, [name]: event.target.value }));
   return <div className="admin-form-grid">
@@ -63,7 +83,6 @@ function ReadonlyRelations({ related }) {
         return <article className="admin-related-card" key={locationId}><div className="admin-related-card__title"><strong>{pick(location, ['Nombre', 'nombre'], 'Sin nombre')}</strong><span>{pick(location, ['Estado'], 'ACTIVO')}</span></div><span>{pick(location, ['Direccion', 'direccion'], 'Sin dirección')}</span><small>{equipment.length ? `Ubicaciones del equipo: ${equipment.map((item) => pick(item, ['Nombre', 'nombre'])).join(', ')}` : 'Sin ubicaciones del equipo'}</small></article>;
       })}{!related.locations.length && <span>Este cliente no tiene sedes registradas.</span>}</div>
     </section>
-
     <section className="admin-related-section">
       <header><div><h3>Supervisores y contactos</h3><p>Personas relacionadas con boletas y notificaciones.</p></div><span className="status-chip status-chip--neutral">{related.contacts.length}</span></header>
       <div className="admin-related-section__content">{related.contacts.map((contact, index) => <article className="admin-related-card" key={pick(contact, ['ContactoID', 'id'], index)}><div className="admin-related-card__title"><strong>{pick(contact, ['Nombre', 'nombre'], 'Sin nombre')}</strong><span>{toBoolean(pick(contact, ['EsSupervisor'], false), false) ? 'Supervisor' : 'Contacto'}</span></div><span>{pick(contact, ['Puesto', 'puesto'], 'Sin puesto')}</span><small>{[pick(contact, ['Correo', 'correo']), pick(contact, ['Telefono', 'telefono'])].filter(Boolean).join(' · ') || 'Sin datos de contacto'}</small></article>)}{!related.contacts.length && <span>Este cliente no tiene contactos registrados.</span>}</div>
@@ -76,31 +95,67 @@ export default function ClientsPage() {
   const isAdmin = hasPermission('USUARIOS_GESTIONAR');
   const [items, setItems] = useState([]);
   const [search, setSearch] = useState('');
+  const [page, setPage] = useState(1);
+  const [total, setTotal] = useState(0);
+  const [hasMore, setHasMore] = useState(false);
   const [selected, setSelected] = useState(null);
   const [form, setForm] = useState(EMPTY);
   const [editing, setEditing] = useState(false);
   const [related, setRelated] = useState({ locations: [], equipment: [], contacts: [] });
   const [loading, setLoading] = useState(true);
+  const [loadingMore, setLoadingMore] = useState(false);
   const [loadingRelated, setLoadingRelated] = useState(false);
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState('');
   const [modalError, setModalError] = useState('');
+  const requestSequence = useRef(0);
+  const relatedSequence = useRef(0);
 
-  async function load() {
-    setLoading(true);
+  const load = useCallback(async ({ targetPage = 1, append = false, query = search } = {}) => {
+    const sequence = ++requestSequence.current;
+    if (append) setLoadingMore(true);
+    else setLoading(true);
     setError('');
     try {
-      const data = await requestAvailable(MODULE_ROUTES.clients.list, { page: 1, pageSize: 1000, includeInactive: isAdmin, sortBy: 'Nombre', sortDir: 'asc' }, sessionToken);
-      setItems(normalizeItems(data));
+      const data = await requestAvailable(MODULE_ROUTES.clients.list, {
+        page: targetPage,
+        pageSize: PAGE_SIZE,
+        search: query.trim(),
+        includeInactive: isAdmin,
+        sortBy: 'Nombre',
+        sortDir: 'asc',
+      }, sessionToken);
+      if (sequence !== requestSequence.current) return;
+      const incoming = normalizeItems(data);
+      setItems((current) => {
+        const next = append ? mergeClients(current, incoming) : incoming;
+        const nextTotal = Number.isFinite(Number(data?.total)) ? Number(data.total) : next.length;
+        setTotal(nextTotal);
+        setHasMore(Number.isFinite(Number(data?.total)) ? next.length < nextTotal : incoming.length >= PAGE_SIZE);
+        return next;
+      });
+      setPage(targetPage);
     } catch (loadError) {
+      if (sequence !== requestSequence.current) return;
       setError(loadError.message);
-      setItems([]);
+      if (!append) {
+        setItems([]);
+        setTotal(0);
+        setHasMore(false);
+      }
     } finally {
-      setLoading(false);
+      if (sequence === requestSequence.current) {
+        setLoading(false);
+        setLoadingMore(false);
+      }
     }
-  }
+  }, [isAdmin, search, sessionToken]);
 
-  useEffect(() => { load(); }, [sessionToken, isAdmin]);
+  useEffect(() => {
+    setItems([]);
+    setPage(1);
+    load({ targetPage: 1, append: false, query: '' });
+  }, [sessionToken, isAdmin]);
 
   const visible = useMemo(() => {
     const query = search.trim().toLowerCase();
@@ -113,25 +168,42 @@ export default function ClientsPage() {
 
   async function loadRelated(clientId) {
     if (!clientId) return;
+    const sequence = ++relatedSequence.current;
     setLoadingRelated(true);
     setModalError('');
     try {
-      const [locationsResult, equipmentResult, contactsResult] = await Promise.allSettled([
-        requestAvailable(MODULE_ROUTES.clients.locationsList, { clienteId: clientId, page: 1, pageSize: 1000, includeInactive: false, sortBy: 'Nombre', sortDir: 'asc' }, sessionToken),
-        requestAvailable(MODULE_ROUTES.clients.equipmentLocationsList, { page: 1, pageSize: 3000, includeInactive: false, sortBy: 'Nombre', sortDir: 'asc' }, sessionToken),
-        requestAvailable(MODULE_ROUTES.clients.contactsList, { clienteId: clientId, page: 1, pageSize: 1000, includeInactive: false, sortBy: 'Nombre', sortDir: 'asc' }, sessionToken),
+      const [locationsResult, contactsResult] = await Promise.allSettled([
+        requestAvailable(MODULE_ROUTES.clients.locationsList, { clienteId: clientId, page: 1, pageSize: 500, includeInactive: false, sortBy: 'Nombre', sortDir: 'asc' }, sessionToken),
+        requestAvailable(MODULE_ROUTES.clients.contactsList, { clienteId: clientId, page: 1, pageSize: 500, includeInactive: false, sortBy: 'Nombre', sortDir: 'asc' }, sessionToken),
       ]);
+      if (sequence !== relatedSequence.current) return;
       const locations = locationsResult.status === 'fulfilled' ? normalizeItems(locationsResult.value) : [];
-      const locationIds = new Set(locations.map((row) => String(pick(row, ['UbicacionID', 'ubicacionId', 'id']))));
-      const equipment = equipmentResult.status === 'fulfilled'
-        ? normalizeItems(equipmentResult.value).filter((row) => locationIds.has(String(pick(row, ['UbicacionID', 'ubicacionId']))))
-        : [];
       const contacts = contactsResult.status === 'fulfilled' ? normalizeItems(contactsResult.value) : [];
-      setRelated({ locations, equipment, contacts });
-      const failures = [locationsResult, equipmentResult, contactsResult].filter((result) => result.status === 'rejected');
-      if (failures.length) setModalError('Algunos datos relacionados no pudieron cargarse. Pulse actualizar o vuelva a abrir el cliente.');
+      const equipmentGroups = await mapWithConcurrency(locations, 3, async (location) => {
+        const locationId = String(pick(location, ['UbicacionID', 'ubicacionId', 'id']));
+        if (!locationId) return [];
+        try {
+          const data = await requestAvailable(MODULE_ROUTES.clients.equipmentLocationsList, {
+            ubicacionId: locationId,
+            UbicacionID: locationId,
+            page: 1,
+            pageSize: 500,
+            includeInactive: false,
+            sortBy: 'Nombre',
+            sortDir: 'asc',
+          }, sessionToken);
+          return normalizeItems(data);
+        } catch {
+          return [];
+        }
+      });
+      if (sequence !== relatedSequence.current) return;
+      setRelated({ locations, equipment: equipmentGroups.flat(), contacts });
+      if (locationsResult.status === 'rejected' || contactsResult.status === 'rejected') {
+        setModalError('Algunos datos relacionados no pudieron cargarse. Pulse actualizar o vuelva a abrir el cliente.');
+      }
     } finally {
-      setLoadingRelated(false);
+      if (sequence === relatedSequence.current) setLoadingRelated(false);
     }
   }
 
@@ -155,6 +227,7 @@ export default function ClientsPage() {
 
   function closeModal() {
     if (saving) return;
+    relatedSequence.current += 1;
     setSelected(null);
     setEditing(false);
     setModalError('');
@@ -172,11 +245,13 @@ export default function ClientsPage() {
     try {
       const response = await requestAvailable(form.id ? MODULE_ROUTES.clients.update : MODULE_ROUTES.clients.create, clientPayload(form), sessionToken);
       const saved = response?.item || response?.data || response;
+      const savedView = viewClient(saved);
       setSelected(saved);
-      setForm(viewClient(saved));
+      setForm(savedView);
       setEditing(false);
-      await load();
-      await loadRelated(viewClient(saved).id);
+      setItems((current) => mergeClients(current, [saved]));
+      if (!form.id) setTotal((value) => value + 1);
+      await loadRelated(savedView.id);
     } catch (saveError) {
       setModalError(saveError.message);
     } finally {
@@ -194,7 +269,7 @@ export default function ClientsPage() {
       const updated = await requestAvailable(MODULE_ROUTES.clients.update, { ClienteID: form.id, clienteId: form.id, Estado: nextStatus, Activo: nextStatus === 'ACTIVO' }, sessionToken);
       setSelected(updated);
       setForm(viewClient(updated));
-      await load();
+      setItems((current) => current.map((item) => viewClient(item).id === form.id ? updated : item));
     } catch (statusError) {
       setModalError(statusError.message);
     } finally {
@@ -208,10 +283,10 @@ export default function ClientsPage() {
     setModalError('');
     try {
       await requestAvailable(MODULE_ROUTES.clients.delete, { ClienteID: form.id, clienteId: form.id }, sessionToken);
+      setItems((current) => current.filter((item) => viewClient(item).id !== form.id));
+      setTotal((value) => Math.max(0, value - 1));
       setSelected(null);
       setEditing(false);
-      setModalError('');
-      await load();
     } catch (deleteError) {
       setModalError(deleteError.message);
     } finally {
@@ -230,14 +305,15 @@ export default function ClientsPage() {
 
     {!isAdmin && <div className="readonly-notice"><Icon name="visibility" /><span>Modo consulta: puede revisar toda la información del cliente, pero solo un administrador puede modificarla.</span></div>}
 
-    <label className="search-bar">
+    <form className="search-bar" onSubmit={(event) => { event.preventDefault(); setPage(1); load({ targetPage: 1, append: false }); }}>
       <Icon name="search" />
       <input value={search} onChange={(event) => setSearch(event.target.value)} placeholder="Buscar cliente, contacto, correo o dirección..." />
-      <button className="icon-button" type="button" onClick={load} aria-label="Actualizar"><Icon name="refresh" /></button>
-    </label>
+      <button className="icon-button icon-button--primary" aria-label="Buscar"><Icon name="search" /></button>
+    </form>
 
     {error && <div className="alert alert--error"><Icon name="error" /><span>{error}</span></div>}
-    {loading ? <div className="state-card state-card--loading"><Icon name="progress_activity" />Cargando clientes...</div> : (
+    {loading ? <div className="state-card state-card--loading"><Icon name="progress_activity" />Cargando clientes...</div> : <>
+      <div className="ticket-list-result-count"><span>Mostrando <strong>{visible.length}</strong>{total > visible.length ? ` de ${total}` : ''} clientes</span></div>
       <div className="admin-mini-card-grid">
         {visible.map((record, index) => {
           const view = viewClient(record);
@@ -249,46 +325,14 @@ export default function ClientsPage() {
         })}
         {!visible.length && <div className="empty-state"><Icon name="groups" /><h2>Sin clientes</h2><p>No se encontraron registros con la búsqueda actual.</p></div>}
       </div>
-    )}
+      {hasMore && <div className="list-load-more"><button type="button" className="button button--secondary" disabled={loadingMore} onClick={() => load({ targetPage: page + 1, append: true })}><Icon name={loadingMore ? 'progress_activity' : 'expand_more'} />{loadingMore ? 'Cargando...' : 'Cargar más clientes'}</button></div>}
+    </>}
 
-    <AdminEntityModal
-      open={Boolean(selected)}
-      title={selectedView?.name || 'Nuevo cliente'}
-      subtitle={selectedView?.id ? `${related.locations.length} sedes · ${related.equipment.length} ubicaciones del equipo · ${supervisors.length} supervisores` : 'Complete los datos para crear el cliente'}
-      eyebrow={editing ? (selectedView?.id ? 'Editar cliente' : 'Nuevo cliente') : 'Detalle del cliente'}
-      icon="corporate_fare"
-      onClose={closeModal}
-      busy={saving}
-      className="admin-entity-modal-layer--client client-detail-modal"
-      footer={!editing && isAdmin && selectedView?.id ? <>
-        <button className="button button--danger" type="button" onClick={removeClient} disabled={saving}><Icon name="delete" />Eliminar</button>
-        <button className="button button--secondary" type="button" onClick={changeStatus} disabled={saving}><Icon name={selectedView.status === 'INACTIVO' ? 'refresh' : 'block'} />{selectedView.status === 'INACTIVO' ? 'Reactivar' : 'Desactivar'}</button>
-        <button className="button button--primary" type="button" onClick={() => setEditing(true)} disabled={saving}><Icon name="edit" />Editar datos</button>
-      </> : null}
-    >
+    <AdminEntityModal open={Boolean(selected)} title={selectedView?.name || 'Nuevo cliente'} subtitle={selectedView?.id ? `${related.locations.length} sedes · ${related.equipment.length} ubicaciones del equipo · ${supervisors.length} supervisores` : 'Complete los datos para crear el cliente'} eyebrow={editing ? (selectedView?.id ? 'Editar cliente' : 'Nuevo cliente') : 'Detalle del cliente'} icon="corporate_fare" onClose={closeModal} busy={saving} className="admin-entity-modal-layer--client client-detail-modal" footer={!editing && isAdmin && selectedView?.id ? <><button className="button button--danger" type="button" onClick={removeClient} disabled={saving}><Icon name="delete" />Eliminar</button><button className="button button--secondary" type="button" onClick={changeStatus} disabled={saving}><Icon name={selectedView.status === 'INACTIVO' ? 'refresh' : 'block'} />{selectedView.status === 'INACTIVO' ? 'Reactivar' : 'Desactivar'}</button><button className="button button--primary" type="button" onClick={() => setEditing(true)} disabled={saving}><Icon name="edit" />Editar datos</button></> : null}>
       {modalError && <div className="alert alert--error"><Icon name="error" /><span>{modalError}</span></div>}
-      {editing ? <form className="stack-form" onSubmit={save}>
-        <ClientFields form={form} setForm={setForm} />
-        <div className="form-actions"><button className="button button--secondary" type="button" onClick={() => selectedView?.id ? setEditing(false) : closeModal()} disabled={saving}>Cancelar</button><button className="button button--primary" disabled={saving}>{saving ? 'Guardando...' : 'Guardar cliente'}</button></div>
-      </form> : <div className="client-detail-layout">
-        <div className="admin-detail-grid">
-          <div><span>Estado</span><strong>{selectedView?.status || 'ACTIVO'}</strong></div>
-          <div><span>Contacto</span><strong>{selectedView?.contacto || 'Sin contacto'}</strong></div>
-          <div><span>Teléfono</span><strong>{selectedView?.telefono || 'Sin teléfono'}</strong></div>
-          <div><span>Correo</span><strong>{selectedView?.correo || 'Sin correo'}</strong></div>
-          <div className="is-wide"><span>Dirección</span><strong>{selectedView?.direccion || 'Sin dirección'}</strong></div>
-          <div><span>Sitio web</span><strong>{selectedView?.sitioWeb || 'Sin sitio web'}</strong></div>
-          <div><span>Google Chat</span><strong>{selectedView?.chatConfigured ? 'Configurado' : 'Sin configurar'}</strong></div>
-        </div>
-
-        {loadingRelated ? <div className="state-card state-card--loading"><Icon name="progress_activity" />Cargando información relacionada...</div> : isAdmin && selectedView?.id ? <ClientRelationsManager
-          clientId={selectedView.id}
-          clientName={selectedView.name}
-          locations={related.locations}
-          equipment={related.equipment}
-          contacts={related.contacts}
-          onRefresh={() => loadRelated(selectedView.id)}
-        /> : <ReadonlyRelations related={related} />}
+      {editing ? <form className="stack-form" onSubmit={save}><ClientFields form={form} setForm={setForm} /><div className="form-actions"><button className="button button--secondary" type="button" onClick={() => selectedView?.id ? setEditing(false) : closeModal()} disabled={saving}>Cancelar</button><button className="button button--primary" disabled={saving}>{saving ? 'Guardando...' : 'Guardar cliente'}</button></div></form> : <div className="client-detail-layout">
+        <div className="admin-detail-grid"><div><span>Estado</span><strong>{selectedView?.status || 'ACTIVO'}</strong></div><div><span>Contacto</span><strong>{selectedView?.contacto || 'Sin contacto'}</strong></div><div><span>Teléfono</span><strong>{selectedView?.telefono || 'Sin teléfono'}</strong></div><div><span>Correo</span><strong>{selectedView?.correo || 'Sin correo'}</strong></div><div className="is-wide"><span>Dirección</span><strong>{selectedView?.direccion || 'Sin dirección'}</strong></div><div><span>Sitio web</span><strong>{selectedView?.sitioWeb || 'Sin sitio web'}</strong></div><div><span>Google Chat</span><strong>{selectedView?.chatConfigured ? 'Configurado' : 'Sin configurar'}</strong></div></div>
+        {loadingRelated ? <div className="state-card state-card--loading"><Icon name="progress_activity" />Cargando información relacionada...</div> : isAdmin && selectedView?.id ? <ClientRelationsManager clientId={selectedView.id} clientName={selectedView.name} locations={related.locations} equipment={related.equipment} contacts={related.contacts} onRefresh={() => loadRelated(selectedView.id)} /> : <ReadonlyRelations related={related} />}
       </div>}
     </AdminEntityModal>
   </div>;

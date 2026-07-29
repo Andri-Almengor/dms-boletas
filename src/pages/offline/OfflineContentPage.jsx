@@ -2,6 +2,7 @@ import React, { useCallback, useEffect, useMemo, useState } from 'react';
 import { Link } from 'react-router-dom';
 import { useAuth } from '../../AuthContext';
 import Icon from '../../components/common/Icon';
+import useOfflineMode from '../../hooks/useOfflineMode';
 import { getOfflineStorageStats } from '../../services/offlineStore';
 import { preloadOfflineCatalogs } from '../../services/moduleApi';
 
@@ -38,26 +39,36 @@ function statusIcon(section) {
 
 export default function OfflineContentPage() {
   const { sessionToken } = useAuth();
+  const [offlineEnabled, setOfflineEnabled] = useOfflineMode();
   const [stats, setStats] = useState(null);
-  const [loading, setLoading] = useState(true);
+  const [loading, setLoading] = useState(false);
   const [updating, setUpdating] = useState(false);
   const [message, setMessage] = useState('');
   const [error, setError] = useState('');
 
   const loadStats = useCallback(async () => {
+    if (!offlineEnabled) {
+      setStats(null);
+      setLoading(false);
+      return null;
+    }
     setLoading(true);
     try {
-      setStats(await getOfflineStorageStats());
+      const next = await getOfflineStorageStats();
+      setStats(next);
       setError('');
+      return next;
     } catch (err) {
       setError(err?.message || 'No fue posible leer el contenido descargado.');
+      return null;
     } finally {
       setLoading(false);
     }
-  }, []);
+  }, [offlineEnabled]);
 
   useEffect(() => {
     loadStats();
+    if (!offlineEnabled) return undefined;
     const refresh = () => loadStats();
     window.addEventListener('online', refresh);
     window.addEventListener('offline', refresh);
@@ -69,24 +80,26 @@ export default function OfflineContentPage() {
       window.removeEventListener('dms-offline-queue-change', refresh);
       window.removeEventListener('dms-offline-sync-complete', refresh);
     };
-  }, [loadStats]);
+  }, [loadStats, offlineEnabled]);
 
   async function updateContent() {
     if (navigator.onLine === false) {
       setError('Necesita conexión a internet para actualizar el contenido descargado.');
       return;
     }
+    if (!offlineEnabled) setOfflineEnabled(true);
     setUpdating(true);
     setError('');
     setMessage('Descargando la base operativa más reciente...');
     try {
       const results = await preloadOfflineCatalogs(sessionToken);
       const failed = results.filter((item) => item.status === 'rejected');
-      await loadStats();
+      const nextStats = await getOfflineStorageStats();
+      setStats(nextStats);
       if (failed.length) {
         setMessage(`La descarga terminó con ${failed.length} sección${failed.length === 1 ? '' : 'es'} pendiente${failed.length === 1 ? '' : 's'}. Puede reintentar.`);
       } else {
-        setMessage('Contenido sin conexión actualizado correctamente.');
+        setMessage('Modo sin conexión activado y contenido actualizado correctamente.');
       }
     } catch (err) {
       setError(err?.message || 'No fue posible actualizar el contenido sin conexión.');
@@ -108,18 +121,24 @@ export default function OfflineContentPage() {
           <Link to="/mas" className="back-link"><Icon name="arrow_back" /> Más opciones</Link>
           <span className="eyebrow">MODO SIN CONEXIÓN</span>
           <h1>Contenido descargado</h1>
-          <p>Revise qué información ya está disponible para trabajar cuando el técnico se quede sin internet.</p>
+          <p>Active esta función únicamente en los dispositivos que necesitan trabajar sin internet.</p>
         </div>
-        <button type="button" className="button button--primary offline-download-button" onClick={updateContent} disabled={updating || navigator.onLine === false}>
+        {offlineEnabled && <button type="button" className="button button--primary offline-download-button" onClick={updateContent} disabled={updating || navigator.onLine === false}>
           <Icon name={updating ? 'sync' : 'download_for_offline'} />
           {updating ? 'Actualizando...' : 'Actualizar contenido'}
-        </button>
+        </button>}
       </header>
 
       {message && <div className="notice notice--success"><Icon name="check_circle" /> {message}</div>}
       {error && <div className="notice notice--error"><Icon name="error" /> {error}</div>}
 
-      {loading && !stats ? (
+      {!offlineEnabled ? (
+        <section className="offline-disabled-card">
+          <span className="offline-disabled-card__icon"><Icon name="speed" /></span>
+          <div><span className="eyebrow">MODO OPTIMIZADO</span><h2>El modo sin conexión está desactivado</h2><p>La aplicación no descargará catálogos completos, no mantendrá una cola de sincronización ni observará formularios en segundo plano. Esta es la configuración recomendada para teléfonos con menos memoria.</p></div>
+          <button type="button" className="button button--primary" onClick={updateContent} disabled={updating || navigator.onLine === false}><Icon name={updating ? 'sync' : 'offline_bolt'} />{updating ? 'Activando...' : 'Activar y descargar contenido'}</button>
+        </section>
+      ) : loading && !stats ? (
         <section className="empty-state"><Icon name="downloading" /><h2>Revisando almacenamiento local...</h2></section>
       ) : stats && (
         <>
@@ -165,25 +184,15 @@ export default function OfflineContentPage() {
 
           <section className="offline-section-panel">
             <div className="section-heading">
-              <div>
-                <span className="eyebrow">BASE OPERATIVA</span>
-                <h2>Contenido disponible</h2>
-              </div>
+              <div><span className="eyebrow">BASE OPERATIVA</span><h2>Contenido disponible</h2></div>
               <span className="offline-section-panel__count">{stats.downloadedSections}/{stats.totalSections}</span>
             </div>
-
             <div className="offline-section-list">
               {stats.sections.map((section) => (
                 <article key={section.id} className={`offline-section-row${section.available ? ' is-available' : ''}${section.stale ? ' is-stale' : ''}`}>
                   <span className="offline-section-row__icon"><Icon name={statusIcon(section)} /></span>
-                  <div className="offline-section-row__content">
-                    <strong>{section.label}</strong>
-                    <small>{statusText(section)}{section.savedAt ? ` · ${formatDate(section.savedAt)}` : ''}</small>
-                  </div>
-                  <div className="offline-section-row__value">
-                    <strong>{section.records.toLocaleString('es-CR')}</strong>
-                    <small>registros</small>
-                  </div>
+                  <div className="offline-section-row__content"><strong>{section.label}</strong><small>{statusText(section)}{section.savedAt ? ` · ${formatDate(section.savedAt)}` : ''}</small></div>
+                  <div className="offline-section-row__value"><strong>{section.records.toLocaleString('es-CR')}</strong><small>registros</small></div>
                 </article>
               ))}
             </div>
@@ -191,23 +200,15 @@ export default function OfflineContentPage() {
 
           <section className="offline-section-panel">
             <div className="section-heading">
-              <div>
-                <span className="eyebrow">SINCRONIZACIÓN</span>
-                <h2>Cambios pendientes de envío</h2>
-              </div>
+              <div><span className="eyebrow">SINCRONIZACIÓN</span><h2>Cambios pendientes de envío</h2></div>
               <span className="offline-section-panel__count">{stats.pendingCount}</span>
             </div>
-
             {stats.pendingOperations.length ? (
               <div className="offline-pending-list">
                 {stats.pendingOperations.map((operation) => (
                   <article key={operation.id} className={`offline-pending-row status-${operation.status.toLowerCase()}`}>
                     <span className="offline-section-row__icon"><Icon name={operation.status === 'ERROR' ? 'sync_problem' : 'pending_actions'} /></span>
-                    <div>
-                      <strong>{operation.description}</strong>
-                      <small>{formatDate(operation.createdAt)} · {operation.attempts} intento{operation.attempts === 1 ? '' : 's'}</small>
-                      {operation.lastError && <p>{operation.lastError}</p>}
-                    </div>
+                    <div><strong>{operation.description}</strong><small>{formatDate(operation.createdAt)} · {operation.attempts} intento{operation.attempts === 1 ? '' : 's'}</small>{operation.lastError && <p>{operation.lastError}</p>}</div>
                   </article>
                 ))}
               </div>
@@ -216,7 +217,7 @@ export default function OfflineContentPage() {
             )}
           </section>
 
-          <p className="offline-content-page__note"><Icon name="info" /> Para usar el modo offline, el técnico debe abrir la aplicación con internet al menos una vez en el mismo teléfono o computadora. Los archivos, correos, PDF y mensajes se envían cuando vuelva la conexión.</p>
+          <p className="offline-content-page__note"><Icon name="info" /> El modo sin conexión consume más almacenamiento y trabajo en segundo plano. Manténgalo activo solo en los equipos que realmente lo necesitan.</p>
         </>
       )}
     </div>

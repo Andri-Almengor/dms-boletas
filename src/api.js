@@ -1,7 +1,10 @@
+import { isOfflineModeEnabled } from './services/offlineMode';
+
 const APPS_SCRIPT_FALLBACK = 'https://script.google.com/macros/s/AKfycbzGZuFbXWJn3y4hbfSGRFeaJfWufu2xaDnoAb9dFZl4DklRXiuFU9-GSb-q2hnY7O6pmQ/exec';
 const SAME_ORIGIN_NODE_API = '/api/action';
 const READ_CACHE_MS = 15_000;
 const READ_STALE_MS = 5 * 60_000;
+const MAX_RECENT_READS = 120;
 const TRANSIENT_BACKEND_STATUSES = new Set([502, 503, 504]);
 const TRANSIENT_RETRY_DELAYS_MS = [700, 1500, 2800];
 const pendingReads = new Map();
@@ -35,8 +38,6 @@ function preparePayload(route, payload) {
   if (!isTicketCreate || payload?.boletaUid || payload?.BoletaUID) return payload;
   const random = globalThis.crypto?.randomUUID?.() || `${Date.now()}-${Math.random().toString(16).slice(2)}`;
   const uid = `boleta-${random}`;
-  // Se modifica el mismo objeto para que, si la respuesta se pierde por un corte
-  // de internet, la cola offline reutilice exactamente el mismo identificador.
   payload.boletaUid = uid;
   payload.BoletaUID = uid;
   return payload;
@@ -59,6 +60,16 @@ function transientError(error) {
     || text.includes('failed to fetch')
     || text.includes('networkerror')
     || text.includes('load failed');
+}
+
+function onlineRequiredError(originalError = null) {
+  const error = new Error('No se pudo conectar al servidor. El modo sin conexión está desactivado en este dispositivo.');
+  error.name = 'Error';
+  error.code = 'ONLINE_REQUIRED';
+  error.status = Number(originalError?.status || 0);
+  error.retryable = false;
+  error.cause = originalError || undefined;
+  return error;
 }
 
 function isSheetsQuotaError(error) {
@@ -118,15 +129,20 @@ async function performRequest(route, payload, sessionToken) {
 }
 
 async function performRequestWithRetry(route, payload, sessionToken) {
+  if (typeof navigator !== 'undefined' && navigator.onLine === false && !isOfflineModeEnabled()) {
+    throw onlineRequiredError();
+  }
+
   let lastError;
   for (let attempt = 0; attempt <= TRANSIENT_RETRY_DELAYS_MS.length; attempt += 1) {
     try {
       return await performRequest(route, payload, sessionToken);
     } catch (error) {
       lastError = error;
-      // Los 429 de Sheets no se reintentan desde cada navegador. El backend
-      // centraliza el backoff para evitar que muchos teléfonos creen una tormenta.
-      if (!transientError(error) || attempt === TRANSIENT_RETRY_DELAYS_MS.length) throw error;
+      if (!transientError(error) || attempt === TRANSIENT_RETRY_DELAYS_MS.length) {
+        if (transientError(error) && !isOfflineModeEnabled()) throw onlineRequiredError(error);
+        throw error;
+      }
       await wait(TRANSIENT_RETRY_DELAYS_MS[attempt]);
     }
   }
@@ -154,6 +170,16 @@ function invalidateRelatedReads(route) {
     const readRoute = String(entry.route || key).toLowerCase();
     if (families.some((family) => family && readRoute.includes(family))) recentReads.delete(key);
   }
+}
+
+function pruneRecentReads(now = Date.now()) {
+  for (const [key, entry] of recentReads.entries()) {
+    if (Number(entry.staleUntil || 0) <= now) recentReads.delete(key);
+  }
+  if (recentReads.size <= MAX_RECENT_READS) return;
+  const oldest = [...recentReads.entries()]
+    .sort((left, right) => Number(left[1].lastAccess || 0) - Number(right[1].lastAccess || 0));
+  oldest.slice(0, recentReads.size - MAX_RECENT_READS).forEach(([key]) => recentReads.delete(key));
 }
 
 function notifyWriteComplete(route, payload, data) {
@@ -198,34 +224,37 @@ export async function apiRequest(route, payload = {}, sessionToken = '') {
     return data;
   }
 
+  const now = Date.now();
+  pruneRecentReads(now);
   const key = requestKey(route, payload, sessionToken);
   const cached = recentReads.get(key);
-  if (cached && cached.expiresAt > Date.now()) return cached.data;
-  if (cached && cached.staleUntil <= Date.now()) recentReads.delete(key);
+  if (cached && cached.expiresAt > now) {
+    cached.lastAccess = now;
+    return cached.data;
+  }
+  if (cached && cached.staleUntil <= now) recentReads.delete(key);
   if (pendingReads.has(key)) return pendingReads.get(key);
 
   const requestEpoch = writeEpoch;
   const request = performRequestWithRetry(route, payload, sessionToken)
     .then((data) => {
-      // Si ocurrió una escritura mientras la lectura estaba en vuelo, no se
-      // conserva una respuesta potencialmente anterior al cambio.
       if (requestEpoch === writeEpoch) {
-        const entry = {
+        const savedAt = Date.now();
+        recentReads.set(key, {
           route,
           data,
-          expiresAt: Date.now() + READ_CACHE_MS,
-          staleUntil: Date.now() + READ_STALE_MS,
-        };
-        recentReads.set(key, entry);
-        setTimeout(() => {
-          if (recentReads.get(key) === entry && entry.staleUntil <= Date.now()) recentReads.delete(key);
-        }, READ_STALE_MS + 1000);
+          expiresAt: savedAt + READ_CACHE_MS,
+          staleUntil: savedAt + READ_STALE_MS,
+          lastAccess: savedAt,
+        });
+        pruneRecentReads(savedAt);
       }
       return data;
     })
     .catch((error) => {
       const stale = recentReads.get(key);
       if (isSheetsQuotaError(error) && stale && stale.staleUntil > Date.now()) {
+        stale.lastAccess = Date.now();
         notifyDegradedMode(route, error);
         return stale.data;
       }

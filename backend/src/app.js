@@ -19,12 +19,13 @@ const distPath = path.resolve(__dirname, '../../dist');
 
 export const app = express();
 app.set('trust proxy', 1);
+app.set('etag', 'strong');
 app.disable('x-powered-by');
 app.use(helmet({
   contentSecurityPolicy: false,
   crossOriginResourcePolicy: { policy: 'cross-origin' },
 }));
-app.use(compression());
+app.use(compression({ threshold: 1_024 }));
 app.use(cors({
   origin: env.frontendOrigin === '*'
     ? true
@@ -35,11 +36,13 @@ app.use(express.json({ limit: '25mb' }));
 app.use(express.text({ type: ['text/plain', 'application/javascript'], limit: '25mb' }));
 
 app.get('/api/health', (_req, res) => {
+  res.setHeader('Cache-Control', 'no-store');
   res.json({ ok: true, service: 'dms-boletas-backend', time: new Date().toISOString() });
 });
 
 app.post('/api/action', async (req, res, next) => {
   try {
+    res.setHeader('Cache-Control', 'no-store');
     const body = typeof req.body === 'string' ? JSON.parse(req.body || '{}') : (req.body || {});
     const route = body.route || body.action;
     const requestOrigin = req.get('origin') || `${req.protocol}://${req.get('host')}`;
@@ -59,14 +62,27 @@ app.post('/api/action', async (req, res, next) => {
 
 if (env.isProduction) {
   app.use(express.static(distPath, {
-    maxAge: '1h',
+    maxAge: '1d',
     index: false,
+    etag: true,
     setHeaders(response, filePath) {
-      if (filePath.endsWith('sw.js')) response.setHeader('Cache-Control', 'no-cache');
+      const normalized = filePath.replace(/\\/g, '/');
+      if (normalized.endsWith('/sw.js')) {
+        response.setHeader('Cache-Control', 'no-cache, no-store, must-revalidate');
+        return;
+      }
+      if (normalized.includes('/assets/')) {
+        response.setHeader('Cache-Control', 'public, max-age=31536000, immutable');
+        return;
+      }
+      if (normalized.endsWith('/manifest.webmanifest') || normalized.includes('/icons/')) {
+        response.setHeader('Cache-Control', 'public, max-age=86400, stale-while-revalidate=604800');
+      }
     },
   }));
   app.get('*', (req, res, next) => {
     if (req.path.startsWith('/api/')) return next();
+    res.setHeader('Cache-Control', 'no-cache, no-store, must-revalidate');
     return res.sendFile(path.join(distPath, 'index.html'));
   });
 }
