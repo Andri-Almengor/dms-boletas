@@ -1,0 +1,203 @@
+.maintenance-checklist__heading {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 16px;
+  margin-bottom: 14px;
+}
+
+.maintenance-checklist__heading h3 {
+  margin: 0;
+  min-width: 0;
+}
+
+.maintenance-checklist-pending-toggle {
+  position: relative;
+  flex: 0 0 auto;
+  min-height: 44px;
+  padding: 6px 10px 6px 7px;
+  border: 1px solid var(--outline-soft);
+  border-radius: 12px;
+  background: var(--surface-card);
+  color: var(--text);
+  display: inline-flex;
+  align-items: center;
+  gap: 9px;
+  cursor: pointer;
+  user-select: none;
+  transition: border-color .18s ease, background-color .18s ease, box-shadow .18s ease;
+}
+
+.maintenance-checklist-pending-toggle:hover {
+  border-color: var(--warning);
+}
+
+.maintenance-checklist-pending-toggle:focus-within {
+  outline: none;
+  border-color: var(--warning);
+  box-shadow: 0 0 0 3px color-mix(in srgb, var(--warning) 20%, transparent);
+}
+
+.maintenance-checklist-pending-toggle input {
+  position: absolute;
+  inline-size: 1px;
+  block-size: 1px;
+  opacity: 0;
+  pointer-events: none;
+}
+
+.maintenance-checklist-pending-toggle__box {
+  width: 28px;
+  height: 28px;
+  border: 2px solid var(--outline);
+  border-radius: 7px;
+  background: var(--surface-low);
+  color: transparent;
+  display: grid;
+  place-items: center;
+  transition: border-color .18s ease, background-color .18s ease, color .18s ease;
+}
+
+.maintenance-checklist-pending-toggle__box .material-symbols-outlined {
+  font-size: 19px;
+}
+
+.maintenance-checklist-pending-toggle__text {
+  display: grid;
+  line-height: 1.15;
+  text-align: left;
+}
+
+.maintenance-checklist-pending-toggle__text strong {
+  font-size: .78rem;
+}
+
+.maintenance-checklist-pending-toggle__text small {
+  margin-top: 3px;
+  color: var(--muted);
+  font-size: .66rem;
+}
+
+.maintenance-checklist-pending-toggle.is-checked {
+  border-color: var(--warning);
+  background: var(--warning-soft);
+}
+
+.maintenance-checklist-pending-toggle.is-checked .maintenance-checklist-pending-toggle__box {
+  border-color: var(--warning);
+  background: var(--warning);
+  color: #231a08;
+}
+
+.maintenance-checklist-pending-toggle:has(input:disabled) {
+  cursor: not-allowed;
+  opacity: .65;
+}
+
+.maintenance-checklist-pending-note,
+.maintenance-inventory-pending-note {
+  margin: 0 0 14px;
+  padding: 11px 13px;
+  border: 1px solid color-mix(in srgb, var(--warning) 48%, var(--outline-soft));
+  border-radius: 12px;
+  background: var(--warning-soft);
+  color: var(--text);
+  display: flex;
+  align-items: flex-start;
+  gap: 10px;
+}
+
+.maintenance-checklist-pending-note > .material-symbols-outlined,
+.maintenance-inventory-pending-note > .material-symbols-outlined {
+  flex: 0 0 auto;
+  color: var(--warning);
+  font-size: 21px;
+}
+
+.maintenance-checklist-pending-note p {
+  margin: 0;
+  font-size: .78rem;
+  line-height: 1.45;
+}
+
+.maintenance-checklist.is-pending > .maintenance-dynamic-question,
+.maintenance-checklist.is-pending > .maintenance-question-state,
+.maintenance-checklist.is-pending > .maintenance-question-warning,
+.maintenance-checklist.is-pending > .info-box {
+  opacity: .58;
+}
+
+.maintenance-checklist.is-pending .maintenance-choice button:disabled {
+  cursor: not-allowed;
+}
+
+.maintenance-inventory-pending-note {
+  margin-top: 12px;
+}
+
+.maintenance-inventory-pending-note div {
+  min-width: 0;
+  display: grid;
+  gap: 3px;
+}
+
+.maintenance-inventory-pending-note strong {
+  font-size: .8rem;
+}
+
+.maintenance-inventory-pending-note span {
+  color: var(--muted);
+  font-size: .74rem;
+  line-height: 1.4;
+}
+
+.maintenance-inventory-checklist.is-pending {
+  opacity: .62;
+}
+
+.maintenance-device-compact-state.is-pending,
+.maintenance-inventory-mobile-toggle em.is-pending {
+  border-color: color-mix(in srgb, var(--warning) 62%, var(--outline-soft));
+  background: var(--warning-soft);
+  color: var(--warning);
+}
+
+.maintenance-device-category-chips button.is-pending {
+  border-color: color-mix(in srgb, var(--warning) 45%, var(--outline-soft));
+}
+
+.maintenance-device-category-chips button.is-pending > .material-symbols-outlined {
+  font-size: 16px;
+}
+
+.maintenance-device-category-chips button.is-pending.is-active {
+  border-color: var(--warning);
+  background: var(--warning-soft);
+  color: var(--warning);
+}
+
+.maintenance-inventory-mobile-card.is-pending {
+  border-color: color-mix(in srgb, var(--warning) 50%, var(--outline-soft));
+}
+
+@media (max-width: 620px) {
+  .maintenance-checklist__heading {
+    align-items: stretch;
+    flex-direction: column;
+  }
+
+  .maintenance-checklist-pending-toggle {
+    width: 100%;
+    justify-content: flex-start;
+  }
+
+  .maintenance-checklist-pending-toggle__text {
+    grid-template-columns: auto 1fr;
+    align-items: baseline;
+    column-gap: 8px;
+  }
+
+  .maintenance-checklist-pending-toggle__text small {
+    margin-top: 0;
+  }
+}
