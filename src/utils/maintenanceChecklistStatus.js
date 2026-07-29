@@ -37,6 +37,8 @@ function activeQuestion(question) {
     && question?.Activo !== false;
 }
 
+// Se usa mayúscula exacta para el pendiente manual que bloquea la checklist.
+// El pendiente automático conserva el mismo valor visible, pero no bloquea preguntas.
 export const MANUAL_PENDING_STATE = 'PENDIENTE';
 export const AUTOMATIC_PENDING_STATE = 'Pendiente';
 
