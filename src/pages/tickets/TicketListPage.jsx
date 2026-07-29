@@ -69,11 +69,13 @@ export default function TicketListPage({ status }) {
   const [total, setTotal] = useState(0);
   const [hasMore, setHasMore] = useState(false);
   const requestSequence = useRef(0);
+  const catalogsRequestStarted = useRef(false);
   const isPending = status === 'PENDIENTE';
 
   useEffect(() => {
-    if (!filterOpen || catalogsLoaded || catalogsLoading || !sessionToken) return undefined;
+    if (!filterOpen || catalogsLoaded || catalogsRequestStarted.current || !sessionToken) return undefined;
     let active = true;
+    catalogsRequestStarted.current = true;
     setCatalogsLoading(true);
 
     const jobs = [
@@ -96,11 +98,12 @@ export default function TicketListPage({ status }) {
         setCatalogsLoaded(true);
       })
       .finally(() => {
+        catalogsRequestStarted.current = false;
         if (active) setCatalogsLoading(false);
       });
 
     return () => { active = false; };
-  }, [filterOpen, catalogsLoaded, catalogsLoading, sessionToken, isAdmin]);
+  }, [filterOpen, catalogsLoaded, sessionToken, isAdmin]);
 
   const loadTickets = useCallback(async (query = '', currentFilters = EMPTY_FILTERS, options = {}) => {
     if (invalidDateRange(currentFilters)) {
