@@ -1,6 +1,10 @@
 import React, { useEffect, useMemo, useState } from 'react';
 import Icon from '../common/Icon';
 import { getMaintenanceCategory } from '../../config/maintenanceCategories';
+import {
+  effectiveMaintenanceDeviceState,
+  isMaintenanceChecklistPending,
+} from '../../utils/maintenanceChecklistStatus';
 
 const PAGE_SIZES = [25, 50, 100];
 
@@ -21,14 +25,19 @@ function evidenceCount(device) {
   return Number(device.images?.length || 0) + Number(device.newImages?.length || 0);
 }
 
+function checklistQuestions(device) {
+  return getMaintenanceCategory(device.categoria).questions;
+}
+
 function deviceState(device) {
-  const text = normalized(device.estado);
+  const state = effectiveMaintenanceDeviceState(device, checklistQuestions(device));
+  const text = normalized(state);
   if (!text) return 'SIN ESTADO';
-  return text === 'correcto' || text.startsWith('si') ? 'CORRECTO' : String(device.estado).toUpperCase();
+  return text === 'correcto' || text.startsWith('si') ? 'CORRECTO' : String(state).toUpperCase();
 }
 
 function isChecklistPending(device) {
-  return deviceState(device) === 'PENDIENTE';
+  return isMaintenanceChecklistPending(device, checklistQuestions(device));
 }
 
 function stateClass(device) {
@@ -62,7 +71,7 @@ export default function MaintenanceDevicesStep({
     return devices.filter((device) => {
       if (category !== 'TODAS' && device.categoria !== category) return false;
       const currentState = deviceState(device);
-      const checklistPending = currentState === 'PENDIENTE';
+      const checklistPending = isChecklistPending(device);
       if (stateFilter === 'PENDIENTES' && !checklistPending) return false;
       if (stateFilter === 'CORRECTOS' && currentState !== 'CORRECTO') return false;
       if (stateFilter === 'ATENCION' && (currentState === 'CORRECTO' || checklistPending)) return false;
@@ -75,6 +84,7 @@ export default function MaintenanceDevicesStep({
         device.modelo,
         device.serie,
         device.estado,
+        currentState,
       ].some((value) => normalized(value).includes(search));
     });
   }, [devices, query, category, stateFilter]);
