@@ -48,7 +48,7 @@ export default function TechnicianMultiSelect({ users = [], selectedIds = [], on
     <label className="field-group">
       <span className="field-label">Buscar técnicos</span>
       <div className="input-shell technician-select__search">
-        <Icon name="search" />
+        <Icon name="search" className="input-shell__leading" />
         <input
           className="form-control form-control--with-leading"
           value={search}
