@@ -1,8 +1,10 @@
-import React, { useEffect, useState } from 'react';
+import React, { Suspense, lazy, useEffect, useState } from 'react';
 import { NavLink, Outlet, useLocation, useNavigate } from 'react-router-dom';
 import { useAuth } from '../../AuthContext';
+import useOfflineMode from '../../hooks/useOfflineMode';
 import Icon from '../common/Icon';
-import OfflineSyncManager from '../offline/OfflineSyncManager';
+
+const OfflineSyncManager = lazy(() => import('../offline/OfflineSyncManager'));
 
 function initials(name = '') {
   const parts = String(name).trim().split(/\s+/).filter(Boolean);
@@ -15,6 +17,7 @@ function NavigationItem({ to, icon, label, end = false, prominent = false }) {
 
 export default function AppShell() {
   const { user, logout, hasPermission } = useAuth();
+  const [offlineEnabled] = useOfflineMode();
   const navigate = useNavigate();
   const location = useLocation();
   const [drawerOpen, setDrawerOpen] = useState(false);
@@ -63,7 +66,7 @@ export default function AppShell() {
       </div>
       <NavLink className="assistant-route-bar__close" to={assistantReturnUrl} aria-label="Cerrar Asistente DMS" title="Cerrar"><Icon name="close" /></NavLink>
     </header>}
-    <OfflineSyncManager />
+    {offlineEnabled && <Suspense fallback={null}><OfflineSyncManager /></Suspense>}
     <div className={`drawer-backdrop${drawerOpen ? ' is-open' : ''}`} onClick={() => setDrawerOpen(false)} aria-hidden="true" />
     <aside className={`side-drawer${drawerOpen ? ' is-open' : ''}`} aria-hidden={!drawerOpen}>
       <div className="side-drawer__profile"><div className="avatar avatar--large">{initials(user?.NombreCompleto)}</div><div><strong>{user?.NombreCompleto}</strong><span>{isAdmin ? 'Administrador' : 'Técnico'}</span></div></div>
