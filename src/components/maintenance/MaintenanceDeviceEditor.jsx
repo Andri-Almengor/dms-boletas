@@ -9,6 +9,13 @@ import MaintenanceEvidenceImage from './MaintenanceEvidenceImage';
 import { getMaintenanceCategory } from '../../config/maintenanceCategories';
 import useMaintenanceQuestionCatalog from '../../hooks/useMaintenanceQuestionCatalog';
 import { MODULE_ROUTES, normalizeItems, pick, requestAvailable } from '../../services/moduleApi';
+import {
+  AUTOMATIC_PENDING_STATE,
+  MANUAL_PENDING_STATE,
+  effectiveMaintenanceDeviceState,
+  isManualChecklistPending,
+  maintenanceChecklistCompletion,
+} from '../../utils/maintenanceChecklistStatus';
 
 const MAX_IMAGE_BYTES = 15 * 1024 * 1024;
 
@@ -154,7 +161,34 @@ export default function MaintenanceDeviceEditor({
     }));
   }, [category.questions, device, questionCatalog]);
 
+  const checklistCompletion = useMemo(() => maintenanceChecklistCompletion(
+    { ...device, questionDetails: dynamicQuestions },
+    dynamicQuestions,
+  ), [device, dynamicQuestions]);
+  const manualPending = isManualChecklistPending(device);
+  const automaticPending = !manualPending && !checklistCompletion.complete;
+  const checklistPending = manualPending || automaticPending;
+  const checklistLocked = locked || manualPending;
+
+  useEffect(() => {
+    if (locked || manualPending) return;
+    const desiredState = effectiveMaintenanceDeviceState(
+      { ...device, questionDetails: dynamicQuestions },
+      dynamicQuestions,
+    );
+    if (String(device.estado || '') === desiredState) return;
+    onChange({ ...device, estado: desiredState });
+  }, [device, dynamicQuestions, locked, manualPending, onChange]);
+
   function patch(values) { onChange({ ...device, ...values }); }
+
+  function toggleChecklistPending(checked) {
+    patch({
+      estado: checked
+        ? MANUAL_PENDING_STATE
+        : (checklistCompletion.complete ? 'Correcto' : AUTOMATIC_PENDING_STATE),
+    });
+  }
 
   function updateCatalogDevice(nextDevice) {
     const previousType = String(device.tipoDispositivoId || device.categoria || '');
@@ -301,22 +335,43 @@ export default function MaintenanceDeviceEditor({
         </div>
       </section>
 
-      <section className="maintenance-checklist maintenance-device-section-card">
-        <h3><Icon name={category.icon} /> Checklist de {device.categoria || category.key}</h3>
-        <Choice label="¿El dispositivo está funcionando correctamente?" value={device.funcionamiento} onChange={(value) => patch({ funcionamiento: value })} disabled={locked} />
-        <Choice label="¿El dispositivo está en uso?" value={device.enUso} onChange={(value) => patch({ enUso: value })} options={['Sí, en uso', 'No, está guardado', 'No']} disabled={locked} />
+      <section className={`maintenance-checklist maintenance-device-section-card${checklistPending ? ' is-pending' : ''}`}>
+        <div className="maintenance-checklist__heading">
+          <h3><Icon name={category.icon} /> Checklist de {device.categoria || category.key}</h3>
+          <label className={`maintenance-checklist-pending-toggle${manualPending ? ' is-checked' : ''}`}>
+            <input
+              type="checkbox"
+              checked={manualPending}
+              onChange={(event) => toggleChecklistPending(event.target.checked)}
+              disabled={locked}
+            />
+            <span className="maintenance-checklist-pending-toggle__box" aria-hidden="true">{manualPending && <Icon name="check" />}</span>
+            <span className="maintenance-checklist-pending-toggle__text"><strong>Pendiente</strong><small>Bloquear pruebas por ahora</small></span>
+          </label>
+        </div>
+        {manualPending && <div className="maintenance-checklist-pending-note"><Icon name="schedule" /><p>Este dispositivo fue marcado manualmente como pendiente. Quite la marca para habilitar y completar la checklist.</p></div>}
+        {automaticPending && <div className="maintenance-checklist-pending-note maintenance-checklist-pending-note--automatic"><Icon name="pending_actions" /><p>Estado pendiente automático: faltan {checklistCompletion.missing.length} respuesta{checklistCompletion.missing.length === 1 ? '' : 's'} obligatoria{checklistCompletion.missing.length === 1 ? '' : 's'}. La checklist permanece habilitada y dejará de estar pendiente al completarla.</p></div>}
+        <Choice label="¿El dispositivo está funcionando correctamente?" value={device.funcionamiento} onChange={(value) => patch({ funcionamiento: value })} disabled={checklistLocked} />
+        <Choice label="¿El dispositivo está en uso?" value={device.enUso} onChange={(value) => patch({ enUso: value })} options={['Sí, en uso', 'No, está guardado', 'No']} disabled={checklistLocked} />
         {questionCatalog.loading && <div className="maintenance-question-state"><Icon name="progress_activity" /><span>Cargando preguntas relacionadas con el tipo de dispositivo...</span></div>}
         {dynamicQuestions.map((question) => <Choice
           key={`${question.questionId || question.key}-${question.key}`}
           label={question.label}
           value={String(device.respuestas?.[question.key] ?? question.value ?? '')}
           onChange={(value) => updateQuestion(question, value)}
-          disabled={locked || question.historical}
+          disabled={checklistLocked || question.historical}
           note={question.historical ? 'Pregunta histórica: fue eliminada o desactivada después de este mantenimiento.' : ''}
         />)}
         {!questionCatalog.loading && !dynamicQuestions.length && <div className="info-box"><Icon name="info" /><p>Este tipo no tiene preguntas específicas activas. Puede agregarlas desde Administración → Preguntas de mantenimiento.</p></div>}
         {questionCatalog.error && <div className="info-box maintenance-question-warning"><Icon name="cloud_off" /><p>No se pudo actualizar el catálogo de preguntas. Se muestran las preguntas compatibles disponibles en el dispositivo.</p></div>}
-        <Choice label="Estado" value={device.estado} onChange={(value) => patch({ estado: value })} options={['Correcto', 'Mal estado']} disabled={locked} />
+        <Choice
+          label="Estado"
+          value={checklistPending ? '' : device.estado}
+          onChange={(value) => patch({ estado: value })}
+          options={['Correcto', 'Mal estado']}
+          disabled={checklistLocked || !checklistCompletion.complete}
+          note={!checklistCompletion.complete ? 'El estado final se habilitará cuando todas las preguntas obligatorias estén respondidas.' : ''}
+        />
       </section>
 
       <section className="form-card maintenance-device-section-card">

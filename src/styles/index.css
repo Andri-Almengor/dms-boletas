@@ -40,6 +40,7 @@
 @import './maintenance-device-header-save.css';
 @import './maintenance-device-bulk-move.css';
 @import './maintenance-device-desktop-fixes.css';
+@import './maintenance-device-pending.css';
 @import './maintenance-location-workflow.css';
 @import './user-password-reset.css';
 @import './public-signature.css';

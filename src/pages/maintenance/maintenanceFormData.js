@@ -7,6 +7,10 @@ import {
 } from '../../config/maintenanceCategories';
 import { pick } from '../../services/moduleApi';
 import { todayInCostaRica } from '../../utils/costaRicaDate';
+import {
+  AUTOMATIC_PENDING_STATE,
+  effectiveMaintenanceDeviceState,
+} from '../../utils/maintenanceChecklistStatus';
 
 export const MAINTENANCE_STEPS = [
   ['Información general', 'Cliente, ubicación, responsables, fechas y descripción.'],
@@ -102,7 +106,7 @@ export function createMaintenanceDevice(category = 'Cámara') {
     fechaTrabajo: todayInCostaRica(), tecnicoIds: [],
     tipoDispositivoId: '', categoria: canonicalCategory,
     fabricanteId: '', fabricante: '', modeloId: '', modelo: '',
-    nombre: '', serie: '', funcionamiento: '', enUso: '', estado: 'Correcto', observacion: '',
+    nombre: '', serie: '', funcionamiento: '', enUso: '', estado: AUTOMATIC_PENDING_STATE, observacion: '',
     respuestas: createEmptyChecklist(canonicalCategory), questionDetails: [], images: [], newImages: [],
   };
 }
@@ -148,7 +152,7 @@ export function mapMaintenanceDevice(row = {}) {
     'Ubicación del equipo',
   ]);
   const legacyLocation = pick(row, ['Zona', 'UbicacionEspecifica', 'zona']);
-  return {
+  const mapped = {
     localId: String(pick(row, ['EvidenciaMantenimientoID', 'deviceId', 'id'], crypto.randomUUID?.() || Date.now())),
     id: String(pick(row, ['EvidenciaMantenimientoID', 'deviceId', 'id'])),
     ubicacionEquipoId: String(pick(row, ['UbicacionEquipoID', 'ubicacionEquipoId'])),
@@ -168,12 +172,16 @@ export function mapMaintenanceDevice(row = {}) {
     serie: pick(row, ['Serie', 'serie']),
     funcionamiento: pick(row, ['Funcionamiento', 'funcionamiento']),
     enUso: pick(row, ['EnUso', 'enUso']),
-    estado: pick(row, ['Estado', 'estado'], 'Correcto'),
+    estado: pick(row, ['Estado', 'estado'], AUTOMATIC_PENDING_STATE),
     observacion: pick(row, ['Observacion', 'observacion']),
     respuestas: bundle.answers,
     questionDetails: bundle.questionDetails,
     images: (row.Imagenes || row.images || []).map(mapImage),
     newImages: [],
+  };
+  return {
+    ...mapped,
+    estado: effectiveMaintenanceDeviceState(mapped, getMaintenanceCategory(category).questions),
   };
 }
 
@@ -192,6 +200,7 @@ export function maintenanceDevicePayload(device, maintenanceId) {
   const technicianIds = (device.tecnicoIds || []).map(String).filter(Boolean);
   const category = canonicalMaintenanceCategoryName(device.categoria);
   const equipmentLocationName = String(device.ubicacionEquipoNombre || device.zona || '').trim();
+  const effectiveState = effectiveMaintenanceDeviceState(device, getMaintenanceCategory(category).questions);
   return {
     maintenanceId, MantenimientoID: maintenanceId, deviceId: device.id,
     EvidenciaMantenimientoID: device.id,
@@ -216,7 +225,7 @@ export function maintenanceDevicePayload(device, maintenanceId) {
     Modelo: device.modelo,
     NombreDispositivo: device.nombre,
     Serie: device.serie, Funcionamiento: device.funcionamiento,
-    EnUso: device.enUso, Estado: device.estado, Observacion: device.observacion,
+    EnUso: device.enUso, Estado: effectiveState, Observacion: device.observacion,
     questionDetails: device.questionDetails || [],
     respuestasDetalle: device.questionDetails || [],
     RespuestasJSON: JSON.stringify(device.respuestas), ...device.respuestas,

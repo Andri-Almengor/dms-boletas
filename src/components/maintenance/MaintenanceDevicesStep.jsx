@@ -1,6 +1,10 @@
 import React, { useEffect, useMemo, useState } from 'react';
 import Icon from '../common/Icon';
 import { getMaintenanceCategory } from '../../config/maintenanceCategories';
+import {
+  effectiveMaintenanceDeviceState,
+  isMaintenanceChecklistPending,
+} from '../../utils/maintenanceChecklistStatus';
 
 const PAGE_SIZES = [25, 50, 100];
 
@@ -21,10 +25,26 @@ function evidenceCount(device) {
   return Number(device.images?.length || 0) + Number(device.newImages?.length || 0);
 }
 
+function checklistQuestions(device) {
+  return getMaintenanceCategory(device.categoria).questions;
+}
+
 function deviceState(device) {
-  const text = normalized(device.estado);
+  const state = effectiveMaintenanceDeviceState(device, checklistQuestions(device));
+  const text = normalized(state);
   if (!text) return 'SIN ESTADO';
-  return text === 'correcto' || text.startsWith('si') ? 'CORRECTO' : String(device.estado).toUpperCase();
+  return text === 'correcto' || text.startsWith('si') ? 'CORRECTO' : String(state).toUpperCase();
+}
+
+function isChecklistPending(device) {
+  return isMaintenanceChecklistPending(device, checklistQuestions(device));
+}
+
+function stateClass(device) {
+  const state = deviceState(device);
+  if (state === 'CORRECTO') return 'is-good';
+  if (state === 'PENDIENTE') return 'is-warning is-pending';
+  return 'is-warning';
 }
 
 export default function MaintenanceDevicesStep({
@@ -51,8 +71,10 @@ export default function MaintenanceDevicesStep({
     return devices.filter((device) => {
       if (category !== 'TODAS' && device.categoria !== category) return false;
       const currentState = deviceState(device);
+      const checklistPending = isChecklistPending(device);
+      if (stateFilter === 'PENDIENTES' && !checklistPending) return false;
       if (stateFilter === 'CORRECTOS' && currentState !== 'CORRECTO') return false;
-      if (stateFilter === 'ATENCION' && currentState === 'CORRECTO') return false;
+      if (stateFilter === 'ATENCION' && (currentState === 'CORRECTO' || checklistPending)) return false;
       if (!search) return true;
       return [
         device.nombre,
@@ -62,6 +84,7 @@ export default function MaintenanceDevicesStep({
         device.modelo,
         device.serie,
         device.estado,
+        currentState,
       ].some((value) => normalized(value).includes(search));
     });
   }, [devices, query, category, stateFilter]);
@@ -73,6 +96,7 @@ export default function MaintenanceDevicesStep({
   useEffect(() => { if (page > totalPages) setPage(totalPages); }, [page, totalPages]);
 
   const correct = devices.filter((item) => deviceState(item) === 'CORRECTO').length;
+  const pendingChecklist = devices.filter(isChecklistPending).length;
   const evidenceTotal = devices.reduce((sum, item) => sum + evidenceCount(item), 0);
   const addDisabled = disabled || !canAddDevice;
   const addTitle = canAddDevice
@@ -85,6 +109,7 @@ export default function MaintenanceDevicesStep({
         <div><strong>{devices.length}</strong><span>registrados</span></div>
         <div><strong>{expectedTotal}</strong><span>esperados</span></div>
         <div><strong>{correct}</strong><span>correctos</span></div>
+        <div className={pendingChecklist ? 'is-pending' : ''}><strong>{pendingChecklist}</strong><span>pendientes</span></div>
         <div><strong>{evidenceTotal}</strong><span>evidencias</span></div>
       </section>
 
@@ -115,7 +140,7 @@ export default function MaintenanceDevicesStep({
             type="search"
             value={query}
             onChange={(event) => setQuery(event.target.value)}
-            placeholder="Buscar nombre, zona, modelo o serie..."
+            placeholder="Buscar nombre, zona, modelo, serie o estado..."
           />
         </label>
         <select value={category} onChange={(event) => setCategory(event.target.value)} aria-label="Filtrar por categoría">
@@ -124,6 +149,7 @@ export default function MaintenanceDevicesStep({
         </select>
         <select value={stateFilter} onChange={(event) => setStateFilter(event.target.value)} aria-label="Filtrar por estado">
           <option value="TODOS">Todos los estados</option>
+          <option value="PENDIENTES">Pendientes de checklist</option>
           <option value="CORRECTOS">Correctos</option>
           <option value="ATENCION">Requieren atención</option>
         </select>
@@ -136,6 +162,11 @@ export default function MaintenanceDevicesStep({
         <button type="button" className={category === 'TODAS' ? 'is-active' : ''} onClick={() => setCategory('TODAS')}>
           Todos <span>{devices.length}</span>
         </button>
+        {pendingChecklist > 0 && (
+          <button type="button" className={stateFilter === 'PENDIENTES' ? 'is-active is-pending' : 'is-pending'} onClick={() => setStateFilter((current) => current === 'PENDIENTES' ? 'TODOS' : 'PENDIENTES')}>
+            <Icon name="schedule" />Pendientes <span>{pendingChecklist}</span>
+          </button>
+        )}
         {categories.map((name) => (
           <button type="button" key={name} className={category === name ? 'is-active' : ''} onClick={() => setCategory(name)}>
             {name} <span>{devices.filter((item) => item.categoria === name).length}</span>
@@ -159,7 +190,7 @@ export default function MaintenanceDevicesStep({
                       <td>{device.categoria || 'Sin categoría'}</td>
                       <td>{device.zona || 'Sin ubicación'}</td>
                       <td>{[device.modelo, device.serie].filter(Boolean).join(' · ') || 'Sin datos'}</td>
-                      <td><span className={`maintenance-device-compact-state ${deviceState(device) === 'CORRECTO' ? 'is-good' : 'is-warning'}`}>{deviceState(device)}</span></td>
+                      <td><span className={`maintenance-device-compact-state ${stateClass(device)}`}>{deviceState(device)}</span></td>
                       <td><span className="maintenance-device-evidence-count"><Icon name="photo_library" />{evidenceCount(device)}</span></td>
                       <td><button type="button" className="icon-button maintenance-device-open" onClick={() => onOpenDevice(device)} aria-label={`Abrir ${device.nombre || 'dispositivo'}`}><Icon name="chevron_right" /></button></td>
                     </tr>
@@ -171,13 +202,13 @@ export default function MaintenanceDevicesStep({
 
           <div className="maintenance-device-mobile-list">
             {visible.map((device, index) => (
-              <button type="button" key={device.localId || device.id} className="maintenance-device-mobile-row" onClick={() => onOpenDevice(device)}>
+              <button type="button" key={device.localId || device.id} className={`maintenance-device-mobile-row${isChecklistPending(device) ? ' is-pending' : ''}`} onClick={() => onOpenDevice(device)}>
                 <span className="maintenance-device-mobile-row__number">{(page - 1) * pageSize + index + 1}</span>
                 <span className="maintenance-device-list__icon"><Icon name={getMaintenanceCategory(device.categoria).icon} /></span>
                 <span className="maintenance-device-mobile-row__content">
                   <strong>{device.nombre || 'Dispositivo sin nombre'}</strong>
                   <small>{device.categoria || 'Sin categoría'} · {device.zona || 'Sin ubicación'}</small>
-                  <span><em className={deviceState(device) === 'CORRECTO' ? 'is-good' : 'is-warning'}>{deviceState(device)}</em><em><Icon name="photo_library" />{evidenceCount(device)}</em>{isOfflineDevice(device) && <em className="is-offline"><Icon name="cloud_off" />Offline</em>}</span>
+                  <span><em className={stateClass(device)}>{deviceState(device)}</em><em><Icon name="photo_library" />{evidenceCount(device)}</em>{isOfflineDevice(device) && <em className="is-offline"><Icon name="cloud_off" />Offline</em>}</span>
                 </span>
                 <Icon name="chevron_right" />
               </button>
