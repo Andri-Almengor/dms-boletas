@@ -176,8 +176,19 @@
   color: var(--warning);
 }
 
-.maintenance-inventory-mobile-card.is-pending {
+.maintenance-inventory-mobile-card.is-pending,
+.maintenance-device-mobile-row.is-pending {
   border-color: color-mix(in srgb, var(--warning) 50%, var(--outline-soft));
+}
+
+.maintenance-device-summary--compact > .is-pending {
+  border-color: color-mix(in srgb, var(--warning) 48%, var(--outline-soft));
+  background: var(--warning-soft);
+}
+
+.maintenance-device-summary--compact > .is-pending strong,
+.maintenance-device-summary--compact > .is-pending span {
+  color: var(--warning);
 }
 
 @media (max-width: 620px) {
