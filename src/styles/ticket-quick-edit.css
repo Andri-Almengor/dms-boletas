@@ -26,7 +26,8 @@
 .ticket-detail-section__quick-edit:hover,
 .ticket-detail-section__quick-edit:focus-visible {
   border-color: var(--primary);
-  background: #fff;
+  background: var(--surface-card);
+  color: var(--primary);
   outline: none;
   box-shadow: 0 0 0 3px color-mix(in srgb, var(--primary) 15%, transparent);
 }
@@ -51,7 +52,8 @@
   border: 1px solid var(--outline-soft);
   border-left: 4px solid var(--primary);
   border-radius: 14px;
-  background: #fff;
+  background: var(--surface-card);
+  color: var(--text);
   display: flex;
   align-items: center;
   justify-content: space-between;
@@ -73,6 +75,10 @@
 .ticket-quick-edit-intro strong,
 .ticket-quick-edit-intro p {
   display: block;
+}
+
+.ticket-quick-edit-intro strong {
+  color: var(--text);
 }
 
 .ticket-quick-edit-intro p {
