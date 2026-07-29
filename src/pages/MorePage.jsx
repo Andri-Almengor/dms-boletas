@@ -39,8 +39,8 @@ function OfflineModeSelector({ enabled, pendingCount, onToggle }) {
     <div className="offline-mode-selector__copy">
       <strong>Modo sin conexión</strong>
       <small>{enabled
-        ? 'Protege formularios, guarda catálogos y sincroniza cambios cuando regrese internet.'
-        : 'Desactivado para reducir memoria, almacenamiento, listeners y llamadas en segundo plano.'}</small>
+        ? 'Descarga catálogos y habilita la cola de sincronización para trabajar sin internet.'
+        : 'Desactivado para evitar descargas, almacenamiento y sincronización en segundo plano. La recuperación de formularios permanece activa.'}</small>
       {enabled && pendingCount > 0 && <em>{pendingCount} cambio{pendingCount === 1 ? '' : 's'} pendiente{pendingCount === 1 ? '' : 's'} de sincronización.</em>}
     </div>
     <button type="button" className="offline-mode-switch" role="switch" aria-checked={enabled} onClick={onToggle} title={enabled ? 'Desactivar modo sin conexión' : 'Activar modo sin conexión'}>
@@ -135,9 +135,7 @@ export default function MorePage() {
     if (!offlineEnabled || !online || syncing) return;
     setSyncing(true);
     setSyncMessage('Solicitando sincronización manual...');
-    window.dispatchEvent(new CustomEvent('dms-offline-sync-request', {
-      detail: { source: 'more-page' },
-    }));
+    window.dispatchEvent(new CustomEvent('dms-offline-sync-request', { detail: { source: 'more-page' } }));
   }
 
   async function toggleOfflineMode() {
@@ -152,7 +150,7 @@ export default function MorePage() {
       setOfflineEnabled(false);
       setOfflineStats(null);
       setSyncing(false);
-      setSyncMessage('Modo sin conexión desactivado. La aplicación usará menos recursos en este dispositivo.');
+      setSyncMessage('Modo sin conexión desactivado. La recuperación automática de formularios continúa activa.');
       return;
     }
 
@@ -167,7 +165,7 @@ export default function MorePage() {
   }
 
   const offlineNote = !offlineEnabled
-    ? 'Desactivado por defecto para mejorar el rendimiento en teléfonos de pocos recursos'
+    ? 'La recuperación de formularios sigue activa; solo la base offline está desactivada'
     : offlineStats
       ? `${offlineStats.percent}% descargado · ${offlineStats.totalRecords.toLocaleString('es-CR')} registros · ${offlineStats.pendingCount} pendiente${offlineStats.pendingCount === 1 ? '' : 's'}`
       : 'Preparando la información para trabajar sin internet';
