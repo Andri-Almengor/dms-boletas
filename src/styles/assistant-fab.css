@@ -1,0 +1,128 @@
+.assistant-fab {
+  position: fixed;
+  right: max(18px, env(safe-area-inset-right));
+  bottom: calc(82px + env(safe-area-inset-bottom));
+  z-index: 1220;
+  min-height: 52px;
+  padding: 0 17px;
+  border: 2px solid color-mix(in srgb, var(--surface) 88%, transparent);
+  border-radius: 999px;
+  background: var(--primary);
+  color: #fff;
+  box-shadow: 0 14px 34px rgba(0, 0, 0, .3);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 8px;
+  overflow: visible;
+  text-decoration: none;
+  font-size: .78rem;
+  font-weight: 900;
+  visibility: visible;
+  opacity: 1;
+  isolation: isolate;
+}
+
+.assistant-fab:hover,
+.assistant-fab:focus-visible {
+  transform: translateY(-2px);
+  background: var(--primary-strong, var(--primary));
+}
+
+.assistant-fab__icon {
+  flex: 0 0 28px;
+  width: 28px;
+  height: 28px;
+  display: grid;
+  place-items: center;
+}
+
+.assistant-fab__icon .material-symbols-outlined {
+  position: static !important;
+  width: auto !important;
+  height: auto !important;
+  margin: 0 !important;
+  clip: auto !important;
+  overflow: visible !important;
+  color: #fff !important;
+  opacity: 1 !important;
+  visibility: visible !important;
+  font-family: 'Material Symbols Outlined' !important;
+  font-size: 23px !important;
+  line-height: 1 !important;
+  font-variation-settings: 'FILL' 1;
+}
+
+.assistant-fab__label {
+  color: #fff;
+}
+
+body:has(.form-recovery-status) .assistant-fab {
+  bottom: 116px;
+}
+
+.app-shell--form .assistant-fab {
+  bottom: calc(94px + env(safe-area-inset-bottom));
+}
+
+body:has(.app-shell--form):has(.form-recovery-status) .assistant-fab {
+  bottom: calc(154px + env(safe-area-inset-bottom));
+}
+
+@media (min-width: 900px) {
+  .assistant-fab { bottom: 24px; }
+  body:has(.form-recovery-status) .assistant-fab { bottom: 118px; }
+  .app-shell--form .assistant-fab { bottom: 92px; }
+  body:has(.app-shell--form):has(.form-recovery-status) .assistant-fab { bottom: 166px; }
+}
+
+@media (max-width: 620px) {
+  .assistant-fab {
+    right: max(13px, env(safe-area-inset-right));
+    bottom: calc(84px + env(safe-area-inset-bottom));
+    width: 58px;
+    height: 58px;
+    min-width: 58px;
+    min-height: 58px;
+    padding: 0;
+    border-width: 2px;
+    display: grid !important;
+    place-items: center;
+  }
+
+  .assistant-fab .assistant-fab__icon {
+    position: static !important;
+    width: 32px !important;
+    height: 32px !important;
+    margin: 0 !important;
+    clip: auto !important;
+    overflow: visible !important;
+    display: grid !important;
+    place-items: center;
+  }
+
+  .assistant-fab .assistant-fab__icon .material-symbols-outlined {
+    display: block !important;
+    font-size: 28px !important;
+  }
+
+  .assistant-fab .assistant-fab__label {
+    display: none !important;
+  }
+
+  body:has(.form-recovery-status) .assistant-fab {
+    bottom: calc(84px + env(safe-area-inset-bottom));
+  }
+
+  .app-shell--form .assistant-fab,
+  body:has(.app-shell--form):has(.form-recovery-status) .assistant-fab {
+    bottom: calc(94px + env(safe-area-inset-bottom));
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .assistant-fab:hover,
+  .assistant-fab:focus-visible {
+    transform: none;
+  }
+}
