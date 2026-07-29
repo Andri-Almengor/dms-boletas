@@ -4,7 +4,7 @@ import { useAuth } from '../../AuthContext';
 import useOfflineMode from '../../hooks/useOfflineMode';
 import Icon from '../common/Icon';
 
-const OfflineSyncManager = lazy(() => import('../offline/OfflineSyncManager'));
+const OfflineSyncManager = lazy(() => import('../offline/OfflineSyncRuntime'));
 
 function initials(name = '') {
   const parts = String(name).trim().split(/\s+/).filter(Boolean);
@@ -60,10 +60,7 @@ export default function AppShell() {
   return <div className={`app-shell${isWorkflowForm ? ' app-shell--form' : ''}${isAssistantPage ? ' app-shell--assistant' : ''}`}>
     {!isWorkflowForm && !isAssistantPage && <header className="top-bar"><button type="button" className="icon-button" onClick={() => setDrawerOpen(true)} aria-label="Abrir menú" aria-expanded={drawerOpen}><Icon name="menu" /></button><NavLink to="/" className="top-bar__brand">DMS Boletas</NavLink><NavLink to="/mas" className="avatar avatar--small" aria-label="Abrir perfil">{initials(user?.NombreCompleto)}</NavLink></header>}
     {isAssistantPage && <header className="assistant-route-bar">
-      <div className="assistant-route-bar__identity">
-        <span className="assistant-route-bar__bot"><Icon name="smart_toy" filled /></span>
-        <div><strong>DMS Assistant</strong><span><i />En línea</span></div>
-      </div>
+      <div className="assistant-route-bar__identity"><span className="assistant-route-bar__bot"><Icon name="smart_toy" filled /></span><div><strong>DMS Assistant</strong><span><i />En línea</span></div></div>
       <NavLink className="assistant-route-bar__close" to={assistantReturnUrl} aria-label="Cerrar Asistente DMS" title="Cerrar"><Icon name="close" /></NavLink>
     </header>}
     {offlineEnabled && <Suspense fallback={null}><OfflineSyncManager /></Suspense>}
