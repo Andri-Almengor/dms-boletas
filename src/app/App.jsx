@@ -30,7 +30,6 @@ function lazyPage(loadPage, ...loadAssets) {
 }
 
 const FormRecoveryManager = lazy(() => import('../components/offline/FormRecoveryManager'));
-const FormRecoveryMobileController = lazy(() => import('../components/offline/FormRecoveryMobileController'));
 const ClientCatalogSyncBridge = lazy(() => import('../components/system/ClientCatalogSyncBridge'));
 const MobileTimePickerBridge = lazy(() => import('../components/forms/MobileTimePickerBridge'));
 const TicketHoursCeilingBridge = lazy(() => import('../components/forms/TicketHoursCeilingBridge'));
@@ -110,10 +109,7 @@ function RouteScopedBridges() {
 }
 
 function FormRecoveryRuntime() {
-  return <Suspense fallback={null}>
-    <FormRecoveryManager />
-    <FormRecoveryMobileController />
-  </Suspense>;
+  return <Suspense fallback={null}><FormRecoveryManager /></Suspense>;
 }
 
 function OptionalOfflineRuntime() {
