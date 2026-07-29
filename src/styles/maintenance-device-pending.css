@@ -107,6 +107,10 @@
   gap: 10px;
 }
 
+.maintenance-checklist-pending-note--automatic {
+  border-style: dashed;
+}
+
 .maintenance-checklist-pending-note > .material-symbols-outlined,
 .maintenance-inventory-pending-note > .material-symbols-outlined {
   flex: 0 0 auto;
@@ -120,10 +124,10 @@
   line-height: 1.45;
 }
 
-.maintenance-checklist.is-pending > .maintenance-dynamic-question,
-.maintenance-checklist.is-pending > .maintenance-question-state,
-.maintenance-checklist.is-pending > .maintenance-question-warning,
-.maintenance-checklist.is-pending > .info-box {
+.maintenance-checklist:has(.maintenance-checklist-pending-toggle.is-checked) > .maintenance-dynamic-question,
+.maintenance-checklist:has(.maintenance-checklist-pending-toggle.is-checked) > .maintenance-question-state,
+.maintenance-checklist:has(.maintenance-checklist-pending-toggle.is-checked) > .maintenance-question-warning,
+.maintenance-checklist:has(.maintenance-checklist-pending-toggle.is-checked) > .info-box {
   opacity: .58;
 }
 
