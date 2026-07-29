@@ -1,5 +1,5 @@
 import React, { Suspense, lazy, useEffect } from 'react';
-import { Navigate, Route, Routes } from 'react-router-dom';
+import { Navigate, Route, Routes, useLocation } from 'react-router-dom';
 import AppShell from '../components/layout/AppShell';
 import Icon from '../components/common/Icon';
 import useOfflineMode from '../hooks/useOfflineMode';
@@ -8,6 +8,10 @@ import ProtectedRoute from '../routes/ProtectedRoute';
 
 const FormRecoveryManager = lazy(() => import('../components/offline/FormRecoveryManager'));
 const FormRecoveryMobileController = lazy(() => import('../components/offline/FormRecoveryMobileController'));
+const ClientCatalogSyncBridge = lazy(() => import('../components/system/ClientCatalogSyncBridge'));
+const MobileTimePickerBridge = lazy(() => import('../components/forms/MobileTimePickerBridge'));
+const TicketHoursCeilingBridge = lazy(() => import('../components/forms/TicketHoursCeilingBridge'));
+const TicketEvidenceMultiSelectBridge = lazy(() => import('../components/forms/TicketEvidenceMultiSelectBridge'));
 const ChangePasswordPage = lazy(() => import('../pages/ChangePasswordPage'));
 const HomePage = lazy(() => import('../pages/HomePage'));
 const LoginPage = lazy(() => import('../pages/LoginPage'));
@@ -49,6 +53,38 @@ function RouteLoading() {
   return <div className="state-card state-card--loading app-route-loading" role="status"><Icon name="progress_activity" /><span>Abriendo módulo...</span></div>;
 }
 
+function isTicketWorkflow(pathname) {
+  return pathname === '/boletas/nueva'
+    || /^\/boletas\/[^/]+\/editar$/.test(pathname)
+    || /^\/boletas\/[^/]+\/editar-rapido\/[^/]+$/.test(pathname)
+    || /^\/boletas\/[^/]+\/nueva-visita$/.test(pathname);
+}
+
+function isMaintenanceWorkflow(pathname) {
+  return pathname === '/mantenimientos/nuevo'
+    || /^\/mantenimientos\/[^/]+\/editar$/.test(pathname);
+}
+
+function isTicketDetail(pathname) {
+  const match = pathname.match(/^\/boletas\/([^/]+)\/?$/);
+  if (!match) return false;
+  return !['pendientes', 'finalizadas', 'nueva'].includes(String(match[1] || '').toLowerCase());
+}
+
+function RouteScopedBridges() {
+  const { pathname } = useLocation();
+  const ticketWorkflow = isTicketWorkflow(pathname);
+  const timePickerNeeded = ticketWorkflow || isMaintenanceWorkflow(pathname);
+  const evidenceBridgeNeeded = isTicketDetail(pathname);
+
+  if (!timePickerNeeded && !ticketWorkflow && !evidenceBridgeNeeded) return null;
+  return <Suspense fallback={null}>
+    {timePickerNeeded && <MobileTimePickerBridge />}
+    {ticketWorkflow && <TicketHoursCeilingBridge />}
+    {evidenceBridgeNeeded && <TicketEvidenceMultiSelectBridge />}
+  </Suspense>;
+}
+
 function OptionalOfflineRuntime() {
   const [offlineEnabled] = useOfflineMode();
 
@@ -57,12 +93,17 @@ function OptionalOfflineRuntime() {
   }, [offlineEnabled]);
 
   if (!offlineEnabled) return null;
-  return <Suspense fallback={null}><FormRecoveryManager /><FormRecoveryMobileController /></Suspense>;
+  return <Suspense fallback={null}>
+    <FormRecoveryManager />
+    <FormRecoveryMobileController />
+    <ClientCatalogSyncBridge />
+  </Suspense>;
 }
 
 export default function App() {
   return <>
     <OptionalOfflineRuntime />
+    <RouteScopedBridges />
     <Suspense fallback={<RouteLoading />}>
       <Routes>
         <Route path="/login" element={<LoginPage />} />
