@@ -1,35 +1,22 @@
-import React, { useEffect, useMemo, useState } from 'react';
+import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { Link, useNavigate, useSearchParams } from 'react-router-dom';
 import { useAuth } from '../../AuthContext';
 import Icon from '../../components/common/Icon';
 import FilterDrawer from '../../components/forms/FilterDrawer';
 import { MODULE_ROUTES, normalizeItems, pick, requestAvailable } from '../../services/moduleApi';
 
+const PAGE_SIZE = 40;
 const MAINTENANCE_COUNT_FIELDS = [
-  'CantCámaras',
-  'CantPuertas',
-  'CantServidores',
-  'CantGrabadores',
-  'CantBocinas',
-  'CantSensoresPerimetrales',
-  'CantSensoresMovimiento',
-  'CantSensorRuptura',
-  'CantImpresora',
-  'CantGabinetes',
-  'CantVideoWall',
+  'CantCámaras', 'CantPuertas', 'CantServidores', 'CantGrabadores', 'CantBocinas',
+  'CantSensoresPerimetrales', 'CantSensoresMovimiento', 'CantSensorRuptura',
+  'CantImpresora', 'CantGabinetes', 'CantVideoWall',
 ];
-
-const EMPTY_FILTERS = Object.freeze({
-  client: '',
-  dateFrom: '',
-  dateTo: '',
-});
+const EMPTY_FILTERS = Object.freeze({ client: '', dateFrom: '', dateTo: '' });
 
 function formatDate(value) {
   if (!value) return 'Sin fecha';
   const date = new Date(value);
-  if (Number.isNaN(date.getTime())) return String(value);
-  return new Intl.DateTimeFormat('es-CR', { dateStyle: 'medium' }).format(date);
+  return Number.isNaN(date.getTime()) ? String(value) : new Intl.DateTimeFormat('es-CR', { dateStyle: 'medium' }).format(date);
 }
 
 function dateKey(value) {
@@ -39,14 +26,11 @@ function dateKey(value) {
   if (isoMatch) return isoMatch[0];
   const date = new Date(value);
   if (Number.isNaN(date.getTime())) return '';
-  const year = date.getFullYear();
-  const month = String(date.getMonth() + 1).padStart(2, '0');
-  const day = String(date.getDate()).padStart(2, '0');
-  return `${year}-${month}-${day}`;
+  return `${date.getFullYear()}-${String(date.getMonth() + 1).padStart(2, '0')}-${String(date.getDate()).padStart(2, '0')}`;
 }
 
-function getId(row) {
-  return String(pick(row, ['MantenimientoID', 'id', 'RowID'], ''));
+function getId(row, fallback = '') {
+  return String(pick(row, ['MantenimientoID', 'id', 'RowID'], fallback));
 }
 
 function maintenanceStatusFromQuery(value) {
@@ -62,44 +46,58 @@ function safeCount(value) {
 function expectedDeviceTotal(row = {}) {
   let storedCounts = {};
   try {
-    storedCounts = typeof row.CantidadesJSON === 'string'
-      ? JSON.parse(row.CantidadesJSON || '{}')
-      : (row.CantidadesJSON || {});
+    storedCounts = typeof row.CantidadesJSON === 'string' ? JSON.parse(row.CantidadesJSON || '{}') : (row.CantidadesJSON || {});
   } catch {
     storedCounts = {};
   }
-
-  const validStoredCounts = storedCounts && typeof storedCounts === 'object' && !Array.isArray(storedCounts)
-    ? storedCounts
-    : {};
-  const storedEntries = Object.entries(validStoredCounts);
-  let hasCategoryCounts = storedEntries.length > 0;
-  let total = storedEntries.reduce((sum, [, value]) => sum + safeCount(value), 0);
-
-  // Los mantenimientos históricos pueden tener cantidades solo en columnas físicas.
-  // Se agregan únicamente cuando la misma clave no existe en CantidadesJSON para evitar duplicarlas.
+  const valid = storedCounts && typeof storedCounts === 'object' && !Array.isArray(storedCounts) ? storedCounts : {};
+  const entries = Object.entries(valid);
+  let hasCounts = entries.length > 0;
+  let total = entries.reduce((sum, [, value]) => sum + safeCount(value), 0);
   for (const field of MAINTENANCE_COUNT_FIELDS) {
-    if (Object.prototype.hasOwnProperty.call(validStoredCounts, field)) continue;
+    if (Object.prototype.hasOwnProperty.call(valid, field)) continue;
     const source = row[field];
     if (source === undefined || source === null || source === '') continue;
-    hasCategoryCounts = true;
+    hasCounts = true;
     total += safeCount(source);
   }
-
-  if (hasCategoryCounts) return total;
-
+  if (hasCounts) return total;
   for (const key of ['DispositivosEsperados', 'CantidadEsperada']) {
-    if (row[key] !== undefined && row[key] !== null && row[key] !== '') {
-      const direct = Number(row[key]);
-      if (Number.isFinite(direct)) return Math.max(0, direct);
-    }
+    const direct = Number(row[key]);
+    if (Number.isFinite(direct)) return Math.max(0, direct);
   }
-
   return 0;
 }
 
 function invalidDateRange(filters) {
   return Boolean(filters.dateFrom && filters.dateTo && filters.dateFrom > filters.dateTo);
+}
+
+function responseTotal(data, fallback) {
+  const total = Number(data?.total);
+  return Number.isFinite(total) && total >= 0 ? total : fallback;
+}
+
+function mergeRecords(current, incoming) {
+  const map = new Map(current.map((row, index) => [getId(row, `current-${index}`), row]));
+  incoming.forEach((row, index) => map.set(getId(row, `incoming-${index}`), row));
+  return [...map.values()];
+}
+
+function matchesFallbackFilters(row, status, query, filters) {
+  const rowStatus = String(pick(row, ['Estado'], 'PENDIENTE')).toUpperCase();
+  if (rowStatus !== status) return false;
+  const rowClient = String(pick(row, ['Cliente', 'ClienteRef'], '')).trim();
+  if (filters.client && rowClient !== filters.client) return false;
+  const rowDate = dateKey(pick(row, ['Fecha']));
+  if (filters.dateFrom && (!rowDate || rowDate < filters.dateFrom)) return false;
+  if (filters.dateTo && (!rowDate || rowDate > filters.dateTo)) return false;
+  const normalizedQuery = query.trim().toLowerCase();
+  if (!normalizedQuery) return true;
+  return [
+    pick(row, ['TituloMantenimiento']), rowClient, pick(row, ['Responsables', 'Responsable']),
+    pick(row, ['DescripcionGeneral']), pick(row, ['Ubicacion']),
+  ].join(' ').toLowerCase().includes(normalizedQuery);
 }
 
 export default function MaintenanceListPage() {
@@ -113,69 +111,113 @@ export default function MaintenanceListPage() {
   const [search, setSearch] = useState('');
   const [filters, setFilters] = useState(EMPTY_FILTERS);
   const [draftFilters, setDraftFilters] = useState(EMPTY_FILTERS);
+  const [clientOptions, setClientOptions] = useState([]);
   const [filterOpen, setFilterOpen] = useState(false);
+  const [filterLoading, setFilterLoading] = useState(false);
   const [loading, setLoading] = useState(true);
+  const [loadingMore, setLoadingMore] = useState(false);
+  const [page, setPage] = useState(1);
+  const [total, setTotal] = useState(0);
+  const [hasMore, setHasMore] = useState(false);
   const [error, setError] = useState('');
+  const requestSequence = useRef(0);
 
-  async function load() {
-    setLoading(true);
+  const load = useCallback(async ({
+    targetPage = 1,
+    append = false,
+    query = search,
+    currentFilters = filters,
+    currentStatus = status,
+  } = {}) => {
+    if (invalidDateRange(currentFilters)) {
+      setError('La fecha inicial no puede ser posterior a la fecha final.');
+      return;
+    }
+    const sequence = ++requestSequence.current;
+    if (append) setLoadingMore(true);
+    else setLoading(true);
     setError('');
     try {
-      setRecords(normalizeItems(await requestAvailable(
-        MODULE_ROUTES.maintenance.list,
-        { page: 1, pageSize: 1000, activo: true },
-        sessionToken,
-      )));
+      const data = await requestAvailable(MODULE_ROUTES.maintenance.list, {
+        page: targetPage,
+        pageSize: PAGE_SIZE,
+        activo: true,
+        status: currentStatus,
+        estado: currentStatus,
+        search: query.trim(),
+        cliente: currentFilters.client,
+        client: currentFilters.client,
+        dateFrom: currentFilters.dateFrom,
+        dateTo: currentFilters.dateTo,
+        sortBy: 'Fecha',
+        sortDir: 'desc',
+      }, sessionToken);
+      if (sequence !== requestSequence.current) return;
+      const incoming = normalizeItems(data).filter((row) => matchesFallbackFilters(row, currentStatus, query, currentFilters));
+      setRecords((current) => {
+        const next = append ? mergeRecords(current, incoming) : incoming;
+        const nextTotal = responseTotal(data, next.length);
+        setTotal(nextTotal);
+        setHasMore(Number.isFinite(Number(data?.total)) ? next.length < nextTotal : incoming.length >= PAGE_SIZE);
+        return next;
+      });
+      setPage(targetPage);
     } catch (loadError) {
+      if (sequence !== requestSequence.current) return;
       setError(loadError.message);
+      if (!append) {
+        setRecords([]);
+        setTotal(0);
+        setHasMore(false);
+      }
     } finally {
-      setLoading(false);
+      if (sequence === requestSequence.current) {
+        setLoading(false);
+        setLoadingMore(false);
+      }
     }
-  }
-
-  useEffect(() => {
-    load();
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [sessionToken]);
+  }, [filters, search, sessionToken, status]);
 
   useEffect(() => {
     setStatus(requestedStatus);
   }, [requestedStatus]);
 
-  const clientOptions = useMemo(() => Array.from(new Set(records
-    .map((row) => String(pick(row, ['Cliente', 'ClienteRef'], '')).trim())
-    .filter(Boolean)))
-    .sort((left, right) => left.localeCompare(right, 'es')), [records]);
+  useEffect(() => {
+    setRecords([]);
+    setPage(1);
+    setTotal(0);
+    setHasMore(false);
+    load({ targetPage: 1, append: false, currentStatus: status });
+  }, [sessionToken, status]); // La búsqueda y filtros se aplican explícitamente.
 
-  const filtered = useMemo(() => {
-    const query = search.trim().toLowerCase();
-    return records.filter((row) => {
-      const rowStatus = String(pick(row, ['Estado'], 'PENDIENTE')).toUpperCase();
-      if (rowStatus !== status) return false;
-
-      const rowClient = String(pick(row, ['Cliente', 'ClienteRef'], '')).trim();
-      if (filters.client && rowClient !== filters.client) return false;
-
-      const rowDate = dateKey(pick(row, ['Fecha']));
-      if (filters.dateFrom && (!rowDate || rowDate < filters.dateFrom)) return false;
-      if (filters.dateTo && (!rowDate || rowDate > filters.dateTo)) return false;
-
-      if (!query) return true;
-      return [
-        pick(row, ['TituloMantenimiento']),
-        rowClient,
-        pick(row, ['Responsables', 'Responsable']),
-        pick(row, ['DescripcionGeneral']),
-      ].join(' ').toLowerCase().includes(query);
-    });
-  }, [records, status, search, filters]);
-
-  const activeFilterCount = Object.values(filters).filter(Boolean).length;
+  async function ensureClients() {
+    if (clientOptions.length || filterLoading) return;
+    setFilterLoading(true);
+    try {
+      const data = await requestAvailable(MODULE_ROUTES.clients.list, {
+        page: 1,
+        pageSize: 300,
+        activo: true,
+        sortBy: 'Nombre',
+        sortDir: 'asc',
+      }, sessionToken);
+      setClientOptions(Array.from(new Set(normalizeItems(data)
+        .map((row) => String(pick(row, ['Clientes', 'Cliente', 'Nombre'], '')).trim())
+        .filter(Boolean))));
+    } catch {
+      setClientOptions(Array.from(new Set(records
+        .map((row) => String(pick(row, ['Cliente', 'ClienteRef'], '')).trim())
+        .filter(Boolean))).sort((a, b) => a.localeCompare(b, 'es')));
+    } finally {
+      setFilterLoading(false);
+    }
+  }
 
   function openFilters() {
     setDraftFilters({ ...filters });
     setError('');
     setFilterOpen(true);
+    ensureClients();
   }
 
   function setDraftFilter(name, value) {
@@ -187,16 +229,25 @@ export default function MaintenanceListPage() {
       setError('La fecha inicial no puede ser posterior a la fecha final.');
       return;
     }
-    setFilters({ ...draftFilters });
+    const next = { ...draftFilters };
+    setFilters(next);
     setFilterOpen(false);
-    setError('');
+    setPage(1);
+    load({ targetPage: 1, append: false, currentFilters: next });
   }
 
   function clearFilters() {
     setFilters(EMPTY_FILTERS);
     setDraftFilters(EMPTY_FILTERS);
     setFilterOpen(false);
-    setError('');
+    setPage(1);
+    load({ targetPage: 1, append: false, currentFilters: EMPTY_FILTERS });
+  }
+
+  function submitSearch(event) {
+    event.preventDefault();
+    setPage(1);
+    load({ targetPage: 1, append: false });
   }
 
   function openCard(event, detailUrl) {
@@ -210,6 +261,8 @@ export default function MaintenanceListPage() {
     navigate(detailUrl);
   }
 
+  const activeFilterCount = Object.values(filters).filter(Boolean).length;
+
   return (
     <div className="page maintenance-page">
       <div className="list-page-heading maintenance-heading">
@@ -222,9 +275,10 @@ export default function MaintenanceListPage() {
         <button type="button" className={status === 'FINALIZADO' ? 'is-active' : ''} onClick={() => setStatus('FINALIZADO')}><Icon name="task_alt" />Finalizados</button>
       </div>
 
-      <form className="search-bar maintenance-list-search-bar" onSubmit={(event) => event.preventDefault()}>
+      <form className="search-bar maintenance-list-search-bar" onSubmit={submitSearch}>
         <Icon name="search" />
         <input value={search} onChange={(event) => setSearch(event.target.value)} placeholder="Buscar título, cliente o responsable..." aria-label="Buscar mantenimientos" />
+        <button type="submit" className="icon-button" aria-label="Buscar mantenimientos"><Icon name="search" /></button>
         <button type="button" className="icon-button icon-button--primary filter-trigger" onClick={openFilters} aria-label="Abrir filtros de mantenimientos">
           <Icon name="tune" className="filter-trigger__glyph" />
           {activeFilterCount > 0 && <span className="filter-trigger__count">{activeFilterCount}</span>}
@@ -232,26 +286,24 @@ export default function MaintenanceListPage() {
       </form>
 
       <div className="maintenance-results-summary">
-        <span><strong>{filtered.length}</strong> mantenimiento{filtered.length === 1 ? '' : 's'}</span>
+        <span>Mostrando <strong>{records.length}</strong>{total > records.length ? ` de ${total}` : ''} mantenimiento{total === 1 ? '' : 's'}</span>
         <div className="maintenance-results-summary__actions">
           {activeFilterCount > 0 && <span>Filtros aplicados</span>}
-          <button className="icon-button icon-button--outlined" type="button" onClick={load} disabled={loading} aria-label="Actualizar mantenimientos"><Icon name={loading ? 'progress_activity' : 'refresh'} /></button>
+          <button className="icon-button icon-button--outlined" type="button" onClick={() => load({ targetPage: 1, append: false })} disabled={loading} aria-label="Actualizar mantenimientos"><Icon name={loading ? 'progress_activity' : 'refresh'} /></button>
         </div>
       </div>
 
       {error && <div className="alert alert--error"><Icon name="error" /><span>{error}</span></div>}
-
-      {loading ? (
-        <div className="state-card state-card--loading"><Icon name="progress_activity" />Cargando mantenimientos...</div>
-      ) : (
-        <div className="maintenance-grid">
-          {filtered.length ? filtered.map((row) => {
-            const id = getId(row);
-            const completed = Number(pick(row, ['DispositivosRegistrados', 'CantidadDispositivos'], 0));
-            const expected = expectedDeviceTotal(row);
-            const detailUrl = id ? `/mantenimientos/${encodeURIComponent(id)}` : '';
-            return (
-              <article
+      {loading ? <div className="state-card state-card--loading"><Icon name="progress_activity" />Cargando mantenimientos...</div> : (
+        <>
+          <div className="maintenance-grid">
+            {records.length ? records.map((row, index) => {
+              const id = getId(row, index);
+              const completed = Number(pick(row, ['DispositivosRegistrados', 'CantidadDispositivos'], 0));
+              const expected = expectedDeviceTotal(row);
+              const detailUrl = id ? `/mantenimientos/${encodeURIComponent(id)}` : '';
+              const rowStatus = String(pick(row, ['Estado'], status)).toUpperCase();
+              return <article
                 className={`maintenance-card${detailUrl ? ' detail-clickable-card' : ''}`}
                 key={id}
                 onClick={(event) => openCard(event, detailUrl)}
@@ -260,7 +312,7 @@ export default function MaintenanceListPage() {
                 tabIndex={detailUrl ? 0 : undefined}
                 aria-label={detailUrl ? `Abrir detalle del mantenimiento ${pick(row, ['TituloMantenimiento'], '')}` : undefined}
               >
-                <div className="maintenance-card__top"><span className="maintenance-card__icon"><Icon name="engineering" /></span><span className={`status-chip ${status === 'FINALIZADO' ? 'status-chip--active' : 'status-chip--pending'}`}>{status}</span></div>
+                <div className="maintenance-card__top"><span className="maintenance-card__icon"><Icon name="engineering" /></span><span className={`status-chip ${rowStatus === 'FINALIZADO' ? 'status-chip--active' : 'status-chip--pending'}`}>{rowStatus}</span></div>
                 <div><span className="eyebrow">{pick(row, ['Cliente', 'ClienteRef'], 'Sin cliente')}</span><h2>{pick(row, ['TituloMantenimiento'], 'Mantenimiento sin título')}</h2><p>{pick(row, ['DescripcionGeneral'], 'Sin descripción general')}</p></div>
                 <div className="maintenance-card__meta">
                   <span><Icon name="calendar_month" />{formatDate(pick(row, ['Fecha']))}</span>
@@ -269,22 +321,16 @@ export default function MaintenanceListPage() {
                 </div>
                 <div className="maintenance-progress-mini"><div><strong>{completed}</strong><span>registrados</span></div><div><strong>{expected}</strong><span>esperados</span></div></div>
                 <Link className="button button--primary" to={detailUrl}>Ver detalle<Icon name="chevron_right" /></Link>
-              </article>
-            );
-          }) : (
-            <div className="empty-state"><Icon name="engineering" /><h2>Sin mantenimientos {status === 'PENDIENTE' ? 'pendientes' : 'finalizados'}</h2><p>No se encontraron registros con los filtros actuales.</p></div>
-          )}
-        </div>
+              </article>;
+            }) : <div className="empty-state"><Icon name="engineering" /><h2>Sin mantenimientos {status === 'PENDIENTE' ? 'pendientes' : 'finalizados'}</h2><p>No se encontraron registros con los filtros actuales.</p></div>}
+          </div>
+          {hasMore && <div className="list-load-more"><button type="button" className="button button--secondary" disabled={loadingMore} onClick={() => load({ targetPage: page + 1, append: true })}><Icon name={loadingMore ? 'progress_activity' : 'expand_more'} />{loadingMore ? 'Cargando...' : 'Cargar más mantenimientos'}</button></div>}
+        </>
       )}
 
       <FilterDrawer open={filterOpen} title="Filtros de mantenimientos" onClose={() => setFilterOpen(false)} onApply={applyFilters} onClear={clearFilters}>
-        <label className="field-group">
-          <span className="field-label">Cliente</span>
-          <select className="form-control" value={draftFilters.client} onChange={(event) => setDraftFilter('client', event.target.value)}>
-            <option value="">Todos los clientes</option>
-            {clientOptions.map((option) => <option key={option} value={option}>{option}</option>)}
-          </select>
-        </label>
+        {filterLoading && <div className="info-box"><Icon name="progress_activity" /><p>Cargando clientes disponibles...</p></div>}
+        <label className="field-group"><span className="field-label">Cliente</span><select className="form-control" value={draftFilters.client} onChange={(event) => setDraftFilter('client', event.target.value)}><option value="">Todos los clientes</option>{clientOptions.map((option) => <option key={option} value={option}>{option}</option>)}</select></label>
         <div className="ticket-form-grid">
           <label className="field-group"><span className="field-label">Desde</span><input className="form-control" type="date" value={draftFilters.dateFrom} max={draftFilters.dateTo || undefined} onChange={(event) => setDraftFilter('dateFrom', event.target.value)} /></label>
           <label className="field-group"><span className="field-label">Hasta</span><input className="form-control" type="date" value={draftFilters.dateTo} min={draftFilters.dateFrom || undefined} onChange={(event) => setDraftFilter('dateTo', event.target.value)} /></label>
