@@ -35,9 +35,9 @@ function syncVisibleTicketForm() {
 }
 
 /**
- * Mantiene la lógica de horas consistente en la creación, edición completa,
- * edición rápida y visitas relacionadas. Cualquier trabajo de hasta una hora
- * registra 1.00; después de esa primera hora se conserva la duración real.
+ * Se monta únicamente en las rutas de boletas que tienen campos de tiempo.
+ * Reacciona a cambios reales del formulario y a la aparición de nuevos pasos,
+ * sin mantener un intervalo permanente en el hilo principal.
  */
 export default function TicketHoursCeilingBridge() {
   useEffect(() => {
@@ -49,25 +49,22 @@ export default function TicketHoursCeilingBridge() {
     };
 
     const handleInput = (event) => {
-      if (event.target?.matches?.(`${START_SELECTOR}, ${END_SELECTOR}`)) {
-        scheduleSync();
-      }
+      if (event.target?.matches?.(`${START_SELECTOR}, ${END_SELECTOR}`)) scheduleSync();
     };
 
-    const observer = new MutationObserver(scheduleSync);
+    const observer = new MutationObserver((mutations) => {
+      if (mutations.some((mutation) => mutation.addedNodes.length || mutation.removedNodes.length)) scheduleSync();
+    });
     observer.observe(document.body, { childList: true, subtree: true });
     document.addEventListener('input', handleInput, true);
-
-    // Respaldo para asegurar que todos los formularios visibles mantengan
-    // la misma regla aunque tengan un cálculo local anterior.
-    const intervalId = window.setInterval(syncVisibleTicketForm, 500);
+    document.addEventListener('change', handleInput, true);
     scheduleSync();
 
     return () => {
       window.clearTimeout(timeoutId);
-      window.clearInterval(intervalId);
       observer.disconnect();
       document.removeEventListener('input', handleInput, true);
+      document.removeEventListener('change', handleInput, true);
     };
   }, []);
 
