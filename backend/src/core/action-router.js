@@ -103,14 +103,30 @@ add(equipmentLocationUpdateAliases, async (ctx) => {
   return after;
 }, 'USUARIOS_GESTIONAR');
 
-// Alta operativa: permite crear una nueva ubicación del equipo desde boletas
-// y mantenimientos sin habilitar la administración completa de Clientes.
-add([
-  'clients.operational.equipmentLocations.create',
-  'equipmentLocations.operational.create',
-  'clientes.ubicacionesEquipo.operational.create',
-  'ubicacionesEquipo.operational.create',
-], c.equipmentLocations.create, operationalCatalogPermissions);
+// Altas operativas: permiten crear únicamente los datos necesarios desde boletas
+// y mantenimientos, sin habilitar edición, eliminación o administración de Clientes.
+for (const [key, aliases] of [
+  ['clientLocations', [
+    'clients.operational.locations.create',
+    'clientLocations.operational.create',
+    'clientes.ubicaciones.operational.create',
+    'ubicacionesCliente.operational.create',
+  ]],
+  ['equipmentLocations', [
+    'clients.operational.equipmentLocations.create',
+    'equipmentLocations.operational.create',
+    'clientes.ubicacionesEquipo.operational.create',
+    'ubicacionesEquipo.operational.create',
+  ]],
+  ['contacts', [
+    'clients.operational.contacts.create',
+    'contacts.operational.create',
+    'clientes.contactos.operational.create',
+    'contactosCliente.operational.create',
+  ]],
+]) {
+  add(aliases, c[key].create, operationalCatalogPermissions);
+}
 
 for (const [key, prefixes] of [
   ['categories',['catalog.operational.categories']],
