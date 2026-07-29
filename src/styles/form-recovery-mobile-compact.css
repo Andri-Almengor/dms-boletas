@@ -1,111 +1,153 @@
+/* El estado de recuperación siempre se muestra como un indicador pequeño.
+ * No se expande ni ocupa el ancho de la pantalla, tanto en móvil como en PC. */
+.form-recovery-status,
+.form-recovery-status.is-mobile-expanded {
+  position: fixed !important;
+  z-index: 1240 !important;
+  top: calc(var(--top-bar-height, 64px) + env(safe-area-inset-top, 0px) + 10px) !important;
+  right: max(12px, env(safe-area-inset-right, 0px)) !important;
+  bottom: auto !important;
+  left: auto !important;
+  width: 42px !important;
+  height: 42px !important;
+  min-width: 42px !important;
+  max-width: 42px !important;
+  min-height: 42px !important;
+  max-height: 42px !important;
+  padding: 0 !important;
+  overflow: hidden !important;
+  border-radius: 999px !important;
+  display: grid !important;
+  grid-template-columns: 42px !important;
+  grid-template-rows: 42px !important;
+  place-items: center !important;
+  gap: 0 !important;
+  transform: none !important;
+  backdrop-filter: none !important;
+  box-shadow: 0 8px 20px rgba(0, 0, 0, .22) !important;
+  pointer-events: none;
+}
+
+.form-recovery-status > .material-symbols-outlined,
+.form-recovery-status.is-mobile-expanded > .material-symbols-outlined {
+  width: 42px !important;
+  height: 42px !important;
+  margin: 0 !important;
+  border-radius: 999px !important;
+  background: transparent !important;
+  display: grid !important;
+  place-items: center !important;
+  font-size: 22px !important;
+  line-height: 1 !important;
+}
+
+/* El texto sigue disponible para lectores de pantalla, pero no invade la interfaz. */
+.form-recovery-status > div,
+.form-recovery-status.is-mobile-expanded > div {
+  position: absolute !important;
+  width: 1px !important;
+  height: 1px !important;
+  margin: -1px !important;
+  padding: 0 !important;
+  overflow: hidden !important;
+  clip: rect(0 0 0 0) !important;
+  clip-path: inset(50%) !important;
+  white-space: nowrap !important;
+  border: 0 !important;
+}
+
+.form-recovery-status > button,
+.form-recovery-status.is-mobile-expanded > button {
+  display: none !important;
+}
+
+.form-recovery-status--saving {
+  border-color: color-mix(in srgb, var(--primary) 55%, var(--outline-soft)) !important;
+  background: var(--primary-soft) !important;
+  color: var(--primary) !important;
+}
+
+.form-recovery-status--local {
+  border-color: #75b990 !important;
+  background: var(--success-soft) !important;
+  color: #0e6745 !important;
+}
+
+.form-recovery-status--restored {
+  border-color: #d5b26a !important;
+  background: var(--warning-soft) !important;
+  color: #77500a !important;
+}
+
+.form-recovery-status--error {
+  border-color: #efb8b4 !important;
+  background: var(--danger-soft) !important;
+  color: var(--danger) !important;
+}
+
+.form-recovery-status--saving > .material-symbols-outlined {
+  animation: dms-offline-spin 1s linear infinite;
+}
+
+:root[data-theme='dark'] .form-recovery-status--saving {
+  border-color: #694247 !important;
+  background: #3a2528 !important;
+  color: #ff9aa5 !important;
+}
+
+:root[data-theme='dark'] .form-recovery-status--local {
+  border-color: #32664f !important;
+  background: #15382b !important;
+  color: #8be3ba !important;
+}
+
+:root[data-theme='dark'] .form-recovery-status--restored {
+  border-color: #765526 !important;
+  background: #3b2b12 !important;
+  color: #ffd490 !important;
+}
+
+:root[data-theme='dark'] .form-recovery-status--error {
+  border-color: #81403c !important;
+  background: #3c201e !important;
+  color: #ffaaa3 !important;
+}
+
+/* El editor de dispositivos usa un encabezado propio; el indicador queda debajo. */
+body.maintenance-device-editor-open .form-recovery-status,
+body.maintenance-device-editor-open .form-recovery-status.is-mobile-expanded {
+  top: calc(env(safe-area-inset-top, 0px) + 68px) !important;
+  right: max(12px, env(safe-area-inset-right, 0px)) !important;
+}
+
+body:has(.public-signature-page) .form-recovery-status {
+  top: calc(env(safe-area-inset-top, 0px) + 12px) !important;
+}
+
 @media (max-width: 620px) {
-  .form-recovery-status {
-    top: calc(var(--top-bar-height, 64px) + env(safe-area-inset-top, 0px) + 8px);
-    right: 10px;
-    bottom: auto;
-    left: auto;
-    width: 44px;
-    height: 44px;
-    min-width: 44px;
-    max-height: 44px;
-    padding: 0;
-    overflow: hidden;
-    border-radius: 999px;
-    grid-template-columns: 44px;
-    gap: 0;
-    cursor: pointer;
-    transform: none;
-    transition: width .18s ease, max-height .18s ease, border-radius .18s ease, padding .18s ease;
-  }
-
-  .form-recovery-status > .material-symbols-outlined {
-    width: 44px;
-    height: 44px;
-    border-radius: 999px;
-    display: grid;
-    place-items: center;
-    font-size: 22px;
-  }
-
-  .form-recovery-status > div,
-  .form-recovery-status > button {
-    display: none;
-  }
-
-  .form-recovery-status:focus-visible {
-    outline: 3px solid rgba(175,16,26,.22);
-    outline-offset: 3px;
-  }
-
-  .form-recovery-status--saving > .material-symbols-outlined {
-    color: var(--primary);
-    background: var(--primary-soft);
-  }
-
-  .form-recovery-status--local > .material-symbols-outlined,
-  .form-recovery-status--restored > .material-symbols-outlined {
-    color: #0e6745;
-    background: var(--success-soft);
-  }
-
-  .form-recovery-status--error > .material-symbols-outlined {
-    color: var(--danger);
-    background: var(--danger-soft);
-  }
-
+  .form-recovery-status,
   .form-recovery-status.is-mobile-expanded {
-    width: min(310px, calc(100vw - 20px));
-    height: auto;
-    min-width: 0;
-    max-height: 190px;
-    padding: 9px 10px;
-    border-radius: 14px;
-    grid-template-columns: 36px minmax(0,1fr);
-    gap: 9px;
-    cursor: default;
+    right: max(10px, env(safe-area-inset-right, 0px)) !important;
+    width: 40px !important;
+    height: 40px !important;
+    min-width: 40px !important;
+    max-width: 40px !important;
+    min-height: 40px !important;
+    max-height: 40px !important;
+    grid-template-columns: 40px !important;
+    grid-template-rows: 40px !important;
   }
 
+  .form-recovery-status > .material-symbols-outlined,
   .form-recovery-status.is-mobile-expanded > .material-symbols-outlined {
-    width: 36px;
-    height: 36px;
-    font-size: 20px;
+    width: 40px !important;
+    height: 40px !important;
+    font-size: 21px !important;
   }
+}
 
-  .form-recovery-status.is-mobile-expanded > div {
-    min-width: 0;
-    display: block;
-  }
-
-  .form-recovery-status.is-mobile-expanded > button {
-    grid-column: 1 / -1;
-    width: 100%;
-    min-height: 38px;
-    display: inline-flex;
-    align-items: center;
-    justify-content: center;
-  }
-
-  .form-recovery-status.is-mobile-expanded strong {
-    font-size: .76rem;
-  }
-
-  .form-recovery-status.is-mobile-expanded small {
-    margin-top: 2px;
-    font-size: .68rem;
-    line-height: 1.35;
-  }
-
-  body:has(.app-shell--form) .form-recovery-status {
-    top: calc(env(safe-area-inset-top, 0px) + 8px);
-  }
-
-  body.maintenance-device-editor-open .form-recovery-status {
-    top: calc(env(safe-area-inset-top, 0px) + 64px);
-    right: 10px;
-    bottom: auto;
-  }
-
-  body.maintenance-device-editor-open .form-recovery-status.is-mobile-expanded {
-    width: min(300px, calc(100vw - 20px));
+@media (prefers-reduced-motion: reduce) {
+  .form-recovery-status--saving > .material-symbols-outlined {
+    animation: none;
   }
 }
