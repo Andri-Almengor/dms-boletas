@@ -85,6 +85,17 @@ function stateText(value) {
   return String(value || 'Sin estado').toUpperCase();
 }
 
+function isChecklistPending(device) {
+  return normalized(pick(device, ['Estado', 'estado'])) === 'pendiente';
+}
+
+function stateFilterLabel(value) {
+  if (value === 'CORRECTOS') return 'Correctos';
+  if (value === 'PENDIENTES') return 'Pendientes';
+  if (value === 'ATENCION') return 'Requieren atención';
+  return 'Todos los estados';
+}
+
 function parseAnswers(device) {
   try {
     return typeof device.RespuestasJSON === 'string'
@@ -152,10 +163,12 @@ export default function MaintenanceDeviceInventory({
         const currentCategory = deviceType(device);
         const currentLocation = deviceLocation(device);
         const currentState = stateClass(pick(device, ['Estado']));
+        const checklistPending = isChecklistPending(device);
         if (category !== 'TODAS' && normalized(currentCategory) !== selectedCategory) return false;
         if (location !== 'TODAS' && normalized(currentLocation) !== selectedLocation) return false;
-        if (stateFilter === 'CORRECTOS' && currentState !== 'is-good') return false;
-        if (stateFilter === 'ATENCION' && currentState === 'is-good') return false;
+        if (stateFilter === 'PENDIENTES' && !checklistPending) return false;
+        if (stateFilter === 'CORRECTOS' && (checklistPending || currentState !== 'is-good')) return false;
+        if (stateFilter === 'ATENCION' && (checklistPending || currentState === 'is-good')) return false;
         if (!search) return true;
         return [
           deviceName(device),
@@ -178,6 +191,10 @@ export default function MaintenanceDeviceInventory({
     [visible, page, pageSize],
   );
   const pending = status === 'PENDIENTE';
+  const pendingDeviceCount = useMemo(
+    () => devices.filter(isChecklistPending).length,
+    [devices],
+  );
   const activeFilterCount = Number(category !== 'TODAS')
     + Number(location !== 'TODAS')
     + Number(stateFilter !== 'TODOS')
@@ -222,6 +239,7 @@ export default function MaintenanceDeviceInventory({
     const answers = parseAnswers(device);
     const images = device.Imagenes || [];
     const id = deviceId(device);
+    const checklistPending = isChecklistPending(device);
     return (
       <div className="maintenance-inventory-expanded">
         <div className="maintenance-inventory-expanded__heading">
@@ -235,7 +253,13 @@ export default function MaintenanceDeviceInventory({
             </button>
           )}
         </div>
-        <div className="maintenance-inventory-checklist">
+        {checklistPending && (
+          <div className="maintenance-inventory-pending-note">
+            <Icon name="schedule" />
+            <div><strong>Checklist pendiente</strong><span>Las pruebas de este dispositivo todavía no se han completado.</span></div>
+          </div>
+        )}
+        <div className={`maintenance-inventory-checklist${checklistPending ? ' is-pending' : ''}`}>
           <div className={stateClass(pick(device, ['Funcionamiento']))}><span>Funcionamiento</span><strong>{pick(device, ['Funcionamiento'], 'Sin responder')}</strong></div>
           <div className={stateClass(pick(device, ['EnUso']))}><span>En uso</span><strong>{pick(device, ['EnUso'], 'Sin responder')}</strong></div>
           {config.questions.map(([key, label]) => (
@@ -275,6 +299,7 @@ export default function MaintenanceDeviceInventory({
       </FilterSelect>
       <FilterSelect label="Estado" value={stateFilter} onChange={(event) => setStateFilter(event.target.value)}>
         <option value="TODOS">Todos los estados</option>
+        <option value="PENDIENTES">Pendientes de checklist</option>
         <option value="CORRECTOS">Correctos</option>
         <option value="ATENCION">Requieren atención</option>
       </FilterSelect>
@@ -292,19 +317,20 @@ export default function MaintenanceDeviceInventory({
       </div>
 
       <div className="maintenance-device-toolbar maintenance-device-toolbar--detail">
-        <label className="maintenance-device-search"><Icon name="search" /><input type="search" value={query} onChange={(event) => setQuery(event.target.value)} placeholder="Buscar nombre, ubicación, tipo, modelo, serie u observación..." /></label>
+        <label className="maintenance-device-search"><Icon name="search" /><input type="search" value={query} onChange={(event) => setQuery(event.target.value)} placeholder="Buscar nombre, ubicación, tipo, modelo, serie, estado u observación..." /></label>
         <button type="button" className="icon-button icon-button--primary maintenance-inventory-filter-trigger" onClick={() => setFilterOpen(true)} aria-label="Abrir filtros de dispositivos">
           <Icon name="tune" />
           {activeFilterCount > 0 && <span>{activeFilterCount}</span>}
         </button>
         <select className="maintenance-inventory-inline-filter" value={category} onChange={(event) => setCategory(event.target.value)} aria-label="Filtrar por tipo de dispositivo"><option value="TODAS">Todos los tipos</option>{categories.map((name) => <option key={name} value={name}>{name}</option>)}</select>
         <select className="maintenance-inventory-inline-filter" value={location} onChange={(event) => setLocation(event.target.value)} aria-label="Filtrar por ubicación del equipo"><option value="TODAS">Todas las ubicaciones</option>{locations.map((name) => <option key={name} value={name}>{name}</option>)}</select>
-        <select className="maintenance-inventory-inline-filter" value={stateFilter} onChange={(event) => setStateFilter(event.target.value)} aria-label="Filtrar por estado"><option value="TODOS">Todos los estados</option><option value="CORRECTOS">Correctos</option><option value="ATENCION">Requieren atención</option></select>
+        <select className="maintenance-inventory-inline-filter" value={stateFilter} onChange={(event) => setStateFilter(event.target.value)} aria-label="Filtrar por estado"><option value="TODOS">Todos los estados</option><option value="PENDIENTES">Pendientes</option><option value="CORRECTOS">Correctos</option><option value="ATENCION">Requieren atención</option></select>
         <select className="maintenance-inventory-inline-filter" value={pageSize} onChange={(event) => setPageSize(Number(event.target.value))} aria-label="Filas por página">{PAGE_SIZES.map((size) => <option key={size} value={size}>{size} por página</option>)}</select>
       </div>
 
       <div className="maintenance-device-category-chips">
         <button type="button" className={category === 'TODAS' ? 'is-active' : ''} onClick={() => setCategory('TODAS')}>Todos <span>{devices.length}</span></button>
+        {pendingDeviceCount > 0 && <button type="button" className={stateFilter === 'PENDIENTES' ? 'is-active is-pending' : 'is-pending'} onClick={() => setStateFilter((current) => current === 'PENDIENTES' ? 'TODOS' : 'PENDIENTES')}><Icon name="schedule" />Pendientes <span>{pendingDeviceCount}</span></button>}
         {categories.map((name) => <button type="button" key={name} className={category === name ? 'is-active' : ''} onClick={() => setCategory(name)}>{name} <span>{devices.filter((item) => normalized(deviceType(item)) === normalized(name)).length}</span></button>)}
       </div>
 
@@ -313,7 +339,7 @@ export default function MaintenanceDeviceInventory({
           <span><strong>{filtered.length}</strong> de {devices.length} dispositivos</span>
           {category !== 'TODAS' && <button type="button" onClick={() => setCategory('TODAS')}><Icon name="devices_other" />{category}<Icon name="close" /></button>}
           {location !== 'TODAS' && <button type="button" onClick={() => setLocation('TODAS')}><Icon name="location_on" />{location}<Icon name="close" /></button>}
-          {stateFilter !== 'TODOS' && <button type="button" onClick={() => setStateFilter('TODOS')}><Icon name="rule" />{stateFilter === 'CORRECTOS' ? 'Correctos' : 'Requieren atención'}<Icon name="close" /></button>}
+          {stateFilter !== 'TODOS' && <button type="button" onClick={() => setStateFilter('TODOS')}><Icon name={stateFilter === 'PENDIENTES' ? 'schedule' : 'rule'} />{stateFilterLabel(stateFilter)}<Icon name="close" /></button>}
         </div>
       )}
 
@@ -354,7 +380,7 @@ export default function MaintenanceDeviceInventory({
                               <td>{deviceType(device)}</td>
                               <td>{deviceLocation(device)}</td>
                               <td>{[pick(device, ['Modelo']), pick(device, ['Serie'])].filter(Boolean).join(' · ') || 'Sin datos'}</td>
-                              <td><span className={`maintenance-device-compact-state ${stateClass(pick(device, ['Estado']))}`}>{stateText(pick(device, ['Estado']))}</span></td>
+                              <td><span className={`maintenance-device-compact-state ${stateClass(pick(device, ['Estado']))}${isChecklistPending(device) ? ' is-pending' : ''}`}>{stateText(pick(device, ['Estado']))}</span></td>
                               <td><span className="maintenance-device-evidence-count"><Icon name="photo_library" />{images.length}</span></td>
                               <td>
                                 <div className="maintenance-inventory-row-actions">
@@ -395,11 +421,11 @@ export default function MaintenanceDeviceInventory({
                       {group.items.map(({ device, absoluteIndex }) => {
                         const id = deviceId(device);
                         const open = expanded === id;
-                        return <article key={id} className={`maintenance-inventory-mobile-card${open ? ' is-expanded' : ''}`}>
+                        return <article key={id} className={`maintenance-inventory-mobile-card${open ? ' is-expanded' : ''}${isChecklistPending(device) ? ' is-pending' : ''}`}>
                           <button type="button" className="maintenance-inventory-mobile-toggle" onClick={() => toggle(device)} aria-expanded={open}>
                             <span className="maintenance-device-mobile-row__number">{absoluteIndex + 1}</span>
                             <span className="maintenance-device-list__icon"><Icon name={getMaintenanceCategory(deviceType(device)).icon} /></span>
-                            <span><strong>{deviceName(device)}</strong><small>{deviceType(device)} · {deviceLocation(device)}</small><span><em className={stateClass(pick(device, ['Estado']))}>{stateText(pick(device, ['Estado']))}</em><em><Icon name="photo_library" />{(device.Imagenes || []).length}</em>{isOffline(device) && <em className="is-offline"><Icon name="cloud_off" />Offline</em>}</span></span>
+                            <span><strong>{deviceName(device)}</strong><small>{deviceType(device)} · {deviceLocation(device)}</small><span><em className={`${stateClass(pick(device, ['Estado']))}${isChecklistPending(device) ? ' is-pending' : ''}`}>{stateText(pick(device, ['Estado']))}</em><em><Icon name="photo_library" />{(device.Imagenes || []).length}</em>{isOffline(device) && <em className="is-offline"><Icon name="cloud_off" />Offline</em>}</span></span>
                             <Icon name={open ? 'expand_less' : 'expand_more'} />
                           </button>
                           {pending && canEdit && <button type="button" className="maintenance-inventory-mobile-edit" onClick={() => onEditDevice(device)}><Icon name="edit" />Editar dispositivo y evidencias</button>}
