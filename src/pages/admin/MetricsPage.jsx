@@ -1,7 +1,12 @@
-import React, { useState } from 'react';
+import React, { Suspense, lazy, useState } from 'react';
 import Icon from '../../components/common/Icon';
-import MaintenanceMetricsDashboard from '../../components/metrics/MaintenanceMetricsDashboard';
-import TicketMetricsDashboard from '../../components/metrics/TicketMetricsDashboard';
+
+const TicketMetricsDashboard = lazy(() => import('../../components/metrics/TicketMetricsDashboard'));
+const MaintenanceMetricsDashboard = lazy(() => import('../../components/metrics/MaintenanceMetricsDashboard'));
+
+function DashboardLoading() {
+  return <div className="state-card state-card--loading"><Icon name="progress_activity" /><span>Preparando métricas...</span></div>;
+}
 
 export default function MetricsPage() {
   const [tab, setTab] = useState('tickets');
@@ -16,6 +21,8 @@ export default function MetricsPage() {
       <button type="button" className={tab === 'maintenance' ? 'is-active' : ''} onClick={() => setTab('maintenance')}><Icon name="engineering" />Mantenimientos</button>
     </nav>
 
-    {tab === 'tickets' ? <TicketMetricsDashboard /> : <MaintenanceMetricsDashboard />}
+    <Suspense fallback={<DashboardLoading />}>
+      {tab === 'tickets' ? <TicketMetricsDashboard /> : <MaintenanceMetricsDashboard />}
+    </Suspense>
   </div>;
 }
