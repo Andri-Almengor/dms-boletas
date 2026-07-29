@@ -9,19 +9,40 @@
   font-size: .76rem;
 }
 
-.ticket-list-load-more {
+.ticket-list-load-more,
+.list-load-more {
   display: flex;
   justify-content: center;
-  padding: 8px 0 20px;
+  padding: 12px 0 22px;
 }
 
-.ticket-list-load-more .button {
+.ticket-list-load-more .button,
+.list-load-more .button {
   min-width: 210px;
 }
 
-.ticket-card {
+.ticket-card,
+.maintenance-card,
+.knowledge-card,
+.user-card,
+.admin-mini-card,
+.survey-response-card,
+.metrics-ticket-card,
+.offline-section-row,
+.evidence-edit-card {
   content-visibility: auto;
   contain-intrinsic-size: 0 250px;
+}
+
+.maintenance-card,
+.knowledge-card,
+.survey-response-card {
+  contain-intrinsic-size: 0 360px;
+}
+
+.admin-mini-card,
+.offline-section-row {
+  contain-intrinsic-size: 0 96px;
 }
 
 .offline-mode-selector {
@@ -159,6 +180,59 @@
   line-height: 1.55;
 }
 
+.dms-low-resource-device .ticket-card,
+.dms-low-resource-device .maintenance-card,
+.dms-low-resource-device .knowledge-card,
+.dms-low-resource-device .user-card,
+.dms-low-resource-device .admin-mini-card,
+.dms-low-resource-device .survey-response-card,
+.dms-low-resource-device .profile-card,
+.dms-low-resource-device .stat-card,
+.dms-low-resource-device .menu-section,
+.dms-low-resource-device .offline-section-panel,
+.dms-low-resource-device .metrics-panel {
+  box-shadow: none !important;
+}
+
+.dms-low-resource-device .drawer-backdrop,
+.dms-low-resource-device .admin-entity-modal-backdrop,
+.dms-low-resource-device .mobile-time-backdrop {
+  backdrop-filter: none !important;
+  -webkit-backdrop-filter: none !important;
+}
+
+.dms-low-resource-device .assistant-fab,
+.dms-low-resource-device .button,
+.dms-low-resource-device .icon-button,
+.dms-low-resource-device .side-drawer,
+.dms-low-resource-device .drawer-backdrop,
+.dms-low-resource-device .admin-mini-card,
+.dms-low-resource-device .ticket-card,
+.dms-low-resource-device .maintenance-card {
+  transition: none !important;
+}
+
+.dms-low-resource-device .offline-progress-ring,
+.dms-low-resource-device .material-symbols-outlined {
+  animation-duration: .001ms !important;
+  animation-iteration-count: 1 !important;
+}
+
+.dms-data-saver img:not([data-eager-image]) {
+  content-visibility: auto;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  *,
+  *::before,
+  *::after {
+    scroll-behavior: auto !important;
+    animation-duration: .001ms !important;
+    animation-iteration-count: 1 !important;
+    transition-duration: .001ms !important;
+  }
+}
+
 @media (max-width: 720px) {
   .offline-mode-selector,
   .offline-disabled-card {
@@ -172,7 +246,10 @@
     justify-content: center;
   }
 
-  .ticket-card {
-    contain-intrinsic-size: 0 300px;
+  .ticket-card,
+  .maintenance-card,
+  .knowledge-card,
+  .survey-response-card {
+    contain-intrinsic-size: 0 330px;
   }
 }
