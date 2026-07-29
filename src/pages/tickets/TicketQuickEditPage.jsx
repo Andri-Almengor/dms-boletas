@@ -2,6 +2,8 @@ import React, { useEffect, useMemo, useState } from 'react';
 import { Navigate, useNavigate, useParams } from 'react-router-dom';
 import { useAuth } from '../../AuthContext';
 import Icon from '../../components/common/Icon';
+import DependentSelect from '../../components/forms/DependentSelect';
+import InlineCreateModal from '../../components/forms/InlineCreateModal';
 import TechnicianMultiSelect from '../../components/forms/TechnicianMultiSelect';
 import TechnicalWritingAssistant from '../../components/tickets/TechnicalWritingAssistant';
 import { MODULE_ROUTES, normalizeItems, pick, requestAvailable, toBoolean } from '../../services/moduleApi';
@@ -11,6 +13,33 @@ const SECTIONS = {
   client: { title: 'Cliente', icon: 'corporate_fare', description: 'Cliente, ubicaciones, supervisor y correos.' },
   device: { title: 'Dispositivo / Equipo', icon: 'devices_other', description: 'Tipo, nombre, fabricante, modelo y serie.' },
   work: { title: 'Trabajo realizado', icon: 'engineering', description: 'Motivo, pruebas, resultado, recomendaciones y técnicos.' },
+};
+
+const OPERATIONAL_CLIENT_CREATE_ROUTES = {
+  location: [
+    'clients.operational.locations.create',
+    'clientLocations.operational.create',
+    'clientes.ubicaciones.operational.create',
+    'ubicacionesCliente.operational.create',
+  ],
+  equipment: [
+    'clients.operational.equipmentLocations.create',
+    'equipmentLocations.operational.create',
+    'clientes.ubicacionesEquipo.operational.create',
+    'ubicacionesEquipo.operational.create',
+  ],
+  supervisor: [
+    'clients.operational.contacts.create',
+    'contacts.operational.create',
+    'clientes.contactos.operational.create',
+    'contactosCliente.operational.create',
+  ],
+};
+
+const MODAL_TITLES = {
+  location: 'Agregar ubicación',
+  equipment: 'Agregar ubicación del equipo',
+  supervisor: 'Agregar supervisor',
 };
 
 function text(value) {
@@ -60,6 +89,12 @@ function optionRows(rows, idKeys, labelKeys) {
 
 function sameId(left, right) {
   return String(left || '') === String(right || '');
+}
+
+function appendUnique(rows, row, idKeys) {
+  const id = text(pick(row, idKeys));
+  if (!id || rows.some((item) => sameId(pick(item, idKeys), id))) return rows;
+  return [...rows, row];
 }
 
 function mapForm(data) {
@@ -159,6 +194,9 @@ export default function TicketQuickEditPage() {
   const [loading, setLoading] = useState(true);
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState('');
+  const [modal, setModal] = useState(null);
+  const [modalError, setModalError] = useState('');
+  const [modalSaving, setModalSaving] = useState(false);
 
   useEffect(() => {
     let active = true;
@@ -258,6 +296,121 @@ export default function TicketQuickEditPage() {
     }));
   }
 
+  function openModal(type) {
+    setModal({
+      type,
+      values: {
+        nombre: '',
+        descripcion: '',
+        correo: '',
+        puesto: '',
+        telefono: '',
+        direccion: '',
+        notas: '',
+      },
+    });
+    setModalError('');
+  }
+
+  function modalUpdate(event) {
+    const { name, value } = event.target;
+    setModal((current) => ({
+      ...current,
+      values: { ...current.values, [name]: value },
+    }));
+  }
+
+  async function submitModal(event) {
+    event.preventDefault();
+    if (!modal) return;
+    const { type, values } = modal;
+    if (!values.nombre.trim()) {
+      setModalError('El nombre es obligatorio.');
+      return;
+    }
+    if (type === 'location' && !form.clienteId) {
+      setModalError('Seleccione primero el cliente.');
+      return;
+    }
+    if (type === 'equipment' && !form.ubicacionId) {
+      setModalError('Seleccione primero la ubicación.');
+      return;
+    }
+    if (type === 'supervisor' && !form.clienteId) {
+      setModalError('Seleccione primero el cliente.');
+      return;
+    }
+    if (type === 'supervisor' && !values.correo.trim()) {
+      setModalError('El correo del supervisor es obligatorio.');
+      return;
+    }
+
+    setModalSaving(true);
+    setModalError('');
+    try {
+      let result;
+      if (type === 'location') {
+        result = await requestAvailable(OPERATIONAL_CLIENT_CREATE_ROUTES.location, {
+          clienteId: form.clienteId,
+          nombre: values.nombre,
+          direccion: values.direccion,
+          notas: values.notas,
+          activo: true,
+        }, sessionToken);
+        setLocations((rows) => appendUnique(rows, result, ['UbicacionID', 'id']));
+        setEquipment([]);
+        setForm((current) => ({
+          ...current,
+          ubicacionId: text(pick(result, ['UbicacionID', 'id'])),
+          ubicacion: pick(result, ['Nombre'], values.nombre),
+          ubicacionEquipoId: '',
+          ubicacionEquipo: '',
+        }));
+      }
+
+      if (type === 'equipment') {
+        result = await requestAvailable(OPERATIONAL_CLIENT_CREATE_ROUTES.equipment, {
+          ubicacionId: form.ubicacionId,
+          nombre: values.nombre,
+          descripcion: values.descripcion,
+          activo: true,
+        }, sessionToken);
+        setEquipment((rows) => appendUnique(rows, result, ['UbicacionEquipoID', 'id']));
+        setForm((current) => ({
+          ...current,
+          ubicacionEquipoId: text(pick(result, ['UbicacionEquipoID', 'id'])),
+          ubicacionEquipo: pick(result, ['Nombre'], values.nombre),
+        }));
+      }
+
+      if (type === 'supervisor') {
+        result = await requestAvailable(OPERATIONAL_CLIENT_CREATE_ROUTES.supervisor, {
+          clienteId: form.clienteId,
+          nombre: values.nombre,
+          correo: values.correo,
+          puesto: values.puesto,
+          telefono: values.telefono,
+          esSupervisor: true,
+          recibeCorreo: true,
+          activo: true,
+        }, sessionToken);
+        setContacts((rows) => appendUnique(rows, result, ['ContactoID', 'id']));
+        setForm((current) => ({
+          ...current,
+          supervisorId: text(pick(result, ['ContactoID', 'id'])),
+          supervisor: pick(result, ['Nombre'], values.nombre),
+          correoSupervisor: pick(result, ['Correo'], values.correo),
+        }));
+      }
+
+      setModal(null);
+    } catch (modalSaveError) {
+      setModalError(modalSaveError.message);
+    } finally {
+      setModalSaving(false);
+    }
+  }
+
   function validate() {
     if (section === 'general' && (!form.titulo || !form.categoriaId || !form.tipoFallaId || !form.fecha)) return 'Complete título, categoría, tipo de falla y fecha.';
     if (section === 'client' && !form.clienteId) return 'Seleccione un cliente.';
@@ -324,10 +477,37 @@ export default function TicketQuickEditPage() {
           {section === 'client' && <>
             <Select label="Cliente" value={form.clienteId} options={options.clients} required onChange={(event) => choose(event, options.clients, 'clienteId', 'cliente', { ubicacionId: '', ubicacion: '', ubicacionEquipoId: '', ubicacionEquipo: '', supervisorId: '', supervisor: '', correoSupervisor: '' }, (row) => ({ correoCliente: pick(row, ['CorreoGeneral', 'Correo']) }))} />
             <div className="ticket-form-grid">
-              <Select label="Ubicación" value={form.ubicacionId} options={options.locations} disabled={!form.clienteId} onChange={(event) => choose(event, options.locations, 'ubicacionId', 'ubicacion', { ubicacionEquipoId: '', ubicacionEquipo: '' })} />
-              <Select label="Ubicación del equipo" value={form.ubicacionEquipoId} options={options.equipment} disabled={!form.ubicacionId} onChange={(event) => choose(event, options.equipment, 'ubicacionEquipoId', 'ubicacionEquipo')} />
+              <DependentSelect
+                label="Ubicación"
+                name="ubicacionId"
+                value={form.ubicacionId}
+                options={options.locations}
+                disabled={!form.clienteId}
+                canAdd={allowed && Boolean(form.clienteId)}
+                onAdd={() => openModal('location')}
+                onChange={(event) => choose(event, options.locations, 'ubicacionId', 'ubicacion', { ubicacionEquipoId: '', ubicacionEquipo: '' })}
+              />
+              <DependentSelect
+                label="Ubicación del equipo"
+                name="ubicacionEquipoId"
+                value={form.ubicacionEquipoId}
+                options={options.equipment}
+                disabled={!form.ubicacionId}
+                canAdd={allowed && Boolean(form.ubicacionId)}
+                onAdd={() => openModal('equipment')}
+                onChange={(event) => choose(event, options.equipment, 'ubicacionEquipoId', 'ubicacionEquipo')}
+              />
             </div>
-            <Select label="Supervisor" value={form.supervisorId} options={options.supervisors} disabled={!form.clienteId} onChange={(event) => choose(event, options.supervisors, 'supervisorId', 'supervisor', {}, (row) => ({ correoSupervisor: pick(row, ['Correo']) }))} />
+            <DependentSelect
+              label="Supervisor"
+              name="supervisorId"
+              value={form.supervisorId}
+              options={options.supervisors}
+              disabled={!form.clienteId}
+              canAdd={allowed && Boolean(form.clienteId)}
+              onAdd={() => openModal('supervisor')}
+              onChange={(event) => choose(event, options.supervisors, 'supervisorId', 'supervisor', {}, (row) => ({ correoSupervisor: pick(row, ['Correo']) }))}
+            />
             <div className="ticket-form-grid">
               <Field label="Correo supervisor" type="email" name="correoSupervisor" value={form.correoSupervisor} onChange={update} />
               <Field label="Correo cliente" type="email" name="correoCliente" value={form.correoCliente} onChange={update} />
@@ -359,6 +539,32 @@ export default function TicketQuickEditPage() {
           <button className="button button--primary" type="submit" disabled={saving}><Icon name={saving ? 'progress_activity' : 'save'} />{saving ? 'Guardando...' : 'Guardar cambios'}</button>
         </div>
       </form>
+
+      <InlineCreateModal
+        open={Boolean(modal)}
+        title={MODAL_TITLES[modal?.type] || 'Agregar registro'}
+        description="El nuevo valor quedará disponible para futuras boletas y mantenimientos del cliente."
+        saving={modalSaving}
+        error={modalError}
+        onClose={() => setModal(null)}
+        onSubmit={submitModal}
+      >
+        {modal && <>
+          <Field label="Nombre" name="nombre" value={modal.values.nombre} onChange={modalUpdate} required />
+          {modal.type === 'supervisor' && <>
+            <Field label="Correo" type="email" name="correo" value={modal.values.correo} onChange={modalUpdate} required />
+            <div className="ticket-form-grid">
+              <Field label="Puesto" name="puesto" value={modal.values.puesto} onChange={modalUpdate} />
+              <Field label="Teléfono" name="telefono" value={modal.values.telefono} onChange={modalUpdate} />
+            </div>
+          </>}
+          {modal.type === 'location' && <>
+            <Field label="Dirección" name="direccion" value={modal.values.direccion} onChange={modalUpdate} />
+            <Field label="Notas" multiline name="notas" value={modal.values.notas} onChange={modalUpdate} />
+          </>}
+          {modal.type === 'equipment' && <Field label="Descripción" multiline name="descripcion" value={modal.values.descripcion} onChange={modalUpdate} />}
+        </>}
+      </InlineCreateModal>
     </div>
   );
 }
