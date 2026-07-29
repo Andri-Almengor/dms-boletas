@@ -31,7 +31,7 @@ export default function AppShell() {
   const isAssistantPage = location.pathname === '/asistente';
   const isWorkflowForm = location.pathname === '/boletas/nueva'
     || /^\/boletas\/[^/]+\/editar$/.test(location.pathname)
-    || /\/boletas\/[^/]+\/edicion-rapida\//.test(location.pathname)
+    || /\/boletas\/[^/]+\/editar-rapido\//.test(location.pathname)
     || /\/boletas\/[^/]+\/nueva-visita$/.test(location.pathname)
     || location.pathname === '/mantenimientos/nuevo'
     || /^\/mantenimientos\/[^/]+\/editar$/.test(location.pathname);
