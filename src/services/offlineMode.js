@@ -1,5 +1,6 @@
 const STORAGE_KEY = 'dms_offline_mode_enabled';
 const CHANGE_EVENT = 'dms-offline-mode-change';
+let initializationPromise = null;
 
 function storageAvailable() {
   return typeof window !== 'undefined' && Boolean(window.localStorage);
@@ -43,23 +44,27 @@ export function subscribeOfflineMode(listener) {
   return () => window.removeEventListener(CHANGE_EVENT, handleChange);
 }
 
-export async function preserveExistingOfflineQueue() {
-  if (hasOfflineModePreference() || typeof window === 'undefined' || !('indexedDB' in window)) {
-    return isOfflineModeEnabled();
-  }
-
-  try {
-    if (typeof window.indexedDB.databases === 'function') {
-      const databases = await window.indexedDB.databases();
-      if (!databases.some((database) => database.name === 'dms-boletas-offline')) return false;
+export function preserveExistingOfflineQueue() {
+  if (initializationPromise) return initializationPromise;
+  initializationPromise = (async () => {
+    if (hasOfflineModePreference() || typeof window === 'undefined' || !('indexedDB' in window)) {
+      return isOfflineModeEnabled();
     }
-    const { queuedOperationCount } = await import('./offlineStore');
-    const pending = await queuedOperationCount().catch(() => 0);
-    if (pending > 0) return setOfflineModeEnabled(true);
-  } catch {
-    // En dispositivos sin soporte para inspección de IndexedDB se mantiene el valor por defecto.
-  }
-  return false;
+
+    try {
+      if (typeof window.indexedDB.databases === 'function') {
+        const databases = await window.indexedDB.databases();
+        if (!databases.some((database) => database.name === 'dms-boletas-offline')) return false;
+      }
+      const { queuedOperationCount } = await import('./offlineStoreCore');
+      const pending = await queuedOperationCount().catch(() => 0);
+      if (pending > 0) return setOfflineModeEnabled(true);
+    } catch {
+      // En dispositivos sin soporte para inspección de IndexedDB se mantiene el valor por defecto.
+    }
+    return false;
+  })();
+  return initializationPromise;
 }
 
 export const OFFLINE_MODE_CHANGE_EVENT = CHANGE_EVENT;
