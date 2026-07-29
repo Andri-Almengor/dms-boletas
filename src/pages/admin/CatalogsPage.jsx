@@ -1,4 +1,4 @@
-import React, { useEffect, useMemo, useState } from 'react';
+import React, { useCallback, useEffect, useMemo, useState } from 'react';
 import { Navigate } from 'react-router-dom';
 import { useAuth } from '../../AuthContext';
 import Icon from '../../components/common/Icon';
@@ -13,7 +13,14 @@ const TABS = [
   ['failureTypes', 'Tipos de falla', 'warning'],
   ['relations', 'Relaciones', 'account_tree'],
 ];
-
+const LIST_ROUTES = {
+  categories: MODULE_ROUTES.categories.list,
+  deviceTypes: MODULE_ROUTES.deviceTypes.list,
+  manufacturers: MODULE_ROUTES.manufacturers.list,
+  models: MODULE_ROUTES.models.list,
+  failureTypes: MODULE_ROUTES.failureTypes.list,
+  relations: MODULE_ROUTES.deviceManufacturers.list,
+};
 const DELETE_ROUTES = {
   categories: ['catalog.categories.delete', 'categories.delete', 'categorias.delete'],
   deviceTypes: ['catalog.deviceTypes.delete', 'deviceTypes.delete', 'tiposDispositivo.delete'],
@@ -22,6 +29,7 @@ const DELETE_ROUTES = {
   failureTypes: ['catalog.failureTypes.delete', 'failureTypes.delete', 'tiposFalla.delete'],
   relations: ['catalog.deviceManufacturers.delete', 'deviceManufacturers.delete', 'tipoDispositivoFabricantes.delete'],
 };
+const EMPTY_DATA = { categories: [], deviceTypes: [], manufacturers: [], models: [], failureTypes: [], relations: [] };
 
 function TextField({ label, multiline = false, ...props }) {
   return <label className="field-group"><span className="field-label">{label}</span>{multiline ? <textarea className="form-control ticket-textarea" rows="4" {...props} /> : <input className="form-control" {...props} />}</label>;
@@ -65,6 +73,18 @@ function lookup(records, idKey, id) {
   return pick(records.find((item) => String(item[idKey]) === String(id)), ['Nombre'], id || 'Sin identificar');
 }
 
+function recordId(config, record, fallback = '') {
+  return String(pick(record, config.idKeys, fallback));
+}
+
+function upsert(items, config, record) {
+  const id = recordId(config, record);
+  if (!id) return items;
+  const index = items.findIndex((item) => recordId(config, item) === id);
+  if (index < 0) return [record, ...items];
+  return items.map((item, current) => current === index ? { ...item, ...record } : item);
+}
+
 function catalogConfig(tab, data) {
   return {
     categories: { items: data.categories, routes: MODULE_ROUTES.categories, deleteRoutes: DELETE_ROUTES.categories, idKeys: ['CategoriaID', 'id'], idPayload: 'categoriaId', icon: 'category', title: (r) => pick(r, ['Nombre', 'Categoria']), description: (r) => pick(r, ['Descripcion'], 'Categoría de servicio') },
@@ -95,7 +115,8 @@ export default function CatalogsPage() {
   const canView = hasPermission('CATALOGOS_VER') || hasPermission('CATALOGOS_GESTIONAR') || isAdmin;
   const canManage = hasPermission('CATALOGOS_GESTIONAR') || isAdmin;
   const [tab, setTab] = useState('categories');
-  const [data, setData] = useState({ categories: [], deviceTypes: [], manufacturers: [], models: [], failureTypes: [], relations: [] });
+  const [data, setData] = useState(EMPTY_DATA);
+  const [loaded, setLoaded] = useState({});
   const [search, setSearch] = useState('');
   const [selected, setSelected] = useState(null);
   const [editor, setEditor] = useState(null);
@@ -104,30 +125,40 @@ export default function CatalogsPage() {
   const [error, setError] = useState('');
   const [modalError, setModalError] = useState('');
 
-  async function load() {
+  const loadKeys = useCallback(async (keys, { force = false } = {}) => {
+    const unique = [...new Set(keys)].filter((key) => force || !loaded[key]);
+    if (!unique.length) return;
     setLoading(true);
     setError('');
-    const requests = [
-      ['categories', MODULE_ROUTES.categories.list],
-      ['deviceTypes', MODULE_ROUTES.deviceTypes.list],
-      ['manufacturers', MODULE_ROUTES.manufacturers.list],
-      ['models', MODULE_ROUTES.models.list],
-      ['failureTypes', MODULE_ROUTES.failureTypes.list],
-      ['relations', MODULE_ROUTES.deviceManufacturers.list],
-    ];
-    const results = await Promise.allSettled(requests.map(([, routes]) => requestAvailable(routes, { page: 1, pageSize: 1000, sortBy: 'Nombre', sortDir: 'asc', includeInactive: canManage }, sessionToken)));
+    const results = await Promise.allSettled(unique.map((key) => requestAvailable(LIST_ROUTES[key], {
+      page: 1,
+      pageSize: key === 'models' || key === 'relations' ? 1500 : 750,
+      sortBy: 'Nombre',
+      sortDir: 'asc',
+      includeInactive: canManage,
+    }, sessionToken)));
     const next = {};
+    const loadedPatch = {};
     const failures = [];
     results.forEach((result, index) => {
-      if (result.status === 'fulfilled') next[requests[index][0]] = normalizeItems(result.value);
-      else failures.push(result.reason?.message || requests[index][0]);
+      const key = unique[index];
+      if (result.status === 'fulfilled') {
+        next[key] = normalizeItems(result.value);
+        loadedPatch[key] = true;
+      } else failures.push(result.reason?.message || key);
     });
     setData((current) => ({ ...current, ...next }));
+    setLoaded((current) => ({ ...current, ...loadedPatch }));
     if (failures.length) setError(`No se pudieron cargar algunos catálogos: ${failures.join(' · ')}`);
     setLoading(false);
-  }
+  }, [canManage, loaded, sessionToken]);
 
-  useEffect(() => { if (canView) load(); }, [sessionToken, canView, canManage]);
+  useEffect(() => {
+    if (!canView) return;
+    const dependencies = ['models', 'relations'].includes(tab) ? [tab, 'deviceTypes', 'manufacturers'] : [tab];
+    loadKeys(dependencies);
+  }, [canView, tab, sessionToken, canManage]);
+
   const activeConfig = useMemo(() => catalogConfig(tab, data), [tab, data]);
   const visibleItems = useMemo(() => {
     const query = search.trim().toLowerCase();
@@ -178,7 +209,7 @@ export default function CatalogsPage() {
     try {
       const response = await requestAvailable(activeConfig.routes.update, { [activeConfig.idPayload]: pick(selected, activeConfig.idKeys), activo: !active, Activo: !active, Estado: active ? 'INACTIVO' : 'ACTIVO' }, sessionToken);
       setSelected(response);
-      await load();
+      setData((current) => ({ ...current, [tab]: upsert(current[tab], activeConfig, response) }));
     } catch (toggleError) {
       setModalError(toggleError.message);
     } finally {
@@ -194,9 +225,10 @@ export default function CatalogsPage() {
     setModalError('');
     try {
       await requestAvailable(activeConfig.deleteRoutes, { [activeConfig.idPayload]: pick(selected, activeConfig.idKeys) }, sessionToken);
+      const id = recordId(activeConfig, selected);
+      setData((current) => ({ ...current, [tab]: current[tab].filter((item) => recordId(activeConfig, item) !== id) }));
       setSelected(null);
       setEditor(null);
-      await load();
     } catch (removeError) {
       setModalError(removeError.message);
     } finally {
@@ -229,7 +261,7 @@ export default function CatalogsPage() {
         : await requestAvailable(activeConfig.routes.create, { ...basePayload, activo: true, Estado: 'ACTIVO' }, sessionToken);
       setSelected(response);
       setEditor(null);
-      await load();
+      setData((current) => ({ ...current, [tab]: upsert(current[tab], activeConfig, response) }));
     } catch (submitError) {
       setModalError(submitError.message);
     } finally {
@@ -238,42 +270,24 @@ export default function CatalogsPage() {
   }
 
   if (!canView) return <Navigate to="/mas" replace />;
-
   const selectedActive = selected ? toBoolean(pick(selected, ['Activo', 'activo'], true), true) : true;
   const tabLabel = TABS.find(([key]) => key === tab)?.[1] || 'Catálogo';
 
   return <div className="page catalog-page">
     <div className="list-page-heading"><div><span className="eyebrow">Administración</span><h1>Catálogos</h1><p>Valores operativos utilizados por boletas y mantenimientos.</p></div>{canManage && <button className="button button--primary button--compact" type="button" onClick={openCreate}><Icon name="add" />Nuevo</button>}</div>
-
     <div className="catalog-tabs" role="tablist" aria-label="Tipos de catálogo">{TABS.map(([key, label, icon]) => <button key={key} className={tab === key ? 'is-active' : ''} type="button" role="tab" aria-selected={tab === key} onClick={() => switchTab(key)}><Icon name={icon} /><span>{label}</span></button>)}</div>
-
     {!canManage && <div className="readonly-notice"><Icon name="visibility" /><span>Modo consulta: puede revisar los catálogos, pero no modificarlos.</span></div>}
-
-    <label className="search-bar"><Icon name="search" /><input value={search} onChange={(event) => setSearch(event.target.value)} placeholder={`Buscar en ${tabLabel.toLowerCase()}...`} /><button className="icon-button" type="button" onClick={load} aria-label="Actualizar"><Icon name="refresh" /></button></label>
-
+    <label className="search-bar"><Icon name="search" /><input value={search} onChange={(event) => setSearch(event.target.value)} placeholder={`Buscar en ${tabLabel.toLowerCase()}...`} /><button className="icon-button" type="button" onClick={() => loadKeys([tab], { force: true })} aria-label="Actualizar"><Icon name="refresh" /></button></label>
     {error && <div className="alert alert--error"><Icon name="error" /><span>{error}</span></div>}
-    {loading ? <div className="state-card state-card--loading"><Icon name="progress_activity" />Cargando catálogos...</div> : <div className="admin-mini-card-grid">
+    {loading && !loaded[tab] ? <div className="state-card state-card--loading"><Icon name="progress_activity" />Cargando {tabLabel.toLowerCase()}...</div> : <div className="admin-mini-card-grid">
       {visibleItems.map((record, index) => {
         const active = toBoolean(pick(record, ['Activo', 'activo'], true), true);
-        return <article className={`admin-mini-card${active ? '' : ' is-inactive'}`} key={pick(record, activeConfig.idKeys, index)}>
-          <span className="admin-mini-card__icon"><Icon name={activeConfig.icon} /></span>
-          <div className="admin-mini-card__body"><strong>{activeConfig.title(record)}</strong><span>{activeConfig.description(record)}</span><small>{active ? 'ACTIVO' : 'INACTIVO'}</small></div>
-          <button className="icon-button icon-button--outlined admin-mini-card__action" type="button" onClick={() => openDetail(record)} aria-label={`${canManage ? 'Administrar' : 'Ver'} ${activeConfig.title(record)}`}><Icon name={canManage ? 'edit' : 'visibility'} /></button>
-        </article>;
+        return <article className={`admin-mini-card${active ? '' : ' is-inactive'}`} key={pick(record, activeConfig.idKeys, index)}><span className="admin-mini-card__icon"><Icon name={activeConfig.icon} /></span><div className="admin-mini-card__body"><strong>{activeConfig.title(record)}</strong><span>{activeConfig.description(record)}</span><small>{active ? 'ACTIVO' : 'INACTIVO'}</small></div><button className="icon-button icon-button--outlined admin-mini-card__action" type="button" onClick={() => openDetail(record)} aria-label={`${canManage ? 'Administrar' : 'Ver'} ${activeConfig.title(record)}`}><Icon name={canManage ? 'edit' : 'visibility'} /></button></article>;
       })}
       {!visibleItems.length && <div className="empty-state"><Icon name="inventory_2" /><h2>Sin registros</h2><p>No hay resultados en este catálogo.</p></div>}
     </div>}
 
-    <AdminEntityModal
-      open={Boolean(selected)}
-      title={editor ? (editor.mode === 'edit' ? `Editar ${tabLabel}` : `Nuevo: ${tabLabel}`) : (selected && Object.keys(selected).length ? activeConfig.title(selected) : `Nuevo: ${tabLabel}`)}
-      subtitle={editor ? 'Complete la información del registro.' : (selected && Object.keys(selected).length ? activeConfig.description(selected) : 'Complete la información del registro.')}
-      eyebrow={editor ? 'Edición de catálogo' : 'Detalle de catálogo'}
-      icon={activeConfig.icon}
-      onClose={closeModal}
-      busy={saving}
-      footer={!editor && selected && Object.keys(selected).length && canManage ? <><button className="button button--danger" type="button" onClick={remove} disabled={saving}><Icon name="delete" />Eliminar</button><button className="button button--secondary" type="button" onClick={toggle} disabled={saving}><Icon name={selectedActive ? 'block' : 'refresh'} />{selectedActive ? 'Desactivar' : 'Reactivar'}</button><button className="button button--primary" type="button" onClick={openEdit} disabled={saving}><Icon name="edit" />Editar</button></> : null}
-    >
+    <AdminEntityModal open={Boolean(selected)} title={editor ? (editor.mode === 'edit' ? `Editar ${tabLabel}` : `Nuevo: ${tabLabel}`) : (selected && Object.keys(selected).length ? activeConfig.title(selected) : `Nuevo: ${tabLabel}`)} subtitle={editor ? 'Complete la información del registro.' : (selected && Object.keys(selected).length ? activeConfig.description(selected) : 'Complete la información del registro.')} eyebrow={editor ? 'Edición de catálogo' : 'Detalle de catálogo'} icon={activeConfig.icon} onClose={closeModal} busy={saving} footer={!editor && selected && Object.keys(selected).length && canManage ? <><button className="button button--danger" type="button" onClick={remove} disabled={saving}><Icon name="delete" />Eliminar</button><button className="button button--secondary" type="button" onClick={toggle} disabled={saving}><Icon name={selectedActive ? 'block' : 'refresh'} />{selectedActive ? 'Desactivar' : 'Reactivar'}</button><button className="button button--primary" type="button" onClick={openEdit} disabled={saving}><Icon name="edit" />Editar</button></> : null}>
       {modalError && <div className="alert alert--error"><Icon name="error" /><span>{modalError}</span></div>}
       {editor ? <form className="stack-form" onSubmit={submit}><CatalogFields tab={tab} values={editor.values} setEditor={setEditor} data={data} /><div className="form-actions"><button className="button button--secondary" type="button" onClick={() => editor.mode === 'create' ? closeModal() : setEditor(null)} disabled={saving}>Cancelar</button><button className="button button--primary" disabled={saving}>{saving ? 'Guardando...' : 'Guardar'}</button></div></form> : selected && Object.keys(selected).length ? <div className="admin-detail-grid"><div><span>Estado</span><strong>{selectedActive ? 'ACTIVO' : 'INACTIVO'}</strong></div><div><span>Tipo de catálogo</span><strong>{tabLabel}</strong></div><div className="is-wide"><span>Descripción</span><strong>{activeConfig.description(selected)}</strong></div>{tab === 'models' && <><div><span>Tipo de dispositivo</span><strong>{lookup(data.deviceTypes, 'TipoDispositivoID', pick(selected, ['TipoDispositivoID']))}</strong></div><div><span>Fabricante</span><strong>{lookup(data.manufacturers, 'FabricanteID', pick(selected, ['FabricanteID']))}</strong></div></>}</div> : null}
     </AdminEntityModal>
