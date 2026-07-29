@@ -160,7 +160,8 @@
 }
 
 .maintenance-device-compact-state.is-pending,
-.maintenance-inventory-mobile-toggle em.is-pending {
+.maintenance-inventory-mobile-toggle em.is-pending,
+.maintenance-device-mobile-row em.is-pending {
   border-color: color-mix(in srgb, var(--warning) 62%, var(--outline-soft));
   background: var(--warning-soft);
   color: var(--warning);
