@@ -4,6 +4,10 @@ import FilterDrawer from '../forms/FilterDrawer';
 import MaintenanceEvidenceImage from './MaintenanceEvidenceImage';
 import { getMaintenanceCategory } from '../../config/maintenanceCategories';
 import { pick } from '../../services/moduleApi';
+import {
+  effectiveMaintenanceDeviceState,
+  isMaintenanceChecklistPending,
+} from '../../utils/maintenanceChecklistStatus';
 
 const PAGE_SIZES = [25, 50, 100];
 const NATURAL_COLLATOR = new Intl.Collator('es', {
@@ -85,8 +89,16 @@ function stateText(value) {
   return String(value || 'Sin estado').toUpperCase();
 }
 
+function checklistQuestions(device) {
+  return getMaintenanceCategory(deviceType(device)).questions;
+}
+
+function effectiveState(device) {
+  return effectiveMaintenanceDeviceState(device, checklistQuestions(device));
+}
+
 function isChecklistPending(device) {
-  return normalized(pick(device, ['Estado', 'estado'])) === 'pendiente';
+  return isMaintenanceChecklistPending(device, checklistQuestions(device));
 }
 
 function stateFilterLabel(value) {
@@ -162,7 +174,8 @@ export default function MaintenanceDeviceInventory({
       .filter((device) => {
         const currentCategory = deviceType(device);
         const currentLocation = deviceLocation(device);
-        const currentState = stateClass(pick(device, ['Estado']));
+        const currentEffectiveState = effectiveState(device);
+        const currentState = stateClass(currentEffectiveState);
         const checklistPending = isChecklistPending(device);
         if (category !== 'TODAS' && normalized(currentCategory) !== selectedCategory) return false;
         if (location !== 'TODAS' && normalized(currentLocation) !== selectedLocation) return false;
@@ -178,6 +191,7 @@ export default function MaintenanceDeviceInventory({
           pick(device, ['Modelo']),
           pick(device, ['Serie']),
           pick(device, ['Estado']),
+          currentEffectiveState,
           pick(device, ['Observacion']),
         ].some((value) => normalized(value).includes(search));
       })
@@ -256,7 +270,7 @@ export default function MaintenanceDeviceInventory({
         {checklistPending && (
           <div className="maintenance-inventory-pending-note">
             <Icon name="schedule" />
-            <div><strong>Checklist pendiente</strong><span>Las pruebas de este dispositivo todavía no se han completado.</span></div>
+            <div><strong>Checklist pendiente</strong><span>Falta completar una o más respuestas obligatorias de este dispositivo.</span></div>
           </div>
         )}
         <div className={`maintenance-inventory-checklist${checklistPending ? ' is-pending' : ''}`}>
@@ -372,6 +386,7 @@ export default function MaintenanceDeviceInventory({
                         const id = deviceId(device);
                         const open = expanded === id;
                         const images = device.Imagenes || [];
+                        const displayedState = effectiveState(device);
                         return (
                           <React.Fragment key={id}>
                             <tr className={open ? 'is-expanded' : ''}>
@@ -380,7 +395,7 @@ export default function MaintenanceDeviceInventory({
                               <td>{deviceType(device)}</td>
                               <td>{deviceLocation(device)}</td>
                               <td>{[pick(device, ['Modelo']), pick(device, ['Serie'])].filter(Boolean).join(' · ') || 'Sin datos'}</td>
-                              <td><span className={`maintenance-device-compact-state ${stateClass(pick(device, ['Estado']))}${isChecklistPending(device) ? ' is-pending' : ''}`}>{stateText(pick(device, ['Estado']))}</span></td>
+                              <td><span className={`maintenance-device-compact-state ${stateClass(displayedState)}${isChecklistPending(device) ? ' is-pending' : ''}`}>{stateText(displayedState)}</span></td>
                               <td><span className="maintenance-device-evidence-count"><Icon name="photo_library" />{images.length}</span></td>
                               <td>
                                 <div className="maintenance-inventory-row-actions">
@@ -421,11 +436,12 @@ export default function MaintenanceDeviceInventory({
                       {group.items.map(({ device, absoluteIndex }) => {
                         const id = deviceId(device);
                         const open = expanded === id;
+                        const displayedState = effectiveState(device);
                         return <article key={id} className={`maintenance-inventory-mobile-card${open ? ' is-expanded' : ''}${isChecklistPending(device) ? ' is-pending' : ''}`}>
                           <button type="button" className="maintenance-inventory-mobile-toggle" onClick={() => toggle(device)} aria-expanded={open}>
                             <span className="maintenance-device-mobile-row__number">{absoluteIndex + 1}</span>
                             <span className="maintenance-device-list__icon"><Icon name={getMaintenanceCategory(deviceType(device)).icon} /></span>
-                            <span><strong>{deviceName(device)}</strong><small>{deviceType(device)} · {deviceLocation(device)}</small><span><em className={`${stateClass(pick(device, ['Estado']))}${isChecklistPending(device) ? ' is-pending' : ''}`}>{stateText(pick(device, ['Estado']))}</em><em><Icon name="photo_library" />{(device.Imagenes || []).length}</em>{isOffline(device) && <em className="is-offline"><Icon name="cloud_off" />Offline</em>}</span></span>
+                            <span><strong>{deviceName(device)}</strong><small>{deviceType(device)} · {deviceLocation(device)}</small><span><em className={`${stateClass(displayedState)}${isChecklistPending(device) ? ' is-pending' : ''}`}>{stateText(displayedState)}</em><em><Icon name="photo_library" />{(device.Imagenes || []).length}</em>{isOffline(device) && <em className="is-offline"><Icon name="cloud_off" />Offline</em>}</span></span>
                             <Icon name={open ? 'expand_less' : 'expand_more'} />
                           </button>
                           {pending && canEdit && <button type="button" className="maintenance-inventory-mobile-edit" onClick={() => onEditDevice(device)}><Icon name="edit" />Editar dispositivo y evidencias</button>}
