@@ -1,5 +1,22 @@
 .maintenance-list-search-bar {
   margin-bottom: 12px;
+  grid-template-columns: 24px minmax(0, 1fr) 44px;
+}
+
+.maintenance-list-search-bar > input {
+  min-width: 0;
+}
+
+/* La lupa izquierda ya identifica el buscador. El formulario continúa
+ * enviándose con Enter, mientras el único control visible a la derecha
+ * queda reservado para los filtros. */
+.maintenance-list-search-bar > button[type='submit'] {
+  display: none;
+}
+
+.maintenance-list-search-bar .filter-trigger {
+  grid-column: 3;
+  justify-self: end;
 }
 
 .maintenance-results-summary__actions {
@@ -22,6 +39,11 @@
 }
 
 @media (max-width: 520px) {
+  .maintenance-list-search-bar {
+    padding-left: 12px;
+    gap: 7px;
+  }
+
   .maintenance-results-summary {
     align-items: center;
   }
