@@ -6,18 +6,25 @@ import './services/maintenanceRoutes';
 import './services/operationalRoutes';
 import './services/operationalCreateRoutes';
 import './services/clientAdminRoutes';
+import { initializePerformanceMode } from './services/performanceMode';
 import { initializeTheme } from './services/theme';
 import App from './App';
 import './styles/index.css';
 
+initializePerformanceMode();
 initializeTheme();
 
 if ('serviceWorker' in navigator && import.meta.env.PROD) {
   window.addEventListener('load', () => {
-    navigator.serviceWorker.register('/sw.js').catch((error) => {
+    const register = () => navigator.serviceWorker.register('/sw.js').catch((error) => {
       console.warn('No se pudo registrar el modo instalable:', error);
     });
-  });
+    if (typeof window.requestIdleCallback === 'function') {
+      window.requestIdleCallback(register, { timeout: 2_500 });
+    } else {
+      window.setTimeout(register, 1_500);
+    }
+  }, { once: true });
 }
 
 window.addEventListener('beforeinstallprompt', (event) => {
