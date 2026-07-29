@@ -36,10 +36,32 @@ const OPERATIONAL_CLIENT_CREATE_ROUTES = {
   ],
 };
 
+const OPERATIONAL_CATALOG_CREATE_ROUTES = {
+  category: ['catalog.operational.categories.create'],
+  failure: ['catalog.operational.failureTypes.create'],
+  device: ['catalog.operational.deviceTypes.create'],
+  manufacturer: ['catalog.operational.manufacturers.create'],
+  model: ['catalog.operational.models.create'],
+  relation: ['catalog.operational.deviceManufacturers.create'],
+};
+
 const MODAL_TITLES = {
+  category: 'Agregar categoría',
+  failure: 'Agregar tipo de falla',
   location: 'Agregar ubicación',
   equipment: 'Agregar ubicación del equipo',
   supervisor: 'Agregar supervisor',
+  device: 'Agregar tipo de dispositivo',
+  manufacturer: 'Agregar fabricante',
+  model: 'Agregar modelo',
+};
+
+const MODAL_DESCRIPTIONS = {
+  location: 'La ubicación quedará asociada al cliente y disponible en futuras boletas y mantenimientos.',
+  equipment: 'La ubicación del equipo quedará asociada a la ubicación seleccionada.',
+  supervisor: 'El supervisor quedará asociado al cliente y disponible en futuras boletas.',
+  manufacturer: 'El fabricante quedará ligado al tipo de dispositivo seleccionado.',
+  model: 'El modelo quedará ligado al tipo de dispositivo y fabricante seleccionados.',
 };
 
 function text(value) {
@@ -95,6 +117,23 @@ function appendUnique(rows, row, idKeys) {
   const id = text(pick(row, idKeys));
   if (!id || rows.some((item) => sameId(pick(item, idKeys), id))) return rows;
   return [...rows, row];
+}
+
+function appendRelationUnique(rows, relation) {
+  const typeId = text(pick(relation, ['TipoDispositivoID', 'tipoDispositivoId']));
+  const manufacturerId = text(pick(relation, ['FabricanteID', 'fabricanteId']));
+  if (!typeId || !manufacturerId) return rows;
+  const exists = rows.some((item) => (
+    sameId(pick(item, ['TipoDispositivoID', 'tipoDispositivoId']), typeId)
+    && sameId(pick(item, ['FabricanteID', 'fabricanteId']), manufacturerId)
+  ));
+  return exists ? rows : [...rows, relation];
+}
+
+function includeCurrentSelection(rows, allRows, selectedId, idKeys) {
+  if (!selectedId || rows.some((row) => sameId(pick(row, idKeys), selectedId))) return rows;
+  const selected = allRows.find((row) => sameId(pick(row, idKeys), selectedId));
+  return selected ? [...rows, selected] : rows;
 }
 
 function mapForm(data) {
@@ -259,9 +298,35 @@ export default function TicketQuickEditPage() {
   }, [form?.horaInicio, form?.horaFinal]);
 
   const options = useMemo(() => {
-    const relationIds = catalogs.relations
-      .filter((item) => sameId(pick(item, ['TipoDispositivoID']), form?.tipoDispositivoId) && toBoolean(pick(item, ['Activo'], true), true))
-      .map((item) => text(pick(item, ['FabricanteID'])));
+    const linkedManufacturerIds = catalogs.relations
+      .filter((item) => sameId(pick(item, ['TipoDispositivoID', 'tipoDispositivoId']), form?.tipoDispositivoId)
+        && toBoolean(pick(item, ['Activo'], true), true))
+      .map((item) => text(pick(item, ['FabricanteID', 'fabricanteId'])))
+      .filter(Boolean);
+
+    const strictlyLinkedManufacturers = form?.tipoDispositivoId
+      ? catalogs.manufacturers.filter((item) => linkedManufacturerIds.includes(text(pick(item, ['FabricanteID', 'id']))))
+      : [];
+    const manufacturerRows = includeCurrentSelection(
+      strictlyLinkedManufacturers,
+      catalogs.manufacturers,
+      form?.fabricanteId,
+      ['FabricanteID', 'id'],
+    );
+
+    const strictlyLinkedModels = form?.tipoDispositivoId && form?.fabricanteId
+      ? catalogs.models.filter((item) => (
+        sameId(pick(item, ['TipoDispositivoID', 'tipoDispositivoId']), form.tipoDispositivoId)
+        && sameId(pick(item, ['FabricanteID', 'fabricanteId']), form.fabricanteId)
+      ))
+      : [];
+    const modelRows = includeCurrentSelection(
+      strictlyLinkedModels,
+      catalogs.models,
+      form?.modeloId,
+      ['ModeloID', 'id'],
+    );
+
     return {
       clients: optionRows(catalogs.clients, ['ClienteID', 'id'], ['Nombre', 'Clientes', 'RazonSocial']),
       categories: optionRows(catalogs.categories, ['CategoriaID', 'id'], ['Nombre']),
@@ -270,15 +335,15 @@ export default function TicketQuickEditPage() {
       locations: optionRows(locations, ['UbicacionID', 'id'], ['Nombre']),
       equipment: optionRows(equipment, ['UbicacionEquipoID', 'id'], ['Nombre']),
       supervisors: optionRows(contacts, ['ContactoID', 'id'], ['Nombre']),
-      manufacturers: optionRows(relationIds.length ? catalogs.manufacturers.filter((item) => relationIds.includes(text(pick(item, ['FabricanteID'])))) : catalogs.manufacturers, ['FabricanteID', 'id'], ['Nombre']),
-      models: optionRows(catalogs.models.filter((item) => (!form?.tipoDispositivoId || sameId(pick(item, ['TipoDispositivoID']), form.tipoDispositivoId)) && (!form?.fabricanteId || sameId(pick(item, ['FabricanteID']), form.fabricanteId))), ['ModeloID', 'id'], ['Nombre']),
+      manufacturers: optionRows(manufacturerRows, ['FabricanteID', 'id'], ['Nombre']),
+      models: optionRows(modelRows, ['ModeloID', 'id'], ['Nombre']),
       technicians: catalogs.users.map((item) => {
         const label = pick(item, ['NombreCompleto', 'Nombre']);
         const parts = String(label || '').split(/\s+/);
         return { value: text(pick(item, ['UsuarioID', 'id'])), label, note: pick(item, ['Correo', 'NombreUsuario']), initials: `${parts[0]?.[0] || ''}${parts[1]?.[0] || ''}`.toUpperCase() };
       }).filter((item) => item.value && item.label),
     };
-  }, [catalogs, locations, equipment, contacts, form?.tipoDispositivoId, form?.fabricanteId]);
+  }, [catalogs, locations, equipment, contacts, form?.tipoDispositivoId, form?.fabricanteId, form?.modeloId]);
 
   function update(event) {
     const { name, value } = event.target;
@@ -307,6 +372,7 @@ export default function TicketQuickEditPage() {
         telefono: '',
         direccion: '',
         notas: '',
+        imagenReferenciaURL: '',
       },
     });
     setModalError('');
@@ -320,89 +386,186 @@ export default function TicketQuickEditPage() {
     }));
   }
 
+  function validateModal(type, values) {
+    if (!values.nombre.trim()) return 'El nombre es obligatorio.';
+    if (type === 'location' && !form.clienteId) return 'Seleccione primero el cliente.';
+    if (type === 'equipment' && !form.ubicacionId) return 'Seleccione primero la ubicación.';
+    if (type === 'supervisor' && !form.clienteId) return 'Seleccione primero el cliente.';
+    if (type === 'supervisor' && !values.correo.trim()) return 'El correo del supervisor es obligatorio.';
+    if (type === 'manufacturer' && !form.tipoDispositivoId) return 'Seleccione primero el tipo de dispositivo.';
+    if (type === 'model' && !form.tipoDispositivoId) return 'Seleccione primero el tipo de dispositivo.';
+    if (type === 'model' && !form.fabricanteId) return 'Seleccione primero el fabricante.';
+    return '';
+  }
+
+  async function submitClientModal(type, values) {
+    if (type === 'location') {
+      const result = await requestAvailable(OPERATIONAL_CLIENT_CREATE_ROUTES.location, {
+        clienteId: form.clienteId,
+        nombre: values.nombre,
+        direccion: values.direccion,
+        notas: values.notas,
+        activo: true,
+      }, sessionToken);
+      setLocations((rows) => appendUnique(rows, result, ['UbicacionID', 'id']));
+      setEquipment([]);
+      setForm((current) => ({
+        ...current,
+        ubicacionId: text(pick(result, ['UbicacionID', 'id'])),
+        ubicacion: pick(result, ['Nombre'], values.nombre),
+        ubicacionEquipoId: '',
+        ubicacionEquipo: '',
+      }));
+      return true;
+    }
+
+    if (type === 'equipment') {
+      const result = await requestAvailable(OPERATIONAL_CLIENT_CREATE_ROUTES.equipment, {
+        ubicacionId: form.ubicacionId,
+        nombre: values.nombre,
+        descripcion: values.descripcion,
+        activo: true,
+      }, sessionToken);
+      setEquipment((rows) => appendUnique(rows, result, ['UbicacionEquipoID', 'id']));
+      setForm((current) => ({
+        ...current,
+        ubicacionEquipoId: text(pick(result, ['UbicacionEquipoID', 'id'])),
+        ubicacionEquipo: pick(result, ['Nombre'], values.nombre),
+      }));
+      return true;
+    }
+
+    if (type === 'supervisor') {
+      const result = await requestAvailable(OPERATIONAL_CLIENT_CREATE_ROUTES.supervisor, {
+        clienteId: form.clienteId,
+        nombre: values.nombre,
+        correo: values.correo,
+        puesto: values.puesto,
+        telefono: values.telefono,
+        esSupervisor: true,
+        recibeCorreo: true,
+        activo: true,
+      }, sessionToken);
+      setContacts((rows) => appendUnique(rows, result, ['ContactoID', 'id']));
+      setForm((current) => ({
+        ...current,
+        supervisorId: text(pick(result, ['ContactoID', 'id'])),
+        supervisor: pick(result, ['Nombre'], values.nombre),
+        correoSupervisor: pick(result, ['Correo'], values.correo),
+      }));
+      return true;
+    }
+
+    return false;
+  }
+
+  async function submitCatalogModal(type, values) {
+    if (type === 'category') {
+      const result = await requestAvailable(OPERATIONAL_CATALOG_CREATE_ROUTES.category, {
+        nombre: values.nombre,
+        descripcion: values.descripcion,
+        activo: true,
+      }, sessionToken);
+      setCatalogs((current) => ({ ...current, categories: appendUnique(current.categories, result, ['CategoriaID', 'id']) }));
+      setForm((current) => ({ ...current, categoriaId: text(pick(result, ['CategoriaID', 'id'])), categoria: pick(result, ['Nombre'], values.nombre) }));
+      return true;
+    }
+
+    if (type === 'failure') {
+      const result = await requestAvailable(OPERATIONAL_CATALOG_CREATE_ROUTES.failure, {
+        nombre: values.nombre,
+        descripcion: values.descripcion,
+        activo: true,
+      }, sessionToken);
+      setCatalogs((current) => ({ ...current, failures: appendUnique(current.failures, result, ['TipoFallaID', 'id']) }));
+      setForm((current) => ({ ...current, tipoFallaId: text(pick(result, ['TipoFallaID', 'id'])), tipoFalla: pick(result, ['Nombre'], values.nombre) }));
+      return true;
+    }
+
+    if (type === 'device') {
+      const result = await requestAvailable(OPERATIONAL_CATALOG_CREATE_ROUTES.device, {
+        nombre: values.nombre,
+        descripcion: values.descripcion,
+        activo: true,
+      }, sessionToken);
+      setCatalogs((current) => ({ ...current, devices: appendUnique(current.devices, result, ['TipoDispositivoID', 'id']) }));
+      setForm((current) => ({
+        ...current,
+        tipoDispositivoId: text(pick(result, ['TipoDispositivoID', 'id'])),
+        tipoDispositivo: pick(result, ['Nombre'], values.nombre),
+        fabricanteId: '',
+        fabricante: '',
+        modeloId: '',
+        modelo: '',
+      }));
+      return true;
+    }
+
+    if (type === 'manufacturer') {
+      const result = await requestAvailable(OPERATIONAL_CATALOG_CREATE_ROUTES.manufacturer, {
+        nombre: values.nombre,
+        activo: true,
+      }, sessionToken);
+      const manufacturerId = text(pick(result, ['FabricanteID', 'id']));
+      if (!manufacturerId) throw new Error('El servidor no devolvió el identificador del fabricante.');
+      const relationResult = await requestAvailable(OPERATIONAL_CATALOG_CREATE_ROUTES.relation, {
+        tipoDispositivoId: form.tipoDispositivoId,
+        fabricanteId: manufacturerId,
+        activo: true,
+      }, sessionToken);
+      const relation = {
+        ...relationResult,
+        TipoDispositivoID: pick(relationResult, ['TipoDispositivoID'], form.tipoDispositivoId),
+        FabricanteID: pick(relationResult, ['FabricanteID'], manufacturerId),
+        Activo: pick(relationResult, ['Activo'], true),
+      };
+      setCatalogs((current) => ({
+        ...current,
+        manufacturers: appendUnique(current.manufacturers, result, ['FabricanteID', 'id']),
+        relations: appendRelationUnique(current.relations, relation),
+      }));
+      setForm((current) => ({
+        ...current,
+        fabricanteId: manufacturerId,
+        fabricante: pick(result, ['Nombre'], values.nombre),
+        modeloId: '',
+        modelo: '',
+      }));
+      return true;
+    }
+
+    if (type === 'model') {
+      const result = await requestAvailable(OPERATIONAL_CATALOG_CREATE_ROUTES.model, {
+        tipoDispositivoId: form.tipoDispositivoId,
+        fabricanteId: form.fabricanteId,
+        nombre: values.nombre,
+        descripcion: values.descripcion,
+        imagenReferenciaURL: values.imagenReferenciaURL,
+        activo: true,
+      }, sessionToken);
+      setCatalogs((current) => ({ ...current, models: appendUnique(current.models, result, ['ModeloID', 'id']) }));
+      setForm((current) => ({ ...current, modeloId: text(pick(result, ['ModeloID', 'id'])), modelo: pick(result, ['Nombre'], values.nombre) }));
+      return true;
+    }
+
+    return false;
+  }
+
   async function submitModal(event) {
     event.preventDefault();
     if (!modal) return;
     const { type, values } = modal;
-    if (!values.nombre.trim()) {
-      setModalError('El nombre es obligatorio.');
-      return;
-    }
-    if (type === 'location' && !form.clienteId) {
-      setModalError('Seleccione primero el cliente.');
-      return;
-    }
-    if (type === 'equipment' && !form.ubicacionId) {
-      setModalError('Seleccione primero la ubicación.');
-      return;
-    }
-    if (type === 'supervisor' && !form.clienteId) {
-      setModalError('Seleccione primero el cliente.');
-      return;
-    }
-    if (type === 'supervisor' && !values.correo.trim()) {
-      setModalError('El correo del supervisor es obligatorio.');
+    const validation = validateModal(type, values);
+    if (validation) {
+      setModalError(validation);
       return;
     }
 
     setModalSaving(true);
     setModalError('');
     try {
-      let result;
-      if (type === 'location') {
-        result = await requestAvailable(OPERATIONAL_CLIENT_CREATE_ROUTES.location, {
-          clienteId: form.clienteId,
-          nombre: values.nombre,
-          direccion: values.direccion,
-          notas: values.notas,
-          activo: true,
-        }, sessionToken);
-        setLocations((rows) => appendUnique(rows, result, ['UbicacionID', 'id']));
-        setEquipment([]);
-        setForm((current) => ({
-          ...current,
-          ubicacionId: text(pick(result, ['UbicacionID', 'id'])),
-          ubicacion: pick(result, ['Nombre'], values.nombre),
-          ubicacionEquipoId: '',
-          ubicacionEquipo: '',
-        }));
-      }
-
-      if (type === 'equipment') {
-        result = await requestAvailable(OPERATIONAL_CLIENT_CREATE_ROUTES.equipment, {
-          ubicacionId: form.ubicacionId,
-          nombre: values.nombre,
-          descripcion: values.descripcion,
-          activo: true,
-        }, sessionToken);
-        setEquipment((rows) => appendUnique(rows, result, ['UbicacionEquipoID', 'id']));
-        setForm((current) => ({
-          ...current,
-          ubicacionEquipoId: text(pick(result, ['UbicacionEquipoID', 'id'])),
-          ubicacionEquipo: pick(result, ['Nombre'], values.nombre),
-        }));
-      }
-
-      if (type === 'supervisor') {
-        result = await requestAvailable(OPERATIONAL_CLIENT_CREATE_ROUTES.supervisor, {
-          clienteId: form.clienteId,
-          nombre: values.nombre,
-          correo: values.correo,
-          puesto: values.puesto,
-          telefono: values.telefono,
-          esSupervisor: true,
-          recibeCorreo: true,
-          activo: true,
-        }, sessionToken);
-        setContacts((rows) => appendUnique(rows, result, ['ContactoID', 'id']));
-        setForm((current) => ({
-          ...current,
-          supervisorId: text(pick(result, ['ContactoID', 'id'])),
-          supervisor: pick(result, ['Nombre'], values.nombre),
-          correoSupervisor: pick(result, ['Correo'], values.correo),
-        }));
-      }
-
+      const handled = await submitClientModal(type, values) || await submitCatalogModal(type, values);
+      if (!handled) throw new Error('No fue posible identificar el tipo de registro solicitado.');
       setModal(null);
     } catch (modalSaveError) {
       setModalError(modalSaveError.message);
@@ -463,8 +626,26 @@ export default function TicketQuickEditPage() {
           {section === 'general' && <>
             <Field label="Título" name="titulo" value={form.titulo} onChange={update} required />
             <div className="ticket-form-grid">
-              <Select label="Categoría" value={form.categoriaId} options={options.categories} required onChange={(event) => choose(event, options.categories, 'categoriaId', 'categoria')} />
-              <Select label="Tipo de falla" value={form.tipoFallaId} options={options.failures} required onChange={(event) => choose(event, options.failures, 'tipoFallaId', 'tipoFalla')} />
+              <DependentSelect
+                label="Categoría"
+                name="categoriaId"
+                value={form.categoriaId}
+                options={options.categories}
+                required
+                canAdd={allowed}
+                onAdd={() => openModal('category')}
+                onChange={(event) => choose(event, options.categories, 'categoriaId', 'categoria')}
+              />
+              <DependentSelect
+                label="Tipo de falla"
+                name="tipoFallaId"
+                value={form.tipoFallaId}
+                options={options.failures}
+                required
+                canAdd={allowed}
+                onAdd={() => openModal('failure')}
+                onChange={(event) => choose(event, options.failures, 'tipoFallaId', 'tipoFalla')}
+              />
             </div>
             <div className="ticket-form-grid ticket-form-grid--three">
               <Field label="Fecha" type="date" name="fecha" value={form.fecha} onChange={update} required />
@@ -515,11 +696,38 @@ export default function TicketQuickEditPage() {
           </>}
 
           {section === 'device' && <>
-            <Select label="Tipo de dispositivo" value={form.tipoDispositivoId} options={options.devices} required onChange={(event) => choose(event, options.devices, 'tipoDispositivoId', 'tipoDispositivo', { fabricanteId: '', fabricante: '', modeloId: '', modelo: '' })} />
+            <DependentSelect
+              label="Tipo de dispositivo"
+              name="tipoDispositivoId"
+              value={form.tipoDispositivoId}
+              options={options.devices}
+              required
+              canAdd={allowed}
+              onAdd={() => openModal('device')}
+              onChange={(event) => choose(event, options.devices, 'tipoDispositivoId', 'tipoDispositivo', { fabricanteId: '', fabricante: '', modeloId: '', modelo: '' })}
+            />
             <Field label="Nombre del dispositivo" name="nombreDispositivo" value={form.nombreDispositivo} onChange={update} required />
             <div className="ticket-form-grid">
-              <Select label="Fabricante" value={form.fabricanteId} options={options.manufacturers} disabled={!form.tipoDispositivoId} onChange={(event) => choose(event, options.manufacturers, 'fabricanteId', 'fabricante', { modeloId: '', modelo: '' })} />
-              <Select label="Modelo" value={form.modeloId} options={options.models} disabled={!form.fabricanteId} onChange={(event) => choose(event, options.models, 'modeloId', 'modelo')} />
+              <DependentSelect
+                label="Fabricante"
+                name="fabricanteId"
+                value={form.fabricanteId}
+                options={options.manufacturers}
+                disabled={!form.tipoDispositivoId}
+                canAdd={allowed && Boolean(form.tipoDispositivoId)}
+                onAdd={() => openModal('manufacturer')}
+                onChange={(event) => choose(event, options.manufacturers, 'fabricanteId', 'fabricante', { modeloId: '', modelo: '' })}
+              />
+              <DependentSelect
+                label="Modelo"
+                name="modeloId"
+                value={form.modeloId}
+                options={options.models}
+                disabled={!form.tipoDispositivoId || !form.fabricanteId}
+                canAdd={allowed && Boolean(form.tipoDispositivoId) && Boolean(form.fabricanteId)}
+                onAdd={() => openModal('model')}
+                onChange={(event) => choose(event, options.models, 'modeloId', 'modelo')}
+              />
             </div>
             <Field label="Serie" name="serie" value={form.serie} onChange={update} />
           </>}
@@ -543,7 +751,7 @@ export default function TicketQuickEditPage() {
       <InlineCreateModal
         open={Boolean(modal)}
         title={MODAL_TITLES[modal?.type] || 'Agregar registro'}
-        description="El nuevo valor quedará disponible para futuras boletas y mantenimientos del cliente."
+        description={MODAL_DESCRIPTIONS[modal?.type] || 'El nuevo valor quedará disponible para futuras boletas y mantenimientos.'}
         saving={modalSaving}
         error={modalError}
         onClose={() => setModal(null)}
@@ -562,7 +770,8 @@ export default function TicketQuickEditPage() {
             <Field label="Dirección" name="direccion" value={modal.values.direccion} onChange={modalUpdate} />
             <Field label="Notas" multiline name="notas" value={modal.values.notas} onChange={modalUpdate} />
           </>}
-          {modal.type === 'equipment' && <Field label="Descripción" multiline name="descripcion" value={modal.values.descripcion} onChange={modalUpdate} />}
+          {['equipment', 'category', 'failure', 'device', 'model'].includes(modal.type) && <Field label="Descripción" multiline name="descripcion" value={modal.values.descripcion} onChange={modalUpdate} />}
+          {modal.type === 'model' && <Field label="Imagen de referencia (URL)" name="imagenReferenciaURL" value={modal.values.imagenReferenciaURL} onChange={modalUpdate} />}
         </>}
       </InlineCreateModal>
     </div>
