@@ -9,27 +9,18 @@ import {
   updateMaintenanceCount,
   validateMaintenanceForm,
 } from '../features/maintenance/maintenanceFormDomain';
-import {
-  cloneMaintenanceDevice,
-  maintenanceFormSignature,
-} from '../features/maintenance/maintenanceDeviceState';
+import { maintenanceFormSignature } from '../features/maintenance/maintenanceDeviceState';
 import useMaintenanceDeviceEditorLifecycle from '../features/maintenance/useMaintenanceDeviceEditorLifecycle';
 import useMaintenanceResources from '../features/maintenance/useMaintenanceResources';
 import {
   EMPTY_MAINTENANCE,
-  fileToBase64,
-  maintenanceDevicePayload,
   maintenancePayload,
 } from '../pages/maintenance/maintenanceFormData';
+import {
+  persistMaintenanceDevice,
+  persistMaintenanceDeviceCollection,
+} from '../services/maintenanceDevicePersistence';
 import { MODULE_ROUTES, pick, requestAvailable } from '../services/moduleApi';
-
-function uploadedImageView(row) {
-  return {
-    ...row,
-    id: String(pick(row, ['FotoDispositivoID', 'id'])),
-    dirty: false,
-  };
-}
 
 export default function useMaintenanceForm({ editing, maintenanceId }) {
   const navigate = useNavigate();
@@ -127,48 +118,20 @@ export default function useMaintenanceForm({ editing, maintenanceId }) {
       editor.setDeviceAutosaveStatus('saving');
       setError('');
       try {
-        const route = device.id ? MODULE_ROUTES.maintenance.deviceUpdate : MODULE_ROUTES.maintenance.deviceCreate;
-        const saved = await requestAvailable(route, maintenanceDevicePayload(device, maintenanceId), sessionToken);
-        const deviceId = String(pick(saved, ['EvidenciaMantenimientoID', 'deviceId', 'id'], device.id));
-        if (!deviceId) throw new Error('El backend no devolvió el identificador del dispositivo.');
+        const result = await persistMaintenanceDevice({
+          maintenanceId,
+          device,
+          sessionToken,
+        });
 
-        const savedExistingImageIds = [];
-        for (const image of (device.images || []).filter((item) => item.dirty)) {
-          await requestAvailable(MODULE_ROUTES.maintenance.imageUpdate, {
-            maintenanceId,
-            deviceId,
-            imageId: image.id,
-            Tipo: image.Tipo,
-            Nota: image.Nota,
-          }, sessionToken);
-          savedExistingImageIds.push(image.id);
+        if (!result.complete) {
+          editor.saveActiveDevice(result.snapshot);
+          editor.setActiveDevice(result.snapshot);
+          setError(result.failureMessage);
+          return null;
         }
 
-        const uploadedImages = [];
-        for (const image of device.newImages || []) {
-          const uploaded = await requestAvailable(MODULE_ROUTES.maintenance.imageUpload, {
-            maintenanceId,
-            deviceId,
-            Tipo: image.type,
-            Nota: image.note,
-            fileName: image.file.name,
-            mimeType: image.file.type || 'image/jpeg',
-            base64: await fileToBase64(image.file),
-          }, sessionToken);
-          uploadedImages.push(uploadedImageView(uploaded));
-          if (image?.previewUrl?.startsWith('blob:')) URL.revokeObjectURL(image.previewUrl);
-        }
-
-        const savedSnapshot = {
-          ...cloneMaintenanceDevice(device),
-          id: deviceId,
-          images: [
-            ...(device.images || []).map((image) => savedExistingImageIds.includes(image.id) ? { ...image, dirty: false } : { ...image }),
-            ...uploadedImages,
-          ],
-          newImages: [],
-        };
-        return editor.markDeviceSaved(savedSnapshot, { closeAfter, status: 'server' });
+        return editor.markDeviceSaved(result.snapshot, { closeAfter, status: 'server' });
       } catch (requestError) {
         editor.setDeviceAutosaveStatus('error');
         setError(requestError.message);
@@ -221,22 +184,23 @@ export default function useMaintenanceForm({ editing, maintenanceId }) {
     setSaving(true);
     setError('');
     try {
-      const base = await requestAvailable(editing ? MODULE_ROUTES.maintenance.update : MODULE_ROUTES.maintenance.create, maintenancePayload(form, maintenanceId), sessionToken);
+      const base = await requestAvailable(
+        editing ? MODULE_ROUTES.maintenance.update : MODULE_ROUTES.maintenance.create,
+        maintenancePayload(form, maintenanceId),
+        sessionToken,
+      );
       const id = String(pick(base?.mantenimiento || base, ['MantenimientoID', 'maintenanceId', 'id'], maintenanceId));
       if (!id) throw new Error('El backend no devolvió MantenimientoID.');
 
-      for (const device of devices) {
-        const saved = await requestAvailable(device.id ? MODULE_ROUTES.maintenance.deviceUpdate : MODULE_ROUTES.maintenance.deviceCreate, maintenanceDevicePayload(device, id), sessionToken);
-        const deviceId = String(pick(saved, ['EvidenciaMantenimientoID', 'deviceId', 'id'], device.id));
-        for (const image of (device.images || []).filter((item) => item.dirty)) {
-          await requestAvailable(MODULE_ROUTES.maintenance.imageUpdate, { maintenanceId: id, deviceId, imageId: image.id, Tipo: image.Tipo, Nota: image.Nota }, sessionToken);
-        }
-        for (const image of device.newImages || []) {
-          await requestAvailable(MODULE_ROUTES.maintenance.imageUpload, { maintenanceId: id, deviceId, Tipo: image.type, Nota: image.note, fileName: image.file.name, mimeType: image.file.type || 'image/jpeg', base64: await fileToBase64(image.file) }, sessionToken);
-        }
-      }
+      await persistMaintenanceDeviceCollection({
+        maintenanceId: id,
+        devices,
+        sessionToken,
+      });
 
-      if (action === 'finalize') await requestAvailable(MODULE_ROUTES.maintenance.finalize, { maintenanceId: id }, sessionToken);
+      if (action === 'finalize') {
+        await requestAvailable(MODULE_ROUTES.maintenance.finalize, { maintenanceId: id }, sessionToken);
+      }
       editor.clearDeviceDraft();
       navigate(`/mantenimientos/${encodeURIComponent(id)}`);
     } catch (requestError) {
