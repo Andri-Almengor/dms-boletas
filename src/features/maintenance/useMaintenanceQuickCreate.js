@@ -10,8 +10,8 @@ import {
 export default function useMaintenanceQuickCreate({
   form,
   setForm,
-  locations,
-  equipment,
+  addLocation,
+  addEquipment,
   sessionToken,
 }) {
   const [modal, setModal] = useState(null);
@@ -55,7 +55,7 @@ export default function useMaintenanceQuickCreate({
           activo: true,
         }, sessionToken);
         const view = mapCreatedMaintenanceLocation(result, modal.values.nombre);
-        locations.push(view);
+        addLocation(view);
         setForm((current) => ({ ...current, ubicacionId: view.id, ubicacion: view.name }));
       } else {
         const result = await requestAvailable(MODULE_ROUTES.clients.equipmentLocationsCreate, {
@@ -64,7 +64,10 @@ export default function useMaintenanceQuickCreate({
           descripcion: modal.values.descripcion,
           activo: true,
         }, sessionToken);
-        equipment.push(mapCreatedMaintenanceEquipment(result, modal.values.nombre));
+        addEquipment({
+          ...mapCreatedMaintenanceEquipment(result, modal.values.nombre),
+          locationId: String(form.ubicacionId || ''),
+        });
         setForm((current) => ({ ...current }));
       }
       setModal(null);

@@ -7,6 +7,7 @@ import './list-pages.test.mjs';
 import './maintenance-checklist-status.test.mjs';
 import './maintenance-device-draft.test.mjs';
 import './maintenance-form-orchestration.test.mjs';
+import './maintenance-form-resources.test.mjs';
 import './offline-mode.test.mjs';
 import './paginated-collection.test.mjs';
 import './paginated-resource.test.mjs';

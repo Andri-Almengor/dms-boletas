@@ -1,20 +1,24 @@
-import { useEffect, useMemo, useRef, useState } from 'react';
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { useAuth } from '../AuthContext';
+import {
+  buildMaintenanceTechnicians,
+  countRegisteredMaintenanceDevices,
+  expectedMaintenanceTotal,
+  maintenanceReadOnly,
+  updateMaintenanceCount,
+  validateMaintenanceForm,
+} from '../features/maintenance/maintenanceFormDomain';
+import useMaintenanceResources from '../features/maintenance/useMaintenanceResources';
 import {
   createMaintenanceDevice,
   EMPTY_MAINTENANCE,
   fileToBase64,
   maintenanceDevicePayload,
   maintenancePayload,
-  mapMaintenance,
-  mapMaintenanceDevice,
 } from '../pages/maintenance/maintenanceFormData';
-import { MODULE_ROUTES, normalizeItems, pick, requestAvailable } from '../services/moduleApi';
+import { MODULE_ROUTES, pick, requestAvailable } from '../services/moduleApi';
 
-const clientView = (row) => ({ id: String(pick(row, ['ClienteID', 'ID', 'RowID'])), name: pick(row, ['Nombre', 'Clientes', 'RazonSocial']) });
-const locationView = (row) => ({ id: String(pick(row, ['UbicacionID', 'id', 'RowID'])), name: pick(row, ['Nombre']) });
-const equipmentView = (row) => ({ id: String(pick(row, ['UbicacionEquipoID', 'id', 'RowID'])), name: pick(row, ['Nombre']) });
 const LOCAL_DRAFT_DELAY_MS = 650;
 
 function localDraftKey(maintenanceId) {
@@ -115,11 +119,6 @@ export default function useMaintenanceForm({ editing, maintenanceId }) {
   const [form, setForm] = useState({ ...EMPTY_MAINTENANCE, responsables: user?.UsuarioID ? [String(user.UsuarioID)] : [] });
   const [devices, setDevices] = useState([]);
   const [activeDevice, setActiveDevice] = useState(null);
-  const [clients, setClients] = useState([]);
-  const [users, setUsers] = useState([]);
-  const [locations, setLocations] = useState([]);
-  const [equipment, setEquipment] = useState([]);
-  const [loading, setLoading] = useState(true);
   const [saving, setSaving] = useState(false);
   const [deviceSaving, setDeviceSaving] = useState(false);
   const [deviceAutosaveStatus, setDeviceAutosaveStatus] = useState('idle');
@@ -131,76 +130,49 @@ export default function useMaintenanceForm({ editing, maintenanceId }) {
   const initialMaintenanceSignatureRef = useRef('');
   const draftConsumedRef = useRef(false);
 
+  const captureInitialState = useCallback((nextForm, nextDevices) => {
+    initialMaintenanceSignatureRef.current = maintenanceSignature(nextForm, nextDevices);
+  }, []);
+
+  const resources = useMaintenanceResources({
+    editing,
+    maintenanceId,
+    sessionToken,
+    clientId: form.clienteId,
+    locationId: form.ubicacionId,
+    setForm,
+    setDevices,
+    setError,
+    onInitialState: captureInitialState,
+  });
+
   useEffect(() => {
     activeDeviceRef.current = activeDevice;
   }, [activeDevice]);
 
-  useEffect(() => {
-    let active = true;
-    setLoading(true);
-    Promise.all([
-      requestAvailable(MODULE_ROUTES.clients.list, { page: 1, pageSize: 1000, activo: true }, sessionToken),
-      requestAvailable(['users.assignment.list', 'users.list'], { page: 1, pageSize: 1000 }, sessionToken),
-      editing ? requestAvailable(MODULE_ROUTES.maintenance.get, { maintenanceId }, sessionToken) : Promise.resolve(null),
-    ]).then(([clientData, userData, maintenanceData]) => {
-      if (!active) return;
-      setClients(normalizeItems(clientData).map(clientView));
-      setUsers(normalizeItems(userData).filter((item) => String(pick(item, ['Estado'], 'ACTIVO')).toUpperCase() === 'ACTIVO'));
-
-      if (maintenanceData) {
-        const mappedForm = mapMaintenance(maintenanceData);
-        const mappedDevices = (maintenanceData.dispositivos || maintenanceData.devices || []).map(mapMaintenanceDevice);
-        setForm(mappedForm);
-        setDevices(mappedDevices);
-        initialMaintenanceSignatureRef.current = maintenanceSignature(mappedForm, mappedDevices);
-      } else {
-        setForm((current) => {
-          initialMaintenanceSignatureRef.current = maintenanceSignature(current, []);
-          return current;
-        });
-      }
-    }).catch((err) => active && setError(err.message)).finally(() => active && setLoading(false));
-    return () => { active = false; };
-  }, [editing, maintenanceId, sessionToken]);
-
-  useEffect(() => {
-    if (!form.clienteId) { setLocations([]); return; }
-    requestAvailable(MODULE_ROUTES.clients.locationsList, { clienteId: form.clienteId, activo: true, pageSize: 1000 }, sessionToken)
-      .then((data) => setLocations(normalizeItems(data).map(locationView)))
-      .catch((err) => setError(err.message));
-  }, [form.clienteId, sessionToken]);
-
-  useEffect(() => {
-    if (!form.ubicacionId) { setEquipment([]); return; }
-    requestAvailable(MODULE_ROUTES.clients.equipmentLocationsList, { ubicacionId: form.ubicacionId, activo: true, pageSize: 1000 }, sessionToken)
-      .then((data) => setEquipment(normalizeItems(data).map(equipmentView)))
-      .catch((err) => setError(err.message));
-  }, [form.ubicacionId, sessionToken]);
-
-  const technicians = users.map((item) => {
-    const label = pick(item, ['NombreCompleto', 'Nombre']);
-    const parts = String(label).split(/\s+/);
-    return {
-      value: String(pick(item, ['UsuarioID', 'id'])),
-      label,
-      note: pick(item, ['Correo', 'NombreUsuario']),
-      initials: `${parts[0]?.[0] || ''}${parts[1]?.[0] || ''}`.toUpperCase(),
-    };
-  }).filter((item) => item.value && item.label);
-
-  const registered = useMemo(() => devices.reduce((map, item) => ({
-    ...map,
-    [item.categoria]: (map[item.categoria] || 0) + 1,
-  }), {}), [devices]);
-  const expectedTotal = Object.values(form.counts).reduce((sum, value) => sum + Number(value || 0), 0);
-  const readOnly = editing && form.estado === 'FINALIZADO' && !isAdmin;
+  const technicians = useMemo(
+    () => buildMaintenanceTechnicians(resources.users),
+    [resources.users],
+  );
+  const registered = useMemo(
+    () => countRegisteredMaintenanceDevices(devices),
+    [devices],
+  );
+  const expectedTotal = useMemo(
+    () => expectedMaintenanceTotal(form.counts),
+    [form.counts],
+  );
+  const readOnly = maintenanceReadOnly({ editing, estado: form.estado, isAdmin });
   const maintenanceDirty = useMemo(() => (
     Boolean(initialMaintenanceSignatureRef.current)
     && maintenanceSignature(form, devices) !== initialMaintenanceSignatureRef.current
   ), [form, devices]);
 
   function updateCount(key, value) {
-    setForm((current) => ({ ...current, counts: { ...current.counts, [key]: Math.max(0, Number(value || 0)) } }));
+    setForm((current) => ({
+      ...current,
+      counts: updateMaintenanceCount(current.counts, key, value),
+    }));
   }
 
   function saveActiveDevice(device) {
@@ -339,10 +311,10 @@ export default function useMaintenanceForm({ editing, maintenanceId }) {
           setActiveDevice(savedSnapshot);
         }
         return savedSnapshot;
-      } catch (err) {
+      } catch (requestError) {
         setDeviceAutosaveStatus('error');
-        setError(err.message);
-        throw err;
+        setError(requestError.message);
+        throw requestError;
       } finally {
         setDeviceSaving(false);
         deviceSavePromiseRef.current = null;
@@ -381,20 +353,13 @@ export default function useMaintenanceForm({ editing, maintenanceId }) {
       setActiveDevice(null);
       activeDeviceRef.current = null;
       originalDeviceRef.current = null;
-    } catch (err) {
-      setError(err.message);
+    } catch (requestError) {
+      setError(requestError.message);
     }
   }
 
-  function validate() {
-    if (!form.titulo.trim()) return 'El título es obligatorio.';
-    if (!form.clienteId) return 'Selecciona un cliente.';
-    if (!form.responsables.length) return 'Selecciona al menos un responsable.';
-    return '';
-  }
-
   async function persist(action) {
-    const message = validate();
+    const message = validateMaintenanceForm(form);
     if (message) { setError(message); return; }
     setSaving(true);
     setError('');
@@ -417,8 +382,8 @@ export default function useMaintenanceForm({ editing, maintenanceId }) {
       if (action === 'finalize') await requestAvailable(MODULE_ROUTES.maintenance.finalize, { maintenanceId: id }, sessionToken);
       try { localStorage.removeItem(localDraftKey(maintenanceId)); } catch { /* Sin efecto. */ }
       navigate(`/mantenimientos/${encodeURIComponent(id)}`);
-    } catch (err) {
-      setError(err.message);
+    } catch (requestError) {
+      setError(requestError.message);
     } finally {
       setSaving(false);
     }
@@ -452,11 +417,13 @@ export default function useMaintenanceForm({ editing, maintenanceId }) {
     activeDevice,
     setActiveDevice,
     openDevice,
-    clients,
-    locations,
-    equipment,
+    clients: resources.clients,
+    locations: resources.locations,
+    equipment: resources.equipment,
+    addLocation: resources.addLocation,
+    addEquipment: resources.addEquipment,
     technicians,
-    loading,
+    loading: resources.loading,
     saving,
     deviceSaving,
     deviceAutosaveStatus,
