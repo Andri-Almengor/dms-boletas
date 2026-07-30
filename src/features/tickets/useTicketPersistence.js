@@ -17,7 +17,6 @@ export default function useTicketPersistence({
   clearDraft,
   navigate,
   setError,
-  onEvidenceUploaded,
 }) {
   const [saving, setSaving] = useState(false);
   const [serverStatus, setServerStatus] = useState('idle');
@@ -67,7 +66,6 @@ export default function useTicketPersistence({
         form,
         evidences,
         sessionToken,
-        onEvidenceUploaded,
       });
       await runTicketPostSaveAction({ type, uid, form, sessionToken });
       await clearDraft();
@@ -79,7 +77,7 @@ export default function useTicketPersistence({
     } finally {
       setSaving(false);
     }
-  }, [boletaUid, clearDraft, editing, evidences, form, navigate, onEvidenceUploaded, sessionToken, setError]);
+  }, [boletaUid, clearDraft, editing, evidences, form, navigate, sessionToken, setError]);
 
   return {
     action,
