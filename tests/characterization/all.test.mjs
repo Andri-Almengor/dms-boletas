@@ -5,6 +5,7 @@ import './data-client.test.mjs';
 import './form-draft-lifecycle.test.mjs';
 import './list-pages.test.mjs';
 import './maintenance-checklist-status.test.mjs';
+import './maintenance-device-draft.test.mjs';
 import './offline-mode.test.mjs';
 import './paginated-collection.test.mjs';
 import './paginated-resource.test.mjs';
