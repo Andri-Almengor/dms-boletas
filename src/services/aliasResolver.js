@@ -1,4 +1,4 @@
-import { isAbortError, isMissingRouteError, throwIfAborted } from './requestErrors';
+import { isAbortError, isMissingRouteError, throwIfAborted } from './requestErrors.js';
 
 const preferredAliases = new Map();
 const MAX_PREFERENCES = 160;
