@@ -1,5 +1,7 @@
 import { MODULE_ROUTES, pick, requestAvailable } from '../../services/moduleApi';
 import { fileToBase64 } from '../../utils/fileEncoding';
+import { releaseLocalFile } from '../../utils/localFileLifecycle';
+import { createLocalId } from '../../utils/localId';
 import { buildTicketPayload, ticketRecordData } from './ticketFormDomain';
 
 function requestOptions(signal) {
@@ -15,7 +17,14 @@ export async function autosaveTicket({ form, boletaUid, sessionToken, signal }) 
   );
 }
 
-export async function uploadTicketAssets({ uid, form, evidences, sessionToken, signal }) {
+export async function uploadTicketAssets({
+  uid,
+  form,
+  evidences,
+  sessionToken,
+  signal,
+  onEvidenceUploaded,
+}) {
   const options = requestOptions(signal);
   if (form.firma?.startsWith('data:image/')) {
     await requestAvailable(MODULE_ROUTES.tickets.signatureUpload, {
@@ -26,16 +35,29 @@ export async function uploadTicketAssets({ uid, form, evidences, sessionToken, s
     }, sessionToken, options);
   }
 
+  const uploaded = [];
   for (const item of evidences) {
-    await requestAvailable(MODULE_ROUTES.tickets.evidenceUpload, {
-      boletaUid: uid,
-      nombre: item.name || item.file.name,
-      nota: item.note,
-      fileName: item.file.name,
-      mimeType: item.mimeType,
-      base64: await fileToBase64(item.file),
-    }, sessionToken, options);
+    const evidenceId = String(item.localId || createLocalId('evidencia'));
+    let base64 = await fileToBase64(item.file, { signal });
+    try {
+      const result = await requestAvailable(MODULE_ROUTES.tickets.evidenceUpload, {
+        boletaUid: uid,
+        evidenciaId: evidenceId,
+        EvidenciaID: evidenceId,
+        nombre: item.name || item.file.name,
+        nota: item.note,
+        fileName: item.file.name,
+        mimeType: item.mimeType,
+        base64,
+      }, sessionToken, options);
+      uploaded.push({ evidenceId, result });
+      releaseLocalFile(item);
+      onEvidenceUploaded?.(evidenceId, result);
+    } finally {
+      base64 = '';
+    }
   }
+  return uploaded;
 }
 
 export async function saveTicketBase({
@@ -45,6 +67,7 @@ export async function saveTicketBase({
   evidences,
   sessionToken,
   signal,
+  onEvidenceUploaded,
 }) {
   const result = await requestAvailable(
     editing ? MODULE_ROUTES.tickets.update : MODULE_ROUTES.tickets.create,
@@ -54,7 +77,7 @@ export async function saveTicketBase({
   );
   const uid = pick(ticketRecordData(result), ['BoletaUID', 'boletaUid', 'TicketUID', 'id'], boletaUid);
   if (!uid) throw new Error('El backend no devolvió BoletaUID.');
-  await uploadTicketAssets({ uid, form, evidences, sessionToken, signal });
+  await uploadTicketAssets({ uid, form, evidences, sessionToken, signal, onEvidenceUploaded });
   return uid;
 }
 
