@@ -61,3 +61,30 @@ test('las operaciones largas y el inventario móvil conservan retroalimentación
   assert.match(mobileStyles, /\.maintenance-inventory-mobile-edit/);
   assert.match(mobileStyles, /padding-bottom: calc\(var\(--bottom-nav-height\)/);
 });
+
+test('el selector de técnicos muestra la lista directamente y no renderiza una flecha sin función', () => {
+  const contents = source('src/components/forms/TechnicianMultiSelect.jsx');
+  assert.match(contents, /type="search"/);
+  assert.match(contents, /aria-label="Buscar técnicos por nombre o correo"/);
+  assert.doesNotMatch(contents, /technician-select__toggle/);
+  assert.doesNotMatch(contents, /expand_less|expand_more/);
+  assert.doesNotMatch(contents, /optionsOpen|setOptionsOpen/);
+});
+
+test('el detalle limpia la evidencia y adapta la firma al modo oscuro', () => {
+  const detail = source('src/pages/tickets/TicketDetailPage.jsx');
+  const darkStyles = source('src/styles/theme-dark-coverage.css');
+
+  assert.match(detail, /const \[evidenceInputVersion, setEvidenceInputVersion\] = useState\(0\)/);
+  assert.match(detail, /function clearEvidenceForm\(\)/);
+  assert.match(detail, /setEvidenceInputVersion\(\(current\) => current \+ 1\)/);
+  assert.match(detail, /key=\{`camera-\$\{evidenceInputVersion\}`\}/);
+  assert.match(detail, /key=\{`file-\$\{evidenceInputVersion\}`\}/);
+  assert.match(detail, /clearEvidenceForm\(\);/);
+  assert.doesNotMatch(detail, /formElement\?\.reset\(\)/);
+
+  assert.match(darkStyles, /signature-pad canvas/);
+  assert.match(darkStyles, /signature-display img/);
+  assert.match(darkStyles, /filter: invert\(1\) hue-rotate\(180deg\)/);
+  assert.match(darkStyles, /La firma se presenta oscura sin alterar el PNG original/);
+});
