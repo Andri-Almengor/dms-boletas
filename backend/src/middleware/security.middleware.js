@@ -68,7 +68,9 @@ export function actionRateLimitMiddleware(req, res, next) {
   const now = Date.now();
   sweepRateLimits(now);
 
-  const key = `${policy.name}|${clientAddress(req)}|${route.toLowerCase()}`;
+  // El bucket se comparte por familia de política e IP. De esta forma no es
+  // posible evitar el límite variando aliases o inventando nombres de ruta.
+  const key = `${policy.name}|${clientAddress(req)}`;
   const result = consumeRateLimit(rateLimitBuckets, key, policy, now);
   setRateLimitHeaders(res, result);
 
