@@ -12,7 +12,7 @@ function normalizeLegacyValue(parsed) {
   if (!parsed) return null;
   if (Object.prototype.hasOwnProperty.call(parsed, 'value')) return parsed.value;
   if (Object.prototype.hasOwnProperty.call(parsed, 'hookValue')) return parsed.hookValue;
-  return null;
+  return parsed;
 }
 
 function legacyDraftEntry({ storageKey, legacyKey, parsed }) {
@@ -38,6 +38,7 @@ export default function useFormDraft({
   routePrefix = namespace,
   legacyKeys = [],
   enabled = true,
+  persistEnabled = enabled,
   value,
   onRestore,
   onEmpty,
@@ -104,7 +105,7 @@ export default function useFormDraft({
   }, [enabled, legacySignature, normalizedLegacyKeys, restoredStatusMs, storageKey]);
 
   useEffect(() => {
-    if (!enabled || readyKey !== storageKey || cancelledKeyRef.current === storageKey) return undefined;
+    if (!enabled || !persistEnabled || readyKey !== storageKey || cancelledKeyRef.current === storageKey) return undefined;
     const entry = {
       key: storageKey,
       route: `${routePrefix}:${keySuffix || 'new'}`,
@@ -127,10 +128,10 @@ export default function useFormDraft({
         .catch(() => setStatus('error'));
     }, Math.max(0, Number(saveDelayMs) || 0));
     return () => window.clearTimeout(timerRef.current);
-  }, [enabled, keySuffix, namespace, readyKey, routePrefix, saveDelayMs, storageKey, value]);
+  }, [enabled, keySuffix, namespace, persistEnabled, readyKey, routePrefix, saveDelayMs, storageKey, value]);
 
   useEffect(() => {
-    if (!enabled || readyKey !== storageKey) return undefined;
+    if (!enabled || !persistEnabled || readyKey !== storageKey) return undefined;
     const flush = () => {
       if (cancelledKeyRef.current === storageKey) return;
       saveDraftBackup({
@@ -145,7 +146,7 @@ export default function useFormDraft({
       window.removeEventListener('pagehide', flush);
       window.removeEventListener('beforeunload', flush);
     };
-  }, [enabled, keySuffix, readyKey, routePrefix, storageKey]);
+  }, [enabled, keySuffix, persistEnabled, readyKey, routePrefix, storageKey]);
 
   useEffect(() => () => {
     window.clearTimeout(timerRef.current);
