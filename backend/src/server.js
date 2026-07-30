@@ -1,7 +1,9 @@
 import http from 'node:http';
 import { app } from './app.js';
 import { env } from './config/env.js';
+import { resolveRequestId } from './core/request-security.js';
 import { concurrencyMiddleware, concurrencySnapshot } from './middleware/concurrency.middleware.js';
+import { securityRateLimitSnapshot } from './middleware/security.middleware.js';
 import { readTables } from './infra/sheets.repository.js';
 import { googleSheetsGateSnapshot } from './infra/google.js';
 import { auditQueueSnapshot, flushAuditQueue } from './services/audit.service.js';
@@ -11,31 +13,41 @@ function mb(value) {
   return Math.round((Number(value || 0) / 1024 / 1024) * 10) / 10;
 }
 
-function sendHealth(res) {
-  const memory = process.memoryUsage();
-  res.statusCode = 200;
-  res.setHeader('Content-Type', 'application/json; charset=utf-8');
-  res.setHeader('Cache-Control', 'no-store');
-  res.end(JSON.stringify({
+function sendHealth(req, res) {
+  const requestId = resolveRequestId(req.headers['x-request-id']);
+  const body = {
     ok: true,
     service: 'dms-boletas-backend',
     time: new Date().toISOString(),
-    uptimeSeconds: Math.round(process.uptime()),
-    memory: {
+    requestId,
+  };
+
+  if (env.healthDetailsPublic) {
+    const memory = process.memoryUsage();
+    body.uptimeSeconds = Math.round(process.uptime());
+    body.memory = {
       rssMb: mb(memory.rss),
       heapUsedMb: mb(memory.heapUsed),
       heapTotalMb: mb(memory.heapTotal),
-    },
-    concurrency: concurrencySnapshot(),
-    actions: actionConcurrencySnapshot(),
-    sheets: googleSheetsGateSnapshot(),
-    audit: auditQueueSnapshot(),
-  }));
+    };
+    body.concurrency = concurrencySnapshot();
+    body.actions = actionConcurrencySnapshot();
+    body.sheets = googleSheetsGateSnapshot();
+    body.audit = auditQueueSnapshot();
+    body.security = securityRateLimitSnapshot();
+  }
+
+  res.statusCode = 200;
+  res.setHeader('Content-Type', 'application/json; charset=utf-8');
+  res.setHeader('Cache-Control', 'no-store');
+  res.setHeader('X-Request-ID', requestId);
+  res.setHeader('X-Content-Type-Options', 'nosniff');
+  res.end(JSON.stringify(body));
 }
 
 function requestHandler(req, res) {
   if (String(req.url || '').startsWith('/api/health')) {
-    sendHealth(res);
+    sendHealth(req, res);
     return;
   }
 
@@ -45,12 +57,15 @@ function requestHandler(req, res) {
       return;
     }
 
+    const requestId = resolveRequestId(req.headers['x-request-id']);
     res.statusCode = Number(error.status || 503);
     res.setHeader('Content-Type', 'application/json; charset=utf-8');
     res.setHeader('Cache-Control', 'no-store');
     res.setHeader('Retry-After', '2');
+    res.setHeader('X-Request-ID', requestId);
     res.end(JSON.stringify({
       ok: false,
+      requestId,
       error: {
         code: error.code || 'SERVER_BUSY',
         message: error.message || 'El servidor está ocupado. Intente nuevamente.',
@@ -68,6 +83,9 @@ server.maxRequestsPerSocket = 1000;
 server.listen(env.port, '0.0.0.0', () => {
   console.log(`DMS backend escuchando en el puerto ${env.port}`);
   console.log(`Concurrencia HTTP: ${env.httpMaxConcurrentRequests}; solicitudes grandes: ${env.httpMaxConcurrentLargeRequests}`);
+  if (env.isProduction && env.frontendOrigin === '*') {
+    console.warn('FRONTEND_ORIGIN permite cualquier origen. Configure una lista explícita para endurecer CORS en producción.');
+  }
 
   // Una sola lectura batch prepara autenticación, permisos y catálogos antes
   // de que varios técnicos abran la aplicación al mismo tiempo después de un
