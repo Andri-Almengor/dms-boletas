@@ -1,0 +1,97 @@
+/*
+ * El enlace público de firma debe ser visualmente estable y legible aunque el
+ * navegador conserve el tema oscuro usado dentro de la aplicación privada.
+ * Estas reglas aíslan la página pública sin modificar la preferencia guardada.
+ */
+.public-signature-page {
+  color-scheme: light;
+  --text: #2b2224;
+  --muted: #725f63;
+  --outline: #7a6468;
+  --outline-soft: #dac9cc;
+  --border: #dac9cc;
+  --surface: #ffffff;
+  --surface-low: #faf7f7;
+  --surface-container: #f5eeee;
+  --surface-high: #ffffff;
+  --primary-soft: #ffecee;
+  --success-soft: #edf9f2;
+  --warning-soft: #fff5e6;
+  color: #2b2224;
+}
+
+/* El tema oscuro global usa reglas con !important. La página pública las
+ * neutraliza de forma explícita para conservar su diseño claro. */
+:root[data-theme='dark'] .public-signature-page {
+  background: linear-gradient(180deg, #fff7f7 0%, #f4f5f7 54%, #eef0f3 100%) !important;
+  color: #2b2224 !important;
+}
+
+:root[data-theme='dark'] .public-signature-page :is(
+  .public-signature-brand strong,
+  .public-signature-heading h1,
+  .public-signature-summary dd,
+  .public-signature-context > article > p,
+  .public-signature-visits article,
+  .public-signature-state h1,
+  .public-signature-state > strong
+) {
+  color: #2b2224 !important;
+}
+
+:root[data-theme='dark'] .public-signature-page :is(
+  .public-signature-brand small,
+  .public-signature-heading p,
+  .public-signature-summary dt,
+  .public-signature-context > article > strong,
+  .public-signature-visits article > span,
+  .public-signature-state p,
+  .public-signature-footer
+) {
+  color: #725f63 !important;
+}
+
+:root[data-theme='dark'] .public-signature-page :is(
+  .public-signature-shell,
+  .public-signature-pad-card,
+  .public-signature-pad-card .signature-pad,
+  .public-signature-pad-card .signature-pad__toolbar
+) {
+  background: #ffffff !important;
+  color: #2b2224 !important;
+  border-color: #dac9cc !important;
+}
+
+:root[data-theme='dark'] .public-signature-page .public-signature-summary > div,
+:root[data-theme='dark'] .public-signature-page .public-signature-context > article,
+:root[data-theme='dark'] .public-signature-page .public-signature-visits article {
+  background: #fafafa !important;
+  color: #2b2224 !important;
+  border-color: #dac9cc !important;
+}
+
+:root[data-theme='dark'] .public-signature-page .public-signature-instructions {
+  background: #fff8f8 !important;
+  border-color: #f0d4d7 !important;
+}
+
+:root[data-theme='dark'] .public-signature-page .public-signature-instructions p {
+  color: #5e4548 !important;
+}
+
+/* La inversión del canvas solo corresponde al detalle privado en tema oscuro.
+ * El cliente recibe siempre un recuadro blanco con trazo negro. */
+:root[data-theme='dark'] .public-signature-page .signature-pad canvas {
+  filter: none !important;
+  background: repeating-linear-gradient(0deg, #ffffff 0, #ffffff 37px, #eeeeee 38px) !important;
+}
+
+:root[data-theme='dark'] .public-signature-page .signature-pad__toolbar .button--secondary {
+  background: #ffffff !important;
+  color: #2b2224 !important;
+  border-color: #dac9cc !important;
+}
+
+:root[data-theme='dark'] .public-signature-page .signature-pad__toolbar .field-hint {
+  color: #725f63 !important;
+}
