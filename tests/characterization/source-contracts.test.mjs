@@ -97,13 +97,15 @@ test('la recuperación mantiene IndexedDB, respaldo local y límites de limpieza
   ]);
 });
 
-test('el servidor conserva compresión, Helmet y límites actuales de payload', () => {
+test('el servidor conserva compresión, Helmet, CSP activa y límites de payload', () => {
   const contents = source('backend/src/app.js');
   includesAll(contents, [
     "app.disable('x-powered-by');",
     'app.use(helmet({',
-    'contentSecurityPolicy: false',
+    'contentSecurityPolicy: {',
+    'objectSrc: ["\'none\'"]',
     "app.use(express.json({ limit: '25mb' }));",
     'app.use(compression({ threshold: 1_024 }));',
   ]);
+  assert.equal(contents.includes('contentSecurityPolicy: false'), false, 'CSP no debe volver a deshabilitarse');
 });
