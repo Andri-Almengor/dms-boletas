@@ -54,7 +54,7 @@ test('un error de red no se interpreta como alias inexistente', async () => {
       calls.push(route);
       throw network;
     }),
-    network,
+    (error) => error === network,
   );
   assert.deepEqual(calls, ['primary.list']);
   assert.equal(isNetworkError(network), true);
@@ -87,5 +87,6 @@ test('la detección de rutas faltantes conserva códigos y mensajes históricos'
 test('ONLINE_REQUIRED no se convierte en escritura offline cuando el modo está desactivado', () => {
   const error = new Error('No se pudo conectar al servidor. El modo sin conexión está desactivado.');
   error.code = 'ONLINE_REQUIRED';
+  error.status = 503;
   assert.equal(isNetworkError(error), false);
 });
