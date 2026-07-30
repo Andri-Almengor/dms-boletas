@@ -11,7 +11,10 @@
     "preview": "vite preview",
     "start": "npm --prefix backend start",
     "install:all": "npm install && npm --prefix backend install",
-    "check:backend": "npm --prefix backend run check"
+    "check:backend": "npm --prefix backend run check",
+    "test:characterization": "node --test tests/characterization/all.test.mjs",
+    "baseline": "node scripts/collect-baseline.mjs",
+    "verify:stage0": "npm run test:characterization && npm run check:backend && npm run build && npm run baseline"
   },
   "dependencies": {
     "react": "^18.3.1",
