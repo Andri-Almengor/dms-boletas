@@ -88,7 +88,7 @@ app.post('/api/action', actionEnvelopeMiddleware, actionRateLimitMiddleware, asy
       userAgent: req.get('user-agent') || '',
       origin: requestOrigin,
     }));
-    res.json({ ok: true, data, requestId: req.requestId });
+    res.json({ ok: true, data });
   } catch (error) {
     next(error);
   }
@@ -121,12 +121,8 @@ if (env.isProduction) {
   });
 }
 
-app.use((req, res) => {
-  res.status(404).json({
-    ok: false,
-    requestId: req.requestId,
-    error: { code: 'NOT_FOUND', message: 'Ruta no encontrada.' },
-  });
+app.use((_req, res) => {
+  res.status(404).json({ ok: false, error: { code: 'NOT_FOUND', message: 'Ruta no encontrada.' } });
 });
 
 app.use((rawError, req, res, _next) => {
@@ -144,7 +140,6 @@ app.use((rawError, req, res, _next) => {
 
   res.status(status).json({
     ok: false,
-    requestId: req.requestId,
     error: {
       code: error.code || 'INTERNAL_ERROR',
       message: isExpected ? error.message : (status >= 500 ? 'Ocurrió un error interno en el servidor.' : 'La solicitud no pudo procesarse.'),
