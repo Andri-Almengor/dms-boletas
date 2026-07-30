@@ -5,22 +5,12 @@ import Icon from '../../components/common/Icon';
 import KnowledgeCard from '../../components/knowledge/KnowledgeCard';
 import { MODULE_ROUTES, normalizeItems, pick, requestAvailable } from '../../services/moduleApi';
 import { normalizeKnowledge } from '../../utils/knowledge';
+import { mergePaginatedItems, paginationMeta } from '../../utils/paginatedCollection';
 
 const PAGE_SIZE = 30;
 
 function canCreateTutorial(hasPermission) {
   return hasPermission('CONOCIMIENTO_CREAR') || hasPermission('CONOCIMIENTO_GESTIONAR') || hasPermission('BOLETAS_CREAR') || hasPermission('USUARIOS_GESTIONAR');
-}
-
-function responseTotal(data, fallback) {
-  const total = Number(data?.total);
-  return Number.isFinite(total) && total >= 0 ? total : fallback;
-}
-
-function mergeItems(current, incoming) {
-  const map = new Map(current.map((item, index) => [normalizeKnowledge(item).id || `current-${index}`, item]));
-  incoming.forEach((item, index) => map.set(normalizeKnowledge(item).id || `incoming-${index}`, item));
-  return [...map.values()];
 }
 
 export default function KnowledgeListPage() {
@@ -74,10 +64,16 @@ export default function KnowledgeListPage() {
       if (sequence !== requestSequence.current) return;
       const incoming = normalizeItems(data);
       setItems((current) => {
-        const next = append ? mergeItems(current, incoming) : incoming;
-        const nextTotal = responseTotal(data, next.length);
-        setTotal(nextTotal);
-        setHasMore(Number.isFinite(Number(data?.total)) ? next.length < nextTotal : incoming.length >= PAGE_SIZE);
+        const next = append
+          ? mergePaginatedItems(current, incoming, (item, index, source) => normalizeKnowledge(item).id || `${source}-${index}`)
+          : incoming;
+        const meta = paginationMeta(data, {
+          loadedCount: next.length,
+          incomingCount: incoming.length,
+          pageSize: PAGE_SIZE,
+        });
+        setTotal(meta.total);
+        setHasMore(meta.hasMore);
         return next;
       });
       setPage(targetPage);

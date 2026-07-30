@@ -1,3 +1,4 @@
+import { createLocalId } from '../utils/localId';
 import { isOfflineModeEnabled } from './offlineMode';
 
 let corePromise = null;
@@ -36,8 +37,7 @@ export function responseCacheKey(routes, payload = {}, sessionToken = '') {
 }
 
 export function createOfflineId(prefix = 'local') {
-  const random = globalThis.crypto?.randomUUID?.() || `${Date.now()}-${Math.random().toString(16).slice(2)}`;
-  return `${prefix}-${random}`;
+  return createLocalId(prefix);
 }
 
 export async function cacheResponse(key, data) {

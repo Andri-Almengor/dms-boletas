@@ -1,5 +1,5 @@
 import { apiRequest } from '../api';
-import { fileToBase64 } from '../pages/maintenance/maintenanceFormData';
+import { fileToBase64 } from '../utils/fileEncoding';
 import { MODULE_ROUTES, pick, requestAvailable } from './moduleApi';
 
 const IMAGE_UPLOAD_BATCH_ROUTES = ['maintenance.images.uploadBatch', 'mantenimientos.imagenes.subirLote'];

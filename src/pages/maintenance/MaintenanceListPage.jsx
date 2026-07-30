@@ -4,6 +4,7 @@ import { useAuth } from '../../AuthContext';
 import Icon from '../../components/common/Icon';
 import FilterDrawer from '../../components/forms/FilterDrawer';
 import { MODULE_ROUTES, normalizeItems, pick, requestAvailable } from '../../services/moduleApi';
+import { mergePaginatedItems, paginationMeta } from '../../utils/paginatedCollection';
 
 const PAGE_SIZE = 40;
 const MAINTENANCE_COUNT_FIELDS = [
@@ -71,17 +72,6 @@ function expectedDeviceTotal(row = {}) {
 
 function invalidDateRange(filters) {
   return Boolean(filters.dateFrom && filters.dateTo && filters.dateFrom > filters.dateTo);
-}
-
-function responseTotal(data, fallback) {
-  const total = Number(data?.total);
-  return Number.isFinite(total) && total >= 0 ? total : fallback;
-}
-
-function mergeRecords(current, incoming) {
-  const map = new Map(current.map((row, index) => [getId(row, `current-${index}`), row]));
-  incoming.forEach((row, index) => map.set(getId(row, `incoming-${index}`), row));
-  return [...map.values()];
 }
 
 function matchesFallbackFilters(row, status, query, filters) {
@@ -155,10 +145,16 @@ export default function MaintenanceListPage() {
       if (sequence !== requestSequence.current) return;
       const incoming = normalizeItems(data).filter((row) => matchesFallbackFilters(row, currentStatus, query, currentFilters));
       setRecords((current) => {
-        const next = append ? mergeRecords(current, incoming) : incoming;
-        const nextTotal = responseTotal(data, next.length);
-        setTotal(nextTotal);
-        setHasMore(Number.isFinite(Number(data?.total)) ? next.length < nextTotal : incoming.length >= PAGE_SIZE);
+        const next = append
+          ? mergePaginatedItems(current, incoming, (row, index, source) => getId(row, `${source}-${index}`))
+          : incoming;
+        const meta = paginationMeta(data, {
+          loadedCount: next.length,
+          incomingCount: incoming.length,
+          pageSize: PAGE_SIZE,
+        });
+        setTotal(meta.total);
+        setHasMore(meta.hasMore);
         return next;
       });
       setPage(targetPage);

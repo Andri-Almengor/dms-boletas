@@ -5,6 +5,7 @@ import Icon from '../../components/common/Icon';
 import FilterDrawer from '../../components/forms/FilterDrawer';
 import TicketCard from '../../components/tickets/TicketCard';
 import { MODULE_ROUTES, normalizeItems, pick, requestAvailable } from '../../services/moduleApi';
+import { mergePaginatedItems, paginationMeta } from '../../utils/paginatedCollection';
 import { getTicketId, groupTicketsByDate, normalizeTicketStatus } from '../../utils/tickets';
 
 const TICKET_PAGE_SIZE = 50;
@@ -39,17 +40,6 @@ function options(records, idKeys, labelKeys) {
 
 function invalidDateRange(filters) {
   return Boolean(filters.dateFrom && filters.dateTo && filters.dateFrom > filters.dateTo);
-}
-
-function responseTotal(data, fallback = 0) {
-  const total = Number(data?.total);
-  return Number.isFinite(total) && total >= 0 ? total : fallback;
-}
-
-function mergeTickets(current, incoming) {
-  const map = new Map(current.map((ticket, index) => [getTicketId(ticket, index), ticket]));
-  incoming.forEach((ticket, index) => map.set(getTicketId(ticket, current.length + index), ticket));
-  return [...map.values()];
 }
 
 export default function TicketListPage({ status }) {
@@ -144,10 +134,17 @@ export default function TicketListPage({ status }) {
       if (currentFilters.modeloId) items = items.filter((item) => String(pick(item, ['ModeloID'])) === String(currentFilters.modeloId));
 
       setTickets((current) => {
-        const next = append ? mergeTickets(current, items) : items;
-        const nextTotal = responseTotal(data, next.length);
-        setTotal(nextTotal);
-        setHasMore(Number.isFinite(Number(data?.total)) ? next.length < nextTotal : items.length >= TICKET_PAGE_SIZE);
+        const currentLength = current.length;
+        const next = append
+          ? mergePaginatedItems(current, items, (ticket, index, source) => getTicketId(ticket, source === 'current' ? index : currentLength + index))
+          : items;
+        const meta = paginationMeta(data, {
+          loadedCount: next.length,
+          incomingCount: items.length,
+          pageSize: TICKET_PAGE_SIZE,
+        });
+        setTotal(meta.total);
+        setHasMore(meta.hasMore);
         return next;
       });
       setPage(targetPage);
