@@ -21,3 +21,4 @@ import './shared-utilities.test.mjs';
 import './source-contracts.test.mjs';
 import './ticket-form-domain.test.mjs';
 import './ticket-form-services.test.mjs';
+import './ux-performance-feedback.test.mjs';

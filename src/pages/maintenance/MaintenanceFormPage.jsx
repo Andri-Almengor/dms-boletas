@@ -2,6 +2,7 @@ import React, { useState } from 'react';
 import { Navigate, useNavigate, useParams, useSearchParams } from 'react-router-dom';
 import { useAuth } from '../../AuthContext';
 import Icon from '../../components/common/Icon';
+import ProcessingOverlay from '../../components/feedback/ProcessingOverlay';
 import FormField from '../../components/forms/FormField';
 import InlineCreateModal from '../../components/forms/InlineCreateModal';
 import MaintenanceDeviceEditor from '../../components/maintenance/MaintenanceDeviceEditor';
@@ -30,6 +31,7 @@ export default function MaintenanceFormPage({ mode = 'create' }) {
   const initialRequest = resolveMaintenanceDirectRequest(searchParams, editing);
   const state = useMaintenanceForm({ editing, maintenanceId });
   const [step, setStep] = useState(initialRequest.requestedStep);
+  const [processingAction, setProcessingAction] = useState('');
   const canAddExpectedDevice = hasSelectedMaintenanceCategory(state.form.counts);
 
   const direct = useMaintenanceDirectDevice({
@@ -50,11 +52,27 @@ export default function MaintenanceFormPage({ mode = 'create' }) {
     sessionToken: state.sessionToken,
   });
 
+  async function persistMaintenance(action) {
+    setProcessingAction(action);
+    try {
+      return await state.persist(action);
+    } finally {
+      setProcessingAction('');
+    }
+  }
+
   if (!state.allowed) return <Navigate to="/mantenimientos" replace />;
   if (state.loading) return <div className="page"><div className="state-card state-card--loading"><Icon name="progress_activity" />Cargando mantenimiento...</div></div>;
 
   if (state.activeDevice) {
     return <div className="page page--narrow maintenance-form-page maintenance-device-form-page">
+      <ProcessingOverlay
+        open={state.deviceSaving}
+        title="Guardando dispositivo"
+        message={state.activeDevice.newImages?.length
+          ? `Se están guardando los datos y subiendo ${state.activeDevice.newImages.length} evidencia${state.activeDevice.newImages.length === 1 ? '' : 's'}.`
+          : 'Se están guardando los datos del dispositivo y actualizando el mantenimiento.'}
+      />
       <MaintenanceCountsProvider counts={state.form.counts}>
         <MaintenanceDeviceEditor
           device={state.activeDevice}
@@ -93,8 +111,16 @@ export default function MaintenanceFormPage({ mode = 'create' }) {
   }
 
   const progress = maintenanceProgress(step, MAINTENANCE_STEPS.length);
+  const finalizing = processingAction === 'finalize';
 
   return <div className="page page--narrow maintenance-form-page">
+    <ProcessingOverlay
+      open={state.saving || Boolean(processingAction)}
+      title={finalizing ? 'Finalizando mantenimiento' : 'Guardando mantenimiento'}
+      message={finalizing
+        ? 'Se están guardando los datos, los dispositivos y las evidencias antes de finalizar.'
+        : 'Se están guardando los datos, los dispositivos y las evidencias del mantenimiento.'}
+    />
     <div className="page-header ticket-form-header">
       <button className="icon-button" type="button" onClick={state.cancelMaintenanceChanges} aria-label="Cancelar edición"><Icon name="close" /></button>
       <div><span className="eyebrow">Flujo de mantenimiento</span><h1>{editing ? 'Editar mantenimiento' : 'Crear mantenimiento'}</h1></div>
@@ -107,14 +133,14 @@ export default function MaintenanceFormPage({ mode = 'create' }) {
       {step === 0 && <MaintenanceGeneralStep form={state.form} setForm={state.setForm} clients={state.clients} locations={state.locations} technicians={state.technicians} disabled={state.readOnly} canCreateLocation={state.canCreateLocation} onAddLocation={() => quickCreate.openModal('location')} onSearchClients={state.searchClients} />}
       {step === 1 && <MaintenanceCountsStep counts={state.form.counts} registered={state.registered} disabled={state.readOnly} onChange={state.updateCount} />}
       {step === 2 && <MaintenanceDevicesStep devices={state.devices} expectedTotal={state.expectedTotal} disabled={state.readOnly} canAddDevice={canAddExpectedDevice} canCreateEquipment={state.canCreateLocation && Boolean(state.form.ubicacionId)} onAddEquipment={() => quickCreate.openModal('equipment')} onAddDevice={addDevice} onOpenDevice={state.openDevice} />}
-      {step === 3 && <MaintenanceReviewStep form={state.form} devices={state.devices} registered={state.registered} expectedTotal={state.expectedTotal} disabled={state.readOnly} saving={state.saving} onSave={() => state.persist('pending')} onFinalize={() => state.persist('finalize')} canFinalize={isAdministrator} />}
+      {step === 3 && <MaintenanceReviewStep form={state.form} devices={state.devices} registered={state.registered} expectedTotal={state.expectedTotal} disabled={state.readOnly} saving={state.saving} onSave={() => persistMaintenance('pending')} onFinalize={() => persistMaintenance('finalize')} canFinalize={isAdministrator} />}
     </section>
     <div className="ticket-form-actions maintenance-form-navigation-actions">
       <button className="button button--ghost" type="button" onClick={state.cancelMaintenanceChanges} disabled={state.saving}><Icon name="close" />Cancelar</button>
       <button className="button button--secondary" type="button" onClick={() => setStep((value) => Math.max(0, value - 1))} disabled={step === 0 || state.saving}><Icon name="chevron_left" />Anterior</button>
       {step < MAINTENANCE_STEPS.length - 1
         ? <button className="button button--primary" type="button" onClick={() => setStep((value) => value + 1)} disabled={state.saving}>Siguiente<Icon name="chevron_right" /></button>
-        : <button className="button button--primary" type="button" onClick={() => state.persist('pending')} disabled={state.saving || state.readOnly}>{state.saving ? 'Guardando...' : 'Guardar'}<Icon name="save" /></button>}
+        : <button className="button button--primary" type="button" onClick={() => persistMaintenance('pending')} disabled={state.saving || state.readOnly}>{state.saving ? 'Guardando...' : 'Guardar'}<Icon name="save" /></button>}
     </div>
     <InlineCreateModal
       open={Boolean(quickCreate.modal)}

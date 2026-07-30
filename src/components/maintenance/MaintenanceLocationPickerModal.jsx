@@ -1,5 +1,6 @@
 import React, { useMemo, useState } from 'react';
 import Icon from '../common/Icon';
+import ProcessingOverlay from '../feedback/ProcessingOverlay';
 import MaintenanceEquipmentLocationSelect from './MaintenanceEquipmentLocationSelect';
 
 export default function MaintenanceLocationPickerModal({
@@ -68,6 +69,11 @@ export default function MaintenanceLocationPickerModal({
           </div>
         </form>
       </section>
+      <ProcessingOverlay
+        open={saving}
+        title="Agregando ubicación"
+        message="Se está vinculando la ubicación con el mantenimiento y actualizando el inventario."
+      />
     </div>
   );
 }

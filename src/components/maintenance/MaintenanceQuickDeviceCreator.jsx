@@ -1,5 +1,6 @@
 import React, { useEffect, useRef, useState } from 'react';
 import Icon from '../common/Icon';
+import ProcessingOverlay from '../feedback/ProcessingOverlay';
 import MaintenanceDeviceEditor from './MaintenanceDeviceEditor';
 import { MaintenanceCountsProvider } from '../../context/MaintenanceCountsContext';
 import {
@@ -61,6 +62,20 @@ export default function MaintenanceQuickDeviceCreator({
   useEffect(() => {
     let active = true;
 
+    async function mergeEquipmentOptions(locationId) {
+      const equipmentData = await requestAvailable(
+        MODULE_ROUTES.clients.equipmentLocationsList,
+        { ubicacionId: locationId, activo: true, page: 1, pageSize: 1000 },
+        sessionToken,
+      );
+      if (!active) return;
+      const loaded = normalizeItems(equipmentData).map(equipmentOption).filter(Boolean);
+      setEquipmentOptions((current) => {
+        const byId = new Map([...current, ...loaded].map((item) => [String(item.value), item]));
+        return [...byId.values()];
+      });
+    }
+
     async function loadMaintenance() {
       setLoading(true);
       setError('');
@@ -90,22 +105,20 @@ export default function MaintenanceQuickDeviceCreator({
 
         const locationId = String(pick(row, ['UbicacionID'], ''));
         setMaintenanceLocationId(locationId);
-        if (!locationId) {
-          setEquipmentOptions((current) => current);
+        if (!locationId) return;
+
+        // Al abrir desde una ubicación del inventario ya tenemos el valor
+        // necesario para mostrar el formulario. El resto del catálogo se carga
+        // en segundo plano, sin obligar al usuario a esperar una segunda consulta.
+        if (initialEquipmentLocation?.id) {
+          setLoading(false);
+          mergeEquipmentOptions(locationId).catch((loadError) => {
+            if (active) setError(loadError.message || 'No se pudieron actualizar las demás ubicaciones del equipo.');
+          });
           return;
         }
 
-        const equipmentData = await requestAvailable(
-          MODULE_ROUTES.clients.equipmentLocationsList,
-          { ubicacionId: locationId, activo: true, page: 1, pageSize: 1000 },
-          sessionToken,
-        );
-        if (!active) return;
-        const loaded = normalizeItems(equipmentData).map(equipmentOption).filter(Boolean);
-        setEquipmentOptions((current) => {
-          const byId = new Map([...current, ...loaded].map((item) => [String(item.value), item]));
-          return [...byId.values()];
-        });
+        await mergeEquipmentOptions(locationId);
       } catch (loadError) {
         if (active) setError(loadError.message || 'No se pudo preparar el nuevo dispositivo.');
       } finally {
@@ -120,7 +133,7 @@ export default function MaintenanceQuickDeviceCreator({
         if (image.previewUrl) URL.revokeObjectURL(image.previewUrl);
       });
     };
-  }, [maintenanceId, sessionToken]);
+  }, [initialEquipmentLocation, maintenanceId, sessionToken]);
 
   async function save() {
     setSaving(true);
@@ -177,6 +190,8 @@ export default function MaintenanceQuickDeviceCreator({
     }
   }
 
+  const pendingImageCount = Number(device.newImages?.length || 0);
+
   return (
     <div className="maintenance-evidence-modal maintenance-quick-device-modal" role="dialog" aria-modal="true" aria-label="Nuevo dispositivo">
       <div className="maintenance-evidence-modal__backdrop" onClick={saving ? undefined : onClose} />
@@ -212,6 +227,13 @@ export default function MaintenanceQuickDeviceCreator({
           </>
         )}
       </section>
+      <ProcessingOverlay
+        open={saving}
+        title="Guardando dispositivo"
+        message={pendingImageCount
+          ? `Se están guardando los datos y subiendo ${pendingImageCount} evidencia${pendingImageCount === 1 ? '' : 's'}.`
+          : 'Se están guardando los datos del dispositivo y actualizando el mantenimiento.'}
+      />
     </div>
   );
 }

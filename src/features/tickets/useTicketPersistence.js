@@ -20,6 +20,7 @@ export default function useTicketPersistence({
   setError,
 }) {
   const [saving, setSaving] = useState(false);
+  const [activeAction, setActiveAction] = useState('');
   const [serverStatus, setServerStatus] = useState('idle');
 
   useEffect(() => {
@@ -58,6 +59,7 @@ export default function useTicketPersistence({
       return null;
     }
 
+    setActiveAction(type);
     setSaving(true);
     setError('');
     try {
@@ -78,12 +80,14 @@ export default function useTicketPersistence({
       return null;
     } finally {
       setSaving(false);
+      setActiveAction('');
     }
   }, [boletaUid, clearDraft, editing, evidences, form, navigate, sessionToken, setError]);
 
   return {
     action,
     saving,
+    activeAction,
     serverStatus,
   };
 }

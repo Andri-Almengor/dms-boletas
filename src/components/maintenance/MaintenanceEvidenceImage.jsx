@@ -2,22 +2,41 @@ import React, { useEffect, useRef, useState } from 'react';
 import Icon from '../common/Icon';
 import { MODULE_ROUTES, pick, requestAvailable } from '../../services/moduleApi';
 
-function isProtectedGoogleUrl(value = '') {
-  return /(?:drive|docs)\.google\.com|googleusercontent\.com/i.test(String(value || ''));
+const protectedMediaCache = new Map();
+const protectedMediaRequests = new Map();
+
+async function requestProtectedSource(imageId, sessionToken, force = false) {
+  if (!force && protectedMediaCache.has(imageId)) return protectedMediaCache.get(imageId);
+  if (!force && protectedMediaRequests.has(imageId)) return protectedMediaRequests.get(imageId);
+
+  const task = requestAvailable(
+    MODULE_ROUTES.maintenance.mediaGet,
+    { imageId, FotoDispositivoID: imageId },
+    sessionToken,
+  ).then((media) => {
+    const source = pick(media, ['dataUrl', 'DataURL', 'url']);
+    if (!source) throw new Error('La imagen no devolvió contenido.');
+    protectedMediaCache.set(imageId, source);
+    return source;
+  }).finally(() => {
+    protectedMediaRequests.delete(imageId);
+  });
+
+  protectedMediaRequests.set(imageId, task);
+  return task;
 }
 
 export default function MaintenanceEvidenceImage({ image, sessionToken, alt = 'Evidencia' }) {
   const imageId = String(pick(image, ['FotoDispositivoID', 'id']));
-  const initialSource = pick(image, ['PreviewURL', 'DriveURL', 'url']);
-  const initialDirectSource = imageId && isProtectedGoogleUrl(initialSource) ? '' : initialSource;
+  const initialSource = pick(image, ['PreviewURL', 'previewUrl', 'DriveURL', 'url']);
   const attemptedRef = useRef(false);
-  const [source, setSource] = useState(initialDirectSource);
+  const [source, setSource] = useState(initialSource);
   const [loadingFallback, setLoadingFallback] = useState(false);
   const [failed, setFailed] = useState(false);
   const [open, setOpen] = useState(false);
 
   async function loadProtectedImage(force = false) {
-    if (!imageId || (!force && attemptedRef.current) || loadingFallback) {
+    if (!imageId || (!force && attemptedRef.current)) {
       if (!imageId) setFailed(true);
       return;
     }
@@ -25,20 +44,13 @@ export default function MaintenanceEvidenceImage({ image, sessionToken, alt = 'E
     attemptedRef.current = true;
     setLoadingFallback(true);
     setFailed(false);
-    if (isProtectedGoogleUrl(initialSource)) setSource('');
     try {
-      const media = await requestAvailable(
-        MODULE_ROUTES.maintenance.mediaGet,
-        { imageId, FotoDispositivoID: imageId },
-        sessionToken,
-      );
-      const protectedSource = pick(media, ['dataUrl', 'DataURL', 'url']);
-      if (!protectedSource) throw new Error('La imagen no devolvió contenido.');
+      const protectedSource = await requestProtectedSource(imageId, sessionToken, force);
       setSource(protectedSource);
       setFailed(false);
     } catch {
       setFailed(true);
-      if (isProtectedGoogleUrl(initialSource)) setSource('');
+      setSource('');
     } finally {
       setLoadingFallback(false);
     }
@@ -48,9 +60,8 @@ export default function MaintenanceEvidenceImage({ image, sessionToken, alt = 'E
     attemptedRef.current = false;
     setFailed(false);
     setOpen(false);
-    const directSource = imageId && isProtectedGoogleUrl(initialSource) ? '' : initialSource;
-    setSource(directSource);
-    if (imageId && (!initialSource || isProtectedGoogleUrl(initialSource))) loadProtectedImage();
+    setSource(initialSource);
+    if (imageId && !initialSource) loadProtectedImage();
     // Solo debe ejecutarse al cambiar de imagen.
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [imageId, initialSource, sessionToken]);
@@ -81,9 +92,13 @@ export default function MaintenanceEvidenceImage({ image, sessionToken, alt = 'E
             alt={alt}
             loading="lazy"
             decoding="async"
+            referrerPolicy="no-referrer"
             onError={() => {
               if (imageId && !attemptedRef.current) loadProtectedImage();
-              else setFailed(true);
+              else {
+                setSource('');
+                setFailed(true);
+              }
             }}
           />
         ) : (
@@ -97,7 +112,7 @@ export default function MaintenanceEvidenceImage({ image, sessionToken, alt = 'E
           <button className="maintenance-lightbox__close" type="button" onClick={() => setOpen(false)} aria-label="Cerrar imagen">
             <Icon name="close" />
           </button>
-          <img src={source} alt={alt} />
+          <img src={source} alt={alt} referrerPolicy="no-referrer" />
         </div>
       )}
     </>

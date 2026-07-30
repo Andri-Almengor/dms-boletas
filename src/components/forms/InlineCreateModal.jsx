@@ -1,6 +1,7 @@
 import React, { useEffect } from 'react';
 import { createPortal } from 'react-dom';
 import Icon from '../common/Icon';
+import ProcessingOverlay from '../feedback/ProcessingOverlay';
 
 export default function InlineCreateModal({
   open,
@@ -69,6 +70,11 @@ export default function InlineCreateModal({
           </div>
         </form>
       </section>
+      <ProcessingOverlay
+        open={Boolean(saving)}
+        title="Guardando registro"
+        message={`Se está agregando “${title}” y actualizando las opciones del formulario.`}
+      />
     </div>,
     document.body,
   );
