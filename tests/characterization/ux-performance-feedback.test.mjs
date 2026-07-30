@@ -48,3 +48,16 @@ test('las operaciones largas muestran una pantalla bloqueante con contexto', () 
   assert.match(location, /title="Agregando ubicación"/);
   assert.match(inlineModal, /title="Guardando registro"/);
 });
+
+test('el inventario móvil conserva nombres completos y separa identidad, estado y acciones', () => {
+  const styles = source('src/styles/maintenance-inventory-mobile.css');
+  const index = source('src/styles/index.css');
+
+  assert.match(index, /maintenance-inventory-mobile\.css/);
+  assert.match(styles, /@media \(max-width: 720px\)/);
+  assert.match(styles, /grid-template-columns: 48px minmax\(0, 1fr\) 32px/);
+  assert.match(styles, /white-space: normal !important/);
+  assert.match(styles, /overflow-wrap: anywhere/);
+  assert.match(styles, /\.maintenance-inventory-mobile-edit/);
+  assert.match(styles, /padding-bottom: calc\(var\(--bottom-nav-height\)/);
+});
