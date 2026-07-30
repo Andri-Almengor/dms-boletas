@@ -101,3 +101,23 @@ test('el enlace público de firma conserva un tema claro independiente', () => {
   assert.match(publicStyles, /filter: none !important/);
   assert.match(publicStyles, /recuadro blanco con trazo negro/);
 });
+
+test('la firma puede ampliarse sin crear un segundo formulario ni perder el trazo', () => {
+  const component = source('src/components/tickets/SignaturePad.jsx');
+  const routeStyles = source('src/styles/routes/tickets.js');
+  const expandedStyles = source('src/styles/signature-pad-expanded.css');
+
+  assert.match(component, /const \[expanded, setExpanded\] = useState\(false\)/);
+  assert.match(component, /Ampliar firma/);
+  assert.match(component, /Reducir firma/);
+  assert.match(component, /aria-modal=\{expanded \? 'true' : undefined\}/);
+  assert.match(component, /event\.key === 'Escape'/);
+  assert.match(component, /document\.body\.style\.overflow = 'hidden'/);
+  assert.match(component, /className=\{`signature-pad\$\{expanded \? ' is-expanded' : ''\}`\}/);
+
+  assert.match(routeStyles, /signature-pad-expanded\.css/);
+  assert.match(expandedStyles, /position: fixed !important/);
+  assert.match(expandedStyles, /height: 100dvh !important/);
+  assert.match(expandedStyles, /\.public-signature-page \.signature-pad\.is-expanded/);
+  assert.match(expandedStyles, /filter: none !important/);
+});

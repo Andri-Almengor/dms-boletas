@@ -17,6 +17,7 @@ export default function SignaturePad({ value, onChange }) {
   const storedSourceRef = useRef('');
   const [existingSource, setExistingSource] = useState('');
   const [existingStatus, setExistingStatus] = useState(boletaUid ? 'loading' : 'none');
+  const [expanded, setExpanded] = useState(false);
 
   function publishSignature(nextValue) {
     onChange(nextValue);
@@ -64,6 +65,20 @@ export default function SignaturePad({ value, onChange }) {
     window.addEventListener('dms-draft-restore-signature', restore);
     return () => window.removeEventListener('dms-draft-restore-signature', restore);
   }, [onChange, value]);
+
+  useEffect(() => {
+    if (!expanded) return undefined;
+    const previousOverflow = document.body.style.overflow;
+    document.body.style.overflow = 'hidden';
+    const closeOnEscape = (event) => {
+      if (event.key === 'Escape') setExpanded(false);
+    };
+    window.addEventListener('keydown', closeOnEscape);
+    return () => {
+      document.body.style.overflow = previousOverflow;
+      window.removeEventListener('keydown', closeOnEscape);
+    };
+  }, [expanded]);
 
   useEffect(() => {
     const canvas = canvasRef.current;
@@ -141,37 +156,62 @@ export default function SignaturePad({ value, onChange }) {
   }
 
   return (
-    <div className="signature-pad" data-offline-editing-surface>
-      <div className="signature-pad__toolbar">
-        <span><Icon name="draw" /> Firma en el recuadro</span>
-        <div className="inline-actions">
-          {!value && !existingSource && storedSourceRef.current && (
-            <button type="button" className="button button--secondary button--compact" onClick={restoreExistingSignature}>
-              <Icon name="restore" /> Restaurar firma existente
+    <>
+      {expanded && (
+        <button
+          type="button"
+          className="signature-pad__expand-backdrop"
+          aria-label="Cerrar la firma ampliada"
+          onClick={() => setExpanded(false)}
+        />
+      )}
+      <div
+        className={`signature-pad${expanded ? ' is-expanded' : ''}`}
+        data-offline-editing-surface
+        role={expanded ? 'dialog' : undefined}
+        aria-modal={expanded ? 'true' : undefined}
+        aria-label={expanded ? 'Firma ampliada' : undefined}
+      >
+        <div className="signature-pad__toolbar">
+          <span><Icon name="draw" /> Firma en el recuadro</span>
+          <div className="inline-actions">
+            {!value && !existingSource && storedSourceRef.current && (
+              <button type="button" className="button button--secondary button--compact" onClick={restoreExistingSignature}>
+                <Icon name="restore" /> Restaurar firma existente
+              </button>
+            )}
+            <button
+              type="button"
+              className="button button--secondary button--compact"
+              onClick={() => setExpanded((current) => !current)}
+              aria-expanded={expanded}
+            >
+              <Icon name={expanded ? 'close_fullscreen' : 'open_in_full'} />
+              {expanded ? 'Reducir firma' : 'Ampliar firma'}
             </button>
-          )}
-          <button type="button" className="button button--secondary button--compact" onClick={clearSignature}>
-            <Icon name="ink_eraser" /> Limpiar
-          </button>
+            <button type="button" className="button button--secondary button--compact" onClick={clearSignature}>
+              <Icon name="ink_eraser" /> Limpiar
+            </button>
+          </div>
         </div>
+        {existingStatus === 'loading' && <small className="field-hint">Cargando la firma guardada...</small>}
+        {existingStatus === 'loaded' && !value && existingSource && <small className="field-hint">Firma existente cargada. Se conservará mientras no dibuje una firma nueva.</small>}
+        {existingStatus === 'error' && <small className="field-error">No se pudo mostrar la firma existente, pero el archivo almacenado no será eliminado al guardar.</small>}
+        {!value && !existingSource && storedSourceRef.current && <small className="field-hint">La vista fue limpiada. La firma almacenada sigue conservándose; puede restaurarla o dibujar una nueva.</small>}
+        <canvas
+          ref={canvasRef}
+          data-draft-signature="primary"
+          width="900"
+          height="300"
+          onMouseDown={startDrawing}
+          onMouseMove={draw}
+          onMouseUp={stopDrawing}
+          onMouseLeave={stopDrawing}
+          onTouchStart={startDrawing}
+          onTouchMove={draw}
+          onTouchEnd={stopDrawing}
+        />
       </div>
-      {existingStatus === 'loading' && <small className="field-hint">Cargando la firma guardada...</small>}
-      {existingStatus === 'loaded' && !value && existingSource && <small className="field-hint">Firma existente cargada. Se conservará mientras no dibuje una firma nueva.</small>}
-      {existingStatus === 'error' && <small className="field-error">No se pudo mostrar la firma existente, pero el archivo almacenado no será eliminado al guardar.</small>}
-      {!value && !existingSource && storedSourceRef.current && <small className="field-hint">La vista fue limpiada. La firma almacenada sigue conservándose; puede restaurarla o dibujar una nueva.</small>}
-      <canvas
-        ref={canvasRef}
-        data-draft-signature="primary"
-        width="900"
-        height="300"
-        onMouseDown={startDrawing}
-        onMouseMove={draw}
-        onMouseUp={stopDrawing}
-        onMouseLeave={stopDrawing}
-        onTouchStart={startDrawing}
-        onTouchMove={draw}
-        onTouchEnd={stopDrawing}
-      />
-    </div>
+    </>
   );
 }
