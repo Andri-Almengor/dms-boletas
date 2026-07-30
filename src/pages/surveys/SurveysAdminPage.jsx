@@ -3,8 +3,8 @@ import { Link } from 'react-router-dom';
 import { useAuth } from '../../AuthContext';
 import Icon from '../../components/common/Icon';
 import AdminEntityModal from '../../components/forms/AdminEntityModal';
+import usePaginatedResource from '../../hooks/usePaginatedResource';
 import { MODULE_ROUTES, normalizeItems, requestAvailable } from '../../services/moduleApi';
-import { mergePaginatedItems, paginationMeta } from '../../utils/paginatedCollection';
 
 const RESPONSE_PAGE_SIZE = 40;
 const EMPTY = { id: '', text: '', order: 1, status: 'ACTIVO' };
@@ -20,93 +20,80 @@ export default function SurveysAdminPage() {
   const [tab, setTab] = useState('responses');
   const [questions, setQuestions] = useState([]);
   const [questionsLoaded, setQuestionsLoaded] = useState(false);
-  const [responses, setResponses] = useState([]);
+  const [questionsLoading, setQuestionsLoading] = useState(false);
+  const [questionError, setQuestionError] = useState('');
   const [selectedQuestion, setSelectedQuestion] = useState(null);
   const [form, setForm] = useState(EMPTY);
   const [editing, setEditing] = useState(false);
   const [search, setSearch] = useState('');
   const [status, setStatus] = useState('');
-  const [page, setPage] = useState(1);
-  const [total, setTotal] = useState(0);
-  const [hasMore, setHasMore] = useState(false);
-  const [loading, setLoading] = useState(true);
-  const [loadingMore, setLoadingMore] = useState(false);
   const [saving, setSaving] = useState(false);
-  const [error, setError] = useState('');
   const [modalError, setModalError] = useState('');
-  const requestSequence = useRef(0);
+  const questionsRequestSequence = useRef(0);
+  const questionsController = useRef(null);
 
   const loadQuestions = useCallback(async ({ force = false } = {}) => {
     if (questionsLoaded && !force) return;
-    const sequence = ++requestSequence.current;
-    setLoading(true);
-    setError('');
+    const sequence = questionsRequestSequence.current + 1;
+    questionsRequestSequence.current = sequence;
+    questionsController.current?.abort();
+    const controller = new AbortController();
+    questionsController.current = controller;
+    setQuestionsLoading(true);
+    setQuestionError('');
     try {
-      const data = await requestAvailable(MODULE_ROUTES.surveys.questionsList, { includeInactive: true }, sessionToken);
-      if (sequence !== requestSequence.current) return;
+      const data = await requestAvailable(
+        MODULE_ROUTES.surveys.questionsList,
+        { includeInactive: true },
+        sessionToken,
+        { signal: controller.signal },
+      );
+      if (controller.signal.aborted || sequence !== questionsRequestSequence.current) return;
       setQuestions(normalizeItems(data));
       setQuestionsLoaded(true);
     } catch (loadError) {
-      if (sequence === requestSequence.current) setError(loadError.message);
+      if (!controller.signal.aborted && sequence === questionsRequestSequence.current) setQuestionError(loadError.message);
     } finally {
-      if (sequence === requestSequence.current) setLoading(false);
+      if (sequence === questionsRequestSequence.current) {
+        if (questionsController.current === controller) questionsController.current = null;
+        setQuestionsLoading(false);
+      }
     }
   }, [questionsLoaded, sessionToken]);
 
-  const loadResponses = useCallback(async ({ targetPage = 1, append = false, query = search, currentStatus = status } = {}) => {
-    const sequence = ++requestSequence.current;
-    if (append) setLoadingMore(true);
-    else setLoading(true);
-    setError('');
-    try {
-      const data = await requestAvailable(MODULE_ROUTES.surveys.responsesList, {
-        page: targetPage,
-        pageSize: RESPONSE_PAGE_SIZE,
-        search: query.trim(),
-        status: currentStatus,
-        estado: currentStatus,
-        sortBy: 'FechaCreacion',
-        sortDir: 'desc',
-      }, sessionToken);
-      if (sequence !== requestSequence.current) return;
-      const incoming = normalizeItems(data);
-      setResponses((current) => {
-        const next = append
-          ? mergePaginatedItems(current, incoming, (item, index, source) => item.id || `${source}-${index}`)
-          : incoming;
-        const meta = paginationMeta(data, {
-          loadedCount: next.length,
-          incomingCount: incoming.length,
-          pageSize: RESPONSE_PAGE_SIZE,
-        });
-        setTotal(meta.total);
-        setHasMore(meta.hasMore);
-        return next;
-      });
-      setPage(targetPage);
-    } catch (loadError) {
-      if (sequence !== requestSequence.current) return;
-      setError(loadError.message);
-      if (!append) {
-        setResponses([]);
-        setTotal(0);
-        setHasMore(false);
-      }
-    } finally {
-      if (sequence === requestSequence.current) {
-        setLoading(false);
-        setLoadingMore(false);
-      }
-    }
-  }, [search, sessionToken, status]);
+  const fetchResponses = useCallback(({ page, pageSize, signal }) => requestAvailable(MODULE_ROUTES.surveys.responsesList, {
+    page,
+    pageSize,
+    search: search.trim(),
+    status,
+    estado: status,
+    sortBy: 'FechaCreacion',
+    sortDir: 'desc',
+  }, sessionToken, { signal }), [search, sessionToken, status]);
+
+  const {
+    items: responses,
+    total,
+    hasMore,
+    loading: responsesLoading,
+    loadingMore,
+    error: responsesError,
+    loadFirst: loadResponses,
+    loadMore,
+  } = usePaginatedResource({
+    pageSize: RESPONSE_PAGE_SIZE,
+    fetchPage: fetchResponses,
+    normalizeResponse: normalizeItems,
+    getItemKey: (item, index, source) => item.id || `${source}-${index}`,
+    enabled: tab === 'responses',
+    resetKey: `${sessionToken}|${status}|${tab}`,
+  });
 
   useEffect(() => {
     if (tab === 'questions') loadQuestions();
-    else {
-      setResponses([]);
-      setPage(1);
-      loadResponses({ targetPage: 1, append: false });
-    }
+    return () => {
+      if (tab === 'questions') questionsController.current?.abort();
+    };
   }, [sessionToken, tab]);
 
   const visibleResponses = useMemo(() => {
@@ -119,6 +106,8 @@ export default function SurveysAdminPage() {
   }, [responses, search, status]);
 
   const sortedQuestions = useMemo(() => [...questions].sort((left, right) => Number(left.order || 0) - Number(right.order || 0)), [questions]);
+  const loading = tab === 'questions' ? questionsLoading : responsesLoading;
+  const error = tab === 'questions' ? questionError : responsesError;
 
   function openCreate() {
     const maxOrder = questions.reduce((max, question) => Math.max(max, Number(question.order || 0)), 0);
@@ -193,14 +182,11 @@ export default function SurveysAdminPage() {
 
   function submitResponseSearch(event) {
     event.preventDefault();
-    setPage(1);
-    loadResponses({ targetPage: 1, append: false });
+    loadResponses();
   }
 
   function changeResponseStatus(nextStatus) {
     setStatus(nextStatus);
-    setPage(1);
-    loadResponses({ targetPage: 1, append: false, currentStatus: nextStatus });
   }
 
   return <div className="page survey-admin-page">
@@ -239,7 +225,7 @@ export default function SurveysAdminPage() {
           <span className="survey-response-card__open">Ver detalle <Icon name="arrow_forward" /></span>
         </Link>) : <div className="empty-state"><Icon name="rate_review" /><h2>No hay encuestas</h2><p>Las encuestas se crearán automáticamente al finalizar las boletas.</p></div>}
       </div>
-      {hasMore && <div className="list-load-more"><button type="button" className="button button--secondary" disabled={loadingMore} onClick={() => loadResponses({ targetPage: page + 1, append: true })}><Icon name={loadingMore ? 'progress_activity' : 'expand_more'} />{loadingMore ? 'Cargando...' : 'Cargar más encuestas'}</button></div>}
+      {hasMore && <div className="list-load-more"><button type="button" className="button button--secondary" disabled={loadingMore} onClick={loadMore}><Icon name={loadingMore ? 'progress_activity' : 'expand_more'} />{loadingMore ? 'Cargando...' : 'Cargar más encuestas'}</button></div>}
     </>}
 
     <AdminEntityModal open={Boolean(selectedQuestion)} title={form.text || 'Nueva pregunta'} subtitle={form.id ? `Orden ${form.order} · ${form.status}` : 'El cliente calificará esta pregunta del 1 al 5'} eyebrow={editing ? (form.id ? 'Editar pregunta' : 'Nueva pregunta') : 'Detalle de pregunta'} icon="quiz" onClose={closeQuestion} busy={saving} footer={!editing && form.id ? <><button className="button button--secondary" type="button" onClick={changeQuestionStatus} disabled={saving}><Icon name={form.status === 'INACTIVO' ? 'refresh' : 'block'} />{form.status === 'INACTIVO' ? 'Reactivar' : 'Desactivar'}</button><button className="button button--primary" type="button" onClick={() => setEditing(true)} disabled={saving}><Icon name="edit" />Editar</button></> : null}>
