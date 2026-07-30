@@ -71,7 +71,6 @@ test('el selector de técnicos muestra la lista directamente y no renderiza una 
   assert.doesNotMatch(contents, /optionsOpen|setOptionsOpen/);
 });
 
-
 test('el detalle limpia la evidencia y adapta la firma al modo oscuro', () => {
   const detail = source('src/pages/tickets/TicketDetailPage.jsx');
   const darkStyles = source('src/styles/theme-dark-coverage.css');
@@ -84,8 +83,8 @@ test('el detalle limpia la evidencia y adapta la firma al modo oscuro', () => {
   assert.match(detail, /clearEvidenceForm\(\);/);
   assert.doesNotMatch(detail, /formElement\?\.reset\(\)/);
 
-  assert.match(darkStyles, /signature-pad canvas,\s*
-:root\[data-theme='dark'\] \.signature-display img/);
+  assert.match(darkStyles, /signature-pad canvas/);
+  assert.match(darkStyles, /signature-display img/);
   assert.match(darkStyles, /filter: invert\(1\) hue-rotate\(180deg\)/);
   assert.match(darkStyles, /La firma se presenta oscura sin alterar el PNG original/);
 });
