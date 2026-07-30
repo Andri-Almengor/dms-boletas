@@ -3,6 +3,7 @@ import { Navigate, useNavigate, useParams } from 'react-router-dom';
 import { useAuth } from '../../AuthContext';
 import Icon from '../../components/common/Icon';
 import AutosaveIndicator from '../../components/feedback/AutosaveIndicator';
+import ProcessingOverlay from '../../components/feedback/ProcessingOverlay';
 import DependentSelect from '../../components/forms/DependentSelect';
 import EvidenceUploader from '../../components/forms/EvidenceUploader';
 import FormField from '../../components/forms/FormField';
@@ -25,6 +26,25 @@ import useTicketPersistence from '../../features/tickets/useTicketPersistence';
 import useTicketQuickCreate from '../../features/tickets/useTicketQuickCreate';
 import useTicketDraft from '../../hooks/useTicketDraft';
 import { pick } from '../../services/moduleApi';
+
+const PROCESSING_COPY = Object.freeze({
+  save: {
+    title: 'Guardando boleta pendiente',
+    message: 'Se están guardando los datos y subiendo las evidencias. Espere hasta que se abra el detalle.',
+  },
+  finalize: {
+    title: 'Finalizando boleta',
+    message: 'Se están guardando los datos, generando los documentos y procesando las notificaciones.',
+  },
+  pdf: {
+    title: 'Generando PDF',
+    message: 'Se están guardando los cambios y preparando el reporte de la boleta.',
+  },
+  test: {
+    title: 'Procesando prueba',
+    message: 'Se están generando los documentos y enviando las notificaciones de prueba.',
+  },
+});
 
 export default function TicketFormPage({ mode = 'create' }) {
   const { boletaUid } = useParams();
@@ -104,7 +124,7 @@ export default function TicketFormPage({ mode = 'create' }) {
     appendCatalog,
   });
 
-  const { action, saving, serverStatus } = useTicketPersistence({
+  const { action, saving, activeAction, serverStatus } = useTicketPersistence({
     editing,
     loading,
     boletaUid,
@@ -176,9 +196,12 @@ export default function TicketFormPage({ mode = 'create' }) {
     .filter((item) => form.asignados.includes(item.value))
     .map((item) => item.label)
     .join(', ');
+  const processingCopy = PROCESSING_COPY[activeAction] || PROCESSING_COPY.save;
 
   return (
     <div className="page page--narrow ticket-form-page">
+      <ProcessingOverlay open={saving} title={processingCopy.title} message={processingCopy.message} />
+
       <div className="page-header ticket-form-header">
         <button className="icon-button" type="button" onClick={() => navigate(editing ? `/boletas/${encodeURIComponent(boletaUid)}` : '/boletas/pendientes')}>
           <Icon name="close" />
