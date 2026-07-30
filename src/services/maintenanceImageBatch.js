@@ -1,6 +1,7 @@
 import { apiRequest } from '../api';
-import { fileToBase64 } from '../utils/fileEncoding';
+import { fileToBase64, mapFilesSequentially } from '../utils/fileEncoding';
 import { MODULE_ROUTES, pick, requestAvailable } from './moduleApi';
+import { isAbortError, isNetworkError } from './requestErrors';
 
 const IMAGE_UPLOAD_BATCH_ROUTES = ['maintenance.images.uploadBatch', 'mantenimientos.imagenes.subirLote'];
 const IMAGE_UPDATE_BATCH_ROUTES = ['maintenance.images.updateBatch', 'mantenimientos.imagenes.actualizarLote'];
@@ -8,8 +9,19 @@ const MAX_FILES_PER_REQUEST = 10;
 const MAX_RAW_BYTES_PER_REQUEST = 10 * 1024 * 1024;
 const MAX_METADATA_UPDATES_PER_REQUEST = 80;
 
+let uploadBatchAvailable = null;
+let updateBatchAvailable = null;
+
 function clean(value) {
   return String(value ?? '').trim();
+}
+
+function requestOptions(signal) {
+  return signal ? { signal } : {};
+}
+
+function browserIsOffline() {
+  return typeof navigator !== 'undefined' && navigator.onLine === false;
 }
 
 function chunkByWeight(images = []) {
@@ -45,14 +57,14 @@ function missingRoute(error) {
   return text.includes('route_not_found') || text.includes('ruta no encontrada') || text.includes('unknown action');
 }
 
-async function requestOnlineAliases(routes, payload, sessionToken) {
+async function requestOnlineAliases(routes, payload, sessionToken, signal) {
   let lastError;
   for (const route of routes) {
     try {
-      return await apiRequest(route, payload, sessionToken);
+      return await apiRequest(route, payload, sessionToken, requestOptions(signal));
     } catch (error) {
       lastError = error;
-      if (!missingRoute(error)) throw error;
+      if (isAbortError(error) || !missingRoute(error)) throw error;
     }
   }
   throw lastError || new Error('La operación por lote no está disponible.');
@@ -66,11 +78,47 @@ function uploadedView(row = {}) {
   };
 }
 
-async function uploadFallback({ maintenanceId, deviceId, images, sessionToken }) {
+function imagePayload(image, base64) {
+  return {
+    localId: image.localId,
+    imageId: image.localId,
+    Tipo: image.type,
+    Nota: image.note,
+    fileName: image.file.name,
+    mimeType: image.file.type || 'image/jpeg',
+    base64,
+  };
+}
+
+async function prepareUploadChunk(images, signal) {
+  return mapFilesSequentially(images, async (image) => imagePayload(
+    image,
+    await fileToBase64(image.file, { signal }),
+  ), { signal });
+}
+
+function clearPreparedPayloads(items = []) {
+  for (const item of items) item.base64 = '';
+  items.length = 0;
+}
+
+async function uploadFallback({
+  maintenanceId,
+  deviceId,
+  images,
+  preparedImages = [],
+  sessionToken,
+  signal,
+}) {
   const uploaded = [];
   const failed = [];
+  const preparedByKey = new Map(preparedImages.map((item) => [clean(item.localId), item]));
+
   for (const image of images) {
+    const prepared = preparedByKey.get(clean(image.localId));
+    let base64 = prepared?.base64 || '';
     try {
+      if (!base64) base64 = await fileToBase64(image.file, { signal });
       const result = await requestAvailable(MODULE_ROUTES.maintenance.imageUpload, {
         maintenanceId,
         deviceId,
@@ -79,83 +127,134 @@ async function uploadFallback({ maintenanceId, deviceId, images, sessionToken })
         Nota: image.note,
         fileName: image.file.name,
         mimeType: image.file.type || 'image/jpeg',
-        base64: await fileToBase64(image.file),
-      }, sessionToken);
+        base64,
+      }, sessionToken, requestOptions(signal));
       uploaded.push({ ...uploadedView(result), clientKey: image.localId });
     } catch (error) {
+      if (isAbortError(error)) throw error;
       failed.push({ clientKey: image.localId, fileName: image.file?.name, message: error.message });
+    } finally {
+      base64 = '';
+      if (prepared) prepared.base64 = '';
     }
   }
   return { uploaded, failed };
 }
 
-export async function uploadMaintenanceImagesInBatches({ maintenanceId, deviceId, images = [], sessionToken }) {
+export async function uploadMaintenanceImagesInBatches({
+  maintenanceId,
+  deviceId,
+  images = [],
+  sessionToken,
+  signal,
+}) {
   const uploaded = [];
   const failed = [];
   const chunks = chunkByWeight(images);
+  let useFallbackForRemaining = uploadBatchAvailable === false || browserIsOffline();
 
   for (const chunk of chunks) {
-    const payloadImages = await Promise.all(chunk.map(async (image) => ({
-      localId: image.localId,
-      imageId: image.localId,
-      Tipo: image.type,
-      Nota: image.note,
-      fileName: image.file.name,
-      mimeType: image.file.type || 'image/jpeg',
-      base64: await fileToBase64(image.file),
-    })));
+    if (useFallbackForRemaining) {
+      const fallback = await uploadFallback({ maintenanceId, deviceId, images: chunk, sessionToken, signal });
+      uploaded.push(...fallback.uploaded);
+      failed.push(...fallback.failed);
+      continue;
+    }
 
+    const payloadImages = await prepareUploadChunk(chunk, signal);
     try {
       const result = await requestOnlineAliases(IMAGE_UPLOAD_BATCH_ROUTES, {
         maintenanceId,
         deviceId,
         images: payloadImages,
-      }, sessionToken);
+      }, sessionToken, signal);
+      uploadBatchAvailable = true;
       uploaded.push(...(result?.uploaded || []).map(uploadedView));
       failed.push(...(result?.failed || []));
     } catch (error) {
-      if (!missingRoute(error)) throw error;
-      const fallback = await uploadFallback({ maintenanceId, deviceId, images: chunk, sessionToken });
+      if (isAbortError(error)) throw error;
+      if (!missingRoute(error) && !isNetworkError(error)) throw error;
+      if (missingRoute(error)) uploadBatchAvailable = false;
+      useFallbackForRemaining = true;
+      const fallback = await uploadFallback({
+        maintenanceId,
+        deviceId,
+        images: chunk,
+        preparedImages: payloadImages,
+        sessionToken,
+        signal,
+      });
       uploaded.push(...fallback.uploaded);
       failed.push(...fallback.failed);
+    } finally {
+      clearPreparedPayloads(payloadImages);
     }
   }
 
   return { uploaded, failed, total: images.length };
 }
 
-export async function updateMaintenanceImagesInBatches({ maintenanceId, deviceId, images = [], sessionToken }) {
+async function updateFallback({ maintenanceId, deviceId, images, sessionToken, signal }) {
+  const updatedIds = [];
+  const failed = [];
+  for (const image of images) {
+    try {
+      await requestAvailable(MODULE_ROUTES.maintenance.imageUpdate, {
+        maintenanceId,
+        deviceId,
+        imageId: image.id,
+        Tipo: image.Tipo,
+        Nota: image.Nota,
+      }, sessionToken, requestOptions(signal));
+      updatedIds.push(image.id);
+    } catch (error) {
+      if (isAbortError(error)) throw error;
+      failed.push({ imageId: image.id, message: error.message });
+    }
+  }
+  return { updatedIds, failed };
+}
+
+export async function updateMaintenanceImagesInBatches({
+  maintenanceId,
+  deviceId,
+  images = [],
+  sessionToken,
+  signal,
+}) {
   const dirty = images.filter((item) => item?.dirty && item?.id);
   if (!dirty.length) return { updatedIds: [], failed: [] };
 
   const updatedIds = [];
   const failed = [];
+  let useFallbackForRemaining = updateBatchAvailable === false || browserIsOffline();
+
   for (const chunk of chunkItems(dirty)) {
+    if (useFallbackForRemaining) {
+      const fallback = await updateFallback({ maintenanceId, deviceId, images: chunk, sessionToken, signal });
+      updatedIds.push(...fallback.updatedIds);
+      failed.push(...fallback.failed);
+      continue;
+    }
+
     const updates = chunk.map((image) => ({ imageId: image.id, Tipo: image.Tipo, Nota: image.Nota }));
     try {
       const result = await requestOnlineAliases(IMAGE_UPDATE_BATCH_ROUTES, {
         maintenanceId,
         deviceId,
         updates,
-      }, sessionToken);
+      }, sessionToken, signal);
+      updateBatchAvailable = true;
       updatedIds.push(...(result?.updated || []).map((row) => clean(pick(row, ['FotoDispositivoID', 'id']))).filter(Boolean));
       failed.push(...(result?.failed || []));
     } catch (error) {
-      if (!missingRoute(error)) throw error;
-      for (const image of chunk) {
-        try {
-          await requestAvailable(MODULE_ROUTES.maintenance.imageUpdate, {
-            maintenanceId,
-            deviceId,
-            imageId: image.id,
-            Tipo: image.Tipo,
-            Nota: image.Nota,
-          }, sessionToken);
-          updatedIds.push(image.id);
-        } catch (itemError) {
-          failed.push({ imageId: image.id, message: itemError.message });
-        }
-      }
+      if (isAbortError(error)) throw error;
+      if (!missingRoute(error) && !isNetworkError(error)) throw error;
+      if (missingRoute(error)) updateBatchAvailable = false;
+      useFallbackForRemaining = true;
+      const fallback = await updateFallback({ maintenanceId, deviceId, images: chunk, sessionToken, signal });
+      updatedIds.push(...fallback.updatedIds);
+      failed.push(...fallback.failed);
     }
   }
 
