@@ -1,4 +1,11 @@
 import { isOfflineModeEnabled } from './services/offlineMode';
+import {
+  createAbortError,
+  isAbortError,
+  isNetworkError,
+  throwIfAborted,
+} from './services/requestErrors';
+import { createLocalId } from './utils/localId';
 
 const APPS_SCRIPT_FALLBACK = 'https://script.google.com/macros/s/AKfycbzGZuFbXWJn3y4hbfSGRFeaJfWufu2xaDnoAb9dFZl4DklRXiuFU9-GSb-q2hnY7O6pmQ/exec';
 const SAME_ORIGIN_NODE_API = '/api/action';
@@ -36,30 +43,46 @@ function preparePayload(route, payload) {
   const value = String(route || '').toLowerCase();
   const isTicketCreate = value === 'boletas.create' || value === 'tickets.create';
   if (!isTicketCreate || payload?.boletaUid || payload?.BoletaUID) return payload;
-  const random = globalThis.crypto?.randomUUID?.() || `${Date.now()}-${Math.random().toString(16).slice(2)}`;
-  const uid = `boleta-${random}`;
+  const uid = createLocalId('boleta');
   payload.boletaUid = uid;
   payload.BoletaUID = uid;
   return payload;
 }
 
-function requestKey(route, payload, sessionToken) {
-  return `${String(route)}|${String(sessionToken)}|${JSON.stringify(payload || {})}`;
+function stableValue(value) {
+  if (Array.isArray(value)) return value.map(stableValue);
+  if (value && typeof value === 'object') {
+    return Object.keys(value).sort().reduce((result, key) => {
+      result[key] = stableValue(value[key]);
+      return result;
+    }, {});
+  }
+  return value;
 }
 
-function wait(milliseconds) {
-  return new Promise((resolve) => globalThis.setTimeout(resolve, milliseconds));
+function requestKey(route, payload, sessionToken) {
+  return `${String(route)}|${String(sessionToken)}|${JSON.stringify(stableValue(payload || {}))}`;
+}
+
+function wait(milliseconds, signal) {
+  if (!signal) return new Promise((resolve) => globalThis.setTimeout(resolve, milliseconds));
+  throwIfAborted(signal);
+  return new Promise((resolve, reject) => {
+    const timer = globalThis.setTimeout(() => {
+      signal.removeEventListener('abort', abort);
+      resolve();
+    }, milliseconds);
+    function abort() {
+      globalThis.clearTimeout(timer);
+      signal.removeEventListener('abort', abort);
+      reject(signal.reason || createAbortError());
+    }
+    signal.addEventListener('abort', abort, { once: true });
+  });
 }
 
 function transientError(error) {
-  const status = Number(error?.status || 0);
-  const code = String(error?.code || '').toUpperCase();
-  const text = `${error?.name || ''} ${error?.message || ''}`.toLowerCase();
-  return TRANSIENT_BACKEND_STATUSES.has(status)
-    || code === 'BACKEND_TEMPORARILY_UNAVAILABLE'
-    || text.includes('failed to fetch')
-    || text.includes('networkerror')
-    || text.includes('load failed');
+  return isNetworkError(error);
 }
 
 function onlineRequiredError(originalError = null) {
@@ -89,8 +112,9 @@ function invalidResponseError(response) {
   return error;
 }
 
-async function performRequest(route, payload, sessionToken) {
+async function performRequest(route, payload, sessionToken, { signal } = {}) {
   if (!API_URL) throw new Error('Falta configurar VITE_API_URL.');
+  throwIfAborted(signal);
   const requestPayload = preparePayload(route, payload || {});
 
   const response = await fetch(API_URL, {
@@ -101,6 +125,7 @@ async function performRequest(route, payload, sessionToken) {
         : 'application/json;charset=utf-8',
     },
     body: JSON.stringify({ route, payload: requestPayload, sessionToken }),
+    signal,
   });
 
   const responseText = await response.text();
@@ -128,7 +153,8 @@ async function performRequest(route, payload, sessionToken) {
   return result.data;
 }
 
-async function performRequestWithRetry(route, payload, sessionToken) {
+async function performRequestWithRetry(route, payload, sessionToken, { signal } = {}) {
+  throwIfAborted(signal);
   if (typeof navigator !== 'undefined' && navigator.onLine === false && !isOfflineModeEnabled()) {
     throw onlineRequiredError();
   }
@@ -136,14 +162,16 @@ async function performRequestWithRetry(route, payload, sessionToken) {
   let lastError;
   for (let attempt = 0; attempt <= TRANSIENT_RETRY_DELAYS_MS.length; attempt += 1) {
     try {
-      return await performRequest(route, payload, sessionToken);
+      return await performRequest(route, payload, sessionToken, { signal });
     } catch (error) {
+      if (isAbortError(error)) throw error;
       lastError = error;
-      if (!transientError(error) || attempt === TRANSIENT_RETRY_DELAYS_MS.length) {
-        if (transientError(error) && !isOfflineModeEnabled()) throw onlineRequiredError(error);
+      const retryable = transientError(error);
+      if (!retryable || attempt === TRANSIENT_RETRY_DELAYS_MS.length) {
+        if (retryable && !isOfflineModeEnabled()) throw onlineRequiredError(error);
         throw error;
       }
-      await wait(TRANSIENT_RETRY_DELAYS_MS[attempt]);
+      await wait(TRANSIENT_RETRY_DELAYS_MS[attempt], signal);
     }
   }
   throw lastError;
@@ -215,11 +243,41 @@ function notifyDegradedMode(route, error) {
   }
 }
 
-export async function apiRequest(route, payload = {}, sessionToken = '') {
+async function executeRead(route, payload, sessionToken, key, requestEpoch, signal) {
+  try {
+    const data = await performRequestWithRetry(route, payload, sessionToken, { signal });
+    if (requestEpoch === writeEpoch) {
+      const savedAt = Date.now();
+      recentReads.set(key, {
+        route,
+        data,
+        expiresAt: savedAt + READ_CACHE_MS,
+        staleUntil: savedAt + READ_STALE_MS,
+        lastAccess: savedAt,
+      });
+      pruneRecentReads(savedAt);
+    }
+    return data;
+  } catch (error) {
+    if (isAbortError(error)) throw error;
+    const stale = recentReads.get(key);
+    if (isSheetsQuotaError(error) && stale && stale.staleUntil > Date.now()) {
+      stale.lastAccess = Date.now();
+      notifyDegradedMode(route, error);
+      return stale.data;
+    }
+    throw error;
+  }
+}
+
+export async function apiRequest(route, payload = {}, sessionToken = '', options = {}) {
+  const signal = options?.signal;
+  throwIfAborted(signal);
+
   if (!isReadRoute(route)) {
     writeEpoch += 1;
     invalidateRelatedReads(route);
-    const data = await performRequestWithRetry(route, payload, sessionToken);
+    const data = await performRequestWithRetry(route, payload, sessionToken, { signal });
     notifyWriteComplete(route, payload, data);
     return data;
   }
@@ -233,35 +291,16 @@ export async function apiRequest(route, payload = {}, sessionToken = '') {
     return cached.data;
   }
   if (cached && cached.staleUntil <= now) recentReads.delete(key);
-  if (pendingReads.has(key)) return pendingReads.get(key);
+
+  // Las lecturas sin señal comparten una única petición. Las lecturas cancelables
+  // conservan su propio fetch para que AbortController pueda detener la red real.
+  if (!signal && pendingReads.has(key)) return pendingReads.get(key);
 
   const requestEpoch = writeEpoch;
-  const request = performRequestWithRetry(route, payload, sessionToken)
-    .then((data) => {
-      if (requestEpoch === writeEpoch) {
-        const savedAt = Date.now();
-        recentReads.set(key, {
-          route,
-          data,
-          expiresAt: savedAt + READ_CACHE_MS,
-          staleUntil: savedAt + READ_STALE_MS,
-          lastAccess: savedAt,
-        });
-        pruneRecentReads(savedAt);
-      }
-      return data;
-    })
-    .catch((error) => {
-      const stale = recentReads.get(key);
-      if (isSheetsQuotaError(error) && stale && stale.staleUntil > Date.now()) {
-        stale.lastAccess = Date.now();
-        notifyDegradedMode(route, error);
-        return stale.data;
-      }
-      throw error;
-    })
-    .finally(() => pendingReads.delete(key));
+  const request = executeRead(route, payload, sessionToken, key, requestEpoch, signal);
+  if (signal) return request;
 
-  pendingReads.set(key, request);
-  return request;
+  const sharedRequest = request.finally(() => pendingReads.delete(key));
+  pendingReads.set(key, sharedRequest);
+  return sharedRequest;
 }
