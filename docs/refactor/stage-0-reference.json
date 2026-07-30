@@ -1,0 +1,30 @@
+{
+  "schemaVersion": 1,
+  "label": "Etapa 0 — referencia previa al refactor",
+  "source": {
+    "frontend": {
+      "files": 208,
+      "lines": 36867,
+      "bytes": 1481346
+    },
+    "backend": {
+      "files": 81,
+      "lines": 18456,
+      "bytes": 770641
+    }
+  },
+  "build": {
+    "js": {
+      "bytes": 826400,
+      "gzipBytes": 265544
+    },
+    "css": {
+      "bytes": 341958,
+      "gzipBytes": 59597
+    }
+  },
+  "notes": [
+    "Valores capturados por la automatización de baseline de la Etapa 0.",
+    "La comparación final debe interpretar líneas y archivos junto con las pruebas añadidas; una reducción absoluta no es el único indicador de mejora."
+  ]
+}
