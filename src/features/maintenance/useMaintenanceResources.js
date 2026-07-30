@@ -1,11 +1,13 @@
-import { useCallback, useEffect, useMemo, useState } from 'react';
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import {
   mapMaintenance,
   mapMaintenanceDevice,
 } from '../../pages/maintenance/maintenanceFormData';
+import { loadCatalogResource } from '../../services/catalogResource';
 import { fetchClientRelations } from '../../services/clientRelations';
-import { MODULE_ROUTES, normalizeItems, requestAvailable } from '../../services/moduleApi';
+import { MODULE_ROUTES } from '../../services/moduleApi';
 import { isAbortError } from '../../services/requestErrors';
+import { mergeCatalogItems } from '../../utils/catalogCollection';
 import {
   activeMaintenanceUsers,
   filterMaintenanceEquipment,
@@ -13,6 +15,8 @@ import {
   maintenanceEquipmentView,
   maintenanceLocationView,
 } from './maintenanceFormDomain';
+
+const CLIENT_PAGE_SIZE = 80;
 
 export default function useMaintenanceResources({
   editing,
@@ -30,36 +34,63 @@ export default function useMaintenanceResources({
   const [locations, setLocations] = useState([]);
   const [allEquipment, setAllEquipment] = useState([]);
   const [loading, setLoading] = useState(true);
+  const clientSearchControllerRef = useRef(null);
+
+  const searchClients = useCallback(async (query = '') => {
+    clientSearchControllerRef.current?.abort();
+    const controller = new AbortController();
+    clientSearchControllerRef.current = controller;
+    try {
+      const result = await loadCatalogResource({
+        routes: MODULE_ROUTES.clients.list,
+        payload: { page: 1, pageSize: CLIENT_PAGE_SIZE, activo: true, q: String(query || '').trim() },
+        sessionToken,
+        signal: controller.signal,
+      });
+      if (controller.signal.aborted) return [];
+      const incoming = result.items.map(maintenanceClientView);
+      setClients((current) => mergeCatalogItems(
+        current,
+        incoming,
+        (item, index, source) => item.id || `${source}-${index}`,
+      ));
+      return incoming;
+    } catch (error) {
+      if (!isAbortError(error)) setError(error.message);
+      return [];
+    }
+  }, [sessionToken, setError]);
 
   useEffect(() => {
     const controller = new AbortController();
     setLoading(true);
 
     Promise.all([
-      requestAvailable(
-        MODULE_ROUTES.clients.list,
-        { page: 1, pageSize: 1000, activo: true },
+      loadCatalogResource({
+        routes: MODULE_ROUTES.clients.list,
+        payload: { page: 1, pageSize: CLIENT_PAGE_SIZE, activo: true },
         sessionToken,
-        { signal: controller.signal },
-      ),
-      requestAvailable(
-        ['users.assignment.list', 'users.list'],
-        { page: 1, pageSize: 1000 },
+        signal: controller.signal,
+      }),
+      loadCatalogResource({
+        routes: ['users.assignment.list', 'users.list'],
+        payload: { page: 1, pageSize: 1000 },
         sessionToken,
-        { signal: controller.signal },
-      ),
+        signal: controller.signal,
+      }),
       editing
-        ? requestAvailable(
-          MODULE_ROUTES.maintenance.get,
-          { maintenanceId },
+        ? loadCatalogResource({
+          routes: MODULE_ROUTES.maintenance.get,
+          payload: { maintenanceId },
           sessionToken,
-          { signal: controller.signal },
-        )
+          signal: controller.signal,
+          ttlMs: 0,
+        }).then((result) => result.items[0] || null)
         : Promise.resolve(null),
     ]).then(([clientData, userData, maintenanceData]) => {
       if (controller.signal.aborted) return;
-      setClients(normalizeItems(clientData).map(maintenanceClientView));
-      setUsers(activeMaintenanceUsers(normalizeItems(userData)));
+      setClients(clientData.items.map(maintenanceClientView));
+      setUsers(activeMaintenanceUsers(userData.items));
 
       if (maintenanceData) {
         const mappedForm = mapMaintenance(maintenanceData);
@@ -82,6 +113,8 @@ export default function useMaintenanceResources({
 
     return () => controller.abort();
   }, [editing, maintenanceId, onInitialState, sessionToken, setDevices, setError, setForm]);
+
+  useEffect(() => () => clientSearchControllerRef.current?.abort(), []);
 
   useEffect(() => {
     const normalizedClientId = String(clientId || '').trim();
@@ -126,6 +159,7 @@ export default function useMaintenanceResources({
     locations,
     equipment,
     loading,
+    searchClients,
     addLocation,
     addEquipment,
   };
