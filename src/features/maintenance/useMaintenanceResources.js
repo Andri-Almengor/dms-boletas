@@ -5,7 +5,7 @@ import {
 } from '../../pages/maintenance/maintenanceFormData';
 import { loadCatalogResource } from '../../services/catalogResource';
 import { fetchClientRelations } from '../../services/clientRelations';
-import { MODULE_ROUTES } from '../../services/moduleApi';
+import { MODULE_ROUTES, requestAvailable } from '../../services/moduleApi';
 import { isAbortError } from '../../services/requestErrors';
 import { mergeCatalogItems } from '../../utils/catalogCollection';
 import {
@@ -79,13 +79,12 @@ export default function useMaintenanceResources({
         signal: controller.signal,
       }),
       editing
-        ? loadCatalogResource({
-          routes: MODULE_ROUTES.maintenance.get,
-          payload: { maintenanceId },
+        ? requestAvailable(
+          MODULE_ROUTES.maintenance.get,
+          { maintenanceId },
           sessionToken,
-          signal: controller.signal,
-          ttlMs: 0,
-        }).then((result) => result.items[0] || null)
+          { signal: controller.signal },
+        )
         : Promise.resolve(null),
     ]).then(([clientData, userData, maintenanceData]) => {
       if (controller.signal.aborted) return;
