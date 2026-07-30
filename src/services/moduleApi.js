@@ -1,4 +1,5 @@
 import { apiRequest } from '../api';
+import { requestFirstAvailable } from './aliasResolver';
 import {
   cacheResponse,
   createOfflineId,
@@ -8,6 +9,9 @@ import {
   responseCacheKey,
   updateCachedResponses,
 } from './offlineStore';
+import { isNetworkError, throwIfAborted } from './requestErrors';
+
+export { isNetworkError } from './requestErrors';
 
 export const MODULE_ROUTES = {
   tickets: {
@@ -153,20 +157,6 @@ export function toOption(record, valueKeys, labelKeys) {
   return value ? { value: String(value), label: String(label), record } : null;
 }
 
-function isMissingRouteError(error) {
-  const text = `${error?.code || ''} ${error?.message || ''}`.toLowerCase();
-  return text.includes('route') || text.includes('ruta') || text.includes('not_found') || text.includes('no encontrada') || text.includes('unknown action') || text.includes('handler not found');
-}
-
-export function isNetworkError(error) {
-  const text = `${error?.name || ''} ${error?.message || ''}`.toLowerCase();
-  return text.includes('failed to fetch')
-    || text.includes('networkerror')
-    || text.includes('network request failed')
-    || text.includes('load failed')
-    || text.includes('internet disconnected');
-}
-
 function routesText(routes) {
   return (Array.isArray(routes) ? routes : [routes]).join(' ').toLowerCase();
 }
@@ -208,24 +198,6 @@ function offlineWriteKind(routes) {
 
 function isFinalizeKind(kind) {
   return kind === 'ticketFinalize' || kind === 'maintenanceFinalize';
-}
-
-function wait(milliseconds) {
-  return new Promise((resolve) => window.setTimeout(resolve, milliseconds));
-}
-
-async function requestRouteWithRetry(route, payload, sessionToken) {
-  let lastError;
-  for (let attempt = 0; attempt < 2; attempt += 1) {
-    try {
-      return await apiRequest(route, payload, sessionToken);
-    } catch (error) {
-      lastError = error;
-      if (!isNetworkError(error) || attempt === 1) throw error;
-      await wait(450);
-    }
-  }
-  throw lastError;
 }
 
 function currentUserId() {
@@ -692,22 +664,19 @@ async function assertCanFinalize(kind, payload) {
 }
 
 export async function replayQueuedOperation(operation, sessionToken = '') {
-  let lastError;
-  for (const route of operation.routes || []) {
-    try {
-      const result = await requestRouteWithRetry(route, operation.payload || {}, sessionToken);
-      await applyOperationToCache(operation.kind || offlineWriteKind(operation.routes), operation.payload || {}, result, sessionToken).catch(() => {});
-      return result;
-    } catch (error) {
-      lastError = error;
-      if (!isMissingRouteError(error)) throw error;
-    }
-  }
-  throw lastError || new Error('La operación pendiente ya no está disponible en el backend.');
+  const payload = operation.payload || {};
+  const result = await requestFirstAvailable(
+    operation.routes || [],
+    (route) => apiRequest(route, payload, sessionToken),
+  );
+  await applyOperationToCache(operation.kind || offlineWriteKind(operation.routes), payload, result, sessionToken).catch(() => {});
+  return result;
 }
 
-export async function requestAvailable(routes, payload = {}, sessionToken = '') {
+export async function requestAvailable(routes, payload = {}, sessionToken = '', options = {}) {
   const candidates = Array.isArray(routes) ? routes : [routes];
+  const signal = options?.signal;
+  throwIfAborted(signal);
   const read = isReadRoute(candidates);
   const writeKind = offlineWriteKind(candidates);
   const preparedPayload = writeKind ? prepareWritePayload(writeKind, payload) : payload;
@@ -715,10 +684,12 @@ export async function requestAvailable(routes, payload = {}, sessionToken = '') 
   const browserOffline = typeof navigator !== 'undefined' && navigator.onLine === false;
 
   await assertCanFinalize(writeKind, preparedPayload);
+  throwIfAborted(signal);
 
   if (browserOffline) {
     if (read) {
       const cached = await readOfflineResponse(candidates, preparedPayload, sessionToken, cacheKey);
+      throwIfAborted(signal);
       if (cached !== null) {
         window.dispatchEvent(new CustomEvent('dms-offline-cache-used'));
         return cached;
@@ -728,31 +699,29 @@ export async function requestAvailable(routes, payload = {}, sessionToken = '') 
     if (writeKind) return queueOfflineWrite(candidates, preparedPayload, writeKind, sessionToken);
   }
 
-  let lastError;
-  for (const route of candidates) {
-    try {
-      const result = await requestRouteWithRetry(route, preparedPayload, sessionToken);
-      if (read) await cacheResponse(cacheKey, result).catch(() => {});
-      if (writeKind) await applyOperationToCache(writeKind, preparedPayload, result, sessionToken).catch(() => {});
-      return result;
-    } catch (error) {
-      lastError = error;
-      if (isMissingRouteError(error)) continue;
-      if (isNetworkError(error)) {
-        if (read) {
-          const cached = await readOfflineResponse(candidates, preparedPayload, sessionToken, cacheKey);
-          if (cached !== null) {
-            window.dispatchEvent(new CustomEvent('dms-offline-cache-used'));
-            return cached;
-          }
+  try {
+    const result = await requestFirstAvailable(
+      candidates,
+      (route) => apiRequest(route, preparedPayload, sessionToken, options),
+      { signal },
+    );
+    if (read) await cacheResponse(cacheKey, result).catch(() => {});
+    if (writeKind) await applyOperationToCache(writeKind, preparedPayload, result, sessionToken).catch(() => {});
+    return result;
+  } catch (error) {
+    if (isNetworkError(error)) {
+      if (read) {
+        const cached = await readOfflineResponse(candidates, preparedPayload, sessionToken, cacheKey);
+        throwIfAborted(signal);
+        if (cached !== null) {
+          window.dispatchEvent(new CustomEvent('dms-offline-cache-used'));
+          return cached;
         }
-        if (writeKind) return queueOfflineWrite(candidates, preparedPayload, writeKind, sessionToken);
       }
-      throw error;
+      if (writeKind) return queueOfflineWrite(candidates, preparedPayload, writeKind, sessionToken);
     }
+    throw error;
   }
-
-  throw lastError || new Error('La operación todavía no está disponible en el backend.');
 }
 
 export async function preloadOfflineCatalogs(sessionToken = '') {
