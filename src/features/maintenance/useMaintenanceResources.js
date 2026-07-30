@@ -18,6 +18,20 @@ import {
 
 const CLIENT_PAGE_SIZE = 80;
 
+function initialEquipmentFromDevices(devices, form) {
+  const byId = new Map();
+  devices.forEach((device) => {
+    const id = String(device.ubicacionEquipoId || '').trim();
+    if (!id || byId.has(id)) return;
+    byId.set(id, {
+      id,
+      name: String(device.ubicacionEquipoNombre || device.zona || 'Ubicación del equipo'),
+      locationId: String(form.ubicacionId || ''),
+    });
+  });
+  return [...byId.values()];
+}
+
 export default function useMaintenanceResources({
   editing,
   maintenanceId,
@@ -96,6 +110,16 @@ export default function useMaintenanceResources({
         const mappedDevices = (maintenanceData.dispositivos || maintenanceData.devices || []).map(mapMaintenanceDevice);
         setForm(mappedForm);
         setDevices(mappedDevices);
+
+        // La ubicación seleccionada y las ubicaciones usadas por los dispositivos
+        // se muestran inmediatamente. La relación completa del cliente continúa
+        // cargándose en segundo plano y reemplaza estos datos provisionales.
+        setLocations(mappedForm.ubicacionId ? [{
+          id: String(mappedForm.ubicacionId),
+          name: String(mappedForm.ubicacion || 'Ubicación seleccionada'),
+        }] : []);
+        setAllEquipment(initialEquipmentFromDevices(mappedDevices, mappedForm));
+
         onInitialState(mappedForm, mappedDevices);
         return;
       }
