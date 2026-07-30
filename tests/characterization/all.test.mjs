@@ -16,6 +16,7 @@ import './maintenance-form-resources.test.mjs';
 import './offline-mode.test.mjs';
 import './paginated-collection.test.mjs';
 import './paginated-resource.test.mjs';
+import './security-hardening.test.mjs';
 import './shared-utilities.test.mjs';
 import './source-contracts.test.mjs';
 import './ticket-form-domain.test.mjs';
