@@ -8,6 +8,7 @@ import { rewriteKnowledgeTutorial } from '../services/knowledge-gemini.service.j
 import { assistantDynamicMaintenanceQuestionHandlers as assistantOperationalReportHandlers } from '../modules/assistant-dynamic-maintenance-questions.module.js';
 import { usersHandlers } from '../modules/users.module.js';
 import { crudHandlers } from '../modules/crud.module.js';
+import { clientRelationsHandlers } from '../modules/client-relations.module.js';
 import { ticketMultiHandlers as ticketHandlers } from '../modules/ticket-multi.module.js';
 import { ticketDeliveryHandlers } from '../modules/ticket-delivery.module.js';
 import { ticketGroupSignatureHandlers as ticketSignatureHandlers } from '../modules/ticket-group-signature.module.js';
@@ -62,6 +63,7 @@ add(['survey.questions.update','encuestas.preguntas.update'], surveyHandlers.que
 add(['survey.questions.delete','encuestas.preguntas.delete'], surveyHandlers.questionsDelete, 'USUARIOS_GESTIONAR');
 add(['survey.responses.list','encuestas.respuestas.list'], surveyHandlers.responsesList, 'USUARIOS_GESTIONAR');
 add(['survey.responses.get','encuestas.respuestas.get'], surveyHandlers.responsesGet, 'USUARIOS_GESTIONAR');
+add(['clients.relations.get','clientes.relaciones.get'], clientRelationsHandlers.get);
 
 const operationalCatalogPermissions = ['BOLETAS_CREAR','BOLETAS_EDITAR','MANTENIMIENTOS_CREAR','MANTENIMIENTOS_EDITAR','MANTENIMIENTOS_GESTIONAR'];
 const clientOperationalKeys = new Set(['clientLocations','equipmentLocations','contacts']);
