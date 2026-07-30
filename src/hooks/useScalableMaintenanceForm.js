@@ -10,14 +10,10 @@ import {
   updateMaintenanceImagesInBatches,
   uploadMaintenanceImagesInBatches,
 } from '../services/maintenanceImageBatch';
+import { createLocalId } from '../utils/localId';
 
 function clean(value) {
   return String(value ?? '').trim();
-}
-
-function stableId(prefix) {
-  const random = globalThis.crypto?.randomUUID?.() || `${Date.now()}-${Math.random().toString(16).slice(2)}`;
-  return `${prefix}-${random}`;
 }
 
 function localDraftKey(maintenanceId) {
@@ -61,7 +57,7 @@ function failureText(device, metadataFailed = [], uploadFailed = []) {
 }
 
 function idempotentDevice(device) {
-  const id = clean(device?.id || device?.localId) || stableId('dispositivo');
+  const id = clean(device?.id || device?.localId) || createLocalId('dispositivo');
   return { ...device, id, localId: clean(device?.localId, id) };
 }
 
@@ -70,7 +66,7 @@ export default function useScalableMaintenanceForm({ editing, maintenanceId }) {
   const base = useOptimizedMaintenanceBase({ editing, maintenanceId });
   const [batchSaving, setBatchSaving] = useState(false);
   const savePromiseRef = useRef(null);
-  const newMaintenanceIdRef = useRef(clean(maintenanceId) || stableId('mantenimiento'));
+  const newMaintenanceIdRef = useRef(clean(maintenanceId) || createLocalId('mantenimiento'));
 
   const saveDeviceToServer = useCallback(async (device, { closeAfter = false } = {}) => {
     if (!device) return null;
