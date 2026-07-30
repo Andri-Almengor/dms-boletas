@@ -7,10 +7,13 @@ import {
 } from '../../config/maintenanceCategories';
 import { pick } from '../../services/moduleApi';
 import { todayInCostaRica } from '../../utils/costaRicaDate';
+import { createLocalId } from '../../utils/localId';
 import {
   AUTOMATIC_PENDING_STATE,
   effectiveMaintenanceDeviceState,
 } from '../../utils/maintenanceChecklistStatus';
+
+export { fileToBase64 } from '../../utils/fileEncoding';
 
 export const MAINTENANCE_STEPS = [
   ['Información general', 'Cliente, ubicación, responsables, fechas y descripción.'],
@@ -101,7 +104,7 @@ function mapImage(image) {
 export function createMaintenanceDevice(category = 'Cámara') {
   const canonicalCategory = canonicalMaintenanceCategoryName(category);
   return {
-    localId: crypto.randomUUID?.() || `${Date.now()}-${Math.random()}`,
+    localId: createLocalId(),
     id: '', ubicacionEquipoId: '', ubicacionEquipoNombre: '', zona: '',
     fechaTrabajo: todayInCostaRica(), tecnicoIds: [],
     tipoDispositivoId: '', categoria: canonicalCategory,
@@ -153,7 +156,7 @@ export function mapMaintenanceDevice(row = {}) {
   ]);
   const legacyLocation = pick(row, ['Zona', 'UbicacionEspecifica', 'zona']);
   const mapped = {
-    localId: String(pick(row, ['EvidenciaMantenimientoID', 'deviceId', 'id'], crypto.randomUUID?.() || Date.now())),
+    localId: String(pick(row, ['EvidenciaMantenimientoID', 'deviceId', 'id'], createLocalId())),
     id: String(pick(row, ['EvidenciaMantenimientoID', 'deviceId', 'id'])),
     ubicacionEquipoId: String(pick(row, ['UbicacionEquipoID', 'ubicacionEquipoId'])),
     ubicacionEquipoNombre: equipmentLocationName,
@@ -230,13 +233,4 @@ export function maintenanceDevicePayload(device, maintenanceId) {
     respuestasDetalle: device.questionDetails || [],
     RespuestasJSON: JSON.stringify(device.respuestas), ...device.respuestas,
   };
-}
-
-export function fileToBase64(file) {
-  return new Promise((resolve, reject) => {
-    const reader = new FileReader();
-    reader.onload = () => resolve(String(reader.result).split(',')[1] || '');
-    reader.onerror = reject;
-    reader.readAsDataURL(file);
-  });
 }
