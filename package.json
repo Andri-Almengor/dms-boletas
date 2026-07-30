@@ -14,7 +14,10 @@
     "check:backend": "npm --prefix backend run check",
     "test:characterization": "node --test tests/characterization/all.test.mjs",
     "baseline": "node scripts/collect-baseline.mjs",
-    "verify:stage0": "npm run test:characterization && npm run check:backend && npm run build && npm run baseline"
+    "report:final": "node scripts/final-validation.mjs",
+    "audit:security": "npm audit --omit=dev --audit-level=high && npm --prefix backend audit --omit=dev --audit-level=high",
+    "verify:stage0": "npm run test:characterization && npm run check:backend && npm run build && npm run baseline",
+    "verify:final": "npm run verify:stage0 && npm run audit:security && npm run report:final"
   },
   "dependencies": {
     "react": "^18.3.1",
