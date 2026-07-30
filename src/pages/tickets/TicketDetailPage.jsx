@@ -67,6 +67,7 @@ export default function TicketDetailPage() {
   const [processing, setProcessing] = useState(false);
   const [viewer, setViewer] = useState(null);
   const [evidenceForm, setEvidenceForm] = useState({ name: '', note: '', file: null });
+  const [evidenceInputVersion, setEvidenceInputVersion] = useState(0);
   const [signatureEditorOpen, setSignatureEditorOpen] = useState(false);
   const [signatureDraft, setSignatureDraft] = useState('');
 
@@ -165,9 +166,15 @@ export default function TicketDetailPage() {
     }));
   }
 
+  function clearEvidenceForm() {
+    setEvidenceForm({ name: '', note: '', file: null });
+    setEvidenceInputVersion((current) => current + 1);
+    if (cameraInputRef.current) cameraInputRef.current.value = '';
+    if (fileInputRef.current) fileInputRef.current.value = '';
+  }
+
   async function uploadEvidence(event) {
     event.preventDefault();
-    const formElement = event.currentTarget;
     if (!evidenceForm.file) {
       setError('Tome una foto o seleccione un archivo antes de guardar la evidencia.');
       return;
@@ -184,10 +191,7 @@ export default function TicketDetailPage() {
         mimeType: evidenceForm.file.type || 'application/octet-stream',
         base64: await fileToBase64(evidenceForm.file),
       }, sessionToken);
-      setEvidenceForm({ name: '', note: '', file: null });
-      formElement?.reset();
-      if (cameraInputRef.current) cameraInputRef.current.value = '';
-      if (fileInputRef.current) fileInputRef.current.value = '';
+      clearEvidenceForm();
       setNotice('Evidencia agregada correctamente. Si la boleta ya estaba finalizada, use “Reenviar a chats” para publicar el reporte actualizado.');
       await loadTicket();
     } catch (err) {
@@ -390,6 +394,7 @@ export default function TicketDetailPage() {
           <form className="evidence-inline-form ticket-detail-evidence-form" onSubmit={uploadEvidence}>
             <div className="ticket-detail-capture-actions">
               <input
+                key={`camera-${evidenceInputVersion}`}
                 ref={cameraInputRef}
                 className="ticket-detail-hidden-input"
                 type="file"
@@ -404,6 +409,7 @@ export default function TicketDetailPage() {
                 <Icon name="upload_file" /> Seleccionar archivo
               </button>
               <input
+                key={`file-${evidenceInputVersion}`}
                 ref={fileInputRef}
                 className="ticket-detail-hidden-input"
                 type="file"

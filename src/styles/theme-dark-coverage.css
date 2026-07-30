@@ -342,9 +342,20 @@
   color: var(--muted) !important;
 }
 
-/* El lienzo de firma permanece blanco para conservar el trazo negro legible. */
+/* La firma se presenta oscura sin alterar el PNG original que se guarda.
+ * El filtro afecta solo la visualización: el canvas continúa exportando el
+ * trazo negro original para documentos y PDF. */
+:root[data-theme='dark'] .signature-pad canvas,
+:root[data-theme='dark'] .signature-display img {
+  filter: invert(1) hue-rotate(180deg);
+}
+
 :root[data-theme='dark'] .signature-pad canvas {
   background: repeating-linear-gradient(0deg, #fff 0, #fff 37px, #eee 38px) !important;
+}
+
+:root[data-theme='dark'] .signature-display {
+  background: var(--dark-surface-soft) !important;
 }
 
 @media (max-width: 760px) {
