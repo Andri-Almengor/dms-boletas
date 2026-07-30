@@ -60,15 +60,29 @@ test('el backend conserva permisos de cierre, evidencias y rutas públicas', () 
   ]);
 });
 
-test('la capa HTTP mantiene deduplicación, caché corta y política transitoria conocida', () => {
+test('la capa HTTP mantiene deduplicación, caché corta, reintentos y cancelación', () => {
   const contents = source('src/api.js');
   includesAll(contents, [
     'const READ_CACHE_MS = 15_000;',
     'const READ_STALE_MS = 5 * 60_000;',
     'const TRANSIENT_RETRY_DELAYS_MS = [700, 1500, 2800];',
     'const pendingReads = new Map();',
-    'if (pendingReads.has(key)) return pendingReads.get(key);',
+    'if (!signal && pendingReads.has(key)) return pendingReads.get(key);',
+    'signal,',
+    'await wait(TRANSIENT_RETRY_DELAYS_MS[attempt], signal);',
   ]);
+});
+
+test('moduleApi delega reintentos y aliases a una sola infraestructura', () => {
+  const contents = source('src/services/moduleApi.js');
+  includesAll(contents, [
+    "import { requestFirstAvailable } from './aliasResolver';",
+    'export async function requestAvailable(routes, payload = {}, sessionToken = \'\', options = {})',
+    'const result = await requestFirstAvailable(',
+    '(route) => apiRequest(route, preparedPayload, sessionToken, options)',
+  ]);
+  assert.equal(contents.includes('requestRouteWithRetry'), false, 'moduleApi no debe mantener un segundo ciclo de reintentos');
+  assert.equal(contents.includes('await wait(450)'), false, 'moduleApi no debe agregar otra pausa de red');
 });
 
 test('la recuperación mantiene IndexedDB, respaldo local y límites de limpieza', () => {
