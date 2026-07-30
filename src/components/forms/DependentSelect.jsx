@@ -13,6 +13,7 @@ function normalizeSearch(value) {
 export default function DependentSelect({
   label,
   value,
+  selectedLabel = '',
   onChange,
   options,
   placeholder = 'Seleccione una opción',
@@ -46,7 +47,8 @@ export default function DependentSelect({
   const showAddButton = Boolean(onAdd) && (canAdd || canAddFromOperation);
   const normalizedLabel = normalizeSearch(label);
   const useSearchable = searchable ?? normalizedLabel === 'cliente';
-  const selectedOption = options.find((option) => String(option.value) === String(value || '')) || null;
+  const selectedOption = options.find((option) => String(option.value) === String(value || ''))
+    || (value && selectedLabel ? { value: String(value), label: String(selectedLabel) } : null);
 
   const filteredOptions = useMemo(() => {
     const term = normalizeSearch(query);
