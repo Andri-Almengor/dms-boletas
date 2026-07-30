@@ -15,7 +15,7 @@ test('la preparación de archivos mantiene una sola conversión activa', async (
   const result = await mapFilesSequentially([1, 2, 3], async (value) => {
     active += 1;
     maximum = Math.max(maximum, active);
-    await new Promise((resolve) => setTimeout(resolve, 2));
+    await Promise.resolve();
     order.push(value);
     active -= 1;
     return value * 10;
