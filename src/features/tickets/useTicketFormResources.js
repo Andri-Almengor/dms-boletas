@@ -42,6 +42,25 @@ function catalogItemKey(catalog, item, index, source) {
   return String(pick(item, CATALOG_ID_KEYS[catalog] || ['id'], `${source}-${index}`));
 }
 
+function manufacturersForType(manufacturers, relations, typeId) {
+  const normalizedTypeId = String(typeId || '').trim();
+  if (!normalizedTypeId) return { manufacturers: [], relations: [] };
+
+  const selectedRelations = relations.filter((item) => (
+    String(pick(item, ['TipoDispositivoID', 'tipoDispositivoId'])) === normalizedTypeId
+  ));
+  const allowedIds = new Set(selectedRelations.map((item) => String(
+    pick(item, ['FabricanteID', 'fabricanteId']),
+  )));
+
+  return {
+    relations: selectedRelations,
+    manufacturers: allowedIds.size
+      ? manufacturers.filter((item) => allowedIds.has(String(pick(item, ['FabricanteID', 'fabricanteId']))))
+      : manufacturers,
+  };
+}
+
 export default function useTicketFormResources({
   editing,
   boletaUid,
@@ -55,6 +74,9 @@ export default function useTicketFormResources({
 }) {
   const [catalogs, setCatalogs] = useState(() => ({ ...EMPTY_CATALOGS }));
   const [catalogLoading, setCatalogLoading] = useState({ manufacturers: false, models: false });
+  const [manufacturerMaster, setManufacturerMaster] = useState([]);
+  const [relationMaster, setRelationMaster] = useState([]);
+  const [manufacturerMasterStatus, setManufacturerMasterStatus] = useState('idle');
   const [locations, setLocations] = useState([]);
   const [allEquipmentLocations, setAllEquipmentLocations] = useState([]);
   const [contacts, setContacts] = useState([]);
@@ -159,16 +181,11 @@ export default function useTicketFormResources({
 
   useEffect(() => () => clientSearchControllerRef.current?.abort(), []);
 
+  // Se inicia al abrir el formulario, sin retrasar la pantalla inicial. De esta
+  // manera el fabricante normalmente ya está disponible al llegar al paso 3.
   useEffect(() => {
-    const normalizedTypeId = String(deviceTypeId || '').trim();
-    if (!normalizedTypeId) {
-      setCatalogs((current) => ({ ...current, manufacturers: [], models: [], relations: [] }));
-      setCatalogLoading((current) => ({ ...current, manufacturers: false, models: false }));
-      return undefined;
-    }
-
     const controller = new AbortController();
-    setCatalogLoading((current) => ({ ...current, manufacturers: true }));
+    setManufacturerMasterStatus('loading');
     Promise.all([
       loadCatalogResource({
         routes: MODULE_ROUTES.manufacturers.list,
@@ -184,21 +201,68 @@ export default function useTicketFormResources({
       }),
     ]).then(([manufacturerData, relationData]) => {
       if (controller.signal.aborted) return;
-      const relations = relationData.items.filter((item) => (
-        String(pick(item, ['TipoDispositivoID', 'tipoDispositivoId'])) === normalizedTypeId
-      ));
-      const allowedIds = new Set(relations.map((item) => String(pick(item, ['FabricanteID', 'fabricanteId']))));
-      const manufacturers = allowedIds.size
-        ? manufacturerData.items.filter((item) => allowedIds.has(String(pick(item, ['FabricanteID', 'fabricanteId']))))
-        : manufacturerData.items;
-      setCatalogs((current) => ({ ...current, manufacturers, relations }));
+      setManufacturerMaster(manufacturerData.items);
+      setRelationMaster(relationData.items);
+      setManufacturerMasterStatus('ready');
+    }).catch((error) => {
+      if (controller.signal.aborted || isAbortError(error)) return;
+      setManufacturerMasterStatus('error');
+    });
+    return () => controller.abort();
+  }, [sessionToken]);
+
+  useEffect(() => {
+    const normalizedTypeId = String(deviceTypeId || '').trim();
+    if (!normalizedTypeId) {
+      setCatalogs((current) => ({ ...current, manufacturers: [], models: [], relations: [] }));
+      setCatalogLoading((current) => ({ ...current, manufacturers: false, models: false }));
+      return undefined;
+    }
+
+    if (manufacturerMasterStatus === 'loading' || manufacturerMasterStatus === 'idle') {
+      setCatalogLoading((current) => ({ ...current, manufacturers: true }));
+      return undefined;
+    }
+
+    if (manufacturerMasterStatus === 'ready') {
+      const filtered = manufacturersForType(manufacturerMaster, relationMaster, normalizedTypeId);
+      setCatalogs((current) => ({ ...current, ...filtered }));
+      setCatalogLoading((current) => ({ ...current, manufacturers: false }));
+      return undefined;
+    }
+
+    // Respaldo para una precarga fallida: conserva el comportamiento histórico.
+    const controller = new AbortController();
+    setCatalogLoading((current) => ({ ...current, manufacturers: true }));
+    Promise.all([
+      loadCatalogResource({
+        routes: MODULE_ROUTES.manufacturers.list,
+        payload: { page: 1, pageSize: 1000, activo: true },
+        sessionToken,
+        signal: controller.signal,
+        force: true,
+      }),
+      loadCatalogResource({
+        routes: MODULE_ROUTES.deviceManufacturers.list,
+        payload: { page: 1, pageSize: 1000, activo: true },
+        sessionToken,
+        signal: controller.signal,
+        force: true,
+      }),
+    ]).then(([manufacturerData, relationData]) => {
+      if (controller.signal.aborted) return;
+      setManufacturerMaster(manufacturerData.items);
+      setRelationMaster(relationData.items);
+      setManufacturerMasterStatus('ready');
+      const filtered = manufacturersForType(manufacturerData.items, relationData.items, normalizedTypeId);
+      setCatalogs((current) => ({ ...current, ...filtered }));
     }).catch((error) => {
       if (!controller.signal.aborted && !isAbortError(error)) onErrorRef.current?.(error.message);
     }).finally(() => {
       if (!controller.signal.aborted) setCatalogLoading((current) => ({ ...current, manufacturers: false }));
     });
     return () => controller.abort();
-  }, [deviceTypeId, sessionToken]);
+  }, [deviceTypeId, manufacturerMaster, manufacturerMasterStatus, relationMaster, sessionToken]);
 
   useEffect(() => {
     const normalizedTypeId = String(deviceTypeId || '').trim();
@@ -269,6 +333,20 @@ export default function useTicketFormResources({
 
   const appendCatalog = useCallback((catalog, record) => {
     clearCatalogResourceCache();
+    if (catalog === 'manufacturers') {
+      setManufacturerMaster((current) => mergeCatalogItems(
+        current,
+        [record],
+        (item, index, source) => catalogItemKey(catalog, item, index, source),
+      ));
+    }
+    if (catalog === 'relations') {
+      setRelationMaster((current) => mergeCatalogItems(
+        current,
+        [record],
+        (item, index, source) => catalogItemKey(catalog, item, index, source),
+      ));
+    }
     setCatalogs((current) => ({
       ...current,
       [catalog]: mergeCatalogItems(
