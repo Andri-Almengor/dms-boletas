@@ -44,19 +44,24 @@ export default function TicketFormPage({ mode = 'create' }) {
 
   const {
     catalogs,
+    catalogLoading,
     locations,
     equipmentLocations,
     contacts,
     existingEvidenceCount,
     loading,
     reloadCatalogs,
+    searchClients,
     appendRelation,
+    appendCatalog,
   } = useTicketFormResources({
     editing,
     boletaUid,
     sessionToken,
     clientId: form.clienteId,
     equipmentLocationId: form.ubicacionId,
+    deviceTypeId: form.tipoDispositivoId,
+    manufacturerId: form.fabricanteId,
     setForm,
     onError: setError,
   });
@@ -96,6 +101,7 @@ export default function TicketFormPage({ mode = 'create' }) {
     sessionToken,
     reloadCatalogs,
     appendRelation,
+    appendCatalog,
   });
 
   const { action, saving, serverStatus } = useTicketPersistence({
@@ -208,7 +214,7 @@ export default function TicketFormPage({ mode = 'create' }) {
           </>}
 
           {step === 1 && <>
-            <DependentSelect label="Cliente" name="clienteId" value={form.clienteId} options={opt.clients} required onChange={(event) => choose(event, catalogs.clients, TICKET_FORM_IDS.clients, 'clienteId', 'cliente', ['Nombre', 'Clientes'], { ubicacionId: '', ubicacion: '', ubicacionEquipoId: '', ubicacionEquipo: '', supervisorId: '', supervisor: '', correoSupervisor: '' }, (row) => ({ correoCliente: pick(row, ['CorreoGeneral', 'Correo']) }))} />
+            <DependentSelect label="Cliente" name="clienteId" value={form.clienteId} selectedLabel={form.cliente} options={opt.clients} required onSearch={searchClients} onChange={(event) => choose(event, catalogs.clients, TICKET_FORM_IDS.clients, 'clienteId', 'cliente', ['Nombre', 'Clientes'], { ubicacionId: '', ubicacion: '', ubicacionEquipoId: '', ubicacionEquipo: '', supervisorId: '', supervisor: '', correoSupervisor: '' }, (row) => ({ correoCliente: pick(row, ['CorreoGeneral', 'Correo']) }))} />
             <div className="ticket-form-grid">
               <DependentSelect label="Ubicación" name="ubicacionId" value={form.ubicacionId} options={opt.locations} disabled={!form.clienteId} canAdd={createOperational && Boolean(form.clienteId)} onAdd={() => openModal('location')} onChange={(event) => choose(event, locations, ['UbicacionID', 'id'], 'ubicacionId', 'ubicacion', ['Nombre'], { ubicacionEquipoId: '', ubicacionEquipo: '' })} />
               <DependentSelect label="Ubicación del equipo" name="ubicacionEquipoId" value={form.ubicacionEquipoId} options={opt.equipment} disabled={!form.ubicacionId} canAdd={createOperational && Boolean(form.ubicacionId)} onAdd={() => openModal('equipment')} onChange={(event) => choose(event, equipmentLocations, ['UbicacionEquipoID', 'id'], 'ubicacionEquipoId', 'ubicacionEquipo', ['Nombre'])} />
@@ -224,8 +230,8 @@ export default function TicketFormPage({ mode = 'create' }) {
             <DependentSelect label="Tipo de dispositivo" name="tipoDispositivoId" value={form.tipoDispositivoId} options={opt.devices} required canAdd={manageCatalogs} onAdd={() => openModal('device')} onChange={(event) => choose(event, catalogs.devices, TICKET_FORM_IDS.devices, 'tipoDispositivoId', 'tipoDispositivo', ['Nombre'], { fabricanteId: '', fabricante: '', modeloId: '', modelo: '' })} />
             <FormField label="Nombre del dispositivo" name="nombreDispositivo" value={form.nombreDispositivo} onChange={update} required />
             <div className="ticket-form-grid">
-              <DependentSelect label="Fabricante" name="fabricanteId" value={form.fabricanteId} options={opt.manufacturers} disabled={!form.tipoDispositivoId} canAdd={manageCatalogs && Boolean(form.tipoDispositivoId)} onAdd={() => openModal('manufacturer')} onChange={(event) => choose(event, catalogs.manufacturers, TICKET_FORM_IDS.manufacturers, 'fabricanteId', 'fabricante', ['Nombre'], { modeloId: '', modelo: '' })} />
-              <DependentSelect label="Modelo" name="modeloId" value={form.modeloId} options={opt.models} disabled={!form.tipoDispositivoId || !form.fabricanteId} canAdd={manageCatalogs && Boolean(form.fabricanteId)} onAdd={() => openModal('model')} onChange={(event) => choose(event, catalogs.models, TICKET_FORM_IDS.models, 'modeloId', 'modelo', ['Nombre'])} />
+              <DependentSelect label="Fabricante" name="fabricanteId" value={form.fabricanteId} selectedLabel={form.fabricante} options={opt.manufacturers} loading={catalogLoading.manufacturers} disabled={!form.tipoDispositivoId} canAdd={manageCatalogs && Boolean(form.tipoDispositivoId)} onAdd={() => openModal('manufacturer')} onChange={(event) => choose(event, catalogs.manufacturers, TICKET_FORM_IDS.manufacturers, 'fabricanteId', 'fabricante', ['Nombre'], { modeloId: '', modelo: '' })} />
+              <DependentSelect label="Modelo" name="modeloId" value={form.modeloId} selectedLabel={form.modelo} options={opt.models} loading={catalogLoading.models} disabled={!form.tipoDispositivoId || !form.fabricanteId} canAdd={manageCatalogs && Boolean(form.fabricanteId)} onAdd={() => openModal('model')} onChange={(event) => choose(event, catalogs.models, TICKET_FORM_IDS.models, 'modeloId', 'modelo', ['Nombre'])} />
             </div>
             <FormField label="Serie" name="serie" value={form.serie} onChange={update} />
           </>}
