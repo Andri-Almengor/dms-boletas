@@ -67,8 +67,20 @@ export default function useTicketQuickCreate({
         appendRelation(selection.relation, result);
       } else {
         const catalog = INLINE_CATALOGS[type];
-        if (catalog && appendCatalog) appendCatalog(catalog, result);
-        else await reloadCatalogs();
+        if (catalog && appendCatalog) {
+          appendCatalog(catalog, result);
+          if (type === 'manufacturer') {
+            appendCatalog('relations', {
+              RelacionID: `inline-${form.tipoDispositivoId}-${selection.patch.fabricanteId}`,
+              TipoDispositivoID: form.tipoDispositivoId,
+              FabricanteID: selection.patch.fabricanteId,
+              Activo: true,
+              Estado: 'ACTIVO',
+            });
+          }
+        } else {
+          await reloadCatalogs();
+        }
       }
       setForm((current) => ({ ...current, ...selection.patch }));
       setModal(null);
