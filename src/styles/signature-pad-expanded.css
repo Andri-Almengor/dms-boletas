@@ -1,0 +1,144 @@
+/* Vista ampliada reutilizable para cualquier superficie de firma. */
+.signature-pad__toolbar .inline-actions {
+  flex-wrap: wrap;
+  justify-content: flex-end;
+}
+
+.signature-pad__expand-backdrop {
+  position: fixed;
+  inset: 0;
+  z-index: 9998;
+  width: 100%;
+  height: 100%;
+  padding: 0;
+  border: 0;
+  background: rgba(12, 9, 10, .72);
+  backdrop-filter: blur(5px);
+  cursor: default;
+}
+
+.signature-pad.is-expanded {
+  position: fixed !important;
+  inset: clamp(10px, 2vw, 24px) !important;
+  z-index: 9999;
+  width: auto !important;
+  max-width: none !important;
+  height: auto !important;
+  min-height: 0;
+  display: flex;
+  flex-direction: column;
+  overflow: hidden;
+  border-radius: 20px;
+  background: var(--surface, #fff);
+  color: var(--text, #1f2937);
+  box-shadow: 0 28px 90px rgba(0, 0, 0, .38);
+}
+
+.signature-pad.is-expanded .signature-pad__toolbar {
+  flex: 0 0 auto;
+  min-height: 64px;
+  padding: 10px 14px;
+}
+
+.signature-pad.is-expanded > .field-hint,
+.signature-pad.is-expanded > .field-error {
+  flex: 0 0 auto;
+  margin: 8px 14px 0;
+}
+
+.signature-pad.is-expanded canvas {
+  flex: 1 1 auto;
+  width: 100%;
+  height: auto !important;
+  min-height: 280px;
+}
+
+:root[data-theme='dark'] .signature-pad__expand-backdrop {
+  background: rgba(0, 0, 0, .82);
+}
+
+/* El enlace público siempre conserva su superficie clara, incluso ampliado. */
+.public-signature-page .signature-pad.is-expanded {
+  --surface: #fff;
+  --text: #251f20;
+  --muted: #725f62;
+  --outline-soft: #dfd3d5;
+  --surface-container: #f2e9ea;
+  background: #fff !important;
+  color: #251f20 !important;
+  border-color: #dfd3d5 !important;
+}
+
+.public-signature-page .signature-pad.is-expanded .signature-pad__toolbar {
+  background: #fff !important;
+  color: #251f20 !important;
+  border-color: #f2e9ea !important;
+}
+
+.public-signature-page .signature-pad.is-expanded .signature-pad__toolbar > span {
+  color: #725f62 !important;
+}
+
+.public-signature-page .signature-pad.is-expanded canvas {
+  filter: none !important;
+  background: repeating-linear-gradient(0deg, #fff 0, #fff 37px, #f4efee 38px) !important;
+}
+
+@media (max-width: 760px) {
+  .signature-pad.is-expanded {
+    inset: 0 !important;
+    width: 100vw !important;
+    height: 100dvh !important;
+    border: 0 !important;
+    border-radius: 0;
+  }
+
+  .signature-pad.is-expanded .signature-pad__toolbar {
+    align-items: stretch;
+    flex-wrap: wrap;
+    padding-top: max(10px, env(safe-area-inset-top));
+  }
+
+  .signature-pad.is-expanded .signature-pad__toolbar > span {
+    width: 100%;
+  }
+
+  .signature-pad.is-expanded .signature-pad__toolbar .inline-actions {
+    width: 100%;
+    display: grid;
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+    gap: 8px;
+  }
+
+  .signature-pad.is-expanded .signature-pad__toolbar .button {
+    width: 100%;
+    min-width: 0;
+  }
+
+  .signature-pad.is-expanded canvas {
+    min-height: 0;
+  }
+}
+
+@media (max-width: 420px) {
+  .signature-pad.is-expanded .signature-pad__toolbar .button {
+    padding-inline: 10px;
+    font-size: .78rem;
+  }
+}
+
+@media (orientation: landscape) and (max-height: 560px) {
+  .signature-pad.is-expanded .signature-pad__toolbar {
+    min-height: 52px;
+    padding-block: 6px;
+  }
+
+  .signature-pad.is-expanded .signature-pad__toolbar > span {
+    width: auto;
+  }
+
+  .signature-pad.is-expanded .signature-pad__toolbar .inline-actions {
+    width: auto;
+    display: flex;
+  }
+}
