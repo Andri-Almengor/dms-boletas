@@ -52,7 +52,10 @@ test('las operaciones largas y el inventario móvil conservan retroalimentación
 
   assert.match(styleIndex, /maintenance-inventory-mobile\.css/);
   assert.match(mobileStyles, /@media \(max-width: 720px\)/);
-  assert.match(mobileStyles, /grid-template-columns: 48px minmax\(0, 1fr\) 32px/);
+  assert.match(mobileStyles, /display: flex !important/);
+  assert.match(mobileStyles, /maintenance-device-list__icon \+ span/);
+  assert.match(mobileStyles, /inline-size: 0 !important/);
+  assert.match(mobileStyles, /flex: 1 1 0 !important/);
   assert.match(mobileStyles, /white-space: normal !important/);
   assert.match(mobileStyles, /overflow-wrap: anywhere/);
   assert.match(mobileStyles, /\.maintenance-inventory-mobile-edit/);
