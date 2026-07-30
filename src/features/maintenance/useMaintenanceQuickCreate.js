@@ -24,7 +24,6 @@ export default function useMaintenanceQuickCreate({
   }
 
   function closeModal() {
-    if (saving) return;
     setModal(null);
     setError('');
   }
