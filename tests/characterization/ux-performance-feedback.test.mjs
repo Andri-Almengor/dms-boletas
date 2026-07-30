@@ -88,3 +88,16 @@ test('el detalle limpia la evidencia y adapta la firma al modo oscuro', () => {
   assert.match(darkStyles, /filter: invert\(1\) hue-rotate\(180deg\)/);
   assert.match(darkStyles, /La firma se presenta oscura sin alterar el PNG original/);
 });
+
+test('el enlace público de firma conserva un tema claro independiente', () => {
+  const routeStyles = source('src/styles/routes/tickets.js');
+  const publicStyles = source('src/styles/public-signature-light-theme.css');
+
+  assert.match(routeStyles, /public-signature-light-theme\.css/);
+  assert.match(publicStyles, /color-scheme: light/);
+  assert.match(publicStyles, /:root\[data-theme='dark'\] \.public-signature-page/);
+  assert.match(publicStyles, /\.public-signature-context > article/);
+  assert.match(publicStyles, /\.signature-pad canvas/);
+  assert.match(publicStyles, /filter: none !important/);
+  assert.match(publicStyles, /recuadro blanco con trazo negro/);
+});
