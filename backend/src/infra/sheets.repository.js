@@ -27,7 +27,7 @@ function serialToDate(value) {
 function serialToTime(value) {
   const seconds = Math.round((Number(value) % 1) * 86400);
   const h = String(Math.floor(seconds / 3600) % 24).padStart(2, '0');
-  const m = String(Math.floor((seconds % 3600) / 60).padStart(2, '0'));
+  const m = String(Math.floor((seconds % 3600) / 60)).padStart(2, '0');
   return `${h}:${m}`;
 }
 function normalizeValue(header, value) {
@@ -160,9 +160,6 @@ function patchCachedRows(sheetName, patchesByRowNumber = new Map()) {
     return patch ? { ...row, ...patch, __rowNumber: row.__rowNumber } : row;
   });
   setTableCache(sheetName, records);
-}
-function patchCachedRow(sheetName, rowNumber, patch) {
-  patchCachedRows(sheetName, new Map([[Number(rowNumber), patch]]));
 }
 
 async function flushPendingReads() {
