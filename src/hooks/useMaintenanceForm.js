@@ -228,6 +228,7 @@ export default function useMaintenanceForm({ editing, maintenanceId }) {
     setActiveDevice: editor.setActiveDevice,
     openDevice: editor.openDevice,
     clients: resources.clients,
+    searchClients: resources.searchClients,
     locations: resources.locations,
     equipment: resources.equipment,
     addLocation: resources.addLocation,
