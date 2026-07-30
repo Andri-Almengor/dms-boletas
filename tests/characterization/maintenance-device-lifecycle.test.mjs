@@ -96,6 +96,7 @@ test('identifica imágenes pendientes y conserva la clave y demora históricas',
 
 test('el hook centraliza apertura, descarte y autoguardado local', () => {
   const lifecycle = source('src/features/maintenance/useMaintenanceDeviceEditorLifecycle.js');
+  const fileLifecycle = source('src/utils/localFileLifecycle.js');
   const formHook = source('src/hooks/useMaintenanceForm.js');
   const scalable = source('src/hooks/useScalableMaintenanceForm.js');
 
@@ -104,7 +105,9 @@ test('el hook centraliza apertura, descarte y autoguardado local', () => {
   assert.match(lifecycle, /localStorage\.setItem\(draftKey/);
   assert.match(lifecycle, /MAINTENANCE_DEVICE_DRAFT_DELAY_MS/);
   assert.match(lifecycle, /dms-offline-editing-complete/);
-  assert.match(lifecycle, /dms-draft-file-removed/);
+  assert.match(lifecycle, /releaseLocalFiles/);
+  assert.match(fileLifecycle, /dms-draft-file-removed/);
+  assert.match(fileLifecycle, /URL\.revokeObjectURL/);
   assert.match(lifecycle, /markDeviceSaved/);
   assert.match(lifecycle, /removeDeviceLocally/);
 
@@ -120,5 +123,5 @@ test('el hook centraliza apertura, descarte y autoguardado local', () => {
   assert.match(scalable, /persistMaintenanceDeviceCollection/);
   assert.match(scalable, /base\.clearDeviceDraft\(\)/);
   assert.doesNotMatch(scalable, /base\.markDeviceSaved\(snapshot/);
-  assert.doesNotMatch(scalable, /base\.saveActiveDevice\(snapshot\)/);
+  assert.doesNotMatch(scalable, /base\.saveActiveDevice\(snapshot/);
 });
