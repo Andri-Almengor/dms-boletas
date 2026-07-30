@@ -45,7 +45,8 @@ function sendHealth(req, res) {
 }
 
 function requestHandler(req, res) {
-  if (String(req.url || '').startsWith('/api/health')) {
+  const requestPath = String(req.url || '').split('?', 1)[0];
+  if (requestPath === '/api/health') {
     sendHealth(req, res);
     return;
   }
