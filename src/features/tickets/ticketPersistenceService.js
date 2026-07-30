@@ -1,6 +1,5 @@
 import { MODULE_ROUTES, pick, requestAvailable } from '../../services/moduleApi';
 import { fileToBase64 } from '../../utils/fileEncoding';
-import { releaseLocalFile } from '../../utils/localFileLifecycle';
 import { createLocalId } from '../../utils/localId';
 import { buildTicketPayload, ticketRecordData } from './ticketFormDomain';
 
@@ -17,14 +16,7 @@ export async function autosaveTicket({ form, boletaUid, sessionToken, signal }) 
   );
 }
 
-export async function uploadTicketAssets({
-  uid,
-  form,
-  evidences,
-  sessionToken,
-  signal,
-  onEvidenceUploaded,
-}) {
+export async function uploadTicketAssets({ uid, form, evidences, sessionToken, signal }) {
   const options = requestOptions(signal);
   if (form.firma?.startsWith('data:image/')) {
     await requestAvailable(MODULE_ROUTES.tickets.signatureUpload, {
@@ -51,8 +43,6 @@ export async function uploadTicketAssets({
         base64,
       }, sessionToken, options);
       uploaded.push({ evidenceId, result });
-      releaseLocalFile(item);
-      onEvidenceUploaded?.(evidenceId, result);
     } finally {
       base64 = '';
     }
@@ -67,7 +57,6 @@ export async function saveTicketBase({
   evidences,
   sessionToken,
   signal,
-  onEvidenceUploaded,
 }) {
   const result = await requestAvailable(
     editing ? MODULE_ROUTES.tickets.update : MODULE_ROUTES.tickets.create,
@@ -77,7 +66,7 @@ export async function saveTicketBase({
   );
   const uid = pick(ticketRecordData(result), ['BoletaUID', 'boletaUid', 'TicketUID', 'id'], boletaUid);
   if (!uid) throw new Error('El backend no devolvió BoletaUID.');
-  await uploadTicketAssets({ uid, form, evidences, sessionToken, signal, onEvidenceUploaded });
+  await uploadTicketAssets({ uid, form, evidences, sessionToken, signal });
   return uid;
 }
 
