@@ -80,7 +80,9 @@ test('la creación rápida conserva rutas, payloads y selección automática', (
   assert.match(hook, /MODULE_ROUTES\.clients\.equipmentLocationsCreate/);
   assert.match(hook, /clienteId: form\.clienteId/);
   assert.match(hook, /ubicacionId: form\.ubicacionId/);
-  assert.match(hook, /locations\.push\(view\)/);
+  assert.match(hook, /addLocation\(view\)/);
   assert.match(hook, /ubicacionId: view\.id/);
-  assert.match(hook, /equipment\.push/);
+  assert.match(hook, /addEquipment\(\{/);
+  assert.doesNotMatch(hook, /locations\.push/);
+  assert.doesNotMatch(hook, /equipment\.push/);
 });
