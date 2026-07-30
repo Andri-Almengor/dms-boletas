@@ -30,6 +30,15 @@ function sweepRateLimits(now) {
   nextRateLimitSweepAt = now + 60_000;
 }
 
+function parsedBody(body) {
+  if (typeof body !== 'string') return body;
+  try {
+    return JSON.parse(body || '{}');
+  } catch {
+    throw new AppError('INVALID_JSON', 'El cuerpo de la solicitud no contiene JSON válido.', 400);
+  }
+}
+
 export function requestSecurityMiddleware(req, res, next) {
   const requestId = resolveRequestId(req.get('x-request-id'));
   req.requestId = requestId;
@@ -41,7 +50,7 @@ export function requestSecurityMiddleware(req, res, next) {
 
 export function actionEnvelopeMiddleware(req, _res, next) {
   try {
-    const envelope = validateActionEnvelope(req.body, {
+    const envelope = validateActionEnvelope(parsedBody(req.body), {
       maxSessionTokenLength: env.securityMaxSessionTokenLength,
       maxDepth: env.securityPayloadMaxDepth,
       maxKeys: env.securityPayloadMaxKeys,
