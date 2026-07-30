@@ -38,8 +38,10 @@ export function isMissingRouteError(error) {
 
 export function isNetworkError(error) {
   if (isAbortError(error)) return false;
-  const status = Number(error?.status || 0);
   const code = String(error?.code || '').trim().toUpperCase();
+  if (code === 'ONLINE_REQUIRED' || code === 'OFFLINE_MODE_DISABLED') return false;
+
+  const status = Number(error?.status || 0);
   const text = `${error?.name || ''} ${error?.message || ''}`.toLowerCase();
   return TRANSIENT_STATUSES.has(status)
     || code === 'BACKEND_TEMPORARILY_UNAVAILABLE'
