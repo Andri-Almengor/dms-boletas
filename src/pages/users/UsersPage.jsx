@@ -7,18 +7,13 @@ import Icon from '../../components/common/Icon';
 import Loading from '../../components/common/Loading';
 import PasswordResetFeedback from '../../components/users/PasswordResetFeedback';
 import useRoles from '../../hooks/useRoles';
+import { mergePaginatedItems, paginationMeta } from '../../utils/paginatedCollection';
 
 const PAGE_SIZE = 50;
 
 function initials(name = '') {
   const parts = String(name).trim().split(/\s+/).filter(Boolean);
   return `${parts[0]?.[0] || 'U'}${parts[1]?.[0] || ''}`.toUpperCase();
-}
-
-function mergeUsers(current, incoming) {
-  const map = new Map(current.map((user) => [String(user.UsuarioID), user]));
-  incoming.forEach((user) => map.set(String(user.UsuarioID), user));
-  return [...map.values()];
 }
 
 export default function UsersPage() {
@@ -55,10 +50,16 @@ export default function UsersPage() {
       if (sequence !== requestSequence.current) return;
       const incoming = data.items || [];
       setUsers((current) => {
-        const next = append ? mergeUsers(current, incoming) : incoming;
-        const nextTotal = Number.isFinite(Number(data.total)) ? Number(data.total) : next.length;
-        setTotal(nextTotal);
-        setHasMore(Number.isFinite(Number(data.total)) ? next.length < nextTotal : incoming.length >= PAGE_SIZE);
+        const next = append
+          ? mergePaginatedItems(current, incoming, (user) => String(user.UsuarioID))
+          : incoming;
+        const meta = paginationMeta(data, {
+          loadedCount: next.length,
+          incomingCount: incoming.length,
+          pageSize: PAGE_SIZE,
+        });
+        setTotal(meta.total);
+        setHasMore(meta.hasMore);
         return next;
       });
       setPage(targetPage);
