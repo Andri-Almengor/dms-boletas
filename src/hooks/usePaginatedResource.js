@@ -59,6 +59,10 @@ export default function usePaginatedResource({
     setError('');
   }, [cancel]);
 
+  const adjustTotal = useCallback((change) => {
+    setTotal((current) => Math.max(0, current + Number(change || 0)));
+  }, []);
+
   const loadPage = useCallback(async ({ targetPage = 1, append = false } = {}) => {
     if (!enabled || typeof fetchPageRef.current !== 'function') return null;
 
@@ -140,6 +144,7 @@ export default function usePaginatedResource({
     setItems,
     page,
     total,
+    adjustTotal,
     hasMore,
     loading,
     loadingMore,

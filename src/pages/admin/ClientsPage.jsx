@@ -1,10 +1,13 @@
-import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react';
+import React, { useCallback, useMemo, useRef, useState } from 'react';
 import { useAuth } from '../../AuthContext';
 import ClientRelationsManager from '../../components/clients/ClientRelationsManager';
 import Icon from '../../components/common/Icon';
 import AdminEntityModal from '../../components/forms/AdminEntityModal';
+import usePaginatedResource from '../../hooks/usePaginatedResource';
+import { fetchClientRelations } from '../../services/clientRelations';
 import { MODULE_ROUTES, normalizeItems, pick, requestAvailable, toBoolean } from '../../services/moduleApi';
-import { mergePaginatedItems, paginationMeta } from '../../utils/paginatedCollection';
+import { isAbortError } from '../../services/requestErrors';
+import { mergePaginatedItems } from '../../utils/paginatedCollection';
 
 const PAGE_SIZE = 50;
 const EMPTY = { id: '', name: '', contacto: '', telefono: '', correo: '', direccion: '', sitioWeb: '', chatWebhook: '', status: 'ACTIVO' };
@@ -45,19 +48,6 @@ function clientKey(item, index, source) {
   return viewClient(item).id || `${source}-${index}`;
 }
 
-async function mapWithConcurrency(items, concurrency, mapper) {
-  const results = new Array(items.length);
-  let cursor = 0;
-  async function worker() {
-    while (cursor < items.length) {
-      const index = cursor++;
-      results[index] = await mapper(items[index], index);
-    }
-  }
-  await Promise.all(Array.from({ length: Math.min(concurrency, items.length) }, worker));
-  return results;
-}
-
 function ClientFields({ form, setForm }) {
   const change = (name) => (event) => setForm((current) => ({ ...current, [name]: event.target.value }));
   return <div className="admin-form-grid">
@@ -92,73 +82,45 @@ function ReadonlyRelations({ related }) {
 export default function ClientsPage() {
   const { sessionToken, hasPermission } = useAuth();
   const isAdmin = hasPermission('USUARIOS_GESTIONAR');
-  const [items, setItems] = useState([]);
   const [search, setSearch] = useState('');
-  const [page, setPage] = useState(1);
-  const [total, setTotal] = useState(0);
-  const [hasMore, setHasMore] = useState(false);
+  const [submittedSearch, setSubmittedSearch] = useState('');
   const [selected, setSelected] = useState(null);
   const [form, setForm] = useState(EMPTY);
   const [editing, setEditing] = useState(false);
   const [related, setRelated] = useState({ locations: [], equipment: [], contacts: [] });
-  const [loading, setLoading] = useState(true);
-  const [loadingMore, setLoadingMore] = useState(false);
   const [loadingRelated, setLoadingRelated] = useState(false);
   const [saving, setSaving] = useState(false);
-  const [error, setError] = useState('');
   const [modalError, setModalError] = useState('');
-  const requestSequence = useRef(0);
-  const relatedSequence = useRef(0);
+  const relatedControllerRef = useRef(null);
 
-  const load = useCallback(async ({ targetPage = 1, append = false, query = search } = {}) => {
-    const sequence = ++requestSequence.current;
-    if (append) setLoadingMore(true);
-    else setLoading(true);
-    setError('');
-    try {
-      const data = await requestAvailable(MODULE_ROUTES.clients.list, {
-        page: targetPage,
-        pageSize: PAGE_SIZE,
-        search: query.trim(),
-        includeInactive: isAdmin,
-        sortBy: 'Nombre',
-        sortDir: 'asc',
-      }, sessionToken);
-      if (sequence !== requestSequence.current) return;
-      const incoming = normalizeItems(data);
-      setItems((current) => {
-        const next = append ? mergePaginatedItems(current, incoming, clientKey) : incoming;
-        const meta = paginationMeta(data, {
-          loadedCount: next.length,
-          incomingCount: incoming.length,
-          pageSize: PAGE_SIZE,
-        });
-        setTotal(meta.total);
-        setHasMore(meta.hasMore);
-        return next;
-      });
-      setPage(targetPage);
-    } catch (loadError) {
-      if (sequence !== requestSequence.current) return;
-      setError(loadError.message);
-      if (!append) {
-        setItems([]);
-        setTotal(0);
-        setHasMore(false);
-      }
-    } finally {
-      if (sequence === requestSequence.current) {
-        setLoading(false);
-        setLoadingMore(false);
-      }
-    }
-  }, [isAdmin, search, sessionToken]);
+  const fetchPage = useCallback(({ page, pageSize, signal }) => requestAvailable(MODULE_ROUTES.clients.list, {
+    page,
+    pageSize,
+    search: submittedSearch,
+    includeInactive: isAdmin,
+    sortBy: 'Nombre',
+    sortDir: 'asc',
+  }, sessionToken, { signal }), [isAdmin, sessionToken, submittedSearch]);
 
-  useEffect(() => {
-    setItems([]);
-    setPage(1);
-    load({ targetPage: 1, append: false, query: '' });
-  }, [sessionToken, isAdmin]);
+  const {
+    items,
+    setItems,
+    total,
+    adjustTotal,
+    hasMore,
+    loading,
+    loadingMore,
+    error,
+    setError,
+    loadMore,
+    reload,
+  } = usePaginatedResource({
+    pageSize: PAGE_SIZE,
+    fetchPage,
+    getItemKey: clientKey,
+    normalizeResponse: normalizeItems,
+    resetKey: `${sessionToken}|${isAdmin}|${submittedSearch}`,
+  });
 
   const visible = useMemo(() => {
     const query = search.trim().toLowerCase();
@@ -171,42 +133,23 @@ export default function ClientsPage() {
 
   async function loadRelated(clientId) {
     if (!clientId) return;
-    const sequence = ++relatedSequence.current;
+    relatedControllerRef.current?.abort();
+    const controller = new AbortController();
+    relatedControllerRef.current = controller;
     setLoadingRelated(true);
     setModalError('');
     try {
-      const [locationsResult, contactsResult] = await Promise.allSettled([
-        requestAvailable(MODULE_ROUTES.clients.locationsList, { clienteId: clientId, page: 1, pageSize: 500, includeInactive: false, sortBy: 'Nombre', sortDir: 'asc' }, sessionToken),
-        requestAvailable(MODULE_ROUTES.clients.contactsList, { clienteId: clientId, page: 1, pageSize: 500, includeInactive: false, sortBy: 'Nombre', sortDir: 'asc' }, sessionToken),
-      ]);
-      if (sequence !== relatedSequence.current) return;
-      const locations = locationsResult.status === 'fulfilled' ? normalizeItems(locationsResult.value) : [];
-      const contacts = contactsResult.status === 'fulfilled' ? normalizeItems(contactsResult.value) : [];
-      const equipmentGroups = await mapWithConcurrency(locations, 3, async (location) => {
-        const locationId = String(pick(location, ['UbicacionID', 'ubicacionId', 'id']));
-        if (!locationId) return [];
-        try {
-          const data = await requestAvailable(MODULE_ROUTES.clients.equipmentLocationsList, {
-            ubicacionId: locationId,
-            UbicacionID: locationId,
-            page: 1,
-            pageSize: 500,
-            includeInactive: false,
-            sortBy: 'Nombre',
-            sortDir: 'asc',
-          }, sessionToken);
-          return normalizeItems(data);
-        } catch {
-          return [];
-        }
-      });
-      if (sequence !== relatedSequence.current) return;
-      setRelated({ locations, equipment: equipmentGroups.flat(), contacts });
-      if (locationsResult.status === 'rejected' || contactsResult.status === 'rejected') {
-        setModalError('Algunos datos relacionados no pudieron cargarse. Pulse actualizar o vuelva a abrir el cliente.');
-      }
+      const data = await fetchClientRelations({ clientId, sessionToken, signal: controller.signal });
+      if (controller.signal.aborted || relatedControllerRef.current !== controller) return;
+      setRelated(data);
+    } catch (loadError) {
+      if (controller.signal.aborted || isAbortError(loadError)) return;
+      setModalError(loadError.message || 'No se pudo cargar la información relacionada.');
     } finally {
-      if (sequence === relatedSequence.current) setLoadingRelated(false);
+      if (relatedControllerRef.current === controller) {
+        relatedControllerRef.current = null;
+        setLoadingRelated(false);
+      }
     }
   }
 
@@ -221,6 +164,7 @@ export default function ClientsPage() {
 
   function openCreate() {
     if (!isAdmin) return;
+    relatedControllerRef.current?.abort();
     setSelected({});
     setForm({ ...EMPTY });
     setEditing(true);
@@ -230,7 +174,8 @@ export default function ClientsPage() {
 
   function closeModal() {
     if (saving) return;
-    relatedSequence.current += 1;
+    relatedControllerRef.current?.abort();
+    relatedControllerRef.current = null;
     setSelected(null);
     setEditing(false);
     setModalError('');
@@ -243,6 +188,7 @@ export default function ClientsPage() {
       setModalError('El nombre del cliente es obligatorio.');
       return;
     }
+    const creating = !form.id;
     setSaving(true);
     setModalError('');
     try {
@@ -253,7 +199,7 @@ export default function ClientsPage() {
       setForm(savedView);
       setEditing(false);
       setItems((current) => mergePaginatedItems(current, [saved], clientKey));
-      if (!form.id) setTotal((value) => value + 1);
+      if (creating) adjustTotal(1);
       await loadRelated(savedView.id);
     } catch (saveError) {
       setModalError(saveError.message);
@@ -287,7 +233,7 @@ export default function ClientsPage() {
     try {
       await requestAvailable(MODULE_ROUTES.clients.delete, { ClienteID: form.id, clienteId: form.id }, sessionToken);
       setItems((current) => current.filter((item) => viewClient(item).id !== form.id));
-      setTotal((value) => Math.max(0, value - 1));
+      adjustTotal(-1);
       setSelected(null);
       setEditing(false);
     } catch (deleteError) {
@@ -295,6 +241,13 @@ export default function ClientsPage() {
     } finally {
       setSaving(false);
     }
+  }
+
+  function submitSearch(event) {
+    event.preventDefault();
+    const nextSearch = search.trim();
+    if (nextSearch === submittedSearch) reload();
+    else setSubmittedSearch(nextSearch);
   }
 
   const selectedView = selected ? form : null;
@@ -308,7 +261,7 @@ export default function ClientsPage() {
 
     {!isAdmin && <div className="readonly-notice"><Icon name="visibility" /><span>Modo consulta: puede revisar toda la información del cliente, pero solo un administrador puede modificarla.</span></div>}
 
-    <form className="search-bar" onSubmit={(event) => { event.preventDefault(); setPage(1); load({ targetPage: 1, append: false }); }}>
+    <form className="search-bar" onSubmit={submitSearch}>
       <Icon name="search" />
       <input value={search} onChange={(event) => setSearch(event.target.value)} placeholder="Buscar cliente, contacto, correo o dirección..." />
       <button className="icon-button icon-button--primary" aria-label="Buscar"><Icon name="search" /></button>
@@ -328,7 +281,7 @@ export default function ClientsPage() {
         })}
         {!visible.length && <div className="empty-state"><Icon name="groups" /><h2>Sin clientes</h2><p>No se encontraron registros con la búsqueda actual.</p></div>}
       </div>
-      {hasMore && <div className="list-load-more"><button type="button" className="button button--secondary" disabled={loadingMore} onClick={() => load({ targetPage: page + 1, append: true })}><Icon name={loadingMore ? 'progress_activity' : 'expand_more'} />{loadingMore ? 'Cargando...' : 'Cargar más clientes'}</button></div>}
+      {hasMore && <div className="list-load-more"><button type="button" className="button button--secondary" disabled={loadingMore} onClick={loadMore}><Icon name={loadingMore ? 'progress_activity' : 'expand_more'} />{loadingMore ? 'Cargando...' : 'Cargar más clientes'}</button></div>}
     </>}
 
     <AdminEntityModal open={Boolean(selected)} title={selectedView?.name || 'Nuevo cliente'} subtitle={selectedView?.id ? `${related.locations.length} sedes · ${related.equipment.length} ubicaciones del equipo · ${supervisors.length} supervisores` : 'Complete los datos para crear el cliente'} eyebrow={editing ? (selectedView?.id ? 'Editar cliente' : 'Nuevo cliente') : 'Detalle del cliente'} icon="corporate_fare" onClose={closeModal} busy={saving} className="admin-entity-modal-layer--client client-detail-modal" footer={!editing && isAdmin && selectedView?.id ? <><button className="button button--danger" type="button" onClick={removeClient} disabled={saving}><Icon name="delete" />Eliminar</button><button className="button button--secondary" type="button" onClick={changeStatus} disabled={saving}><Icon name={selectedView.status === 'INACTIVO' ? 'refresh' : 'block'} />{selectedView.status === 'INACTIVO' ? 'Reactivar' : 'Desactivar'}</button><button className="button button--primary" type="button" onClick={() => setEditing(true)} disabled={saving}><Icon name="edit" />Editar datos</button></> : null}>
