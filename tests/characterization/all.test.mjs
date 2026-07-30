@@ -11,3 +11,4 @@ import './paginated-collection.test.mjs';
 import './paginated-resource.test.mjs';
 import './shared-utilities.test.mjs';
 import './source-contracts.test.mjs';
+import './ticket-form-model.test.mjs';
