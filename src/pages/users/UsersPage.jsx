@@ -1,4 +1,4 @@
-import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react';
+import React, { useCallback, useMemo, useState } from 'react';
 import { Link, useNavigate } from 'react-router-dom';
 import { apiRequest } from '../../api';
 import { useAuth } from '../../AuthContext';
@@ -6,8 +6,8 @@ import ErrorMessage from '../../components/common/ErrorMessage';
 import Icon from '../../components/common/Icon';
 import Loading from '../../components/common/Loading';
 import PasswordResetFeedback from '../../components/users/PasswordResetFeedback';
+import usePaginatedResource from '../../hooks/usePaginatedResource';
 import useRoles from '../../hooks/useRoles';
-import { mergePaginatedItems, paginationMeta } from '../../utils/paginatedCollection';
 
 const PAGE_SIZE = 50;
 
@@ -20,70 +20,37 @@ export default function UsersPage() {
   const { sessionToken, hasPermission, user: currentUser } = useAuth();
   const navigate = useNavigate();
   const { roles } = useRoles();
-  const [users, setUsers] = useState([]);
   const [search, setSearch] = useState('');
-  const [page, setPage] = useState(1);
-  const [total, setTotal] = useState(0);
-  const [hasMore, setHasMore] = useState(false);
-  const [error, setError] = useState('');
-  const [loading, setLoading] = useState(true);
-  const [loadingMore, setLoadingMore] = useState(false);
   const [resettingUserId, setResettingUserId] = useState('');
   const [resetResult, setResetResult] = useState(null);
-  const requestSequence = useRef(0);
+
+  const fetchUsers = useCallback(({ page, pageSize, signal }) => apiRequest('users.list', {
+    page,
+    pageSize,
+    search: search.trim(),
+    sortBy: 'NombreCompleto',
+    sortDir: 'asc',
+  }, sessionToken, { signal }), [search, sessionToken]);
+
+  const {
+    items: users,
+    setItems: setUsers,
+    total,
+    hasMore,
+    loading,
+    loadingMore,
+    error,
+    setError,
+    loadFirst,
+    loadMore,
+  } = usePaginatedResource({
+    pageSize: PAGE_SIZE,
+    fetchPage: fetchUsers,
+    getItemKey: (user) => String(user.UsuarioID),
+    resetKey: sessionToken,
+  });
 
   const roleById = useMemo(() => Object.fromEntries(roles.map((role) => [role.RolID, role.Nombre])), [roles]);
-
-  const loadUsers = useCallback(async ({ targetPage = 1, append = false, query = search } = {}) => {
-    const sequence = ++requestSequence.current;
-    if (append) setLoadingMore(true);
-    else setLoading(true);
-    setError('');
-    try {
-      const data = await apiRequest('users.list', {
-        page: targetPage,
-        pageSize: PAGE_SIZE,
-        search: query.trim(),
-        sortBy: 'NombreCompleto',
-        sortDir: 'asc',
-      }, sessionToken);
-      if (sequence !== requestSequence.current) return;
-      const incoming = data.items || [];
-      setUsers((current) => {
-        const next = append
-          ? mergePaginatedItems(current, incoming, (user) => String(user.UsuarioID))
-          : incoming;
-        const meta = paginationMeta(data, {
-          loadedCount: next.length,
-          incomingCount: incoming.length,
-          pageSize: PAGE_SIZE,
-        });
-        setTotal(meta.total);
-        setHasMore(meta.hasMore);
-        return next;
-      });
-      setPage(targetPage);
-    } catch (err) {
-      if (sequence !== requestSequence.current) return;
-      setError(err.message);
-      if (!append) {
-        setUsers([]);
-        setTotal(0);
-        setHasMore(false);
-      }
-    } finally {
-      if (sequence === requestSequence.current) {
-        setLoading(false);
-        setLoadingMore(false);
-      }
-    }
-  }, [search, sessionToken]);
-
-  useEffect(() => {
-    setUsers([]);
-    setPage(1);
-    loadUsers({ targetPage: 1, append: false, query: '' });
-  }, [sessionToken]);
 
   async function deactivateUser(record) {
     if (record.UsuarioID === currentUser.UsuarioID) {
@@ -141,7 +108,7 @@ export default function UsersPage() {
         {hasPermission('USUARIOS_GESTIONAR') && <Link to="/usuarios/nuevo" className="button button--primary"><Icon name="person_add" /> Crear usuario</Link>}
       </header>
 
-      <form className="search-bar" onSubmit={(event) => { event.preventDefault(); setPage(1); loadUsers({ targetPage: 1, append: false }); }}>
+      <form className="search-bar" onSubmit={(event) => { event.preventDefault(); loadFirst(); }}>
         <Icon name="search" />
         <input value={search} onChange={(event) => setSearch(event.target.value)} placeholder="Buscar por nombre, usuario o correo..." aria-label="Buscar usuarios" />
         <button className="icon-button icon-button--primary" aria-label="Buscar"><Icon name="search" /></button>
@@ -187,7 +154,7 @@ export default function UsersPage() {
             );
           })}
         </div>
-        {hasMore && <div className="list-load-more"><button type="button" className="button button--secondary" disabled={loadingMore} onClick={() => loadUsers({ targetPage: page + 1, append: true })}><Icon name={loadingMore ? 'progress_activity' : 'expand_more'} />{loadingMore ? 'Cargando...' : 'Cargar más usuarios'}</button></div>}
+        {hasMore && <div className="list-load-more"><button type="button" className="button button--secondary" disabled={loadingMore} onClick={loadMore}><Icon name={loadingMore ? 'progress_activity' : 'expand_more'} />{loadingMore ? 'Cargando...' : 'Cargar más usuarios'}</button></div>}
       </>}
     </div>
   );
