@@ -5,17 +5,14 @@ on:
   workflow_dispatch:
 
 permissions:
-  contents: write
+  contents: read
 
 jobs:
   build:
     runs-on: ubuntu-latest
     steps:
-      - name: Checkout PR branch
+      - name: Checkout
         uses: actions/checkout@v4
-        with:
-          ref: ${{ github.head_ref || github.ref_name }}
-          fetch-depth: 0
 
       - name: Setup Node
         uses: actions/setup-node@v4
@@ -25,25 +22,6 @@ jobs:
           cache-dependency-path: |
             package-lock.json
             backend/package-lock.json
-
-      - name: Generate patched dependency manifests
-        run: |
-          npm install --package-lock-only --ignore-scripts --save-exact react-router-dom@6.30.4
-          npm install --package-lock-only --ignore-scripts --save-exact --prefix backend nodemailer@9.0.3
-          mkdir -p .artifacts/generated-manifests/backend
-          cp package.json package-lock.json .artifacts/generated-manifests/
-          cp backend/package.json backend/package-lock.json .artifacts/generated-manifests/backend/
-
-      - name: Persist patched manifests on PR branch
-        if: github.event_name == 'pull_request'
-        run: |
-          git config user.name 'github-actions[bot]'
-          git config user.email '41898282+github-actions[bot]@users.noreply.github.com'
-          git add package.json package-lock.json backend/package.json backend/package-lock.json
-          if ! git diff --cached --quiet; then
-            git commit -m 'Etapa 12: actualizar dependencias vulnerables'
-            git push origin HEAD:${{ github.head_ref }}
-          fi
 
       - name: Install frontend dependencies
         run: npm ci
