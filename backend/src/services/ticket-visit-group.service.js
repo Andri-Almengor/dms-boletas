@@ -3,11 +3,11 @@ import { AppError, notFound } from '../core/errors.js';
 import { nowIso } from '../core/utils.js';
 import { sheetsApi } from '../infra/google.js';
 import {
-  findById,
   getHeaders,
   invalidateTableCache,
   readTable,
   updateRow,
+  updateRows,
 } from '../infra/sheets.repository.js';
 
 const SHEET_NAME = 'Boletas';
@@ -167,13 +167,15 @@ export async function ensureVisitGroupForTicket(ticketId, actor = 'SISTEMA') {
 
 export async function prepareRelatedVisit(parentTicketId, actor = 'SISTEMA') {
   const group = await ensureVisitGroupForTicket(parentTicketId, actor);
+  const parent = group.visits.find((ticket) => clean(ticket.BoletaUID) === clean(parentTicketId));
+  if (!parent) throw notFound('No se encontró la boleta solicitada.');
   const nextVisitNumber = group.visits.reduce(
     (maximum, ticket) => Math.max(maximum, ticketVisitNumber(ticket)),
     0,
   ) + 1;
   return {
     group,
-    parent: await findById(SHEET_NAME, parentTicketId),
+    parent,
     groupFields: {
       GrupoVisitaID: group.id,
       BoletaPrincipalUID: group.rootId,
@@ -202,17 +204,21 @@ export async function synchronizeVisitGroupSignature(ticketId, actor = 'SISTEMA'
     FirmaOrigen: signed.FirmaOrigen || 'FIRMA_COMPARTIDA_GRUPO',
     FirmaFecha: signed.FirmaFecha || signed.FechaActualizacion || nowIso(),
   };
-
-  for (const visit of group.visits) {
-    const sameFile = clean(visit.FirmaArchivoID || visit.FirmaFileID) === clean(patch.FirmaArchivoID);
-    if (sameFile && ticketHasStoredSignature(visit)) continue;
-    await updateRow(SHEET_NAME, visit.BoletaUID, {
-      ...patch,
-      Version: Number(visit.Version || 0) + 1,
-      ActualizadoPor: actor,
-      FechaActualizacion: nowIso(),
-    });
-  }
+  const updates = group.visits
+    .filter((visit) => {
+      const sameFile = clean(visit.FirmaArchivoID || visit.FirmaFileID) === clean(patch.FirmaArchivoID);
+      return !sameFile || !ticketHasStoredSignature(visit);
+    })
+    .map((visit) => ({
+      idValue: visit.BoletaUID,
+      patch: {
+        ...patch,
+        Version: Number(visit.Version || 0) + 1,
+        ActualizadoPor: actor,
+        FechaActualizacion: nowIso(),
+      },
+    }));
+  if (updates.length) await updateRows(SHEET_NAME, updates);
   return ensureVisitGroupForTicket(group.rootId, actor);
 }
 
@@ -222,8 +228,9 @@ export async function applySignatureToVisitGroup(ticketId, signature, actor = 'S
     throw new AppError('SIGNATURE_FILE_MISSING', 'No fue posible identificar el archivo de la firma.', 500);
   }
   const timestamp = signature.signedAt || nowIso();
-  for (const visit of group.visits) {
-    await updateRow(SHEET_NAME, visit.BoletaUID, {
+  await updateRows(SHEET_NAME, group.visits.map((visit) => ({
+    idValue: visit.BoletaUID,
+    patch: {
       FirmaArchivoID: signature.fileId || '',
       FirmaURL: signature.url || '',
       FirmaMimeType: signature.mimeType || 'image/png',
@@ -232,23 +239,26 @@ export async function applySignatureToVisitGroup(ticketId, signature, actor = 'S
       Version: Number(visit.Version || 0) + 1,
       ActualizadoPor: actor,
       FechaActualizacion: timestamp,
-    });
-  }
+    },
+  })));
   return ensureVisitGroupForTicket(group.rootId, actor);
 }
 
 export async function updateVisitGroup(ticketId, patch, actor = 'SISTEMA') {
   const group = await ensureVisitGroupForTicket(ticketId, actor);
-  const updated = [];
-  for (const visit of group.visits) {
-    const resolvedPatch = typeof patch === 'function' ? patch(visit, group) : patch;
-    updated.push(await updateRow(SHEET_NAME, visit.BoletaUID, {
-      ...(resolvedPatch || {}),
+  const updated = await updateRows(SHEET_NAME, group.visits.map((visit) => ({
+    idValue: visit.BoletaUID,
+    patch: {
+      ...((typeof patch === 'function' ? patch(visit, group) : patch) || {}),
       ActualizadoPor: actor,
       FechaActualizacion: nowIso(),
-    }));
-  }
-  return { ...group, visits: sortVisits(updated), root: updated.find((row) => clean(row.BoletaUID) === group.rootId) || updated[0] };
+    },
+  })));
+  return {
+    ...group,
+    visits: sortVisits(updated),
+    root: updated.find((row) => clean(row.BoletaUID) === group.rootId) || updated[0],
+  };
 }
 
 export function groupSummary(group) {
