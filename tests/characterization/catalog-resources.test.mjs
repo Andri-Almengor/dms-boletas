@@ -36,7 +36,7 @@ test('conserva el valor seleccionado aunque no pertenezca a la página actual', 
   assert.equal(result[1].name, 'Cliente histórico');
 });
 
-test('el servicio aplica caché por sesión, ruta y payload sin cambiar requestAvailable', () => {
+test('el servicio aplica caché y recupera la base operativa sin conexión', () => {
   const service = source('src/services/catalogResource.js');
 
   assert.match(service, /const DEFAULT_CATALOG_TTL_MS = 5 \* 60_000/);
@@ -47,6 +47,12 @@ test('el servicio aplica caché por sesión, ruta y payload sin cambiar requestA
   assert.match(service, /normalizeItems/);
   assert.match(service, /clearCatalogResourceCache/);
   assert.match(service, /signal\?\.aborted/);
+  assert.match(service, /OFFLINE_CATALOG_PAYLOAD/);
+  assert.match(service, /filterOfflineCatalog/);
+  assert.match(service, /isNetworkError/);
+  assert.match(service, /payload\.search \|\| payload\.q/);
+  assert.match(service, /tipoDispositivoId/);
+  assert.match(service, /fabricanteId/);
 });
 
 test('los selectores conservan búsqueda local y admiten búsqueda remota opcional', () => {
