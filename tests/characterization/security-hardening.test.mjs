@@ -97,6 +97,7 @@ test('la aplicación activa CSP, validación, rate limit y errores sin filtrar d
   const middleware = source('backend/src/middleware/security.middleware.js');
   const workflow = source('.github/workflows/validate.yml');
   const packageJson = source('package.json');
+  const backendPackage = source('backend/package.json');
 
   assert.match(app, /contentSecurityPolicy/);
   assert.match(app, /objectSrc: \["'none'"\]/);
@@ -108,10 +109,17 @@ test('la aplicación activa CSP, validación, rate limit y errores sin filtrar d
 
   assert.match(middleware, /RateLimit-Limit/);
   assert.match(middleware, /X-Request-ID/);
+  assert.match(middleware, /const key = `\$\{policy\.name\}\|\$\{clientAddress\(req\)\}`/);
+  assert.doesNotMatch(middleware, /clientAddress\(req\).*route\.toLowerCase/);
   assert.match(server, /env\.healthDetailsPublic/);
+  assert.match(server, /requestPath === '\/api\/health'/);
   assert.match(server, /FRONTEND_ORIGIN permite cualquier origen/);
+  assert.match(workflow, /permissions:\s*\n\s*contents: read/);
+  assert.doesNotMatch(workflow, /git push origin/);
   assert.match(workflow, /Audit production dependencies/);
   assert.match(workflow, /Collect final metrics and CSS audit/);
+  assert.match(packageJson, /"react-router-dom": "6\.30\.4"/);
   assert.match(packageJson, /"audit:security"/);
   assert.match(packageJson, /"report:final"/);
+  assert.match(backendPackage, /"nodemailer": "9\.0\.3"/);
 });
