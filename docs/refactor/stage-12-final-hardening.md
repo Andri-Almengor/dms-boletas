@@ -28,6 +28,8 @@ Se aplican ventanas independientes para:
 - Lecturas públicas.
 - Acciones autenticadas generales.
 
+Los buckets se comparten por familia de política e IP. Variar un alias o inventar nombres de ruta no crea límites independientes.
+
 Los valores predeterminados son deliberadamente amplios para no afectar el trabajo normal de varios técnicos detrás de una misma dirección pública. Todos pueden ajustarse mediante variables de entorno.
 
 Las respuestas incluyen `RateLimit-Limit`, `RateLimit-Remaining`, `RateLimit-Reset` y, cuando corresponde, `Retry-After`.
@@ -55,7 +57,7 @@ JSON inválido y solicitudes superiores a 25 MB reciben códigos controlados sin
 
 ### Health check
 
-En producción, `/api/health` muestra únicamente estado, servicio y hora. Las métricas internas de memoria, concurrencia, Sheets y auditoría quedan ocultas por defecto. Se pueden habilitar explícitamente con `HEALTH_DETAILS_PUBLIC=true`.
+En producción, la ruta exacta `/api/health` muestra únicamente estado, servicio y hora. Las métricas internas de memoria, concurrencia, Sheets y auditoría quedan ocultas por defecto. Se pueden habilitar explícitamente con `HEALTH_DETAILS_PUBLIC=true`.
 
 ## Variables nuevas
 
@@ -79,7 +81,18 @@ No es obligatorio definirlas; todas tienen valores conservadores.
 
 `npm run audit:security` revisa vulnerabilidades altas o críticas en dependencias de producción tanto del frontend como del backend.
 
-La validación de GitHub ejecuta la auditoría después de instalar ambos proyectos.
+Cambios aplicados:
+
+- `nodemailer`: actualizado a `9.0.3`, eliminando la vulnerabilidad alta detectada por npm.
+- `react-router-dom`: actualizado dentro de la línea compatible de React Router 6, de `6.28.x` a `6.30.4`.
+- Los `package-lock.json` fueron regenerados por npm y validados mediante `npm ci`.
+
+Permanecen avisos moderados que npm solo propone resolver con cambios mayores:
+
+- React Router 7 para los avisos restantes del frontend.
+- Google APIs 173 para la cadena `googleapis-common`/`uuid` del backend.
+
+No se forzaron esas migraciones porque exceden el alcance de una corrección final segura y requieren una etapa funcional propia. La CI bloquea vulnerabilidades altas o críticas.
 
 ## Validación y CSS
 
@@ -92,7 +105,33 @@ La validación de GitHub ejecuta la auditoría después de instalar ambos proyec
 - Identifica reglas CSS exactamente duplicadas respetando el contexto de `@media`, `@supports`, `@layer` y `@container`.
 - Produce `.artifacts/final-validation.json`.
 
-La detección no elimina reglas automáticamente. Los duplicados exactos se revisan antes de cualquier limpieza para evitar regresiones visuales por cascada o especificidad.
+### Resultado cuantitativo previo a la validación definitiva
+
+| Métrica | Etapa 0 | Etapa 12 | Cambio |
+|---|---:|---:|---:|
+| Archivos frontend | 208 | 236 | +28 |
+| Líneas frontend | 36 867 | 38 375 | +1 508 |
+| Archivos backend | 81 | 86 | +5 |
+| Líneas backend | 18 456 | 19 020 | +564 |
+| JavaScript gzip | 265 544 B | 273 933 B | +8 389 B |
+| CSS gzip | 59 597 B | 59 597 B | 0 B |
+
+El aumento de archivos y líneas corresponde principalmente a hooks, servicios, utilidades, pruebas y controles de seguridad separados. El CSS de producción no aumentó.
+
+### Revisión CSS
+
+El análisis registró:
+
+- 70 archivos CSS inspeccionados.
+- 3 028 reglas.
+- 0 imports faltantes.
+- 0 imports duplicados.
+- 0 ciclos de importación.
+- 17 grupos de reglas exactamente repetidas.
+
+Los grupos repetidos se concentran en el botón flotante del asistente y en el estado de recuperación. Se conservaron porque están distribuidos entre estilos globales y estilos de módulos cargados posteriormente. En varios breakpoints, la repetición restaura deliberadamente valores como `bottom`, tamaño del icono o visibilidad después de una regla base posterior. Eliminarla sin pruebas visuales en todas las rutas podría introducir una regresión de cascada aun cuando el texto de la regla sea idéntico.
+
+Por esta razón, la limpieza final no elimina CSS automáticamente. El reporte convierte esas repeticiones en deuda localizada y medible para una futura etapa visual con capturas comparativas.
 
 ## Compatibilidad preservada
 
@@ -122,3 +161,4 @@ npm run report:final
 5. Enviar una encuesta pública.
 6. Confirmar que `/api/health` responde en producción sin métricas internas.
 7. Confirmar que una respuesta 429 incluye `Retry-After`.
+8. Revisar el botón flotante del asistente en móvil, escritorio, formularios y con el indicador de recuperación visible.
