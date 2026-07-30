@@ -3,6 +3,7 @@ import './catalog-resources.test.mjs';
 import './client-relations.test.mjs';
 import './costa-rica-date.test.mjs';
 import './data-client.test.mjs';
+import './evidence-memory.test.mjs';
 import './form-draft-lifecycle.test.mjs';
 import './list-pages.test.mjs';
 import './maintenance-checklist-status.test.mjs';
