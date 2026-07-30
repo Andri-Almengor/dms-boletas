@@ -45,8 +45,8 @@ export default function MaintenanceFormPage({ mode = 'create' }) {
   const quickCreate = useMaintenanceQuickCreate({
     form: state.form,
     setForm: state.setForm,
-    locations: state.locations,
-    equipment: state.equipment,
+    addLocation: state.addLocation,
+    addEquipment: state.addEquipment,
     sessionToken: state.sessionToken,
   });
 
