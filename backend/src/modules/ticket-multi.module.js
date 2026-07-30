@@ -1,5 +1,6 @@
+import { groupRowsBy, indexRowsBy } from '../core/row-index.js';
 import { nowIso, pick } from '../core/utils.js';
-import { readTables, updateRow } from '../infra/sheets.repository.js';
+import { readTables, updateRow, updateRows } from '../infra/sheets.repository.js';
 import { audit } from '../services/audit.service.js';
 import {
   applySignatureToVisitGroup,
@@ -76,20 +77,18 @@ async function repairStoredCatalogReferences(ticket, actor = 'SISTEMA') {
   });
 }
 
-function assignedView(ticketId, assignments, usersById) {
-  return assignments
-    .filter((item) => clean(item.BoletaUID) === clean(ticketId) && item.Activo !== false)
-    .map((item) => {
-      const user = usersById.get(clean(item.UsuarioID));
-      const name = clean(user?.NombreCompleto || user?.Nombre || user?.NombreUsuario || item.NombreUsuarioSnapshot || item.UsuarioID);
-      return {
-        ...item,
-        NombreCompleto: name,
-        Nombre: name,
-        NombreUsuario: clean(user?.NombreUsuario),
-        Correo: clean(user?.Correo),
-      };
-    });
+function assignedView(ticketId, assignmentsByTicket, usersById) {
+  return (assignmentsByTicket.get(clean(ticketId)) || []).map((item) => {
+    const user = usersById.get(clean(item.UsuarioID));
+    const name = clean(user?.NombreCompleto || user?.Nombre || user?.NombreUsuario || item.NombreUsuarioSnapshot || item.UsuarioID);
+    return {
+      ...item,
+      NombreCompleto: name,
+      Nombre: name,
+      NombreUsuario: clean(user?.NombreUsuario),
+      Correo: clean(user?.Correo),
+    };
+  });
 }
 
 async function enrichWithVisitGroup(bundle, actor = 'SISTEMA') {
@@ -100,15 +99,25 @@ async function enrichWithVisitGroup(bundle, actor = 'SISTEMA') {
     ensureVisitGroupForTicket(ticket.BoletaUID, actor),
     readTables(['BoletaAsignados', 'EvidenciasBoleta', 'Usuarios']),
   ]);
-  const usersById = new Map(tables.Usuarios.map((user) => [clean(user.UsuarioID), user]));
+  const usersById = indexRowsBy(tables.Usuarios, (user) => user.UsuarioID);
+  const assignmentsByTicket = groupRowsBy(
+    tables.BoletaAsignados,
+    (item) => item.BoletaUID,
+    { predicate: (item) => item.Activo !== false },
+  );
+  const evidencesByTicket = groupRowsBy(
+    tables.EvidenciasBoleta,
+    (item) => item.BoletaUID,
+    { predicate: (item) => item.Activo !== false },
+  );
   const visits = group.visits.map((visit) => ({
     ...visit,
     GrupoVisitaID: ticketGroupId(visit),
     BoletaPrincipalUID: ticketRootId(visit),
     NumeroVisita: ticketVisitNumber(visit),
     EsVisitaPrincipal: clean(visit.BoletaUID) === clean(group.rootId),
-    asignados: assignedView(visit.BoletaUID, tables.BoletaAsignados, usersById),
-    evidenceCount: tables.EvidenciasBoleta.filter((item) => clean(item.BoletaUID) === clean(visit.BoletaUID) && item.Activo !== false).length,
+    asignados: assignedView(visit.BoletaUID, assignmentsByTicket, usersById),
+    evidenceCount: (evidencesByTicket.get(clean(visit.BoletaUID)) || []).length,
   }));
   const rawCurrent = group.visits.find((visit) => clean(visit.BoletaUID) === clean(ticket.BoletaUID)) || ticket;
   const current = {
@@ -123,8 +132,8 @@ async function enrichWithVisitGroup(bundle, actor = 'SISTEMA') {
   return {
     ...(bundle?.boleta ? bundle : {}),
     boleta: current,
-    asignados: bundle?.asignados || assignedView(current.BoletaUID, tables.BoletaAsignados, usersById),
-    evidencias: bundle?.evidencias || tables.EvidenciasBoleta.filter((item) => clean(item.BoletaUID) === clean(current.BoletaUID) && item.Activo !== false),
+    asignados: bundle?.asignados || assignedView(current.BoletaUID, assignmentsByTicket, usersById),
+    evidencias: bundle?.evidencias || evidencesByTicket.get(clean(current.BoletaUID)) || [],
     grupoVisitas: { ...groupSummary(group), visits },
     visitasRelacionadas: visits,
   };
@@ -186,16 +195,24 @@ async function createTicket(ctx) {
   };
   const created = await baseTicketHandlers.create(createContext);
   const createdTicket = created.boleta || created;
-  const groupedTicket = await updateRow('Boletas', createdTicket.BoletaUID, {
-    ...relation.groupFields,
-    ActualizadoPor: ctx.user.UsuarioID,
-    FechaActualizacion: nowIso(),
-  });
-  await updateRow('Boletas', relation.group.rootId, {
-    Version: Number(relation.group.root.Version || 0) + 1,
-    ActualizadoPor: ctx.user.UsuarioID,
-    FechaActualizacion: nowIso(),
-  });
+  const [groupedTicket] = await updateRows('Boletas', [
+    {
+      idValue: createdTicket.BoletaUID,
+      patch: {
+        ...relation.groupFields,
+        ActualizadoPor: ctx.user.UsuarioID,
+        FechaActualizacion: nowIso(),
+      },
+    },
+    {
+      idValue: relation.group.rootId,
+      patch: {
+        Version: Number(relation.group.root.Version || 0) + 1,
+        ActualizadoPor: ctx.user.UsuarioID,
+        FechaActualizacion: nowIso(),
+      },
+    },
+  ]);
   await synchronizeVisitGroupSignature(relation.group.rootId, ctx.user.UsuarioID);
   await audit(ctx, 'RELACIONAR_VISITA_BOLETA', 'Boletas', groupedTicket.BoletaUID, createdTicket, {
     GrupoVisitaID: relation.group.id,
