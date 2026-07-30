@@ -13,17 +13,52 @@ import { env } from './config/env.js';
 import { dispatchAction } from './core/action-router.js';
 import { AppError } from './core/errors.js';
 import { runWithActionConcurrency } from './services/action-concurrency.service.js';
+import {
+  actionEnvelopeMiddleware,
+  actionRateLimitMiddleware,
+  requestSecurityMiddleware,
+} from './middleware/security.middleware.js';
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 const distPath = path.resolve(__dirname, '../../dist');
+
+function httpError(error) {
+  if (error?.type === 'entity.too.large' || error?.status === 413) {
+    return new AppError('PAYLOAD_TOO_LARGE', 'La solicitud supera el tamaño máximo permitido.', 413);
+  }
+  if (error instanceof SyntaxError && error?.type === 'entity.parse.failed') {
+    return new AppError('INVALID_JSON', 'El cuerpo de la solicitud no contiene JSON válido.', 400);
+  }
+  return error;
+}
 
 export const app = express();
 app.set('trust proxy', 1);
 app.set('etag', 'strong');
 app.disable('x-powered-by');
+app.use(requestSecurityMiddleware);
 app.use(helmet({
-  contentSecurityPolicy: false,
+  contentSecurityPolicy: {
+    useDefaults: true,
+    directives: {
+      defaultSrc: ["'self'"],
+      scriptSrc: ["'self'"],
+      styleSrc: ["'self'", "'unsafe-inline'", 'https://fonts.googleapis.com'],
+      fontSrc: ["'self'", 'data:', 'https://fonts.gstatic.com'],
+      imgSrc: ["'self'", 'data:', 'blob:', 'https:'],
+      connectSrc: ["'self'", 'https:'],
+      mediaSrc: ["'self'", 'data:', 'blob:', 'https:'],
+      workerSrc: ["'self'", 'blob:'],
+      frameSrc: ["'self'", 'https:'],
+      objectSrc: ["'none'"],
+      baseUri: ["'self'"],
+      formAction: ["'self'"],
+      frameAncestors: ["'none'"],
+      upgradeInsecureRequests: env.isProduction ? [] : null,
+    },
+  },
   crossOriginResourcePolicy: { policy: 'cross-origin' },
+  referrerPolicy: { policy: 'strict-origin-when-cross-origin' },
 }));
 app.use(compression({ threshold: 1_024 }));
 app.use(cors({
@@ -40,16 +75,15 @@ app.get('/api/health', (_req, res) => {
   res.json({ ok: true, service: 'dms-boletas-backend', time: new Date().toISOString() });
 });
 
-app.post('/api/action', async (req, res, next) => {
+app.post('/api/action', actionEnvelopeMiddleware, actionRateLimitMiddleware, async (req, res, next) => {
   try {
     res.setHeader('Cache-Control', 'no-store');
-    const body = typeof req.body === 'string' ? JSON.parse(req.body || '{}') : (req.body || {});
-    const route = body.route || body.action;
+    const envelope = req.actionEnvelope;
     const requestOrigin = req.get('origin') || `${req.protocol}://${req.get('host')}`;
-    const data = await runWithActionConcurrency(route, () => dispatchAction({
-      route,
-      payload: body.payload || {},
-      sessionToken: body.sessionToken || req.headers.authorization?.replace(/^Bearer\s+/i, '') || '',
+    const data = await runWithActionConcurrency(envelope.route, () => dispatchAction({
+      route: envelope.route,
+      payload: envelope.payload,
+      sessionToken: envelope.sessionToken || req.headers.authorization?.replace(/^Bearer\s+/i, '') || '',
       ip: req.ip,
       userAgent: req.get('user-agent') || '',
       origin: requestOrigin,
@@ -91,15 +125,16 @@ app.use((_req, res) => {
   res.status(404).json({ ok: false, error: { code: 'NOT_FOUND', message: 'Ruta no encontrada.' } });
 });
 
-app.use((error, _req, res, _next) => {
+app.use((rawError, req, res, _next) => {
+  const error = httpError(rawError);
   const status = error.status || error.statusCode || (error instanceof AppError ? error.status : 500);
   const isExpected = error instanceof AppError;
-  if (status >= 500) console.error(error);
-  else console.warn(`[${error.code || 'REQUEST_ERROR'}] ${error.message}`);
+  if (status >= 500) console.error(`[${req.requestId || 'sin-id'}]`, error);
+  else console.warn(`[${req.requestId || 'sin-id'}][${error.code || 'REQUEST_ERROR'}] ${error.message}`);
 
   res.setHeader('Cache-Control', 'no-store');
   if (Number(status) === 429) {
-    const seconds = Math.max(5, Number(error?.details?.retryAfterSeconds || 60));
+    const seconds = Math.max(1, Number(error?.details?.retryAfterSeconds || 60));
     res.setHeader('Retry-After', String(seconds));
   }
 
@@ -107,7 +142,7 @@ app.use((error, _req, res, _next) => {
     ok: false,
     error: {
       code: error.code || 'INTERNAL_ERROR',
-      message: isExpected ? error.message : (status >= 500 ? 'Ocurrió un error interno en el servidor.' : error.message),
+      message: isExpected ? error.message : (status >= 500 ? 'Ocurrió un error interno en el servidor.' : 'La solicitud no pudo procesarse.'),
       details: isExpected ? error.details || null : null,
     },
   });

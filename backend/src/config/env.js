@@ -15,8 +15,18 @@ function optionalNumber(name, fallback, minimum = 0) {
   return Number.isFinite(value) ? Math.max(minimum, value) : fallback;
 }
 
+function optionalBoolean(name, fallback = false) {
+  const value = optional(name, fallback ? 'true' : 'false').toLowerCase();
+  if (['1', 'true', 'yes', 'si', 'sí'].includes(value)) return true;
+  if (['0', 'false', 'no'].includes(value)) return false;
+  return fallback;
+}
+
+const nodeEnv = optional('NODE_ENV', 'development');
+const isProduction = nodeEnv === 'production';
+
 export const env = Object.freeze({
-  nodeEnv: optional('NODE_ENV', 'development'),
+  nodeEnv,
   port: Number(optional('PORT', '10000')),
   sheetId: required('GOOGLE_SHEET_ID', '11u44CTxL2KWqwezF_p3Kkc4OoB71BKsQwIh-NLRFgm4'),
   googleClientEmail: required('GOOGLE_SERVICE_ACCOUNT_EMAIL'),
@@ -72,6 +82,23 @@ export const env = Object.freeze({
   serverHeadersTimeoutMs: optionalNumber('SERVER_HEADERS_TIMEOUT_MS', 66000, 2000),
   serverRequestTimeoutMs: optionalNumber('SERVER_REQUEST_TIMEOUT_MS', 360000, 10000),
   shutdownGraceMs: optionalNumber('SHUTDOWN_GRACE_MS', 15000, 1000),
+
+  // Protección HTTP. Los valores predeterminados dejan margen para el uso
+  // normal de técnicos y limitan abuso automatizado de rutas públicas.
+  securityLoginRateLimitMax: optionalNumber('SECURITY_LOGIN_RATE_LIMIT_MAX', 30, 1),
+  securityLoginRateLimitWindowMs: optionalNumber('SECURITY_LOGIN_RATE_LIMIT_WINDOW_MS', 15 * 60_000, 1_000),
+  securityPublicWriteRateLimitMax: optionalNumber('SECURITY_PUBLIC_WRITE_RATE_LIMIT_MAX', 60, 1),
+  securityPublicWriteRateLimitWindowMs: optionalNumber('SECURITY_PUBLIC_WRITE_RATE_LIMIT_WINDOW_MS', 15 * 60_000, 1_000),
+  securityPublicReadRateLimitMax: optionalNumber('SECURITY_PUBLIC_READ_RATE_LIMIT_MAX', 300, 1),
+  securityPublicReadRateLimitWindowMs: optionalNumber('SECURITY_PUBLIC_READ_RATE_LIMIT_WINDOW_MS', 5 * 60_000, 1_000),
+  securityActionRateLimitMax: optionalNumber('SECURITY_ACTION_RATE_LIMIT_MAX', 900, 1),
+  securityActionRateLimitWindowMs: optionalNumber('SECURITY_ACTION_RATE_LIMIT_WINDOW_MS', 60_000, 1_000),
+  securityRateLimitMaxBuckets: optionalNumber('SECURITY_RATE_LIMIT_MAX_BUCKETS', 10_000, 100),
+  securityMaxSessionTokenLength: optionalNumber('SECURITY_MAX_SESSION_TOKEN_LENGTH', 1_024, 128),
+  securityPayloadMaxDepth: optionalNumber('SECURITY_PAYLOAD_MAX_DEPTH', 24, 5),
+  securityPayloadMaxKeys: optionalNumber('SECURITY_PAYLOAD_MAX_KEYS', 50_000, 100),
+  healthDetailsPublic: optionalBoolean('HEALTH_DETAILS_PUBLIC', !isProduction),
+
   frontendOrigin: optional('FRONTEND_ORIGIN', '*'),
   appPublicUrl: optional('APP_PUBLIC_URL'),
   smtpHost: optional('SMTP_HOST'),
@@ -81,5 +108,5 @@ export const env = Object.freeze({
   smtpPass: optional('SMTP_PASS'),
   smtpFrom: optional('SMTP_FROM', 'DMS Boletas <no-reply@localhost>'),
   chatWebhook: optional('GOOGLE_CHAT_WEBHOOK'),
-  isProduction: optional('NODE_ENV', 'development') === 'production',
+  isProduction,
 });
