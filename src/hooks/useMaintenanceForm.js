@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
+import { useCallback, useMemo, useRef, useState } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { useAuth } from '../AuthContext';
 import {
@@ -9,9 +9,13 @@ import {
   updateMaintenanceCount,
   validateMaintenanceForm,
 } from '../features/maintenance/maintenanceFormDomain';
+import {
+  cloneMaintenanceDevice,
+  maintenanceFormSignature,
+} from '../features/maintenance/maintenanceDeviceState';
+import useMaintenanceDeviceEditorLifecycle from '../features/maintenance/useMaintenanceDeviceEditorLifecycle';
 import useMaintenanceResources from '../features/maintenance/useMaintenanceResources';
 import {
-  createMaintenanceDevice,
   EMPTY_MAINTENANCE,
   fileToBase64,
   maintenanceDevicePayload,
@@ -19,78 +23,12 @@ import {
 } from '../pages/maintenance/maintenanceFormData';
 import { MODULE_ROUTES, pick, requestAvailable } from '../services/moduleApi';
 
-const LOCAL_DRAFT_DELAY_MS = 650;
-
-function localDraftKey(maintenanceId) {
-  return `dms-maintenance-device-draft:${maintenanceId || 'new'}`;
-}
-
-function cloneDevice(device) {
-  if (!device) return null;
-  return {
-    ...device,
-    respuestas: { ...(device.respuestas || {}) },
-    images: (device.images || []).map((image) => ({ ...image })),
-    newImages: (device.newImages || []).map((image) => ({ ...image })),
-  };
-}
-
-function serializableDevice(device) {
-  if (!device) return null;
-  const { newImages: _newImages, ...rest } = device;
-  return {
-    ...rest,
-    respuestas: { ...(device.respuestas || {}) },
-    images: (device.images || []).map(({ dataUrl: _dataUrl, previewUrl: _previewUrl, ...image }) => image),
-    newImages: [],
-  };
-}
-
 function uploadedImageView(row) {
   return {
     ...row,
     id: String(pick(row, ['FotoDispositivoID', 'id'])),
     dirty: false,
   };
-}
-
-function deviceSignature(device) {
-  if (!device) return '';
-  const payload = maintenanceDevicePayload(device, '');
-  return JSON.stringify({
-    payload,
-    dirtyImages: (device.images || [])
-      .filter((image) => image.dirty)
-      .map((image) => ({ id: image.id, Tipo: image.Tipo, Nota: image.Nota })),
-    newImages: (device.newImages || []).map((image) => ({
-      localId: image.localId,
-      type: image.type,
-      note: image.note,
-      name: image.file?.name,
-      size: image.file?.size,
-      lastModified: image.file?.lastModified,
-    })),
-  });
-}
-
-function maintenanceSignature(form, devices) {
-  return JSON.stringify({
-    form,
-    devices: (devices || []).map(serializableDevice),
-  });
-}
-
-function releasePendingImages(current, original = null) {
-  const originalIds = new Set((original?.newImages || []).map((image) => image.localId));
-  (current?.newImages || []).forEach((image) => {
-    if (originalIds.has(image.localId)) return;
-    if (image?.previewUrl?.startsWith('blob:')) URL.revokeObjectURL(image.previewUrl);
-    if (image?.file) {
-      window.dispatchEvent(new CustomEvent('dms-draft-file-removed', {
-        detail: { route: `${window.location.pathname}${window.location.search || ''}`, file: image.file },
-      }));
-    }
-  });
 }
 
 export default function useMaintenanceForm({ editing, maintenanceId }) {
@@ -118,20 +56,14 @@ export default function useMaintenanceForm({ editing, maintenanceId }) {
 
   const [form, setForm] = useState({ ...EMPTY_MAINTENANCE, responsables: user?.UsuarioID ? [String(user.UsuarioID)] : [] });
   const [devices, setDevices] = useState([]);
-  const [activeDevice, setActiveDevice] = useState(null);
   const [saving, setSaving] = useState(false);
   const [deviceSaving, setDeviceSaving] = useState(false);
-  const [deviceAutosaveStatus, setDeviceAutosaveStatus] = useState('idle');
   const [error, setError] = useState('');
-  const activeDeviceRef = useRef(null);
-  const originalDeviceRef = useRef(null);
   const deviceSavePromiseRef = useRef(null);
-  const lastSavedDeviceSignatureRef = useRef('');
   const initialMaintenanceSignatureRef = useRef('');
-  const draftConsumedRef = useRef(false);
 
   const captureInitialState = useCallback((nextForm, nextDevices) => {
-    initialMaintenanceSignatureRef.current = maintenanceSignature(nextForm, nextDevices);
+    initialMaintenanceSignatureRef.current = maintenanceFormSignature(nextForm, nextDevices);
   }, []);
 
   const resources = useMaintenanceResources({
@@ -145,10 +77,6 @@ export default function useMaintenanceForm({ editing, maintenanceId }) {
     setError,
     onInitialState: captureInitialState,
   });
-
-  useEffect(() => {
-    activeDeviceRef.current = activeDevice;
-  }, [activeDevice]);
 
   const technicians = useMemo(
     () => buildMaintenanceTechnicians(resources.users),
@@ -165,8 +93,18 @@ export default function useMaintenanceForm({ editing, maintenanceId }) {
   const readOnly = maintenanceReadOnly({ editing, estado: form.estado, isAdmin });
   const maintenanceDirty = useMemo(() => (
     Boolean(initialMaintenanceSignatureRef.current)
-    && maintenanceSignature(form, devices) !== initialMaintenanceSignatureRef.current
+    && maintenanceFormSignature(form, devices) !== initialMaintenanceSignatureRef.current
   ), [form, devices]);
+
+  const editor = useMaintenanceDeviceEditorLifecycle({
+    editing,
+    maintenanceId,
+    readOnly,
+    saving,
+    deviceSaving,
+    setDevices,
+    setError,
+  });
 
   function updateCount(key, value) {
     setForm((current) => ({
@@ -175,84 +113,18 @@ export default function useMaintenanceForm({ editing, maintenanceId }) {
     }));
   }
 
-  function saveActiveDevice(device) {
-    const snapshot = cloneDevice(device);
-    setDevices((current) => current.some((item) => item.localId === snapshot.localId)
-      ? current.map((item) => item.localId === snapshot.localId ? snapshot : item)
-      : [...current, snapshot]);
-  }
-
-  function openDevice(device) {
-    const snapshot = cloneDevice(device);
-    originalDeviceRef.current = cloneDevice(snapshot);
-    activeDeviceRef.current = snapshot;
-    lastSavedDeviceSignatureRef.current = deviceSignature(snapshot);
-    setDeviceAutosaveStatus(snapshot?.id ? 'server' : 'idle');
-    setError('');
-    setActiveDevice(snapshot);
-  }
-
-  function cancelActiveDevice() {
-    const current = activeDeviceRef.current;
-    const original = originalDeviceRef.current;
-    if (!current) return true;
-    const changed = deviceSignature(current) !== deviceSignature(original);
-    if (changed && !window.confirm('¿Descartar los cambios realizados en este dispositivo?')) return false;
-
-    releasePendingImages(current, original);
-    try { localStorage.removeItem(localDraftKey(maintenanceId)); } catch { /* Sin efecto. */ }
-    originalDeviceRef.current = null;
-    activeDeviceRef.current = null;
-    setActiveDevice(null);
-    setDeviceAutosaveStatus('idle');
-    setError('');
-    window.dispatchEvent(new CustomEvent('dms-offline-editing-complete'));
-    return true;
-  }
-
-  useEffect(() => {
-    if (!activeDevice || readOnly || saving || deviceSaving) return undefined;
-    const currentSignature = deviceSignature(activeDevice);
-    if (currentSignature === lastSavedDeviceSignatureRef.current) {
-      setDeviceAutosaveStatus(activeDevice.id ? 'server' : 'idle');
-      return undefined;
-    }
-
-    setDeviceAutosaveStatus('saving');
-    const timer = window.setTimeout(() => {
-      try {
-        localStorage.setItem(localDraftKey(maintenanceId), JSON.stringify(serializableDevice(activeDevice)));
-        setDeviceAutosaveStatus('local');
-      } catch {
-        setDeviceAutosaveStatus('error');
-      }
-    }, LOCAL_DRAFT_DELAY_MS);
-    return () => window.clearTimeout(timer);
-  }, [activeDevice, deviceSaving, maintenanceId, readOnly, saving]);
-
   async function commitActiveDevice(device, { closeAfter = false } = {}) {
     if (!device) return null;
 
     if (!editing || !maintenanceId) {
-      saveActiveDevice(device);
-      const snapshot = cloneDevice(device);
-      originalDeviceRef.current = cloneDevice(snapshot);
-      lastSavedDeviceSignatureRef.current = deviceSignature(snapshot);
-      setDeviceAutosaveStatus('local');
-      try { localStorage.removeItem(localDraftKey(maintenanceId)); } catch { /* Sin efecto. */ }
-      if (closeAfter) {
-        setActiveDevice(null);
-        activeDeviceRef.current = null;
-        window.dispatchEvent(new CustomEvent('dms-offline-editing-complete'));
-      }
-      return snapshot;
+      return editor.markDeviceSaved(device, { closeAfter, status: 'local' });
     }
 
     if (deviceSavePromiseRef.current) return deviceSavePromiseRef.current;
 
     const task = (async () => {
       setDeviceSaving(true);
-      setDeviceAutosaveStatus('saving');
+      editor.setDeviceAutosaveStatus('saving');
       setError('');
       try {
         const route = device.id ? MODULE_ROUTES.maintenance.deviceUpdate : MODULE_ROUTES.maintenance.deviceCreate;
@@ -288,7 +160,7 @@ export default function useMaintenanceForm({ editing, maintenanceId }) {
         }
 
         const savedSnapshot = {
-          ...cloneDevice(device),
+          ...cloneMaintenanceDevice(device),
           id: deviceId,
           images: [
             ...(device.images || []).map((image) => savedExistingImageIds.includes(image.id) ? { ...image, dirty: false } : { ...image }),
@@ -296,23 +168,9 @@ export default function useMaintenanceForm({ editing, maintenanceId }) {
           ],
           newImages: [],
         };
-        saveActiveDevice(savedSnapshot);
-        originalDeviceRef.current = cloneDevice(savedSnapshot);
-        activeDeviceRef.current = savedSnapshot;
-        lastSavedDeviceSignatureRef.current = deviceSignature(savedSnapshot);
-        setDeviceAutosaveStatus('server');
-        try { localStorage.removeItem(localDraftKey(maintenanceId)); } catch { /* Sin efecto. */ }
-
-        if (closeAfter) {
-          setActiveDevice(null);
-          activeDeviceRef.current = null;
-          window.dispatchEvent(new CustomEvent('dms-offline-editing-complete'));
-        } else {
-          setActiveDevice(savedSnapshot);
-        }
-        return savedSnapshot;
+        return editor.markDeviceSaved(savedSnapshot, { closeAfter, status: 'server' });
       } catch (requestError) {
-        setDeviceAutosaveStatus('error');
+        editor.setDeviceAutosaveStatus('error');
         setError(requestError.message);
         throw requestError;
       } finally {
@@ -326,19 +184,21 @@ export default function useMaintenanceForm({ editing, maintenanceId }) {
   }
 
   async function closeActiveDevice() {
-    if (!activeDeviceRef.current) return null;
+    const activeDevice = editor.getActiveDevice();
+    if (!activeDevice) return null;
     try {
-      return await commitActiveDevice(activeDeviceRef.current, { closeAfter: true });
+      return await commitActiveDevice(activeDevice, { closeAfter: true });
     } catch {
       return null;
     }
   }
 
   async function saveAndAddAnotherDevice() {
-    if (!activeDeviceRef.current) return null;
+    const activeDevice = editor.getActiveDevice();
+    if (!activeDevice) return null;
     try {
-      const saved = await commitActiveDevice(activeDeviceRef.current, { closeAfter: false });
-      if (saved) openDevice(createDeviceForForm());
+      const saved = await commitActiveDevice(activeDevice, { closeAfter: false });
+      if (saved) editor.openDevice(editor.createDevice());
       return saved;
     } catch {
       return null;
@@ -349,10 +209,7 @@ export default function useMaintenanceForm({ editing, maintenanceId }) {
     if (!isAdmin || !window.confirm('¿Eliminar este dispositivo y sus evidencias?')) return;
     try {
       if (device.id) await requestAvailable(MODULE_ROUTES.maintenance.deviceDelete, { maintenanceId, deviceId: device.id }, sessionToken);
-      setDevices((current) => current.filter((item) => item.localId !== device.localId));
-      setActiveDevice(null);
-      activeDeviceRef.current = null;
-      originalDeviceRef.current = null;
+      editor.removeDeviceLocally(device);
     } catch (requestError) {
       setError(requestError.message);
     }
@@ -380,7 +237,7 @@ export default function useMaintenanceForm({ editing, maintenanceId }) {
       }
 
       if (action === 'finalize') await requestAvailable(MODULE_ROUTES.maintenance.finalize, { maintenanceId: id }, sessionToken);
-      try { localStorage.removeItem(localDraftKey(maintenanceId)); } catch { /* Sin efecto. */ }
+      editor.clearDeviceDraft();
       navigate(`/mantenimientos/${encodeURIComponent(id)}`);
     } catch (requestError) {
       setError(requestError.message);
@@ -391,20 +248,9 @@ export default function useMaintenanceForm({ editing, maintenanceId }) {
 
   function cancelMaintenanceChanges() {
     if (maintenanceDirty && !window.confirm('¿Cancelar la edición y descartar los cambios del mantenimiento?')) return false;
-    try { localStorage.removeItem(localDraftKey(maintenanceId)); } catch { /* Sin efecto. */ }
+    editor.clearDeviceDraft();
     navigate(editing ? `/mantenimientos/${encodeURIComponent(maintenanceId)}` : '/mantenimientos');
     return true;
-  }
-
-  function createDeviceForForm() {
-    const fresh = createMaintenanceDevice();
-    if (editing || draftConsumedRef.current) return fresh;
-    draftConsumedRef.current = true;
-    try {
-      const stored = JSON.parse(localStorage.getItem(localDraftKey(maintenanceId)) || 'null');
-      if (stored) return { ...fresh, ...stored, localId: fresh.localId, id: '', images: [], newImages: [] };
-    } catch { /* Inicia un dispositivo limpio. */ }
-    return fresh;
   }
 
   return {
@@ -414,9 +260,9 @@ export default function useMaintenanceForm({ editing, maintenanceId }) {
     form,
     setForm,
     devices,
-    activeDevice,
-    setActiveDevice,
-    openDevice,
+    activeDevice: editor.activeDevice,
+    setActiveDevice: editor.setActiveDevice,
+    openDevice: editor.openDevice,
     clients: resources.clients,
     locations: resources.locations,
     equipment: resources.equipment,
@@ -426,7 +272,7 @@ export default function useMaintenanceForm({ editing, maintenanceId }) {
     loading: resources.loading,
     saving,
     deviceSaving,
-    deviceAutosaveStatus,
+    deviceAutosaveStatus: editor.deviceAutosaveStatus,
     error,
     setError,
     readOnly,
@@ -434,15 +280,17 @@ export default function useMaintenanceForm({ editing, maintenanceId }) {
     expectedTotal,
     maintenanceDirty,
     updateCount,
-    saveActiveDevice,
+    saveActiveDevice: editor.saveActiveDevice,
+    markDeviceSaved: editor.markDeviceSaved,
+    clearDeviceDraft: editor.clearDeviceDraft,
     commitActiveDevice,
     closeActiveDevice,
-    cancelActiveDevice,
+    cancelActiveDevice: editor.cancelActiveDevice,
     cancelMaintenanceChanges,
     saveAndAddAnotherDevice,
     removeDevice,
     persist,
-    createDevice: createDeviceForForm,
+    createDevice: editor.createDevice,
     sessionToken,
   };
 }
