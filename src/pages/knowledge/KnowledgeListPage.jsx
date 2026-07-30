@@ -1,11 +1,11 @@
-import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react';
+import React, { useCallback, useEffect, useMemo, useState } from 'react';
 import { Link } from 'react-router-dom';
 import { useAuth } from '../../AuthContext';
 import Icon from '../../components/common/Icon';
 import KnowledgeCard from '../../components/knowledge/KnowledgeCard';
+import usePaginatedResource from '../../hooks/usePaginatedResource';
 import { MODULE_ROUTES, normalizeItems, pick, requestAvailable } from '../../services/moduleApi';
 import { normalizeKnowledge } from '../../utils/knowledge';
-import { mergePaginatedItems, paginationMeta } from '../../utils/paginatedCollection';
 
 const PAGE_SIZE = 30;
 
@@ -18,88 +18,52 @@ export default function KnowledgeListPage() {
   const canCreate = canCreateTutorial(hasPermission);
   const canManageCategories = hasPermission('CONOCIMIENTO_CATEGORIAS_GESTIONAR') || hasPermission('USUARIOS_GESTIONAR');
   const canManageAll = hasPermission('CONOCIMIENTO_GESTIONAR') || hasPermission('USUARIOS_GESTIONAR');
-  const [items, setItems] = useState([]);
   const [categories, setCategories] = useState([]);
   const [search, setSearch] = useState('');
   const [categoryId, setCategoryId] = useState('');
   const [mineOnly, setMineOnly] = useState(false);
-  const [page, setPage] = useState(1);
-  const [total, setTotal] = useState(0);
-  const [hasMore, setHasMore] = useState(false);
-  const [loading, setLoading] = useState(true);
-  const [loadingMore, setLoadingMore] = useState(false);
-  const [error, setError] = useState('');
-  const requestSequence = useRef(0);
 
   useEffect(() => {
-    let active = true;
+    const controller = new AbortController();
     requestAvailable(MODULE_ROUTES.knowledgeCategories.list, {
       page: 1,
       pageSize: 300,
       activo: true,
       sortBy: 'Nombre',
       sortDir: 'asc',
-    }, sessionToken).then((data) => {
-      if (active) setCategories(normalizeItems(data));
+    }, sessionToken, { signal: controller.signal }).then((data) => {
+      if (!controller.signal.aborted) setCategories(normalizeItems(data));
     }).catch(() => {});
-    return () => { active = false; };
+    return () => controller.abort();
   }, [sessionToken]);
 
-  const load = useCallback(async ({ targetPage = 1, append = false, query = search } = {}) => {
-    const sequence = ++requestSequence.current;
-    if (append) setLoadingMore(true);
-    else setLoading(true);
-    setError('');
-    try {
-      const data = await requestAvailable(MODULE_ROUTES.knowledge.list, {
-        page: targetPage,
-        pageSize: PAGE_SIZE,
-        search: query.trim(),
-        categoriaId: categoryId,
-        autorUsuarioId: mineOnly ? pick(user, ['UsuarioID', 'id']) : '',
-        includeDrafts: canManageAll || mineOnly,
-        sortBy: 'FechaActualizacion',
-        sortDir: 'desc',
-      }, sessionToken);
-      if (sequence !== requestSequence.current) return;
-      const incoming = normalizeItems(data);
-      setItems((current) => {
-        const next = append
-          ? mergePaginatedItems(current, incoming, (item, index, source) => normalizeKnowledge(item).id || `${source}-${index}`)
-          : incoming;
-        const meta = paginationMeta(data, {
-          loadedCount: next.length,
-          incomingCount: incoming.length,
-          pageSize: PAGE_SIZE,
-        });
-        setTotal(meta.total);
-        setHasMore(meta.hasMore);
-        return next;
-      });
-      setPage(targetPage);
-    } catch (err) {
-      if (sequence !== requestSequence.current) return;
-      setError(err.message);
-      if (!append) {
-        setItems([]);
-        setTotal(0);
-        setHasMore(false);
-      }
-    } finally {
-      if (sequence === requestSequence.current) {
-        setLoading(false);
-        setLoadingMore(false);
-      }
-    }
-  }, [canManageAll, categoryId, mineOnly, search, sessionToken, user]);
+  const fetchTutorials = useCallback(({ page, pageSize, signal }) => requestAvailable(MODULE_ROUTES.knowledge.list, {
+    page,
+    pageSize,
+    search: search.trim(),
+    categoriaId: categoryId,
+    autorUsuarioId: mineOnly ? pick(user, ['UsuarioID', 'id']) : '',
+    includeDrafts: canManageAll || mineOnly,
+    sortBy: 'FechaActualizacion',
+    sortDir: 'desc',
+  }, sessionToken, { signal }), [canManageAll, categoryId, mineOnly, search, sessionToken, user]);
 
-  useEffect(() => {
-    setItems([]);
-    setPage(1);
-    setTotal(0);
-    setHasMore(false);
-    load({ targetPage: 1, append: false });
-  }, [sessionToken, categoryId, mineOnly]);
+  const {
+    items,
+    total,
+    hasMore,
+    loading,
+    loadingMore,
+    error,
+    loadFirst,
+    loadMore,
+  } = usePaginatedResource({
+    pageSize: PAGE_SIZE,
+    fetchPage: fetchTutorials,
+    normalizeResponse: normalizeItems,
+    getItemKey: (item, index, source) => normalizeKnowledge(item).id || `${source}-${index}`,
+    resetKey: `${sessionToken}|${categoryId}|${mineOnly ? 'mine' : 'all'}`,
+  });
 
   const visibleItems = useMemo(() => {
     const query = search.trim().toLowerCase();
@@ -113,8 +77,7 @@ export default function KnowledgeListPage() {
 
   function submit(event) {
     event.preventDefault();
-    setPage(1);
-    load({ targetPage: 1, append: false, query: search });
+    loadFirst();
   }
 
   return <div className="page knowledge-page">
@@ -145,7 +108,7 @@ export default function KnowledgeListPage() {
     {loading ? <div className="state-card state-card--loading"><Icon name="progress_activity" /><span>Cargando documentación...</span></div> : visibleItems.length ? <>
       <div className="ticket-list-result-count"><span>Mostrando <strong>{visibleItems.length}</strong>{total > visibleItems.length ? ` de ${total}` : ''} tutoriales</span></div>
       <div className="knowledge-grid">{visibleItems.map((item, index) => <KnowledgeCard key={normalizeKnowledge(item).id || index} record={item} />)}</div>
-      {hasMore && <div className="list-load-more"><button type="button" className="button button--secondary" disabled={loadingMore} onClick={() => load({ targetPage: page + 1, append: true })}><Icon name={loadingMore ? 'progress_activity' : 'expand_more'} />{loadingMore ? 'Cargando...' : 'Cargar más tutoriales'}</button></div>}
+      {hasMore && <div className="list-load-more"><button type="button" className="button button--secondary" disabled={loadingMore} onClick={loadMore}><Icon name={loadingMore ? 'progress_activity' : 'expand_more'} />{loadingMore ? 'Cargando...' : 'Cargar más tutoriales'}</button></div>}
     </> : <div className="empty-state"><Icon name="menu_book" /><h2>No hay tutoriales disponibles</h2><p>{canCreate ? 'Crea el primer documento técnico del equipo.' : 'Los tutoriales publicados aparecerán aquí.'}</p></div>}
   </div>;
 }
