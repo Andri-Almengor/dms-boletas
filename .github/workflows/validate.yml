@@ -20,6 +20,14 @@ jobs:
             package-lock.json
             backend/package-lock.json
 
+      - name: Generate patched dependency manifests
+        run: |
+          npm install --package-lock-only --ignore-scripts --save-exact react-router-dom@6.30.4
+          npm install --package-lock-only --ignore-scripts --save-exact --prefix backend nodemailer@9.0.3
+          mkdir -p .artifacts/generated-manifests/backend
+          cp package.json package-lock.json .artifacts/generated-manifests/
+          cp backend/package.json backend/package-lock.json .artifacts/generated-manifests/backend/
+
       - name: Install frontend dependencies
         run: npm ci
 
@@ -42,6 +50,7 @@ jobs:
           npm run report:final
 
       - name: Upload final validation report
+        if: always()
         uses: actions/upload-artifact@v4
         with:
           name: final-validation
