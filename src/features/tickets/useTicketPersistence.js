@@ -1,5 +1,6 @@
 import { useCallback, useEffect, useState } from 'react';
 import { isAbortError } from '../../services/requestErrors';
+import { releaseLocalFiles } from '../../utils/localFileLifecycle';
 import { validateTicketForm } from './ticketFormDomain';
 import {
   autosaveTicket,
@@ -68,6 +69,7 @@ export default function useTicketPersistence({
         sessionToken,
       });
       await runTicketPostSaveAction({ type, uid, form, sessionToken });
+      releaseLocalFiles(evidences);
       await clearDraft();
       navigate(`/boletas/${encodeURIComponent(uid)}`);
       return uid;

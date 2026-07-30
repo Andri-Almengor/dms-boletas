@@ -1,18 +1,10 @@
 import React, { memo } from 'react';
+import { releaseLocalFile } from '../../utils/localFileLifecycle';
 import Icon from '../common/Icon';
-
-function currentRoute() {
-  return `${window.location.pathname}${window.location.search || ''}`;
-}
 
 function EvidenceUploader({ items, onAdd, onUpdate, onRemove, disabled }) {
   function remove(index) {
-    const item = items[index];
-    if (item?.file) {
-      window.dispatchEvent(new CustomEvent('dms-draft-file-removed', {
-        detail: { route: currentRoute(), file: item.file },
-      }));
-    }
+    releaseLocalFile(items[index]);
     onRemove(index);
   }
 

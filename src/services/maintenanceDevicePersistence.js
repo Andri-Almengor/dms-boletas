@@ -4,34 +4,24 @@ import {
   ensureMaintenanceDeviceIdentity,
 } from '../features/maintenance/maintenanceDevicePersistenceState.js';
 import { maintenanceDevicePayload } from '../pages/maintenance/maintenanceFormData';
+import { releaseLocalFiles } from '../utils/localFileLifecycle';
 import {
   updateMaintenanceImagesInBatches,
   uploadMaintenanceImagesInBatches,
 } from './maintenanceImageBatch';
 import { MODULE_ROUTES, pick, requestAvailable } from './moduleApi';
 
-function releaseUploadedPreviews(images = [], uploadedKeys = new Set()) {
-  for (const image of images) {
-    if (!uploadedKeys.has(cleanMaintenancePersistenceValue(image.localId))) continue;
-
-    if (image?.previewUrl?.startsWith('blob:') && typeof URL !== 'undefined') {
-      URL.revokeObjectURL(image.previewUrl);
-    }
-    if (image?.file && typeof window !== 'undefined') {
-      window.dispatchEvent(new CustomEvent('dms-draft-file-removed', {
-        detail: {
-          route: `${window.location.pathname}${window.location.search || ''}`,
-          file: image.file,
-        },
-      }));
-    }
-  }
+function releaseUploadedFiles(images = [], uploadedKeys = new Set()) {
+  releaseLocalFiles(images.filter((image) => (
+    uploadedKeys.has(cleanMaintenancePersistenceValue(image.localId))
+  )));
 }
 
 export async function persistMaintenanceDevice({
   maintenanceId,
   device,
   sessionToken,
+  signal,
 }) {
   if (!device) throw new Error('No se recibió el dispositivo que se debe guardar.');
 
@@ -43,6 +33,7 @@ export async function persistMaintenanceDevice({
     route,
     maintenanceDevicePayload(requestDevice, maintenanceId),
     sessionToken,
+    signal ? { signal } : {},
   );
   const deviceId = cleanMaintenancePersistenceValue(
     pick(saved, ['EvidenciaMantenimientoID', 'deviceId', 'id'], requestDevice.id),
@@ -54,12 +45,14 @@ export async function persistMaintenanceDevice({
     deviceId,
     images: device.images || [],
     sessionToken,
+    signal,
   });
   const uploadResult = await uploadMaintenanceImagesInBatches({
     maintenanceId,
     deviceId,
     images: device.newImages || [],
     sessionToken,
+    signal,
   });
   const state = buildMaintenanceDevicePersistenceState({
     device: requestDevice,
@@ -68,7 +61,7 @@ export async function persistMaintenanceDevice({
     uploadResult,
   });
 
-  releaseUploadedPreviews(device.newImages || [], state.uploadedKeys);
+  releaseUploadedFiles(device.newImages || [], state.uploadedKeys);
   return {
     ...state,
     deviceId,
@@ -82,6 +75,7 @@ export async function persistMaintenanceDeviceCollection({
   maintenanceId,
   devices = [],
   sessionToken,
+  signal,
   onPersisted,
 }) {
   const results = [];
@@ -91,6 +85,7 @@ export async function persistMaintenanceDeviceCollection({
       maintenanceId,
       device: devices[index],
       sessionToken,
+      signal,
     });
     results.push(result);
     if (typeof onPersisted === 'function') onPersisted(result, index);

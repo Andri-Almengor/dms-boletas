@@ -1,5 +1,6 @@
 import { MODULE_ROUTES, pick, requestAvailable } from '../../services/moduleApi';
 import { fileToBase64 } from '../../utils/fileEncoding';
+import { createLocalId } from '../../utils/localId';
 import { buildTicketPayload, ticketRecordData } from './ticketFormDomain';
 
 function requestOptions(signal) {
@@ -26,16 +27,27 @@ export async function uploadTicketAssets({ uid, form, evidences, sessionToken, s
     }, sessionToken, options);
   }
 
+  const uploaded = [];
   for (const item of evidences) {
-    await requestAvailable(MODULE_ROUTES.tickets.evidenceUpload, {
-      boletaUid: uid,
-      nombre: item.name || item.file.name,
-      nota: item.note,
-      fileName: item.file.name,
-      mimeType: item.mimeType,
-      base64: await fileToBase64(item.file),
-    }, sessionToken, options);
+    const evidenceId = String(item.localId || createLocalId('evidencia'));
+    let base64 = await fileToBase64(item.file, { signal });
+    try {
+      const result = await requestAvailable(MODULE_ROUTES.tickets.evidenceUpload, {
+        boletaUid: uid,
+        evidenciaId: evidenceId,
+        EvidenciaID: evidenceId,
+        nombre: item.name || item.file.name,
+        nota: item.note,
+        fileName: item.file.name,
+        mimeType: item.mimeType,
+        base64,
+      }, sessionToken, options);
+      uploaded.push({ evidenceId, result });
+    } finally {
+      base64 = '';
+    }
   }
+  return uploaded;
 }
 
 export async function saveTicketBase({

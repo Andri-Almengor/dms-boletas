@@ -3,6 +3,7 @@ import {
   createMaintenanceDevice,
   maintenanceDevicePayload,
 } from '../../pages/maintenance/maintenanceFormData';
+import { releaseLocalFiles } from '../../utils/localFileLifecycle';
 import {
   MAINTENANCE_DEVICE_DRAFT_DELAY_MS,
   cloneMaintenanceDevice,
@@ -21,19 +22,7 @@ function notifyOfflineEditingComplete() {
 }
 
 function releasePendingImages(current, original) {
-  pendingMaintenanceImagesToRelease(current, original).forEach((image) => {
-    if (image?.previewUrl?.startsWith('blob:') && typeof URL !== 'undefined') {
-      URL.revokeObjectURL(image.previewUrl);
-    }
-    if (image?.file && typeof window !== 'undefined') {
-      window.dispatchEvent(new CustomEvent('dms-draft-file-removed', {
-        detail: {
-          route: `${window.location.pathname}${window.location.search || ''}`,
-          file: image.file,
-        },
-      }));
-    }
-  });
+  releaseLocalFiles(pendingMaintenanceImagesToRelease(current, original));
 }
 
 export default function useMaintenanceDeviceEditorLifecycle({
@@ -131,6 +120,7 @@ export default function useMaintenanceDeviceEditorLifecycle({
   }, [clearDeviceDraft, saveActiveDevice, signatureOf]);
 
   const removeDeviceLocally = useCallback((device) => {
+    releaseLocalFiles(device?.newImages || []);
     setDevices((current) => current.filter((item) => item.localId !== device.localId));
     clearDeviceDraft();
     originalDeviceRef.current = null;
