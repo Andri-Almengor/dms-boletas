@@ -19,7 +19,6 @@ function sendHealth(req, res) {
     ok: true,
     service: 'dms-boletas-backend',
     time: new Date().toISOString(),
-    requestId,
   };
 
   if (env.healthDetailsPublic) {
@@ -65,7 +64,6 @@ function requestHandler(req, res) {
     res.setHeader('X-Request-ID', requestId);
     res.end(JSON.stringify({
       ok: false,
-      requestId,
       error: {
         code: error.code || 'SERVER_BUSY',
         message: error.message || 'El servidor está ocupado. Intente nuevamente.',
