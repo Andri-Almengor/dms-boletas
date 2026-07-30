@@ -12,21 +12,19 @@ import SignaturePad from '../../components/tickets/SignaturePad';
 import TechnicalWritingAssistant from '../../components/tickets/TechnicalWritingAssistant';
 import {
   buildTicketFormOptions,
-  buildTicketPayload,
   buildTicketTechnicians,
   calculateTicketHours,
   EMPTY_TICKET_FORM,
   findTicketRecord,
-  mapTicketForm,
-  ticketRecordData,
   TICKET_FORM_IDS,
   TICKET_FORM_STEPS,
-  validateTicketForm,
   validateTicketStep,
 } from '../../features/tickets/ticketFormDomain';
+import useTicketFormResources from '../../features/tickets/useTicketFormResources';
+import useTicketPersistence from '../../features/tickets/useTicketPersistence';
+import useTicketQuickCreate from '../../features/tickets/useTicketQuickCreate';
 import useTicketDraft from '../../hooks/useTicketDraft';
-import { MODULE_ROUTES, normalizeItems, pick, requestAvailable } from '../../services/moduleApi';
-import { fileToBase64 } from '../../utils/fileEncoding';
+import { pick } from '../../services/moduleApi';
 
 export default function TicketFormPage({ mode = 'create' }) {
   const { boletaUid } = useParams();
@@ -41,28 +39,27 @@ export default function TicketFormPage({ mode = 'create' }) {
     ...EMPTY_TICKET_FORM,
     asignados: user?.UsuarioID ? [String(user.UsuarioID)] : [],
   });
-  const [catalogs, setCatalogs] = useState({
-    clients: [],
-    categories: [],
-    failures: [],
-    devices: [],
-    manufacturers: [],
-    models: [],
-    relations: [],
-    users: [],
-  });
-  const [locations, setLocations] = useState([]);
-  const [equipmentLocations, setEquipmentLocations] = useState([]);
-  const [contacts, setContacts] = useState([]);
   const [evidences, setEvidences] = useState([]);
-  const [existingEvidenceCount, setExistingEvidenceCount] = useState(0);
-  const [loading, setLoading] = useState(true);
-  const [saving, setSaving] = useState(false);
-  const [serverStatus, setServerStatus] = useState('idle');
   const [error, setError] = useState('');
-  const [modal, setModal] = useState(null);
-  const [modalError, setModalError] = useState('');
-  const [modalSaving, setModalSaving] = useState(false);
+
+  const {
+    catalogs,
+    locations,
+    equipmentLocations,
+    contacts,
+    existingEvidenceCount,
+    loading,
+    reloadCatalogs,
+    appendRelation,
+  } = useTicketFormResources({
+    editing,
+    boletaUid,
+    sessionToken,
+    clientId: form.clienteId,
+    equipmentLocationId: form.ubicacionId,
+    setForm,
+    onError: setError,
+  });
 
   const restore = useCallback((draftData) => {
     if (draftData.form) {
@@ -84,109 +81,40 @@ export default function TicketFormPage({ mode = 'create' }) {
     value: { form, step },
     onRestore: restore,
   });
+
+  const {
+    modal,
+    modalError,
+    modalSaving,
+    openModal,
+    closeModal,
+    modalUpdate,
+    submitModal,
+  } = useTicketQuickCreate({
+    form,
+    setForm,
+    sessionToken,
+    reloadCatalogs,
+    appendRelation,
+  });
+
+  const { action, saving, serverStatus } = useTicketPersistence({
+    editing,
+    loading,
+    boletaUid,
+    form,
+    evidences,
+    sessionToken,
+    clearDraft: draft.clearDraft,
+    navigate,
+    setError,
+  });
   const autosaveStatus = editing && serverStatus !== 'idle' ? serverStatus : draft.status;
-
-  async function loadCatalogs() {
-    const jobs = [
-      ['clients', MODULE_ROUTES.clients.list],
-      ['categories', MODULE_ROUTES.categories.list],
-      ['failures', MODULE_ROUTES.failureTypes.list],
-      ['devices', MODULE_ROUTES.deviceTypes.list],
-      ['manufacturers', MODULE_ROUTES.manufacturers.list],
-      ['models', MODULE_ROUTES.models.list],
-      ['relations', MODULE_ROUTES.deviceManufacturers.list],
-      ['users', MODULE_ROUTES.users.list],
-    ];
-    const results = await Promise.allSettled(
-      jobs.map(([, routes]) => requestAvailable(routes, { page: 1, pageSize: 1000, activo: true }, sessionToken)),
-    );
-    const next = {};
-    const failures = [];
-    results.forEach((result, index) => {
-      if (result.status === 'fulfilled') next[jobs[index][0]] = normalizeItems(result.value);
-      else failures.push(result.reason?.message);
-    });
-    next.users = (next.users || []).filter((item) => String(pick(item, ['Estado'], 'ACTIVO')).toUpperCase() === 'ACTIVO');
-    setCatalogs((current) => ({ ...current, ...next }));
-    if (failures.length) setError(`Algunos catálogos no se cargaron: ${failures.filter(Boolean).join(' · ')}`);
-    requestAvailable(MODULE_ROUTES.config.get, {}, sessionToken)
-      .then((cfg) => setForm((current) => ({
-        ...current,
-        correosCC: current.correosCC || pick(cfg, ['DEFAULT_CC_EMAILS', 'defaultCcEmails'], ''),
-      })))
-      .catch(() => {});
-  }
-
-  useEffect(() => {
-    let active = true;
-    setLoading(true);
-    Promise.all([
-      loadCatalogs(),
-      editing ? requestAvailable(MODULE_ROUTES.tickets.get, { boletaUid }, sessionToken) : Promise.resolve(null),
-    ])
-      .then(([, data]) => {
-        if (!active || !data) return;
-        setForm(mapTicketForm(data));
-        setExistingEvidenceCount((data.evidencias || []).length);
-      })
-      .catch((err) => active && setError(err.message))
-      .finally(() => active && setLoading(false));
-    return () => { active = false; };
-  }, [editing, boletaUid, sessionToken]);
-
-  useEffect(() => {
-    if (!form.clienteId) {
-      setLocations([]);
-      setContacts([]);
-      return;
-    }
-    Promise.allSettled([
-      requestAvailable(MODULE_ROUTES.clients.locationsList, {
-        clienteId: form.clienteId,
-        activo: true,
-        pageSize: 500,
-      }, sessionToken),
-      requestAvailable(MODULE_ROUTES.clients.contactsList, {
-        clienteId: form.clienteId,
-        activo: true,
-        esSupervisor: true,
-        pageSize: 500,
-      }, sessionToken),
-    ]).then(([locationsResult, contactsResult]) => {
-      if (locationsResult.status === 'fulfilled') setLocations(normalizeItems(locationsResult.value));
-      if (contactsResult.status === 'fulfilled') setContacts(normalizeItems(contactsResult.value));
-    });
-  }, [form.clienteId, sessionToken]);
-
-  useEffect(() => {
-    if (!form.ubicacionId) {
-      setEquipmentLocations([]);
-      return;
-    }
-    requestAvailable(MODULE_ROUTES.clients.equipmentLocationsList, {
-      ubicacionId: form.ubicacionId,
-      activo: true,
-      pageSize: 500,
-    }, sessionToken)
-      .then((data) => setEquipmentLocations(normalizeItems(data)))
-      .catch((err) => setError(err.message));
-  }, [form.ubicacionId, sessionToken]);
 
   useEffect(() => {
     const total = calculateTicketHours(form.horaInicio, form.horaFinal);
     setForm((current) => current.horasTotales === total ? current : { ...current, horasTotales: total });
   }, [form.horaInicio, form.horaFinal]);
-
-  useEffect(() => {
-    if (!editing || loading) return undefined;
-    setServerStatus('saving');
-    const timer = setTimeout(() => {
-      requestAvailable(MODULE_ROUTES.tickets.autosave, buildTicketPayload(form, boletaUid), sessionToken)
-        .then(() => setServerStatus('server'))
-        .catch(() => setServerStatus('error'));
-    }, 1800);
-    return () => clearTimeout(timer);
-  }, [editing, loading, boletaUid, form, sessionToken]);
 
   const opt = buildTicketFormOptions({ catalogs, locations, equipmentLocations, contacts, form });
   const technicians = buildTicketTechnicians(catalogs.users);
@@ -230,224 +158,6 @@ export default function TicketFormPage({ mode = 'create' }) {
     setError('');
     setStep((value) => Math.min(TICKET_FORM_STEPS.length - 1, value + 1));
     window.scrollTo({ top: 0, behavior: 'smooth' });
-  }
-
-  async function uploadAssets(uid) {
-    if (form.firma?.startsWith('data:image/')) {
-      await requestAvailable(MODULE_ROUTES.tickets.signatureUpload, {
-        boletaUid: uid,
-        base64: form.firma.split(',')[1],
-        mimeType: 'image/png',
-        fileName: `firma_boleta_${uid}.png`,
-      }, sessionToken);
-    }
-    for (const item of evidences) {
-      await requestAvailable(MODULE_ROUTES.tickets.evidenceUpload, {
-        boletaUid: uid,
-        nombre: item.name || item.file.name,
-        nota: item.note,
-        fileName: item.file.name,
-        mimeType: item.mimeType,
-        base64: await fileToBase64(item.file),
-      }, sessionToken);
-    }
-  }
-
-  async function saveBase() {
-    const result = await requestAvailable(
-      editing ? MODULE_ROUTES.tickets.update : MODULE_ROUTES.tickets.create,
-      buildTicketPayload(form, boletaUid),
-      sessionToken,
-    );
-    const uid = pick(ticketRecordData(result), ['BoletaUID', 'boletaUid', 'TicketUID', 'id'], boletaUid);
-    if (!uid) throw new Error('El backend no devolvió BoletaUID.');
-    await uploadAssets(uid);
-    return uid;
-  }
-
-  async function action(type) {
-    const message = validateTicketForm(form);
-    if (message) return setError(message);
-    if (['finalize', 'test'].includes(type) && !form.firma && !editing) {
-      return setError('Registre la firma antes de continuar.');
-    }
-    setSaving(true);
-    setError('');
-    try {
-      const uid = await saveBase();
-      if (type === 'finalize') {
-        await requestAvailable(MODULE_ROUTES.tickets.finalize, {
-          boletaUid: uid,
-          sendClientCopy: form.enviarCorreoCliente,
-          cc: form.correosCC,
-        }, sessionToken);
-      }
-      if (type === 'test') {
-        await requestAvailable(MODULE_ROUTES.tickets.testFinalize, {
-          boletaUid: uid,
-          testMode: true,
-        }, sessionToken);
-      }
-      if (type === 'pdf') {
-        await requestAvailable(MODULE_ROUTES.tickets.generatePdf, { boletaUid: uid }, sessionToken);
-      }
-      draft.clearDraft();
-      navigate(`/boletas/${encodeURIComponent(uid)}`);
-    } catch (err) {
-      setError(err.message);
-    } finally {
-      setSaving(false);
-    }
-  }
-
-  function openModal(type) {
-    setModal({
-      type,
-      values: {
-        nombre: '',
-        descripcion: '',
-        correo: '',
-        puesto: '',
-        telefono: '',
-        direccion: '',
-        notas: '',
-        imagenReferenciaURL: '',
-      },
-    });
-    setModalError('');
-  }
-
-  function modalUpdate(event) {
-    setModal((current) => ({
-      ...current,
-      values: { ...current.values, [event.target.name]: event.target.value },
-    }));
-  }
-
-  async function submitModal(event) {
-    event.preventDefault();
-    const { type, values } = modal;
-    if (!values.nombre.trim()) return setModalError('El nombre es obligatorio.');
-    setModalSaving(true);
-    setModalError('');
-    try {
-      let result;
-      if (type === 'location') {
-        result = await requestAvailable(MODULE_ROUTES.clients.locationsCreate, {
-          clienteId: form.clienteId,
-          nombre: values.nombre,
-          direccion: values.direccion,
-          notas: values.notas,
-          activo: true,
-        }, sessionToken);
-      }
-      if (type === 'equipment') {
-        result = await requestAvailable(MODULE_ROUTES.clients.equipmentLocationsCreate, {
-          ubicacionId: form.ubicacionId,
-          nombre: values.nombre,
-          descripcion: values.descripcion,
-          activo: true,
-        }, sessionToken);
-      }
-      if (type === 'supervisor') {
-        result = await requestAvailable(MODULE_ROUTES.clients.contactsCreate, {
-          clienteId: form.clienteId,
-          nombre: values.nombre,
-          correo: values.correo,
-          puesto: values.puesto,
-          telefono: values.telefono,
-          esSupervisor: true,
-          recibeCorreo: true,
-          activo: true,
-        }, sessionToken);
-      }
-      if (type === 'category') {
-        result = await requestAvailable(MODULE_ROUTES.categories.create, {
-          nombre: values.nombre,
-          descripcion: values.descripcion,
-          activo: true,
-        }, sessionToken);
-      }
-      if (type === 'failure') {
-        result = await requestAvailable(MODULE_ROUTES.failureTypes.create, {
-          nombre: values.nombre,
-          descripcion: values.descripcion,
-          activo: true,
-        }, sessionToken);
-      }
-      if (type === 'device') {
-        result = await requestAvailable(MODULE_ROUTES.deviceTypes.create, {
-          nombre: values.nombre,
-          descripcion: values.descripcion,
-          activo: true,
-        }, sessionToken);
-      }
-      if (type === 'manufacturer') {
-        result = await requestAvailable(MODULE_ROUTES.manufacturers.create, {
-          nombre: values.nombre,
-          activo: true,
-        }, sessionToken);
-        await requestAvailable(MODULE_ROUTES.deviceManufacturers.create, {
-          tipoDispositivoId: form.tipoDispositivoId,
-          fabricanteId: pick(result, ['FabricanteID', 'id']),
-          activo: true,
-        }, sessionToken);
-      }
-      if (type === 'model') {
-        result = await requestAvailable(MODULE_ROUTES.models.create, {
-          tipoDispositivoId: form.tipoDispositivoId,
-          fabricanteId: form.fabricanteId,
-          nombre: values.nombre,
-          descripcion: values.descripcion,
-          imagenReferenciaURL: values.imagenReferenciaURL,
-          activo: true,
-        }, sessionToken);
-      }
-
-      if (type === 'location') {
-        setLocations((rows) => [...rows, result]);
-        setForm((current) => ({
-          ...current,
-          ubicacionId: String(pick(result, ['UbicacionID', 'id'])),
-          ubicacion: pick(result, ['Nombre']),
-        }));
-      } else if (type === 'equipment') {
-        setEquipmentLocations((rows) => [...rows, result]);
-        setForm((current) => ({
-          ...current,
-          ubicacionEquipoId: String(pick(result, ['UbicacionEquipoID', 'id'])),
-          ubicacionEquipo: pick(result, ['Nombre']),
-        }));
-      } else if (type === 'supervisor') {
-        setContacts((rows) => [...rows, result]);
-        setForm((current) => ({
-          ...current,
-          supervisorId: String(pick(result, ['ContactoID', 'id'])),
-          supervisor: pick(result, ['Nombre']),
-          correoSupervisor: pick(result, ['Correo'], values.correo),
-        }));
-      } else {
-        await loadCatalogs();
-        const keyMap = {
-          category: ['categoriaId', 'categoria', 'CategoriaID'],
-          failure: ['tipoFallaId', 'tipoFalla', 'TipoFallaID'],
-          device: ['tipoDispositivoId', 'tipoDispositivo', 'TipoDispositivoID'],
-          manufacturer: ['fabricanteId', 'fabricante', 'FabricanteID'],
-          model: ['modeloId', 'modelo', 'ModeloID'],
-        };
-        const [idField, nameField, idKey] = keyMap[type];
-        setForm((current) => ({
-          ...current,
-          [idField]: String(pick(result, [idKey, 'id'])),
-          [nameField]: pick(result, ['Nombre']),
-        }));
-      }
-      setModal(null);
-    } catch (err) {
-      setModalError(err.message);
-    } finally {
-      setModalSaving(false);
-    }
   }
 
   if (!allowed) return <Navigate to="/boletas/pendientes" replace />;
@@ -580,7 +290,7 @@ export default function TicketFormPage({ mode = 'create' }) {
         description="El registro quedará disponible para futuras boletas."
         saving={modalSaving}
         error={modalError}
-        onClose={() => setModal(null)}
+        onClose={closeModal}
         onSubmit={submitModal}
       >
         {modal && <>
