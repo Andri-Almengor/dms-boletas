@@ -116,7 +116,9 @@ test('el hook centraliza apertura, descarte y autoguardado local', () => {
   assert.doesNotMatch(formHook, /function serializableDevice/);
   assert.doesNotMatch(formHook, /LOCAL_DRAFT_DELAY_MS/);
 
-  assert.match(scalable, /base\.markDeviceSaved\(snapshot/);
-  assert.match(scalable, /base\.saveActiveDevice\(snapshot\)/);
+  assert.match(scalable, /base\.commitActiveDevice/);
+  assert.match(scalable, /persistMaintenanceDeviceCollection/);
   assert.match(scalable, /base\.clearDeviceDraft\(\)/);
+  assert.doesNotMatch(scalable, /base\.markDeviceSaved\(snapshot/);
+  assert.doesNotMatch(scalable, /base\.saveActiveDevice\(snapshot\)/);
 });
