@@ -10,23 +10,11 @@ import {
   updateMaintenanceImagesInBatches,
   uploadMaintenanceImagesInBatches,
 } from '../services/maintenanceImageBatch';
+import { cloneMaintenanceDevice } from '../features/maintenance/maintenanceDeviceState';
 import { createLocalId } from '../utils/localId';
 
 function clean(value) {
   return String(value ?? '').trim();
-}
-
-function localDraftKey(maintenanceId) {
-  return `dms-maintenance-device-draft:${maintenanceId || 'new'}`;
-}
-
-function cloneDevice(device) {
-  return {
-    ...device,
-    respuestas: { ...(device?.respuestas || {}) },
-    images: (device?.images || []).map((image) => ({ ...image })),
-    newImages: (device?.newImages || []).map((image) => ({ ...image })),
-  };
 }
 
 function uploadedImageView(row = {}) {
@@ -103,7 +91,7 @@ export default function useScalableMaintenanceForm({ editing, maintenanceId }) {
         releaseUploadedPreviews(device.newImages || [], uploadedKeys);
 
         const snapshot = {
-          ...cloneDevice(device),
+          ...cloneMaintenanceDevice(device),
           id: deviceId,
           images: [
             ...(device.images || []).map((image) => ({
@@ -117,18 +105,14 @@ export default function useScalableMaintenanceForm({ editing, maintenanceId }) {
           newImages: (device.newImages || []).filter((image) => failedUploadKeys.has(clean(image.localId))),
         };
 
-        base.saveActiveDevice(snapshot);
-        try { localStorage.removeItem(localDraftKey(maintenanceId)); } catch { /* Sin efecto. */ }
-
         if ((metadataResult.failed || []).length || (uploadResult.failed || []).length) {
+          base.saveActiveDevice(snapshot);
           base.setActiveDevice(snapshot);
           base.setError(failureText(device, metadataResult.failed, uploadResult.failed));
           return null;
         }
 
-        if (closeAfter) base.setActiveDevice(null);
-        else base.setActiveDevice(snapshot);
-        return snapshot;
+        return base.markDeviceSaved(snapshot, { closeAfter, status: 'server' });
       } catch (error) {
         base.setError(error.message);
         return null;
@@ -200,7 +184,7 @@ export default function useScalableMaintenanceForm({ editing, maintenanceId }) {
       if (action === 'finalize') {
         await requestAvailable(MODULE_ROUTES.maintenance.finalize, { maintenanceId: id }, base.sessionToken);
       }
-      try { localStorage.removeItem(localDraftKey(maintenanceId)); } catch { /* Sin efecto. */ }
+      base.clearDeviceDraft();
       navigate(`/mantenimientos/${encodeURIComponent(id)}`);
       return created;
     } catch (error) {
@@ -209,7 +193,7 @@ export default function useScalableMaintenanceForm({ editing, maintenanceId }) {
     } finally {
       setBatchSaving(false);
     }
-  }, [base, editing, maintenanceId, navigate]);
+  }, [base, editing, navigate]);
 
   return {
     ...base,
