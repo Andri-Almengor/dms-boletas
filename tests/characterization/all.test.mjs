@@ -1,3 +1,4 @@
+import './backend-batching.test.mjs';
 import './backend-utils.test.mjs';
 import './catalog-resources.test.mjs';
 import './client-relations.test.mjs';

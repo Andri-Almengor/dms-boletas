@@ -149,15 +149,16 @@ function appendToCachedTable(sheetName, headers, records, updatedRange) {
   });
   setTableCache(sheetName, [...cached.records, ...appended]);
 }
-function patchCachedRow(sheetName, rowNumber, patch) {
+function patchCachedRows(sheetName, patchesByRowNumber = new Map()) {
   const cached = tableCache.get(sheetName);
   if (!cached) {
     invalidateTableCache(sheetName);
     return;
   }
-  const records = cached.records.map((row) => Number(row.__rowNumber) === Number(rowNumber)
-    ? { ...row, ...patch, __rowNumber: row.__rowNumber }
-    : row);
+  const records = cached.records.map((row) => {
+    const patch = patchesByRowNumber.get(Number(row.__rowNumber));
+    return patch ? { ...row, ...patch, __rowNumber: row.__rowNumber } : row;
+  });
   setTableCache(sheetName, records);
 }
 
@@ -310,34 +311,77 @@ export async function appendRow(sheetName, record) {
   await appendRows(sheetName, [record], { chunkSize: 1 });
   return record;
 }
-export async function updateRow(sheetName, idValue, patch, idColumn = TABLES[sheetName]?.id) {
+export async function updateRows(sheetName, updates = [], idColumn = TABLES[sheetName]?.id) {
+  if (!updates.length) return [];
   const headers = await getHeaders(sheetName);
   if (!headers.length) throw new Error(`La hoja ${sheetName} no tiene encabezados.`);
-  const current = await findById(sheetName, idValue, idColumn);
-  const merged = { ...current, ...patch };
-  const writableFields = Object.entries(patch || {}).filter(([header]) => headers.includes(header));
+  const rows = await readTable(sheetName);
+  const rowsById = new Map(rows.map((row) => [String(row[idColumn] ?? ''), row]));
+  const data = [];
+  const cachePatches = new Map();
+  const results = [];
+  const columns = new Set();
+  const rowNumbers = new Set();
 
-  if (writableFields.length) {
-    const data = writableFields.map(([header, value]) => {
-      const column = columnLetter(headers.indexOf(header));
-      return { range: `${quote(sheetName)}!${column}${current.__rowNumber}`, values: [[writable(value)]] };
+  for (const update of updates) {
+    const idValue = update?.idValue;
+    const patch = update?.patch || {};
+    const key = String(idValue ?? '');
+    const current = rowsById.get(key);
+    if (!current) throw notFound(`No se encontró el registro en ${sheetName}.`);
+
+    const writableFields = Object.entries(patch).filter(([header]) => headers.includes(header));
+    const rowNumber = Number(current.__rowNumber);
+    const currentCachePatch = cachePatches.get(rowNumber) || {};
+    const persistedPatch = Object.fromEntries(writableFields);
+    cachePatches.set(rowNumber, { ...currentCachePatch, ...persistedPatch });
+    rowNumbers.add(rowNumber);
+
+    writableFields.forEach(([header, value]) => {
+      columns.add(header);
+      data.push({
+        range: `${quote(sheetName)}!${columnLetter(headers.indexOf(header))}${rowNumber}`,
+        values: [[writable(value)]],
+      });
     });
+
+    const merged = { ...current, ...patch };
+    rowsById.set(key, { ...merged, __rowNumber: rowNumber });
+    delete merged.__rowNumber;
+    results.push(merged);
+  }
+
+  if (data.length) {
     try {
       await withWriteSlot(() => sheetsApi.spreadsheets.values.batchUpdate({
         spreadsheetId: env.sheetId,
         requestBody: { valueInputOption: 'USER_ENTERED', data },
       }));
-      patchCachedRow(sheetName, current.__rowNumber, Object.fromEntries(writableFields));
+      patchCachedRows(sheetName, cachePatches);
     } catch (error) {
       if (isProtectedRangeError(error)) {
-        throw new AppError('SHEET_PROTECTED_RANGE', `La cuenta de servicio no puede editar una o más columnas protegidas de la hoja ${sheetName}.`, 403, { sheetName, rowNumber: current.__rowNumber, columns: writableFields.map(([header]) => header) });
+        const affectedRows = [...rowNumbers];
+        const details = {
+          sheetName,
+          rowNumbers: affectedRows,
+          columns: [...columns],
+        };
+        if (affectedRows.length === 1) details.rowNumber = affectedRows[0];
+        throw new AppError(
+          'SHEET_PROTECTED_RANGE',
+          `La cuenta de servicio no puede editar una o más columnas protegidas de la hoja ${sheetName}.`,
+          403,
+          details,
+        );
       }
       throw error;
     }
   }
 
-  delete merged.__rowNumber;
-  return merged;
+  return results;
+}
+export async function updateRow(sheetName, idValue, patch, idColumn = TABLES[sheetName]?.id) {
+  return (await updateRows(sheetName, [{ idValue, patch }], idColumn))[0];
 }
 export async function softDelete(sheetName, idValue, actor = '') {
   return updateRow(sheetName, idValue, { Activo: false, Estado: 'INACTIVO', ActualizadoPor: actor, FechaActualizacion: new Date().toISOString() });

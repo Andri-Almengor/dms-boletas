@@ -1,6 +1,15 @@
-import { appendRow, filterRows, findById, readTable, softDelete, updateRow } from '../infra/sheets.repository.js';
+import {
+  appendRow,
+  filterRows,
+  findById,
+  readTable,
+  readTables,
+  softDelete,
+  updateRow,
+} from '../infra/sheets.repository.js';
 import { uploadBase64, downloadAsDataUrl, trashFile } from '../infra/drive.repository.js';
-import { badRequest, forbidden } from '../core/errors.js';
+import { badRequest, forbidden, notFound } from '../core/errors.js';
+import { countRowsBy, groupRowsBy, indexRowsBy } from '../core/row-index.js';
 import { asArray, nowIso, pick, uuid } from '../core/utils.js';
 import { getConfig } from './config.module.js';
 import { audit } from '../services/audit.service.js';
@@ -126,10 +135,22 @@ function changedDevicePatch(before, payload, userId) {
   return { ...changed, ActualizadoPor: userId, FechaActualizacion: nowIso() };
 }
 
-async function enrich(row) {
-  const devices = (await readTable('Evidencia_Mantenimientos'))
+function maintenanceRow(tables, id) {
+  const row = (tables.Mantenimiento || [])
+    .find((item) => String(item.MantenimientoID ?? '') === String(id ?? ''));
+  if (!row) throw notFound('No se encontró el registro en Mantenimiento.');
+  return row;
+}
+
+async function enrich(row, providedTables = null) {
+  const tables = providedTables || await readTables(['Evidencia_Mantenimientos', 'Mantenimiento imagenes']);
+  const devices = (tables.Evidencia_Mantenimientos || [])
     .filter((device) => String(device.MantenimientoRef) === String(row.MantenimientoID) && device.Activo !== false);
-  const images = await readTable('Mantenimiento imagenes');
+  const imagesByDevice = groupRowsBy(
+    tables['Mantenimiento imagenes'] || [],
+    (image) => image.DispositivoMantenimientoRef,
+    { predicate: (image) => image.Activo !== false },
+  );
   return {
     mantenimiento: row,
     responsables: asArray(row.ResponsableIDsJSON).map((UsuarioID) => ({ UsuarioID })),
@@ -139,12 +160,21 @@ async function enrich(row) {
         ...device,
         Categoria: category,
         TipoDispositivo: category,
-        Imagenes: images
-          .filter((image) => String(image.DispositivoMantenimientoRef) === String(device.EvidenciaMantenimientoID) && image.Activo !== false)
-          .map((image) => ({ ...image, PreviewURL: image.DriveFileID ? `https://drive.google.com/thumbnail?id=${encodeURIComponent(image.DriveFileID)}&sz=w1200` : image.DriveURL })),
+        Imagenes: (imagesByDevice.get(String(device.EvidenciaMantenimientoID)) || [])
+          .map((image) => ({
+            ...image,
+            PreviewURL: image.DriveFileID
+              ? `https://drive.google.com/thumbnail?id=${encodeURIComponent(image.DriveFileID)}&sz=w1200`
+              : image.DriveURL,
+          })),
       };
     }),
   };
+}
+
+async function enrichedMaintenanceById(id) {
+  const tables = await readTables(['Mantenimiento', 'Evidencia_Mantenimientos', 'Mantenimiento imagenes']);
+  return enrich(maintenanceRow(tables, id), tables);
 }
 
 function isAdmin(ctx) {
@@ -153,15 +183,23 @@ function isAdmin(ctx) {
 
 export const maintenanceHandlers = {
   list: async ({ payload }) => {
-    let rows = (await readTable('Mantenimiento')).filter((row) => row.Activo !== false);
+    const tables = await readTables(['Mantenimiento', 'Evidencia_Mantenimientos']);
+    let rows = (tables.Mantenimiento || []).filter((row) => row.Activo !== false);
     if (payload.dateFrom) rows = rows.filter((row) => String(row.Fecha).slice(0, 10) >= String(payload.dateFrom));
     if (payload.dateTo) rows = rows.filter((row) => String(row.Fecha).slice(0, 10) <= String(payload.dateTo));
-    const devices = await readTable('Evidencia_Mantenimientos');
-    rows = rows.map((row) => ({ ...row, DispositivosRegistrados: devices.filter((device) => String(device.MantenimientoRef) === String(row.MantenimientoID) && device.Activo !== false).length }));
+    const deviceCounts = countRowsBy(
+      tables.Evidencia_Mantenimientos || [],
+      (device) => device.MantenimientoRef,
+      { predicate: (device) => device.Activo !== false },
+    );
+    rows = rows.map((row) => ({
+      ...row,
+      DispositivosRegistrados: deviceCounts.get(String(row.MantenimientoID)) || 0,
+    }));
     return filterRows(rows, payload, ['TituloMantenimiento', 'Cliente', 'Ubicacion', 'Responsables', 'DescripcionGeneral']);
   },
 
-  get: async ({ payload }) => enrich(await findById('Mantenimiento', pick(payload, ['maintenanceId', 'MantenimientoID', 'id']))),
+  get: async ({ payload }) => enrichedMaintenanceById(pick(payload, ['maintenanceId', 'MantenimientoID', 'id'])),
 
   create: async (ctx) => withMaintenanceCreateLock(async () => {
     const requestedId = String(pick(ctx.payload, ['maintenanceId', 'MantenimientoID'], '')).trim();
@@ -179,11 +217,12 @@ export const maintenanceHandlers = {
     const base = maintenancePayload(ctx.payload);
     if (!base.TituloMantenimiento || !base.ClienteID) throw badRequest('Título y cliente son obligatorios.');
     const users = await readTable('Usuarios');
+    const usersById = indexRowsBy(users, (user) => user.UsuarioID);
     const ids = asArray(base.ResponsableIDsJSON);
     const row = {
       MantenimientoID: requestedId || uuid(),
       ...base,
-      Responsables: ids.map((id) => users.find((user) => String(user.UsuarioID) === String(id))?.NombreCompleto || id).join(', '),
+      Responsables: ids.map((id) => usersById.get(String(id))?.NombreCompleto || id).join(', '),
       Activo: true,
       CreadoPor: ctx.user.UsuarioID,
       FechaCreacion: nowIso(),
@@ -197,23 +236,34 @@ export const maintenanceHandlers = {
 
   update: async (ctx) => {
     const id = pick(ctx.payload, ['maintenanceId', 'MantenimientoID']);
-    const before = await findById('Mantenimiento', id);
+    const tables = await readTables(['Mantenimiento', 'Usuarios', 'Evidencia_Mantenimientos', 'Mantenimiento imagenes']);
+    const before = maintenanceRow(tables, id);
     const payload = maintenancePayload(ctx.payload, before);
-    const users = await readTable('Usuarios');
-    payload.Responsables = asArray(payload.ResponsableIDsJSON).map((userId) => users.find((user) => String(user.UsuarioID) === String(userId))?.NombreCompleto || userId).join(', ');
+    const usersById = indexRowsBy(tables.Usuarios || [], (user) => user.UsuarioID);
+    payload.Responsables = asArray(payload.ResponsableIDsJSON)
+      .map((userId) => usersById.get(String(userId))?.NombreCompleto || userId)
+      .join(', ');
     const changed = Object.fromEntries(Object.entries(payload).filter(([key, value]) => !sameValue(before[key], value)));
     const after = Object.keys(changed).length
       ? await updateRow('Mantenimiento', id, { ...changed, ActualizadoPor: ctx.user.UsuarioID, FechaActualizacion: nowIso() })
       : before;
     if (Object.keys(changed).length) await audit(ctx, 'EDITAR_MANTENIMIENTO', 'Mantenimiento', id, before, after);
-    return enrich(after);
+    return enrich(after, tables);
   },
 
   finalize: async (ctx) => {
     const id = pick(ctx.payload, ['maintenanceId', 'MantenimientoID']);
-    const devices = (await readTable('Evidencia_Mantenimientos')).filter((device) => String(device.MantenimientoRef) === String(id) && device.Activo !== false);
+    const tables = await readTables(['Evidencia_Mantenimientos', 'Mantenimiento imagenes']);
+    const devices = (tables.Evidencia_Mantenimientos || [])
+      .filter((device) => String(device.MantenimientoRef) === String(id) && device.Activo !== false);
     if (!devices.length) throw badRequest('Debe registrar al menos un dispositivo.');
-    return enrich(await updateRow('Mantenimiento', id, { Estado: 'FINALIZADO', FechaFinalizacion: nowIso(), ActualizadoPor: ctx.user.UsuarioID, FechaActualizacion: nowIso() }));
+    const after = await updateRow('Mantenimiento', id, {
+      Estado: 'FINALIZADO',
+      FechaFinalizacion: nowIso(),
+      ActualizadoPor: ctx.user.UsuarioID,
+      FechaActualizacion: nowIso(),
+    });
+    return enrich(after, tables);
   },
 
   reopen: async (ctx) => {
@@ -342,7 +392,7 @@ export const maintenanceHandlers = {
 
   spreadsheetReport: async (ctx) => {
     if (!isAdmin(ctx)) throw forbidden();
-    const data = await enrich(await findById('Mantenimiento', pick(ctx.payload, ['maintenanceId', 'MantenimientoID'])));
+    const data = await enrichedMaintenanceById(pick(ctx.payload, ['maintenanceId', 'MantenimientoID']));
     const created = await sheetsApi.spreadsheets.create({ requestBody: { properties: { title: `Mantenimiento DMS - ${data.mantenimiento.Cliente || 'Cliente'} - ${String(data.mantenimiento.Fecha).slice(0, 10)}` } } });
     const id = created.data.spreadsheetId;
     const values = [['REPORTE DE MANTENIMIENTO DMS'], ['Título', data.mantenimiento.TituloMantenimiento], ['Cliente', data.mantenimiento.Cliente], ['Ubicación', data.mantenimiento.Ubicacion], ['Fecha', data.mantenimiento.Fecha], [], ['Categoría', 'Nombre', 'Zona', 'Fabricante', 'Modelo', 'Serie', 'Funcionamiento', 'En uso', 'Estado', 'Observación'], ...data.dispositivos.map((device) => [device.Categoria, device.NombreDispositivo, device.Zona, device.Fabricante, device.Modelo, device.Serie, device.Funcionamiento, device.EnUso, device.Estado, device.Observacion])];
@@ -354,7 +404,7 @@ export const maintenanceHandlers = {
 
   slidesReport: async (ctx) => {
     if (!isAdmin(ctx)) throw forbidden();
-    const data = await enrich(await findById('Mantenimiento', pick(ctx.payload, ['maintenanceId', 'MantenimientoID'])));
+    const data = await enrichedMaintenanceById(pick(ctx.payload, ['maintenanceId', 'MantenimientoID']));
     const created = await slidesApi.presentations.create({ requestBody: { title: `Mantenimiento DMS - ${data.mantenimiento.Cliente || 'Cliente'}` } });
     const id = created.data.presentationId;
     const url = `https://docs.google.com/presentation/d/${id}/edit`;

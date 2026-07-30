@@ -1,4 +1,14 @@
-import { appendRow, filterRows, findById, readTable, readTables, softDelete, updateRow } from '../infra/sheets.repository.js';
+import {
+  appendRow,
+  appendRows,
+  filterRows,
+  findById,
+  readTable,
+  readTables,
+  softDelete,
+  updateRow,
+  updateRows,
+} from '../infra/sheets.repository.js';
 import { uploadBase64, downloadAsDataUrl, trashFile } from '../infra/drive.repository.js';
 import { badRequest, notFound } from '../core/errors.js';
 import { asArray, asBool, nowIso, pick, uuid } from '../core/utils.js';
@@ -138,24 +148,30 @@ function hasAssignedPayload(payload = {}) {
 }
 
 async function replaceAssigned(ticketId, ids, ctx) {
-  const rows = await readTable('BoletaAsignados');
-  const active = rows.filter((item) => String(item.BoletaUID) === String(ticketId) && item.Activo !== false);
+  const tables = await readTables(['BoletaAsignados', 'Usuarios']);
+  const active = tables.BoletaAsignados
+    .filter((item) => String(item.BoletaUID) === String(ticketId) && item.Activo !== false);
   const nextIds = normalizedIds(ids);
   if (sameIds(active.map((item) => item.UsuarioID), nextIds)) return false;
-  for (const row of active) await updateRow('BoletaAsignados', row.BoletaAsignadoID, { Activo: false });
-  const users = await readTable('Usuarios');
-  for (const id of nextIds) {
-    const user = users.find((item) => String(item.UsuarioID) === String(id));
-    await appendRow('BoletaAsignados', {
-      BoletaAsignadoID: uuid(),
-      BoletaUID: ticketId,
-      UsuarioID: id,
-      NombreUsuarioSnapshot: userDisplayName(user, id),
-      Activo: true,
-      CreadoPor: ctx.user.UsuarioID,
-      FechaCreacion: nowIso(),
-    });
+
+  if (active.length) {
+    await updateRows('BoletaAsignados', active.map((row) => ({
+      idValue: row.BoletaAsignadoID,
+      patch: { Activo: false },
+    })));
   }
+
+  const usersById = new Map(tables.Usuarios.map((user) => [String(user.UsuarioID), user]));
+  const assignments = nextIds.map((id) => ({
+    BoletaAsignadoID: uuid(),
+    BoletaUID: ticketId,
+    UsuarioID: id,
+    NombreUsuarioSnapshot: userDisplayName(usersById.get(String(id)), id),
+    Activo: true,
+    CreadoPor: ctx.user.UsuarioID,
+    FechaCreacion: nowIso(),
+  }));
+  if (assignments.length) await appendRows('BoletaAsignados', assignments);
   return true;
 }
 
