@@ -5,12 +5,21 @@ import {
   ticketInlineSelection,
 } from './ticketQuickCreateService';
 
+const INLINE_CATALOGS = Object.freeze({
+  category: 'categories',
+  failure: 'failures',
+  device: 'devices',
+  manufacturer: 'manufacturers',
+  model: 'models',
+});
+
 export default function useTicketQuickCreate({
   form,
   setForm,
   sessionToken,
   reloadCatalogs,
   appendRelation,
+  appendCatalog,
 }) {
   const [modal, setModal] = useState(null);
   const [modalError, setModalError] = useState('');
@@ -54,8 +63,13 @@ export default function useTicketQuickCreate({
         sessionToken,
       });
       const selection = ticketInlineSelection(type, result, values);
-      if (selection.relation) appendRelation(selection.relation, result);
-      else await reloadCatalogs();
+      if (selection.relation) {
+        appendRelation(selection.relation, result);
+      } else {
+        const catalog = INLINE_CATALOGS[type];
+        if (catalog && appendCatalog) appendCatalog(catalog, result);
+        else await reloadCatalogs();
+      }
       setForm((current) => ({ ...current, ...selection.patch }));
       setModal(null);
     } catch (error) {
@@ -63,7 +77,7 @@ export default function useTicketQuickCreate({
     } finally {
       setModalSaving(false);
     }
-  }, [appendRelation, form, modal, reloadCatalogs, sessionToken, setForm]);
+  }, [appendCatalog, appendRelation, form, modal, reloadCatalogs, sessionToken, setForm]);
 
   return {
     modal,
