@@ -61,3 +61,12 @@ test('las operaciones largas y el inventario móvil conservan retroalimentación
   assert.match(mobileStyles, /\.maintenance-inventory-mobile-edit/);
   assert.match(mobileStyles, /padding-bottom: calc\(var\(--bottom-nav-height\)/);
 });
+
+test('el selector de técnicos muestra la lista directamente y no renderiza una flecha sin función', () => {
+  const contents = source('src/components/forms/TechnicianMultiSelect.jsx');
+  assert.match(contents, /type="search"/);
+  assert.match(contents, /aria-label="Buscar técnicos por nombre o correo"/);
+  assert.doesNotMatch(contents, /technician-select__toggle/);
+  assert.doesNotMatch(contents, /expand_less|expand_more/);
+  assert.doesNotMatch(contents, /optionsOpen|setOptionsOpen/);
+});
