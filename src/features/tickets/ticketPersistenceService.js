@@ -1,0 +1,80 @@
+import { MODULE_ROUTES, pick, requestAvailable } from '../../services/moduleApi';
+import { fileToBase64 } from '../../utils/fileEncoding';
+import { buildTicketPayload, ticketRecordData } from './ticketFormDomain';
+
+function requestOptions(signal) {
+  return signal ? { signal } : {};
+}
+
+export async function autosaveTicket({ form, boletaUid, sessionToken, signal }) {
+  return requestAvailable(
+    MODULE_ROUTES.tickets.autosave,
+    buildTicketPayload(form, boletaUid),
+    sessionToken,
+    requestOptions(signal),
+  );
+}
+
+export async function uploadTicketAssets({ uid, form, evidences, sessionToken, signal }) {
+  const options = requestOptions(signal);
+  if (form.firma?.startsWith('data:image/')) {
+    await requestAvailable(MODULE_ROUTES.tickets.signatureUpload, {
+      boletaUid: uid,
+      base64: form.firma.split(',')[1],
+      mimeType: 'image/png',
+      fileName: `firma_boleta_${uid}.png`,
+    }, sessionToken, options);
+  }
+
+  for (const item of evidences) {
+    await requestAvailable(MODULE_ROUTES.tickets.evidenceUpload, {
+      boletaUid: uid,
+      nombre: item.name || item.file.name,
+      nota: item.note,
+      fileName: item.file.name,
+      mimeType: item.mimeType,
+      base64: await fileToBase64(item.file),
+    }, sessionToken, options);
+  }
+}
+
+export async function saveTicketBase({
+  editing,
+  boletaUid,
+  form,
+  evidences,
+  sessionToken,
+  signal,
+}) {
+  const result = await requestAvailable(
+    editing ? MODULE_ROUTES.tickets.update : MODULE_ROUTES.tickets.create,
+    buildTicketPayload(form, boletaUid),
+    sessionToken,
+    requestOptions(signal),
+  );
+  const uid = pick(ticketRecordData(result), ['BoletaUID', 'boletaUid', 'TicketUID', 'id'], boletaUid);
+  if (!uid) throw new Error('El backend no devolvió BoletaUID.');
+  await uploadTicketAssets({ uid, form, evidences, sessionToken, signal });
+  return uid;
+}
+
+export async function runTicketPostSaveAction({ type, uid, form, sessionToken, signal }) {
+  const options = requestOptions(signal);
+  if (type === 'finalize') {
+    return requestAvailable(MODULE_ROUTES.tickets.finalize, {
+      boletaUid: uid,
+      sendClientCopy: form.enviarCorreoCliente,
+      cc: form.correosCC,
+    }, sessionToken, options);
+  }
+  if (type === 'test') {
+    return requestAvailable(MODULE_ROUTES.tickets.testFinalize, {
+      boletaUid: uid,
+      testMode: true,
+    }, sessionToken, options);
+  }
+  if (type === 'pdf') {
+    return requestAvailable(MODULE_ROUTES.tickets.generatePdf, { boletaUid: uid }, sessionToken, options);
+  }
+  return null;
+}
