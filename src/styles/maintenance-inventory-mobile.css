@@ -20,13 +20,17 @@
   .maintenance-inventory-mobile-card {
     width: 100%;
     min-width: 0;
+    display: block;
     overflow: hidden;
     border-radius: 18px;
   }
 
   .maintenance-device-mobile-selection {
+    width: 100%;
+    min-width: 0;
     min-height: 50px;
     padding: 11px 14px;
+    box-sizing: border-box;
     display: flex;
     align-items: center;
     gap: 10px;
@@ -51,15 +55,22 @@
     font-weight: 800;
   }
 
+  /*
+   * Se usa flex en lugar de depender de columnas heredadas. El bloque de texto
+   * recibe todo el espacio restante mediante flex-basis: 0 e inline-size: 0;
+   * esto evita que WebKit/Chrome móvil lo reduzcan al ancho mínimo del texto.
+   */
   .maintenance-inventory-mobile-toggle {
-    width: 100%;
-    min-width: 0;
+    width: 100% !important;
+    min-width: 0 !important;
+    max-width: 100%;
     padding: 14px;
+    box-sizing: border-box;
     border-right: 0;
     border-left: 0;
-    display: grid;
-    grid-template-columns: 48px minmax(0, 1fr) 32px;
+    display: flex !important;
     align-items: center;
+    justify-content: flex-start;
     gap: 12px;
     text-align: left;
   }
@@ -67,7 +78,9 @@
   .maintenance-inventory-mobile-toggle > .maintenance-device-list__icon {
     width: 48px;
     height: 48px;
+    min-width: 48px;
     margin: 0;
+    flex: 0 0 48px !important;
     align-self: center;
   }
 
@@ -75,48 +88,57 @@
     font-size: 27px;
   }
 
-  .maintenance-inventory-mobile-toggle > span:nth-child(2) {
-    min-width: 0;
-    width: 100%;
-    display: grid;
-    align-content: center;
+  .maintenance-inventory-mobile-toggle > .maintenance-device-list__icon + span {
+    min-width: 0 !important;
+    min-inline-size: 0 !important;
+    width: auto !important;
+    inline-size: 0 !important;
+    max-width: none !important;
+    flex: 1 1 0 !important;
+    align-self: stretch;
+    display: flex !important;
+    flex-direction: column;
+    align-items: stretch;
+    justify-content: center;
     gap: 4px;
   }
 
-  .maintenance-inventory-mobile-toggle > span:nth-child(2) > strong,
-  .maintenance-inventory-mobile-toggle > span:nth-child(2) > small {
-    width: 100%;
-    min-width: 0;
-    max-width: none;
+  .maintenance-inventory-mobile-toggle > .maintenance-device-list__icon + span > strong,
+  .maintenance-inventory-mobile-toggle > .maintenance-device-list__icon + span > small {
+    width: auto !important;
+    min-width: 0 !important;
+    max-width: 100% !important;
+    display: block !important;
     overflow: visible !important;
     text-overflow: clip !important;
     white-space: normal !important;
     overflow-wrap: anywhere;
-    word-break: normal;
+    word-break: normal !important;
   }
 
-  .maintenance-inventory-mobile-toggle > span:nth-child(2) > strong {
+  .maintenance-inventory-mobile-toggle > .maintenance-device-list__icon + span > strong {
     margin: 0;
     font-size: 1rem;
     line-height: 1.28;
   }
 
-  .maintenance-inventory-mobile-toggle > span:nth-child(2) > small {
+  .maintenance-inventory-mobile-toggle > .maintenance-device-list__icon + span > small {
     margin: 0;
     font-size: .76rem;
     line-height: 1.35;
   }
 
-  .maintenance-inventory-mobile-toggle > span:nth-child(2) > span {
-    min-width: 0;
+  .maintenance-inventory-mobile-toggle > .maintenance-device-list__icon + span > span {
+    min-width: 0 !important;
+    width: 100%;
     margin-top: 2px;
-    display: flex;
+    display: flex !important;
     flex-wrap: wrap;
     align-items: center;
     gap: 6px;
   }
 
-  .maintenance-inventory-mobile-toggle > span:nth-child(2) > span > em {
+  .maintenance-inventory-mobile-toggle > .maintenance-device-list__icon + span > span > em {
     min-width: 0;
     max-width: 100%;
     margin: 0;
@@ -126,23 +148,26 @@
     white-space: normal;
   }
 
-  .maintenance-inventory-mobile-toggle > span:nth-child(2) > span > em .material-symbols-outlined {
+  .maintenance-inventory-mobile-toggle > .maintenance-device-list__icon + span > span > em .material-symbols-outlined {
     font-size: 17px;
   }
 
   .maintenance-inventory-mobile-toggle > .material-symbols-outlined:last-child {
     width: 32px;
     height: 32px;
+    min-width: 32px;
     margin: 0;
-    justify-self: end;
+    flex: 0 0 32px !important;
     display: grid;
     place-items: center;
   }
 
   .maintenance-inventory-mobile-edit {
     width: 100%;
+    min-width: 0;
     min-height: 54px;
     padding: 10px 14px;
+    box-sizing: border-box;
     border-right: 0;
     border-bottom: 0;
     border-left: 0;
@@ -195,7 +220,6 @@
 
 @media (max-width: 390px) {
   .maintenance-inventory-mobile-toggle {
-    grid-template-columns: 44px minmax(0, 1fr) 28px;
     gap: 9px;
     padding: 12px;
   }
@@ -203,13 +227,22 @@
   .maintenance-inventory-mobile-toggle > .maintenance-device-list__icon {
     width: 44px;
     height: 44px;
+    min-width: 44px;
+    flex-basis: 44px !important;
   }
 
-  .maintenance-inventory-mobile-toggle > span:nth-child(2) > strong {
+  .maintenance-inventory-mobile-toggle > .material-symbols-outlined:last-child {
+    width: 28px;
+    height: 28px;
+    min-width: 28px;
+    flex-basis: 28px !important;
+  }
+
+  .maintenance-inventory-mobile-toggle > .maintenance-device-list__icon + span > strong {
     font-size: .94rem;
   }
 
-  .maintenance-inventory-mobile-toggle > span:nth-child(2) > small {
+  .maintenance-inventory-mobile-toggle > .maintenance-device-list__icon + span > small {
     font-size: .72rem;
   }
 
