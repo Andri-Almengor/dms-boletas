@@ -4,6 +4,7 @@ import { useAuth } from '../../AuthContext';
 import Icon from '../../components/common/Icon';
 import AdminEntityModal from '../../components/forms/AdminEntityModal';
 import { MODULE_ROUTES, normalizeItems, requestAvailable } from '../../services/moduleApi';
+import { mergePaginatedItems, paginationMeta } from '../../utils/paginatedCollection';
 
 const RESPONSE_PAGE_SIZE = 40;
 const EMPTY = { id: '', text: '', order: 1, status: 'ACTIVO' };
@@ -12,12 +13,6 @@ function formatDate(value) {
   if (!value) return 'Pendiente';
   const date = new Date(value);
   return Number.isNaN(date.getTime()) ? String(value) : new Intl.DateTimeFormat('es-CR', { dateStyle: 'medium', timeStyle: 'short' }).format(date);
-}
-
-function mergeResponses(current, incoming) {
-  const map = new Map(current.map((item, index) => [String(item.id || `current-${index}`), item]));
-  incoming.forEach((item, index) => map.set(String(item.id || `incoming-${index}`), item));
-  return [...map.values()];
 }
 
 export default function SurveysAdminPage() {
@@ -76,10 +71,16 @@ export default function SurveysAdminPage() {
       if (sequence !== requestSequence.current) return;
       const incoming = normalizeItems(data);
       setResponses((current) => {
-        const next = append ? mergeResponses(current, incoming) : incoming;
-        const nextTotal = Number.isFinite(Number(data?.total)) ? Number(data.total) : next.length;
-        setTotal(nextTotal);
-        setHasMore(Number.isFinite(Number(data?.total)) ? next.length < nextTotal : incoming.length >= RESPONSE_PAGE_SIZE);
+        const next = append
+          ? mergePaginatedItems(current, incoming, (item, index, source) => item.id || `${source}-${index}`)
+          : incoming;
+        const meta = paginationMeta(data, {
+          loadedCount: next.length,
+          incomingCount: incoming.length,
+          pageSize: RESPONSE_PAGE_SIZE,
+        });
+        setTotal(meta.total);
+        setHasMore(meta.hasMore);
         return next;
       });
       setPage(targetPage);
