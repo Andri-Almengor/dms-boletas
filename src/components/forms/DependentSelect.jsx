@@ -13,6 +13,7 @@ function normalizeSearch(value) {
 export default function DependentSelect({
   label,
   value,
+  selectedLabel = '',
   onChange,
   options,
   placeholder = 'Seleccione una opción',
@@ -25,6 +26,9 @@ export default function DependentSelect({
   name,
   searchable,
   searchPlaceholder,
+  onSearch,
+  searchDelay = 300,
+  searchMinLength = 0,
 }) {
   const { hasPermission } = useAuth();
   const generatedId = useId();
@@ -33,6 +37,7 @@ export default function DependentSelect({
   const inputRef = useRef(null);
   const [open, setOpen] = useState(false);
   const [query, setQuery] = useState('');
+  const [remoteLoading, setRemoteLoading] = useState(false);
 
   const canAddFromOperation = Boolean(onAdd) && (
     hasPermission('BOLETAS_CREAR')
@@ -42,7 +47,8 @@ export default function DependentSelect({
   const showAddButton = Boolean(onAdd) && (canAdd || canAddFromOperation);
   const normalizedLabel = normalizeSearch(label);
   const useSearchable = searchable ?? normalizedLabel === 'cliente';
-  const selectedOption = options.find((option) => String(option.value) === String(value || '')) || null;
+  const selectedOption = options.find((option) => String(option.value) === String(value || ''))
+    || (value && selectedLabel ? { value: String(value), label: String(selectedLabel) } : null);
 
   const filteredOptions = useMemo(() => {
     const term = normalizeSearch(query);
@@ -53,6 +59,34 @@ export default function DependentSelect({
   useEffect(() => {
     if (!open) setQuery(selectedOption?.label || '');
   }, [open, selectedOption]);
+
+  useEffect(() => {
+    if (!useSearchable || !open || typeof onSearch !== 'function') {
+      setRemoteLoading(false);
+      return undefined;
+    }
+
+    const term = String(query || '').trim();
+    if (term.length < Math.max(0, Number(searchMinLength || 0))) {
+      setRemoteLoading(false);
+      return undefined;
+    }
+
+    let active = true;
+    const timer = window.setTimeout(() => {
+      setRemoteLoading(true);
+      Promise.resolve(onSearch(term))
+        .catch(() => {})
+        .finally(() => {
+          if (active) setRemoteLoading(false);
+        });
+    }, Math.max(0, Number(searchDelay || 0)));
+
+    return () => {
+      active = false;
+      window.clearTimeout(timer);
+    };
+  }, [onSearch, open, query, searchDelay, searchMinLength, useSearchable]);
 
   useEffect(() => {
     function closeOutside(event) {
@@ -125,6 +159,7 @@ export default function DependentSelect({
             aria-controls={`${fieldId}-options`}
             aria-autocomplete="list"
             aria-haspopup="listbox"
+            aria-busy={remoteLoading}
             role="combobox"
             onFocus={(event) => {
               setOpen(true);
@@ -165,7 +200,7 @@ export default function DependentSelect({
                   </button>
                 );
               }) : (
-                <div className="searchable-select__empty">No se encontraron coincidencias.</div>
+                <div className="searchable-select__empty">{remoteLoading ? 'Buscando...' : 'No se encontraron coincidencias.'}</div>
               )}
             </div>
           )}

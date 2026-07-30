@@ -70,13 +70,18 @@ test('filtra equipos localmente por sede', () => {
   assert.deepEqual(filterMaintenanceEquipment(rows, ''), []);
 });
 
-test('la carga usa relaciones agrupadas y cancelación, no consultas por sede', () => {
+test('la carga usa relaciones agrupadas, clientes paginados y cancelación', () => {
   const resources = source('src/features/maintenance/useMaintenanceResources.js');
   assert.ok(resources.includes("import { fetchClientRelations } from '../../services/clientRelations';"));
+  assert.ok(resources.includes('const CLIENT_PAGE_SIZE = 80;'));
+  assert.ok(resources.includes('loadCatalogResource({'));
+  assert.ok(resources.includes('searchClients'));
+  assert.ok(resources.includes("q: String(query || '').trim()"));
   assert.ok(resources.includes('const controller = new AbortController();'));
   assert.ok(resources.includes('signal: controller.signal'));
   assert.ok(resources.includes('return () => controller.abort();'));
   assert.ok(resources.includes('filterMaintenanceEquipment(allEquipment, locationId)'));
+  assert.equal(resources.includes('pageSize: 1000, activo: true },\n        sessionToken'), false);
   assert.equal(resources.includes('equipmentLocationsList'), false);
   assert.equal(resources.includes('locationsList'), false);
 });
@@ -85,10 +90,12 @@ test('el hook principal delega recursos y la creación rápida evita mutaciones 
   const formHook = source('src/hooks/useMaintenanceForm.js');
   const quickCreate = source('src/features/maintenance/useMaintenanceQuickCreate.js');
   const page = source('src/pages/maintenance/MaintenanceFormPage.jsx');
+  const general = source('src/components/maintenance/MaintenanceGeneralStep.jsx');
 
   assert.ok(formHook.includes("import useMaintenanceResources from '../features/maintenance/useMaintenanceResources';"));
   assert.ok(formHook.includes('validateMaintenanceForm(form)'));
   assert.ok(formHook.includes('clients: resources.clients'));
+  assert.ok(formHook.includes('searchClients: resources.searchClients'));
   assert.ok(formHook.includes('addEquipment: resources.addEquipment'));
   assert.equal(formHook.includes('MODULE_ROUTES.clients.list'), false);
   assert.equal(formHook.includes('MODULE_ROUTES.clients.locationsList'), false);
@@ -100,4 +107,7 @@ test('el hook principal delega recursos y la creación rápida evita mutaciones 
   assert.equal(quickCreate.includes('equipment.push'), false);
   assert.ok(page.includes('addLocation: state.addLocation'));
   assert.ok(page.includes('addEquipment: state.addEquipment'));
+  assert.ok(page.includes('onSearchClients={state.searchClients}'));
+  assert.ok(general.includes('onSearch={onSearchClients}'));
+  assert.ok(general.includes('selectedLabel={form.cliente}'));
 });

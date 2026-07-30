@@ -24,13 +24,21 @@ test('la página delega recursos, creación rápida y persistencia', () => {
   assert.ok(page.split('\n').length < 450, 'TicketFormPage debe mantenerse enfocado en presentación y navegación');
 });
 
-test('los recursos conservan ocho catálogos, detalle, configuración y relaciones cancelables', () => {
+test('los recursos conservan catálogos pequeños y difieren los catálogos dependientes', () => {
   const hook = source('src/features/tickets/useTicketFormResources.js');
 
-  for (const key of ['clients', 'categories', 'failures', 'devices', 'manufacturers', 'models', 'relations', 'users']) {
-    assert.match(hook, new RegExp(`\\['${key}'`));
+  for (const key of ['clients', 'categories', 'failures', 'devices', 'users']) {
+    assert.match(hook, new RegExp(`${key}: \\{ routes:`));
   }
-  assert.match(hook, /pageSize: 1000/);
+  assert.match(hook, /const CLIENT_PAGE_SIZE = 80/);
+  assert.doesNotMatch(hook, /manufacturers: \{ routes:/);
+  assert.doesNotMatch(hook, /models: \{ routes:/);
+  assert.doesNotMatch(hook, /relations: \{ routes:/);
+  assert.match(hook, /MODULE_ROUTES\.manufacturers\.list/);
+  assert.match(hook, /MODULE_ROUTES\.deviceManufacturers\.list/);
+  assert.match(hook, /MODULE_ROUTES\.models\.list/);
+  assert.match(hook, /tipoDispositivoId: normalizedTypeId/);
+  assert.match(hook, /fabricanteId: normalizedManufacturerId/);
   assert.match(hook, /MODULE_ROUTES\.tickets\.get/);
   assert.match(hook, /MODULE_ROUTES\.config\.get/);
   assert.match(hook, /DEFAULT_CC_EMAILS/);
@@ -40,13 +48,30 @@ test('los recursos conservan ocho catálogos, detalle, configuración y relacion
   assert.match(hook, /setAllEquipmentLocations/);
 });
 
-test('la creación rápida conserva todos los tipos y la relación de fabricante', () => {
+test('la página conecta búsqueda remota y mantiene etiquetas históricas', () => {
+  const page = source('src/pages/tickets/TicketFormPage.jsx');
+  const select = source('src/components/forms/DependentSelect.jsx');
+
+  assert.match(page, /onSearch=\{searchClients\}/);
+  assert.match(page, /selectedLabel=\{form\.cliente\}/);
+  assert.match(page, /selectedLabel=\{form\.fabricante\}/);
+  assert.match(page, /selectedLabel=\{form\.modelo\}/);
+  assert.match(page, /loading=\{catalogLoading\.manufacturers\}/);
+  assert.match(page, /loading=\{catalogLoading\.models\}/);
+  assert.match(select, /onSearch/);
+  assert.match(select, /searchDelay = 300/);
+  assert.match(select, /selectedLabel = ''/);
+  assert.match(select, /window\.setTimeout/);
+});
+
+test('la creación rápida conserva todos los tipos y actualiza el catálogo local', () => {
   const hook = source('src/features/tickets/useTicketQuickCreate.js');
   const service = source('src/features/tickets/ticketQuickCreateService.js');
 
   assert.match(hook, /El nombre es obligatorio\./);
-  assert.match(hook, /reloadCatalogs/);
+  assert.match(hook, /appendCatalog/);
   assert.match(hook, /appendRelation/);
+  assert.match(hook, /INLINE_CATALOGS/);
   for (const type of ['location', 'equipment', 'supervisor', 'category', 'failure', 'device', 'manufacturer', 'model']) {
     assert.match(service, new RegExp(`type === '${type}'`));
   }
