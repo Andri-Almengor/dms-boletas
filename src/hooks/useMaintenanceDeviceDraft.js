@@ -34,15 +34,17 @@ export default function useMaintenanceDeviceDraft({
     enabled,
     persistEnabled: Boolean(persistEnabled && value),
     value,
-    onRestore: (restored) => { restoredRef.current = restored; },
+    onRestore: (restored) => {
+      if (!consumedRef.current) restoredRef.current = restored;
+    },
     saveDelayMs: SAVE_DELAY_MS,
   });
 
   const consumeRestoredDevice = useCallback((freshDevice) => {
-    if (consumedRef.current || !restoredRef.current) return freshDevice;
     consumedRef.current = true;
     const restored = restoredRef.current;
     restoredRef.current = null;
+    if (!restored) return freshDevice;
     return {
       ...freshDevice,
       ...restored,
