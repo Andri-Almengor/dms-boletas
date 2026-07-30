@@ -33,12 +33,14 @@ test('los fabricantes se precargan sin bloquear la apertura del formulario', () 
   assert.match(contents, /Respaldo para una precarga fallida/);
 });
 
-test('las operaciones largas muestran una pantalla bloqueante con contexto', () => {
+test('las operaciones largas y el inventario móvil conservan retroalimentación y legibilidad', () => {
   const overlay = source('src/components/feedback/ProcessingOverlay.jsx');
   const ticket = source('src/pages/tickets/TicketFormPage.jsx');
   const maintenance = source('src/pages/maintenance/MaintenanceFormPage.jsx');
   const location = source('src/components/maintenance/MaintenanceLocationPickerModal.jsx');
   const inlineModal = source('src/components/forms/InlineCreateModal.jsx');
+  const mobileStyles = source('src/styles/maintenance-inventory-mobile.css');
+  const styleIndex = source('src/styles/index.css');
 
   assert.match(overlay, /aria-busy="true"/);
   assert.match(ticket, /title="Finalizando boleta"|Finalizando boleta/);
@@ -47,17 +49,12 @@ test('las operaciones largas muestran una pantalla bloqueante con contexto', () 
   assert.match(maintenance, /Finalizando mantenimiento/);
   assert.match(location, /title="Agregando ubicación"/);
   assert.match(inlineModal, /title="Guardando registro"/);
-});
 
-test('el inventario móvil conserva nombres completos y separa identidad, estado y acciones', () => {
-  const styles = source('src/styles/maintenance-inventory-mobile.css');
-  const index = source('src/styles/index.css');
-
-  assert.match(index, /maintenance-inventory-mobile\.css/);
-  assert.match(styles, /@media \(max-width: 720px\)/);
-  assert.match(styles, /grid-template-columns: 48px minmax\(0, 1fr\) 32px/);
-  assert.match(styles, /white-space: normal !important/);
-  assert.match(styles, /overflow-wrap: anywhere/);
-  assert.match(styles, /\.maintenance-inventory-mobile-edit/);
-  assert.match(styles, /padding-bottom: calc\(var\(--bottom-nav-height\)/);
+  assert.match(styleIndex, /maintenance-inventory-mobile\.css/);
+  assert.match(mobileStyles, /@media \(max-width: 720px\)/);
+  assert.match(mobileStyles, /grid-template-columns: 48px minmax\(0, 1fr\) 32px/);
+  assert.match(mobileStyles, /white-space: normal !important/);
+  assert.match(mobileStyles, /overflow-wrap: anywhere/);
+  assert.match(mobileStyles, /\.maintenance-inventory-mobile-edit/);
+  assert.match(mobileStyles, /padding-bottom: calc\(var\(--bottom-nav-height\)/);
 });
