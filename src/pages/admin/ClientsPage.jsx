@@ -4,6 +4,7 @@ import ClientRelationsManager from '../../components/clients/ClientRelationsMana
 import Icon from '../../components/common/Icon';
 import AdminEntityModal from '../../components/forms/AdminEntityModal';
 import { MODULE_ROUTES, normalizeItems, pick, requestAvailable, toBoolean } from '../../services/moduleApi';
+import { mergePaginatedItems, paginationMeta } from '../../utils/paginatedCollection';
 
 const PAGE_SIZE = 50;
 const EMPTY = { id: '', name: '', contacto: '', telefono: '', correo: '', direccion: '', sitioWeb: '', chatWebhook: '', status: 'ACTIVO' };
@@ -40,10 +41,8 @@ function clientPayload(form) {
   };
 }
 
-function mergeClients(current, incoming) {
-  const map = new Map(current.map((item, index) => [viewClient(item).id || `current-${index}`, item]));
-  incoming.forEach((item, index) => map.set(viewClient(item).id || `incoming-${index}`, item));
-  return [...map.values()];
+function clientKey(item, index, source) {
+  return viewClient(item).id || `${source}-${index}`;
 }
 
 async function mapWithConcurrency(items, concurrency, mapper) {
@@ -128,10 +127,14 @@ export default function ClientsPage() {
       if (sequence !== requestSequence.current) return;
       const incoming = normalizeItems(data);
       setItems((current) => {
-        const next = append ? mergeClients(current, incoming) : incoming;
-        const nextTotal = Number.isFinite(Number(data?.total)) ? Number(data.total) : next.length;
-        setTotal(nextTotal);
-        setHasMore(Number.isFinite(Number(data?.total)) ? next.length < nextTotal : incoming.length >= PAGE_SIZE);
+        const next = append ? mergePaginatedItems(current, incoming, clientKey) : incoming;
+        const meta = paginationMeta(data, {
+          loadedCount: next.length,
+          incomingCount: incoming.length,
+          pageSize: PAGE_SIZE,
+        });
+        setTotal(meta.total);
+        setHasMore(meta.hasMore);
         return next;
       });
       setPage(targetPage);
@@ -249,7 +252,7 @@ export default function ClientsPage() {
       setSelected(saved);
       setForm(savedView);
       setEditing(false);
-      setItems((current) => mergeClients(current, [saved]));
+      setItems((current) => mergePaginatedItems(current, [saved], clientKey));
       if (!form.id) setTotal((value) => value + 1);
       await loadRelated(savedView.id);
     } catch (saveError) {
