@@ -171,6 +171,7 @@ function catalogMatch(rows, terms) {
     || null;
 }
 
+
 function rawDraft(bundle, group) {
   return buildMaintenanceTicketDraft(bundle, group);
 }
