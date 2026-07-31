@@ -172,6 +172,7 @@ function catalogMatch(rows, terms) {
 }
 
 
+
 function rawDraft(bundle, group) {
   return buildMaintenanceTicketDraft(bundle, group);
 }

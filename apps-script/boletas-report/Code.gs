@@ -307,6 +307,44 @@ function removeTrailingPageArtifacts_(body) {
   }
 }
 
+function hasAnnexContent_(signatureBlob, signatureInserted, evidences) {
+  return Boolean(
+    (signatureBlob && !signatureInserted)
+    || (Array.isArray(evidences) && evidences.length),
+  );
+}
+
+function paragraphHasPageBreak_(paragraph) {
+  for (let index = 0; index < paragraph.getNumChildren(); index += 1) {
+    if (paragraph.getChild(index).getType() === DocumentApp.ElementType.PAGE_BREAK) return true;
+  }
+  return false;
+}
+
+function removeTrailingPageArtifacts_(body) {
+  while (body.getNumChildren() > 0) {
+    const child = body.getChild(body.getNumChildren() - 1);
+    const type = child.getType();
+
+    if (type === DocumentApp.ElementType.PAGE_BREAK) {
+      child.removeFromParent();
+      continue;
+    }
+
+    if (type === DocumentApp.ElementType.PARAGRAPH || type === DocumentApp.ElementType.LIST_ITEM) {
+      const paragraph = type === DocumentApp.ElementType.PARAGRAPH
+        ? child.asParagraph()
+        : child.asListItem();
+      if (paragraphHasPageBreak_(paragraph) || !clean_(paragraph.getText())) {
+        child.removeFromParent();
+        continue;
+      }
+    }
+
+    break;
+  }
+}
+
 function appendAnnexes_(body, signatureBlob, signatureInserted, evidences) {
   const annexEvidences = Array.isArray(evidences) ? evidences : [];
   removeTrailingPageArtifacts_(body);
