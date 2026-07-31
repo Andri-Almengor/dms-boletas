@@ -94,6 +94,7 @@ test('redacta pruebas y resultados como informe de jornada', () => {
   ].join('\n');
 
   assert.doesNotMatch(completeText, /\[object Object\]/i);
+  assert.doesNotMatch(completeText, /^\s*(true|false)\s*$/im);
   assert.doesNotMatch(completeText, /la funcionamiento/i);
   assert.match(report.razonVisita, /Durante la jornada del 31 de julio de 2026/);
   assert.match(report.razonVisita, /Técnico Uno y Técnico Dos realizaron labores/);
