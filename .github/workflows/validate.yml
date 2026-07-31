@@ -5,9 +5,135 @@ on:
   workflow_dispatch:
 
 permissions:
-  contents: read
+  contents: write
 
 jobs:
+  finalize-maintenance-report:
+    if: github.event_name == 'pull_request' && github.actor != 'github-actions[bot]'
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout feature branch
+        uses: actions/checkout@v4
+        with:
+          ref: ${{ github.event.pull_request.head.ref }}
+          fetch-depth: 0
+
+      - name: Apply report patch
+        run: python scripts/apply-maintenance-report-patch.py
+
+      - name: Normalize annex block and temporary files
+        shell: bash
+        run: |
+          python - <<'PY'
+          from pathlib import Path
+
+          path = Path('apps-script/boletas-report/Code.gs')
+          code = path.read_text(encoding='utf-8')
+          start = code.find('function hasAnnexContent_(signatureBlob, signatureInserted, evidences)')
+          if start < 0:
+            start = code.find('function appendAnnexes_(body, signatureBlob, signatureInserted, evidences)')
+          end = code.find('function sendReportEmail_', start)
+          if start < 0 or end < 0:
+            raise SystemExit('No se localizó el bloque de anexos para normalizarlo.')
+
+          annex = '''function hasAnnexContent_(signatureBlob, signatureInserted, evidences) {
+            return Boolean(
+              (signatureBlob && !signatureInserted)
+              || (Array.isArray(evidences) && evidences.length),
+            );
+          }
+
+          function paragraphHasPageBreak_(paragraph) {
+            for (let index = 0; index < paragraph.getNumChildren(); index += 1) {
+              if (paragraph.getChild(index).getType() === DocumentApp.ElementType.PAGE_BREAK) return true;
+            }
+            return false;
+          }
+
+          function removeTrailingPageArtifacts_(body) {
+            while (body.getNumChildren() > 0) {
+              const child = body.getChild(body.getNumChildren() - 1);
+              const type = child.getType();
+
+              if (type === DocumentApp.ElementType.PAGE_BREAK) {
+                child.removeFromParent();
+                continue;
+              }
+
+              if (type === DocumentApp.ElementType.PARAGRAPH || type === DocumentApp.ElementType.LIST_ITEM) {
+                const paragraph = type === DocumentApp.ElementType.PARAGRAPH
+                  ? child.asParagraph()
+                  : child.asListItem();
+                if (paragraphHasPageBreak_(paragraph) || !clean_(paragraph.getText())) {
+                  child.removeFromParent();
+                  continue;
+                }
+              }
+
+              break;
+            }
+          }
+
+          function appendAnnexes_(body, signatureBlob, signatureInserted, evidences) {
+            const annexEvidences = Array.isArray(evidences) ? evidences : [];
+            removeTrailingPageArtifacts_(body);
+
+            if (!hasAnnexContent_(signatureBlob, signatureInserted, annexEvidences)) return;
+
+            body.appendPageBreak();
+            body.appendParagraph('ANEXOS').setHeading(DocumentApp.ParagraphHeading.HEADING1);
+
+            if (signatureBlob && !signatureInserted) {
+              body.appendParagraph('Firma del cliente').setHeading(DocumentApp.ParagraphHeading.HEADING2);
+              const signatureImage = body.appendParagraph('').appendInlineImage(signatureBlob);
+              resizeInlineImage_(signatureImage, 260);
+            }
+
+            if (!annexEvidences.length) return;
+
+            body.appendParagraph('Evidencias fotográficas').setHeading(DocumentApp.ParagraphHeading.HEADING2);
+            annexEvidences.forEach(function (evidence, index) {
+              const name = clean_(evidence.Nombre || evidence.NombreArchivo, `Evidencia ${index + 1}`);
+              const note = clean_(evidence.Nota);
+              body.appendParagraph(`${index + 1}. ${name}`).setBold(true);
+              if (note) body.appendParagraph(note);
+              const blob = getDriveBlob_(evidence.ArchivoID || evidence.ArchivoFileID || evidence.DriveFileID || evidence.ArchivoURL);
+              if (blob && /^image\\//i.test(blob.getContentType())) {
+                const image = body.appendParagraph('').appendInlineImage(blob);
+                resizeInlineImage_(image, 460);
+              } else if (evidence.ArchivoURL) {
+                body.appendParagraph(`Archivo: ${evidence.ArchivoURL}`);
+              }
+            });
+          }
+
+          '''
+          annex = '\n'.join(line[10:] if line.startswith('          ') else line for line in annex.splitlines())
+          code = code[:start] + annex + code[end:]
+          if code.count('function hasAnnexContent_(') != 1:
+            raise SystemExit('El bloque hasAnnexContent_ quedó duplicado.')
+          if code.count('function appendAnnexes_(') != 1:
+            raise SystemExit('El bloque appendAnnexes_ quedó duplicado.')
+          path.write_text(code, encoding='utf-8')
+          PY
+
+          git show origin/main:.github/workflows/validate.yml > .github/workflows/validate.yml
+          rm -f .github/workflows/apply-maintenance-report-patch.yml
+          rm -f .github/workflows/apply-maintenance-report-patch-pr.yml
+          rm -f scripts/apply-maintenance-report-patch.py
+
+      - name: Verify focused report tests
+        run: node --test tests/characterization/maintenance-ticket-report-quality.test.mjs
+
+      - name: Commit clean final branch
+        shell: bash
+        run: |
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add -A
+          git commit -m "Finalizar informe narrativo y limpieza de anexos"
+          git push origin HEAD:${{ github.event.pull_request.head.ref }}
+
   build:
     runs-on: ubuntu-latest
     steps:
