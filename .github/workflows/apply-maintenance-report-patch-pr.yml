@@ -1,36 +1,13 @@
-name: Apply maintenance report patch on PR
+name: Temporary maintenance PR patch disabled
 
 on:
-  pull_request:
-    branches:
-      - main
-    types: [opened, synchronize, reopened]
+  workflow_dispatch:
 
 permissions:
-  contents: write
+  contents: read
 
 jobs:
-  patch:
-    if: github.event.pull_request.head.repo.full_name == github.repository && github.actor != 'github-actions[bot]'
+  noop:
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v4
-        with:
-          ref: ${{ github.event.pull_request.head.ref }}
-          fetch-depth: 0
-
-      - name: Apply targeted patch
-        run: python scripts/apply-maintenance-report-patch.py
-
-      - name: Commit patched files
-        shell: bash
-        run: |
-          git config user.name "github-actions[bot]"
-          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
-          git add backend/src/services/maintenance-ticket-generation.service.js apps-script/boletas-report/Code.gs
-          if git diff --cached --quiet; then
-            echo "No changes required"
-            exit 0
-          fi
-          git commit -m "Integrar informe narrativo y corregir anexos PDF"
-          git push origin HEAD:${{ github.event.pull_request.head.ref }}
+      - run: echo "Workflow temporal desactivado"
