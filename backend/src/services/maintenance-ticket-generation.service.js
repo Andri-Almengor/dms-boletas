@@ -14,6 +14,10 @@ import { rewriteTechnicalReport } from './gemini.service.js';
 import { audit } from './audit.service.js';
 import { sendChatMessage } from './chat.service.js';
 import { ensureSheetColumns } from './sheet-columns.service.js';
+import {
+  buildMaintenanceTicketDraft,
+  mergeImprovedMaintenanceDraft,
+} from './maintenance-ticket-report.service.js';
 
 const TICKET_ORIGIN_COLUMNS = [
   'OrigenMantenimientoID',
@@ -78,68 +82,6 @@ function splitEmails(value) {
 function dateOnly(value, fallback = '') {
   const match = clean(value).match(/^(\d{4}-\d{2}-\d{2})/);
   return match?.[1] || fallback;
-}
-
-function parseAnswers(device = {}) {
-  const source = device.RespuestasJSON || device.respuestas || {};
-  if (typeof source === 'object' && source !== null) return source;
-  try {
-    const parsed = JSON.parse(source || '{}');
-    return parsed && typeof parsed === 'object' ? parsed : {};
-  } catch {
-    return {};
-  }
-}
-
-function humanize(key) {
-  return String(key || '')
-    .replace(/([a-z0-9])([A-Z])/g, '$1 $2')
-    .replace(/[_-]+/g, ' ')
-    .replace(/^./, (letter) => letter.toUpperCase());
-}
-
-function isPositive(value) {
-  const text = normalized(value);
-  if (!text) return null;
-  if (text.includes('mal') || text.includes('falla') || text.includes('incorrect') || text === 'no') return false;
-  if (text.startsWith('si') || text.includes('correct') || text.includes('aprob') || text.includes('funciona')) return true;
-  if (text.includes('guardado')) return true;
-  return null;
-}
-
-function deviceIdentity(device = {}) {
-  const parts = [
-    clean(device.NombreDispositivo, 'Dispositivo'),
-    clean(device.Categoria || device.TipoDispositivo),
-    clean(device.Zona),
-    clean(device.Fabricante),
-    clean(device.Modelo),
-    clean(device.Serie),
-  ].filter(Boolean);
-  return parts.join(' · ');
-}
-
-function deviceChecks(device = {}) {
-  const answers = parseAnswers(device);
-  return [
-    ['Funcionamiento', device.Funcionamiento],
-    ['En uso', device.EnUso],
-    ...Object.entries(answers).map(([key, value]) => [humanize(key), value]),
-    ['Estado', device.Estado],
-  ].filter(([, value]) => clean(value));
-}
-
-function deviceResult(device = {}) {
-  const checks = deviceChecks(device);
-  const negatives = checks.filter(([, value]) => isPositive(value) === false);
-  const unresolved = checks.filter(([, value]) => isPositive(value) === null);
-  if (negatives.length) {
-    return `${clean(device.NombreDispositivo, 'Dispositivo')}: requiere atención en ${negatives.map(([label, value]) => `${label} (${value})`).join(', ')}.`;
-  }
-  if (checks.length && !unresolved.length) {
-    return `${clean(device.NombreDispositivo, 'Dispositivo')}: revisión conforme según las respuestas registradas.`;
-  }
-  return `${clean(device.NombreDispositivo, 'Dispositivo')}: ${checks.map(([label, value]) => `${label}: ${value}`).join('; ') || 'sin respuestas registradas'}.`;
 }
 
 function technicianIdsFor(device, maintenance) {
@@ -230,36 +172,7 @@ function catalogMatch(rows, terms) {
 }
 
 function rawDraft(bundle, group) {
-  const technicianNames = group.technicians.map((item) => item.name).join(', ');
-  const categories = [...new Set(group.devices.map((device) => clean(device.Categoria || device.TipoDispositivo)).filter(Boolean))];
-  const deviceNames = group.devices.map((device) => clean(device.NombreDispositivo, 'Dispositivo'));
-  const reason = [
-    `Se realizó mantenimiento a ${group.devices.length} dispositivo${group.devices.length === 1 ? '' : 's'} el ${group.date}.`,
-    `Grupo técnico: ${technicianNames}.`,
-    `Equipos atendidos: ${deviceNames.join(', ')}.`,
-  ].join(' ');
-
-  const tests = group.devices.map((device, index) => {
-    const checks = deviceChecks(device).map(([label, value]) => `${label}: ${value}`).join('; ');
-    return `${index + 1}. ${deviceIdentity(device)}. ${checks || 'Sin respuestas de checklist.'}`;
-  }).join('\n');
-
-  const result = group.devices.map(deviceResult).join('\n');
-  const recomendaciones = group.devices
-    .filter((device) => clean(device.Observacion))
-    .map((device) => `${clean(device.NombreDispositivo, 'Dispositivo')}: ${clean(device.Observacion)}`)
-    .join('\n');
-
-  return {
-    titulo: `Mantenimiento de ${categories.join(', ') || 'dispositivos'} - ${group.date}`,
-    razonVisita: reason,
-    descripcion: `${group.devices.length} dispositivo${group.devices.length === 1 ? '' : 's'}: ${deviceNames.join(', ')}.`,
-    pruebasRealizadas: tests,
-    resultado: result,
-    recomendaciones,
-    categories,
-    technicianNames,
-  };
+  return buildMaintenanceTicketDraft(bundle, group);
 }
 
 async function improveDraft(bundle, group, raw) {
@@ -281,9 +194,9 @@ async function improveDraft(bundle, group, raw) {
       modelo: [...new Set(group.devices.map((device) => clean(device.Modelo)).filter(Boolean))].join(', '),
       serie: group.devices.map((device) => clean(device.Serie)).filter(Boolean).join(', '),
     });
+    const improvedDraft = mergeImprovedMaintenanceDraft(raw, improved);
     return {
-      ...raw,
-      ...improved,
+      ...improvedDraft,
       geminiUsed: true,
       geminiModel: improved.model || '',
       geminiWarning: '',
