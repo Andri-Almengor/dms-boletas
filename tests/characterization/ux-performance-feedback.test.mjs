@@ -121,3 +121,18 @@ test('la firma puede ampliarse sin crear un segundo formulario ni perder el traz
   assert.match(expandedStyles, /\.public-signature-page \.signature-pad\.is-expanded/);
   assert.match(expandedStyles, /filter: none !important/);
 });
+
+test('las acciones largas del detalle, firma pública y encuesta muestran un overlay bloqueante', () => {
+  const app = source('src/app/App.jsx');
+  const bridge = source('src/components/feedback/ActionProcessingBridge.jsx');
+
+  assert.match(app, /ActionProcessingBridge/);
+  assert.match(app, /<Suspense fallback=\{null\}><ActionProcessingBridge \/><\/Suspense>/);
+  assert.match(bridge, /<ProcessingOverlay/);
+  assert.match(bridge, /Finalizando boleta/);
+  assert.match(bridge, /Guardando firma/);
+  assert.match(bridge, /Enviando encuesta/);
+  assert.match(bridge, /MutationObserver/);
+  assert.match(bridge, /button\.disabled/);
+  assert.match(bridge, /No cierre ni recargue/);
+});
