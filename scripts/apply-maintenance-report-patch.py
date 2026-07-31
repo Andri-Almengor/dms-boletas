@@ -2,6 +2,14 @@ from pathlib import Path
 import re
 
 
+def replace_once(content, old, new, description):
+    if old in content:
+        return content.replace(old, new, 1)
+    if new in content:
+        return content
+    raise SystemExit(f'No se pudo aplicar: {description}.')
+
+
 def patch_generation_service():
     path = Path('backend/src/services/maintenance-ticket-generation.service.js')
     content = path.read_text(encoding='utf-8')
@@ -56,6 +64,82 @@ async function improveDraft"""
         content = content.replace(old_merge, new_merge, 1)
     elif 'const improvedDraft = mergeImprovedMaintenanceDraft(raw, improved);' not in content:
         raise SystemExit('No se pudo integrar la validación de Gemini.')
+
+    path.write_text(content, encoding='utf-8')
+
+
+def patch_report_service():
+    path = Path('backend/src/services/maintenance-ticket-report.service.js')
+    content = path.read_text(encoding='utf-8')
+
+    old_article = """function articleFor(label) {
+  const text = normalized(label);
+  if (/^(alimentacion|conexion|condicion|limpieza|visualizacion|grabacion|funcion|cerradura|prueba|revision)/.test(text)) return 'la';
+  if (/^(estado|funcionamiento|montaje|lector|respaldo|almacenamiento|servicio)/.test(text)) return 'el';
+  return 'la verificación de';
+}"""
+    new_article = """function articleFor(label) {
+  const text = normalized(label);
+  if (/^(estado|funcionamiento|montaje|lector|respaldo|almacenamiento|servicio)/.test(text)) return 'el';
+  if (/^(alimentacion|conexion|condicion|limpieza|visualizacion|grabacion|funcion|cerradura|prueba|revision)/.test(text)) return 'la';
+  return 'la verificación de';
+}"""
+    content = replace_once(content, old_article, new_article, 'los artículos gramaticales de las pruebas')
+
+    old_reference = """function deviceReference(device, maintenance = {}) {
+  const category = deviceCategory(device).toLowerCase();
+  const name = deviceName(device);
+  const location = deviceLocation(device, maintenance);
+  const details = [
+    cleanText(device.Fabricante) ? `fabricante ${cleanText(device.Fabricante)}` : '',
+    cleanText(device.Modelo) ? `modelo ${cleanText(device.Modelo)}` : '',
+    cleanText(device.Serie) ? `serie ${cleanText(device.Serie)}` : '',
+  ].filter(Boolean);
+  return `la ${category} “${name}”${location ? `, ubicada en ${location}` : ''}${details.length ? ` (${details.join(', ')})` : ''}`;
+}"""
+    new_reference = """function deviceArticle(category) {
+  const text = normalized(category);
+  return /^(camara|puerta|impresora|bocina|cerradura|fuente)/.test(text) ? 'la' : 'el';
+}
+
+function deviceReference(device, maintenance = {}) {
+  const category = deviceCategory(device).toLowerCase();
+  const name = deviceName(device);
+  const location = deviceLocation(device, maintenance);
+  const details = [
+    cleanText(device.Fabricante) ? `fabricante ${cleanText(device.Fabricante)}` : '',
+    cleanText(device.Modelo) ? `modelo ${cleanText(device.Modelo)}` : '',
+    cleanText(device.Serie) ? `serie ${cleanText(device.Serie)}` : '',
+  ].filter(Boolean);
+  const article = deviceArticle(category);
+  const locationPhrase = location ? `, ${article === 'la' ? 'ubicada' : 'ubicado'} en ${location}` : '';
+  return `${article} ${category} “${name}”${locationPhrase}${details.length ? ` (${details.join(', ')})` : ''}`;
+}"""
+    content = replace_once(content, old_reference, new_reference, 'la concordancia de categoría y ubicación')
+
+    old_observation = """      observation,
+    ].filter(Boolean);"""
+    new_observation = """      observation ? `se registró la observación: ${observation}` : '',
+    ].filter(Boolean);"""
+    content = replace_once(content, old_observation, new_observation, 'la observación del dispositivo pendiente')
+
+    old_merge = """  for (const field of fields) {
+    const candidate = safeReportText(improved?.[field]);
+    result[field] = candidate || raw[field];
+  }"""
+    new_merge = """  for (const field of fields) {
+    const improvedValue = improved?.[field];
+    const candidate = typeof improvedValue === 'string'
+      ? safeReportText(improvedValue)
+      : '';
+    result[field] = candidate || raw[field];
+  }"""
+    content = replace_once(content, old_merge, new_merge, 'la validación de los campos mejorados por IA')
+
+    old_reason = """  const reason = `Durante la jornada del ${date}, ${technicianNames} realizó labores de mantenimiento preventivo y revisión técnica sobre ${amount} de ${client}${mainLocation ? ` en ${mainLocation}` : ''}.`;"""
+    new_reason = """  const workVerb = technicians.length === 1 ? 'realizó' : 'realizaron';
+  const reason = `Durante la jornada del ${date}, ${technicianNames} ${workVerb} labores de mantenimiento preventivo y revisión técnica sobre ${amount} de ${client}${mainLocation ? ` en ${mainLocation}` : ''}.`;"""
+    content = replace_once(content, old_reason, new_reason, 'la concordancia del equipo técnico')
 
     path.write_text(content, encoding='utf-8')
 
@@ -149,4 +233,5 @@ function appendAnnexes_(body, signatureBlob, signatureInserted, evidences) {
 
 if __name__ == '__main__':
     patch_generation_service()
+    patch_report_service()
     patch_apps_script()
