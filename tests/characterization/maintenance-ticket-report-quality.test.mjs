@@ -94,7 +94,9 @@ test('redacta pruebas y resultados como informe de jornada', () => {
   ].join('\n');
 
   assert.doesNotMatch(completeText, /\[object Object\]/i);
+  assert.doesNotMatch(completeText, /la funcionamiento/i);
   assert.match(report.razonVisita, /Durante la jornada del 31 de julio de 2026/);
+  assert.match(report.razonVisita, /Técnico Uno y Técnico Dos realizaron labores/);
   assert.match(report.pruebasRealizadas, /Cámara pasillo/);
   assert.match(report.pruebasRealizadas, /Oficina 1/);
   assert.match(report.pruebasRealizadas, /Se comprobaron satisfactoriamente/);
@@ -125,4 +127,6 @@ test('el Apps Script limpia el final de la plantilla antes de anexar evidencias'
   assert.match(code, /paragraphHasPageBreak_/);
   assert.match(code, /removeTrailingPageArtifacts_\(body\);[\s\S]*body\.appendPageBreak\(\)/);
   assert.doesNotMatch(code, /body\.appendParagraph\('Sin evidencias asociadas\.'\)/);
+  assert.equal((code.match(/function hasAnnexContent_\(/g) || []).length, 1);
+  assert.equal((code.match(/function appendAnnexes_\(/g) || []).length, 1);
 });
