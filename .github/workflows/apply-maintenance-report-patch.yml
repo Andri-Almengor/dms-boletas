@@ -1,0 +1,183 @@
+name: Apply maintenance report patch
+
+on:
+  push:
+    branches:
+      - fix/maintenance-ticket-report-narrative
+
+permissions:
+  contents: write
+
+jobs:
+  patch:
+    if: github.actor != 'github-actions[bot]'
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: fix/maintenance-ticket-report-narrative
+          fetch-depth: 0
+
+      - name: Integrate narrative and annex cleanup
+        shell: bash
+        run: |
+          python - <<'PY'
+          from pathlib import Path
+          import re
+
+          generation_path = Path('backend/src/services/maintenance-ticket-generation.service.js')
+          generation = generation_path.read_text(encoding='utf-8')
+
+          import_marker = "import { ensureSheetColumns } from './sheet-columns.service.js';"
+          report_import = "import {\n  buildMaintenanceTicketDraft,\n  mergeImprovedMaintenanceDraft,\n} from './maintenance-ticket-report.service.js';"
+          if report_import not in generation:
+              if import_marker not in generation:
+                  raise SystemExit('No se encontró el marcador de importación del generador.')
+              generation = generation.replace(import_marker, f"{import_marker}\n{report_import}", 1)
+
+          generation, removed = re.subn(
+              r"\nfunction parseAnswers\(device = \{\}\) \{.*?\n\}\n\nfunction technicianIdsFor",
+              "\nfunction technicianIdsFor",
+              generation,
+              count=1,
+              flags=re.S,
+          )
+          if removed != 1 and 'function parseAnswers(device = {})' in generation:
+              raise SystemExit('No se pudo retirar la redacción antigua de respuestas.')
+
+          replacement_raw = """
+          function rawDraft(bundle, group) {
+            return buildMaintenanceTicketDraft(bundle, group);
+          }
+
+          async function improveDraft"""
+          generation, replaced_raw = re.subn(
+              r"\nfunction rawDraft\(bundle, group\) \{.*?\n\}\n\nasync function improveDraft",
+              f"\n{replacement_raw}",
+              generation,
+              count=1,
+              flags=re.S,
+          )
+          if replaced_raw != 1 and 'return buildMaintenanceTicketDraft(bundle, group);' not in generation:
+              raise SystemExit('No se pudo reemplazar rawDraft.')
+
+          old_merge = """    return {
+              ...raw,
+              ...improved,
+              geminiUsed: true,
+              geminiModel: improved.model || '',
+              geminiWarning: '',
+            };"""
+          new_merge = """    const improvedDraft = mergeImprovedMaintenanceDraft(raw, improved);
+            return {
+              ...improvedDraft,
+              geminiUsed: true,
+              geminiModel: improved.model || '',
+              geminiWarning: '',
+            };"""
+          if old_merge in generation:
+              generation = generation.replace(old_merge, new_merge, 1)
+          elif 'const improvedDraft = mergeImprovedMaintenanceDraft(raw, improved);' not in generation:
+              raise SystemExit('No se pudo integrar la validación de Gemini.')
+
+          generation_path.write_text(generation, encoding='utf-8')
+
+          code_path = Path('apps-script/boletas-report/Code.gs')
+          code = code_path.read_text(encoding='utf-8')
+          annex_block = r'''
+          function hasAnnexContent_(signatureBlob, signatureInserted, evidences) {
+            return Boolean(
+              (signatureBlob && !signatureInserted)
+              || (Array.isArray(evidences) && evidences.length),
+            );
+          }
+
+          function paragraphHasPageBreak_(paragraph) {
+            for (let index = 0; index < paragraph.getNumChildren(); index += 1) {
+              if (paragraph.getChild(index).getType() === DocumentApp.ElementType.PAGE_BREAK) return true;
+            }
+            return false;
+          }
+
+          function removeTrailingPageArtifacts_(body) {
+            while (body.getNumChildren() > 0) {
+              const child = body.getChild(body.getNumChildren() - 1);
+              const type = child.getType();
+
+              if (type === DocumentApp.ElementType.PAGE_BREAK) {
+                child.removeFromParent();
+                continue;
+              }
+
+              if (type === DocumentApp.ElementType.PARAGRAPH || type === DocumentApp.ElementType.LIST_ITEM) {
+                const paragraph = type === DocumentApp.ElementType.PARAGRAPH
+                  ? child.asParagraph()
+                  : child.asListItem();
+                if (paragraphHasPageBreak_(paragraph) || !clean_(paragraph.getText())) {
+                  child.removeFromParent();
+                  continue;
+                }
+              }
+
+              break;
+            }
+          }
+
+          function appendAnnexes_(body, signatureBlob, signatureInserted, evidences) {
+            const annexEvidences = Array.isArray(evidences) ? evidences : [];
+            removeTrailingPageArtifacts_(body);
+
+            if (!hasAnnexContent_(signatureBlob, signatureInserted, annexEvidences)) return;
+
+            body.appendPageBreak();
+            body.appendParagraph('ANEXOS').setHeading(DocumentApp.ParagraphHeading.HEADING1);
+
+            if (signatureBlob && !signatureInserted) {
+              body.appendParagraph('Firma del cliente').setHeading(DocumentApp.ParagraphHeading.HEADING2);
+              const signatureImage = body.appendParagraph('').appendInlineImage(signatureBlob);
+              resizeInlineImage_(signatureImage, 260);
+            }
+
+            if (!annexEvidences.length) return;
+
+            body.appendParagraph('Evidencias fotográficas').setHeading(DocumentApp.ParagraphHeading.HEADING2);
+            annexEvidences.forEach(function (evidence, index) {
+              const name = clean_(evidence.Nombre || evidence.NombreArchivo, `Evidencia ${index + 1}`);
+              const note = clean_(evidence.Nota);
+              body.appendParagraph(`${index + 1}. ${name}`).setBold(true);
+              if (note) body.appendParagraph(note);
+              const blob = getDriveBlob_(evidence.ArchivoID || evidence.ArchivoFileID || evidence.DriveFileID || evidence.ArchivoURL);
+              if (blob && /^image\//i.test(blob.getContentType())) {
+                const image = body.appendParagraph('').appendInlineImage(blob);
+                resizeInlineImage_(image, 460);
+              } else if (evidence.ArchivoURL) {
+                body.appendParagraph(`Archivo: ${evidence.ArchivoURL}`);
+              }
+            });
+          }
+          '''
+          code, replaced_annex = re.subn(
+              r"\nfunction appendAnnexes_\(body, signatureBlob, signatureInserted, evidences\) \{.*?\n\}\n\nfunction sendReportEmail_",
+              f"\n{annex_block.strip()}\n\nfunction sendReportEmail_",
+              code,
+              count=1,
+              flags=re.S,
+          )
+          if replaced_annex != 1 and 'function removeTrailingPageArtifacts_(body)' not in code:
+              raise SystemExit('No se pudo reemplazar appendAnnexes_.')
+
+          code_path.write_text(code, encoding='utf-8')
+          PY
+
+      - name: Commit patched files
+        shell: bash
+        run: |
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add backend/src/services/maintenance-ticket-generation.service.js apps-script/boletas-report/Code.gs
+          if git diff --cached --quiet; then
+            echo "No changes required"
+            exit 0
+          fi
+          git commit -m "Integrar informe narrativo y corregir anexos PDF"
+          git push origin HEAD:fix/maintenance-ticket-report-narrative
