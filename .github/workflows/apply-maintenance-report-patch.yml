@@ -1,13 +1,223 @@
-name: Temporary maintenance patch disabled
+name: Finalize maintenance report fix
 
 on:
-  workflow_dispatch:
+  push:
+    branches:
+      - fix/maintenance-ticket-report-narrative
 
 permissions:
-  contents: read
+  contents: write
+
+concurrency:
+  group: finalize-maintenance-report-fix
+  cancel-in-progress: true
 
 jobs:
-  noop:
+  finalize:
     runs-on: ubuntu-latest
     steps:
-      - run: echo "Workflow temporal desactivado"
+      - uses: actions/checkout@v4
+        with:
+          ref: fix/maintenance-ticket-report-narrative
+          fetch-depth: 0
+
+      - name: Normalize final files
+        shell: bash
+        run: |
+          python - <<'PY'
+          from pathlib import Path
+          import re
+
+          report_path = Path('backend/src/services/maintenance-ticket-report.service.js')
+          report = report_path.read_text(encoding='utf-8')
+
+          replacements = [
+            (
+              """function articleFor(label) {
+            const text = normalized(label);
+            if (/^(alimentacion|conexion|condicion|limpieza|visualizacion|grabacion|funcion|cerradura|prueba|revision)/.test(text)) return 'la';
+            if (/^(estado|funcionamiento|montaje|lector|respaldo|almacenamiento|servicio)/.test(text)) return 'el';
+            return 'la verificación de';
+          }""",
+              """function articleFor(label) {
+            const text = normalized(label);
+            if (/^(estado|funcionamiento|montaje|lector|respaldo|almacenamiento|servicio)/.test(text)) return 'el';
+            if (/^(alimentacion|conexion|condicion|limpieza|visualizacion|grabacion|funcion|cerradura|prueba|revision)/.test(text)) return 'la';
+            return 'la verificación de';
+          }""",
+              'artículos de verificaciones',
+            ),
+            (
+              """function deviceReference(device, maintenance = {}) {
+            const category = deviceCategory(device).toLowerCase();
+            const name = deviceName(device);
+            const location = deviceLocation(device, maintenance);
+            const details = [
+              cleanText(device.Fabricante) ? `fabricante ${cleanText(device.Fabricante)}` : '',
+              cleanText(device.Modelo) ? `modelo ${cleanText(device.Modelo)}` : '',
+              cleanText(device.Serie) ? `serie ${cleanText(device.Serie)}` : '',
+            ].filter(Boolean);
+            return `la ${category} “${name}”${location ? `, ubicada en ${location}` : ''}${details.length ? ` (${details.join(', ')})` : ''}`;
+          }""",
+              """function deviceArticle(category) {
+            const text = normalized(category);
+            return /^(camara|puerta|impresora|bocina|cerradura|fuente)/.test(text) ? 'la' : 'el';
+          }
+
+          function deviceReference(device, maintenance = {}) {
+            const category = deviceCategory(device).toLowerCase();
+            const name = deviceName(device);
+            const location = deviceLocation(device, maintenance);
+            const details = [
+              cleanText(device.Fabricante) ? `fabricante ${cleanText(device.Fabricante)}` : '',
+              cleanText(device.Modelo) ? `modelo ${cleanText(device.Modelo)}` : '',
+              cleanText(device.Serie) ? `serie ${cleanText(device.Serie)}` : '',
+            ].filter(Boolean);
+            const article = deviceArticle(category);
+            const locationPhrase = location ? `, ${article === 'la' ? 'ubicada' : 'ubicado'} en ${location}` : '';
+            return `${article} ${category} “${name}”${locationPhrase}${details.length ? ` (${details.join(', ')})` : ''}`;
+          }""",
+              'concordancia de categorías',
+            ),
+            (
+              """      observation,
+            ].filter(Boolean);""",
+              """      observation ? `se registró la observación: ${observation}` : '',
+            ].filter(Boolean);""",
+              'observación pendiente',
+            ),
+            (
+              """  for (const field of fields) {
+            const candidate = safeReportText(improved?.[field]);
+            result[field] = candidate || raw[field];
+          }""",
+              """  for (const field of fields) {
+            const improvedValue = improved?.[field];
+            const candidate = typeof improvedValue === 'string'
+              ? safeReportText(improvedValue)
+              : '';
+            result[field] = candidate || raw[field];
+          }""",
+              'validación de texto mejorado',
+            ),
+            (
+              """  const reason = `Durante la jornada del ${date}, ${technicianNames} realizó labores de mantenimiento preventivo y revisión técnica sobre ${amount} de ${client}${mainLocation ? ` en ${mainLocation}` : ''}.`;""",
+              """  const workVerb = technicians.length === 1 ? 'realizó' : 'realizaron';
+            const reason = `Durante la jornada del ${date}, ${technicianNames} ${workVerb} labores de mantenimiento preventivo y revisión técnica sobre ${amount} de ${client}${mainLocation ? ` en ${mainLocation}` : ''}.`;""",
+              'concordancia de técnicos',
+            ),
+          ]
+
+          for old, new, label in replacements:
+            old = re.sub(r'^ {10}', '', old, flags=re.M)
+            new = re.sub(r'^ {10}', '', new, flags=re.M)
+            if old in report:
+              report = report.replace(old, new, 1)
+            elif new not in report:
+              raise SystemExit(f'No se pudo aplicar la corrección: {label}')
+
+          report_path.write_text(report, encoding='utf-8')
+
+          code_path = Path('apps-script/boletas-report/Code.gs')
+          code = code_path.read_text(encoding='utf-8')
+          annex = r'''function hasAnnexContent_(signatureBlob, signatureInserted, evidences) {
+            return Boolean(
+              (signatureBlob && !signatureInserted)
+              || (Array.isArray(evidences) && evidences.length),
+            );
+          }
+
+          function paragraphHasPageBreak_(paragraph) {
+            for (let index = 0; index < paragraph.getNumChildren(); index += 1) {
+              if (paragraph.getChild(index).getType() === DocumentApp.ElementType.PAGE_BREAK) return true;
+            }
+            return false;
+          }
+
+          function removeTrailingPageArtifacts_(body) {
+            while (body.getNumChildren() > 0) {
+              const child = body.getChild(body.getNumChildren() - 1);
+              const type = child.getType();
+
+              if (type === DocumentApp.ElementType.PAGE_BREAK) {
+                child.removeFromParent();
+                continue;
+              }
+
+              if (type === DocumentApp.ElementType.PARAGRAPH || type === DocumentApp.ElementType.LIST_ITEM) {
+                const paragraph = type === DocumentApp.ElementType.PARAGRAPH
+                  ? child.asParagraph()
+                  : child.asListItem();
+                if (paragraphHasPageBreak_(paragraph) || !clean_(paragraph.getText())) {
+                  child.removeFromParent();
+                  continue;
+                }
+              }
+
+              break;
+            }
+          }
+
+          function appendAnnexes_(body, signatureBlob, signatureInserted, evidences) {
+            const annexEvidences = Array.isArray(evidences) ? evidences : [];
+            removeTrailingPageArtifacts_(body);
+
+            if (!hasAnnexContent_(signatureBlob, signatureInserted, annexEvidences)) return;
+
+            body.appendPageBreak();
+            body.appendParagraph('ANEXOS').setHeading(DocumentApp.ParagraphHeading.HEADING1);
+
+            if (signatureBlob && !signatureInserted) {
+              body.appendParagraph('Firma del cliente').setHeading(DocumentApp.ParagraphHeading.HEADING2);
+              const signatureImage = body.appendParagraph('').appendInlineImage(signatureBlob);
+              resizeInlineImage_(signatureImage, 260);
+            }
+
+            if (!annexEvidences.length) return;
+
+            body.appendParagraph('Evidencias fotográficas').setHeading(DocumentApp.ParagraphHeading.HEADING2);
+            annexEvidences.forEach(function (evidence, index) {
+              const name = clean_(evidence.Nombre || evidence.NombreArchivo, `Evidencia ${index + 1}`);
+              const note = clean_(evidence.Nota);
+              body.appendParagraph(`${index + 1}. ${name}`).setBold(true);
+              if (note) body.appendParagraph(note);
+              const blob = getDriveBlob_(evidence.ArchivoID || evidence.ArchivoFileID || evidence.DriveFileID || evidence.ArchivoURL);
+              if (blob && /^image\//i.test(blob.getContentType())) {
+                const image = body.appendParagraph('').appendInlineImage(blob);
+                resizeInlineImage_(image, 460);
+              } else if (evidence.ArchivoURL) {
+                body.appendParagraph(`Archivo: ${evidence.ArchivoURL}`);
+              }
+            });
+          }'''
+          annex = re.sub(r'^ {10}', '', annex, flags=re.M)
+
+          pattern = r"function hasAnnexContent_\(signatureBlob, signatureInserted, evidences\) \{.*?\nfunction sendReportEmail_"
+          code, count = re.subn(pattern, f'{annex}\n\nfunction sendReportEmail_', code, count=1, flags=re.S)
+          if count != 1:
+            pattern = r"function appendAnnexes_\(body, signatureBlob, signatureInserted, evidences\) \{.*?\nfunction sendReportEmail_"
+            code, count = re.subn(pattern, f'{annex}\n\nfunction sendReportEmail_', code, count=1, flags=re.S)
+          if count != 1:
+            raise SystemExit('No se pudo normalizar el bloque de anexos')
+          code_path.write_text(code, encoding='utf-8')
+
+          generation_path = Path('backend/src/services/maintenance-ticket-generation.service.js')
+          generation = generation_path.read_text(encoding='utf-8')
+          generation = re.sub(r'\n{4,}function rawDraft', '\n\nfunction rawDraft', generation, count=1)
+          generation_path.write_text(generation, encoding='utf-8')
+          PY
+
+      - name: Remove temporary patch files
+        run: |
+          rm -f .github/workflows/apply-maintenance-report-patch-pr.yml
+          rm -f scripts/apply-maintenance-report-patch.py
+          rm -f .github/workflows/apply-maintenance-report-patch.yml
+
+      - name: Commit final clean branch
+        shell: bash
+        run: |
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add -A
+          git commit -m "Finalizar informe narrativo y limpieza de anexos"
+          git push origin HEAD:fix/maintenance-ticket-report-narrative
