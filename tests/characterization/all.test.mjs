@@ -13,6 +13,7 @@ import './maintenance-device-lifecycle.test.mjs';
 import './maintenance-device-persistence.test.mjs';
 import './maintenance-form-orchestration.test.mjs';
 import './maintenance-form-resources.test.mjs';
+import './maintenance-ticket-report-quality.test.mjs';
 import './offline-mode.test.mjs';
 import './paginated-collection.test.mjs';
 import './paginated-resource.test.mjs';
