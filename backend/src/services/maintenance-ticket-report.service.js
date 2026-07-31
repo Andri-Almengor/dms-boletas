@@ -193,8 +193,8 @@ function deviceStatus(device, checks) {
 
 function articleFor(label) {
   const text = normalized(label);
-  if (/^(alimentacion|conexion|condicion|limpieza|visualizacion|grabacion|funcion|cerradura|prueba|revision)/.test(text)) return 'la';
   if (/^(estado|funcionamiento|montaje|lector|respaldo|almacenamiento|servicio)/.test(text)) return 'el';
+  if (/^(alimentacion|conexion|condicion|limpieza|visualizacion|grabacion|funcion|cerradura|prueba|revision)/.test(text)) return 'la';
   return 'la verificación de';
 }
 
@@ -238,6 +238,11 @@ function deviceLocation(device, maintenance = {}) {
   );
 }
 
+function deviceArticle(category) {
+  const text = normalized(category);
+  return /^(camara|puerta|impresora|bocina|cerradura|fuente)/.test(text) ? 'la' : 'el';
+}
+
 function deviceReference(device, maintenance = {}) {
   const category = deviceCategory(device).toLowerCase();
   const name = deviceName(device);
@@ -247,7 +252,9 @@ function deviceReference(device, maintenance = {}) {
     cleanText(device.Modelo) ? `modelo ${cleanText(device.Modelo)}` : '',
     cleanText(device.Serie) ? `serie ${cleanText(device.Serie)}` : '',
   ].filter(Boolean);
-  return `la ${category} “${name}”${location ? `, ubicada en ${location}` : ''}${details.length ? ` (${details.join(', ')})` : ''}`;
+  const article = deviceArticle(category);
+  const locationPhrase = location ? `, ${article === 'la' ? 'ubicada' : 'ubicado'} en ${location}` : '';
+  return `${article} ${category} “${name}”${locationPhrase}${details.length ? ` (${details.join(', ')})` : ''}`;
 }
 
 function testNarrative(device, maintenance) {
@@ -295,7 +302,7 @@ function resultNarrative(device, maintenance) {
     const reason = [
       pendingLabels.length ? `faltan por confirmar ${checklistPhrase(pendingLabels)}` : '',
       negativeLabels.length ? `se detectaron observaciones en ${checklistPhrase(negativeLabels)}` : '',
-      observation,
+      observation ? `se registró la observación: ${observation}` : '',
     ].filter(Boolean);
     return `${reference.charAt(0).toUpperCase()}${reference.slice(1)} quedó pendiente de seguimiento${reason.length ? ` debido a que ${joinNatural(reason)}` : ''}.`;
   }
@@ -367,7 +374,10 @@ export function mergeImprovedMaintenanceDraft(raw, improved = {}) {
   const fields = ['titulo', 'razonVisita', 'descripcion', 'pruebasRealizadas', 'resultado', 'recomendaciones'];
   const result = { ...raw };
   for (const field of fields) {
-    const candidate = safeReportText(improved?.[field]);
+    const improvedValue = improved?.[field];
+    const candidate = typeof improvedValue === 'string'
+      ? safeReportText(improvedValue)
+      : '';
     result[field] = candidate || raw[field];
   }
   return result;
@@ -385,7 +395,8 @@ export function buildMaintenanceTicketDraft(bundle = {}, group = {}) {
   const mainLocation = cleanText(maintenance.Ubicacion) || joinNatural(locations);
   const amount = plural(devices.length, 'dispositivo', 'dispositivos');
 
-  const reason = `Durante la jornada del ${date}, ${technicianNames} realizó labores de mantenimiento preventivo y revisión técnica sobre ${amount} de ${client}${mainLocation ? ` en ${mainLocation}` : ''}.`;
+  const workVerb = technicians.length === 1 ? 'realizó' : 'realizaron';
+  const reason = `Durante la jornada del ${date}, ${technicianNames} ${workVerb} labores de mantenimiento preventivo y revisión técnica sobre ${amount} de ${client}${mainLocation ? ` en ${mainLocation}` : ''}.`;
   const description = `El alcance incluyó ${joinNatural(categories.map((item) => item.toLowerCase())) || 'los equipos registrados'}${locations.length ? ` distribuidos en ${joinNatural(locations)}` : ''}. Se documentaron las verificaciones funcionales, el estado de uso, las condiciones observadas y las evidencias asociadas a cada dispositivo.`;
   const tests = [
     `Durante la inspección se evaluaron ${amount} y se registraron las pruebas efectuadas en cada equipo:`,
