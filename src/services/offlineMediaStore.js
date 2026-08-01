@@ -103,6 +103,11 @@ async function assertStorageCapacity(requiredBytes) {
 }
 
 export async function saveOfflineMedia(record = {}) {
+  if (!supportsIndexedDb()) {
+    const error = new Error('Este navegador no permite guardar fotografías sin conexión.');
+    error.code = 'OFFLINE_MEDIA_UNSUPPORTED';
+    throw error;
+  }
   const mediaId = String(record.mediaId || '').trim();
   if (!mediaId) throw new Error('La fotografía offline necesita un identificador local.');
   if (!(record.blob instanceof Blob)) throw new TypeError('La fotografía offline debe guardarse como Blob.');
