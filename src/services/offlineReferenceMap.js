@@ -1,4 +1,4 @@
-import { getOfflineMeta, setOfflineMeta } from './offlineStore';
+import { getOfflineMeta, setOfflineMeta } from './offlineStore.js';
 
 const META_KEY = 'offline-id-mappings-v1';
 
