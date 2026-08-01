@@ -76,6 +76,45 @@ test('combina campos distintos sin reenviar valores locales obsoletos', () => {
   assert.equal(result.deviceId, 'DEV-1');
 });
 
+test('preserva CantidadesJSON actual cuando el cambio local fue otro campo', () => {
+  const payload = {
+    maintenanceId: 'MNT-1',
+    DescripcionGeneral: 'Descripción local',
+    CantidadesJSON: JSON.stringify({ CantCámaras: 2 }),
+    __syncBase: {
+      entityType: 'maintenance',
+      entityId: 'MNT-1',
+      maintenanceId: 'MNT-1',
+      updatedAt: '2026-07-30T10:00:00.000Z',
+      snapshot: {
+        DescripcionGeneral: '',
+        CantidadesJSON: JSON.stringify({ CantCámaras: 2 }),
+        CantCámaras: 2,
+        FechaActualizacion: '2026-07-30T10:00:00.000Z',
+      },
+    },
+  };
+  const result = resolveConflictAwarePayload({
+    payload,
+    before: {
+      DescripcionGeneral: '',
+      CantidadesJSON: JSON.stringify({ CantCámaras: 3 }),
+      CantCámaras: 3,
+      FechaActualizacion: '2026-07-30T11:00:00.000Z',
+    },
+    fieldAliases: {
+      DescripcionGeneral: ['descripcion'],
+      CantidadesJSON: ['counts'],
+      CantCámaras: [],
+    },
+    entityType: 'maintenance',
+    entityId: 'MNT-1',
+    maintenanceId: 'MNT-1',
+  });
+  assert.equal(result.DescripcionGeneral, 'Descripción local');
+  assert.deepEqual(JSON.parse(result.CantidadesJSON), { CantCámaras: 3 });
+});
+
 test('bloquea un cambio sobre el mismo campo y expone ambas versiones', () => {
   const payload = {
     deviceId: 'DEV-1',
