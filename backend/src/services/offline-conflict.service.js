@@ -32,7 +32,7 @@ const DEFINITIONS = [
     entityType: 'UbicacionCliente',
     idField: 'UbicacionID',
     idAliases: ['UbicacionID', 'ubicacionId', 'id'],
-    fields: ['ClienteID', 'Nombre', 'Direccion', 'Notas', 'Estado'],
+    fields: ['ClienteID', 'Nombre', 'Direccion', 'Notas', 'Estado', 'Activo'],
   },
   {
     routes: ['equipmentLocations.update', 'clients.equipmentLocations.update', 'clientes.ubicacionesEquipo.update', 'ubicacionesEquipo.update'],
@@ -40,7 +40,7 @@ const DEFINITIONS = [
     entityType: 'UbicacionEquipo',
     idField: 'UbicacionEquipoID',
     idAliases: ['UbicacionEquipoID', 'ubicacionEquipoId', 'id'],
-    fields: ['UbicacionID', 'Nombre', 'Descripcion', 'Estado'],
+    fields: ['UbicacionID', 'Nombre', 'Descripcion', 'Estado', 'Activo'],
   },
   {
     routes: ['catalog.deviceTypes.update', 'deviceTypes.update', 'tiposDispositivo.update'],
@@ -48,7 +48,7 @@ const DEFINITIONS = [
     entityType: 'TipoDispositivo',
     idField: 'TipoDispositivoID',
     idAliases: ['TipoDispositivoID', 'tipoDispositivoId', 'id'],
-    fields: ['Nombre', 'Descripcion', 'Estado'],
+    fields: ['Nombre', 'Descripcion', 'Estado', 'Activo'],
   },
   {
     routes: ['catalog.manufacturers.update', 'manufacturers.update', 'fabricantes.update'],
@@ -56,7 +56,7 @@ const DEFINITIONS = [
     entityType: 'Fabricante',
     idField: 'FabricanteID',
     idAliases: ['FabricanteID', 'fabricanteId', 'id'],
-    fields: ['Nombre', 'LogoURL', 'Estado'],
+    fields: ['Nombre', 'LogoURL', 'Estado', 'Activo'],
   },
   {
     routes: ['catalog.models.update', 'models.update', 'modelos.update'],
@@ -64,7 +64,7 @@ const DEFINITIONS = [
     entityType: 'Modelo',
     idField: 'ModeloID',
     idAliases: ['ModeloID', 'modeloId', 'id'],
-    fields: ['TipoDispositivoID', 'FabricanteID', 'Nombre', 'ImagenReferenciaURL', 'Descripcion', 'Estado'],
+    fields: ['TipoDispositivoID', 'FabricanteID', 'Nombre', 'ImagenReferenciaURL', 'Descripcion', 'Estado', 'Activo'],
   },
   {
     routes: ['catalog.deviceManufacturers.update', 'deviceManufacturers.update', 'tipoDispositivoFabricantes.update'],
@@ -72,7 +72,7 @@ const DEFINITIONS = [
     entityType: 'RelacionDispositivoFabricante',
     idField: 'RelacionID',
     idAliases: ['RelacionID', 'relacionId', 'id'],
-    fields: ['TipoDispositivoID', 'FabricanteID', 'Estado'],
+    fields: ['TipoDispositivoID', 'FabricanteID', 'Estado', 'Activo'],
   },
 ];
 

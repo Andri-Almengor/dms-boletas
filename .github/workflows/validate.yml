@@ -1,90 +1,54 @@
-name: Finalize offline conflict stage 2
+name: Validate application
 
 on:
   pull_request:
-    branches:
-      - main
-    types: [synchronize, reopened]
+  workflow_dispatch:
 
 permissions:
-  contents: write
+  contents: read
 
 jobs:
-  finalize-stage2:
-    if: github.event.pull_request.head.repo.full_name == github.repository
+  build:
     runs-on: ubuntu-latest
     steps:
-      - name: Checkout feature branch
+      - name: Checkout
         uses: actions/checkout@v4
+
+      - name: Setup Node
+        uses: actions/setup-node@v4
         with:
-          ref: ${{ github.event.pull_request.head.ref }}
-          fetch-depth: 0
+          node-version: 20
+          cache: npm
+          cache-dependency-path: |
+            package-lock.json
+            backend/package-lock.json
 
-      - name: Preserve original conflict base
-        run: python scripts/finalize-offline-stage2.py
+      - name: Install frontend dependencies
+        run: npm ci
 
-      - name: Restore validation workflow and commit
-        shell: bash
+      - name: Install backend dependencies
+        run: npm ci --prefix backend
+
+      - name: Build frontend
+        run: npm run build
+
+      - name: Check backend syntax
         run: |
-          rm -f scripts/finalize-offline-stage2.py
-          cat > .github/workflows/validate.yml <<'YAML'
-          name: Validate application
+          find backend/src -name '*.js' -print0 | xargs -0 -n1 node --check
 
-          on:
-            pull_request:
-            workflow_dispatch:
+      - name: Audit production dependencies
+        run: npm run audit:security
 
-          permissions:
-            contents: read
+      - name: Collect final metrics and CSS audit
+        run: |
+          npm run baseline
+          npm run report:final
 
-          jobs:
-            build:
-              runs-on: ubuntu-latest
-              steps:
-                - name: Checkout
-                  uses: actions/checkout@v4
-
-                - name: Setup Node
-                  uses: actions/setup-node@v4
-                  with:
-                    node-version: 20
-                    cache: npm
-                    cache-dependency-path: |
-                      package-lock.json
-                      backend/package-lock.json
-
-                - name: Install frontend dependencies
-                  run: npm ci
-
-                - name: Install backend dependencies
-                  run: npm ci --prefix backend
-
-                - name: Build frontend
-                  run: npm run build
-
-                - name: Check backend syntax
-                  run: |
-                    find backend/src -name '*.js' -print0 | xargs -0 -n1 node --check
-
-                - name: Audit production dependencies
-                  run: npm run audit:security
-
-                - name: Collect final metrics and CSS audit
-                  run: |
-                    npm run baseline
-                    npm run report:final
-
-                - name: Upload final validation report
-                  if: always()
-                  uses: actions/upload-artifact@v4
-                  with:
-                    name: final-validation
-                    path: .artifacts/
-                    if-no-files-found: error
-                    include-hidden-files: true
-          YAML
-          git config user.name "github-actions[bot]"
-          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
-          git add -A
-          git commit -m "Conservar base original en conflictos offline"
-          git push origin HEAD:${{ github.event.pull_request.head.ref }}
+      - name: Upload final validation report
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: final-validation
+          path: .artifacts/
+          if-no-files-found: error
+          include-hidden-files: true

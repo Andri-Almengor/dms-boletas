@@ -75,6 +75,7 @@ const DEFINITIONS = {
       Direccion: ['Direccion', 'direccion'],
       Notas: ['Notas', 'notas'],
       Estado: ['Estado', 'status'],
+      Activo: ['Activo', 'activo'],
     },
   },
   equipmentLocationUpdate: {
@@ -85,6 +86,7 @@ const DEFINITIONS = {
       Nombre: ['Nombre', 'nombre'],
       Descripcion: ['Descripcion', 'descripcion'],
       Estado: ['Estado', 'status'],
+      Activo: ['Activo', 'activo'],
     },
   },
   deviceTypeUpdate: {
@@ -94,6 +96,7 @@ const DEFINITIONS = {
       Nombre: ['Nombre', 'nombre'],
       Descripcion: ['Descripcion', 'descripcion'],
       Estado: ['Estado', 'status'],
+      Activo: ['Activo', 'activo'],
     },
   },
   manufacturerUpdate: {
@@ -103,6 +106,7 @@ const DEFINITIONS = {
       Nombre: ['Nombre', 'nombre'],
       LogoURL: ['LogoURL', 'logoUrl'],
       Estado: ['Estado', 'status'],
+      Activo: ['Activo', 'activo'],
     },
   },
   modelUpdate: {
@@ -115,6 +119,7 @@ const DEFINITIONS = {
       ImagenReferenciaURL: ['ImagenReferenciaURL', 'imagenReferenciaURL'],
       Descripcion: ['Descripcion', 'descripcion'],
       Estado: ['Estado', 'status'],
+      Activo: ['Activo', 'activo'],
     },
   },
   deviceManufacturerUpdate: {
@@ -124,6 +129,7 @@ const DEFINITIONS = {
       TipoDispositivoID: ['TipoDispositivoID', 'tipoDispositivoId'],
       FabricanteID: ['FabricanteID', 'fabricanteId'],
       Estado: ['Estado', 'status'],
+      Activo: ['Activo', 'activo'],
     },
   },
 };

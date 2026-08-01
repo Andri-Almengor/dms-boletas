@@ -232,7 +232,7 @@ export async function enqueueOperation({ routes, payload, description = '', enti
     kind: kind || existing?.kind || '',
     dependsOnLocalIds: [...new Set((dependsOnLocalIds || existing?.dependsOnLocalIds || []).map(String).filter(Boolean))],
     priority: Number(priority || existing?.priority || OPERATION_PRIORITY[kind] || 35),
-    conflict: conflict || existing?.conflict || null,
+    conflict: existing?.conflict || conflict || null,
     conflictDetails: existing?.conflictDetails || null,
     conflictResolution: existing?.conflictResolution || '',
     status: 'PENDING',
