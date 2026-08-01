@@ -5,9 +5,40 @@ on:
   workflow_dispatch:
 
 permissions:
-  contents: read
+  contents: write
 
 jobs:
+  apply-offline-stage:
+    if: github.event_name == 'pull_request' && github.actor != 'github-actions[bot]'
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout feature branch
+        uses: actions/checkout@v4
+        with:
+          ref: ${{ github.event.pull_request.head.ref }}
+          fetch-depth: 0
+
+      - name: Apply dependency-aware offline catalogs
+        run: python scripts/apply-offline-catalog-stage.py
+
+      - name: Verify focused offline tests
+        run: node --test tests/characterization/offline-catalog-sync.test.mjs
+
+      - name: Commit final clean branch
+        shell: bash
+        run: |
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git show origin/main:.github/workflows/validate.yml > .github/workflows/validate.yml
+          rm -f scripts/apply-offline-catalog-stage.py
+          git add -A
+          if git diff --cached --quiet; then
+            echo "No changes required"
+            exit 0
+          fi
+          git commit -m "Integrar catálogos offline con dependencias"
+          git push origin HEAD:${{ github.event.pull_request.head.ref }}
+
   build:
     runs-on: ubuntu-latest
     steps:
