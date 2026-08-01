@@ -102,6 +102,22 @@ export async function updateQueuedOperation(id, patch) {
   return core.updateQueuedOperation(id, patch);
 }
 
+export async function listOfflineIdMappings() {
+  const core = await loadCore();
+  return core.listOfflineIdMappings();
+}
+
+export async function saveOfflineIdMapping(localId, serverId, entityType = '') {
+  if (!isOfflineModeEnabled()) return null;
+  const core = await loadCore();
+  return core.saveOfflineIdMapping(localId, serverId, entityType);
+}
+
+export async function resolveOfflineOperationPayload(payload = {}, requiredLocalIds = []) {
+  const core = await loadCore();
+  return core.resolveOfflineOperationPayload(payload, requiredLocalIds);
+}
+
 export async function setOfflineMeta(key, value) {
   if (!isOfflineModeEnabled()) return null;
   const core = await loadCore();

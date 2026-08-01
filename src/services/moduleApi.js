@@ -6,9 +6,28 @@ import {
   enqueueOperation,
   getEntityQueueState,
   readCachedResponse,
+  resolveOfflineOperationPayload,
   responseCacheKey,
+  saveOfflineIdMapping,
   updateCachedResponses,
 } from './offlineStore';
+import {
+  catalogCreatedServerId,
+  catalogDedupeKey,
+  catalogEntityId,
+  catalogIdKeys,
+  catalogLocalRow,
+  catalogOperationDescription,
+  catalogOperationPriority,
+  catalogRowMatchesRequest,
+  collectOfflineDependencies,
+  isOfflineCatalogCreateKind,
+  isOfflineCatalogKind,
+  offlineCatalogCacheRouteMatches,
+  offlineCatalogWriteKind,
+  prepareOfflineCatalogPayload,
+} from './offlineCatalogDomain';
+import { isOfflineModeEnabled } from './offlineMode';
 import { isNetworkError, throwIfAborted } from './requestErrors';
 
 export { isNetworkError } from './requestErrors';
@@ -193,7 +212,7 @@ function offlineWriteKind(routes) {
   if (text.includes('maintenance.images.delete') || text.includes('mantenimientos.imagenes.delete')) return 'maintenanceImageDelete';
   if (text.includes('maintenance.finalize') || text.includes('mantenimientos.finalize')) return 'maintenanceFinalize';
   if (text.includes('maintenance.update') || text.includes('mantenimientos.update')) return 'maintenanceUpdate';
-  return '';
+  return offlineCatalogWriteKind(routes);
 }
 
 function isFinalizeKind(kind) {
@@ -210,6 +229,11 @@ function currentUserId() {
 }
 
 function prepareWritePayload(kind, originalPayload = {}) {
+  if (isOfflineCatalogKind(kind)) {
+    return isOfflineModeEnabled()
+      ? prepareOfflineCatalogPayload(kind, originalPayload)
+      : { ...originalPayload };
+  }
   const payload = { ...originalPayload };
   if (kind === 'ticketCreate' && !pick(payload, ['boletaUid', 'BoletaUID'])) {
     const id = createOfflineId('boleta');
@@ -240,6 +264,7 @@ function prepareWritePayload(kind, originalPayload = {}) {
 }
 
 function entityIdFor(kind, payload) {
+  if (isOfflineCatalogKind(kind)) return catalogEntityId(kind, payload);
   if (kind.startsWith('ticket')) return String(pick(payload, ['boletaUid', 'BoletaUID', 'id']));
   if (kind.startsWith('maintenance')) return String(pick(payload, ['maintenanceId', 'MantenimientoID', 'MantenimientoRef']));
   return '';
@@ -265,10 +290,11 @@ function offlineDescription(kind) {
     maintenanceImageUpdate: 'Editar evidencia del mantenimiento',
     maintenanceImageDelete: 'Eliminar evidencia del mantenimiento',
   };
-  return labels[kind] || 'Sincronizar cambio';
+  return labels[kind] || catalogOperationDescription(kind) || 'Sincronizar cambio';
 }
 
 function dedupeKeyFor(kind, payload) {
+  if (isOfflineCatalogKind(kind)) return catalogDedupeKey(kind, payload);
   const entityId = entityIdFor(kind, payload);
   if (['ticketCreate', 'ticketUpdate', 'ticketAutosave', 'ticketSignature', 'ticketTest', 'ticketPdf', 'maintenanceCreate', 'maintenanceUpdate'].includes(kind)) {
     return `${kind}:${entityId}`;
@@ -558,7 +584,40 @@ async function patchMaintenanceCache(kind, payload, result, sessionToken) {
   await cacheResponse(key, { ...current, dispositivos: devices, offlineQueued: true });
 }
 
+
+async function patchOfflineCatalogCache(kind, payload, result) {
+  const localId = String(payload?.__offlineLocalId || catalogEntityId(kind, payload) || '');
+  const row = catalogLocalRow(kind, payload, result);
+  const keys = catalogIdKeys(kind);
+  const finalId = String(pick(row, keys));
+
+  await updateCachedResponses(
+    (entry) => offlineCatalogCacheRouteMatches(kind, cacheRoute(entry)),
+    (data, entry) => {
+      const request = cachePayload(entry);
+      let items = normalizeItems(data);
+      const containedLocal = Boolean(localId && items.some((item) => String(pick(item, keys)) === localId));
+      if (localId && finalId && localId !== finalId) items = removeBy(items, localId, keys);
+      if (containedLocal || catalogRowMatchesRequest(kind, row, request)) {
+        items = upsertBy(items, row, keys);
+      }
+      return rebuildCollection(data, items);
+    },
+  );
+}
+
+async function registerOfflineCatalogMapping(kind, originalPayload, result) {
+  if (!isOfflineCatalogCreateKind(kind)) return '';
+  const localId = catalogEntityId(kind, originalPayload);
+  const serverId = catalogCreatedServerId(kind, result);
+  if (localId && serverId && localId !== serverId) {
+    await saveOfflineIdMapping(localId, serverId, kind).catch(() => {});
+  }
+  return localId;
+}
+
 async function applyOperationToCache(kind, payload, result, sessionToken) {
+  if (isOfflineCatalogKind(kind)) return patchOfflineCatalogCache(kind, payload, result);
   if (kind.startsWith('ticket')) return patchTicketCache(kind, payload, result, sessionToken);
   if (kind.startsWith('maintenance')) return patchMaintenanceCache(kind, payload, result, sessionToken);
   return undefined;
@@ -623,6 +682,7 @@ function queuedResponse(kind, payload, operation) {
     if (kind === 'ticketEvidence') return localEvidence(payload);
     return { ok: true, offlineQueued: true, boletaUid: uid, operationId: operation.id };
   }
+  if (isOfflineCatalogKind(kind)) return catalogLocalRow(kind, payload);
   if (kind.startsWith('maintenance')) {
     const maintenanceId = pick(payload, ['maintenanceId', 'MantenimientoID']);
     if (['maintenanceCreate', 'maintenanceUpdate'].includes(kind)) {
@@ -647,6 +707,8 @@ async function queueOfflineWrite(routes, payload, kind, sessionToken) {
     description: offlineDescription(kind),
     dedupeKey: dedupeKeyFor(kind, payload),
     kind,
+    dependsOnLocalIds: collectOfflineDependencies(kind, payload),
+    priority: isOfflineCatalogKind(kind) ? catalogOperationPriority(kind) : 0,
   });
   await applyOperationToCache(kind, payload, null, sessionToken).catch(() => {});
   return queuedResponse(kind, payload, operation);
@@ -664,12 +726,31 @@ async function assertCanFinalize(kind, payload) {
 }
 
 export async function replayQueuedOperation(operation, sessionToken = '') {
-  const payload = operation.payload || {};
+  const kind = operation.kind || offlineWriteKind(operation.routes);
+  const originalPayload = operation.payload || {};
+  const dependencies = operation.dependsOnLocalIds?.length
+    ? operation.dependsOnLocalIds
+    : collectOfflineDependencies(kind, originalPayload);
+  const resolved = await resolveOfflineOperationPayload(originalPayload, dependencies);
+  if (resolved.unresolved.length) {
+    const error = new Error(`La operación espera ${resolved.unresolved.length} registro${resolved.unresolved.length === 1 ? '' : 's'} relacionado${resolved.unresolved.length === 1 ? '' : 's'} antes de sincronizar.`);
+    error.code = 'OFFLINE_DEPENDENCY_PENDING';
+    error.details = { unresolvedLocalIds: resolved.unresolved };
+    throw error;
+  }
+
+  const payload = resolved.payload;
   const result = await requestFirstAvailable(
     operation.routes || [],
     (route) => apiRequest(route, payload, sessionToken),
   );
-  await applyOperationToCache(operation.kind || offlineWriteKind(operation.routes), payload, result, sessionToken).catch(() => {});
+  const localId = await registerOfflineCatalogMapping(kind, originalPayload, result);
+  await applyOperationToCache(
+    kind,
+    localId ? { ...payload, __offlineLocalId: localId } : payload,
+    result,
+    sessionToken,
+  ).catch(() => {});
   return result;
 }
 
@@ -706,7 +787,15 @@ export async function requestAvailable(routes, payload = {}, sessionToken = '', 
       { signal },
     );
     if (read) await cacheResponse(cacheKey, result).catch(() => {});
-    if (writeKind) await applyOperationToCache(writeKind, preparedPayload, result, sessionToken).catch(() => {});
+    const localId = writeKind
+      ? await registerOfflineCatalogMapping(writeKind, preparedPayload, result)
+      : '';
+    if (writeKind) await applyOperationToCache(
+      writeKind,
+      localId ? { ...preparedPayload, __offlineLocalId: localId } : preparedPayload,
+      result,
+      sessionToken,
+    ).catch(() => {});
     return result;
   } catch (error) {
     if (isNetworkError(error)) {
