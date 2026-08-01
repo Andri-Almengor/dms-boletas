@@ -28,6 +28,11 @@ import {
   prepareOfflineCatalogPayload,
 } from './offlineCatalogDomain';
 import { isOfflineModeEnabled } from './offlineMode';
+import {
+  buildOfflineConflictMetadata,
+  offlineConflictDefinition,
+  offlineConflictEntityId,
+} from './offlineConflictDomain';
 import { isNetworkError, throwIfAborted } from './requestErrors';
 
 export { isNetworkError } from './requestErrors';
@@ -695,11 +700,62 @@ function queuedResponse(kind, payload, operation) {
   return { ok: true, offlineQueued: true, operationId: operation.id };
 }
 
+function conflictCatalogRoutes(kind) {
+  const routes = {
+    clientLocationUpdate: MODULE_ROUTES.clients.locationsList,
+    equipmentLocationUpdate: MODULE_ROUTES.clients.equipmentLocationsList,
+    deviceTypeUpdate: MODULE_ROUTES.deviceTypes.list,
+    manufacturerUpdate: MODULE_ROUTES.manufacturers.list,
+    modelUpdate: MODULE_ROUTES.models.list,
+    deviceManufacturerUpdate: MODULE_ROUTES.deviceManufacturers.list,
+  };
+  return routes[kind] || null;
+}
+
+function findConflictRecord(items, kind, entityId) {
+  return (items || []).find((row) => offlineConflictEntityId(kind, row) === String(entityId || '')) || null;
+}
+
+async function cachedConflictBase(kind, payload, sessionToken) {
+  const definition = offlineConflictDefinition(kind);
+  const entityId = offlineConflictEntityId(kind, payload);
+  if (!definition || !entityId) return null;
+
+  if (kind === 'maintenanceUpdate') {
+    const key = responseCacheKey(MODULE_ROUTES.maintenance.get, { maintenanceId: entityId }, sessionToken);
+    return (await readCachedResponse(key, 0))?.mantenimiento || null;
+  }
+
+  if (kind === 'maintenanceDeviceUpdate' || kind === 'maintenanceDeviceAutosave') {
+    const maintenanceId = String(pick(payload, ['maintenanceId', 'MantenimientoID', 'MantenimientoRef']));
+    if (!maintenanceId) return null;
+    const key = responseCacheKey(MODULE_ROUTES.maintenance.get, { maintenanceId }, sessionToken);
+    const cached = await readCachedResponse(key, 0);
+    return findConflictRecord(cached?.dispositivos || [], kind, entityId);
+  }
+
+  if (kind === 'ticketUpdate' || kind === 'ticketAutosave') {
+    const key = responseCacheKey(MODULE_ROUTES.tickets.get, { boletaUid: entityId }, sessionToken);
+    return (await readCachedResponse(key, 0))?.boleta || null;
+  }
+
+  const routes = conflictCatalogRoutes(kind);
+  if (!routes) return null;
+  const cached = await readCachedResponse(responseCacheKey(routes, OFFLINE_CATALOG_PAYLOAD, sessionToken), 0);
+  return findConflictRecord(normalizeItems(cached), kind, entityId);
+}
+
+async function captureOfflineConflict(kind, payload, sessionToken) {
+  const base = await cachedConflictBase(kind, payload, sessionToken).catch(() => null);
+  return buildOfflineConflictMetadata(kind, payload, base);
+}
+
 async function queueOfflineWrite(routes, payload, kind, sessionToken) {
   if (isFinalizeKind(kind)) {
     throw new Error('Primero debe sincronizar todos los cambios. La opción de finalizar estará disponible cuando la boleta o el mantenimiento exista completamente en el servidor.');
   }
   const entityId = entityIdFor(kind, payload);
+  const conflict = await captureOfflineConflict(kind, payload, sessionToken);
   const operation = await enqueueOperation({
     routes,
     payload,
@@ -709,6 +765,7 @@ async function queueOfflineWrite(routes, payload, kind, sessionToken) {
     kind,
     dependsOnLocalIds: collectOfflineDependencies(kind, payload),
     priority: isOfflineCatalogKind(kind) ? catalogOperationPriority(kind) : 0,
+    conflict,
   });
   await applyOperationToCache(kind, payload, null, sessionToken).catch(() => {});
   return queuedResponse(kind, payload, operation);
@@ -740,9 +797,16 @@ export async function replayQueuedOperation(operation, sessionToken = '') {
   }
 
   const payload = resolved.payload;
+  const conflict = operation.conflict
+    ? {
+      ...operation.conflict,
+      strategy: operation.conflictResolution || operation.conflict.strategy || 'REVIEW',
+    }
+    : null;
+  const requestPayload = conflict ? { ...payload, __offlineConflict: conflict } : payload;
   const result = await requestFirstAvailable(
     operation.routes || [],
-    (route) => apiRequest(route, payload, sessionToken),
+    (route) => apiRequest(route, requestPayload, sessionToken),
   );
   const localId = await registerOfflineCatalogMapping(kind, originalPayload, result);
   await applyOperationToCache(
@@ -752,6 +816,26 @@ export async function replayQueuedOperation(operation, sessionToken = '') {
     sessionToken,
   ).catch(() => {});
   return result;
+}
+
+export async function refreshConflictServerVersion(operation, sessionToken = '') {
+  const kind = operation?.kind || offlineWriteKind(operation?.routes);
+  const payload = operation?.payload || {};
+
+  if (kind === 'maintenanceUpdate' || kind === 'maintenanceDeviceUpdate' || kind === 'maintenanceDeviceAutosave') {
+    const maintenanceId = String(pick(payload, ['maintenanceId', 'MantenimientoID', 'MantenimientoRef']));
+    if (!maintenanceId) return null;
+    return requestAvailable(MODULE_ROUTES.maintenance.get, { maintenanceId }, sessionToken);
+  }
+
+  if (kind === 'ticketUpdate' || kind === 'ticketAutosave') {
+    const boletaUid = String(pick(payload, ['boletaUid', 'BoletaUID', 'id']));
+    if (!boletaUid) return null;
+    return requestAvailable(MODULE_ROUTES.tickets.get, { boletaUid }, sessionToken);
+  }
+
+  const routes = conflictCatalogRoutes(kind);
+  return routes ? requestAvailable(routes, OFFLINE_CATALOG_PAYLOAD, sessionToken) : null;
 }
 
 export async function requestAvailable(routes, payload = {}, sessionToken = '', options = {}) {

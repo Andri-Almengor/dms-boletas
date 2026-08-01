@@ -12,8 +12,13 @@ import {
 import {
   isNetworkError,
   preloadOfflineCatalogs,
+  refreshConflictServerVersion,
   replayQueuedOperation,
 } from '../../services/moduleApi';
+import {
+  isOfflineConflictError,
+  offlineConflictMessage,
+} from '../../services/offlineConflictDomain';
 
 const AUTO_SYNC_DELAY_MS = 8_000;
 const AUTO_SYNC_IDLE_MS = 12_000;
@@ -75,6 +80,7 @@ export default function OfflineSyncManager() {
   const [online, setOnline] = useState(() => navigator.onLine !== false);
   const [pending, setPending] = useState(0);
   const [entityPending, setEntityPending] = useState(0);
+  const [conflicts, setConflicts] = useState([]);
   const [syncing, setSyncing] = useState(false);
   const [autoPaused, setAutoPaused] = useState(false);
   const [message, setMessage] = useState('');
@@ -85,8 +91,10 @@ export default function OfflineSyncManager() {
   const holdUntilRef = useRef(0);
 
   const refreshCount = useCallback(async () => {
-    const count = await queuedOperationCount().catch(() => 0);
+    const operations = await listQueuedOperations().catch(() => []);
+    const count = operations.length;
     setPending(count);
+    setConflicts(operations.filter((operation) => String(operation.status || '').toUpperCase() === 'CONFLICT'));
     return count;
   }, []);
 
@@ -148,7 +156,12 @@ export default function OfflineSyncManager() {
 
       let synchronized = 0;
       let blocked = 0;
+      let conflictCount = 0;
       for (const operation of operations) {
+        if (String(operation.status || '').toUpperCase() === 'CONFLICT') {
+          conflictCount += 1;
+          continue;
+        }
         await updateQueuedOperation(operation.id, {
           status: 'SYNCING',
           attempts: Number(operation.attempts || 0) + 1,
@@ -160,6 +173,22 @@ export default function OfflineSyncManager() {
           synchronized += 1;
           await Promise.all([refreshCount(), refreshEntityState()]);
         } catch (error) {
+          if (isOfflineConflictError(error)) {
+            const conflictDetails = error?.details || {};
+            await updateQueuedOperation(operation.id, {
+              status: 'CONFLICT',
+              lastError: String(error?.message || error),
+              conflictDetails,
+              conflictResolution: '',
+            });
+            await Promise.all([refreshCount(), refreshEntityState()]);
+            const nextMessage = offlineConflictMessage(conflictDetails);
+            setMessage(nextMessage);
+            window.dispatchEvent(new CustomEvent('dms-offline-sync-conflict', {
+              detail: { message: nextMessage, operationId: operation.id, conflictDetails },
+            }));
+            return;
+          }
           if (String(error?.code || '').toUpperCase() === 'OFFLINE_DEPENDENCY_PENDING') {
             blocked += 1;
             await updateQueuedOperation(operation.id, {
@@ -188,6 +217,14 @@ export default function OfflineSyncManager() {
           }));
           return;
         }
+      }
+
+      if (conflictCount > 0) {
+        setMessage(`${conflictCount} cambio${conflictCount === 1 ? '' : 's'} requiere${conflictCount === 1 ? '' : 'n'} revisión antes de sincronizar.`);
+        window.dispatchEvent(new CustomEvent('dms-offline-sync-complete', {
+          detail: { forced, synchronized, conflicts: conflictCount, refreshMode: 'conflict-aware' },
+        }));
+        return;
       }
 
       if (blocked > 0) {
@@ -335,6 +372,31 @@ export default function OfflineSyncManager() {
     return () => window.clearInterval(intervalId);
   }, [sessionToken, refreshCount, refreshEntityState, scheduleSync, shouldPauseAutomaticSync, synchronize]);
 
+const keepLocalConflict = useCallback(async (operation) => {
+    if (!operation?.id) return;
+    await updateQueuedOperation(operation.id, {
+      status: 'PENDING',
+      conflictResolution: 'KEEP_LOCAL',
+      conflictDetails: operation.conflictDetails || null,
+      lastError: '',
+    });
+    setMessage('Se conservarán los cambios de este dispositivo. Sincronizando nuevamente...');
+    await refreshCount();
+    synchronize({ forced: true });
+  }, [refreshCount, synchronize]);
+
+  const useServerConflict = useCallback(async (operation) => {
+    if (!operation?.id) return;
+    await removeQueuedOperation(operation.id);
+    await refreshConflictServerVersion(operation, sessionToken).catch(() => null);
+    await Promise.all([refreshCount(), refreshEntityState()]);
+    setMessage('Se descartó el cambio local en conflicto y se recuperó la versión del servidor.');
+    window.dispatchEvent(new CustomEvent('dms-offline-conflict-resolved', {
+      detail: { operationId: operation.id, strategy: 'USE_SERVER' },
+    }));
+    window.setTimeout(() => setMessage(''), 5000);
+  }, [sessionToken, refreshCount, refreshEntityState]);
+
   const finalizationBlocked = navigator.onLine === false
     || entityPending > 0
     || (isCreateWorkflow(location.pathname) && navigator.onLine === false);
@@ -346,7 +408,10 @@ export default function OfflineSyncManager() {
 
   if (online && !pending && !syncing && !message) return null;
 
-  const pendingText = autoPaused && pending
+  const activeConflict = conflicts[0] || null;
+  const pendingText = activeConflict
+    ? offlineConflictMessage(activeConflict.conflictDetails || {})
+    : autoPaused && pending
     ? `Sincronización pausada mientras termina de editar. ${pending} cambio${pending === 1 ? '' : 's'} permanece${pending === 1 ? '' : 'n'} guardado${pending === 1 ? '' : 's'}.`
     : entityPending
       ? `${entityPending} cambio${entityPending === 1 ? '' : 's'} de este ${entity?.type || 'registro'} pendiente${entityPending === 1 ? '' : 's'}. Finalizar aparecerá al terminar.`
@@ -355,17 +420,22 @@ export default function OfflineSyncManager() {
         : 'Los catálogos guardados continúan disponibles.';
 
   return (
-    <aside className={`offline-status${online ? ' is-online' : ' is-offline'}${syncing ? ' is-syncing' : ''}`} role="status" aria-live="polite">
+    <aside className={`offline-status${online ? ' is-online' : ' is-offline'}${syncing ? ' is-syncing' : ''}${activeConflict ? ' is-conflict' : ''}`} role="status" aria-live="polite">
       <span className="offline-status__icon">
-        <Icon name={syncing ? 'sync' : autoPaused ? 'edit_note' : online ? 'cloud_done' : 'cloud_off'} />
+        <Icon name={activeConflict ? 'warning' : syncing ? 'sync' : autoPaused ? 'edit_note' : online ? 'cloud_done' : 'cloud_off'} />
       </span>
       <div className="offline-status__body">
-        <strong>{syncing ? 'Sincronizando' : autoPaused && pending ? 'Sincronización en pausa' : online ? 'Conexión disponible' : 'Trabajando sin conexión'}</strong>
+        <strong>{activeConflict ? 'Conflicto de sincronización' : syncing ? 'Sincronizando' : autoPaused && pending ? 'Sincronización en pausa' : online ? 'Conexión disponible' : 'Trabajando sin conexión'}</strong>
         <small>{message || pendingText}</small>
       </div>
-      {online && pending > 0 && !syncing && (
+      {activeConflict && !syncing ? (
+        <div className="offline-status__actions">
+          <button type="button" onClick={() => keepLocalConflict(activeConflict)}>Conservar mis cambios</button>
+          <button type="button" onClick={() => useServerConflict(activeConflict)}>Usar versión del servidor</button>
+        </div>
+      ) : online && pending > 0 && !syncing ? (
         <button type="button" onClick={() => synchronize({ forced: true })}>Sincronizar ahora</button>
-      )}
+      ) : null}
     </aside>
   );
 }

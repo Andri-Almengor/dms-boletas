@@ -218,7 +218,7 @@ export async function listQueuedOperations() {
   });
 }
 
-export async function enqueueOperation({ routes, payload, description = '', entityId = '', dedupeKey = '', kind = '', dependsOnLocalIds = [], priority = 0 }) {
+export async function enqueueOperation({ routes, payload, description = '', entityId = '', dedupeKey = '', kind = '', dependsOnLocalIds = [], priority = 0, conflict = null }) {
   const existing = dedupeKey
     ? (await listQueuedOperations()).find((item) => item.dedupeKey === dedupeKey)
     : null;
@@ -232,6 +232,9 @@ export async function enqueueOperation({ routes, payload, description = '', enti
     kind: kind || existing?.kind || '',
     dependsOnLocalIds: [...new Set((dependsOnLocalIds || existing?.dependsOnLocalIds || []).map(String).filter(Boolean))],
     priority: Number(priority || existing?.priority || OPERATION_PRIORITY[kind] || 35),
+    conflict: conflict || existing?.conflict || null,
+    conflictDetails: existing?.conflictDetails || null,
+    conflictResolution: existing?.conflictResolution || '',
     status: 'PENDING',
     attempts: existing?.attempts || 0,
     lastError: '',
@@ -256,13 +259,14 @@ export async function queuedOperationCount() {
 
 export async function getEntityQueueState(entityId) {
   const id = String(entityId || '');
-  if (!id) return { entityId: '', pending: 0, errors: 0, syncing: 0, operations: [], readyToFinalize: true };
+  if (!id) return { entityId: '', pending: 0, errors: 0, syncing: 0, conflicts: 0, operations: [], readyToFinalize: true };
   const operations = (await listQueuedOperations()).filter((item) => String(item.entityId || '') === id);
   return {
     entityId: id,
     pending: operations.length,
     errors: operations.filter((item) => String(item.status).toUpperCase() === 'ERROR').length,
     syncing: operations.filter((item) => String(item.status).toUpperCase() === 'SYNCING').length,
+    conflicts: operations.filter((item) => String(item.status).toUpperCase() === 'CONFLICT').length,
     operations,
     readyToFinalize: operations.length === 0,
   };

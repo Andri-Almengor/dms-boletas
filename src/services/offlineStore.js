@@ -82,6 +82,7 @@ export async function getEntityQueueState(entityId) {
       pending: 0,
       errors: 0,
       syncing: 0,
+      conflicts: 0,
       operations: [],
       readyToFinalize: true,
     };

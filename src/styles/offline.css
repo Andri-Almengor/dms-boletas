@@ -219,3 +219,52 @@ body.dms-entity-unsynced .maintenance-detail-footer-actions .button--primary {
     width: 100%;
   }
 }
+
+.offline-status.is-conflict {
+  border-color: #e59a95;
+  background: rgba(255,247,246,.99);
+}
+
+.offline-status.is-conflict .offline-status__icon {
+  background: #fde4e2;
+  color: #a1241b;
+}
+
+.offline-status__actions {
+  display: flex;
+  flex-wrap: wrap;
+  justify-content: flex-end;
+  gap: 6px;
+}
+
+.offline-status__actions button {
+  min-height: 36px;
+  padding: 7px 10px;
+  border: 1px solid #a1241b;
+  border-radius: 9px;
+  background: #ffffff;
+  color: #a1241b;
+  font: inherit;
+  font-size: .7rem;
+  font-weight: 750;
+  cursor: pointer;
+}
+
+.offline-status__actions button:first-child {
+  background: #a1241b;
+  color: #ffffff;
+}
+
+@media (max-width: 620px) {
+  .offline-status__actions {
+    grid-column: 1 / -1;
+    display: grid;
+    grid-template-columns: 1fr;
+    width: 100%;
+  }
+
+  .offline-status__actions button {
+    width: 100%;
+  }
+}
+

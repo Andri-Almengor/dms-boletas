@@ -16,6 +16,7 @@ import './maintenance-form-resources.test.mjs';
 import './maintenance-ticket-report-quality.test.mjs';
 import './offline-catalog-sync.test.mjs';
 import './offline-mode.test.mjs';
+import './offline-conflict-resolution.test.mjs';
 import './paginated-collection.test.mjs';
 import './paginated-resource.test.mjs';
 import './security-hardening.test.mjs';

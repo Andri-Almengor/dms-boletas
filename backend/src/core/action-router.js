@@ -25,6 +25,10 @@ import { metricsHandlers } from '../modules/metrics.module.js';
 import { legacyTicketImportHandlers } from '../modules/legacy-ticket-import.module.js';
 import { getClientConfig } from '../modules/config.module.js';
 import { propagateEquipmentLocationName } from '../services/equipment-location-propagation.service.js';
+import {
+  assertOfflineWritePrecondition,
+  stripOfflineConflictMetadata,
+} from '../services/offline-conflict.service.js';
 
 const c = Object.fromEntries(Object.keys({clients:1,clientLocations:1,equipmentLocations:1,contacts:1,categories:1,deviceTypes:1,manufacturers:1,models:1,failureTypes:1,deviceManufacturers:1,knowledgeCategories:1}).map((key)=>[key,crudHandlers(key)]));
 const routes = new Map();
@@ -200,5 +204,7 @@ export async function dispatchAction({ route, payload={}, sessionToken='', ip=''
   let auth={user:null,permissions:[]}; if(!entry.publicRoute) auth=await authenticate(sessionToken);
   if(entry.permission){const required=Array.isArray(entry.permission)?entry.permission:[entry.permission];const allowed=required.some((code)=>auth.permissions.includes(code))||auth.permissions.includes('USUARIOS_GESTIONAR');if(!allowed)throw forbidden();}
   const normalizedPayload = normalizeTicketHoursPayload(route, payload);
-  return entry.handler({route,payload:normalizedPayload,sessionToken,ip,userAgent,origin,...auth});
+  await assertOfflineWritePrecondition(route, normalizedPayload);
+  const handlerPayload = stripOfflineConflictMetadata(normalizedPayload);
+  return entry.handler({route,payload:handlerPayload,sessionToken,ip,userAgent,origin,...auth});
 }

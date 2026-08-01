@@ -1,4 +1,4 @@
-const DEFINITIONS = Object.freeze({
+const DEFINITIONS = {
   maintenanceUpdate: {
     entityType: 'Mantenimiento',
     idKeys: ['maintenanceId', 'MantenimientoID', 'id'],
@@ -126,7 +126,7 @@ const DEFINITIONS = Object.freeze({
       Estado: ['Estado', 'status'],
     },
   },
-});
+};
 
 DEFINITIONS.maintenanceDeviceAutosave = DEFINITIONS.maintenanceDeviceUpdate;
 DEFINITIONS.ticketAutosave = DEFINITIONS.ticketUpdate;
