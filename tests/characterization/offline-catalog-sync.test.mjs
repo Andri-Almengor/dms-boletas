@@ -102,6 +102,7 @@ test('la infraestructura integra mapa de IDs, dependencias y sincronización dif
   const api = source('src/services/moduleApi.js');
   const manager = source('src/components/offline/OfflineSyncManager.jsx');
 
+  assert.match(core, /const DB_VERSION = 3/);
   assert.match(core, /const ID_MAP_STORE = 'idMap'/);
   assert.match(core, /export async function saveOfflineIdMapping/);
   assert.match(core, /export async function resolveOfflineOperationPayload/);
