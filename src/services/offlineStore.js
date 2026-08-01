@@ -1,7 +1,32 @@
 import { createLocalId } from '../utils/localId';
+import {
+  base64ToBlob,
+  createOfflineMediaRecord,
+  hydrateMediaPayload,
+  isBlobBackedOfflineKind,
+  isInlineBase64,
+  isOfflineMediaReference,
+  offlineMediaEntityId,
+  offlineMediaId,
+  offlineMediaIdFromReference,
+  offlineMediaReference,
+  optimizeOfflineImageBlob,
+  stripInlineMediaPayload,
+} from './offlineMediaDomain';
+import {
+  findOfflineMediaByEntityId,
+  getOfflineMedia,
+  getOfflineMediaStats,
+  listOfflineMedia,
+  removeOfflineMedia,
+  requestPersistentOfflineStorage,
+  saveOfflineMedia,
+  updateOfflineMedia,
+} from './offlineMediaStore';
 import { isOfflineModeEnabled } from './offlineMode';
 
 let corePromise = null;
+const objectUrlCache = new Map();
 
 function loadCore() {
   if (!corePromise) corePromise = import('./offlineStoreCore');
@@ -31,6 +56,129 @@ function disabledError() {
   return error;
 }
 
+function cachedMediaKind(record = {}) {
+  if (record.FotoDispositivoID || record.DispositivoMantenimientoRef) return 'maintenanceImage';
+  if (record.EvidenciaID || record.BoletaUID && record.ArchivoURL) return 'ticketEvidence';
+  if (record.BoletaUID && record.FirmaURL) return 'ticketSignature';
+  return '';
+}
+
+function cachedMediaEntityId(kind, record = {}) {
+  if (kind === 'maintenanceImage') return String(record.FotoDispositivoID || record.imageId || record.id || '');
+  if (kind === 'ticketEvidence') return String(record.EvidenciaID || record.evidenciaId || record.id || '');
+  if (kind === 'ticketSignature') return String(record.BoletaUID || record.boletaUid || record.id || '');
+  return '';
+}
+
+function cachedMediaFields(kind) {
+  if (kind === 'maintenanceImage') return ['DriveURL', 'PreviewURL'];
+  if (kind === 'ticketEvidence') return ['ArchivoURL'];
+  if (kind === 'ticketSignature') return ['FirmaURL'];
+  return [];
+}
+
+function revokeMediaObjectUrl(mediaId) {
+  const id = String(mediaId || '');
+  const url = objectUrlCache.get(id);
+  if (url && globalThis.URL?.revokeObjectURL) globalThis.URL.revokeObjectURL(url);
+  objectUrlCache.delete(id);
+}
+
+async function mediaObjectUrl(mediaId) {
+  const id = String(mediaId || '');
+  if (!id) return '';
+  if (objectUrlCache.has(id)) return objectUrlCache.get(id);
+  const record = await getOfflineMedia(id);
+  if (!record?.blob) return '';
+  if (globalThis.URL?.createObjectURL) {
+    const url = globalThis.URL.createObjectURL(record.blob);
+    objectUrlCache.set(id, url);
+    return url;
+  }
+  const hydrated = await hydrateMediaPayload({}, record);
+  return `data:${record.mimeType || record.blob.type || 'application/octet-stream'};base64,${hydrated.base64}`;
+}
+
+async function dehydrateCachedMedia(value) {
+  if (Array.isArray(value)) return Promise.all(value.map(dehydrateCachedMedia));
+  if (!value || typeof value !== 'object' || value instanceof Blob || value instanceof Date) return value;
+
+  const next = {};
+  for (const [key, child] of Object.entries(value)) next[key] = await dehydrateCachedMedia(child);
+
+  const kind = cachedMediaKind(next);
+  const entityId = cachedMediaEntityId(kind, next);
+  const fields = cachedMediaFields(kind);
+  if (!kind || !entityId || !fields.length) return next;
+
+  let media = offlineMediaId(next) ? await getOfflineMedia(offlineMediaId(next)).catch(() => null) : null;
+  if (!media) media = await findOfflineMediaByEntityId(entityId).catch(() => null);
+
+  for (const field of fields) {
+    const source = next[field];
+    if (isOfflineMediaReference(source)) continue;
+    if (String(source || '').startsWith('blob:') && media) {
+      next[field] = offlineMediaReference(media.mediaId);
+      next.OfflineMediaID = media.mediaId;
+      next.offlineMediaId = media.mediaId;
+      continue;
+    }
+    if (!isInlineBase64(source)) continue;
+    if (!media) {
+      const mediaId = createLocalId('media');
+      const sourceBlob = base64ToBlob(source, next.MimeType || next.mimeType || 'application/octet-stream');
+      const blob = await optimizeOfflineImageBlob(sourceBlob);
+      media = await saveOfflineMedia(createOfflineMediaRecord(kind, {
+        ...next,
+        imageId: next.FotoDispositivoID,
+        evidenciaId: next.EvidenciaID,
+        boletaUid: next.BoletaUID,
+        fileName: next.NombreArchivo || next.Nombre,
+        mimeType: next.MimeType,
+      }, blob, mediaId));
+    }
+    next[field] = offlineMediaReference(media.mediaId);
+    next.OfflineMediaID = media.mediaId;
+    next.offlineMediaId = media.mediaId;
+  }
+  return next;
+}
+
+async function hydrateCachedMedia(value) {
+  if (typeof value === 'string' && isOfflineMediaReference(value)) {
+    return mediaObjectUrl(offlineMediaIdFromReference(value));
+  }
+  if (Array.isArray(value)) return Promise.all(value.map(hydrateCachedMedia));
+  if (!value || typeof value !== 'object' || value instanceof Blob || value instanceof Date) return value;
+  const next = {};
+  for (const [key, child] of Object.entries(value)) next[key] = await hydrateCachedMedia(child);
+  return next;
+}
+
+async function persistOperationMedia(core, operation = {}) {
+  const kind = String(operation.kind || '');
+  const payload = operation.payload || {};
+  if (!isBlobBackedOfflineKind(kind) || !payload.base64) return operation;
+
+  const existingOperation = operation.dedupeKey
+    ? (await core.listQueuedOperations()).find((item) => item.dedupeKey === operation.dedupeKey)
+    : null;
+  const mediaId = offlineMediaId(payload)
+    || offlineMediaId(existingOperation?.payload)
+    || createLocalId('media');
+  const sourceBlob = base64ToBlob(payload.base64, payload.mimeType || payload.MimeType || 'application/octet-stream');
+  const blob = await optimizeOfflineImageBlob(sourceBlob);
+  const record = createOfflineMediaRecord(kind, payload, blob, mediaId);
+  revokeMediaObjectUrl(mediaId);
+  await saveOfflineMedia(record);
+  requestPersistentOfflineStorage().catch(() => false);
+
+  return {
+    ...operation,
+    payload: stripInlineMediaPayload(payload, mediaId),
+  };
+}
+
 export function responseCacheKey(routes, payload = {}, sessionToken = '') {
   const route = Array.isArray(routes) ? routes[0] : routes;
   return `${sessionScope(sessionToken)}|${String(route || '')}|${JSON.stringify(stable(payload || {}))}`;
@@ -43,13 +191,14 @@ export function createOfflineId(prefix = 'local') {
 export async function cacheResponse(key, data) {
   if (!isOfflineModeEnabled()) return null;
   const core = await loadCore();
-  return core.cacheResponse(key, data);
+  return core.cacheResponse(key, await dehydrateCachedMedia(data));
 }
 
 export async function readCachedResponse(key, maxAgeMs) {
   if (!isOfflineModeEnabled()) return null;
   const core = await loadCore();
-  return core.readCachedResponse(key, maxAgeMs);
+  const cached = await core.readCachedResponse(key, maxAgeMs);
+  return cached === null ? null : hydrateCachedMedia(cached);
 }
 
 export async function updateCachedResponses(predicate, updater) {
@@ -67,7 +216,7 @@ export async function listQueuedOperations() {
 export async function enqueueOperation(operation) {
   if (!isOfflineModeEnabled()) throw disabledError();
   const core = await loadCore();
-  return core.enqueueOperation(operation);
+  return core.enqueueOperation(await persistOperationMedia(core, operation));
 }
 
 export async function queuedOperationCount() {
@@ -93,7 +242,14 @@ export async function getEntityQueueState(entityId) {
 export async function removeQueuedOperation(id) {
   if (!isOfflineModeEnabled()) return null;
   const core = await loadCore();
-  return core.removeQueuedOperation(id);
+  const operation = (await core.listQueuedOperations()).find((item) => item.id === id);
+  await core.removeQueuedOperation(id);
+  const mediaId = offlineMediaId(operation?.payload);
+  if (mediaId) {
+    await removeOfflineMedia(mediaId).catch(() => {});
+    revokeMediaObjectUrl(mediaId);
+  }
+  return null;
 }
 
 export async function updateQueuedOperation(id, patch) {
@@ -115,7 +271,20 @@ export async function saveOfflineIdMapping(localId, serverId, entityType = '') {
 
 export async function resolveOfflineOperationPayload(payload = {}, requiredLocalIds = []) {
   const core = await loadCore();
-  return core.resolveOfflineOperationPayload(payload, requiredLocalIds);
+  const resolved = await core.resolveOfflineOperationPayload(payload, requiredLocalIds);
+  const mediaId = offlineMediaId(resolved.payload);
+  if (!mediaId) return resolved;
+  const media = await getOfflineMedia(mediaId);
+  if (!media?.blob) {
+    const error = new Error('La fotografía guardada en este dispositivo ya no está disponible. Debe volver a seleccionarla antes de sincronizar.');
+    error.code = 'OFFLINE_MEDIA_MISSING';
+    error.details = { mediaId, entityId: offlineMediaEntityId('', resolved.payload) };
+    throw error;
+  }
+  return {
+    ...resolved,
+    payload: await hydrateMediaPayload(resolved.payload, media),
+  };
 }
 
 export async function setOfflineMeta(key, value) {
@@ -132,5 +301,22 @@ export async function getOfflineMeta(key) {
 
 export async function getOfflineStorageStats() {
   const core = await loadCore();
-  return core.getOfflineStorageStats();
+  const [stats, mediaStats] = await Promise.all([
+    core.getOfflineStorageStats(),
+    getOfflineMediaStats(),
+  ]);
+  return {
+    ...stats,
+    ...mediaStats,
+    approximateIndexedDbBytes: Number(stats.approximateIndexedDbBytes || 0) + Number(mediaStats.mediaBytes || 0),
+  };
 }
+
+export {
+  getOfflineMedia,
+  listOfflineMedia,
+  removeOfflineMedia,
+  requestPersistentOfflineStorage,
+  saveOfflineMedia,
+  updateOfflineMedia,
+};
