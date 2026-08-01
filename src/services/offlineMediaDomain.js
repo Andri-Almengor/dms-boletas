@@ -87,7 +87,7 @@ export function createOfflineMediaRecord(kind, payload = {}, blob, mediaId) {
     maintenanceId: String(pick(payload, ['maintenanceId', 'MantenimientoID', 'MantenimientoRef'])),
     deviceId: String(pick(payload, ['deviceId', 'DispositivoMantenimientoRef', 'EvidenciaMantenimientoID'])),
     fileName: String(pick(payload, ['fileName', 'NombreArchivo', 'Nombre'], 'evidencia')),
-    mimeType: String(pick(payload, ['mimeType', 'MimeType'], blob?.type || 'application/octet-stream')),
+    mimeType: String(blob?.type || pick(payload, ['mimeType', 'MimeType'], 'application/octet-stream')),
     size: Number(blob?.size || 0),
     blob,
     status: 'PENDING',
@@ -133,7 +133,8 @@ export async function optimizeOfflineImageBlob(blob, options = {}) {
     if (scale === 1 && blob.size < 1_500_000) return blob;
 
     let optimized = null;
-    const outputType = String(blob.type || '').toLowerCase() === 'image/png' ? 'image/webp' : 'image/jpeg';
+    const inputType = String(blob.type || '').toLowerCase();
+    const outputType = ['image/jpeg', 'image/png', 'image/webp'].includes(inputType) ? inputType : 'image/jpeg';
     if (typeof globalThis.OffscreenCanvas === 'function') {
       const canvas = new globalThis.OffscreenCanvas(width, height);
       canvas.getContext('2d', { alpha: false })?.drawImage(bitmap, 0, 0, width, height);
