@@ -74,12 +74,14 @@ test('la infraestructura separa blobs, controla cuota y limpia después de sincr
   assert.match(store, /dms-boletas-offline-media/);
   assert.match(store, /keyPath: 'mediaId'/);
   assert.match(store, /MAX_OFFLINE_MEDIA_BYTES/);
+  assert.match(store, /OFFLINE_MEDIA_UNSUPPORTED/);
   assert.match(store, /navigator\.storage\?\.estimate/);
   assert.match(store, /requestPersistentOfflineStorage/);
   assert.match(wrapper, /persistOperationMedia/);
   assert.match(wrapper, /stripInlineMediaPayload/);
   assert.match(wrapper, /dehydrateCachedMedia/);
   assert.match(wrapper, /hydrateCachedMedia/);
+  assert.match(wrapper, /startsWith\('blob:'\)/);
   assert.match(wrapper, /resolveOfflineOperationPayload/);
   assert.match(wrapper, /removeOfflineMedia\(mediaId\)/);
 });
