@@ -9,6 +9,10 @@ import {
   responseCacheKey,
   updateCachedResponses,
 } from './offlineStore';
+import {
+  resolveOfflineReferences,
+  saveOfflineIdMapping,
+} from './offlineReferenceMap';
 import { isNetworkError, throwIfAborted } from './requestErrors';
 
 export { isNetworkError } from './requestErrors';
@@ -193,6 +197,12 @@ function offlineWriteKind(routes) {
   if (text.includes('maintenance.images.delete') || text.includes('mantenimientos.imagenes.delete')) return 'maintenanceImageDelete';
   if (text.includes('maintenance.finalize') || text.includes('mantenimientos.finalize')) return 'maintenanceFinalize';
   if (text.includes('maintenance.update') || text.includes('mantenimientos.update')) return 'maintenanceUpdate';
+
+  if (text.includes('clientlocations.create') || text.includes('clients.locations.create') || text.includes('ubicacionescliente.create')) return 'catalogLocationCreate';
+  if (text.includes('equipmentlocations.create') || text.includes('clients.equipmentlocations.create') || text.includes('ubicacionesequipo.create')) return 'catalogEquipmentLocationCreate';
+  if (text.includes('catalog.manufacturers.create') || text.includes('manufacturers.create') || text.includes('fabricantes.create')) return 'catalogManufacturerCreate';
+  if (text.includes('catalog.models.create') || text.includes('models.create') || text.includes('modelos.create')) return 'catalogModelCreate';
+  if (text.includes('catalog.devicemanufacturers.create') || text.includes('devicemanufacturers.create') || text.includes('tipodispositivofabricantes.create')) return 'catalogDeviceManufacturerCreate';
   return '';
 }
 
@@ -236,12 +246,47 @@ function prepareWritePayload(kind, originalPayload = {}) {
     payload.imageId = id;
     payload.FotoDispositivoID = id;
   }
+  if (kind === 'catalogLocationCreate' && !pick(payload, ['locationId', 'ubicacionId', 'UbicacionID', 'RowID'])) {
+    const id = createOfflineId('ubicacion');
+    payload.locationId = id;
+    payload.ubicacionId = id;
+    payload.UbicacionID = id;
+    payload.RowID = id;
+  }
+  if (kind === 'catalogEquipmentLocationCreate' && !pick(payload, ['equipmentLocationId', 'ubicacionEquipoId', 'UbicacionEquipoID', 'RowID'])) {
+    const id = createOfflineId('ubicacion-equipo');
+    payload.equipmentLocationId = id;
+    payload.ubicacionEquipoId = id;
+    payload.UbicacionEquipoID = id;
+    payload.RowID = id;
+  }
+  if (kind === 'catalogManufacturerCreate' && !pick(payload, ['manufacturerId', 'fabricanteId', 'FabricanteID', 'RowID'])) {
+    const id = createOfflineId('fabricante');
+    payload.manufacturerId = id;
+    payload.fabricanteId = id;
+    payload.FabricanteID = id;
+    payload.RowID = id;
+  }
+  if (kind === 'catalogModelCreate' && !pick(payload, ['modelId', 'modeloId', 'ModeloID', 'RowID'])) {
+    const id = createOfflineId('modelo');
+    payload.modelId = id;
+    payload.modeloId = id;
+    payload.ModeloID = id;
+    payload.RowID = id;
+  }
+  if (kind === 'catalogDeviceManufacturerCreate' && !pick(payload, ['relationId', 'TipoDispositivoFabricanteID', 'RowID'])) {
+    const id = createOfflineId('relacion-fabricante');
+    payload.relationId = id;
+    payload.TipoDispositivoFabricanteID = id;
+    payload.RowID = id;
+  }
   return payload;
 }
 
 function entityIdFor(kind, payload) {
   if (kind.startsWith('ticket')) return String(pick(payload, ['boletaUid', 'BoletaUID', 'id']));
   if (kind.startsWith('maintenance')) return String(pick(payload, ['maintenanceId', 'MantenimientoID', 'MantenimientoRef']));
+  if (kind.startsWith('catalog')) return `catalog:${kind}`;
   return '';
 }
 
@@ -264,6 +309,11 @@ function offlineDescription(kind) {
     maintenanceImage: 'Subir evidencia del mantenimiento',
     maintenanceImageUpdate: 'Editar evidencia del mantenimiento',
     maintenanceImageDelete: 'Eliminar evidencia del mantenimiento',
+    catalogLocationCreate: 'Crear ubicación del cliente',
+    catalogEquipmentLocationCreate: 'Crear ubicación del dispositivo',
+    catalogManufacturerCreate: 'Crear fabricante',
+    catalogModelCreate: 'Crear modelo',
+    catalogDeviceManufacturerCreate: 'Relacionar fabricante y tipo de dispositivo',
   };
   return labels[kind] || 'Sincronizar cambio';
 }
@@ -282,6 +332,11 @@ function dedupeKeyFor(kind, payload) {
   if (['maintenanceImage', 'maintenanceImageUpdate', 'maintenanceImageDelete'].includes(kind)) {
     return `${kind}:${pick(payload, ['imageId', 'FotoDispositivoID'])}`;
   }
+  if (kind === 'catalogLocationCreate') return `${kind}:${pick(payload, ['locationId', 'ubicacionId', 'UbicacionID', 'RowID'])}`;
+  if (kind === 'catalogEquipmentLocationCreate') return `${kind}:${pick(payload, ['equipmentLocationId', 'ubicacionEquipoId', 'UbicacionEquipoID', 'RowID'])}`;
+  if (kind === 'catalogManufacturerCreate') return `${kind}:${pick(payload, ['manufacturerId', 'fabricanteId', 'FabricanteID', 'RowID'])}`;
+  if (kind === 'catalogModelCreate') return `${kind}:${pick(payload, ['modelId', 'modeloId', 'ModeloID', 'RowID'])}`;
+  if (kind === 'catalogDeviceManufacturerCreate') return `${kind}:${pick(payload, ['relationId', 'TipoDispositivoFabricanteID', 'RowID'])}`;
   return '';
 }
 
@@ -558,9 +613,138 @@ async function patchMaintenanceCache(kind, payload, result, sessionToken) {
   await cacheResponse(key, { ...current, dispositivos: devices, offlineQueued: true });
 }
 
+const OFFLINE_CATALOG_DEFINITIONS = Object.freeze({
+  catalogLocationCreate: {
+    listRoutes: MODULE_ROUTES.clients.locationsList,
+    idKeys: ['UbicacionID', 'locationId', 'ubicacionId', 'RowID', 'id'],
+    localIdKeys: ['locationId', 'ubicacionId', 'UbicacionID', 'RowID'],
+  },
+  catalogEquipmentLocationCreate: {
+    listRoutes: MODULE_ROUTES.clients.equipmentLocationsList,
+    idKeys: ['UbicacionEquipoID', 'equipmentLocationId', 'ubicacionEquipoId', 'RowID', 'id'],
+    localIdKeys: ['equipmentLocationId', 'ubicacionEquipoId', 'UbicacionEquipoID', 'RowID'],
+  },
+  catalogManufacturerCreate: {
+    listRoutes: MODULE_ROUTES.manufacturers.list,
+    idKeys: ['FabricanteID', 'manufacturerId', 'fabricanteId', 'RowID', 'id'],
+    localIdKeys: ['manufacturerId', 'fabricanteId', 'FabricanteID', 'RowID'],
+  },
+  catalogModelCreate: {
+    listRoutes: MODULE_ROUTES.models.list,
+    idKeys: ['ModeloID', 'modelId', 'modeloId', 'RowID', 'id'],
+    localIdKeys: ['modelId', 'modeloId', 'ModeloID', 'RowID'],
+  },
+  catalogDeviceManufacturerCreate: {
+    listRoutes: MODULE_ROUTES.deviceManufacturers.list,
+    idKeys: ['TipoDispositivoFabricanteID', 'relationId', 'RowID', 'id'],
+    localIdKeys: ['relationId', 'TipoDispositivoFabricanteID', 'RowID'],
+  },
+});
+
+function catalogDefinition(kind) {
+  return OFFLINE_CATALOG_DEFINITIONS[kind] || null;
+}
+
+function catalogResultSource(result = {}) {
+  return result?.item
+    || result?.row
+    || result?.ubicacion
+    || result?.ubicacionEquipo
+    || result?.fabricante
+    || result?.modelo
+    || result?.relacion
+    || result?.data
+    || result
+    || {};
+}
+
+function localCatalogRow(kind, payload, result = null) {
+  const definition = catalogDefinition(kind);
+  if (!definition) return null;
+  const server = result ? catalogResultSource(result) : {};
+  const localId = String(pick(payload, definition.localIdKeys));
+  const id = String(pick(server, definition.idKeys, localId));
+  const base = {
+    ...payload,
+    ...server,
+    RowID: pick(server, ['RowID'], id),
+    Nombre: pick(server, ['Nombre', 'name'], pick(payload, ['nombre', 'Nombre', 'name'])),
+    Activo: toBoolean(pick(server, ['Activo', 'activo'], pick(payload, ['activo', 'Activo'], true)), true),
+    OfflinePendiente: !result,
+  };
+
+  if (kind === 'catalogLocationCreate') {
+    return {
+      ...base,
+      UbicacionID: id,
+      locationId: id,
+      ClienteID: pick(server, ['ClienteID'], pick(payload, ['clienteId', 'ClienteID'])),
+      Direccion: pick(server, ['Direccion'], pick(payload, ['direccion', 'Direccion'])),
+    };
+  }
+  if (kind === 'catalogEquipmentLocationCreate') {
+    return {
+      ...base,
+      UbicacionEquipoID: id,
+      equipmentLocationId: id,
+      UbicacionID: pick(server, ['UbicacionID'], pick(payload, ['ubicacionId', 'UbicacionID'])),
+      Descripcion: pick(server, ['Descripcion'], pick(payload, ['descripcion', 'Descripcion'])),
+    };
+  }
+  if (kind === 'catalogManufacturerCreate') {
+    return { ...base, FabricanteID: id, manufacturerId: id };
+  }
+  if (kind === 'catalogModelCreate') {
+    return {
+      ...base,
+      ModeloID: id,
+      modelId: id,
+      FabricanteID: pick(server, ['FabricanteID'], pick(payload, ['fabricanteId', 'manufacturerId', 'FabricanteID'])),
+      TipoDispositivoID: pick(server, ['TipoDispositivoID'], pick(payload, ['tipoDispositivoId', 'TipoDispositivoID'])),
+    };
+  }
+  return {
+    ...base,
+    TipoDispositivoFabricanteID: id,
+    relationId: id,
+    TipoDispositivoID: pick(server, ['TipoDispositivoID'], pick(payload, ['tipoDispositivoId', 'TipoDispositivoID'])),
+    FabricanteID: pick(server, ['FabricanteID'], pick(payload, ['fabricanteId', 'manufacturerId', 'FabricanteID'])),
+  };
+}
+
+async function patchCatalogCache(kind, payload, result) {
+  const definition = catalogDefinition(kind);
+  const row = localCatalogRow(kind, payload, result);
+  if (!definition || !row) return;
+  const localId = String(pick(payload, definition.localIdKeys));
+  const aliases = new Set(definition.listRoutes.map((route) => String(route).toLowerCase()));
+
+  await updateCachedResponses(
+    (entry) => aliases.has(cacheRoute(entry)),
+    (data, entry) => {
+      const request = cachePayload(entry);
+      const keys = definition.idKeys;
+      let items = removeBy(normalizeItems(data), localId, keys);
+      const candidate = rebuildCollection(data, [row]);
+      const visible = normalizeItems(filterMasterCatalog(candidate, definition.listRoutes, request)).length > 0;
+      if (visible) items = upsertBy(items, row, keys);
+      return rebuildCollection(data, items);
+    },
+  );
+}
+
+function catalogLocalAndServerIds(kind, payload, result) {
+  const definition = catalogDefinition(kind);
+  if (!definition) return { localId: '', serverId: '' };
+  const localId = String(pick(payload, definition.localIdKeys));
+  const serverId = String(pick(catalogResultSource(result), definition.idKeys));
+  return { localId, serverId };
+}
+
 async function applyOperationToCache(kind, payload, result, sessionToken) {
   if (kind.startsWith('ticket')) return patchTicketCache(kind, payload, result, sessionToken);
   if (kind.startsWith('maintenance')) return patchMaintenanceCache(kind, payload, result, sessionToken);
+  if (kind.startsWith('catalog')) return patchCatalogCache(kind, payload, result);
   return undefined;
 }
 
@@ -632,6 +816,9 @@ function queuedResponse(kind, payload, operation) {
     if (kind === 'maintenanceImage') return localMaintenanceImage(payload);
     return { ok: true, offlineQueued: true, maintenanceId, operationId: operation.id };
   }
+  if (kind.startsWith('catalog')) {
+    return { ...localCatalogRow(kind, payload), offlineQueued: true, operationId: operation.id };
+  }
   return { ok: true, offlineQueued: true, operationId: operation.id };
 }
 
@@ -664,12 +851,18 @@ async function assertCanFinalize(kind, payload) {
 }
 
 export async function replayQueuedOperation(operation, sessionToken = '') {
-  const payload = operation.payload || {};
+  const originalPayload = operation.payload || {};
+  const payload = await resolveOfflineReferences(originalPayload);
+  const kind = operation.kind || offlineWriteKind(operation.routes);
   const result = await requestFirstAvailable(
     operation.routes || [],
     (route) => apiRequest(route, payload, sessionToken),
   );
-  await applyOperationToCache(operation.kind || offlineWriteKind(operation.routes), payload, result, sessionToken).catch(() => {});
+  if (kind.startsWith('catalog')) {
+    const { localId, serverId } = catalogLocalAndServerIds(kind, originalPayload, result);
+    await saveOfflineIdMapping(localId, serverId).catch(() => {});
+  }
+  await applyOperationToCache(kind, originalPayload, result, sessionToken).catch(() => {});
   return result;
 }
 

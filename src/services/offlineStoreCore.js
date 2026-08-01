@@ -20,6 +20,11 @@ const OFFLINE_SECTIONS = Object.freeze([
 ]);
 
 const OPERATION_PRIORITY = Object.freeze({
+  catalogLocationCreate: 5,
+  catalogEquipmentLocationCreate: 5,
+  catalogManufacturerCreate: 6,
+  catalogDeviceManufacturerCreate: 7,
+  catalogModelCreate: 8,
   ticketCreate: 10,
   maintenanceCreate: 10,
   ticketUpdate: 20,
@@ -189,9 +194,9 @@ export function createOfflineId(prefix = 'local') {
 
 export async function listQueuedOperations() {
   return (await readAll(QUEUE_STORE)).sort((a, b) => {
-    const byTime = Number(a.createdAt || 0) - Number(b.createdAt || 0);
-    if (byTime) return byTime;
-    return operationPriority(a) - operationPriority(b);
+    const byPriority = operationPriority(a) - operationPriority(b);
+    if (byPriority) return byPriority;
+    return Number(a.createdAt || 0) - Number(b.createdAt || 0);
   });
 }
 
