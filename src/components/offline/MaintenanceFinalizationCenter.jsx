@@ -26,6 +26,7 @@ export default function MaintenanceFinalizationCenter() {
   const { sessionToken, hasPermission } = useAuth();
   const maintenanceId = useMemo(() => currentMaintenanceId(pathname), [pathname]);
   const canFinalize = hasPermission('USUARIOS_GESTIONAR');
+  const [online, setOnline] = useState(() => navigator.onLine !== false);
   const [row, setRow] = useState(null);
   const [queueState, setQueueState] = useState({ operations: [] });
   const [allFinalizations, setAllFinalizations] = useState([]);
@@ -56,12 +57,24 @@ export default function MaintenanceFinalizationCenter() {
   useEffect(() => {
     refresh();
     const handleChange = () => refresh();
+    const handleOnline = () => {
+      setOnline(true);
+      refresh();
+    };
+    const handleOffline = () => {
+      setOnline(false);
+      refresh();
+    };
+    window.addEventListener('online', handleOnline);
+    window.addEventListener('offline', handleOffline);
     window.addEventListener('dms-offline-queue-change', handleChange);
     window.addEventListener('dms-offline-sync-start', handleChange);
     window.addEventListener('dms-offline-sync-complete', handleChange);
     window.addEventListener('dms-offline-sync-error', handleChange);
     window.addEventListener('dms-maintenance-finalization-queued', handleChange);
     return () => {
+      window.removeEventListener('online', handleOnline);
+      window.removeEventListener('offline', handleOffline);
       window.removeEventListener('dms-offline-queue-change', handleChange);
       window.removeEventListener('dms-offline-sync-start', handleChange);
       window.removeEventListener('dms-offline-sync-complete', handleChange);
@@ -74,11 +87,18 @@ export default function MaintenanceFinalizationCenter() {
     (queueState.operations || []).find((item) => item.kind === 'maintenanceFinalize') || null
   ), [queueState.operations]);
   const view = useMemo(() => maintenanceFinalizationView(row || {}, operation), [row, operation]);
+
+  useEffect(() => {
+    if (!maintenanceId || !online || !view.active || view.completed) return undefined;
+    const intervalId = window.setInterval(() => refresh(), 2500);
+    return () => window.clearInterval(intervalId);
+  }, [maintenanceId, online, refresh, view.active, view.completed]);
+
   const status = clean(pick(row, ['Estado'], '')).toUpperCase();
   const signatureRegistered = Boolean(pick(row, ['FirmaArchivoID', 'FirmaURL', 'Firma']));
   const devices = Number(pick(row, ['DispositivosRegistrados'], 0) || 0);
   const hasUnsynchronizedChanges = (queueState.operations || []).some((item) => item.kind !== 'maintenanceFinalize');
-  const deferredNeeded = (typeof navigator !== 'undefined' && navigator.onLine === false)
+  const deferredNeeded = !online
     || hasUnsynchronizedChanges
     || Boolean(pick(row, ['OfflinePendiente'], false));
   const canRequest = Boolean(
