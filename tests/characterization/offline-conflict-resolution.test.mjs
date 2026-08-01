@@ -97,7 +97,7 @@ test('la integración conserva conflicto, resolución explícita y bloqueo de fi
   assert.match(store, /conflictDetails/);
   assert.match(store, /conflicts:/);
   assert.match(store, /conflict: existing\?\.conflict \|\| conflict \|\| null/);
-  assert.match(manager, /OFFLINE_SYNC_CONFLICT/);
+  assert.match(manager, /isOfflineConflictError/);
   assert.match(manager, /Conservar mis cambios/);
   assert.match(manager, /Usar versión del servidor/);
   assert.match(css, /offline-status\.is-conflict/);
