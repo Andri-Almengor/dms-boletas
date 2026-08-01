@@ -212,8 +212,7 @@ async function updateFallback({ maintenanceId, deviceId, images, sessionToken, s
   const failed = [];
   for (const image of images) {
     try {
-      const result = await requestAvailable(
-        MODULE_ROUTES.maintenance.imageUpdate,
+      const result = await requestAvailable(MODULE_ROUTES.maintenance.imageUpdate,
         imageMetadataPayload(image, maintenanceId, deviceId),
         sessionToken,
         requestOptions(signal),
