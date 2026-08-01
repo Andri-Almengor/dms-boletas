@@ -116,6 +116,13 @@ async function dehydrateCachedMedia(value) {
 
   for (const field of fields) {
     const source = next[field];
+    if (isOfflineMediaReference(source)) continue;
+    if (String(source || '').startsWith('blob:') && media) {
+      next[field] = offlineMediaReference(media.mediaId);
+      next.OfflineMediaID = media.mediaId;
+      next.offlineMediaId = media.mediaId;
+      continue;
+    }
     if (!isInlineBase64(source)) continue;
     if (!media) {
       const mediaId = createLocalId('media');
