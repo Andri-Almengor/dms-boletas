@@ -30,6 +30,7 @@ function lazyPage(loadPage, ...loadAssets) {
 }
 
 const FormRecoveryManager = lazy(() => import('../components/offline/FormRecoveryManager'));
+const MaintenanceFinalizationCenter = lazy(() => import('../components/offline/MaintenanceFinalizationCenter'));
 const ClientCatalogSyncBridge = lazy(() => import('../components/system/ClientCatalogSyncBridge'));
 const MobileTimePickerBridge = lazy(() => import('../components/forms/MobileTimePickerBridge'));
 const TicketHoursCeilingBridge = lazy(() => import('../components/forms/TicketHoursCeilingBridge'));
@@ -121,7 +122,10 @@ function OptionalOfflineRuntime() {
   }, [offlineEnabled]);
 
   if (!offlineEnabled) return null;
-  return <Suspense fallback={null}><ClientCatalogSyncBridge /></Suspense>;
+  return <Suspense fallback={null}>
+    <ClientCatalogSyncBridge />
+    <MaintenanceFinalizationCenter />
+  </Suspense>;
 }
 
 export default function App() {

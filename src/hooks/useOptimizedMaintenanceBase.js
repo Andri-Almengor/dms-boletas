@@ -3,6 +3,7 @@ import { useNavigate } from 'react-router-dom';
 import useMaintenanceForm from './useMaintenanceForm';
 import { maintenancePayload } from '../pages/maintenance/maintenanceFormData';
 import { MODULE_ROUTES, pick, requestAvailable } from '../services/moduleApi';
+import { requestMaintenanceFinalization } from '../services/maintenanceFinalization';
 
 export default function useOptimizedMaintenanceBase({ editing, maintenanceId }) {
   const navigate = useNavigate();
@@ -27,7 +28,7 @@ export default function useOptimizedMaintenanceBase({ editing, maintenanceId }) 
       if (!id) throw new Error('El backend no devolvió MantenimientoID.');
 
       if (action === 'finalize') {
-        await requestAvailable(MODULE_ROUTES.maintenance.finalize, { maintenanceId: id }, base.sessionToken);
+        await requestMaintenanceFinalization({ maintenanceId: id, sessionToken: base.sessionToken });
       }
       navigate(`/mantenimientos/${encodeURIComponent(id)}`);
       return saved;

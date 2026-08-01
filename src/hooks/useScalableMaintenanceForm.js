@@ -3,6 +3,7 @@ import { useNavigate } from 'react-router-dom';
 import useOptimizedMaintenanceBase from './useOptimizedMaintenanceBase';
 import { maintenancePayload } from '../pages/maintenance/maintenanceFormData';
 import { MODULE_ROUTES, pick, requestAvailable } from '../services/moduleApi';
+import { requestMaintenanceFinalization } from '../services/maintenanceFinalization';
 import { persistMaintenanceDeviceCollection } from '../services/maintenanceDevicePersistence';
 import { createLocalId } from '../utils/localId';
 
@@ -59,7 +60,7 @@ export default function useScalableMaintenanceForm({ editing, maintenanceId }) {
       });
 
       if (action === 'finalize') {
-        await requestAvailable(MODULE_ROUTES.maintenance.finalize, { maintenanceId: id }, base.sessionToken);
+        await requestMaintenanceFinalization({ maintenanceId: id, sessionToken: base.sessionToken });
       }
       base.clearDeviceDraft();
       navigate(`/mantenimientos/${encodeURIComponent(id)}`);
