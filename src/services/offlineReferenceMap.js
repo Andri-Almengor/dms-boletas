@@ -1,6 +1,8 @@
-import { getOfflineMeta, setOfflineMeta } from './offlineStore.js';
-
 const META_KEY = 'offline-id-mappings-v1';
+
+async function offlineStore() {
+  return import('./offlineStore.js');
+}
 
 export function replaceOfflineReferences(value, mappings = {}) {
   if (Array.isArray(value)) {
@@ -19,6 +21,7 @@ export function replaceOfflineReferences(value, mappings = {}) {
 }
 
 export async function readOfflineIdMappings() {
+  const { getOfflineMeta } = await offlineStore();
   const entry = await getOfflineMeta(META_KEY).catch(() => null);
   const value = entry?.value;
   return value && typeof value === 'object' && !Array.isArray(value)
@@ -37,6 +40,7 @@ export async function saveOfflineIdMapping(localId, serverId) {
   if (!source || !target || source === target || !source.startsWith('local-')) return false;
   const mappings = await readOfflineIdMappings();
   if (mappings[source] === target) return true;
+  const { setOfflineMeta } = await offlineStore();
   await setOfflineMeta(META_KEY, { ...mappings, [source]: target });
   return true;
 }
