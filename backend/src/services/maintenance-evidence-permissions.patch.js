@@ -13,3 +13,7 @@ maintenanceHandlers.imageDelete = async (ctx) => {
   if (row.DriveFileID) await trashFile(row.DriveFileID).catch(() => {});
   return softDelete('Mantenimiento imagenes', row.FotoDispositivoID, ctx.user.UsuarioID);
 };
+
+// Se carga después de aplicar el permiso anterior para que la política de
+// conflictos envuelva la versión definitiva de los handlers de mantenimiento.
+await import('./maintenance-sync-conflict.patch.js');
