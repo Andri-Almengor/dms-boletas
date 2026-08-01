@@ -34,6 +34,15 @@ function syncBase(snapshot, overrides = {}) {
   };
 }
 
+function captureError(operation) {
+  try {
+    operation();
+    return null;
+  } catch (error) {
+    return error;
+  }
+}
+
 test('permite la escritura completa cuando la versión del servidor no cambió', () => {
   const payload = {
     deviceId: 'DEV-1',
@@ -121,7 +130,7 @@ test('bloquea un cambio sobre el mismo campo y expone ambas versiones', () => {
     Observacion: 'Versión local',
     __syncBase: syncBase({ NombreDispositivo: 'Cámara', Observacion: 'Original' }),
   };
-  assert.throws(() => resolveConflictAwarePayload({
+  const error = captureError(() => resolveConflictAwarePayload({
     payload,
     before: {
       NombreDispositivo: 'Cámara',
@@ -133,14 +142,14 @@ test('bloquea un cambio sobre el mismo campo y expone ambas versiones', () => {
     entityType: 'maintenanceDevice',
     entityId: 'DEV-1',
     maintenanceId: 'MNT-1',
-  }), (error) => {
-    assert.equal(error.code, 'SYNC_CONFLICT');
-    assert.equal(error.status, 409);
-    assert.deepEqual(error.details.conflictFields, ['Observacion']);
-    assert.equal(error.details.localRecord.Observacion, 'Versión local');
-    assert.equal(error.details.serverRecord.Observacion, 'Versión del servidor');
-    return true;
-  });
+  }));
+
+  assert.ok(error);
+  assert.equal(error.code, 'SYNC_CONFLICT');
+  assert.equal(error.status, 409);
+  assert.deepEqual(error.details.conflictFields, ['Observacion']);
+  assert.equal(error.details.localRecord.Observacion, 'Versión local');
+  assert.equal(error.details.serverRecord.Observacion, 'Versión del servidor');
 });
 
 test('mantener cambios locales conserva solo campos modificados y metadatos de preguntas', () => {
@@ -169,7 +178,7 @@ test('mantener cambios locales conserva solo campos modificados y metadatos de p
 });
 
 test('rechaza una base de sincronización perteneciente a otro registro', () => {
-  assert.throws(() => resolveConflictAwarePayload({
+  const error = captureError(() => resolveConflictAwarePayload({
     payload: {
       deviceId: 'DEV-1',
       Observacion: 'Cambio',
@@ -179,7 +188,11 @@ test('rechaza una base de sincronización perteneciente a otro registro', () => 
     fieldAliases: FIELDS,
     entityType: 'maintenanceDevice',
     entityId: 'DEV-1',
-  }), (error) => error.code === 'INVALID_SYNC_BASE' && error.status === 400);
+  }));
+
+  assert.ok(error);
+  assert.equal(error.code, 'INVALID_SYNC_BASE');
+  assert.equal(error.status, 400);
 });
 
 test('genera bases limitadas para mantenimiento, dispositivo y evidencia', () => {
