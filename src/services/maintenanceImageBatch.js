@@ -1,6 +1,7 @@
 import { apiRequest } from '../api';
 import { fileToBase64, mapFilesSequentially } from '../utils/fileEncoding';
 import { MODULE_ROUTES, pick, requestAvailable } from './moduleApi';
+import { maintenanceImageSyncBase, withSyncBase } from './maintenanceSyncBase';
 import { isAbortError, isNetworkError } from './requestErrors';
 
 const IMAGE_UPLOAD_BATCH_ROUTES = ['maintenance.images.uploadBatch', 'mantenimientos.imagenes.subirLote'];
@@ -70,10 +71,11 @@ async function requestOnlineAliases(routes, payload, sessionToken, signal) {
   throw lastError || new Error('La operación por lote no está disponible.');
 }
 
-function uploadedView(row = {}) {
+function uploadedView(row = {}, maintenanceId = '') {
   return {
     ...row,
     id: clean(pick(row, ['FotoDispositivoID', 'id'])),
+    syncBase: maintenanceImageSyncBase(row, maintenanceId),
     dirty: false,
   };
 }
@@ -88,6 +90,16 @@ function imagePayload(image, base64) {
     mimeType: image.file.type || 'image/jpeg',
     base64,
   };
+}
+
+function imageMetadataPayload(image, maintenanceId, deviceId) {
+  return withSyncBase({
+    maintenanceId,
+    deviceId,
+    imageId: image.id,
+    Tipo: image.Tipo,
+    Nota: image.Nota,
+  }, image.syncBase || maintenanceImageSyncBase(image, maintenanceId));
 }
 
 async function prepareUploadChunk(images, signal) {
@@ -129,7 +141,7 @@ async function uploadFallback({
         mimeType: image.file.type || 'image/jpeg',
         base64,
       }, sessionToken, requestOptions(signal));
-      uploaded.push({ ...uploadedView(result), clientKey: image.localId });
+      uploaded.push({ ...uploadedView(result, maintenanceId), clientKey: image.localId });
     } catch (error) {
       if (isAbortError(error)) throw error;
       failed.push({ clientKey: image.localId, fileName: image.file?.name, message: error.message });
@@ -169,7 +181,7 @@ export async function uploadMaintenanceImagesInBatches({
         images: payloadImages,
       }, sessionToken, signal);
       uploadBatchAvailable = true;
-      uploaded.push(...(result?.uploaded || []).map(uploadedView));
+      uploaded.push(...(result?.uploaded || []).map((row) => uploadedView(row, maintenanceId)));
       failed.push(...(result?.failed || []));
     } catch (error) {
       if (isAbortError(error)) throw error;
@@ -196,23 +208,24 @@ export async function uploadMaintenanceImagesInBatches({
 
 async function updateFallback({ maintenanceId, deviceId, images, sessionToken, signal }) {
   const updatedIds = [];
+  const updatedRows = [];
   const failed = [];
   for (const image of images) {
     try {
-      await requestAvailable(MODULE_ROUTES.maintenance.imageUpdate, {
-        maintenanceId,
-        deviceId,
-        imageId: image.id,
-        Tipo: image.Tipo,
-        Nota: image.Nota,
-      }, sessionToken, requestOptions(signal));
+      const result = await requestAvailable(
+        MODULE_ROUTES.maintenance.imageUpdate,
+        imageMetadataPayload(image, maintenanceId, deviceId),
+        sessionToken,
+        requestOptions(signal),
+      );
       updatedIds.push(image.id);
+      updatedRows.push(uploadedView(result, maintenanceId));
     } catch (error) {
       if (isAbortError(error)) throw error;
-      failed.push({ imageId: image.id, message: error.message });
+      failed.push({ imageId: image.id, message: error.message, code: error.code, details: error.details });
     }
   }
-  return { updatedIds, failed };
+  return { updatedIds, updatedRows, failed };
 }
 
 export async function updateMaintenanceImagesInBatches({
@@ -223,9 +236,10 @@ export async function updateMaintenanceImagesInBatches({
   signal,
 }) {
   const dirty = images.filter((item) => item?.dirty && item?.id);
-  if (!dirty.length) return { updatedIds: [], failed: [] };
+  if (!dirty.length) return { updatedIds: [], updatedRows: [], failed: [] };
 
   const updatedIds = [];
+  const updatedRows = [];
   const failed = [];
   let useFallbackForRemaining = updateBatchAvailable === false || browserIsOffline();
 
@@ -233,11 +247,12 @@ export async function updateMaintenanceImagesInBatches({
     if (useFallbackForRemaining) {
       const fallback = await updateFallback({ maintenanceId, deviceId, images: chunk, sessionToken, signal });
       updatedIds.push(...fallback.updatedIds);
+      updatedRows.push(...fallback.updatedRows);
       failed.push(...fallback.failed);
       continue;
     }
 
-    const updates = chunk.map((image) => ({ imageId: image.id, Tipo: image.Tipo, Nota: image.Nota }));
+    const updates = chunk.map((image) => imageMetadataPayload(image, maintenanceId, deviceId));
     try {
       const result = await requestOnlineAliases(IMAGE_UPDATE_BATCH_ROUTES, {
         maintenanceId,
@@ -245,7 +260,9 @@ export async function updateMaintenanceImagesInBatches({
         updates,
       }, sessionToken, signal);
       updateBatchAvailable = true;
-      updatedIds.push(...(result?.updated || []).map((row) => clean(pick(row, ['FotoDispositivoID', 'id']))).filter(Boolean));
+      const rows = (result?.updated || []).map((row) => uploadedView(row, maintenanceId));
+      updatedRows.push(...rows);
+      updatedIds.push(...rows.map((row) => row.id).filter(Boolean));
       failed.push(...(result?.failed || []));
     } catch (error) {
       if (isAbortError(error)) throw error;
@@ -254,9 +271,10 @@ export async function updateMaintenanceImagesInBatches({
       useFallbackForRemaining = true;
       const fallback = await updateFallback({ maintenanceId, deviceId, images: chunk, sessionToken, signal });
       updatedIds.push(...fallback.updatedIds);
+      updatedRows.push(...fallback.updatedRows);
       failed.push(...fallback.failed);
     }
   }
 
-  return { updatedIds, failed };
+  return { updatedIds, updatedRows, failed };
 }
