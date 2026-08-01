@@ -34,7 +34,7 @@ test('la cola prioriza catálogos antes de mantenimientos y evidencias', () => {
   const core = source('src/services/offlineStoreCore.js');
   assert.match(core, /catalogLocationCreate:\s*5/);
   assert.match(core, /catalogManufacturerCreate:\s*6/);
-  assert.match(core, /catalogModelCreate:\s*7/);
+  assert.match(core, /catalogModelCreate:\s*8/);
   assert.match(core, /maintenanceCreate:\s*10/);
   assert.match(core, /maintenanceDeviceCreate:\s*30/);
 });
