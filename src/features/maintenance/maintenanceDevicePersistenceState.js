@@ -56,6 +56,11 @@ export function buildMaintenanceDevicePersistenceState({
   const updatedIds = new Set(
     (metadataResult.updatedIds || []).map(cleanMaintenancePersistenceValue).filter(Boolean),
   );
+  const updatedRows = new Map(
+    (metadataResult.updatedRows || [])
+      .map((row) => [cleanMaintenancePersistenceValue(row.id ?? row.FotoDispositivoID), row])
+      .filter(([id]) => id),
+  );
   const metadataFailedIds = new Set(
     metadataFailed
       .map((item) => cleanMaintenancePersistenceValue(item.imageId ?? item.id))
@@ -80,6 +85,8 @@ export function buildMaintenanceDevicePersistenceState({
     images: [
       ...(device?.images || []).map((image) => {
         const imageId = cleanMaintenancePersistenceValue(image.id);
+        const confirmed = updatedRows.get(imageId);
+        if (confirmed) return { ...image, ...confirmed, dirty: false };
         return {
           ...image,
           dirty: metadataFailedIds.has(imageId)

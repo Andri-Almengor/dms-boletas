@@ -2,6 +2,7 @@ import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import { useLocation } from 'react-router-dom';
 import { useAuth } from '../../AuthContext';
 import Icon from '../common/Icon';
+import OfflineConflictPanel from './OfflineConflictPanel';
 import {
   getEntityQueueState,
   listQueuedOperations,
@@ -31,6 +32,11 @@ const EDITABLE_SELECTOR = [
 function isAuthenticationError(error) {
   return Number(error?.status || 0) === 401
     || String(error?.code || '').toUpperCase() === 'UNAUTHORIZED';
+}
+
+function isSyncConflict(error) {
+  return Number(error?.status || 0) === 409
+    && String(error?.code || '').toUpperCase() === 'SYNC_CONFLICT';
 }
 
 function currentEntity(pathname) {
@@ -75,8 +81,10 @@ export default function OfflineSyncManager() {
   const [online, setOnline] = useState(() => navigator.onLine !== false);
   const [pending, setPending] = useState(0);
   const [entityPending, setEntityPending] = useState(0);
+  const [conflicts, setConflicts] = useState([]);
   const [syncing, setSyncing] = useState(false);
   const [autoPaused, setAutoPaused] = useState(false);
+  const [resolvingConflict, setResolvingConflict] = useState(false);
   const [message, setMessage] = useState('');
   const syncingRef = useRef(false);
   const retryTimerRef = useRef(0);
@@ -85,9 +93,10 @@ export default function OfflineSyncManager() {
   const holdUntilRef = useRef(0);
 
   const refreshCount = useCallback(async () => {
-    const count = await queuedOperationCount().catch(() => 0);
-    setPending(count);
-    return count;
+    const operations = await listQueuedOperations().catch(() => []);
+    setPending(operations.length);
+    setConflicts(operations.filter((item) => String(item.status || '').toUpperCase() === 'CONFLICT'));
+    return operations.length;
   }, []);
 
   const refreshEntityState = useCallback(async () => {
@@ -131,8 +140,16 @@ export default function OfflineSyncManager() {
     window.dispatchEvent(new CustomEvent('dms-offline-sync-start', { detail: { forced } }));
 
     try {
-      const operations = await listQueuedOperations().catch(() => []);
+      const allOperations = await listQueuedOperations().catch(() => []);
+      const conflictOperations = allOperations.filter((item) => String(item.status || '').toUpperCase() === 'CONFLICT');
+      const operations = allOperations.filter((item) => String(item.status || '').toUpperCase() !== 'CONFLICT');
+
       if (!operations.length) {
+        if (conflictOperations.length) {
+          setConflicts(conflictOperations);
+          setMessage(`${conflictOperations.length} cambio${conflictOperations.length === 1 ? '' : 's'} necesita${conflictOperations.length === 1 ? '' : 'n'} que elija qué versión conservar.`);
+          return;
+        }
         await Promise.all([
           preloadOfflineCatalogs(sessionToken).catch(() => {}),
           refreshCount(),
@@ -153,6 +170,7 @@ export default function OfflineSyncManager() {
           status: 'SYNCING',
           attempts: Number(operation.attempts || 0) + 1,
           lastError: '',
+          conflict: null,
         });
         try {
           await replayQueuedOperation(operation, sessionToken);
@@ -168,9 +186,24 @@ export default function OfflineSyncManager() {
             });
             continue;
           }
+          if (isSyncConflict(error)) {
+            await updateQueuedOperation(operation.id, {
+              status: 'CONFLICT',
+              lastError: String(error?.message || error),
+              conflict: error.details || {},
+            });
+            await Promise.all([refreshCount(), refreshEntityState()]);
+            const nextMessage = 'Se detectó un cambio realizado por otro técnico. La sincronización quedó pausada sin sobrescribir información.';
+            setMessage(nextMessage);
+            window.dispatchEvent(new CustomEvent('dms-offline-sync-conflict', {
+              detail: { message: nextMessage, operationId: operation.id, conflict: error.details || {} },
+            }));
+            return;
+          }
           await updateQueuedOperation(operation.id, {
             status: 'ERROR',
             lastError: String(error?.message || error),
+            conflict: null,
           });
           await Promise.all([refreshCount(), refreshEntityState()]);
           let nextMessage = '';
@@ -218,6 +251,46 @@ export default function OfflineSyncManager() {
       if (navigator.onLine !== false) synchronize(options);
     }, delay);
   }, [synchronize]);
+
+  const useServerVersion = useCallback(async (operation) => {
+    if (!operation || resolvingConflict) return;
+    setResolvingConflict(true);
+    try {
+      await removeQueuedOperation(operation.id);
+      await Promise.all([refreshCount(), refreshEntityState()]);
+      setMessage('Se conservó la versión del servidor. Actualizando la pantalla...');
+      window.dispatchEvent(new CustomEvent('dms-offline-conflict-resolved', {
+        detail: { operationId: operation.id, resolution: 'USE_SERVER' },
+      }));
+      window.setTimeout(() => window.location.reload(), 250);
+    } finally {
+      setResolvingConflict(false);
+    }
+  }, [refreshCount, refreshEntityState, resolvingConflict]);
+
+  const keepLocalVersion = useCallback(async (operation) => {
+    if (!operation || resolvingConflict) return;
+    setResolvingConflict(true);
+    try {
+      await updateQueuedOperation(operation.id, {
+        status: 'PENDING',
+        lastError: '',
+        conflict: null,
+        payload: {
+          ...(operation.payload || {}),
+          __conflictResolution: 'KEEP_LOCAL',
+        },
+      });
+      await Promise.all([refreshCount(), refreshEntityState()]);
+      setMessage('Aplicando sus cambios y conservando los cambios remotos que no entran en conflicto...');
+      window.dispatchEvent(new CustomEvent('dms-offline-conflict-resolved', {
+        detail: { operationId: operation.id, resolution: 'KEEP_LOCAL' },
+      }));
+      await synchronize({ forced: true });
+    } finally {
+      setResolvingConflict(false);
+    }
+  }, [refreshCount, refreshEntityState, resolvingConflict, synchronize]);
 
   useEffect(() => {
     dirtyRef.current = false;
@@ -337,6 +410,7 @@ export default function OfflineSyncManager() {
 
   const finalizationBlocked = navigator.onLine === false
     || entityPending > 0
+    || conflicts.length > 0
     || (isCreateWorkflow(location.pathname) && navigator.onLine === false);
 
   useEffect(() => {
@@ -344,28 +418,39 @@ export default function OfflineSyncManager() {
     return () => document.body.classList.remove('dms-entity-unsynced');
   }, [finalizationBlocked]);
 
-  if (online && !pending && !syncing && !message) return null;
-
-  const pendingText = autoPaused && pending
-    ? `Sincronización pausada mientras termina de editar. ${pending} cambio${pending === 1 ? '' : 's'} permanece${pending === 1 ? '' : 'n'} guardado${pending === 1 ? '' : 's'}.`
-    : entityPending
-      ? `${entityPending} cambio${entityPending === 1 ? '' : 's'} de este ${entity?.type || 'registro'} pendiente${entityPending === 1 ? '' : 's'}. Finalizar aparecerá al terminar.`
-      : pending
-        ? `${pending} cambio${pending === 1 ? '' : 's'} pendiente${pending === 1 ? '' : 's'} de envío.`
-        : 'Los catálogos guardados continúan disponibles.';
+  const shouldShowStatus = !(online && !pending && !syncing && !message && !conflicts.length);
+  const pendingText = conflicts.length
+    ? `${conflicts.length} cambio${conflicts.length === 1 ? '' : 's'} requiere${conflicts.length === 1 ? '' : 'n'} revisión antes de finalizar.`
+    : autoPaused && pending
+      ? `Sincronización pausada mientras termina de editar. ${pending} cambio${pending === 1 ? '' : 's'} permanece${pending === 1 ? '' : 'n'} guardado${pending === 1 ? '' : 's'}.`
+      : entityPending
+        ? `${entityPending} cambio${entityPending === 1 ? '' : 's'} de este ${entity?.type || 'registro'} pendiente${entityPending === 1 ? '' : 's'}. Finalizar aparecerá al terminar.`
+        : pending
+          ? `${pending} cambio${pending === 1 ? '' : 's'} pendiente${pending === 1 ? '' : 's'} de envío.`
+          : 'Los catálogos guardados continúan disponibles.';
 
   return (
-    <aside className={`offline-status${online ? ' is-online' : ' is-offline'}${syncing ? ' is-syncing' : ''}`} role="status" aria-live="polite">
-      <span className="offline-status__icon">
-        <Icon name={syncing ? 'sync' : autoPaused ? 'edit_note' : online ? 'cloud_done' : 'cloud_off'} />
-      </span>
-      <div className="offline-status__body">
-        <strong>{syncing ? 'Sincronizando' : autoPaused && pending ? 'Sincronización en pausa' : online ? 'Conexión disponible' : 'Trabajando sin conexión'}</strong>
-        <small>{message || pendingText}</small>
-      </div>
-      {online && pending > 0 && !syncing && (
-        <button type="button" onClick={() => synchronize({ forced: true })}>Sincronizar ahora</button>
+    <>
+      {shouldShowStatus && (
+        <aside className={`offline-status${online ? ' is-online' : ' is-offline'}${syncing ? ' is-syncing' : ''}`} role="status" aria-live="polite">
+          <span className="offline-status__icon">
+            <Icon name={conflicts.length ? 'warning' : syncing ? 'sync' : autoPaused ? 'edit_note' : online ? 'cloud_done' : 'cloud_off'} />
+          </span>
+          <div className="offline-status__body">
+            <strong>{conflicts.length ? 'Conflicto de sincronización' : syncing ? 'Sincronizando' : autoPaused && pending ? 'Sincronización en pausa' : online ? 'Conexión disponible' : 'Trabajando sin conexión'}</strong>
+            <small>{message || pendingText}</small>
+          </div>
+          {online && pending > 0 && !syncing && !conflicts.length && (
+            <button type="button" onClick={() => synchronize({ forced: true })}>Sincronizar ahora</button>
+          )}
+        </aside>
       )}
-    </aside>
+      <OfflineConflictPanel
+        operation={conflicts[0] || null}
+        busy={resolvingConflict || syncing}
+        onUseServer={useServerVersion}
+        onKeepLocal={keepLocalVersion}
+      />
+    </>
   );
 }

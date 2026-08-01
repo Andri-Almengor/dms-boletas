@@ -9,6 +9,7 @@ import {
   updateMaintenanceImagesInBatches,
   uploadMaintenanceImagesInBatches,
 } from './maintenanceImageBatch';
+import { maintenanceDeviceSyncBase } from './maintenanceSyncBase';
 import { MODULE_ROUTES, pick, requestAvailable } from './moduleApi';
 
 function releaseUploadedFiles(images = [], uploadedKeys = new Set()) {
@@ -54,8 +55,13 @@ export async function persistMaintenanceDevice({
     sessionToken,
     signal,
   });
+  const confirmedDevice = {
+    ...requestDevice,
+    id: deviceId,
+    syncBase: maintenanceDeviceSyncBase(saved, maintenanceId) || requestDevice.syncBase || null,
+  };
   const state = buildMaintenanceDevicePersistenceState({
-    device: requestDevice,
+    device: confirmedDevice,
     deviceId,
     metadataResult,
     uploadResult,

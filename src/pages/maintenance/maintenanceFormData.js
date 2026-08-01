@@ -6,6 +6,12 @@ import {
   getMaintenanceCategory,
 } from '../../config/maintenanceCategories';
 import { pick } from '../../services/moduleApi';
+import {
+  maintenanceDeviceSyncBase,
+  maintenanceImageSyncBase,
+  maintenanceSyncBase,
+  withSyncBase,
+} from '../../services/maintenanceSyncBase';
 import { todayInCostaRica } from '../../utils/costaRicaDate';
 import { createLocalId } from '../../utils/localId';
 import {
@@ -26,7 +32,7 @@ export const EMPTY_MAINTENANCE = {
   titulo: '', clienteId: '', cliente: '', ubicacionId: '', ubicacion: '', estado: 'PENDIENTE',
   fecha: todayInCostaRica(),
   fechaFinalizacion: todayInCostaRica(),
-  responsables: [], descripcion: '', counts: createEmptyMaintenanceCounts(),
+  responsables: [], descripcion: '', counts: createEmptyMaintenanceCounts(), syncBase: null,
 };
 
 function parseArray(value) {
@@ -91,12 +97,13 @@ function parseAnswersBundle(row, categoryName) {
   return { answers, questionDetails };
 }
 
-function mapImage(image) {
+function mapImage(image, maintenanceId = '') {
   return {
     ...image,
     id: String(pick(image, ['FotoDispositivoID', 'imageId', 'id'])),
     Tipo: pick(image, ['Tipo', 'tipo'], 'Antes'),
     Nota: pick(image, ['Nota', 'nota']),
+    syncBase: maintenanceImageSyncBase(image, maintenanceId),
     dirty: false,
   };
 }
@@ -110,7 +117,7 @@ export function createMaintenanceDevice(category = 'Cámara') {
     tipoDispositivoId: '', categoria: canonicalCategory,
     fabricanteId: '', fabricante: '', modeloId: '', modelo: '',
     nombre: '', serie: '', funcionamiento: '', enUso: '', estado: AUTOMATIC_PENDING_STATE, observacion: '',
-    respuestas: createEmptyChecklist(canonicalCategory), questionDetails: [], images: [], newImages: [],
+    respuestas: createEmptyChecklist(canonicalCategory), questionDetails: [], images: [], newImages: [], syncBase: null,
   };
 }
 
@@ -142,6 +149,7 @@ export function mapMaintenance(data) {
     responsables,
     descripcion: pick(row, ['DescripcionGeneral', 'descripcion']),
     counts,
+    syncBase: maintenanceSyncBase(row),
   };
 }
 
@@ -155,6 +163,7 @@ export function mapMaintenanceDevice(row = {}) {
     'Ubicación del equipo',
   ]);
   const legacyLocation = pick(row, ['Zona', 'UbicacionEspecifica', 'zona']);
+  const maintenanceId = String(pick(row, ['MantenimientoRef', 'maintenanceId', 'MantenimientoID']));
   const mapped = {
     localId: String(pick(row, ['EvidenciaMantenimientoID', 'deviceId', 'id'], createLocalId())),
     id: String(pick(row, ['EvidenciaMantenimientoID', 'deviceId', 'id'])),
@@ -179,8 +188,9 @@ export function mapMaintenanceDevice(row = {}) {
     observacion: pick(row, ['Observacion', 'observacion']),
     respuestas: bundle.answers,
     questionDetails: bundle.questionDetails,
-    images: (row.Imagenes || row.images || []).map(mapImage),
+    images: (row.Imagenes || row.images || []).map((image) => mapImage(image, maintenanceId)),
     newImages: [],
+    syncBase: maintenanceDeviceSyncBase(row, maintenanceId),
   };
   return {
     ...mapped,
@@ -189,14 +199,14 @@ export function mapMaintenanceDevice(row = {}) {
 }
 
 export function maintenancePayload(form, id) {
-  return {
+  return withSyncBase({
     maintenanceId: id, MantenimientoID: id, TituloMantenimiento: form.titulo,
     ClienteID: form.clienteId, ClienteRef: form.clienteId, Cliente: form.cliente,
     UbicacionID: form.ubicacionId, Ubicacion: form.ubicacion, Estado: form.estado,
     Fecha: form.fecha, FechaFinalizacion: form.fechaFinalizacion,
     ResponsableIDs: form.responsables, ResponsableIDsJSON: JSON.stringify(form.responsables),
     DescripcionGeneral: form.descripcion, CantidadesJSON: JSON.stringify(form.counts), ...form.counts,
-  };
+  }, form.syncBase);
 }
 
 export function maintenanceDevicePayload(device, maintenanceId) {
@@ -204,7 +214,7 @@ export function maintenanceDevicePayload(device, maintenanceId) {
   const category = canonicalMaintenanceCategoryName(device.categoria);
   const equipmentLocationName = String(device.ubicacionEquipoNombre || device.zona || '').trim();
   const effectiveState = effectiveMaintenanceDeviceState(device, getMaintenanceCategory(category).questions);
-  return {
+  return withSyncBase({
     maintenanceId, MantenimientoID: maintenanceId, deviceId: device.id,
     EvidenciaMantenimientoID: device.id,
     UbicacionEquipoID: device.ubicacionEquipoId,
@@ -232,5 +242,5 @@ export function maintenanceDevicePayload(device, maintenanceId) {
     questionDetails: device.questionDetails || [],
     respuestasDetalle: device.questionDetails || [],
     RespuestasJSON: JSON.stringify(device.respuestas), ...device.respuestas,
-  };
+  }, device.syncBase);
 }
