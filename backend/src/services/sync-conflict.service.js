@@ -68,6 +68,28 @@ function hasAny(record, aliases) {
   return aliases.some((key) => own(record, key));
 }
 
+function parseObject(value) {
+  const normalized = normalizeJsonString(value);
+  return normalized && typeof normalized === 'object' && !Array.isArray(normalized) ? { ...normalized } : {};
+}
+
+function preserveAggregateFields(next, payload, before, localChangedFields, fieldAliases) {
+  if (!own(fieldAliases, 'CantidadesJSON')) return next;
+  const countFields = localChangedFields.filter((field) => field !== 'CantidadesJSON' && field.startsWith('Cant'));
+  if (localChangedFields.includes('CantidadesJSON')) return next;
+  if (!countFields.length) {
+    if (own(before, 'CantidadesJSON')) next.CantidadesJSON = before.CantidadesJSON;
+    return next;
+  }
+  const counts = parseObject(before.CantidadesJSON);
+  for (const field of countFields) {
+    const value = readValue(payload, aliasesFor(field, fieldAliases[field]));
+    if (value !== undefined) counts[field] = value;
+  }
+  next.CantidadesJSON = JSON.stringify(counts);
+  return next;
+}
+
 function syncMetadata(payload = {}) {
   const raw = payload.__syncBase;
   if (!raw || typeof raw !== 'object') return null;
@@ -202,7 +224,13 @@ export function resolveConflictAwarePayload({
   // Cuando la versión remota cambió, solo se reenvían los campos que el usuario
   // modificó respecto a su copia base. Así se conservan automáticamente los
   // cambios remotos que no chocan con los locales.
-  return safePayload(payload, localChangedFields, fieldAliases);
+  return preserveAggregateFields(
+    safePayload(payload, localChangedFields, fieldAliases),
+    payload,
+    before,
+    localChangedFields,
+    fieldAliases,
+  );
 }
 
 export const SYNC_CONFLICT_RESOLUTION = Object.freeze({ KEEP_LOCAL });
