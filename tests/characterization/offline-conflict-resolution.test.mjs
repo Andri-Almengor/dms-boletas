@@ -6,14 +6,10 @@ import path from 'node:path';
 
 import {
   buildOfflineConflictMetadata,
-  detectOfflineFieldConflicts as detectClientConflicts,
+  detectOfflineFieldConflicts,
   offlineConflictPatch,
   sameOfflineValue,
 } from '../../src/services/offlineConflictDomain.js';
-import {
-  detectOfflineFieldConflicts as detectServerConflicts,
-  stripOfflineConflictMetadata,
-} from '../../backend/src/services/offline-conflict.service.js';
 
 const ROOT = fileURLToPath(new URL('../../', import.meta.url));
 const source = (relativePath) => readFileSync(path.join(ROOT, relativePath), 'utf8');
@@ -60,21 +56,13 @@ test('permite combinar cambios de campos diferentes y bloquea la colisión real'
     DescripcionGeneral: 'Descripción original',
     ResponsableIDsJSON: '["otro-tecnico"]',
   };
-  assert.deepEqual(detectClientConflicts(metadata, unrelatedServerChange), []);
-  assert.deepEqual(
-    detectServerConflicts(metadata, unrelatedServerChange, ['TituloMantenimiento', 'DescripcionGeneral']),
-    [],
-  );
+  assert.deepEqual(detectOfflineFieldConflicts(metadata, unrelatedServerChange), []);
 
   const overlappingServerChange = {
     ...unrelatedServerChange,
     DescripcionGeneral: 'Descripción modificada por otro técnico',
   };
-  assert.deepEqual(detectClientConflicts(metadata, overlappingServerChange), ['DescripcionGeneral']);
-  assert.deepEqual(
-    detectServerConflicts(metadata, overlappingServerChange, ['TituloMantenimiento', 'DescripcionGeneral']),
-    ['DescripcionGeneral'],
-  );
+  assert.deepEqual(detectOfflineFieldConflicts(metadata, overlappingServerChange), ['DescripcionGeneral']);
 });
 
 test('normaliza JSON y arreglos para evitar conflictos falsos por formato', () => {
@@ -83,26 +71,29 @@ test('normaliza JSON y arreglos para evitar conflictos falsos por formato', () =
   assert.equal(sameOfflineValue(' Pendiente ', 'Pendiente'), true);
 });
 
-test('el backend elimina la metainformación antes de entregar el payload al handler', () => {
-  const payload = stripOfflineConflictMetadata({
-    maintenanceId: 'm-1',
-    Estado: 'PENDIENTE',
-    __offlineConflict: { entityId: 'm-1' },
-  });
-  assert.deepEqual(payload, { maintenanceId: 'm-1', Estado: 'PENDIENTE' });
+test('el backend valida la precondición y limpia la metainformación antes del handler', () => {
+  const service = source('backend/src/services/offline-conflict.service.js');
+  const router = source('backend/src/core/action-router.js');
+
+  assert.match(service, /export async function assertOfflineWritePrecondition/);
+  assert.match(service, /export function detectOfflineFieldConflicts/);
+  assert.match(service, /OFFLINE_SYNC_CONFLICT/);
+  assert.match(service, /SERVER_RECORD_MISSING/);
+  assert.match(service, /CONCURRENT_UPDATE/);
+  assert.match(service, /export function stripOfflineConflictMetadata/);
+  assert.match(router, /await assertOfflineWritePrecondition\(route, normalizedPayload\)/);
+  assert.match(router, /stripOfflineConflictMetadata\(normalizedPayload\)/);
 });
 
 test('la integración conserva conflicto, resolución explícita y bloqueo de finalización', () => {
-  const router = source('backend/src/core/action-router.js');
   const moduleApi = source('src/services/moduleApi.js');
   const store = source('src/services/offlineStoreCore.js');
   const manager = source('src/components/offline/OfflineSyncManager.jsx');
   const css = source('src/styles/offline.css');
 
-  assert.match(router, /assertOfflineWritePrecondition/);
-  assert.match(router, /stripOfflineConflictMetadata/);
   assert.match(moduleApi, /buildOfflineConflictMetadata/);
   assert.match(moduleApi, /__offlineConflict/);
+  assert.match(moduleApi, /refreshConflictServerVersion/);
   assert.match(store, /conflictDetails/);
   assert.match(store, /conflicts:/);
   assert.match(store, /conflict: existing\?\.conflict \|\| conflict \|\| null/);
