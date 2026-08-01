@@ -218,8 +218,19 @@ export function collectOfflineLocalReferences(value, result = new Set()) {
   return result;
 }
 
+function operationOwnId(kind, payload = {}) {
+  const catalogId = catalogEntityId(kind, payload);
+  if (catalogId) return catalogId;
+  if (kind === 'ticketCreate') return clean(first(payload, ['boletaUid', 'BoletaUID', 'id']));
+  if (kind === 'ticketEvidence') return clean(first(payload, ['evidenciaId', 'EvidenciaID', 'id']));
+  if (kind === 'maintenanceCreate') return clean(first(payload, ['maintenanceId', 'MantenimientoID', 'id']));
+  if (kind === 'maintenanceDeviceCreate') return clean(first(payload, ['deviceId', 'EvidenciaMantenimientoID', 'id']));
+  if (kind === 'maintenanceImage') return clean(first(payload, ['imageId', 'FotoDispositivoID', 'id']));
+  return '';
+}
+
 export function collectOfflineDependencies(kind, payload = {}) {
-  const ownId = catalogEntityId(kind, payload);
+  const ownId = operationOwnId(kind, payload);
   return [...collectOfflineLocalReferences(payload)]
     .filter((value) => value && value !== ownId)
     .sort();

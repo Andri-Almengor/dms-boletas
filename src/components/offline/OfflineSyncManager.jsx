@@ -147,6 +147,7 @@ export default function OfflineSyncManager() {
       }
 
       let synchronized = 0;
+      let blocked = 0;
       for (const operation of operations) {
         await updateQueuedOperation(operation.id, {
           status: 'SYNCING',
@@ -159,6 +160,14 @@ export default function OfflineSyncManager() {
           synchronized += 1;
           await Promise.all([refreshCount(), refreshEntityState()]);
         } catch (error) {
+          if (String(error?.code || '').toUpperCase() === 'OFFLINE_DEPENDENCY_PENDING') {
+            blocked += 1;
+            await updateQueuedOperation(operation.id, {
+              status: 'PENDING',
+              lastError: String(error?.message || error),
+            });
+            continue;
+          }
           await updateQueuedOperation(operation.id, {
             status: 'ERROR',
             lastError: String(error?.message || error),
@@ -179,6 +188,15 @@ export default function OfflineSyncManager() {
           }));
           return;
         }
+      }
+
+      if (blocked > 0) {
+        setMessage(`${blocked} cambio${blocked === 1 ? '' : 's'} espera${blocked === 1 ? '' : 'n'} que se sincronicen sus catálogos relacionados.`);
+        window.dispatchEvent(new CustomEvent('dms-offline-sync-complete', {
+          detail: { forced, synchronized, blocked, refreshMode: 'dependency-aware' },
+        }));
+        if (synchronized > 0) scheduleSync(1_500);
+        return;
       }
 
       await preloadOfflineCatalogs(sessionToken).catch(() => {});

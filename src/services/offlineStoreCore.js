@@ -1,8 +1,15 @@
+import {
+  collectOfflineLocalReferences,
+  isOfflineLocalId,
+  replaceOfflineReferences,
+} from './offlineCatalogDomain';
+
 const DB_NAME = 'dms-boletas-offline';
-const DB_VERSION = 2;
+const DB_VERSION = 3;
 const CACHE_STORE = 'responses';
 const QUEUE_STORE = 'operations';
 const META_STORE = 'meta';
+const ID_MAP_STORE = 'idMap';
 const CACHE_MAX_AGE_MS = 30 * 24 * 60 * 60 * 1000;
 
 const OFFLINE_SECTIONS = Object.freeze([
@@ -20,6 +27,18 @@ const OFFLINE_SECTIONS = Object.freeze([
 ]);
 
 const OPERATION_PRIORITY = Object.freeze({
+  clientLocationCreate: 12,
+  manufacturerCreate: 12,
+  deviceTypeCreate: 12,
+  equipmentLocationCreate: 16,
+  modelCreate: 17,
+  deviceManufacturerCreate: 18,
+  clientLocationUpdate: 21,
+  manufacturerUpdate: 21,
+  deviceTypeUpdate: 21,
+  equipmentLocationUpdate: 22,
+  modelUpdate: 22,
+  deviceManufacturerUpdate: 23,
   ticketCreate: 10,
   maintenanceCreate: 10,
   ticketUpdate: 20,
@@ -69,6 +88,10 @@ function openDatabase() {
         ensureQueueIndexes(transaction.objectStore(QUEUE_STORE));
       }
       if (!db.objectStoreNames.contains(META_STORE)) db.createObjectStore(META_STORE, { keyPath: 'key' });
+      if (!db.objectStoreNames.contains(ID_MAP_STORE)) {
+        const mappingStore = db.createObjectStore(ID_MAP_STORE, { keyPath: 'localId' });
+        mappingStore.createIndex('entityType', 'entityType');
+      }
     };
     request.onsuccess = () => resolve(request.result);
     request.onerror = () => reject(request.error || new Error('No fue posible abrir el almacenamiento sin conexión.'));
@@ -124,7 +147,7 @@ function sessionScope(sessionToken = '') {
 }
 
 function operationPriority(operation) {
-  return Number(OPERATION_PRIORITY[operation.kind] || 35);
+  return Number(operation?.priority || OPERATION_PRIORITY[operation?.kind] || 35);
 }
 
 export function responseCacheKey(routes, payload = {}, sessionToken = '') {
@@ -189,13 +212,13 @@ export function createOfflineId(prefix = 'local') {
 
 export async function listQueuedOperations() {
   return (await readAll(QUEUE_STORE)).sort((a, b) => {
-    const byTime = Number(a.createdAt || 0) - Number(b.createdAt || 0);
-    if (byTime) return byTime;
-    return operationPriority(a) - operationPriority(b);
+    const byPriority = operationPriority(a) - operationPriority(b);
+    if (byPriority) return byPriority;
+    return Number(a.createdAt || 0) - Number(b.createdAt || 0);
   });
 }
 
-export async function enqueueOperation({ routes, payload, description = '', entityId = '', dedupeKey = '', kind = '' }) {
+export async function enqueueOperation({ routes, payload, description = '', entityId = '', dedupeKey = '', kind = '', dependsOnLocalIds = [], priority = 0 }) {
   const existing = dedupeKey
     ? (await listQueuedOperations()).find((item) => item.dedupeKey === dedupeKey)
     : null;
@@ -207,6 +230,8 @@ export async function enqueueOperation({ routes, payload, description = '', enti
     entityId: String(entityId || payload?.boletaUid || payload?.BoletaUID || payload?.maintenanceId || payload?.MantenimientoID || ''),
     dedupeKey,
     kind: kind || existing?.kind || '',
+    dependsOnLocalIds: [...new Set((dependsOnLocalIds || existing?.dependsOnLocalIds || []).map(String).filter(Boolean))],
+    priority: Number(priority || existing?.priority || OPERATION_PRIORITY[kind] || 35),
     status: 'PENDING',
     attempts: existing?.attempts || 0,
     lastError: '',
@@ -262,6 +287,38 @@ export async function updateQueuedOperation(id, patch) {
   emitQueueChange();
 }
 
+
+export async function listOfflineIdMappings() {
+  return readAll(ID_MAP_STORE);
+}
+
+export async function saveOfflineIdMapping(localId, serverId, entityType = '') {
+  const local = String(localId || '').trim();
+  const server = String(serverId || '').trim();
+  if (!local || !server) return null;
+  const mapping = {
+    localId: local,
+    serverId: server,
+    entityType: String(entityType || ''),
+    savedAt: Date.now(),
+  };
+  await run(ID_MAP_STORE, 'readwrite', (store) => store.put(mapping));
+  emitQueueChange();
+  return mapping;
+}
+
+export async function resolveOfflineOperationPayload(payload = {}, requiredLocalIds = []) {
+  const entries = await listOfflineIdMappings();
+  const mappings = new Map(entries.map((entry) => [String(entry.localId), String(entry.serverId)]));
+  const dependencies = [...new Set((requiredLocalIds || []).map(String).filter(Boolean))];
+  const unresolved = dependencies.filter((localId) => isOfflineLocalId(localId) && !mappings.has(localId));
+  return {
+    payload: replaceOfflineReferences(payload, mappings),
+    unresolved,
+    mappings: Object.fromEntries(mappings),
+  };
+}
+
 export async function setOfflineMeta(key, value) {
   await run(META_STORE, 'readwrite', (store) => store.put({ key, value, savedAt: Date.now() }));
 }
@@ -315,10 +372,11 @@ function approximateBytes(value) {
 }
 
 export async function getOfflineStorageStats() {
-  const [responses, operations, metadata] = await Promise.all([
+  const [responses, operations, metadata, mappings] = await Promise.all([
     readAll(CACHE_STORE),
     readAll(QUEUE_STORE),
     readAll(META_STORE),
+    readAll(ID_MAP_STORE),
   ]);
 
   const sectionMap = new Map(OFFLINE_SECTIONS.map((section) => [section.id, {
@@ -368,8 +426,12 @@ export async function getOfflineStorageStats() {
 
   const approximateIndexedDbBytes = approximateBytes(responses)
     + approximateBytes(operations)
-    + approximateBytes(metadata);
+    + approximateBytes(metadata)
+    + approximateBytes(mappings);
   const pendingOperations = operations.filter((item) => String(item.status || 'PENDING').toUpperCase() !== 'SYNCED');
+  const mappedIds = new Set(mappings.map((entry) => String(entry.localId || '')));
+  const blockedOperations = pendingOperations.filter((item) => (item.dependsOnLocalIds || [])
+    .some((localId) => isOfflineLocalId(localId) && !mappedIds.has(String(localId))));
 
   return {
     supported: supportsIndexedDb(),
@@ -384,6 +446,8 @@ export async function getOfflineStorageStats() {
     sections,
     lastDownloadAt,
     pendingCount: pendingOperations.length,
+    blockedCount: blockedOperations.length,
+    idMappingCount: mappings.length,
     errorCount: pendingOperations.filter((item) => String(item.status).toUpperCase() === 'ERROR').length,
     pendingOperations: pendingOperations.map((item) => ({
       id: item.id,
@@ -394,6 +458,8 @@ export async function getOfflineStorageStats() {
       createdAt: Number(item.createdAt || 0),
       attempts: Number(item.attempts || 0),
       lastError: item.lastError || '',
+      dependsOnLocalIds: item.dependsOnLocalIds || [],
+      blocked: blockedOperations.some((blocked) => blocked.id === item.id),
     })),
     usage,
     quota,
