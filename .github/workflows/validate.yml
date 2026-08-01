@@ -5,40 +5,9 @@ on:
   workflow_dispatch:
 
 permissions:
-  contents: write
+  contents: read
 
 jobs:
-  offline-stage1-patch:
-    if: github.actor != 'github-actions[bot]'
-    runs-on: ubuntu-latest
-    steps:
-      - name: Checkout feature branch
-        uses: actions/checkout@v4
-        with:
-          ref: feature/offline-first-stage-1-catalog-sync
-          fetch-depth: 0
-
-      - name: Apply offline catalog patch
-        run: python scripts/apply-offline-catalog-stage1.py
-
-      - name: Verify focused implementation
-        run: |
-          node --check src/services/moduleApi.js
-          node --check src/services/offlineStoreCore.js
-          node --test tests/characterization/offline-catalog-sync.test.mjs
-
-      - name: Commit clean implementation
-        shell: bash
-        run: |
-          rm -f scripts/apply-offline-catalog-stage1.py
-          rm -f .github/workflows/apply-offline-catalog-stage1.yml
-          git show origin/main:.github/workflows/validate.yml > .github/workflows/validate.yml
-          git config user.name "github-actions[bot]"
-          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
-          git add -A
-          git commit -m "Implementar cola offline para catálogos de mantenimiento"
-          git push origin HEAD:feature/offline-first-stage-1-catalog-sync
-
   build:
     runs-on: ubuntu-latest
     steps:
