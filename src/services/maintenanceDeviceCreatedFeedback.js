@@ -1,6 +1,7 @@
 const GROUP_SELECTOR = '.maintenance-location-work-group';
 const FEEDBACK_CLASS = 'maintenance-location-device-created-feedback';
 const OFFLINE_PREVIEW_CLASS = 'maintenance-offline-device-preview';
+const OFFLINE_DEVICE_EDITOR_EVENT = 'dms-open-offline-maintenance-device';
 const MAX_FIND_ATTEMPTS = 30;
 const MAX_PREVIEW_ATTEMPTS = 20;
 const FIND_DELAY_MS = 100;
@@ -71,14 +72,21 @@ function hasActualDevice(group, detail) {
 
 export function navigateMaintenanceDeviceInApp(path) {
   if (typeof window === 'undefined' || !path) return false;
-  const currentPath = `${window.location.pathname}${window.location.search}${window.location.hash}`;
-  if (currentPath === path) return true;
+  let parsed;
+  try {
+    parsed = new URL(path, window.location.origin);
+  } catch {
+    return false;
+  }
 
-  window.history.pushState({ ...(window.history.state || {}), dmsOfflineNavigation: true }, '', path);
-  const navigationEvent = typeof PopStateEvent === 'function'
-    ? new PopStateEvent('popstate', { state: window.history.state })
-    : new Event('popstate');
-  window.dispatchEvent(navigationEvent);
+  const match = parsed.pathname.match(/^\/mantenimientos\/([^/]+)\/editar$/);
+  const maintenanceId = match ? decodeURIComponent(match[1]) : '';
+  const deviceId = String(parsed.searchParams.get('device') || '').trim();
+  if (!maintenanceId || !deviceId) return false;
+
+  window.dispatchEvent(new CustomEvent(OFFLINE_DEVICE_EDITOR_EVENT, {
+    detail: { maintenanceId, deviceId },
+  }));
   return true;
 }
 
