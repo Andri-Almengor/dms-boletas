@@ -1,3 +1,4 @@
+import './customer-case-ticket-link.patch.js';
 import { pick } from '../core/utils.js';
 import { ticketDeliveryHandlers } from '../modules/ticket-delivery.module.js';
 import { finalizeCustomerCaseForTicket } from './customer-case-sync.service.js';
