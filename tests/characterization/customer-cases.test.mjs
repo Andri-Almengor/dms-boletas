@@ -43,13 +43,17 @@ test('el esquema crea hojas dedicadas y un token reutilizable por cliente', () =
 
 test('el formulario público es reutilizable, idempotente y limita imágenes', () => {
   const module = source('backend/src/modules/customer-cases.module.js');
+  const payloadLimit = source('backend/src/services/customer-case-payload-limit.patch.js');
   assert.match(module, /crypto\.randomBytes\(32\)\.toString\('base64url'\)/);
   assert.match(module, /reusable:\s*true/);
   assert.match(module, /SolicitudClienteID/);
   assert.match(module, /alreadyCreated:\s*true/);
   assert.match(module, /MAX_EVIDENCES = 8/);
   assert.match(module, /MAX_FILE_BYTES = 6 \* 1024 \* 1024/);
-  assert.match(module, /MAX_TOTAL_BYTES = 22 \* 1024 \* 1024/);
+  assert.match(payloadLimit, /MAX_TOTAL_BYTES = 16 \* 1024 \* 1024/);
+  assert.match(payloadLimit, /customerCaseHandlers\.publicGet/);
+  assert.match(payloadLimit, /customerCaseHandlers\.publicSubmit/);
+  assert.match(payloadLimit, /maxTotalMb/);
   assert.match(module, /website/);
   assert.match(module, /Estado:\s*'EN_ESPERA'/);
 });
@@ -93,6 +97,7 @@ test('finalizar la boleta finaliza el caso y conserva reconciliación posterior'
   assert.match(sync, /OrigenCasoID/);
   assert.match(patch, /ticketDeliveryHandlers\.finalize/);
   assert.match(patch, /customerCaseSyncError/);
+  assert.match(patch, /customer-case-payload-limit\.patch/);
   assert.match(app, /customer-case-ticket-finalization\.patch/);
 });
 
