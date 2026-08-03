@@ -1,4 +1,4 @@
-import { collectOfflineLocalReferences } from './offlineCatalogDomain';
+import { collectOfflineLocalReferences } from './offlineCatalogDomain.js';
 
 const IDENTITY_STABLE_PREFIXES = Object.freeze([
   { prefix: 'mantenimiento-', entityType: 'maintenance' },
