@@ -35,7 +35,7 @@ test('el alta rápida muestra la confirmación solamente después del guardado',
   assert.match(creator, /maintenanceDeviceCreatedFeedback/);
   assert.match(creator, /await onCreated\?\.\(feedback\)/);
   assert.match(creator, /onClose\(\);\s*showMaintenanceDeviceCreatedFeedback\(feedback\)/);
-  assert.match(creator, /offlinePending \|=/);
+  assert.match(creator, /offlinePending\s*\|\|=/);
   assert.match(creator, /locationName:/);
 });
 
