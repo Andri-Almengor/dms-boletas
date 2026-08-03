@@ -110,6 +110,7 @@ function casePayload(caseData = {}) {
     CorreoSolicitante: clean(caseData.CorreoSolicitante, 320),
     NombreSolicitante: clean(caseData.NombreSolicitante, 300),
     Estado: clean(caseData.Estado, 80),
+    EstadoNotificacionTecnicos: clean(caseData.EstadoNotificacionTecnicos, 80),
     TecnicoNombres: clean(caseData.TecnicoNombres, 2000),
     FechaVisita: clean(caseData.FechaVisita, 40),
     HoraVisita: clean(caseData.HoraVisita, 40),
@@ -213,6 +214,8 @@ export function sendAssignedCustomerCaseEmail({
       400,
     );
   }
+  const explicitResend = forceResend
+    || item.EstadoNotificacionTecnicos.toUpperCase() === 'ENVIADO';
   return postAppsScript({
     action: 'customer.case.assigned.send',
     idempotencyKey: assignmentIdempotencyKey({
@@ -221,7 +224,7 @@ export function sendAssignedCustomerCaseEmail({
       message,
       technicians: assigned,
       ticketUrl,
-      forceResend,
+      forceResend: explicitResend,
     }),
     case: item,
     evidences: evidencePayload(evidences),
