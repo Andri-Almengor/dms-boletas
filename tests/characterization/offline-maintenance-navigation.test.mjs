@@ -10,17 +10,33 @@ function source(relativePath) {
   return readFileSync(path.join(ROOT, relativePath), 'utf8');
 }
 
-test('el runtime offline incluye las rutas de mantenimiento antes de visitarlas', () => {
+test('el runtime offline incluye Más y las rutas de mantenimiento antes de visitarlas', () => {
   const runtime = source('src/components/offline/OfflineSyncRuntime.jsx');
   const bundle = source('src/components/offline/OfflineMaintenanceRouteBundle.jsx');
 
   assert.match(runtime, /OfflineMaintenanceRouteBundle/);
   assert.match(runtime, /<OfflineMaintenanceRouteBundle\s*\/\>/);
+  assert.match(bundle, /MorePage/);
   assert.match(bundle, /MaintenanceListPage/);
   assert.match(bundle, /MaintenanceDetailPage/);
   assert.match(bundle, /MaintenanceFormPage/);
   assert.match(bundle, /styles\/routes\/maintenance\.js/);
+  assert.match(bundle, /styles\/routes\/more\.js/);
+  assert.match(bundle, /styles\/routes\/offline\.js/);
+  assert.match(bundle, /['"]\/mas['"]/);
   assert.match(bundle, /dms-offline-maintenance-routes-ready/);
+});
+
+test('el alta rápida de un dispositivo inicia aislada de borradores anteriores', () => {
+  const creator = source('src/components/maintenance/MaintenanceQuickDeviceCreator.jsx');
+  const formData = source('src/pages/maintenance/maintenanceFormData.js');
+
+  assert.match(creator, /initialDevice\(initialEquipmentLocation\)/);
+  assert.match(creator, /data-no-draft/);
+  assert.match(creator, /data-device-create-mode="fresh"/);
+  assert.match(formData, /images:\s*\[\],\s*newImages:\s*\[\]/);
+  assert.match(formData, /nombre:\s*'',\s*serie:\s*''/);
+  assert.match(formData, /respuestas:\s*createEmptyChecklist/);
 });
 
 test('el estado offline sustituye visualmente al guardado con un único icono', () => {
