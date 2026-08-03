@@ -73,6 +73,8 @@ test('los correos usan Gemini y Apps Script con idempotencia', () => {
   assert.match(email, /customer\.case\.created\.send/);
   assert.match(email, /customer\.case\.assigned\.send/);
   assert.match(email, /customer-case-created:/);
+  assert.match(email, /initialIdempotencyKey/);
+  assert.match(email, /evidenceIds/);
   assert.match(email, /assignmentIdempotencyKey/);
   assert.match(email, /EstadoNotificacionTecnicos/);
   assert.match(email, /sendNewCustomerCaseEmail/);
@@ -138,4 +140,66 @@ test('la interfaz incluye formulario, dashboard, detalle y enlace en clientes', 
   assert.match(detail, /Reenviar correo a técnicos/);
   assert.match(clients, /ClientCasePortalCard/);
   assert.match(more, /Casos de clientes/);
+});
+
+test('las cargas a Drive reintentan errores temporales con un stream nuevo', () => {
+  const drive = source('backend/src/infra/drive.repository.js');
+  assert.match(drive, /DRIVE_UPLOAD_RETRY_DELAYS_MS/);
+  assert.match(drive, /408, 409, 429, 500, 502, 503, 504/);
+  assert.match(drive, /withDriveUploadRetry/);
+  assert.match(drive, /Readable\.from\(Buffer\.from\(content\)\)/);
+  assert.match(drive, /Google Drive no devolvió el identificador/);
+});
+
+test('el backend recupera evidencias faltantes y registra el resultado real', () => {
+  const recovery = source('backend/src/services/customer-case-evidence-recovery.patch.js');
+  const app = source('backend/src/app.js');
+  assert.match(app, /customer-case-evidence-recovery\.patch/);
+  assert.match(recovery, /customerCaseHandlers\.publicSubmit = async/);
+  assert.match(recovery, /recoverMissingEvidences/);
+  assert.match(recovery, /HuellaArchivo/);
+  assert.match(recovery, /EvidenciasSolicitadas/);
+  assert.match(recovery, /EvidenciasFallidas/);
+  assert.match(recovery, /UltimoErrorEvidencias/);
+  assert.match(recovery, /failedEvidenceNames/);
+  assert.match(recovery, /requestedEvidenceCount/);
+  assert.match(recovery, /recoveredEvidenceCount/);
+  assert.match(recovery, /sendCorrectedInitialEmail/);
+  assert.match(recovery, /CASO_CREADO_EVIDENCIAS_RECUPERADAS/);
+});
+
+test('el formulario nunca oculta un resultado parcial de evidencias', () => {
+  const publicPage = source('src/pages/cases/PublicCustomerCasePage.jsx');
+  const service = source('src/services/customerCases.js');
+  assert.match(publicPage, /normalizedResult/);
+  assert.match(publicPage, /requestedEvidenceCount/);
+  assert.match(publicPage, /failedEvidenceCount/);
+  assert.match(publicPage, /de \$\{evidenceRequested\} evidencias cargadas/);
+  assert.match(publicPage, /El caso sí fue creado, pero faltaron evidencias/);
+  assert.match(publicPage, /Lista para enviar/);
+  assert.match(service, /mimeFromFile/);
+  assert.match(service, /No se pudieron preparar los datos/);
+  assert.match(service, /requestedEvidenceCount/);
+  assert.match(service, /evidenceError/);
+});
+
+test('dashboard y detalle tienen contraste oscuro y selección buscable', () => {
+  const dashboard = source('src/pages/cases/CustomerCasesPage.jsx');
+  const detail = source('src/pages/cases/CustomerCaseDetailPage.jsx');
+  const polish = source('src/styles/customer-cases-polish.css');
+  const evidenceStyles = source('src/styles/customer-cases-evidence-status.css');
+  assert.match(dashboard, /customer-cases-polish\.css/);
+  assert.match(dashboard, /customer-cases-evidence-status\.css/);
+  assert.match(dashboard, /has-evidence-warning/);
+  assert.match(detail, /customer-cases-polish\.css/);
+  assert.match(detail, /customer-cases-evidence-status\.css/);
+  assert.match(detail, /technicianSearch/);
+  assert.match(detail, /Buscar técnico por nombre o correo/);
+  assert.match(detail, /case-evidence-admin-warning/);
+  assert.match(polish, /\[data-theme='dark'\] \.case-dashboard-toolbar/);
+  assert.match(polish, /--case-dark-panel:\s*#211d1f/);
+  assert.match(polish, /\.case-detail-layout[\s\S]*grid-template-columns/);
+  assert.match(polish, /\.case-technician-search/);
+  assert.match(evidenceStyles, /\.customer-case-card__meta span\.is-warning/);
+  assert.match(evidenceStyles, /\[data-theme='dark'\] \.case-evidence-admin-warning/);
 });
