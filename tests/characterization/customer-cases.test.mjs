@@ -58,7 +58,7 @@ test('el formulario público es reutilizable, idempotente y limita imágenes', (
   assert.match(module, /Estado:\s*'EN_ESPERA'/);
 });
 
-test('los correos iniciales usan Gemini y los destinatarios solicitados', () => {
+test('los correos usan Gemini y Apps Script con idempotencia', () => {
   const gemini = source('backend/src/services/customer-case-gemini.service.js');
   const email = source('backend/src/services/customer-case-email.service.js');
   assert.match(gemini, /El caso ya fue creado en el APP de boletas/);
@@ -68,9 +68,16 @@ test('los correos iniciales usan Gemini y los destinatarios solicitados', () => 
   assert.match(email, /yehuda\.karmona@solutionsdms\.com/);
   assert.match(email, /raul\.mayorga@solutionsdms\.com/);
   assert.match(email, /alejandra\.umana@solutionsdms\.com/);
+  assert.match(email, /APPS_SCRIPT_REPORT_URL/);
+  assert.match(email, /APPS_SCRIPT_REPORT_SECRET/);
+  assert.match(email, /customer\.case\.created\.send/);
+  assert.match(email, /customer\.case\.assigned\.send/);
+  assert.match(email, /customer-case-created:/);
+  assert.match(email, /assignmentIdempotencyKey/);
+  assert.match(email, /EstadoNotificacionTecnicos/);
   assert.match(email, /sendNewCustomerCaseEmail/);
   assert.match(email, /sendAssignedCustomerCaseEmail/);
-  assert.match(email, /downloadFileBuffer/);
+  assert.doesNotMatch(email, /nodemailer/);
 });
 
 test('pasar a proceso crea una sola boleta determinista y notifica técnicos', () => {
