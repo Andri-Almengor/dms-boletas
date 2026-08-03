@@ -1,6 +1,7 @@
 const GROUP_SELECTOR = '.maintenance-location-work-group';
 const FEEDBACK_CLASS = 'maintenance-location-device-created-feedback';
-const MAX_FIND_ATTEMPTS = 24;
+const OFFLINE_PREVIEW_CLASS = 'maintenance-offline-device-preview';
+const MAX_FIND_ATTEMPTS = 30;
 const FIND_DELAY_MS = 100;
 const DISPLAY_MS = 8_000;
 
@@ -28,11 +29,10 @@ function resetInventoryFilters() {
   }
 
   document.querySelectorAll('.maintenance-device-toolbar--detail select').forEach((select) => {
-    const defaultValue = Array.from(select.options || []).some((option) => option.value === 'TODAS')
+    const options = Array.from(select.options || []);
+    const defaultValue = options.some((option) => option.value === 'TODAS')
       ? 'TODAS'
-      : Array.from(select.options || []).some((option) => option.value === 'TODOS')
-        ? 'TODOS'
-        : '';
+      : options.some((option) => option.value === 'TODOS') ? 'TODOS' : '';
     if (!defaultValue || select.value === defaultValue) return;
     setNativeValue(select, defaultValue);
     select.dispatchEvent(new Event('change', { bubbles: true }));
@@ -44,7 +44,6 @@ function resetInventoryFilters() {
 
 function findLocationGroup(locationName) {
   const wanted = normalized(locationName);
-  if (!wanted) return null;
   return Array.from(document.querySelectorAll(GROUP_SELECTOR)).find((group) => {
     const label = group.querySelector('.maintenance-location-work-group__text strong')?.textContent;
     return normalized(label) === wanted;
@@ -59,20 +58,73 @@ function makeIcon(name) {
   return icon;
 }
 
+function hasActualDevice(group, detail) {
+  const wantedId = String(detail.deviceId || '').trim();
+  if (wantedId && group.textContent.includes(`ID: ${wantedId}`)) return true;
+  const wantedName = normalized(detail.deviceName);
+  return Array.from(group.querySelectorAll('strong')).some((item) => {
+    if (item.closest(`.${FEEDBACK_CLASS}, .${OFFLINE_PREVIEW_CLASS}`)) return false;
+    return normalized(item.textContent) === wantedName;
+  });
+}
+
+function renderOfflinePreview(group, detail) {
+  if (!detail.offlinePending || hasActualDevice(group, detail)) return;
+  const duplicate = Array.from(group.querySelectorAll(`.${OFFLINE_PREVIEW_CLASS}`)).some((item) => (
+    String(item.dataset.deviceId || '') === String(detail.deviceId || '')
+  ));
+  if (duplicate) return;
+
+  const content = group.querySelector('.maintenance-location-work-group__content');
+  if (!content) {
+    window.setTimeout(() => renderOfflinePreview(group, detail), FIND_DELAY_MS);
+    return;
+  }
+
+  const preview = document.createElement('article');
+  preview.className = OFFLINE_PREVIEW_CLASS;
+  preview.dataset.deviceId = String(detail.deviceId || '');
+
+  const icon = document.createElement('span');
+  icon.className = `${OFFLINE_PREVIEW_CLASS}__icon`;
+  icon.appendChild(makeIcon('devices_other'));
+
+  const body = document.createElement('div');
+  body.className = `${OFFLINE_PREVIEW_CLASS}__body`;
+  const name = document.createElement('strong');
+  name.textContent = String(detail.deviceName || 'Nuevo dispositivo');
+  const meta = document.createElement('span');
+  meta.textContent = [detail.category, detail.model, detail.serial].filter(Boolean).join(' · ') || 'Dispositivo del mantenimiento';
+  const status = document.createElement('small');
+  status.className = `${OFFLINE_PREVIEW_CLASS}__status`;
+  status.append(makeIcon('cloud_off'), document.createTextNode('Guardado offline · pendiente de sincronizar'));
+  body.append(name, meta, status);
+
+  const edit = document.createElement('a');
+  edit.className = `${OFFLINE_PREVIEW_CLASS}__edit`;
+  edit.href = `/mantenimientos/${encodeURIComponent(detail.maintenanceId || '')}/editar?directDevice=1&device=${encodeURIComponent(detail.deviceId || '')}`;
+  edit.append(makeIcon('edit'), document.createTextNode('Editar dispositivo y evidencias'));
+
+  preview.append(icon, body, edit);
+  content.insertAdjacentElement('afterbegin', preview);
+}
+
 export function maintenanceDeviceCreatedMessage(detail = {}) {
   const deviceName = String(detail.deviceName || '').trim() || 'El dispositivo';
   const locationName = String(detail.locationName || '').trim() || 'la ubicación seleccionada';
   return {
-    title: 'Dispositivo agregado',
-    description: `${deviceName} se agregó a “${locationName}”.${detail.offlinePending ? ' Quedó guardado en este equipo y se sincronizará al recuperar conexión.' : ''}`,
+    title: detail.offlinePending ? 'Dispositivo guardado offline' : 'Dispositivo agregado',
+    description: detail.offlinePending
+      ? `${deviceName} se agregó a “${locationName}”. Ya puede verlo y editarlo en esta ubicación. Se sincronizará al recuperar conexión.`
+      : `${deviceName} se agregó a “${locationName}”.`,
   };
 }
 
-function attachFeedback(group, detail) {
+function renderFeedback(group, detail) {
   document.querySelectorAll(`.${FEEDBACK_CLASS}`).forEach((item) => item.remove());
-  document.querySelectorAll(`${GROUP_SELECTOR}.has-device-created-feedback`).forEach((item) => {
-    item.classList.remove('has-device-created-feedback');
-  });
+  document.querySelectorAll(`${GROUP_SELECTOR}.has-device-created-feedback`).forEach((item) => item.classList.remove('has-device-created-feedback'));
+
+  if (!group.classList.contains('is-open')) group.querySelector('.maintenance-location-work-group__toggle')?.click();
 
   const message = maintenanceDeviceCreatedMessage(detail);
   const feedback = document.createElement('div');
@@ -82,7 +134,7 @@ function attachFeedback(group, detail) {
 
   const icon = document.createElement('span');
   icon.className = 'maintenance-location-device-created-feedback__icon';
-  icon.appendChild(makeIcon(detail.offlinePending ? 'cloud_off' : 'check_circle'));
+  icon.appendChild(makeIcon(detail.offlinePending ? 'cloud_done' : 'check_circle'));
 
   const copy = document.createElement('div');
   const title = document.createElement('strong');
@@ -94,48 +146,24 @@ function attachFeedback(group, detail) {
   feedback.append(icon, copy);
   group.classList.add('has-device-created-feedback');
   group.querySelector('.maintenance-location-work-group__header')?.insertAdjacentElement('afterend', feedback);
-
-  window.requestAnimationFrame(() => {
-    group.scrollIntoView({ behavior: 'smooth', block: 'center' });
-  });
-
+  window.setTimeout(() => renderOfflinePreview(group, detail), FIND_DELAY_MS);
+  window.requestAnimationFrame(() => group.scrollIntoView({ behavior: 'smooth', block: 'center' }));
   window.setTimeout(() => {
     feedback.remove();
     group.classList.remove('has-device-created-feedback');
   }, DISPLAY_MS);
 }
 
-function renderFeedback(group, detail) {
-  const toggle = group.querySelector('.maintenance-location-work-group__toggle');
-  if (!group.classList.contains('is-open')) {
-    toggle?.click();
-    window.setTimeout(() => {
-      attachFeedback(findLocationGroup(detail.locationName) || group, detail);
-    }, 80);
-    return;
-  }
-  attachFeedback(group, detail);
-}
-
-/**
- * Muestra una confirmación dentro de la ubicación donde se creó el dispositivo.
- * Espera el refresco de React y vuelve a intentarlo para cubrir guardados online
- * y operaciones creadas en la cola offline.
- */
 export function showMaintenanceDeviceCreatedFeedback(detail = {}) {
   if (typeof window === 'undefined' || typeof document === 'undefined') return;
   const locationName = String(detail.locationName || '').trim();
   if (!locationName) return;
-
   resetInventoryFilters();
   let attempts = 0;
 
   const reveal = () => {
     const group = findLocationGroup(locationName);
-    if (group) {
-      renderFeedback(group, detail);
-      return;
-    }
+    if (group) return renderFeedback(group, detail);
     attempts += 1;
     if (attempts < MAX_FIND_ATTEMPTS) window.setTimeout(reveal, FIND_DELAY_MS);
   };
