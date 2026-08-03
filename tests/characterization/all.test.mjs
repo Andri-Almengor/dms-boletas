@@ -8,6 +8,7 @@ import './evidence-memory.test.mjs';
 import './form-draft-lifecycle.test.mjs';
 import './list-pages.test.mjs';
 import './maintenance-checklist-status.test.mjs';
+import './maintenance-device-created-feedback.test.mjs';
 import './maintenance-device-draft.test.mjs';
 import './maintenance-device-lifecycle.test.mjs';
 import './maintenance-device-persistence.test.mjs';

@@ -12,6 +12,7 @@ import {
   fileToBase64,
   maintenanceDevicePayload,
 } from '../../pages/maintenance/maintenanceFormData';
+import { showMaintenanceDeviceCreatedFeedback } from '../../services/maintenanceDeviceCreatedFeedback';
 import { MODULE_ROUTES, normalizeItems, pick, requestAvailable } from '../../services/moduleApi';
 
 function equipmentOption(row) {
@@ -29,6 +30,10 @@ function initialDevice(location) {
     ubicacionEquipoNombre: String(location.name || ''),
     zona: String(location.name || ''),
   };
+}
+
+function responseIsOfflinePending(response) {
+  return Boolean(pick(response, ['OfflinePendiente', 'offlinePending', 'offlineQueued'], false));
 }
 
 export default function MaintenanceQuickDeviceCreator({
@@ -140,27 +145,32 @@ export default function MaintenanceQuickDeviceCreator({
     setError('');
     try {
       let deviceId = savedDeviceId;
+      let savedRecord = null;
+      let offlinePending = typeof navigator !== 'undefined' && navigator.onLine === false;
+
       if (!deviceId) {
-        const saved = await requestAvailable(
+        savedRecord = await requestAvailable(
           MODULE_ROUTES.maintenance.deviceCreate,
           maintenanceDevicePayload(device, maintenanceId),
           sessionToken,
         );
-        deviceId = String(pick(saved, ['EvidenciaMantenimientoID', 'deviceId', 'id']));
+        deviceId = String(pick(savedRecord, ['EvidenciaMantenimientoID', 'deviceId', 'id']));
         if (!deviceId) throw new Error('El servidor no devolvió el identificador del dispositivo.');
+        offlinePending ||= responseIsOfflinePending(savedRecord);
         setSavedDeviceId(deviceId);
         setDevice((current) => ({ ...current, id: deviceId }));
       } else {
-        await requestAvailable(
+        savedRecord = await requestAvailable(
           MODULE_ROUTES.maintenance.deviceUpdate,
           maintenanceDevicePayload({ ...device, id: deviceId }, maintenanceId),
           sessionToken,
         );
+        offlinePending ||= responseIsOfflinePending(savedRecord);
       }
 
       const pendingImages = [...(device.newImages || [])];
       for (const image of pendingImages) {
-        await requestAvailable(
+        const uploaded = await requestAvailable(
           MODULE_ROUTES.maintenance.imageUpload,
           {
             maintenanceId,
@@ -174,6 +184,7 @@ export default function MaintenanceQuickDeviceCreator({
           },
           sessionToken,
         );
+        offlinePending ||= responseIsOfflinePending(uploaded);
         if (image.previewUrl) URL.revokeObjectURL(image.previewUrl);
         setDevice((current) => ({
           ...current,
@@ -181,8 +192,28 @@ export default function MaintenanceQuickDeviceCreator({
         }));
       }
 
-      await onCreated?.();
+      const selectedLocation = equipmentOptions.find((item) => String(item.value) === String(device.ubicacionEquipoId));
+      const feedback = {
+        maintenanceId: String(maintenanceId || ''),
+        deviceId,
+        deviceName: String(device.nombre || pick(savedRecord, ['NombreDispositivo', 'nombre', 'Nombre'], '') || 'Nuevo dispositivo').trim(),
+        category: String(device.categoria || pick(savedRecord, ['Categoria', 'TipoDispositivo'], '')).trim(),
+        model: String(device.modelo || pick(savedRecord, ['Modelo', 'modelo'], '')).trim(),
+        serial: String(device.serie || pick(savedRecord, ['Serie', 'serie'], '')).trim(),
+        locationId: String(device.ubicacionEquipoId || initialEquipmentLocation?.id || ''),
+        locationName: String(
+          device.ubicacionEquipoNombre
+          || selectedLocation?.label
+          || selectedLocation?.name
+          || initialEquipmentLocation?.name
+          || '',
+        ).trim(),
+        offlinePending,
+      };
+
+      await onCreated?.(feedback);
       onClose();
+      showMaintenanceDeviceCreatedFeedback(feedback);
     } catch (saveError) {
       setError(saveError.message || 'No se pudo guardar el dispositivo.');
     } finally {

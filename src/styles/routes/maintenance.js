@@ -11,6 +11,7 @@ import '../maintenance-device-bulk-move.css';
 import '../maintenance-device-desktop-fixes.css';
 import '../maintenance-device-pending.css';
 import '../maintenance-location-workflow.css';
+import '../maintenance-technician-feedback.css';
 import '../maintenance-catalog-ui-fixes.css';
 import '../maintenance-questions.css';
 import '../maintenance-question-cards.css';

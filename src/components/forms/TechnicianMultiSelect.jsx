@@ -28,11 +28,11 @@ export default function TechnicianMultiSelect({ users = [], selectedIds = [], on
   return <div className="technician-select">
     <label className="field-group">
       <span className="field-label">Buscar técnicos</span>
-      <div className="input-shell technician-select__search">
-        <Icon name="search" className="input-shell__leading" />
+      <div className="technician-select__search">
+        <Icon name="search" className="technician-select__search-icon" />
         <input
           type="search"
-          className="form-control form-control--with-leading"
+          className="technician-select__search-input"
           value={search}
           onChange={(event) => setSearch(event.target.value)}
           placeholder="Buscar por nombre..."

@@ -1,0 +1,253 @@
+.technician-select__search {
+  width: 100%;
+  min-width: 0;
+  min-height: 48px;
+  border: 1px solid var(--outline);
+  border-radius: 12px;
+  background: var(--surface-card);
+  display: grid;
+  grid-template-columns: 46px minmax(0, 1fr);
+  align-items: stretch;
+  overflow: hidden;
+}
+
+/* La lupa ocupa una columna propia; nunca se superpone al texto del input. */
+.technician-select__search-icon {
+  position: static !important;
+  inset: auto !important;
+  width: 46px;
+  height: 100%;
+  min-height: 48px;
+  margin: 0 !important;
+  transform: none !important;
+  color: var(--primary);
+  border-right: 1px solid var(--outline-soft);
+  display: grid;
+  place-items: center;
+  align-self: stretch;
+  font-size: 21px;
+  line-height: 1;
+  pointer-events: none;
+}
+
+.technician-select__search-input {
+  appearance: none;
+  -webkit-appearance: none;
+  width: 100%;
+  min-width: 0;
+  min-height: 48px;
+  margin: 0;
+  padding: 0 42px 0 12px !important;
+  border: 0 !important;
+  border-radius: 0 !important;
+  outline: 0;
+  background: transparent !important;
+  color: var(--text-main);
+  box-shadow: none !important;
+  font: inherit;
+  font-size: 16px;
+  line-height: 1.2;
+}
+
+.technician-select__search-input::placeholder {
+  color: var(--text-muted);
+  opacity: 1;
+}
+
+.technician-select__search:focus-within {
+  border-color: var(--primary);
+  box-shadow: 0 0 0 3px color-mix(in srgb, var(--primary) 16%, transparent);
+}
+
+.technician-select__search-input:disabled {
+  cursor: not-allowed;
+  opacity: .72;
+}
+
+.maintenance-location-work-group.has-device-created-feedback {
+  border-color: color-mix(in srgb, var(--success, #16825d) 58%, var(--outline-soft));
+  box-shadow: 0 0 0 3px color-mix(in srgb, var(--success, #16825d) 14%, transparent), var(--shadow-sm);
+}
+
+.maintenance-location-device-created-feedback {
+  margin: 10px 12px 0;
+  padding: 12px 13px;
+  border: 1px solid color-mix(in srgb, var(--success, #16825d) 45%, var(--outline-soft));
+  border-radius: 13px;
+  background: color-mix(in srgb, var(--success, #16825d) 13%, var(--surface-card));
+  color: color-mix(in srgb, var(--success, #16825d) 82%, var(--text-main));
+  display: grid;
+  grid-template-columns: 38px minmax(0, 1fr);
+  align-items: center;
+  gap: 10px;
+  animation: maintenance-device-created-in .22s ease-out both;
+}
+
+.maintenance-location-device-created-feedback__icon {
+  width: 38px;
+  height: 38px;
+  border-radius: 50%;
+  background: color-mix(in srgb, var(--success, #16825d) 20%, var(--surface-card));
+  display: grid;
+  place-items: center;
+}
+
+.maintenance-location-device-created-feedback__icon .material-symbols-outlined {
+  font-size: 23px;
+}
+
+.maintenance-location-device-created-feedback > div {
+  min-width: 0;
+  display: grid;
+  gap: 3px;
+}
+
+.maintenance-location-device-created-feedback strong,
+.maintenance-location-device-created-feedback span {
+  overflow-wrap: anywhere;
+}
+
+.maintenance-location-device-created-feedback strong {
+  color: var(--text-main);
+  font-size: .82rem;
+}
+
+.maintenance-location-device-created-feedback span {
+  color: var(--text-muted);
+  font-size: .7rem;
+  line-height: 1.4;
+}
+
+.maintenance-offline-device-preview {
+  margin-top: 10px;
+  padding: 13px;
+  border: 1px solid color-mix(in srgb, var(--primary) 34%, var(--outline-soft));
+  border-radius: 13px;
+  background: color-mix(in srgb, var(--primary) 7%, var(--surface-card));
+  display: grid;
+  grid-template-columns: 44px minmax(0, 1fr) auto;
+  align-items: center;
+  gap: 11px;
+  animation: maintenance-device-created-in .22s ease-out both;
+}
+
+.maintenance-offline-device-preview__icon {
+  width: 44px;
+  height: 44px;
+  border-radius: 12px;
+  background: var(--primary-soft);
+  color: var(--primary);
+  display: grid;
+  place-items: center;
+}
+
+.maintenance-offline-device-preview__body {
+  min-width: 0;
+  display: grid;
+  gap: 3px;
+}
+
+.maintenance-offline-device-preview__body strong,
+.maintenance-offline-device-preview__body span,
+.maintenance-offline-device-preview__body small {
+  min-width: 0;
+  overflow-wrap: anywhere;
+}
+
+.maintenance-offline-device-preview__body strong {
+  color: var(--text-main);
+  font-size: .84rem;
+}
+
+.maintenance-offline-device-preview__body span,
+.maintenance-offline-device-preview__body small {
+  color: var(--text-muted);
+  font-size: .7rem;
+  line-height: 1.35;
+}
+
+.maintenance-offline-device-preview__status {
+  width: max-content;
+  padding: 4px 8px;
+  border-radius: 999px;
+  background: #fff3d7;
+  color: #77500a !important;
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  font-weight: 800;
+}
+
+.maintenance-offline-device-preview__status .material-symbols-outlined {
+  font-size: 15px;
+}
+
+.maintenance-offline-device-preview__edit {
+  min-height: 40px;
+  padding: 0 12px;
+  border: 1px solid var(--primary);
+  border-radius: 10px;
+  background: var(--primary);
+  color: #fff;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 6px;
+  text-decoration: none;
+  font-size: .72rem;
+  font-weight: 800;
+}
+
+.maintenance-offline-device-preview__edit .material-symbols-outlined {
+  font-size: 18px;
+}
+
+@keyframes maintenance-device-created-in {
+  from {
+    opacity: 0;
+    transform: translateY(-5px);
+  }
+  to {
+    opacity: 1;
+    transform: translateY(0);
+  }
+}
+
+@media (max-width: 620px) {
+  .technician-select__search {
+    grid-template-columns: 44px minmax(0, 1fr);
+  }
+
+  .technician-select__search-icon {
+    width: 44px;
+  }
+
+  .technician-select__search-input {
+    padding-left: 11px !important;
+  }
+
+  .maintenance-location-device-created-feedback {
+    margin: 8px 10px 0;
+    grid-template-columns: 36px minmax(0, 1fr);
+  }
+
+  .maintenance-location-device-created-feedback__icon {
+    width: 36px;
+    height: 36px;
+  }
+
+  .maintenance-offline-device-preview {
+    grid-template-columns: 42px minmax(0, 1fr);
+  }
+
+  .maintenance-offline-device-preview__icon {
+    width: 42px;
+    height: 42px;
+  }
+
+  .maintenance-offline-device-preview__edit {
+    grid-column: 1 / -1;
+    width: 100%;
+    min-height: 46px;
+  }
+}
