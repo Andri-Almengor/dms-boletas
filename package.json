@@ -14,7 +14,7 @@
     "start": "npm --prefix backend start",
     "install:all": "npm install && npm --prefix backend install",
     "check:backend": "npm --prefix backend run check",
-    "test:characterization": "node --test tests/characterization/all.test.mjs",
+    "test:characterization": "node tests/characterization/all.test.mjs",
     "baseline": "node scripts/collect-baseline.mjs",
     "report:final": "node scripts/final-validation.mjs",
     "audit:security": "npm audit --omit=dev --audit-level=high && npm --prefix backend audit --omit=dev --audit-level=high",
