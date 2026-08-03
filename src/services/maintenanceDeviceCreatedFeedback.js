@@ -2,6 +2,7 @@ const GROUP_SELECTOR = '.maintenance-location-work-group';
 const FEEDBACK_CLASS = 'maintenance-location-device-created-feedback';
 const OFFLINE_PREVIEW_CLASS = 'maintenance-offline-device-preview';
 const MAX_FIND_ATTEMPTS = 30;
+const MAX_PREVIEW_ATTEMPTS = 20;
 const FIND_DELAY_MS = 100;
 const DISPLAY_MS = 8_000;
 
@@ -68,7 +69,7 @@ function hasActualDevice(group, detail) {
   });
 }
 
-function renderOfflinePreview(group, detail) {
+function renderOfflinePreview(group, detail, attempt = 0) {
   if (!detail.offlinePending || hasActualDevice(group, detail)) return;
   const duplicate = Array.from(group.querySelectorAll(`.${OFFLINE_PREVIEW_CLASS}`)).some((item) => (
     String(item.dataset.deviceId || '') === String(detail.deviceId || '')
@@ -77,7 +78,9 @@ function renderOfflinePreview(group, detail) {
 
   const content = group.querySelector('.maintenance-location-work-group__content');
   if (!content) {
-    window.setTimeout(() => renderOfflinePreview(group, detail), FIND_DELAY_MS);
+    if (attempt < MAX_PREVIEW_ATTEMPTS) {
+      window.setTimeout(() => renderOfflinePreview(group, detail, attempt + 1), FIND_DELAY_MS);
+    }
     return;
   }
 
