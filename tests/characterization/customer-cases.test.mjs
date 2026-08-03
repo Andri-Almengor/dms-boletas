@@ -174,11 +174,11 @@ test('el formulario nunca oculta un resultado parcial de evidencias', () => {
   assert.match(publicPage, /normalizedResult/);
   assert.match(publicPage, /requestedEvidenceCount/);
   assert.match(publicPage, /failedEvidenceCount/);
-  assert.match(publicPage, /de \$\{evidenceRequested\} evidencias cargadas/);
-  assert.match(publicPage, /El caso sí fue creado, pero faltaron evidencias/);
+  assert.match(publicPage, /\$\{loadedCount\} de \$\{requestedCount\}/);
+  assert.match(publicPage, /El caso fue creado, pero faltaron evidencias/);
   assert.match(publicPage, /Lista para enviar/);
-  assert.match(service, /mimeFromFile/);
-  assert.match(service, /No se pudieron preparar los datos/);
+  assert.match(service, /mimeFromName/);
+  assert.match(publicPage, /No se pudieron leer los datos/);
   assert.match(service, /requestedEvidenceCount/);
   assert.match(service, /evidenceError/);
 });
