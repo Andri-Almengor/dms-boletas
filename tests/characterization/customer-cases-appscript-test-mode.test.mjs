@@ -14,6 +14,9 @@ test('la carga de evidencias usa Apps Script y conserva el propietario de Drive'
   assert.match(service, /customer\.case\.evidence\.upload/);
   assert.match(service, /customer\.case\.evidence\.get/);
   assert.match(service, /env\.googleClientEmail/);
+  assert.match(service, /viewerEmails/);
+  assert.match(service, /settings\.testRecipients/);
+  assert.match(service, /settings\.caseCreatedTo/);
   assert.match(patch, /uploadCustomerCaseEvidenceWithAppsScript/);
   assert.match(patch, /Almacenamiento:\s*'APPS_SCRIPT'/);
   assert.match(patch, /PropietarioDrive/);
@@ -35,14 +38,23 @@ test('el modo de prueba usa un token separado y no altera las numeraciones reale
   assert.doesNotMatch(patch, /nextTicketNumber\(/);
 });
 
-test('el correo inicial de prueba va solo a Andrick y los técnicos siguen recibiendo la asignación', () => {
+test('el correo de prueba se resuelve desde Configuracion y los técnicos siguen como destinatarios', () => {
   const email = source('backend/src/services/customer-case-email.service.js');
+  const settings = source('backend/src/services/notification-email-settings.service.js');
+  const ticketDelivery = source('backend/src/services/apps-script-ticket-group.service.js');
 
-  assert.match(email, /andrick\.almengor@solutionsdms\.com/);
-  assert.match(email, /adminRecipients\(item\)/);
+  assert.match(email, /getNotificationEmailSettings/);
+  assert.match(email, /settings\.testRecipients/);
+  assert.match(email, /settings\.testCc/);
   assert.match(email, /technicianPayload\(technicians\)/);
-  assert.match(email, /recipients = validEmails\(assigned\.map/);
+  assert.match(email, /technicianRecipients/);
+  assert.match(email, /recipientPlan\(technicianRecipients, copies\)/);
   assert.match(email, /testMode:\s*item\.ModoPrueba/);
+  assert.match(settings, /CORREOS_PRUEBAS/);
+  assert.match(settings, /CORREOS_PRUEBAS_CC/);
+  assert.match(ticketDelivery, /settings\.testRecipients/);
+  assert.match(ticketDelivery, /settings\.ticketDefaultCc/);
+  assert.doesNotMatch(email, /andrick\.almengor@solutionsdms\.com/);
 });
 
 test('las boletas de prueba finalizan sin correo al cliente ni Google Chat', () => {
@@ -72,6 +84,8 @@ test('la interfaz muestra pantallas de carga, enlace de prueba y dashboard separ
   const dashboard = source('src/pages/cases/CustomerCasesPage.jsx');
   const portal = source('src/components/clients/ClientCasePortalCard.jsx');
   const overlay = source('src/components/cases/CustomerCaseProcessingOverlay.jsx');
+  const settingsPanel = source('src/components/cases/NotificationEmailSettingsPanel.jsx');
+  const settingsService = source('src/services/notificationEmailSettings.js');
   const styles = source('src/styles/customer-cases-workflow.css');
 
   assert.match(publicPage, /CustomerCaseProcessingOverlay/);
@@ -82,9 +96,30 @@ test('la interfaz muestra pantallas de carga, enlace de prueba y dashboard separ
   assert.match(detail, /no consumirá el consecutivo real/i);
   assert.match(dashboard, /Casos reales/);
   assert.match(dashboard, /Mostrando casos de prueba/);
+  assert.match(dashboard, /Correos y copias/);
+  assert.match(dashboard, /NotificationEmailSettingsPanel/);
+  assert.match(settingsPanel, /Destinatarios principales del caso nuevo/);
+  assert.match(settingsPanel, /Copias predeterminadas de boletas/);
+  assert.match(settingsPanel, /Destinatarios principales de prueba/);
+  assert.match(settingsService, /section:\s*SECTION/);
+  assert.match(settingsService, /operation:\s*'UPDATE'/);
   assert.match(portal, /Enlace exclusivo de prueba/);
   assert.match(portal, /no consume el consecutivo real/);
   assert.match(overlay, /aria-busy="true"/);
   assert.match(styles, /customer-case-processing/);
   assert.match(styles, /case-mode-switch/);
+});
+
+test('la configuración de correos exige administrador y se audita', () => {
+  const configModule = source('backend/src/modules/config.module.js');
+  const settings = source('backend/src/services/notification-email-settings.service.js');
+
+  assert.match(configModule, /NOTIFICATION_EMAILS/);
+  assert.match(configModule, /USUARIOS_GESTIONAR/);
+  assert.match(configModule, /updateNotificationEmailSettings/);
+  assert.match(configModule, /ACTUALIZAR_DESTINATARIOS_CORREO/);
+  assert.match(settings, /appendRows\('Configuracion'/);
+  assert.match(settings, /updateRows\('Configuracion'/);
+  assert.match(settings, /Debe configurar al menos un destinatario principal/);
+  assert.match(settings, /Debe configurar al menos un correo para las pruebas/);
 });
