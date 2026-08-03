@@ -32,6 +32,10 @@ function initialDevice(location) {
   };
 }
 
+function responseIsOfflinePending(response) {
+  return Boolean(pick(response, ['OfflinePendiente', 'offlinePending', 'offlineQueued'], false));
+}
+
 export default function MaintenanceQuickDeviceCreator({
   maintenanceId,
   sessionToken,
@@ -142,7 +146,7 @@ export default function MaintenanceQuickDeviceCreator({
     try {
       let deviceId = savedDeviceId;
       let savedRecord = null;
-      let offlinePending = navigator.onLine === false;
+      let offlinePending = typeof navigator !== 'undefined' && navigator.onLine === false;
 
       if (!deviceId) {
         savedRecord = await requestAvailable(
@@ -152,7 +156,7 @@ export default function MaintenanceQuickDeviceCreator({
         );
         deviceId = String(pick(savedRecord, ['EvidenciaMantenimientoID', 'deviceId', 'id']));
         if (!deviceId) throw new Error('El servidor no devolvió el identificador del dispositivo.');
-        offlinePending ||= Boolean(pick(savedRecord, ['OfflinePendiente', 'offlinePending'], false));
+        offlinePending ||= responseIsOfflinePending(savedRecord);
         setSavedDeviceId(deviceId);
         setDevice((current) => ({ ...current, id: deviceId }));
       } else {
@@ -161,7 +165,7 @@ export default function MaintenanceQuickDeviceCreator({
           maintenanceDevicePayload({ ...device, id: deviceId }, maintenanceId),
           sessionToken,
         );
-        offlinePending ||= Boolean(pick(savedRecord, ['OfflinePendiente', 'offlinePending'], false));
+        offlinePending ||= responseIsOfflinePending(savedRecord);
       }
 
       const pendingImages = [...(device.newImages || [])];
@@ -180,7 +184,7 @@ export default function MaintenanceQuickDeviceCreator({
           },
           sessionToken,
         );
-        offlinePending ||= Boolean(pick(uploaded, ['OfflinePendiente', 'offlinePending'], false));
+        offlinePending ||= responseIsOfflinePending(uploaded);
         if (image.previewUrl) URL.revokeObjectURL(image.previewUrl);
         setDevice((current) => ({
           ...current,
@@ -190,8 +194,12 @@ export default function MaintenanceQuickDeviceCreator({
 
       const selectedLocation = equipmentOptions.find((item) => String(item.value) === String(device.ubicacionEquipoId));
       const feedback = {
+        maintenanceId: String(maintenanceId || ''),
         deviceId,
         deviceName: String(device.nombre || pick(savedRecord, ['NombreDispositivo', 'nombre', 'Nombre'], '') || 'Nuevo dispositivo').trim(),
+        category: String(device.categoria || pick(savedRecord, ['Categoria', 'TipoDispositivo'], '')).trim(),
+        model: String(device.modelo || pick(savedRecord, ['Modelo', 'modelo'], '')).trim(),
+        serial: String(device.serie || pick(savedRecord, ['Serie', 'serie'], '')).trim(),
         locationId: String(device.ubicacionEquipoId || initialEquipmentLocation?.id || ''),
         locationName: String(
           device.ubicacionEquipoNombre
