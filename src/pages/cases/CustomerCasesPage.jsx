@@ -32,6 +32,15 @@ function stateClass(state) {
   return 'is-waiting';
 }
 
+function evidenceLabel(item) {
+  const requested = Math.max(Number(item.requestedEvidenceCount || 0), item.evidenceCount);
+  if (!requested) return '0 evidencias';
+  if (item.failedEvidenceCount || item.evidenceCount < requested) {
+    return `${item.evidenceCount}/${requested} evidencias`;
+  }
+  return `${item.evidenceCount} evidencia${item.evidenceCount === 1 ? '' : 's'}`;
+}
+
 export default function CustomerCasesPage() {
   const { sessionToken } = useAuth();
   const [cases, setCases] = useState([]);
@@ -121,13 +130,17 @@ export default function CustomerCasesPage() {
     {error && <div className="alert alert--error"><Icon name="error" /><span>{error}</span></div>}
     {loading ? <div className="state-card state-card--loading"><Icon name="progress_activity" />Cargando casos...</div>
       : visibleCases.length ? <section className="customer-case-card-grid">
-        {visibleCases.map((item) => <Link to={`/casos/${encodeURIComponent(item.id)}`} className={`customer-case-card ${stateClass(item.state)}`} key={item.id}>
-          <header><div><span className="customer-case-card__number">{item.number}</span>{item.testMode && <span className="customer-case-card__test"><Icon name="science" />Prueba</span>}<strong>{item.client}</strong></div><span className={`case-status-pill ${stateClass(item.state)}`}><Icon name={item.state === 'FINALIZADO' ? 'task_alt' : item.state === 'EN_PROCESO' ? 'engineering' : 'schedule'} />{customerCaseStateLabel(item.state)}</span></header>
-          <h2>{item.reason || 'Solicitud técnica'}</h2>
-          <p>{item.problem || 'Sin descripción del problema.'}</p>
-          <div className="customer-case-card__meta"><span><Icon name="person" />{item.requesterName || 'Sin solicitante'}</span><span><Icon name="photo_library" />{item.evidenceCount} evidencia{item.evidenceCount === 1 ? '' : 's'}</span>{item.failedEvidenceCount > 0 && <span className="has-warning"><Icon name="warning" />Carga incompleta</span>}{item.state === 'EN_PROCESO' && item.technicianNames && <span><Icon name="engineering" />{item.technicianNames}</span>}</div>
-          <footer><span>{dateLabel(item.createdAt)}</span>{item.ticketNumber && <span>{item.testMode ? item.ticketNumber : `Boleta #${item.ticketNumber}`}</span>}<Icon name="arrow_forward" /></footer>
-        </Link>)}
+        {visibleCases.map((item) => {
+          const evidenceWarning = item.failedEvidenceCount > 0
+            || item.evidenceCount < Number(item.requestedEvidenceCount || 0);
+          return <Link to={`/casos/${encodeURIComponent(item.id)}`} className={`customer-case-card ${stateClass(item.state)}${evidenceWarning ? ' has-evidence-warning' : ''}`} key={item.id}>
+            <header><div><span className="customer-case-card__number">{item.number}</span>{item.testMode && <span className="customer-case-card__test"><Icon name="science" />Prueba</span>}<strong>{item.client}</strong></div><span className={`case-status-pill ${stateClass(item.state)}`}><Icon name={item.state === 'FINALIZADO' ? 'task_alt' : item.state === 'EN_PROCESO' ? 'engineering' : 'schedule'} />{customerCaseStateLabel(item.state)}</span></header>
+            <h2>{item.reason || 'Solicitud técnica'}</h2>
+            <p>{item.problem || 'Sin descripción del problema.'}</p>
+            <div className="customer-case-card__meta"><span><Icon name="person" />{item.requesterName || 'Sin solicitante'}</span><span className={evidenceWarning ? 'is-warning' : ''}><Icon name={evidenceWarning ? 'warning' : 'photo_library'} />{evidenceLabel(item)}</span>{item.state === 'EN_PROCESO' && item.technicianNames && <span><Icon name="engineering" />{item.technicianNames}</span>}</div>
+            <footer><span>{dateLabel(item.createdAt)}</span>{item.ticketNumber && <span>{item.testMode ? item.ticketNumber : `Boleta #${item.ticketNumber}`}</span>}<Icon name="arrow_forward" /></footer>
+          </Link>;
+        })}
       </section>
         : <div className="empty-state case-empty-state"><Icon name={mode === 'TEST' ? 'science' : 'support_agent'} /><h2>{mode === 'TEST' ? 'No hay pruebas en esta etapa' : 'No hay casos en esta etapa'}</h2><p>{mode === 'TEST' ? 'Utilice el enlace de prueba disponible dentro del cliente.' : 'Los nuevos formularios aparecerán aquí automáticamente.'}</p></div>}
   </div>;
