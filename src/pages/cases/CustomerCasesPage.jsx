@@ -10,6 +10,7 @@ import {
 } from '../../services/customerCases';
 import '../../styles/customer-cases.css';
 import '../../styles/customer-cases-polish.css';
+import '../../styles/customer-cases-evidence-status.css';
 
 const STATUS_TABS = Object.freeze([
   { value: '', label: 'Todos', icon: 'inbox', countKey: 'TOTAL' },
