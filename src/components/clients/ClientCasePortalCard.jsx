@@ -4,6 +4,7 @@ import {
   CUSTOMER_CASE_ROUTES,
   requestCustomerCase,
 } from '../../services/customerCases';
+import '../../styles/customer-cases.css';
 
 export default function ClientCasePortalCard({ clientId, clientName, sessionToken }) {
   const [portal, setPortal] = useState(null);
