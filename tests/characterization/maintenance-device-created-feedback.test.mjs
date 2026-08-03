@@ -12,7 +12,7 @@ function source(relativePath) {
   return readFileSync(path.join(ROOT, relativePath), 'utf8');
 }
 
-test('redacta una confirmación visual clara para el dispositivo creado', () => {
+test('redacta confirmaciones distintas para guardado normal y offline', () => {
   assert.deepEqual(maintenanceDeviceCreatedMessage({
     deviceName: 'Cámara acceso principal',
     locationName: 'Recepción',
@@ -22,34 +22,55 @@ test('redacta una confirmación visual clara para el dispositivo creado', () => 
     description: 'Cámara acceso principal se agregó a “Recepción”.',
   });
 
-  assert.match(maintenanceDeviceCreatedMessage({
+  const offline = maintenanceDeviceCreatedMessage({
     deviceName: 'Lector norte',
     locationName: 'Puerta norte',
     offlinePending: true,
-  }).description, /se sincronizará al recuperar conexión/);
+  });
+  assert.equal(offline.title, 'Dispositivo guardado offline');
+  assert.match(offline.description, /Ya puede verlo y editarlo en esta ubicación/);
+  assert.match(offline.description, /Se sincronizará al recuperar conexión/);
 });
 
-test('el alta rápida muestra la confirmación solamente después del guardado', () => {
+test('el alta rápida conserva datos suficientes para ver y editar el dispositivo offline', () => {
   const creator = source('src/components/maintenance/MaintenanceQuickDeviceCreator.jsx');
 
   assert.match(creator, /maintenanceDeviceCreatedFeedback/);
+  assert.match(creator, /responseIsOfflinePending/);
+  assert.match(creator, /offlineQueued/);
+  assert.match(creator, /maintenanceId:/);
+  assert.match(creator, /category:/);
+  assert.match(creator, /model:/);
+  assert.match(creator, /serial:/);
   assert.match(creator, /await onCreated\?\.\(feedback\)/);
   assert.match(creator, /onClose\(\);\s*showMaintenanceDeviceCreatedFeedback\(feedback\)/);
-  assert.match(creator, /offlinePending\s*\|\|=/);
-  assert.match(creator, /locationName:/);
 });
 
-test('la búsqueda reserva espacio para la lupa y la ubicación recibe una tarjeta de éxito', () => {
+test('el buscador móvil separa físicamente la lupa del texto', () => {
+  const selector = source('src/components/forms/TechnicianMultiSelect.jsx');
   const styles = source('src/styles/maintenance-technician-feedback.css');
   const route = source('src/styles/routes/maintenance.js');
-  const feedback = source('src/services/maintenanceDeviceCreatedFeedback.js');
 
   assert.match(route, /maintenance-technician-feedback\.css/);
-  assert.match(styles, /\.technician-select__search \.input-shell__leading/);
-  assert.match(styles, /padding-left:\s*46px\s*!important/);
-  assert.match(styles, /\.maintenance-location-device-created-feedback/);
-  assert.match(styles, /has-device-created-feedback/);
+  assert.match(selector, /technician-select__search-icon/);
+  assert.match(selector, /technician-select__search-input/);
+  assert.doesNotMatch(selector, /input-shell__leading/);
+  assert.doesNotMatch(selector, /form-control--with-leading/);
+  assert.match(styles, /grid-template-columns:\s*46px\s+minmax\(0,\s*1fr\)/);
+  assert.match(styles, /\.technician-select__search-icon[\s\S]*position:\s*static\s*!important/);
+  assert.match(styles, /\.technician-select__search-input[\s\S]*padding:\s*0\s+42px\s+0\s+12px\s*!important/);
+});
+
+test('la ubicación recibe una tarjeta offline con edición directa', () => {
+  const styles = source('src/styles/maintenance-technician-feedback.css');
+  const feedback = source('src/services/maintenanceDeviceCreatedFeedback.js');
+
+  assert.match(styles, /\.maintenance-offline-device-preview/);
+  assert.match(styles, /\.maintenance-offline-device-preview__edit/);
+  assert.match(feedback, /renderOfflinePreview/);
+  assert.match(feedback, /Guardado offline · pendiente de sincronizar/);
+  assert.match(feedback, /Editar dispositivo y evidencias/);
+  assert.match(feedback, /directDevice=1&device=/);
   assert.match(feedback, /resetInventoryFilters/);
   assert.match(feedback, /scrollIntoView/);
-  assert.match(feedback, /maintenance-location-work-group__text strong/);
 });
