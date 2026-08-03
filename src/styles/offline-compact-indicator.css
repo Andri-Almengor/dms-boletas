@@ -23,7 +23,9 @@
   pointer-events: none;
 }
 
-.app-shell--form .offline-status.is-offline {
+.app-shell--form .offline-status.is-offline,
+body.dms-workflow-status-slot .form-recovery-status--saving,
+body.dms-workflow-status-slot .form-recovery-status--local {
   top: calc(env(safe-area-inset-top, 0px) + 10px);
 }
 
@@ -70,11 +72,6 @@
   pointer-events: none;
 }
 
-body:has(.app-shell--form) .form-recovery-status--saving,
-body:has(.app-shell--form) .form-recovery-status--local {
-  top: calc(env(safe-area-inset-top, 0px) + 10px);
-}
-
 .form-recovery-status--saving > .material-symbols-outlined,
 .form-recovery-status--local > .material-symbols-outlined {
   width: 100%;
@@ -83,8 +80,8 @@ body:has(.app-shell--form) .form-recovery-status--local {
 }
 
 /* Cuando no hay conexión, cloud_off sustituye al icono de guardado. */
-body:has(.offline-status.is-offline) .form-recovery-status--saving,
-body:has(.offline-status.is-offline) .form-recovery-status--local {
+body.dms-offline-active .form-recovery-status--saving,
+body.dms-offline-active .form-recovery-status--local {
   display: none;
 }
 
