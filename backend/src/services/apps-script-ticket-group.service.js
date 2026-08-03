@@ -1,7 +1,8 @@
 import { AppError } from '../core/errors.js';
-import { asBool, pick } from '../core/utils.js';
+import { asBool, pick, sha256 } from '../core/utils.js';
 import { readTables } from '../infra/sheets.repository.js';
 import { getConfig } from '../modules/config.module.js';
+import { getNotificationEmailSettings } from './notification-email-settings.service.js';
 import {
   ensureVisitGroupForTicket,
   ticketVisitNumber,
@@ -17,8 +18,9 @@ function clean(value, fallback = '') {
 }
 
 function splitEmails(value) {
-  const source = Array.isArray(value) ? value : String(value || '').split(/[;,]/);
+  const source = Array.isArray(value) ? value : String(value || '').split(/[;,\n\r]/);
   return [...new Set(source
+    .flatMap((item) => Array.isArray(item) ? item : [item])
     .map((item) => String(item || '').trim().toLowerCase())
     .filter((item) => /^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(item)))];
 }
@@ -116,15 +118,18 @@ async function loadTicketGroupBundle(ticketId) {
   };
 }
 
-function resolveRecipients(bundle, config, testMode, override = null, forceClient = false) {
+function resolveRecipients(bundle, settings, testMode, override = null, forceClient = false) {
+  const configuredCc = testMode ? settings.testCc : settings.ticketDefaultCc;
   if (override) {
     const to = splitEmails(override.to || []);
-    const cc = splitEmails(override.cc || []).filter((email) => !to.includes(email));
+    const cc = splitEmails([...(override.cc || []), ...configuredCc])
+      .filter((email) => !to.includes(email));
     return { to, cc };
   }
   if (testMode) {
-    const testEmail = clean(process.env.TEST_NOTIFICATION_EMAIL || config.TEST_EMAIL, 'andrick.almengor@solutionsdms.com');
-    return { to: splitEmails(testEmail), cc: [] };
+    const to = splitEmails(settings.testRecipients);
+    const cc = splitEmails(settings.testCc).filter((email) => !to.includes(email));
+    return { to, cc };
   }
 
   const supervisorEmails = splitEmails(bundle.visits.map((visit) => visit.ticket.CorreoSupervisor));
@@ -140,7 +145,7 @@ function resolveRecipients(bundle, config, testMode, override = null, forceClien
         : [];
   const cc = [
     ...(supervisorEmails.length ? technicianEmails : []),
-    ...splitEmails(config.DEFAULT_CC_EMAILS),
+    ...splitEmails(settings.ticketDefaultCc),
     ...splitEmails(bundle.ticket.CorreosCC),
     ...(includeClient ? clientEmails : []),
   ].filter((email, index, all) => !to.includes(email) && all.indexOf(email) === index);
@@ -158,12 +163,16 @@ function signatureVersionKey(bundle) {
   return signatures.length ? [...new Set(signatures)].join('-').slice(0, 140) : 'sin-firma';
 }
 
-async function requestKey(bundle, testMode, sendEmail, deliveryType = '') {
+async function requestKey(bundle, testMode, sendEmail, deliveryType = '', recipients = {}) {
   const version = await visitGroupVersionKey(bundle.group.rootId);
   const signatureVersion = signatureVersionKey(bundle);
-  if (testMode) return `test-group:${bundle.group.id}:${signatureVersion}:${Date.now()}`;
-  if (deliveryType === 'SIGNED') return `signed-group:${bundle.group.id}:${version}:${signatureVersion}`;
-  return `${sendEmail ? 'final-group' : 'pdf-group'}:${bundle.group.id}:${version}:${signatureVersion}`;
+  const recipientsVersion = sha256(JSON.stringify({
+    to: splitEmails(recipients.to || []).sort(),
+    cc: splitEmails(recipients.cc || []).sort(),
+  })).slice(0, 18);
+  if (testMode) return `test-group:${bundle.group.id}:${signatureVersion}:${recipientsVersion}:${Date.now()}`;
+  if (deliveryType === 'SIGNED') return `signed-group:${bundle.group.id}:${version}:${signatureVersion}:${recipientsVersion}`;
+  return `${sendEmail ? 'final-group' : 'pdf-group'}:${bundle.group.id}:${version}:${signatureVersion}:${recipientsVersion}`;
 }
 
 async function postAppsScript(url, payload) {
@@ -217,7 +226,11 @@ export async function generateTicketWithAppsScript({
   if (!url) throw new AppError('APPS_SCRIPT_URL_MISSING', 'Falta configurar APPS_SCRIPT_REPORT_URL en el backend.', 503);
   if (!secret) throw new AppError('APPS_SCRIPT_SECRET_MISSING', 'Falta configurar APPS_SCRIPT_REPORT_SECRET en el backend.', 503);
 
-  const [bundle, config] = await Promise.all([loadTicketGroupBundle(ticketId), getConfig()]);
+  const [bundle, config, notificationSettings] = await Promise.all([
+    loadTicketGroupBundle(ticketId),
+    getConfig(),
+    getNotificationEmailSettings(),
+  ]);
   const templateId = clean(process.env.TEMPLATE_BOLETA_ID || config.TEMPLATE_BOLETA_ID, DEFAULT_TEMPLATE_ID);
   const baseFolderId = clean(config.BOLETAS_FOLDER_ID || config.ROOT_FOLDER_ID || process.env.BOLETAS_FOLDER_ID);
   if (!baseFolderId) throw new AppError('REPORT_FOLDER_NOT_CONFIGURED', 'No está configurada la carpeta principal de boletas.', 503);
@@ -225,7 +238,7 @@ export async function generateTicketWithAppsScript({
   const surveyUrl = clean(survey?.url);
   const signatureUrl = clean(signatureRequest?.url);
   const forceClient = Boolean(signatureUrl) || deliveryType === 'SIGNED';
-  const recipients = resolveRecipients(bundle, config, testMode, recipientsOverride, forceClient);
+  const recipients = resolveRecipients(bundle, notificationSettings, testMode, recipientsOverride, forceClient);
   const rootPdfName = ticketPdfFileName(bundle.ticket);
   const rootTicket = {
     ...bundle.ticket,
@@ -269,7 +282,7 @@ export async function generateTicketWithAppsScript({
   const data = await postAppsScript(url, {
     action: 'ticket.report.deliver',
     secret,
-    idempotencyKey: await requestKey(bundle, testMode, sendEmail, deliveryType),
+    idempotencyKey: await requestKey(bundle, testMode, sendEmail, deliveryType, recipients),
     testMode,
     sendEmail,
     deliveryType,

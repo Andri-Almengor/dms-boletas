@@ -5,6 +5,38 @@ import {
   requestCustomerCase,
 } from '../../services/customerCases';
 import '../../styles/customer-cases.css';
+import '../../styles/customer-cases-workflow.css';
+
+async function copyText(value) {
+  if (!value) return false;
+  await navigator.clipboard.writeText(value);
+  return true;
+}
+
+function PortalLink({ label, description, url, testMode, onMessage, onError }) {
+  async function copy() {
+    try {
+      await copyText(url);
+      onMessage(testMode ? 'Enlace de prueba copiado.' : 'Enlace real copiado al portapapeles.');
+      onError('');
+    } catch {
+      onError('No se pudo copiar automáticamente. Seleccione el enlace y cópielo manualmente.');
+    }
+  }
+
+  return <div className={`client-case-portal-card__link-group${testMode ? ' is-test' : ''}`}>
+    <div className="client-case-portal-card__link-label">
+      <span><Icon name={testMode ? 'science' : 'support_agent'} />{label}</span>
+      {testMode && <small>PRUEBA SEGURA</small>}
+    </div>
+    <p>{description}</p>
+    <div className="client-case-portal-card__url">
+      <input value={url || ''} readOnly aria-label={label} />
+      <button className="icon-button icon-button--outlined" type="button" onClick={copy} title="Copiar enlace"><Icon name="content_copy" /></button>
+    </div>
+    <a className="button button--secondary button--compact" href={url} target="_blank" rel="noreferrer"><Icon name="open_in_new" />Abrir {testMode ? 'prueba' : 'formulario'}</a>
+  </div>;
+}
 
 export default function ClientCasePortalCard({ clientId, clientName, sessionToken }) {
   const [portal, setPortal] = useState(null);
@@ -30,16 +62,16 @@ export default function ClientCasePortalCard({ clientId, clientName, sessionToke
   useEffect(() => { load(); }, [clientId, sessionToken]);
 
   async function createOrRotate(rotate = false) {
-    if (rotate && !window.confirm(`¿Reemplazar el enlace de ${clientName}? El enlace anterior dejará de funcionar de inmediato.`)) return;
+    if (rotate && !window.confirm(`¿Reemplazar los enlaces de ${clientName}? Los enlaces real y de prueba anteriores dejarán de funcionar de inmediato.`)) return;
     setBusy(true);
     setMessage('');
     setError('');
     try {
       const result = await requestCustomerCase(CUSTOMER_CASE_ROUTES.clientLinkCreate, { clientId, rotate }, sessionToken);
       setPortal({ ...result, configured: true });
-      setMessage(rotate ? 'Se generó un enlace nuevo. El anterior fue revocado.' : 'Enlace reutilizable generado correctamente.');
+      setMessage(rotate ? 'Se generaron enlaces nuevos. Los anteriores fueron revocados.' : 'Los enlaces real y de prueba se generaron correctamente.');
     } catch (actionError) {
-      setError(actionError.message || 'No se pudo generar el enlace.');
+      setError(actionError.message || 'No se pudieron generar los enlaces.');
     } finally {
       setBusy(false);
     }
@@ -54,37 +86,31 @@ export default function ClientCasePortalCard({ clientId, clientName, sessionToke
     try {
       const result = await requestCustomerCase(CUSTOMER_CASE_ROUTES.clientLinkUpdate, { clientId, active }, sessionToken);
       setPortal((current) => ({ ...current, ...result }));
-      setMessage(active ? 'El formulario volvió a estar disponible.' : 'El enlace fue pausado. Puede reactivarlo sin cambiar la URL.');
+      setMessage(active ? 'Los formularios real y de prueba volvieron a estar disponibles.' : 'Los enlaces fueron pausados. Puede reactivarlos sin cambiar las URL.');
     } catch (actionError) {
-      setError(actionError.message || 'No se pudo cambiar el estado del enlace.');
+      setError(actionError.message || 'No se pudo cambiar el estado de los enlaces.');
     } finally {
       setBusy(false);
     }
   }
 
-  async function copy() {
-    if (!portal?.url) return;
-    try {
-      await navigator.clipboard.writeText(portal.url);
-      setMessage('Enlace copiado al portapapeles.');
-      setError('');
-    } catch {
-      setError('No se pudo copiar automáticamente. Seleccione el enlace y cópielo manualmente.');
-    }
-  }
-
   return <section className="client-case-portal-card">
-    <header><span><Icon name="link" /></span><div><strong>Formulario reutilizable de casos</strong><small>Este enlace identifica al cliente y permite crear todas las solicitudes que necesite.</small></div></header>
-    {loading ? <p className="client-case-portal-card__message"><Icon name="progress_activity" /> Consultando enlace...</p>
+    <header><span><Icon name="link" /></span><div><strong>Formularios reutilizables de casos</strong><small>El enlace real recibe casos operativos. El enlace de prueba permite validar correos y boletas sin afectar el consecutivo.</small></div></header>
+
+    {loading
+      ? <p className="client-case-portal-card__message"><Icon name="progress_activity" /> Consultando enlaces...</p>
       : portal?.configured ? <>
-        <div className="client-case-portal-card__url"><input value={portal.url || ''} readOnly aria-label="Enlace reutilizable del cliente" /><button className="icon-button icon-button--outlined" type="button" onClick={copy} title="Copiar enlace"><Icon name="content_copy" /></button></div>
-        <div className="client-case-portal-card__actions">
-          <a className="button button--secondary button--compact" href={portal.url} target="_blank" rel="noreferrer"><Icon name="open_in_new" />Abrir</a>
-          <button className="button button--secondary button--compact" type="button" onClick={toggle} disabled={busy}><Icon name={portal.active ? 'pause_circle' : 'play_circle'} />{portal.active ? 'Pausar enlace' : 'Reactivar enlace'}</button>
-          <button className="button button--ghost button--compact" type="button" onClick={() => createOrRotate(true)} disabled={busy}><Icon name="refresh" />Generar otro</button>
+        <div className="client-case-portal-card__links">
+          <PortalLink label="Enlace real del cliente" description="Notifica a coordinación, crea casos CAS y genera boletas con el consecutivo normal." url={portal.url} onMessage={setMessage} onError={setError} />
+          {portal.testUrl && <PortalLink label="Enlace exclusivo de prueba" description="El caso inicial se envía solo a Andrick. La boleta usa PRUEBA y no consume el consecutivo real. Los técnicos seleccionados sí reciben el correo." url={portal.testUrl} testMode onMessage={setMessage} onError={setError} />}
         </div>
-        <span className={`status-chip ${portal.active ? 'status-chip--active' : 'status-chip--neutral'}`}>{portal.active ? 'FORMULARIO ACTIVO' : 'FORMULARIO PAUSADO'}</span>
-      </> : <button className="button button--primary" type="button" onClick={() => createOrRotate(false)} disabled={busy}><Icon name={busy ? 'progress_activity' : 'add_link'} />{busy ? 'Generando...' : 'Generar enlace del cliente'}</button>}
+        <div className="client-case-portal-card__actions">
+          <button className="button button--secondary button--compact" type="button" onClick={toggle} disabled={busy}><Icon name={portal.active ? 'pause_circle' : 'play_circle'} />{portal.active ? 'Pausar enlaces' : 'Reactivar enlaces'}</button>
+          <button className="button button--ghost button--compact" type="button" onClick={() => createOrRotate(true)} disabled={busy}><Icon name={busy ? 'progress_activity' : 'refresh'} />Generar otros</button>
+        </div>
+        <span className={`status-chip ${portal.active ? 'status-chip--active' : 'status-chip--neutral'}`}>{portal.active ? 'FORMULARIOS ACTIVOS' : 'FORMULARIOS PAUSADOS'}</span>
+      </> : <button className="button button--primary" type="button" onClick={() => createOrRotate(false)} disabled={busy}><Icon name={busy ? 'progress_activity' : 'add_link'} />{busy ? 'Generando...' : 'Generar enlaces del cliente'}</button>}
+
     {(message || error) && <p className={`client-case-portal-card__message${error ? ' is-error' : ''}`}>{error || message}</p>}
   </section>;
 }

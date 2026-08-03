@@ -58,16 +58,19 @@ test('el formulario público es reutilizable, idempotente y limita imágenes', (
   assert.match(module, /Estado:\s*'EN_ESPERA'/);
 });
 
-test('los correos usan Gemini y Apps Script con idempotencia', () => {
+test('los correos usan Gemini, Apps Script y destinatarios editables', () => {
   const gemini = source('backend/src/services/customer-case-gemini.service.js');
   const email = source('backend/src/services/customer-case-email.service.js');
+  const settings = source('backend/src/services/notification-email-settings.service.js');
   assert.match(gemini, /El caso ya fue creado en el APP de boletas/);
   assert.match(gemini, /generateInitialCaseEmail/);
   assert.match(gemini, /generateAssignedCaseEmail/);
   assert.match(gemini, /generatedByGemini:\s*false/);
-  assert.match(email, /yehuda\.karmona@solutionsdms\.com/);
-  assert.match(email, /raul\.mayorga@solutionsdms\.com/);
-  assert.match(email, /alejandra\.umana@solutionsdms\.com/);
+  assert.match(email, /getNotificationEmailSettings/);
+  assert.match(email, /settings\.caseCreatedTo/);
+  assert.match(email, /settings\.caseCreatedCc/);
+  assert.match(email, /settings\.caseAssignedCc/);
+  assert.match(email, /settings\.testRecipients/);
   assert.match(email, /APPS_SCRIPT_REPORT_URL/);
   assert.match(email, /APPS_SCRIPT_REPORT_SECRET/);
   assert.match(email, /customer\.case\.created\.send/);
@@ -79,6 +82,11 @@ test('los correos usan Gemini y Apps Script con idempotencia', () => {
   assert.match(email, /EstadoNotificacionTecnicos/);
   assert.match(email, /sendNewCustomerCaseEmail/);
   assert.match(email, /sendAssignedCustomerCaseEmail/);
+  assert.match(settings, /CORREOS_CASOS_PRINCIPALES/);
+  assert.match(settings, /CORREOS_CASOS_CC/);
+  assert.match(settings, /CORREOS_CASOS_ASIGNACION_CC/);
+  assert.match(settings, /CORREOS_BOLETAS_CC/);
+  assert.match(settings, /CORREOS_PRUEBAS/);
   assert.doesNotMatch(email, /nodemailer/);
 });
 
@@ -136,6 +144,8 @@ test('la interfaz incluye formulario, dashboard, detalle y enlace en clientes', 
   assert.match(dashboard, /En espera/);
   assert.match(dashboard, /En proceso/);
   assert.match(dashboard, /Finalizados/);
+  assert.match(dashboard, /Correos y copias/);
+  assert.match(dashboard, /NotificationEmailSettingsPanel/);
   assert.match(detail, /Pasar a en proceso/);
   assert.match(detail, /Reenviar correo a técnicos/);
   assert.match(clients, /ClientCasePortalCard/);
@@ -174,13 +184,12 @@ test('el formulario nunca oculta un resultado parcial de evidencias', () => {
   assert.match(publicPage, /normalizedResult/);
   assert.match(publicPage, /requestedEvidenceCount/);
   assert.match(publicPage, /failedEvidenceCount/);
-  assert.match(publicPage, /de \$\{evidenceRequested\} evidencias cargadas/);
-  assert.match(publicPage, /El caso sí fue creado, pero faltaron evidencias/);
+  assert.match(publicPage, /requestedCount \? `\$\{loadedCount\} de \$\{requestedCount\}`/);
+  assert.match(publicPage, /El caso fue creado, pero faltaron evidencias/);
   assert.match(publicPage, /Lista para enviar/);
-  assert.match(service, /mimeFromFile/);
-  assert.match(service, /No se pudieron preparar los datos/);
-  assert.match(service, /requestedEvidenceCount/);
-  assert.match(service, /evidenceError/);
+  assert.match(service, /mimeFromName/);
+  assert.match(service, /base64/);
+  assert.match(service, /prepareCustomerCaseEvidence/);
 });
 
 test('dashboard y detalle tienen contraste oscuro y selección buscable', () => {

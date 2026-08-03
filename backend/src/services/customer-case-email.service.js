@@ -1,26 +1,29 @@
 import { AppError } from '../core/errors.js';
 import { sha256, uuid } from '../core/utils.js';
-
-const DEFAULT_ADMIN_RECIPIENTS = Object.freeze([
-  'yehuda.karmona@solutionsdms.com',
-  'raul.mayorga@solutionsdms.com',
-  'alejandra.umana@solutionsdms.com',
-]);
+import { getNotificationEmailSettings } from './notification-email-settings.service.js';
 
 function clean(value, maxLength = 12000) {
   return String(value ?? '').trim().slice(0, maxLength);
 }
 
+function booleanValue(value, fallback = false) {
+  if (value === undefined || value === null || value === '') return fallback;
+  if (typeof value === 'boolean') return value;
+  return ['1', 'true', 'si', 'sí', 'yes', 'activo', 'prueba'].includes(clean(value, 20).toLowerCase());
+}
+
 function validEmails(value) {
-  const source = Array.isArray(value) ? value : String(value || '').split(/[;,]/);
+  const source = Array.isArray(value) ? value : String(value || '').split(/[;,\n\r]/);
   return [...new Set(source
+    .flatMap((item) => Array.isArray(item) ? item : [item])
     .map((item) => clean(item, 320).toLowerCase())
     .filter((item) => /^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(item)))];
 }
 
-function adminRecipients() {
-  const configured = validEmails(process.env.CUSTOMER_CASE_ADMIN_EMAILS || '');
-  return configured.length ? configured : [...DEFAULT_ADMIN_RECIPIENTS];
+function recipientPlan(to = [], cc = []) {
+  const normalizedTo = validEmails(to);
+  const normalizedCc = validEmails(cc).filter((email) => !normalizedTo.includes(email));
+  return { to: normalizedTo, cc: normalizedCc };
 }
 
 function appsScriptConfig() {
@@ -120,6 +123,8 @@ function casePayload(caseData = {}) {
     CarpetaDriveURL: clean(caseData.CarpetaDriveURL, 2000),
     FechaCreacion: clean(caseData.FechaCreacion, 80),
     FechaActualizacion: clean(caseData.FechaActualizacion, 80),
+    ModoPrueba: booleanValue(caseData.ModoPrueba || caseData.EsPrueba || caseData.TipoCaso, false),
+    TipoCaso: clean(caseData.TipoCaso, 40),
   };
 }
 
@@ -147,13 +152,15 @@ function technicianPayload(technicians = []) {
   }));
 }
 
-function initialIdempotencyKey({ caseData, evidences, message }) {
+function initialIdempotencyKey({ caseData, evidences, message, recipients }) {
   const evidenceIds = evidencePayload(evidences)
     .map((item) => `${item.CasoEvidenciaID || item.DriveFileID}|${item.TamanoBytes}`)
     .sort();
   const fingerprint = sha256(JSON.stringify({
     caseId: clean(caseData.CasoID, 200),
+    testMode: booleanValue(caseData.ModoPrueba, false),
     evidenceIds,
+    recipients,
     subject: clean(message?.subject, 300),
     body: clean(message?.body, 15000),
   }));
@@ -167,12 +174,14 @@ function assignmentIdempotencyKey({
   technicians,
   ticketUrl,
   forceResend,
+  recipients,
 }) {
   if (forceResend) {
     return `customer-case-assigned-resend:${clean(caseData.CasoID, 200)}:${uuid()}`;
   }
   const fingerprint = sha256(JSON.stringify({
     caseId: clean(caseData.CasoID, 200),
+    testMode: booleanValue(caseData.ModoPrueba, false),
     ticketId: clean(caseData.BoletaUID, 200),
     ticketNumber: clean(caseData.BoletaID, 100),
     visitDate: clean(caseData.FechaVisita, 40),
@@ -184,6 +193,7 @@ function assignmentIdempotencyKey({
     evidenceIds: evidencePayload(evidences)
       .map((item) => item.CasoEvidenciaID || item.DriveFileID)
       .sort(),
+    recipients,
     subject: clean(message?.subject, 300),
     body: clean(message?.body, 15000),
     ticketUrl: clean(ticketUrl, 2000),
@@ -191,14 +201,29 @@ function assignmentIdempotencyKey({
   return `customer-case-assigned:${clean(caseData.CasoID, 200)}:${fingerprint}`;
 }
 
-export function sendNewCustomerCaseEmail({ caseData, evidences, message }) {
+export async function sendNewCustomerCaseEmail({ caseData, evidences, message }) {
   const item = casePayload(caseData);
+  const settings = await getNotificationEmailSettings();
+  const recipients = item.ModoPrueba
+    ? recipientPlan(settings.testRecipients, settings.testCc)
+    : recipientPlan(settings.caseCreatedTo, settings.caseCreatedCc);
+  if (!recipients.to.length) {
+    throw new AppError(
+      'CASE_EMAIL_MISSING',
+      item.ModoPrueba
+        ? 'No hay un correo de prueba configurado.'
+        : 'No hay destinatarios principales configurados para los casos nuevos.',
+      400,
+    );
+  }
   return postAppsScript({
     action: 'customer.case.created.send',
+    testMode: item.ModoPrueba,
     idempotencyKey: initialIdempotencyKey({
       caseData: item,
       evidences,
       message,
+      recipients,
     }),
     case: item,
     evidences: evidencePayload(evidences),
@@ -206,14 +231,11 @@ export function sendNewCustomerCaseEmail({ caseData, evidences, message }) {
       subject: clean(message?.subject, 300),
       body: clean(message?.body, 15000),
     },
-    recipients: {
-      to: adminRecipients(),
-      cc: [],
-    },
+    recipients,
   });
 }
 
-export function sendAssignedCustomerCaseEmail({
+export async function sendAssignedCustomerCaseEmail({
   caseData,
   evidences,
   message,
@@ -223,18 +245,24 @@ export function sendAssignedCustomerCaseEmail({
 }) {
   const item = casePayload(caseData);
   const assigned = technicianPayload(technicians);
-  const recipients = validEmails(assigned.map((technician) => technician.Correo));
-  if (!recipients.length) {
+  const technicianRecipients = validEmails(assigned.map((technician) => technician.Correo));
+  if (!technicianRecipients.length) {
     throw new AppError(
       'CASE_EMAIL_MISSING',
       'No hay técnicos con un correo válido para enviar la asignación.',
       400,
     );
   }
+  const settings = await getNotificationEmailSettings();
+  const copies = item.ModoPrueba
+    ? [...settings.testRecipients, ...settings.testCc]
+    : settings.caseAssignedCc;
+  const recipients = recipientPlan(technicianRecipients, copies);
   const explicitResend = forceResend
     || item.EstadoNotificacionTecnicos.toUpperCase() === 'ENVIADO';
   return postAppsScript({
     action: 'customer.case.assigned.send',
+    testMode: item.ModoPrueba,
     idempotencyKey: assignmentIdempotencyKey({
       caseData: item,
       evidences,
@@ -242,6 +270,7 @@ export function sendAssignedCustomerCaseEmail({
       technicians: assigned,
       ticketUrl,
       forceResend: explicitResend,
+      recipients,
     }),
     case: item,
     evidences: evidencePayload(evidences),
@@ -251,11 +280,6 @@ export function sendAssignedCustomerCaseEmail({
       subject: clean(message?.subject, 300),
       body: clean(message?.body, 15000),
     },
-    recipients: {
-      to: recipients,
-      cc: [],
-    },
+    recipients,
   });
 }
-
-export const CUSTOMER_CASE_ADMIN_RECIPIENTS = DEFAULT_ADMIN_RECIPIENTS;
