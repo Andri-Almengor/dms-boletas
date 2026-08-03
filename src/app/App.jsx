@@ -47,6 +47,9 @@ const LegacyTicketsImportPage = lazyPage(() => import('../pages/admin/LegacyTick
 const MaintenanceQuestionsPage = lazyPage(() => import('../pages/admin/MaintenanceQuestionsPage'), routeStyles.admin, routeStyles.maintenance);
 const MetricsPage = lazyPage(() => import('../pages/admin/MetricsPage'), routeStyles.metrics);
 const AssistantPage = lazyPage(() => import('../pages/assistant/AssistantPage'), routeStyles.assistant);
+const CustomerCasesPage = lazyPage(() => import('../pages/cases/CustomerCasesPage'));
+const CustomerCaseDetailPage = lazyPage(() => import('../pages/cases/CustomerCaseDetailPage'));
+const PublicCustomerCasePage = lazyPage(() => import('../pages/cases/PublicCustomerCasePage'));
 const KnowledgeCategoriesPage = lazyPage(() => import('../pages/knowledge/KnowledgeCategoriesPage'), routeStyles.knowledge, routeStyles.admin);
 const KnowledgeDetailPage = lazyPage(() => import('../pages/knowledge/KnowledgeDetailPage'), routeStyles.knowledge);
 const KnowledgeEditorPage = lazyPage(() => import('../pages/knowledge/KnowledgeEditorPage'), routeStyles.knowledge);
@@ -137,6 +140,7 @@ export default function App() {
     <Suspense fallback={<RouteLoading />}>
       <Routes>
         <Route path="/login" element={<LoginPage />} />
+        <Route path="/caso/:token" element={<PublicCustomerCasePage />} />
         <Route path="/encuesta/:token" element={<PublicSurveyPage />} />
         <Route path="/firmar/:token" element={<PublicSignaturePage />} />
         <Route path="/" element={<ProtectedRoute><AppShell /></ProtectedRoute>}>
@@ -149,6 +153,8 @@ export default function App() {
           <Route path="boletas/:boletaUid/nueva-visita" element={<PermissionRoute permission="BOLETAS_CREAR"><TicketRelatedVisitPage /></PermissionRoute>} />
           <Route path="boletas/:boletaUid/editar" element={<PermissionRoute permission="BOLETAS_EDITAR"><TicketFormPage mode="edit" /></PermissionRoute>} />
           <Route path="boletas/:boletaUid/editar-rapido/:section" element={<PermissionRoute permission="BOLETAS_EDITAR"><TicketQuickEditPage /></PermissionRoute>} />
+          <Route path="casos" element={<PermissionRoute permission="USUARIOS_GESTIONAR"><CustomerCasesPage /></PermissionRoute>} />
+          <Route path="casos/:caseId" element={<PermissionRoute permission="USUARIOS_GESTIONAR"><CustomerCaseDetailPage /></PermissionRoute>} />
           <Route path="mantenimientos" element={<PermissionRoute anyOf={MAINTENANCE_VIEW}><MaintenanceListPage /></PermissionRoute>} />
           <Route path="mantenimientos/nuevo" element={<PermissionRoute anyOf={MAINTENANCE_CREATE}><MaintenanceFormPage mode="create" /></PermissionRoute>} />
           <Route path="mantenimientos/:maintenanceId" element={<PermissionRoute anyOf={MAINTENANCE_VIEW}><MaintenanceDetailPage /></PermissionRoute>} />
