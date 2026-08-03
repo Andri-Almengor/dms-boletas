@@ -8,6 +8,8 @@ const BLOCKED_KEYS = new Set(['__proto__', 'prototype', 'constructor']);
 const PUBLIC_WRITE_ROUTES = new Set([
   'survey.public.submit',
   'encuesta.publica.submit',
+  'customercases.public.submit',
+  'casos.cliente.public.submit',
   'ticket.signature.public.submit',
   'boletas.firma.publica.guardar',
   'maintenance.signature.public.submit',
@@ -17,6 +19,8 @@ const PUBLIC_WRITE_ROUTES = new Set([
 const PUBLIC_READ_ROUTES = new Set([
   'survey.public.get',
   'encuesta.publica.get',
+  'customercases.public.get',
+  'casos.cliente.public.get',
   'ticket.signature.public.get',
   'boletas.firma.publica.get',
   'maintenance.signature.public.get',
