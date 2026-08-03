@@ -1,0 +1,106 @@
+:root {
+  --dms-compact-status-size: 42px;
+  --dms-compact-status-left: 10px;
+  --dms-compact-status-top: calc(var(--top-bar-height, 64px) + 8px);
+}
+
+/*
+ * El estado sin conexión ocupa el mismo espacio visual que el guardado local.
+ * Conservamos el texto en el DOM para lectores de pantalla, pero visualmente
+ * solo se muestra el icono solicitado.
+ */
+.offline-status.is-offline {
+  top: var(--dms-compact-status-top);
+  left: var(--dms-compact-status-left);
+  width: var(--dms-compact-status-size);
+  height: var(--dms-compact-status-size);
+  min-width: var(--dms-compact-status-size);
+  padding: 0;
+  transform: none;
+  border-radius: 50%;
+  grid-template-columns: 1fr;
+  gap: 0;
+  pointer-events: none;
+}
+
+.app-shell--form .offline-status.is-offline {
+  top: calc(env(safe-area-inset-top, 0px) + 10px);
+}
+
+.offline-status.is-offline .offline-status__icon {
+  width: 100%;
+  height: 100%;
+  border-radius: 50%;
+}
+
+.offline-status.is-offline .offline-status__body,
+.form-recovery-status--saving > div,
+.form-recovery-status--local > div {
+  position: absolute;
+  width: 1px;
+  height: 1px;
+  padding: 0;
+  margin: -1px;
+  overflow: hidden;
+  clip: rect(0, 0, 0, 0);
+  white-space: nowrap;
+  border: 0;
+}
+
+.offline-status.is-offline > button {
+  display: none;
+}
+
+/* Guardado y guardando usan el mismo punto compacto. */
+.form-recovery-status--saving,
+.form-recovery-status--local {
+  top: var(--dms-compact-status-top);
+  right: auto;
+  bottom: auto;
+  left: var(--dms-compact-status-left);
+  width: var(--dms-compact-status-size);
+  height: var(--dms-compact-status-size);
+  min-width: var(--dms-compact-status-size);
+  max-height: none;
+  padding: 0;
+  overflow: visible;
+  border-radius: 50%;
+  grid-template-columns: 1fr;
+  gap: 0;
+  pointer-events: none;
+}
+
+body:has(.app-shell--form) .form-recovery-status--saving,
+body:has(.app-shell--form) .form-recovery-status--local {
+  top: calc(env(safe-area-inset-top, 0px) + 10px);
+}
+
+.form-recovery-status--saving > .material-symbols-outlined,
+.form-recovery-status--local > .material-symbols-outlined {
+  width: 100%;
+  height: 100%;
+  border-radius: 50%;
+}
+
+/* Cuando no hay conexión, cloud_off sustituye al icono de guardado. */
+body:has(.offline-status.is-offline) .form-recovery-status--saving,
+body:has(.offline-status.is-offline) .form-recovery-status--local {
+  display: none;
+}
+
+@media (max-width: 620px) {
+  :root {
+    --dms-compact-status-size: 40px;
+    --dms-compact-status-left: 8px;
+    --dms-compact-status-top: calc(var(--top-bar-height, 64px) + env(safe-area-inset-top, 0px) + 6px);
+  }
+
+  .offline-status.is-offline,
+  .form-recovery-status--saving,
+  .form-recovery-status--local {
+    width: var(--dms-compact-status-size);
+    height: var(--dms-compact-status-size);
+    padding: 0;
+    grid-template-columns: 1fr;
+  }
+}
