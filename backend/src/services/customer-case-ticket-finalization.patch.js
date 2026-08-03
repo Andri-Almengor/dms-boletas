@@ -1,3 +1,4 @@
+import './customer-case-payload-limit.patch.js';
 import './customer-case-ticket-link.patch.js';
 import { pick } from '../core/utils.js';
 import { ticketDeliveryHandlers } from '../modules/ticket-delivery.module.js';
