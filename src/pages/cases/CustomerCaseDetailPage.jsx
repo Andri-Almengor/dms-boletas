@@ -14,6 +14,7 @@ import '../../styles/customer-cases.css';
 import '../../styles/customer-cases-polish.css';
 import '../../styles/customer-cases-evidence-status.css';
 import '../../styles/customer-cases-workflow.css';
+import '../../styles/customer-case-detail-actions.css';
 
 function technicianView(record = {}) {
   return {
@@ -74,6 +75,7 @@ export default function CustomerCaseDetailPage() {
   const [loading, setLoading] = useState(true);
   const [saving, setSaving] = useState(false);
   const [resending, setResending] = useState(false);
+  const [resendingInitial, setResendingInitial] = useState(false);
   const [error, setError] = useState('');
   const [notice, setNotice] = useState('');
 
@@ -173,6 +175,26 @@ export default function CustomerCaseDetailPage() {
     }
   }
 
+  async function resendInitial() {
+    if (!item?.id || resendingInitial) return;
+    setResendingInitial(true);
+    setError('');
+    setNotice('');
+    try {
+      const response = await requestCustomerCase(CUSTOMER_CASE_ROUTES.resendInitial, {
+        caseId: item.id,
+        notificationType: 'INITIAL',
+      }, sessionToken);
+      const updated = customerCaseView(response.case || item);
+      setBundle((current) => ({ ...(current || {}), case: updated }));
+      setNotice(response.message || 'El correo inicial fue reenviado correctamente.');
+    } catch (sendError) {
+      setError(sendError.message || 'No se pudo reenviar el correo inicial.');
+    } finally {
+      setResendingInitial(false);
+    }
+  }
+
   if (loading) return <><div className="page"><div className="state-card state-card--loading"><Icon name="progress_activity" />Cargando caso...</div></div><CustomerCaseProcessingOverlay open title="Preparando el caso" message="Estamos cargando la solicitud, sus evidencias y los técnicos disponibles." steps={['Consultando la solicitud', 'Cargando evidencias', 'Preparando el detalle']} /></>;
   if (!item) return <div className="page"><div className="state-card state-card--error"><Icon name="error" /><h1>No se encontró el caso</h1><p>{error}</p><button className="button button--secondary" onClick={() => navigate('/casos')}>Volver</button></div></div>;
 
@@ -215,7 +237,7 @@ export default function CustomerCaseDetailPage() {
 
         {item.ticketId && <section className="case-ticket-panel"><header><Icon name={item.testMode ? 'science' : 'confirmation_number'} /><div><strong>{item.testMode ? 'Boleta de prueba ' : 'Boleta #'}{item.ticketNumber || item.ticketId}</strong><span>{item.testMode ? 'No usa el consecutivo real' : 'Creada desde este caso'}</span></div></header><Link className="button button--secondary" to={`/boletas/${encodeURIComponent(item.ticketId)}`}><Icon name="open_in_new" />Abrir boleta</Link>{item.state === 'EN_PROCESO' && <button className="button button--ghost" type="button" onClick={resend} disabled={resending}><Icon name={resending ? 'progress_activity' : 'forward_to_inbox'} />{resending ? 'Reenviando...' : 'Reenviar correo a técnicos'}</button>}</section>}
 
-        <section className="case-notification-panel"><h3>Notificaciones</h3><div><span>{item.testMode ? 'Al crear (modo prueba)' : 'Al crear'}</span><strong className={String(item.EstadoNotificacionInicial).toUpperCase() === 'ENVIADO' ? 'is-success' : 'is-warning'}>{item.EstadoNotificacionInicial || 'PENDIENTE'}</strong></div><div><span>A técnicos</span><strong className={String(item.EstadoNotificacionTecnicos).toUpperCase() === 'ENVIADO' ? 'is-success' : 'is-warning'}>{item.EstadoNotificacionTecnicos || 'PENDIENTE'}</strong></div><div><span>Evidencias</span><strong className={failedEvidenceCount ? 'is-warning' : 'is-success'}>{failedEvidenceCount ? `${evidenceRows.length}/${requestedEvidenceCount || evidenceRows.length}` : evidenceRows.length}</strong></div>{item.UltimoErrorNotificacion && <p>{item.UltimoErrorNotificacion}</p>}</section>
+        <section className="case-notification-panel"><h3>Notificaciones</h3><div><span>{item.testMode ? 'Al crear (modo prueba)' : 'Al crear'}</span><strong className={String(item.EstadoNotificacionInicial).toUpperCase() === 'ENVIADO' ? 'is-success' : 'is-warning'}>{item.EstadoNotificacionInicial || 'PENDIENTE'}</strong></div><div><span>A técnicos</span><strong className={String(item.EstadoNotificacionTecnicos).toUpperCase() === 'ENVIADO' ? 'is-success' : 'is-warning'}>{item.EstadoNotificacionTecnicos || 'PENDIENTE'}</strong></div><div><span>Evidencias</span><strong className={failedEvidenceCount ? 'is-warning' : 'is-success'}>{failedEvidenceCount ? `${evidenceRows.length}/${requestedEvidenceCount || evidenceRows.length}` : evidenceRows.length}</strong></div>{item.UltimoErrorNotificacion && <p>{item.UltimoErrorNotificacion}</p>}<button type="button" className="button button--secondary case-notification-resend" onClick={resendInitial} disabled={resendingInitial}><Icon name={resendingInitial ? 'progress_activity' : 'outgoing_mail'} />{resendingInitial ? 'Reenviando correo inicial...' : 'Reenviar correo inicial'}</button></section>
       </aside>
     </div>
   </div>;
