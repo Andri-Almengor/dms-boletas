@@ -147,6 +147,19 @@ function technicianPayload(technicians = []) {
   }));
 }
 
+function initialIdempotencyKey({ caseData, evidences, message }) {
+  const evidenceIds = evidencePayload(evidences)
+    .map((item) => `${item.CasoEvidenciaID || item.DriveFileID}|${item.TamanoBytes}`)
+    .sort();
+  const fingerprint = sha256(JSON.stringify({
+    caseId: clean(caseData.CasoID, 200),
+    evidenceIds,
+    subject: clean(message?.subject, 300),
+    body: clean(message?.body, 15000),
+  }));
+  return `customer-case-created:${clean(caseData.CasoID, 200)}:${fingerprint}`;
+}
+
 function assignmentIdempotencyKey({
   caseData,
   evidences,
@@ -182,7 +195,11 @@ export function sendNewCustomerCaseEmail({ caseData, evidences, message }) {
   const item = casePayload(caseData);
   return postAppsScript({
     action: 'customer.case.created.send',
-    idempotencyKey: `customer-case-created:${item.CasoID}`,
+    idempotencyKey: initialIdempotencyKey({
+      caseData: item,
+      evidences,
+      message,
+    }),
     case: item,
     evidences: evidencePayload(evidences),
     message: {
