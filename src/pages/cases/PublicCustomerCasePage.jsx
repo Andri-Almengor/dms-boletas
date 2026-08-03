@@ -21,6 +21,22 @@ function releaseEvidence(items = []) {
   });
 }
 
+function normalizedResult(response, selectedCount) {
+  const requested = Number(response?.requestedEvidenceCount ?? selectedCount ?? 0);
+  const loaded = Number(response?.evidenceCount || 0);
+  const reportedFailed = Number(response?.failedEvidenceCount || 0);
+  const failed = Math.max(reportedFailed, Math.max(0, requested - loaded));
+  return {
+    ...response,
+    requestedEvidenceCount: requested,
+    evidenceCount: loaded,
+    failedEvidenceCount: failed,
+    failedEvidenceNames: Array.isArray(response?.failedEvidenceNames)
+      ? response.failedEvidenceNames.filter(Boolean)
+      : [],
+  };
+}
+
 export default function PublicCustomerCasePage() {
   const { token = '' } = useParams();
   const inputRef = useRef(null);
@@ -127,6 +143,7 @@ export default function PublicCustomerCasePage() {
       setError(validation);
       return;
     }
+    const selectedCount = evidences.length;
     setSubmitting(true);
     setError('');
     try {
@@ -140,7 +157,7 @@ export default function PublicCustomerCasePage() {
         website: form.website,
         evidences: evidences.map(({ previewUrl: _previewUrl, ...item }) => item),
       });
-      setResult(response);
+      setResult(normalizedResult(response, selectedCount));
       setTestMode(Boolean(response.testMode || testMode));
       releaseEvidence(evidences);
       setEvidences([]);
