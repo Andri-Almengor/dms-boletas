@@ -11,6 +11,7 @@ export const CUSTOMER_CASE_ROUTES = Object.freeze({
   get: ['customerCases.get', 'casos.cliente.get'],
   process: ['customerCases.process', 'casos.cliente.procesar'],
   resendTechnicians: ['customerCases.resendTechnicians', 'casos.cliente.reenviarTecnicos'],
+  resendInitial: ['customerCases.resendTechnicians', 'casos.cliente.reenviarTecnicos'],
   mediaGet: ['customerCases.media.get', 'casos.cliente.media.get'],
 });
 
