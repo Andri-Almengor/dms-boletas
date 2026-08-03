@@ -4,7 +4,10 @@ import { readFileSync } from 'node:fs';
 import { fileURLToPath } from 'node:url';
 import path from 'node:path';
 
-import { maintenanceDeviceCreatedMessage } from '../../src/services/maintenanceDeviceCreatedFeedback.js';
+import {
+  maintenanceDeviceCreatedMessage,
+  navigateMaintenanceDeviceInApp,
+} from '../../src/services/maintenanceDeviceCreatedFeedback.js';
 
 const ROOT = fileURLToPath(new URL('../../', import.meta.url));
 
@@ -61,17 +64,59 @@ test('el buscador móvil separa físicamente la lupa del texto', () => {
   assert.match(styles, /\.technician-select__search-input[\s\S]*padding:\s*0\s+42px\s+0\s+12px\s*!important/);
 });
 
-test('la tarjeta offline navega dentro de React sin recargar la PWA', () => {
-  const feedback = source('src/services/maintenanceDeviceCreatedFeedback.js');
+test('la tarjeta offline abre el editor modal sin cambiar la URL', () => {
+  const originalWindow = globalThis.window;
+  const originalCustomEvent = globalThis.CustomEvent;
+  const received = [];
 
-  assert.match(feedback, /navigateMaintenanceDeviceInApp/);
-  assert.match(feedback, /window\.history\.pushState/);
-  assert.match(feedback, /PopStateEvent\('popstate'/);
+  class TestCustomEvent {
+    constructor(type, options = {}) {
+      this.type = type;
+      this.detail = options.detail;
+    }
+  }
+
+  globalThis.CustomEvent = TestCustomEvent;
+  globalThis.window = {
+    location: { origin: 'https://dms.test' },
+    dispatchEvent(event) { received.push(event); },
+  };
+
+  try {
+    assert.equal(navigateMaintenanceDeviceInApp('/mantenimientos/mantenimiento-1/editar?directDevice=1&device=dispositivo-2'), true);
+    assert.equal(received.length, 1);
+    assert.equal(received[0].type, 'dms-open-offline-maintenance-device');
+    assert.deepEqual(received[0].detail, {
+      maintenanceId: 'mantenimiento-1',
+      deviceId: 'dispositivo-2',
+    });
+    assert.equal(globalThis.window.location.pathname, undefined);
+  } finally {
+    globalThis.window = originalWindow;
+    globalThis.CustomEvent = originalCustomEvent;
+  }
+});
+
+test('el editor offline se monta globalmente y persiste sobre la misma pantalla', () => {
+  const feedback = source('src/services/maintenanceDeviceCreatedFeedback.js');
+  const editor = source('src/services/maintenanceOfflineDeviceEditor.jsx');
+  const routes = source('src/services/maintenanceRoutes.js');
+
+  assert.match(feedback, /dms-open-offline-maintenance-device/);
+  assert.doesNotMatch(feedback, /window\.history\.pushState/);
+  assert.doesNotMatch(feedback, /PopStateEvent/);
   assert.match(feedback, /document\.createElement\('button'\)/);
   assert.match(feedback, /edit\.type = 'button'/);
-  assert.match(feedback, /edit\.addEventListener\('click'/);
   assert.doesNotMatch(feedback, /edit\.href\s*=/);
-  assert.match(feedback, /directDevice=1&device=/);
+
+  assert.match(routes, /maintenanceOfflineDeviceEditor/);
+  assert.match(editor, /createRoot/);
+  assert.match(editor, /MaintenanceDeviceEditor/);
+  assert.match(editor, /requestAvailable\([\s\S]*MODULE_ROUTES\.maintenance\.get/);
+  assert.match(editor, /persistMaintenanceDevice/);
+  assert.match(editor, /dms-offline-queue-change/);
+  assert.match(editor, /data-offline-device-editor/);
+  assert.doesNotMatch(editor, /useNavigate/);
 });
 
 test('la ubicación muestra un estado offline compacto y editable', () => {
