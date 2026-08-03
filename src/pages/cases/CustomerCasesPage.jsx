@@ -2,6 +2,7 @@ import React, { useCallback, useEffect, useMemo, useState } from 'react';
 import { Link } from 'react-router-dom';
 import { useAuth } from '../../AuthContext';
 import Icon from '../../components/common/Icon';
+import NotificationEmailSettingsPanel from '../../components/cases/NotificationEmailSettingsPanel';
 import {
   CUSTOMER_CASE_ROUTES,
   customerCaseStateLabel,
@@ -52,6 +53,7 @@ export default function CustomerCasesPage() {
   const [submittedSearch, setSubmittedSearch] = useState('');
   const [loading, setLoading] = useState(true);
   const [refreshing, setRefreshing] = useState(false);
+  const [settingsOpen, setSettingsOpen] = useState(false);
   const [error, setError] = useState('');
 
   const load = useCallback(async ({ quiet = false } = {}) => {
@@ -107,6 +109,7 @@ export default function CustomerCasesPage() {
           <button type="button" className={mode === 'REAL' ? 'is-active' : ''} onClick={() => changeMode('REAL')} role="tab" aria-selected={mode === 'REAL'}><Icon name="support_agent" />Casos reales <b>{modeCounts.REAL || 0}</b></button>
           <button type="button" className={`is-test${mode === 'TEST' ? ' is-active' : ''}`} onClick={() => changeMode('TEST')} role="tab" aria-selected={mode === 'TEST'}><Icon name="science" />Pruebas <b>{modeCounts.TEST || 0}</b></button>
         </div>
+        <button className="button button--secondary button--compact" type="button" onClick={() => setSettingsOpen(true)}><Icon name="alternate_email" />Correos y copias</button>
         <button className="button button--secondary button--compact" type="button" onClick={() => load({ quiet: true })} disabled={refreshing}><Icon name={refreshing ? 'progress_activity' : 'refresh'} />{refreshing ? 'Actualizando...' : 'Actualizar'}</button>
       </div>
     </header>
@@ -143,5 +146,11 @@ export default function CustomerCasesPage() {
         })}
       </section>
         : <div className="empty-state case-empty-state"><Icon name={mode === 'TEST' ? 'science' : 'support_agent'} /><h2>{mode === 'TEST' ? 'No hay pruebas en esta etapa' : 'No hay casos en esta etapa'}</h2><p>{mode === 'TEST' ? 'Utilice el enlace de prueba disponible dentro del cliente.' : 'Los nuevos formularios aparecerán aquí automáticamente.'}</p></div>}
+
+    <NotificationEmailSettingsPanel
+      open={settingsOpen}
+      onClose={() => setSettingsOpen(false)}
+      sessionToken={sessionToken}
+    />
   </div>;
 }
