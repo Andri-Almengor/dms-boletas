@@ -1,4 +1,5 @@
 import { MODULE_ROUTES } from './moduleApi';
+import './maintenanceOfflineDeviceEditor';
 
 const spreadsheetReportRoutes = [
   'maintenance.report.spreadsheet',
