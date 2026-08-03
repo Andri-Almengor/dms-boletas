@@ -68,14 +68,11 @@ export function maintenanceDeviceCreatedMessage(detail = {}) {
   };
 }
 
-function renderFeedback(group, detail) {
+function attachFeedback(group, detail) {
   document.querySelectorAll(`.${FEEDBACK_CLASS}`).forEach((item) => item.remove());
   document.querySelectorAll(`${GROUP_SELECTOR}.has-device-created-feedback`).forEach((item) => {
     item.classList.remove('has-device-created-feedback');
   });
-
-  const toggle = group.querySelector('.maintenance-location-work-group__toggle');
-  if (!group.classList.contains('is-open')) toggle?.click();
 
   const message = maintenanceDeviceCreatedMessage(detail);
   const feedback = document.createElement('div');
@@ -85,7 +82,7 @@ function renderFeedback(group, detail) {
 
   const icon = document.createElement('span');
   icon.className = 'maintenance-location-device-created-feedback__icon';
-  icon.appendChild(makeIcon(detail.offlinePending ? 'cloud_done' : 'check_circle'));
+  icon.appendChild(makeIcon(detail.offlinePending ? 'cloud_off' : 'check_circle'));
 
   const copy = document.createElement('div');
   const title = document.createElement('strong');
@@ -106,6 +103,18 @@ function renderFeedback(group, detail) {
     feedback.remove();
     group.classList.remove('has-device-created-feedback');
   }, DISPLAY_MS);
+}
+
+function renderFeedback(group, detail) {
+  const toggle = group.querySelector('.maintenance-location-work-group__toggle');
+  if (!group.classList.contains('is-open')) {
+    toggle?.click();
+    window.setTimeout(() => {
+      attachFeedback(findLocationGroup(detail.locationName) || group, detail);
+    }, 80);
+    return;
+  }
+  attachFeedback(group, detail);
 }
 
 /**
