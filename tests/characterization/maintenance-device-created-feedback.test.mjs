@@ -61,18 +61,33 @@ test('el buscador móvil separa físicamente la lupa del texto', () => {
   assert.match(styles, /\.technician-select__search-input[\s\S]*padding:\s*0\s+42px\s+0\s+12px\s*!important/);
 });
 
-test('la ubicación recibe una tarjeta offline con edición directa', () => {
+test('la tarjeta offline navega dentro de React sin recargar la PWA', () => {
+  const feedback = source('src/services/maintenanceDeviceCreatedFeedback.js');
+
+  assert.match(feedback, /navigateMaintenanceDeviceInApp/);
+  assert.match(feedback, /window\.history\.pushState/);
+  assert.match(feedback, /PopStateEvent\('popstate'/);
+  assert.match(feedback, /document\.createElement\('button'\)/);
+  assert.match(feedback, /edit\.type = 'button'/);
+  assert.match(feedback, /edit\.addEventListener\('click'/);
+  assert.doesNotMatch(feedback, /edit\.href\s*=/);
+  assert.match(feedback, /directDevice=1&device=/);
+});
+
+test('la ubicación muestra un estado offline compacto y editable', () => {
   const styles = source('src/styles/maintenance-technician-feedback.css');
   const feedback = source('src/services/maintenanceDeviceCreatedFeedback.js');
 
   assert.match(styles, /\.maintenance-offline-device-preview/);
+  assert.match(styles, /\.maintenance-offline-device-preview__status-copy/);
   assert.match(styles, /\.maintenance-offline-device-preview__edit/);
+  assert.match(styles, /@media \(max-width:\s*620px\)[\s\S]*\.maintenance-offline-device-preview__status[\s\S]*width:\s*100%/);
   assert.match(feedback, /renderOfflinePreview/);
   assert.match(feedback, /MAX_PREVIEW_ATTEMPTS/);
   assert.match(feedback, /attempt \+ 1/);
-  assert.match(feedback, /Guardado offline · pendiente de sincronizar/);
+  assert.match(feedback, /statusTitle\.textContent = 'Guardado offline'/);
+  assert.match(feedback, /statusText\.textContent = 'Pendiente de sincronizar'/);
   assert.match(feedback, /Editar dispositivo y evidencias/);
-  assert.match(feedback, /directDevice=1&device=/);
   assert.match(feedback, /resetInventoryFilters/);
   assert.match(feedback, /scrollIntoView/);
 });
