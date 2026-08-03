@@ -1,5 +1,5 @@
 const CACHE_PREFIX = 'dms-boletas-shell-';
-const CACHE_NAME = `${CACHE_PREFIX}v3`;
+const CACHE_NAME = `${CACHE_PREFIX}v4`;
 const APP_SHELL = ['/', '/manifest.webmanifest', '/icons/dms-icon.svg'];
 const NETWORK_TIMEOUT_MS = 5_000;
 
@@ -15,7 +15,7 @@ async function fetchWithTimeout(request, timeout = NETWORK_TIMEOUT_MS) {
   const controller = new AbortController();
   const timer = setTimeout(() => controller.abort(), timeout);
   try {
-    return await fetch(request, { signal: controller.signal });
+    return await fetch(request, { signal: controller.signal, cache: 'no-cache' });
   } finally {
     clearTimeout(timer);
   }
@@ -26,15 +26,17 @@ self.addEventListener('install', (event) => {
 });
 
 self.addEventListener('activate', (event) => {
-  event.waitUntil(
-    caches.keys()
-      .then((keys) => Promise.all(
-        keys
-          .filter((key) => key.startsWith(CACHE_PREFIX) && key !== CACHE_NAME)
-          .map((key) => caches.delete(key)),
-      ))
-      .then(() => self.clients.claim()),
-  );
+  event.waitUntil((async () => {
+    const keys = await caches.keys();
+    await Promise.all(
+      keys
+        .filter((key) => key.startsWith(CACHE_PREFIX) && key !== CACHE_NAME)
+        .map((key) => caches.delete(key)),
+    );
+    await self.clients.claim();
+    const clients = await self.clients.matchAll({ type: 'window', includeUncontrolled: true });
+    clients.forEach((client) => client.postMessage({ type: 'DMS_SW_ACTIVATED', cacheName: CACHE_NAME }));
+  })());
 });
 
 self.addEventListener('message', (event) => {
@@ -59,7 +61,18 @@ async function navigationResponse(request) {
   }
 }
 
-async function assetResponse(request) {
+async function codeAssetResponse(request) {
+  const cache = await caches.open(CACHE_NAME);
+  try {
+    const response = await fetchWithTimeout(request);
+    if (response.ok) await cache.put(request, response.clone());
+    return response;
+  } catch {
+    return (await cache.match(request)) || Response.error();
+  }
+}
+
+async function cacheFirstAssetResponse(request) {
   const cache = await caches.open(CACHE_NAME);
   const cached = await cache.match(request);
   const network = fetch(request)
@@ -95,8 +108,13 @@ self.addEventListener('fetch', (event) => {
     return;
   }
 
-  if (['script', 'style', 'image', 'font'].includes(request.destination)) {
-    event.respondWith(assetResponse(request));
+  if (['script', 'style'].includes(request.destination)) {
+    event.respondWith(codeAssetResponse(request));
+    return;
+  }
+
+  if (['image', 'font'].includes(request.destination)) {
+    event.respondWith(cacheFirstAssetResponse(request));
     return;
   }
 
