@@ -130,6 +130,20 @@ async function ensureSchemaInternal() {
     'PortalCasosActualizadoEn',
   ]);
   await ensureColumns('Boletas', ['OrigenCasoID']);
+  await ensureColumns('Notificaciones', [
+    'Entidad',
+    'EntidadID',
+    'Canal',
+    'Destino',
+    'Tipo',
+    'Estado',
+    'Intentos',
+    'Respuesta',
+    'Error',
+    'FechaCreacion',
+    'FechaEnvio',
+    'CreadoPor',
+  ]);
 
   return { created, tables: Object.keys(TABLE_DEFINITIONS) };
 }
