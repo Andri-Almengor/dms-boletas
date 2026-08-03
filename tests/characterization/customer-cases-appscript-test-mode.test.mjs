@@ -7,16 +7,16 @@ import path from 'node:path';
 const ROOT = fileURLToPath(new URL('../../', import.meta.url));
 const source = (relativePath) => readFileSync(path.join(ROOT, relativePath), 'utf8');
 
-test('la carga de evidencias usa Apps Script y conserva el propietario de Drive', () => {
+test('la carga de evidencias usa Apps Script sin compartir archivos automáticamente', () => {
   const service = source('backend/src/services/customer-case-apps-script-drive.service.js');
   const patch = source('backend/src/services/customer-case-test-mode.patch.js');
 
   assert.match(service, /customer\.case\.evidence\.upload/);
   assert.match(service, /customer\.case\.evidence\.get/);
-  assert.match(service, /env\.googleClientEmail/);
-  assert.match(service, /viewerEmails/);
-  assert.match(service, /settings\.testRecipients/);
-  assert.match(service, /settings\.caseCreatedTo/);
+  assert.doesNotMatch(service, /env\.googleClientEmail/);
+  assert.doesNotMatch(service, /viewerEmails/);
+  assert.doesNotMatch(service, /serviceAccountEmail/);
+  assert.doesNotMatch(service, /getNotificationEmailSettings/);
   assert.match(patch, /uploadCustomerCaseEvidenceWithAppsScript/);
   assert.match(patch, /Almacenamiento:\s*'APPS_SCRIPT'/);
   assert.match(patch, /PropietarioDrive/);
@@ -71,11 +71,13 @@ test('el orden de parches reemplaza el flujo antiguo antes de enlazar y finaliza
   const app = source('backend/src/app.js');
   const recovery = app.indexOf("customer-case-evidence-recovery.patch.js");
   const testMode = app.indexOf("customer-case-test-mode.patch.js");
+  const initialRetry = app.indexOf("customer-case-initial-email-retry.patch.js");
   const finalization = app.indexOf("customer-case-ticket-finalization.patch.js");
 
   assert.ok(recovery >= 0);
   assert.ok(testMode > recovery);
-  assert.ok(finalization > testMode);
+  assert.ok(initialRetry > testMode);
+  assert.ok(finalization > initialRetry);
 });
 
 test('la interfaz muestra pantallas de carga, enlace de prueba y dashboard separado', () => {
@@ -94,6 +96,7 @@ test('la interfaz muestra pantallas de carga, enlace de prueba y dashboard separ
   assert.match(detail, /Pasando el caso a proceso/);
   assert.match(detail, /Creando boleta de prueba/);
   assert.match(detail, /no consumirá el consecutivo real/i);
+  assert.match(detail, /Reenviar correo inicial/);
   assert.match(dashboard, /Casos reales/);
   assert.match(dashboard, /Mostrando casos de prueba/);
   assert.match(dashboard, /Correos y copias/);
