@@ -6,9 +6,16 @@ const DEFAULT_ADMIN_RECIPIENTS = Object.freeze([
   'raul.mayorga@solutionsdms.com',
   'alejandra.umana@solutionsdms.com',
 ]);
+const TEST_RECIPIENT = 'andrick.almengor@solutionsdms.com';
 
 function clean(value, maxLength = 12000) {
   return String(value ?? '').trim().slice(0, maxLength);
+}
+
+function booleanValue(value, fallback = false) {
+  if (value === undefined || value === null || value === '') return fallback;
+  if (typeof value === 'boolean') return value;
+  return ['1', 'true', 'si', 'sí', 'yes', 'activo', 'prueba'].includes(clean(value, 20).toLowerCase());
 }
 
 function validEmails(value) {
@@ -18,7 +25,8 @@ function validEmails(value) {
     .filter((item) => /^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(item)))];
 }
 
-function adminRecipients() {
+function adminRecipients(caseData = {}) {
+  if (booleanValue(caseData.ModoPrueba || caseData.EsPrueba || caseData.TipoCaso, false)) return [TEST_RECIPIENT];
   const configured = validEmails(process.env.CUSTOMER_CASE_ADMIN_EMAILS || '');
   return configured.length ? configured : [...DEFAULT_ADMIN_RECIPIENTS];
 }
@@ -120,6 +128,8 @@ function casePayload(caseData = {}) {
     CarpetaDriveURL: clean(caseData.CarpetaDriveURL, 2000),
     FechaCreacion: clean(caseData.FechaCreacion, 80),
     FechaActualizacion: clean(caseData.FechaActualizacion, 80),
+    ModoPrueba: booleanValue(caseData.ModoPrueba || caseData.EsPrueba || caseData.TipoCaso, false),
+    TipoCaso: clean(caseData.TipoCaso, 40),
   };
 }
 
@@ -153,6 +163,7 @@ function initialIdempotencyKey({ caseData, evidences, message }) {
     .sort();
   const fingerprint = sha256(JSON.stringify({
     caseId: clean(caseData.CasoID, 200),
+    testMode: booleanValue(caseData.ModoPrueba, false),
     evidenceIds,
     subject: clean(message?.subject, 300),
     body: clean(message?.body, 15000),
@@ -173,6 +184,7 @@ function assignmentIdempotencyKey({
   }
   const fingerprint = sha256(JSON.stringify({
     caseId: clean(caseData.CasoID, 200),
+    testMode: booleanValue(caseData.ModoPrueba, false),
     ticketId: clean(caseData.BoletaUID, 200),
     ticketNumber: clean(caseData.BoletaID, 100),
     visitDate: clean(caseData.FechaVisita, 40),
@@ -195,6 +207,7 @@ export function sendNewCustomerCaseEmail({ caseData, evidences, message }) {
   const item = casePayload(caseData);
   return postAppsScript({
     action: 'customer.case.created.send',
+    testMode: item.ModoPrueba,
     idempotencyKey: initialIdempotencyKey({
       caseData: item,
       evidences,
@@ -207,7 +220,7 @@ export function sendNewCustomerCaseEmail({ caseData, evidences, message }) {
       body: clean(message?.body, 15000),
     },
     recipients: {
-      to: adminRecipients(),
+      to: adminRecipients(item),
       cc: [],
     },
   });
@@ -235,6 +248,7 @@ export function sendAssignedCustomerCaseEmail({
     || item.EstadoNotificacionTecnicos.toUpperCase() === 'ENVIADO';
   return postAppsScript({
     action: 'customer.case.assigned.send',
+    testMode: item.ModoPrueba,
     idempotencyKey: assignmentIdempotencyKey({
       caseData: item,
       evidences,
@@ -259,3 +273,4 @@ export function sendAssignedCustomerCaseEmail({
 }
 
 export const CUSTOMER_CASE_ADMIN_RECIPIENTS = DEFAULT_ADMIN_RECIPIENTS;
+export const CUSTOMER_CASE_TEST_RECIPIENT = TEST_RECIPIENT;
