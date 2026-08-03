@@ -11,6 +11,7 @@
   overflow: hidden;
 }
 
+/* La lupa ocupa una columna propia; nunca se superpone al texto del input. */
 .technician-select__search-icon {
   position: static !important;
   inset: auto !important;
