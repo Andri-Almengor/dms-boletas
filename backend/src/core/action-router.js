@@ -9,6 +9,7 @@ import { assistantDynamicMaintenanceQuestionHandlers as assistantOperationalRepo
 import { usersHandlers } from '../modules/users.module.js';
 import { crudHandlers } from '../modules/crud.module.js';
 import { clientRelationsHandlers } from '../modules/client-relations.module.js';
+import { customerCaseHandlers } from '../modules/customer-cases.module.js';
 import { ticketMultiHandlers as ticketHandlers } from '../modules/ticket-multi.module.js';
 import { ticketDeliveryHandlers } from '../modules/ticket-delivery.module.js';
 import { ticketGroupSignatureHandlers as ticketSignatureHandlers } from '../modules/ticket-group-signature.module.js';
@@ -52,6 +53,8 @@ add(['ai.knowledgeRewrite','gemini.knowledgeRewrite','knowledge.ai.rewrite','bas
 
 add(['survey.public.get','encuesta.publica.get'], surveyHandlers.publicGet, null, true);
 add(['survey.public.submit','encuesta.publica.submit'], surveyHandlers.publicSubmit, null, true);
+add(['customerCases.public.get','casos.cliente.public.get'], customerCaseHandlers.publicGet, null, true);
+add(['customerCases.public.submit','casos.cliente.public.submit'], customerCaseHandlers.publicSubmit, null, true);
 add(['ticket.signature.public.get','boletas.firma.publica.get'], publicSignatureHandlers.publicGet, null, true);
 add(['ticket.signature.public.submit','boletas.firma.publica.guardar'], publicSignatureHandlers.publicSubmit, null, true);
 add(['ticket.signature.link','boletas.signature.link','boletas.firma.enlace'], ticketSignatureHandlers.link, 'BOLETAS_VER');
@@ -64,6 +67,15 @@ add(['survey.questions.delete','encuestas.preguntas.delete'], surveyHandlers.que
 add(['survey.responses.list','encuestas.respuestas.list'], surveyHandlers.responsesList, 'USUARIOS_GESTIONAR');
 add(['survey.responses.get','encuestas.respuestas.get'], surveyHandlers.responsesGet, 'USUARIOS_GESTIONAR');
 add(['clients.relations.get','clientes.relaciones.get'], clientRelationsHandlers.get);
+
+add(['customerCases.clientLink.get','casos.cliente.enlace.get'], customerCaseHandlers.clientLinkStatus, 'USUARIOS_GESTIONAR');
+add(['customerCases.clientLink.create','casos.cliente.enlace.crear'], customerCaseHandlers.clientLink, 'USUARIOS_GESTIONAR');
+add(['customerCases.clientLink.update','casos.cliente.enlace.actualizar'], customerCaseHandlers.clientLinkUpdate, 'USUARIOS_GESTIONAR');
+add(['customerCases.list','casos.cliente.list'], customerCaseHandlers.list, 'USUARIOS_GESTIONAR');
+add(['customerCases.get','casos.cliente.get'], customerCaseHandlers.get, 'USUARIOS_GESTIONAR');
+add(['customerCases.process','casos.cliente.procesar'], customerCaseHandlers.process, 'USUARIOS_GESTIONAR');
+add(['customerCases.resendTechnicians','casos.cliente.reenviarTecnicos'], customerCaseHandlers.resendTechnicians, 'USUARIOS_GESTIONAR');
+add(['customerCases.media.get','casos.cliente.media.get'], customerCaseHandlers.mediaGet, 'USUARIOS_GESTIONAR');
 
 const operationalCatalogPermissions = ['BOLETAS_CREAR','BOLETAS_EDITAR','MANTENIMIENTOS_CREAR','MANTENIMIENTOS_EDITAR','MANTENIMIENTOS_GESTIONAR'];
 const clientOperationalKeys = new Set(['clientLocations','equipmentLocations','contacts']);
