@@ -1,0 +1,779 @@
+/*
+ * Capa visual correctiva para Casos de clientes.
+ * Se importa después de customer-cases.css para conservar el módulo original
+ * y corregir contraste, jerarquía, distribución y comportamiento móvil.
+ */
+
+.customer-cases-page,
+.customer-case-detail-page {
+  width: min(1320px, 100%);
+  margin-inline: auto;
+}
+
+.case-dashboard-heading,
+.case-detail-heading {
+  position: relative;
+}
+
+.case-dashboard-heading h1,
+.case-detail-heading h1 {
+  letter-spacing: -.035em;
+  line-height: 1.08;
+}
+
+.case-dashboard-heading .eyebrow,
+.case-detail-heading .eyebrow {
+  color: #ff6679;
+  font-weight: 850;
+  letter-spacing: .075em;
+}
+
+.case-kpi-grid article,
+.customer-case-card,
+.case-detail-section,
+.case-assignment-panel,
+.case-finished-panel,
+.case-ticket-panel,
+.case-notification-panel {
+  color: #202126;
+}
+
+.case-kpi-grid article {
+  min-height: 92px;
+  padding: 18px;
+}
+
+.case-kpi-grid article > div {
+  gap: 2px;
+}
+
+.case-kpi-grid strong {
+  color: #17181c;
+  line-height: 1;
+}
+
+.case-dashboard-toolbar {
+  grid-template-columns: minmax(0, 1fr) minmax(300px, 390px);
+  padding: 12px;
+  border: 1px solid var(--border, #e1e3e8);
+  border-radius: 16px;
+  background: var(--card, #fff);
+  box-shadow: 0 5px 18px rgba(20, 25, 32, .045);
+}
+
+.case-status-tabs {
+  min-width: 0;
+}
+
+.case-status-tabs button {
+  min-height: 44px;
+  padding-inline: 13px;
+  font-weight: 720;
+}
+
+.case-search {
+  min-height: 46px;
+  background: #f7f7f8;
+}
+
+.case-search input {
+  color: #202126;
+}
+
+.case-search input::placeholder {
+  color: #777c86;
+  opacity: 1;
+}
+
+.customer-case-card-grid {
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  align-items: stretch;
+}
+
+.customer-case-card {
+  min-height: 245px;
+  padding: 20px;
+  background: #fff;
+}
+
+.customer-case-card header strong,
+.customer-case-card h2 {
+  color: #202126;
+}
+
+.customer-case-card__number {
+  margin-bottom: 2px;
+}
+
+.customer-case-card > p {
+  color: #626873;
+}
+
+.customer-case-card__meta span {
+  background: #f3f4f6;
+  color: #4d535d;
+}
+
+.customer-case-card footer {
+  margin-top: auto;
+}
+
+/* Detalle */
+.customer-case-detail-page {
+  padding-bottom: 56px;
+}
+
+.case-detail-heading {
+  display: grid;
+  grid-template-columns: 46px minmax(0, 1fr) auto;
+  align-items: center;
+  gap: 16px;
+  margin-bottom: 22px;
+  padding: 18px 20px;
+  border: 1px solid var(--border, #dedfe3);
+  border-radius: 18px;
+  background: var(--card, #fff);
+  box-shadow: 0 8px 24px rgba(20, 25, 32, .055);
+}
+
+.case-detail-heading > div {
+  min-width: 0;
+}
+
+.case-detail-heading h1 {
+  overflow-wrap: anywhere;
+}
+
+.case-detail-heading p {
+  color: #676d78;
+}
+
+.case-detail-layout {
+  grid-template-columns: minmax(0, 1.55fr) minmax(370px, .85fr);
+  gap: 22px;
+}
+
+.case-detail-main,
+.case-detail-sidebar {
+  gap: 18px;
+}
+
+.case-detail-sidebar {
+  position: sticky;
+  top: 18px;
+}
+
+.case-detail-section,
+.case-assignment-panel,
+.case-finished-panel,
+.case-ticket-panel,
+.case-notification-panel {
+  border-radius: 18px;
+  box-shadow: 0 8px 24px rgba(20, 25, 32, .055);
+}
+
+.case-detail-section {
+  padding: 22px;
+}
+
+.case-detail-section > header,
+.case-assignment-panel > header {
+  align-items: center;
+  padding-bottom: 15px;
+  border-bottom: 1px solid #eceef1;
+}
+
+.case-detail-section > header > span,
+.case-assignment-panel > header > span {
+  width: 42px;
+  height: 42px;
+  flex-basis: 42px;
+}
+
+.case-detail-section h2,
+.case-assignment-panel h2 {
+  color: #202126;
+  font-size: 1.08rem;
+}
+
+.case-detail-section header p,
+.case-assignment-panel header p {
+  color: #6c727d;
+}
+
+.case-detail-data-grid {
+  gap: 12px;
+}
+
+.case-detail-data-grid > div {
+  min-height: 75px;
+  padding: 14px;
+  border: 1px solid #e9eaed;
+  background: #f7f7f8;
+}
+
+.case-detail-data-grid span {
+  color: #717680;
+  font-weight: 700;
+}
+
+.case-detail-data-grid strong,
+.case-detail-data-grid p {
+  color: #26272c;
+}
+
+.case-detail-data-grid a {
+  color: #c92e44;
+  font-weight: 700;
+}
+
+.case-evidence-detail-grid {
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 14px;
+}
+
+.case-evidence-card {
+  grid-template-columns: minmax(130px, .82fr) minmax(0, 1fr);
+  min-height: 150px;
+  padding: 10px;
+  background: #fbfbfc;
+}
+
+.case-evidence-card__preview,
+.case-evidence-card__preview img,
+.case-evidence-card__preview button {
+  min-height: 128px;
+}
+
+.case-evidence-card strong {
+  color: #26272c;
+}
+
+.case-section-empty {
+  min-height: 92px;
+  justify-content: center;
+  border: 1px dashed #d7d9de;
+}
+
+.case-assignment-panel {
+  gap: 16px;
+  padding: 20px;
+}
+
+.case-assignment-panel > header {
+  margin-bottom: 0;
+}
+
+.case-assignment-panel legend,
+.case-assignment-date-grid label > span,
+.case-assignment-panel .case-field > span {
+  color: #303138;
+}
+
+.case-technician-search {
+  display: grid;
+  grid-template-columns: 42px minmax(0, 1fr) auto;
+  align-items: center;
+  min-height: 46px;
+  margin-bottom: 10px;
+  border: 1px solid #d7d9de;
+  border-radius: 11px;
+  background: #f7f7f8;
+  overflow: hidden;
+}
+
+.case-technician-search > .material-symbols-outlined {
+  justify-self: center;
+  color: #747984;
+}
+
+.case-technician-search input {
+  min-width: 0;
+  height: 44px;
+  padding: 0 8px 0 0;
+  border: 0;
+  outline: 0;
+  background: transparent;
+  color: #202126;
+  font: inherit;
+}
+
+.case-technician-search input::placeholder {
+  color: #7a7f89;
+  opacity: 1;
+}
+
+.case-technician-search button {
+  display: grid;
+  place-items: center;
+  width: 38px;
+  height: 38px;
+  margin-right: 4px;
+  border: 0;
+  border-radius: 9px;
+  background: transparent;
+  color: #777c86;
+  cursor: pointer;
+}
+
+.case-technician-search button:hover {
+  background: rgba(120, 125, 135, .12);
+}
+
+.case-technician-search button .material-symbols-outlined {
+  font-size: 19px;
+}
+
+.case-technician-count {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 10px;
+  margin: 0 0 9px;
+  color: #6f7580;
+  font-size: .75rem;
+}
+
+.case-technician-count strong {
+  color: #cf3147;
+}
+
+.case-technician-options {
+  max-height: 320px;
+  gap: 8px;
+  padding: 2px 4px 2px 1px;
+  scrollbar-width: thin;
+}
+
+.case-technician-options label {
+  min-height: 62px;
+  padding: 11px 12px;
+  background: #fbfbfc;
+}
+
+.case-technician-options label:hover {
+  border-color: #f29aaa;
+  background: #fff7f8;
+}
+
+.case-technician-options label.is-selected {
+  border-color: #ff5c70;
+  background: #fff1f3;
+  box-shadow: inset 3px 0 #ff5c70;
+}
+
+.case-technician-options strong {
+  color: #28292e;
+}
+
+.case-assignment-date-grid {
+  grid-template-columns: minmax(0, 1fr) minmax(125px, .46fr);
+}
+
+.case-assignment-date-grid input,
+.case-assignment-panel .case-field textarea {
+  border-color: #d7d9de;
+  background: #f8f8f9;
+  color: #222329;
+}
+
+.case-assignment-panel .case-field textarea {
+  min-height: 128px;
+}
+
+.case-selected-summary {
+  border: 1px solid #cbdcf4;
+  background: #edf4ff;
+}
+
+.case-assignment-panel > .button {
+  min-height: 50px;
+  justify-content: center;
+  font-weight: 800;
+}
+
+.case-notification-panel h3,
+.case-ticket-panel strong {
+  color: #24252a;
+}
+
+.case-notification-panel > div {
+  color: #5f6570;
+}
+
+/* Resultado de evidencias en formulario público */
+.case-evidence-preview-grid article > small {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+  padding: 2px 2px 5px;
+  color: #167443;
+  font-size: .69rem;
+  font-weight: 700;
+}
+
+.case-evidence-preview-grid article > small .material-symbols-outlined {
+  font-size: 15px;
+}
+
+.case-success-card__summary span.has-warning {
+  border-color: #e9bd5b;
+  background: #fff8e4;
+  color: #7b540b;
+}
+
+.case-evidence-result-warning {
+  display: flex;
+  align-items: flex-start;
+  gap: 11px;
+  width: min(620px, 100%);
+  margin: 5px 0 8px;
+  padding: 14px 15px;
+  border: 1px solid #e9bd5b;
+  border-radius: 12px;
+  background: #fff8e4;
+  color: #684709;
+  text-align: left;
+}
+
+.case-evidence-result-warning > .material-symbols-outlined {
+  flex: 0 0 auto;
+  color: #b47707;
+}
+
+.case-evidence-result-warning > div {
+  display: grid;
+  gap: 4px;
+}
+
+.case-evidence-result-warning span {
+  line-height: 1.45;
+  font-size: .86rem;
+}
+
+/* Modo oscuro: superficies explícitas para evitar texto blanco sobre tarjetas blancas. */
+[data-theme='dark'] .customer-cases-page,
+[data-theme='dark'] .customer-case-detail-page {
+  --case-dark-bg: #121011;
+  --case-dark-panel: #211d1f;
+  --case-dark-panel-raised: #292326;
+  --case-dark-field: #171416;
+  --case-dark-border: #4a3f43;
+  --case-dark-border-soft: #3a3235;
+  --case-dark-text: #faf6f7;
+  --case-dark-muted: #c5babe;
+}
+
+[data-theme='dark'] .case-dashboard-heading h1,
+[data-theme='dark'] .case-detail-heading h1,
+[data-theme='dark'] .case-dashboard-heading p,
+[data-theme='dark'] .case-detail-heading p {
+  color: var(--case-dark-text);
+}
+
+[data-theme='dark'] .case-dashboard-heading p,
+[data-theme='dark'] .case-detail-heading p {
+  color: var(--case-dark-muted);
+}
+
+[data-theme='dark'] .case-dashboard-toolbar,
+[data-theme='dark'] .case-kpi-grid article,
+[data-theme='dark'] .customer-case-card,
+[data-theme='dark'] .case-detail-heading,
+[data-theme='dark'] .case-detail-section,
+[data-theme='dark'] .case-assignment-panel,
+[data-theme='dark'] .case-finished-panel,
+[data-theme='dark'] .case-ticket-panel,
+[data-theme='dark'] .case-notification-panel {
+  border-color: var(--case-dark-border);
+  background: var(--case-dark-panel);
+  color: var(--case-dark-text);
+  box-shadow: 0 12px 30px rgba(0, 0, 0, .28);
+}
+
+[data-theme='dark'] .case-kpi-grid strong,
+[data-theme='dark'] .case-kpi-grid article > div span,
+[data-theme='dark'] .customer-case-card header strong,
+[data-theme='dark'] .customer-case-card h2,
+[data-theme='dark'] .customer-case-card > p,
+[data-theme='dark'] .customer-case-card footer,
+[data-theme='dark'] .case-detail-section h2,
+[data-theme='dark'] .case-assignment-panel h2,
+[data-theme='dark'] .case-detail-section header p,
+[data-theme='dark'] .case-assignment-panel header p,
+[data-theme='dark'] .case-notification-panel h3,
+[data-theme='dark'] .case-ticket-panel strong,
+[data-theme='dark'] .case-ticket-panel span,
+[data-theme='dark'] .case-notification-panel > div {
+  color: var(--case-dark-text);
+}
+
+[data-theme='dark'] .case-kpi-grid article > div span,
+[data-theme='dark'] .customer-case-card > p,
+[data-theme='dark'] .customer-case-card footer,
+[data-theme='dark'] .case-detail-section header p,
+[data-theme='dark'] .case-assignment-panel header p,
+[data-theme='dark'] .case-ticket-panel span,
+[data-theme='dark'] .case-notification-panel > div {
+  color: var(--case-dark-muted);
+}
+
+[data-theme='dark'] .case-dashboard-toolbar {
+  background: #1b1819;
+}
+
+[data-theme='dark'] .case-status-tabs button {
+  border-color: var(--case-dark-border);
+  background: var(--case-dark-panel-raised);
+  color: var(--case-dark-text);
+}
+
+[data-theme='dark'] .case-status-tabs button:hover {
+  border-color: #a75c69;
+  background: #33292c;
+}
+
+[data-theme='dark'] .case-status-tabs button.is-active {
+  border-color: #ff6679;
+  background: #48252c;
+  color: #ffdce2;
+}
+
+[data-theme='dark'] .case-status-tabs button b {
+  background: rgba(255, 255, 255, .12);
+  color: inherit;
+}
+
+[data-theme='dark'] .case-search,
+[data-theme='dark'] .case-technician-search {
+  border-color: var(--case-dark-border);
+  background: var(--case-dark-field);
+}
+
+[data-theme='dark'] .case-search input,
+[data-theme='dark'] .case-technician-search input {
+  color: var(--case-dark-text);
+}
+
+[data-theme='dark'] .case-search input::placeholder,
+[data-theme='dark'] .case-technician-search input::placeholder {
+  color: #aa9ea2;
+}
+
+[data-theme='dark'] .customer-case-card__meta span {
+  background: var(--case-dark-panel-raised);
+  color: #e6dfe1;
+}
+
+[data-theme='dark'] .customer-case-card footer,
+[data-theme='dark'] .case-detail-section > header,
+[data-theme='dark'] .case-assignment-panel > header,
+[data-theme='dark'] .case-notification-panel > div {
+  border-color: var(--case-dark-border-soft);
+}
+
+[data-theme='dark'] .case-detail-data-grid > div,
+[data-theme='dark'] .case-evidence-card,
+[data-theme='dark'] .case-section-empty,
+[data-theme='dark'] .case-technician-options label {
+  border-color: var(--case-dark-border-soft);
+  background: var(--case-dark-panel-raised);
+  color: var(--case-dark-text);
+}
+
+[data-theme='dark'] .case-detail-data-grid span,
+[data-theme='dark'] .case-evidence-card span,
+[data-theme='dark'] .case-technician-options small,
+[data-theme='dark'] .case-technician-count,
+[data-theme='dark'] .case-section-empty {
+  color: var(--case-dark-muted);
+}
+
+[data-theme='dark'] .case-detail-data-grid strong,
+[data-theme='dark'] .case-detail-data-grid p,
+[data-theme='dark'] .case-evidence-card strong,
+[data-theme='dark'] .case-technician-options strong,
+[data-theme='dark'] .case-assignment-panel legend,
+[data-theme='dark'] .case-assignment-date-grid label > span,
+[data-theme='dark'] .case-assignment-panel .case-field > span {
+  color: var(--case-dark-text);
+}
+
+[data-theme='dark'] .case-detail-data-grid a,
+[data-theme='dark'] .case-evidence-card a {
+  color: #ff8a9a;
+}
+
+[data-theme='dark'] .case-evidence-card__preview {
+  background: var(--case-dark-field);
+}
+
+[data-theme='dark'] .case-evidence-card__preview button {
+  color: var(--case-dark-muted);
+}
+
+[data-theme='dark'] .case-technician-options label:hover {
+  border-color: #a75c69;
+  background: #342a2d;
+}
+
+[data-theme='dark'] .case-technician-options label.is-selected {
+  border-color: #ff6679;
+  background: #45262c;
+  box-shadow: inset 3px 0 #ff6679;
+}
+
+[data-theme='dark'] .case-technician-options .material-symbols-outlined {
+  color: #ff8191;
+}
+
+[data-theme='dark'] .case-assignment-date-grid input,
+[data-theme='dark'] .case-assignment-panel .case-field textarea {
+  border-color: var(--case-dark-border);
+  background: var(--case-dark-field);
+  color: var(--case-dark-text);
+  color-scheme: dark;
+}
+
+[data-theme='dark'] .case-assignment-date-grid input:focus,
+[data-theme='dark'] .case-assignment-panel .case-field textarea:focus,
+[data-theme='dark'] .case-technician-search:focus-within,
+[data-theme='dark'] .case-search:focus-within {
+  border-color: #ff6679;
+  box-shadow: 0 0 0 3px rgba(255, 102, 121, .15);
+}
+
+[data-theme='dark'] .case-selected-summary {
+  border-color: #385b81;
+  background: #17283a;
+  color: #b8d8fb;
+}
+
+[data-theme='dark'] .case-notification-panel p {
+  border: 1px solid #765929;
+  background: #302617;
+  color: #f2d18e;
+}
+
+[data-theme='dark'] .case-success-card__summary span.has-warning,
+[data-theme='dark'] .case-evidence-result-warning {
+  border-color: #806024;
+  background: #302617;
+  color: #f3d493;
+}
+
+[data-theme='dark'] .case-evidence-result-warning > .material-symbols-outlined {
+  color: #f0bd56;
+}
+
+@media (max-width: 1180px) {
+  .customer-case-card-grid {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
+
+  .case-detail-layout {
+    grid-template-columns: minmax(0, 1.35fr) minmax(340px, .8fr);
+  }
+}
+
+@media (max-width: 980px) {
+  .case-dashboard-toolbar {
+    grid-template-columns: 1fr;
+  }
+
+  .case-detail-layout {
+    grid-template-columns: 1fr;
+  }
+
+  .case-detail-sidebar {
+    position: static;
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
+
+  .case-assignment-panel {
+    grid-column: 1 / -1;
+  }
+}
+
+@media (max-width: 720px) {
+  .customer-cases-page,
+  .customer-case-detail-page {
+    width: 100%;
+  }
+
+  .case-dashboard-heading {
+    flex-direction: column;
+  }
+
+  .case-dashboard-heading .button {
+    width: 100%;
+    justify-content: center;
+  }
+
+  .customer-case-card-grid,
+  .case-evidence-detail-grid,
+  .case-detail-sidebar {
+    grid-template-columns: 1fr;
+  }
+
+  .case-detail-heading {
+    grid-template-columns: 44px minmax(0, 1fr);
+    padding: 15px;
+  }
+
+  .case-detail-heading > .case-status-pill {
+    grid-column: 2;
+    justify-self: start;
+    margin: 0;
+  }
+
+  .case-detail-section,
+  .case-assignment-panel {
+    padding: 17px;
+  }
+
+  .case-detail-data-grid {
+    grid-template-columns: 1fr;
+  }
+
+  .case-detail-data-grid .is-wide {
+    grid-column: auto;
+  }
+}
+
+@media (max-width: 520px) {
+  .case-kpi-grid {
+    grid-template-columns: 1fr 1fr;
+  }
+
+  .case-kpi-grid article {
+    min-height: 82px;
+    padding: 12px;
+  }
+
+  .case-dashboard-toolbar {
+    padding: 9px;
+  }
+
+  .case-status-tabs button span {
+    display: inline;
+  }
+
+  .case-status-tabs button {
+    padding-inline: 10px;
+  }
+
+  .case-evidence-card {
+    grid-template-columns: 100px minmax(0, 1fr);
+  }
+
+  .case-evidence-card__preview,
+  .case-evidence-card__preview img,
+  .case-evidence-card__preview button {
+    min-height: 105px;
+  }
+
+  .case-assignment-date-grid {
+    grid-template-columns: 1fr;
+  }
+}

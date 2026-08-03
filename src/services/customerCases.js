@@ -55,6 +55,9 @@ export function customerCaseView(record = {}) {
     requesterEmail: String(record.CorreoSolicitante || record.requesterEmail || ''),
     state: normalizeCustomerCaseState(record.Estado || record.state),
     evidenceCount: Number(record.EvidenciaCount || record.evidenceCount || 0),
+    requestedEvidenceCount: Number(record.EvidenciasSolicitadas || record.requestedEvidenceCount || 0),
+    failedEvidenceCount: Number(record.EvidenciasFallidas || record.failedEvidenceCount || 0),
+    evidenceError: String(record.UltimoErrorEvidencias || record.evidenceUploadWarning || ''),
     technicianIds: Array.isArray(technicianIds) ? technicianIds.map(String) : [],
     technicianNames: String(record.TecnicoNombres || record.technicianNames || ''),
     visitDate: String(record.FechaVisita || record.visitDate || ''),
@@ -80,8 +83,22 @@ function canvasBlob(canvas, type, quality) {
   return new Promise((resolve) => canvas.toBlob(resolve, type, quality));
 }
 
+function mimeFromFile(file) {
+  const explicit = String(file?.type || '').trim().toLowerCase();
+  if (explicit.startsWith('image/')) return explicit;
+  const name = String(file?.name || '').toLowerCase();
+  if (/\.jpe?g$/.test(name)) return 'image/jpeg';
+  if (/\.png$/.test(name)) return 'image/png';
+  if (/\.webp$/.test(name)) return 'image/webp';
+  if (/\.gif$/.test(name)) return 'image/gif';
+  if (/\.heic$/.test(name)) return 'image/heic';
+  if (/\.heif$/.test(name)) return 'image/heif';
+  return '';
+}
+
 async function optimizeImage(file, maxDimension = 1600, quality = 0.82) {
-  if (!/^image\/(jpeg|png|webp)$/i.test(file.type) || typeof createImageBitmap !== 'function') return file;
+  const detectedMime = mimeFromFile(file);
+  if (!/^image\/(jpeg|png|webp)$/i.test(detectedMime) || typeof createImageBitmap !== 'function') return file;
   let bitmap;
   try {
     bitmap = await createImageBitmap(file);
@@ -91,8 +108,9 @@ async function optimizeImage(file, maxDimension = 1600, quality = 0.82) {
     canvas.width = Math.max(1, Math.round(bitmap.width * scale));
     canvas.height = Math.max(1, Math.round(bitmap.height * scale));
     const context = canvas.getContext('2d');
+    if (!context) return file;
     context.drawImage(bitmap, 0, 0, canvas.width, canvas.height);
-    const outputType = file.type === 'image/png' ? 'image/png' : 'image/jpeg';
+    const outputType = detectedMime === 'image/png' ? 'image/png' : 'image/jpeg';
     const blob = await canvasBlob(canvas, outputType, outputType === 'image/png' ? undefined : quality);
     if (!blob || blob.size >= file.size) return file;
     return new File([blob], file.name.replace(/\.[^.]+$/, outputType === 'image/png' ? '.png' : '.jpg'), {
@@ -107,13 +125,19 @@ async function optimizeImage(file, maxDimension = 1600, quality = 0.82) {
 }
 
 export async function prepareCustomerCaseEvidence(file) {
+  const sourceMime = mimeFromFile(file);
+  if (!sourceMime) throw new Error(`${file.name || 'El archivo'} no es una imagen compatible.`);
   const optimized = await optimizeImage(file);
+  const mimeType = mimeFromFile(optimized) || sourceMime;
   const dataUrl = await fileToDataUrl(optimized);
+  const comma = dataUrl.indexOf(',');
+  const base64 = comma >= 0 ? dataUrl.slice(comma + 1).replace(/[\r\n\s]/g, '') : '';
+  if (!base64) throw new Error(`No se pudieron preparar los datos de ${optimized.name || file.name}.`);
   return {
     fileName: optimized.name,
-    mimeType: optimized.type || file.type || 'image/jpeg',
+    mimeType,
     size: optimized.size,
-    base64: dataUrl.split(',')[1] || '',
+    base64,
     previewUrl: URL.createObjectURL(optimized),
   };
 }

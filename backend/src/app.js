@@ -8,6 +8,7 @@ import './services/ticket-visibility.patch.js';
 import './services/maintenance-evidence-permissions.patch.js';
 import './services/maintenance-ticket-work-time.patch.js';
 import './services/maintenance-finalization-resume.patch.js';
+import './services/customer-case-evidence-recovery.patch.js';
 import './services/customer-case-ticket-finalization.patch.js';
 import './services/metrics-assigned-hours.patch.js';
 import './services/metrics-dynamic-maintenance-counts.patch.js';
