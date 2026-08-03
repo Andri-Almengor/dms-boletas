@@ -13,6 +13,7 @@ import '../../styles/customer-cases.css';
 import '../../styles/customer-cases-polish.css';
 import '../../styles/customer-cases-evidence-status.css';
 import '../../styles/customer-cases-workflow.css';
+import '../../styles/customer-cases-dashboard-responsive.css';
 
 const STATUS_TABS = Object.freeze([
   { value: '', label: 'Todos', icon: 'inbox', countKey: 'TOTAL' },

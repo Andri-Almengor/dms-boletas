@@ -1,0 +1,137 @@
+.case-dashboard-heading__actions .button {
+  white-space: nowrap;
+}
+
+@media (min-width: 761px) {
+  .case-dashboard-heading {
+    align-items: flex-start;
+  }
+
+  .case-dashboard-heading__actions {
+    max-width: 720px;
+  }
+
+  .case-dashboard-toolbar {
+    align-items: center;
+  }
+}
+
+@media (max-width: 760px) {
+  .customer-cases-page {
+    padding-inline: 12px;
+  }
+
+  .case-dashboard-heading {
+    gap: 14px;
+  }
+
+  .case-dashboard-heading > div:first-child h1 {
+    margin-top: 3px;
+    font-size: clamp(1.65rem, 8vw, 2rem);
+    line-height: 1.05;
+  }
+
+  .case-dashboard-heading > div:first-child p {
+    margin-top: 7px;
+    font-size: .92rem;
+    line-height: 1.35;
+  }
+
+  .case-dashboard-heading__actions {
+    display: grid;
+    grid-template-columns: minmax(0, 1fr) minmax(0, 1fr);
+    width: 100%;
+    gap: 9px;
+  }
+
+  .case-dashboard-heading__actions .case-mode-switch {
+    grid-column: 1 / -1;
+  }
+
+  .case-dashboard-heading__actions > .button {
+    width: 100%;
+    min-width: 0;
+    min-height: 44px;
+    padding-inline: 8px;
+    justify-content: center;
+    font-size: .8rem;
+  }
+
+  .case-kpi-grid {
+    gap: 10px;
+  }
+
+  .case-kpi-grid article {
+    min-height: 82px;
+    padding: 13px 12px;
+  }
+
+  .case-dashboard-toolbar {
+    display: grid;
+    grid-template-columns: 1fr;
+    gap: 11px;
+    padding: 10px;
+  }
+
+  .case-status-tabs {
+    width: 100%;
+    display: grid;
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+    gap: 7px;
+    overflow: visible;
+    padding: 0;
+  }
+
+  .case-status-tabs::after {
+    display: none;
+  }
+
+  .case-status-tabs button {
+    width: 100%;
+    min-width: 0;
+    min-height: 42px;
+    justify-content: center;
+    padding: 7px 8px;
+    border-radius: 10px;
+    font-size: .79rem;
+  }
+
+  .case-status-tabs button span {
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+  }
+
+  .case-status-tabs button b {
+    flex: 0 0 auto;
+  }
+
+  .case-search {
+    width: 100%;
+    min-width: 0;
+    min-height: 46px;
+  }
+
+  .case-search input {
+    min-width: 0;
+    font-size: 16px;
+  }
+
+  .customer-case-card-grid {
+    grid-template-columns: 1fr;
+  }
+}
+
+@media (max-width: 390px) {
+  .case-dashboard-heading__actions > .button {
+    font-size: .74rem;
+  }
+
+  .case-dashboard-heading__actions > .button .material-symbols-outlined {
+    font-size: 19px;
+  }
+
+  .case-status-tabs button {
+    font-size: .73rem;
+  }
+}
