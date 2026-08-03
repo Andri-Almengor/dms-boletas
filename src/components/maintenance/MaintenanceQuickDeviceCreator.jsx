@@ -193,7 +193,14 @@ export default function MaintenanceQuickDeviceCreator({
   const pendingImageCount = Number(device.newImages?.length || 0);
 
   return (
-    <div className="maintenance-evidence-modal maintenance-quick-device-modal" role="dialog" aria-modal="true" aria-label="Nuevo dispositivo">
+    <div
+      className="maintenance-evidence-modal maintenance-quick-device-modal"
+      role="dialog"
+      aria-modal="true"
+      aria-label="Nuevo dispositivo"
+      data-no-draft
+      data-device-create-mode="fresh"
+    >
       <div className="maintenance-evidence-modal__backdrop" onClick={saving ? undefined : onClose} />
       <section className="maintenance-evidence-modal__panel maintenance-quick-device-modal__panel">
         {loading ? (
