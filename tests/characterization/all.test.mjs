@@ -6,6 +6,7 @@ import './costa-rica-date.test.mjs';
 import './data-client.test.mjs';
 import './evidence-memory.test.mjs';
 import './form-draft-lifecycle.test.mjs';
+import './indexeddb-version-recovery.test.mjs';
 import './list-pages.test.mjs';
 import './maintenance-checklist-status.test.mjs';
 import './maintenance-device-created-feedback.test.mjs';
