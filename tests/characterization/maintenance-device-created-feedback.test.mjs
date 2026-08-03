@@ -68,6 +68,8 @@ test('la ubicación recibe una tarjeta offline con edición directa', () => {
   assert.match(styles, /\.maintenance-offline-device-preview/);
   assert.match(styles, /\.maintenance-offline-device-preview__edit/);
   assert.match(feedback, /renderOfflinePreview/);
+  assert.match(feedback, /MAX_PREVIEW_ATTEMPTS/);
+  assert.match(feedback, /attempt \+ 1/);
   assert.match(feedback, /Guardado offline · pendiente de sincronizar/);
   assert.match(feedback, /Editar dispositivo y evidencias/);
   assert.match(feedback, /directDevice=1&device=/);
