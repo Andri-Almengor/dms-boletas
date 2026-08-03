@@ -11,6 +11,7 @@ import {
 } from '../../services/customerCases';
 import '../../styles/customer-cases.css';
 import '../../styles/customer-cases-polish.css';
+import '../../styles/customer-cases-evidence-status.css';
 
 function technicianView(record = {}) {
   return {
