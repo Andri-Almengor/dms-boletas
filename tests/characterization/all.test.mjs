@@ -4,6 +4,7 @@ import './catalog-resources.test.mjs';
 import './client-relations.test.mjs';
 import './costa-rica-date.test.mjs';
 import './customer-cases.test.mjs';
+import './customer-cases-appscript-test-mode.test.mjs';
 import './data-client.test.mjs';
 import './evidence-memory.test.mjs';
 import './form-draft-lifecycle.test.mjs';
