@@ -69,6 +69,19 @@ function hasActualDevice(group, detail) {
   });
 }
 
+export function navigateMaintenanceDeviceInApp(path) {
+  if (typeof window === 'undefined' || !path) return false;
+  const currentPath = `${window.location.pathname}${window.location.search}${window.location.hash}`;
+  if (currentPath === path) return true;
+
+  window.history.pushState({ ...(window.history.state || {}), dmsOfflineNavigation: true }, '', path);
+  const navigationEvent = typeof PopStateEvent === 'function'
+    ? new PopStateEvent('popstate', { state: window.history.state })
+    : new Event('popstate');
+  window.dispatchEvent(navigationEvent);
+  return true;
+}
+
 function renderOfflinePreview(group, detail, attempt = 0) {
   if (!detail.offlinePending || hasActualDevice(group, detail)) return;
   const duplicate = Array.from(group.querySelectorAll(`.${OFFLINE_PREVIEW_CLASS}`)).some((item) => (
@@ -98,15 +111,25 @@ function renderOfflinePreview(group, detail, attempt = 0) {
   name.textContent = String(detail.deviceName || 'Nuevo dispositivo');
   const meta = document.createElement('span');
   meta.textContent = [detail.category, detail.model, detail.serial].filter(Boolean).join(' · ') || 'Dispositivo del mantenimiento';
+
   const status = document.createElement('small');
   status.className = `${OFFLINE_PREVIEW_CLASS}__status`;
-  status.append(makeIcon('cloud_off'), document.createTextNode('Guardado offline · pendiente de sincronizar'));
+  const statusCopy = document.createElement('span');
+  statusCopy.className = `${OFFLINE_PREVIEW_CLASS}__status-copy`;
+  const statusTitle = document.createElement('strong');
+  statusTitle.textContent = 'Guardado offline';
+  const statusText = document.createElement('span');
+  statusText.textContent = 'Pendiente de sincronizar';
+  statusCopy.append(statusTitle, statusText);
+  status.append(makeIcon('cloud_off'), statusCopy);
   body.append(name, meta, status);
 
-  const edit = document.createElement('a');
+  const editPath = `/mantenimientos/${encodeURIComponent(detail.maintenanceId || '')}/editar?directDevice=1&device=${encodeURIComponent(detail.deviceId || '')}`;
+  const edit = document.createElement('button');
+  edit.type = 'button';
   edit.className = `${OFFLINE_PREVIEW_CLASS}__edit`;
-  edit.href = `/mantenimientos/${encodeURIComponent(detail.maintenanceId || '')}/editar?directDevice=1&device=${encodeURIComponent(detail.deviceId || '')}`;
   edit.append(makeIcon('edit'), document.createTextNode('Editar dispositivo y evidencias'));
+  edit.addEventListener('click', () => navigateMaintenanceDeviceInApp(editPath));
 
   preview.append(icon, body, edit);
   content.insertAdjacentElement('afterbegin', preview);
