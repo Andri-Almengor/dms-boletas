@@ -8,6 +8,7 @@ import {
   requestCustomerCase,
 } from '../../services/customerCases';
 import '../../styles/customer-cases.css';
+import '../../styles/customer-cases-polish.css';
 
 const DMS_LOGO_URL = 'https://res.cloudinary.com/dj73vkht6/image/upload/v1784169860/DMS_logo_2_dusshv.jpg';
 const EMPTY_FORM = Object.freeze({ reason: '', problem: '', requesterName: '', email: '', website: '' });
@@ -18,11 +19,33 @@ function releaseEvidence(items = []) {
   });
 }
 
+function possibleImage(file) {
+  if (String(file?.type || '').startsWith('image/')) return true;
+  return /\.(jpe?g|png|webp|gif|heic|heif)$/i.test(String(file?.name || ''));
+}
+
+function normalizedResult(response, selectedCount) {
+  const requested = Number(response?.requestedEvidenceCount ?? selectedCount ?? 0);
+  const loaded = Number(response?.evidenceCount || 0);
+  const reportedFailed = Number(response?.failedEvidenceCount || 0);
+  const failed = Math.max(reportedFailed, Math.max(0, requested - loaded));
+  return {
+    ...response,
+    requestedEvidenceCount: requested,
+    evidenceCount: loaded,
+    failedEvidenceCount: failed,
+    failedEvidenceNames: Array.isArray(response?.failedEvidenceNames)
+      ? response.failedEvidenceNames.filter(Boolean)
+      : [],
+  };
+}
+
 export default function PublicCustomerCasePage() {
   const { token = '' } = useParams();
   const inputRef = useRef(null);
+  const evidencesRef = useRef([]);
   const [client, setClient] = useState(null);
-  const [limits, setLimits] = useState({ maxImages: 8, maxFileMb: 6, maxTotalMb: 22 });
+  const [limits, setLimits] = useState({ maxImages: 8, maxFileMb: 6, maxTotalMb: 16 });
   const [form, setForm] = useState(EMPTY_FORM);
   const [evidences, setEvidences] = useState([]);
   const [requestId, setRequestId] = useState(() => newCustomerCaseRequestId());
@@ -33,25 +56,34 @@ export default function PublicCustomerCasePage() {
   const [error, setError] = useState('');
 
   useEffect(() => {
+    evidencesRef.current = evidences;
+  }, [evidences]);
+
+  useEffect(() => {
     let active = true;
     setLoading(true);
     requestCustomerCase(CUSTOMER_CASE_ROUTES.publicGet, { token })
       .then((data) => {
         if (!active) return;
         setClient(data.client || null);
-        setLimits(data.limits || limits);
+        setLimits((current) => ({ ...current, ...(data.limits || {}) }));
       })
-      .catch((loadError) => { if (active) setError(loadError.message || 'No se pudo abrir el formulario.'); })
-      .finally(() => { if (active) setLoading(false); });
+      .catch((loadError) => {
+        if (active) setError(loadError.message || 'No se pudo abrir el formulario.');
+      })
+      .finally(() => {
+        if (active) setLoading(false);
+      });
     return () => {
       active = false;
-      releaseEvidence(evidences);
+      releaseEvidence(evidencesRef.current);
     };
-    // El token identifica de forma estable el portal del cliente.
-    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [token]);
 
-  const totalBytes = useMemo(() => evidences.reduce((sum, item) => sum + Number(item.size || 0), 0), [evidences]);
+  const totalBytes = useMemo(
+    () => evidences.reduce((sum, item) => sum + Number(item.size || 0), 0),
+    [evidences],
+  );
   const totalMb = totalBytes / 1024 / 1024;
 
   function change(name) {
@@ -63,28 +95,42 @@ export default function PublicCustomerCasePage() {
     event.target.value = '';
     if (!selected.length) return;
     setError('');
+
     if (evidences.length + selected.length > Number(limits.maxImages || 8)) {
       setError(`Puede adjuntar un máximo de ${limits.maxImages || 8} imágenes.`);
       return;
     }
-    const invalid = selected.find((file) => !String(file.type || '').startsWith('image/'));
+
+    const invalid = selected.find((file) => !possibleImage(file));
     if (invalid) {
       setError(`${invalid.name} no es una imagen válida.`);
       return;
     }
-    const tooLarge = selected.find((file) => file.size > Number(limits.maxFileMb || 6) * 1024 * 1024);
+
+    const tooLarge = selected.find(
+      (file) => file.size > Number(limits.maxFileMb || 6) * 1024 * 1024,
+    );
     if (tooLarge) {
       setError(`${tooLarge.name} supera el límite de ${limits.maxFileMb || 6} MB.`);
       return;
     }
+
     setPreparing(true);
     try {
       const prepared = [];
-      for (const file of selected) prepared.push(await prepareCustomerCaseEvidence(file));
-      const nextTotal = totalBytes + prepared.reduce((sum, item) => sum + Number(item.size || 0), 0);
-      if (nextTotal > Number(limits.maxTotalMb || 22) * 1024 * 1024) {
+      for (const file of selected) {
+        const item = await prepareCustomerCaseEvidence(file);
+        if (!item.base64) throw new Error(`No se pudo preparar ${file.name}.`);
+        prepared.push(item);
+      }
+
+      const nextTotal = totalBytes + prepared.reduce(
+        (sum, item) => sum + Number(item.size || 0),
+        0,
+      );
+      if (nextTotal > Number(limits.maxTotalMb || 16) * 1024 * 1024) {
         releaseEvidence(prepared);
-        setError(`Las imágenes superan el límite total de ${limits.maxTotalMb || 22} MB.`);
+        setError(`Las imágenes superan el límite total de ${limits.maxTotalMb || 16} MB.`);
         return;
       }
       setEvidences((current) => [...current, ...prepared]);
@@ -107,7 +153,11 @@ export default function PublicCustomerCasePage() {
     if (!form.reason.trim()) return 'Escriba la razón de la visita.';
     if (!form.problem.trim()) return 'Describa el problema que presenta.';
     if (!form.requesterName.trim()) return 'Escriba el nombre de quien genera el caso.';
-    if (!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(form.email.trim())) return 'Escriba un correo electrónico válido.';
+    if (!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(form.email.trim())) {
+      return 'Escriba un correo electrónico válido.';
+    }
+    const incomplete = evidences.find((item) => !item.base64 || !item.mimeType || !item.fileName);
+    if (incomplete) return `La evidencia ${incomplete.fileName || 'seleccionada'} no terminó de prepararse.`;
     return '';
   }
 
@@ -118,6 +168,8 @@ export default function PublicCustomerCasePage() {
       setError(validation);
       return;
     }
+
+    const selectedCount = evidences.length;
     setSubmitting(true);
     setError('');
     try {
@@ -131,7 +183,7 @@ export default function PublicCustomerCasePage() {
         website: form.website,
         evidences: evidences.map(({ previewUrl: _previewUrl, ...item }) => item),
       });
-      setResult(response);
+      setResult(normalizedResult(response, selectedCount));
       releaseEvidence(evidences);
       setEvidences([]);
     } catch (submitError) {
@@ -149,6 +201,10 @@ export default function PublicCustomerCasePage() {
     window.scrollTo({ top: 0, behavior: 'smooth' });
   }
 
+  const evidenceRequested = Number(result?.requestedEvidenceCount || 0);
+  const evidenceLoaded = Number(result?.evidenceCount || 0);
+  const evidenceFailed = Number(result?.failedEvidenceCount || 0);
+
   return <main className="customer-case-public-page">
     <header className="customer-case-public-brand">
       <img src={DMS_LOGO_URL} alt="Digital Management Systems" />
@@ -165,9 +221,28 @@ export default function PublicCustomerCasePage() {
             <p>{result.message || 'El caso fue creado correctamente y quedó en espera de revisión.'}</p>
             <div className="case-success-card__summary">
               <span><Icon name="corporate_fare" />{client?.name}</span>
-              <span><Icon name="photo_library" />{result.evidenceCount || 0} evidencia{Number(result.evidenceCount || 0) === 1 ? '' : 's'}</span>
+              <span className={evidenceFailed ? 'has-warning' : ''}>
+                <Icon name="photo_library" />
+                {evidenceRequested
+                  ? `${evidenceLoaded} de ${evidenceRequested} evidencias cargadas`
+                  : 'Sin evidencias adjuntas'}
+              </span>
               <span><Icon name="schedule" />En espera</span>
             </div>
+
+            {evidenceFailed > 0 && <div className="case-evidence-result-warning" role="alert">
+              <Icon name="warning" />
+              <div>
+                <strong>El caso sí fue creado, pero faltaron evidencias</strong>
+                <span>
+                  {evidenceFailed} archivo{evidenceFailed === 1 ? '' : 's'} no se pudo{evidenceFailed === 1 ? '' : 'ieron'} cargar.
+                  {result.failedEvidenceNames?.length
+                    ? ` Revise: ${result.failedEvidenceNames.join(', ')}.`
+                    : ' DMS verá esta advertencia dentro del caso.'}
+                </span>
+              </div>
+            </div>}
+
             {!result.notificationSent && <div className="case-inline-warning"><Icon name="warning" /><span>El caso quedó guardado. La notificación interna será revisada por DMS.</span></div>}
             <button className="button button--primary" type="button" onClick={startAnother}><Icon name="add_circle" />Enviar otro caso</button>
           </div>
@@ -186,20 +261,35 @@ export default function PublicCustomerCasePage() {
                 <label className="case-honeypot" aria-hidden="true"><span>Sitio web</span><input value={form.website} onChange={change('website')} tabIndex="-1" autoComplete="off" /></label>
 
                 <section className="case-upload-section">
-                  <div className="case-upload-section__heading"><div><strong>Evidencias fotográficas</strong><span>Opcional · máximo {limits.maxImages} imágenes · {limits.maxFileMb} MB por archivo</span></div><span>{evidences.length}/{limits.maxImages}</span></div>
+                  <div className="case-upload-section__heading">
+                    <div><strong>Evidencias fotográficas</strong><span>Opcional · máximo {limits.maxImages} imágenes · {limits.maxFileMb} MB por archivo</span></div>
+                    <span>{evidences.length}/{limits.maxImages}</span>
+                  </div>
                   <button type="button" className="case-upload-dropzone" onClick={() => inputRef.current?.click()} disabled={preparing || evidences.length >= limits.maxImages}>
                     <Icon name={preparing ? 'progress_activity' : 'add_photo_alternate'} />
                     <strong>{preparing ? 'Preparando imágenes...' : 'Seleccionar fotografías'}</strong>
                     <span>JPG, PNG, WEBP, GIF, HEIC o HEIF</span>
                   </button>
-                  <input ref={inputRef} className="case-file-input" type="file" accept="image/*" multiple onChange={addFiles} />
-                  {evidences.length > 0 && <div className="case-evidence-preview-grid">{evidences.map((item, index) => <article key={`${item.fileName}-${index}`}><img src={item.previewUrl} alt={item.fileName} /><button type="button" onClick={() => removeEvidence(index)} aria-label={`Eliminar ${item.fileName}`}><Icon name="close" /></button><span>{item.fileName}</span></article>)}</div>}
+                  <input ref={inputRef} className="case-file-input" type="file" accept="image/jpeg,image/png,image/webp,image/gif,image/heic,image/heif,.heic,.heif" multiple onChange={addFiles} />
+                  {evidences.length > 0 && <div className="case-evidence-preview-grid">
+                    {evidences.map((item, index) => <article key={`${item.fileName}-${index}`}>
+                      <img src={item.previewUrl} alt={item.fileName} />
+                      <button type="button" onClick={() => removeEvidence(index)} aria-label={`Eliminar ${item.fileName}`}><Icon name="close" /></button>
+                      <span>{item.fileName}</span>
+                      <small><Icon name="check_circle" />Lista para enviar</small>
+                    </article>)}
+                  </div>}
                   <small className="case-upload-total">Tamaño preparado: {totalMb.toFixed(1)} de {limits.maxTotalMb} MB</small>
                 </section>
 
                 {error && <div className="case-form-error"><Icon name="error" /><span>{error}</span></div>}
                 <button className="button button--primary case-submit-button" disabled={submitting || preparing}>
-                  <Icon name={submitting ? 'progress_activity' : 'send'} />{submitting ? 'Creando caso y enviando evidencias...' : 'Enviar caso'}
+                  <Icon name={submitting ? 'progress_activity' : 'send'} />
+                  {submitting
+                    ? evidences.length
+                      ? `Creando caso y cargando ${evidences.length} evidencia${evidences.length === 1 ? '' : 's'}...`
+                      : 'Creando caso...'
+                    : 'Enviar caso'}
                 </button>
                 <p className="case-form-privacy"><Icon name="lock" />La información será utilizada únicamente para gestionar esta solicitud de soporte técnico.</p>
               </form>
