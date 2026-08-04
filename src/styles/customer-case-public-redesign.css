@@ -1,0 +1,254 @@
+.customer-case-public-page {
+  min-height: 100dvh;
+  padding: 24px 16px 38px;
+  background: #fff;
+  color: #171717;
+}
+
+.customer-case-public-brand {
+  width: min(900px, 100%);
+  margin-bottom: 16px;
+  color: #171717;
+}
+
+.customer-case-public-brand span {
+  color: #676d78;
+}
+
+.customer-case-public-shell {
+  width: min(900px, 100%);
+  border: 1px solid #e3e5e9;
+  border-radius: 22px;
+  background: #fff;
+  box-shadow: 0 18px 48px rgba(17, 24, 39, .08);
+}
+
+.customer-case-public-heading {
+  padding: 30px 34px 24px;
+  border-bottom: 1px solid #e8eaee;
+  background: #fff;
+}
+
+.customer-case-public-heading p {
+  max-width: 720px;
+}
+
+.customer-case-public-form {
+  display: grid;
+  grid-template-columns: 1fr;
+  gap: 16px;
+  padding: 24px 34px 32px;
+  background: #fff;
+}
+
+.customer-case-form-section {
+  grid-column: 1 / -1;
+  overflow: hidden;
+  border: 1px solid #e1e4e8;
+  border-radius: 16px;
+  background: #fff;
+}
+
+.customer-case-form-section > header {
+  display: flex;
+  align-items: flex-start;
+  gap: 12px;
+  padding: 15px 17px;
+  border-bottom: 1px solid #e8eaee;
+  background: #fff;
+}
+
+.customer-case-form-section > header > span {
+  width: 38px;
+  height: 38px;
+  flex: 0 0 38px;
+  display: grid;
+  place-items: center;
+  border-radius: 11px;
+  background: rgba(255, 92, 112, .11);
+  color: #d52d48;
+}
+
+.customer-case-form-section > header h2 {
+  margin: 0;
+  font-size: 1rem;
+}
+
+.customer-case-form-section > header p {
+  margin: 3px 0 0;
+  color: #6b7280;
+  font-size: .82rem;
+  line-height: 1.4;
+}
+
+.customer-case-form-section__fields {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 17px;
+  padding: 18px;
+}
+
+.customer-case-form-section.is-issue .customer-case-form-section__fields {
+  grid-template-columns: 1fr;
+}
+
+.customer-case-form-section .case-field.is-wide {
+  grid-column: 1 / -1;
+}
+
+.customer-case-public-page .case-field > span {
+  color: #262a31;
+}
+
+.customer-case-public-page .case-field input,
+.customer-case-public-page .case-field textarea {
+  border-color: #cfd4dc;
+  background: #fff;
+  color: #171717;
+}
+
+.customer-case-public-page .case-field textarea {
+  min-height: 150px;
+}
+
+.customer-case-public-page .case-upload-section {
+  padding: 18px;
+  border-color: #e1e4e8;
+  background: #fff;
+}
+
+.customer-case-public-page .case-upload-dropzone,
+.customer-case-public-page .case-evidence-preview-grid article,
+.customer-case-public-page .case-upload-section__heading > span,
+.customer-case-public-page .case-success-card__summary span {
+  background: #fff;
+}
+
+.customer-case-public-footer {
+  width: min(900px, 100%);
+}
+
+[data-theme='dark'] .customer-case-public-page {
+  background: #0f0f10;
+  color: #f7f7f8;
+}
+
+[data-theme='dark'] .customer-case-public-brand {
+  color: #f7f7f8;
+}
+
+[data-theme='dark'] .customer-case-public-brand span,
+[data-theme='dark'] .customer-case-public-heading p,
+[data-theme='dark'] .customer-case-form-section > header p,
+[data-theme='dark'] .customer-case-public-footer,
+[data-theme='dark'] .case-upload-section__heading div span,
+[data-theme='dark'] .case-upload-total,
+[data-theme='dark'] .case-form-privacy {
+  color: #aeb2ba;
+}
+
+[data-theme='dark'] .customer-case-public-shell,
+[data-theme='dark'] .customer-case-public-heading,
+[data-theme='dark'] .customer-case-public-form,
+[data-theme='dark'] .customer-case-form-section,
+[data-theme='dark'] .customer-case-form-section > header,
+[data-theme='dark'] .customer-case-public-page .case-upload-section,
+[data-theme='dark'] .customer-case-public-page .case-upload-dropzone,
+[data-theme='dark'] .customer-case-public-page .case-evidence-preview-grid article,
+[data-theme='dark'] .customer-case-public-page .case-upload-section__heading > span,
+[data-theme='dark'] .customer-case-public-page .case-success-card__summary span {
+  background: #0f0f10;
+  border-color: #343438;
+}
+
+[data-theme='dark'] .customer-case-public-page .case-field > span,
+[data-theme='dark'] .customer-case-form-section > header h2,
+[data-theme='dark'] .case-upload-section__heading strong {
+  color: #f7f7f8;
+}
+
+[data-theme='dark'] .customer-case-public-page .case-field input,
+[data-theme='dark'] .customer-case-public-page .case-field textarea {
+  border-color: #414147;
+  background: #151517;
+  color: #fff;
+}
+
+[data-theme='dark'] .customer-case-public-page .case-field input::placeholder,
+[data-theme='dark'] .customer-case-public-page .case-field textarea::placeholder,
+[data-theme='dark'] .case-upload-dropzone span {
+  color: #8f949d;
+}
+
+[data-theme='dark'] .case-upload-dropzone {
+  color: #e8e8ea;
+}
+
+@media (max-width: 720px) {
+  .customer-case-public-page {
+    padding: 14px 0 28px;
+  }
+
+  .customer-case-public-brand {
+    padding-inline: 16px;
+    margin-bottom: 12px;
+  }
+
+  .customer-case-public-shell {
+    width: 100%;
+    border-inline: 0;
+    border-radius: 0;
+    box-shadow: none;
+  }
+
+  .customer-case-public-heading {
+    padding: 24px 18px 20px;
+  }
+
+  .customer-case-public-form {
+    gap: 13px;
+    padding: 16px 14px 24px;
+  }
+
+  .customer-case-form-section {
+    border-radius: 14px;
+  }
+
+  .customer-case-form-section > header {
+    padding: 13px 14px;
+  }
+
+  .customer-case-form-section__fields,
+  .customer-case-form-section.is-issue .customer-case-form-section__fields {
+    grid-template-columns: 1fr;
+    gap: 14px;
+    padding: 14px;
+  }
+
+  .customer-case-form-section .case-field,
+  .customer-case-form-section .case-field.is-wide {
+    grid-column: 1;
+  }
+
+  .customer-case-public-page .case-field input,
+  .customer-case-public-page .case-field textarea {
+    font-size: 16px;
+  }
+
+  .customer-case-public-page .case-upload-section {
+    padding: 14px;
+    border-radius: 14px;
+  }
+
+  .case-upload-section__heading {
+    gap: 10px;
+  }
+
+  .case-evidence-preview-grid {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
+
+  .customer-case-public-footer {
+    padding-inline: 16px;
+  }
+}
