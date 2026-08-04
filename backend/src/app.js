@@ -16,6 +16,7 @@ import './services/customer-case-ticket-finalization.patch.js';
 import './services/metrics-assigned-hours.patch.js';
 import './services/metrics-dynamic-maintenance-counts.patch.js';
 import './services/password-vault-assistant.patch.js';
+import './services/password-vault-system-assistant.patch.js';
 import { env } from './config/env.js';
 import { dispatchAction } from './core/action-router.js';
 import { AppError } from './core/errors.js';
