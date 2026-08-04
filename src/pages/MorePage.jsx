@@ -64,6 +64,8 @@ export default function MorePage() {
   const canViewCatalogs = hasPermission('CATALOGOS_VER') || hasPermission('CATALOGOS_GESTIONAR') || isAdmin;
   const canViewMaintenance = ['MANTENIMIENTOS_VER','MANTENIMIENTOS_CREAR','MANTENIMIENTOS_EDITAR','MANTENIMIENTOS_GESTIONAR','BOLETAS_VER']
     .some((permission) => hasPermission(permission));
+  const canViewPasswordVault = isAdmin || ['CLIENTES_VER','BOLETAS_VER','MANTENIMIENTOS_VER','MANTENIMIENTOS_CREAR','MANTENIMIENTOS_EDITAR','MANTENIMIENTOS_GESTIONAR']
+    .some((permission) => hasPermission(permission));
 
   useEffect(() => {
     let active = true;
@@ -207,7 +209,18 @@ export default function MorePage() {
 
         <section className="menu-section more-page__section more-page__section--administration">
           <h2>Administración</h2>
-          <div className="menu-list">{isAdmin && <MenuRow to="/casos" icon="support_agent" label="Casos de clientes" note="Solicitudes, asignación de técnicos y boletas automáticas" />}{isAdmin && <MenuRow to="/metricas" icon="monitoring" label="Métricas operativas" note="Dashboards de boletas y mantenimientos" />}{isAdmin && <MenuRow to="/administracion/importar-boletas" icon="upload_file" label="Importar boletas anteriores" note="Migrar el historial XLSX de la aplicación anterior" />}{hasPermission('CLIENTES_VER') && <MenuRow to="/clientes" icon="groups" label="Clientes" note="Clientes, ubicaciones y contactos" />}{isAdmin && <MenuRow to="/encuestas" icon="rate_review" label="Encuestas de servicio" note="Preguntas, calificaciones y boletas relacionadas" />}{hasPermission('USUARIOS_VER') && <MenuRow to="/usuarios" icon="person_search" label="Usuarios" note="Accesos, roles y permisos" />}{canViewCatalogs && <MenuRow to="/catalogos" icon="inventory_2" label="Catálogos" note="Categorías, dispositivos, fabricantes y modelos" />}{canViewCatalogs && <MenuRow to="/catalogos/preguntas-mantenimiento" icon="rule" label="Preguntas de mantenimiento" note="Preguntas Sí/No relacionadas con cada tipo de dispositivo" />}<MenuRow to="/cambiar-contrasena" icon="lock_reset" label="Cambiar contraseña" note="Seguridad de la cuenta" /></div>
+          <div className="menu-list">
+            {isAdmin && <MenuRow to="/casos" icon="support_agent" label="Casos de clientes" note="Solicitudes, asignación de técnicos y boletas automáticas" />}
+            {canViewPasswordVault && <MenuRow to="/credenciales" icon="shield_lock" label="Contraseñas de clientes" note="Credenciales cifradas, organizadas por cliente y categoría" />}
+            {isAdmin && <MenuRow to="/metricas" icon="monitoring" label="Métricas operativas" note="Dashboards de boletas y mantenimientos" />}
+            {isAdmin && <MenuRow to="/administracion/importar-boletas" icon="upload_file" label="Importar boletas anteriores" note="Migrar el historial XLSX de la aplicación anterior" />}
+            {hasPermission('CLIENTES_VER') && <MenuRow to="/clientes" icon="groups" label="Clientes" note="Clientes, ubicaciones y contactos" />}
+            {isAdmin && <MenuRow to="/encuestas" icon="rate_review" label="Encuestas de servicio" note="Preguntas, calificaciones y boletas relacionadas" />}
+            {hasPermission('USUARIOS_VER') && <MenuRow to="/usuarios" icon="person_search" label="Usuarios" note="Accesos, roles y permisos" />}
+            {canViewCatalogs && <MenuRow to="/catalogos" icon="inventory_2" label="Catálogos" note="Categorías, dispositivos, fabricantes y modelos" />}
+            {canViewCatalogs && <MenuRow to="/catalogos/preguntas-mantenimiento" icon="rule" label="Preguntas de mantenimiento" note="Preguntas Sí/No relacionadas con cada tipo de dispositivo" />}
+            <MenuRow to="/cambiar-contrasena" icon="lock_reset" label="Cambiar contraseña" note="Seguridad de la cuenta" />
+          </div>
         </section>
 
         <section className="menu-section more-page__section more-page__section--session">

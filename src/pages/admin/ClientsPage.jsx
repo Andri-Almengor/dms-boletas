@@ -1,4 +1,5 @@
 import React, { useCallback, useMemo, useRef, useState } from 'react';
+import { Link } from 'react-router-dom';
 import { useAuth } from '../../AuthContext';
 import ClientCasePortalCard from '../../components/clients/ClientCasePortalCard';
 import ClientRelationsManager from '../../components/clients/ClientRelationsManager';
@@ -9,6 +10,7 @@ import { fetchClientRelations } from '../../services/clientRelations';
 import { MODULE_ROUTES, normalizeItems, pick, requestAvailable, toBoolean } from '../../services/moduleApi';
 import { isAbortError } from '../../services/requestErrors';
 import { mergePaginatedItems } from '../../utils/paginatedCollection';
+import '../../styles/password-vault.css';
 
 const PAGE_SIZE = 50;
 const EMPTY = { id: '', name: '', contacto: '', telefono: '', correo: '', direccion: '', sitioWeb: '', chatWebhook: '', status: 'ACTIVO' };
@@ -289,6 +291,7 @@ export default function ClientsPage() {
       {modalError && <div className="alert alert--error"><Icon name="error" /><span>{modalError}</span></div>}
       {editing ? <form className="stack-form" onSubmit={save}><ClientFields form={form} setForm={setForm} /><div className="form-actions"><button className="button button--secondary" type="button" onClick={() => selectedView?.id ? setEditing(false) : closeModal()} disabled={saving}>Cancelar</button><button className="button button--primary" disabled={saving}>{saving ? 'Guardando...' : 'Guardar cliente'}</button></div></form> : <div className="client-detail-layout">
         <div className="admin-detail-grid"><div><span>Estado</span><strong>{selectedView?.status || 'ACTIVO'}</strong></div><div><span>Contacto</span><strong>{selectedView?.contacto || 'Sin contacto'}</strong></div><div><span>Teléfono</span><strong>{selectedView?.telefono || 'Sin teléfono'}</strong></div><div><span>Correo</span><strong>{selectedView?.correo || 'Sin correo'}</strong></div><div className="is-wide"><span>Dirección</span><strong>{selectedView?.direccion || 'Sin dirección'}</strong></div><div><span>Sitio web</span><strong>{selectedView?.sitioWeb || 'Sin sitio web'}</strong></div><div><span>Google Chat</span><strong>{selectedView?.chatConfigured ? 'Configurado' : 'Sin configurar'}</strong></div></div>
+        {selectedView?.id && <section className="client-password-vault-link"><div><span><Icon name="shield_lock" /></span><div><strong>Contraseñas del cliente</strong><small>Consulte sistemas, usuarios y contraseñas agrupadas por categoría.</small></div></div><Link className="button button--secondary button--compact" to={`/credenciales?cliente=${encodeURIComponent(selectedView.id)}`}><Icon name="open_in_new" />Abrir credenciales</Link></section>}
         {isAdmin && selectedView?.id && <ClientCasePortalCard clientId={selectedView.id} clientName={selectedView.name} sessionToken={sessionToken} />}
         {loadingRelated ? <div className="state-card state-card--loading"><Icon name="progress_activity" />Cargando información relacionada...</div> : isAdmin && selectedView?.id ? <ClientRelationsManager clientId={selectedView.id} clientName={selectedView.name} locations={related.locations} equipment={related.equipment} contacts={related.contacts} onRefresh={() => loadRelated(selectedView.id)} /> : <ReadonlyRelations related={related} />}
       </div>}

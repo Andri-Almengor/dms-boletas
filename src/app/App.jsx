@@ -58,6 +58,7 @@ const MaintenanceDetailPage = lazyPage(() => import('../pages/maintenance/Mainte
 const MaintenanceFormPage = lazyPage(() => import('../pages/maintenance/MaintenanceFormPage'), routeStyles.maintenance);
 const MaintenanceListPage = lazyPage(() => import('../pages/maintenance/MaintenanceListPage'), routeStyles.maintenance);
 const OfflineContentPage = lazyPage(() => import('../pages/offline/OfflineContentPage'), routeStyles.offline);
+const PasswordVaultPage = lazyPage(() => import('../pages/security/PasswordVaultPage'));
 const PublicSurveyPage = lazyPage(() => import('../pages/surveys/PublicSurveyPage'), routeStyles.surveys);
 const SurveyDetailPage = lazyPage(() => import('../pages/surveys/SurveyDetailPage'), routeStyles.surveys, routeStyles.admin);
 const SurveysAdminPage = lazyPage(() => import('../pages/surveys/SurveysAdminPage'), routeStyles.surveys, routeStyles.admin);
@@ -76,6 +77,7 @@ const MAINTENANCE_CREATE = ['MANTENIMIENTOS_CREAR','MANTENIMIENTOS_GESTIONAR','B
 const MAINTENANCE_EDIT = ['MANTENIMIENTOS_EDITAR','MANTENIMIENTOS_GESTIONAR','BOLETAS_EDITAR','USUARIOS_GESTIONAR'];
 const KNOWLEDGE_CREATE = ['CONOCIMIENTO_CREAR','CONOCIMIENTO_GESTIONAR','BOLETAS_CREAR','USUARIOS_GESTIONAR'];
 const CATALOG_VIEW = ['CATALOGOS_VER','CATALOGOS_GESTIONAR','USUARIOS_GESTIONAR'];
+const PASSWORD_VAULT_VIEW = ['CLIENTES_VER','BOLETAS_VER','MANTENIMIENTOS_VER','MANTENIMIENTOS_CREAR','MANTENIMIENTOS_EDITAR','MANTENIMIENTOS_GESTIONAR','USUARIOS_GESTIONAR'];
 
 function RouteLoading() {
   return <div className="state-card state-card--loading app-route-loading" role="status"><Icon name="progress_activity" /><span>Abriendo módulo...</span></div>;
@@ -165,6 +167,7 @@ export default function App() {
           <Route path="conocimiento/:tutorialId" element={<KnowledgeDetailPage />} />
           <Route path="conocimiento/:tutorialId/editar" element={<KnowledgeEditorPage mode="edit" />} />
           <Route path="clientes" element={<PermissionRoute permission="CLIENTES_VER"><ClientsPage /></PermissionRoute>} />
+          <Route path="credenciales" element={<PermissionRoute anyOf={PASSWORD_VAULT_VIEW}><PasswordVaultPage /></PermissionRoute>} />
           <Route path="catalogos" element={<PermissionRoute anyOf={CATALOG_VIEW}><CatalogsPage /></PermissionRoute>} />
           <Route path="catalogos/preguntas-mantenimiento" element={<PermissionRoute anyOf={CATALOG_VIEW}><MaintenanceQuestionsPage /></PermissionRoute>} />
           <Route path="categorias" element={<Navigate to="/catalogos" replace />} />

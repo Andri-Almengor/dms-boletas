@@ -1,15 +1,9 @@
 import React, { createContext, useContext, useEffect, useMemo, useState } from 'react';
 import { apiRequest } from '../api';
+import { hasImpliedOperationalClientPermission } from '../config/formInlineCreationPolicy';
 
 const STORAGE_KEY = 'dms_session';
 const AuthContext = createContext(null);
-const OPERATIONAL_CLIENT_PERMISSIONS = [
-  'BOLETAS_CREAR',
-  'BOLETAS_EDITAR',
-  'MANTENIMIENTOS_CREAR',
-  'MANTENIMIENTOS_EDITAR',
-  'MANTENIMIENTOS_GESTIONAR',
-];
 
 function readStoredSession() {
   try {
@@ -47,7 +41,7 @@ function effectivePermission(permissions, code) {
   if (permissions.includes('USUARIOS_GESTIONAR')) return true;
   if (permissions.includes(code)) return true;
   if (code === 'CLIENTES_DATOS_OPERATIVOS_CREAR') {
-    return OPERATIONAL_CLIENT_PERMISSIONS.some((permission) => permissions.includes(permission));
+    return hasImpliedOperationalClientPermission(permissions);
   }
   return false;
 }
