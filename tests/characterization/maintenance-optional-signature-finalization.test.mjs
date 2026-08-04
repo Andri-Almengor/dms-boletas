@@ -50,8 +50,10 @@ test('la interfaz permite finalizar sin firma y usa una sola acción de cierre',
   const domain = source('src/services/maintenanceFinalizationDomain.js');
 
   assert.doesNotMatch(center, /signatureRegistered/);
-  assert.match(center, /La firma es opcional/);
-  assert.match(center, /las boletas y PDF se generarán sin firma/);
+  assert.doesNotMatch(center, /La firma es opcional/);
+  assert.doesNotMatch(center, /las boletas y PDF se generarán sin firma/);
+  assert.doesNotMatch(center, /Si no existe firma/);
+  assert.match(center, /statusMessage && <small>/);
   assert.match(center, /status === 'PENDIENTE'/);
   assert.match(center, /devices > 0/);
   assert.match(center, /Finalizar mantenimiento/);

@@ -45,6 +45,13 @@ export const env = Object.freeze({
   sheetsQuotaBackoffMs: optionalNumber('SHEETS_QUOTA_BACKOFF_MS', 1_200, 100),
   sheetsQuotaMaxBackoffMs: optionalNumber('SHEETS_QUOTA_MAX_BACKOFF_MS', 45_000, 1_000),
 
+  // Reintentos externos para fallos transitorios de lectura que Gaxios ya no
+  // pudo recuperar: HTTP 5xx, backendError, timeouts y cortes de transporte.
+  // Se mantienen separados de los 429 para no duplicar el backoff de cuota.
+  sheetsTransientRetries: optionalNumber('SHEETS_TRANSIENT_RETRIES', 2),
+  sheetsTransientBackoffMs: optionalNumber('SHEETS_TRANSIENT_BACKOFF_MS', 800, 100),
+  sheetsTransientMaxBackoffMs: optionalNumber('SHEETS_TRANSIENT_MAX_BACKOFF_MS', 8_000, 500),
+
   // Límite conservador del repositorio. 1.5 s deja margen frente al límite
   // de 60 escrituras por minuto de la cuenta de servicio.
   sheetsMaxConcurrentWrites: optionalNumber('SHEETS_MAX_CONCURRENT_WRITES', 1, 1),
@@ -57,6 +64,7 @@ export const env = Object.freeze({
   sheetsGlobalMaxConcurrentWrites: optionalNumber('SHEETS_GLOBAL_MAX_CONCURRENT_WRITES', 1, 1),
   sheetsGlobalWriteMinIntervalMs: optionalNumber('SHEETS_GLOBAL_WRITE_MIN_INTERVAL_MS', 1_500, 0),
   sheetsGlobalReadCacheMs: optionalNumber('SHEETS_GLOBAL_READ_CACHE_MS', 15_000, 0),
+  sheetsGlobalReadStaleMs: optionalNumber('SHEETS_GLOBAL_READ_STALE_MS', 5 * 60_000, 0),
 
   // Los límites siguientes son por solicitud, no por mantenimiento. El total
   // de dispositivos y evidencias permanece abierto; el cliente divide el
