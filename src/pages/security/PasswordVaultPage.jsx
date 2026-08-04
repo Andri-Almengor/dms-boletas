@@ -13,6 +13,7 @@ import {
   updatePasswordVaultCredential,
 } from '../../services/passwordVault';
 import '../../styles/password-vault.css';
+import '../../styles/password-vault-accessibility.css';
 
 const EMPTY_CATEGORY = Object.freeze({ id: '', name: '', description: '' });
 const EMPTY_CREDENTIAL = Object.freeze({
@@ -89,8 +90,20 @@ function CredentialForm({ form, setForm, clients, categories, busy, error, editi
   </form>;
 }
 
-function CredentialCard({ item, canManage, revealed, onReveal, onCopy, onEdit, onDelete }) {
+function CredentialCard({ item, canManage, revealed, onReveal, onCopy, onEdit, onDelete, onMessage, onError }) {
   const visible = Boolean(revealed?.password);
+
+  async function copyUsername() {
+    try {
+      await navigator.clipboard.writeText(item.username);
+      onMessage?.(`Usuario de “${item.name}” copiado.`);
+    } catch {
+      onError?.('No se pudo copiar el usuario automáticamente.');
+    }
+  }
+
+  const accessIsLink = /^https?:\/\//i.test(item.url || '');
+
   return <article className="password-vault-credential-card">
     <header>
       <span className="password-vault-credential-card__icon"><Icon name="key" /></span>
@@ -98,10 +111,10 @@ function CredentialCard({ item, canManage, revealed, onReveal, onCopy, onEdit, o
       {canManage && <div className="password-vault-credential-card__admin"><button type="button" onClick={() => onEdit(item)} title="Editar"><Icon name="edit" /></button><button type="button" onClick={() => onDelete(item)} title="Eliminar"><Icon name="delete" /></button></div>}
     </header>
     <div className="password-vault-credential-card__fields">
-      <div><span>Usuario</span><strong>{item.username}</strong><button type="button" onClick={() => navigator.clipboard.writeText(item.username)} title="Copiar usuario"><Icon name="content_copy" /></button></div>
+      <div><span>Usuario</span><strong>{item.username}</strong><button type="button" onClick={copyUsername} title="Copiar usuario"><Icon name="content_copy" /></button></div>
       <div className="is-secret"><span>Contraseña</span><code>{visible ? revealed.password : item.passwordMasked}</code><button type="button" onClick={() => onReveal(item)} title={visible ? 'Ocultar contraseña' : 'Mostrar contraseña'}><Icon name={visible ? 'visibility_off' : 'visibility'} /></button><button type="button" onClick={() => onCopy(item)} title="Copiar contraseña"><Icon name="content_copy" /></button></div>
     </div>
-    {(item.url || item.notes) && <div className="password-vault-credential-card__details">{item.url && <a href={/^https?:\/\//i.test(item.url) ? item.url : undefined} target="_blank" rel="noreferrer"><Icon name="link" /><span>{item.url}</span></a>}{item.notes && <p>{item.notes}</p>}</div>}
+    {(item.url || item.notes) && <div className="password-vault-credential-card__details">{item.url && (accessIsLink ? <a href={item.url} target="_blank" rel="noreferrer"><Icon name="link" /><span>{item.url}</span></a> : <p><Icon name="dns" /> {item.url}</p>)}{item.notes && <p>{item.notes}</p>}</div>}
     {visible && <small className="password-vault-secret-expiry"><Icon name="timer" />Se ocultará automáticamente en 30 segundos.</small>}
   </article>;
 }
@@ -373,13 +386,16 @@ export default function PasswordVaultPage() {
         const count = [...byCategory.values()].reduce((sum, rows) => sum + rows.length, 0);
         const clientOpen = Boolean(search) || openClients.has(client.id) || Boolean(clientFilter);
         return <article key={client.id} className={`password-vault-client${clientOpen ? ' is-open' : ''}`}>
-          <button type="button" className="password-vault-accordion-trigger" aria-expanded={clientOpen} onClick={() => toggleSet(setOpenClients, client.id)}><span><Icon name="corporate_fare" /><span><strong>{client.name}</strong><small>{count} credencial{count === 1 ? '' : 'es'} visible{count === 1 ? '' : 's'}</small></span></span><span className="password-vault-accordion-trigger__right">{canManage && <button type="button" onClick={(event) => { event.stopPropagation(); openNewCredential(client.id); }} title={`Agregar credencial a ${client.name}`}><Icon name="add" /></button>}<Icon name={clientOpen ? 'expand_less' : 'expand_more'} /></span></button>
+          <div className="password-vault-client__heading">
+            <button type="button" className="password-vault-accordion-trigger" aria-expanded={clientOpen} onClick={() => toggleSet(setOpenClients, client.id)}><span><Icon name="corporate_fare" /><span><strong>{client.name}</strong><small>{count} credencial{count === 1 ? '' : 'es'} visible{count === 1 ? '' : 's'}</small></span></span><Icon name={clientOpen ? 'expand_less' : 'expand_more'} /></button>
+            {canManage && <button type="button" className="password-vault-client__add" onClick={() => openNewCredential(client.id)} title={`Agregar credencial a ${client.name}`} aria-label={`Agregar credencial a ${client.name}`}><Icon name="add" /></button>}
+          </div>
           {clientOpen && <div className="password-vault-client__body">{[...byCategory.entries()].map(([categoryId, rows]) => {
             const category = data.categories.find((item) => item.id === categoryId);
             const categoryOpen = Boolean(search) || openCategories.has(`${client.id}:${categoryId}`) || byCategory.size === 1;
             return <section key={categoryId} className={`password-vault-category-group${categoryOpen ? ' is-open' : ''}`}>
               <button type="button" className="password-vault-category-trigger" aria-expanded={categoryOpen} onClick={() => toggleSet(setOpenCategories, `${client.id}:${categoryId}`)}><span><Icon name="folder" /><strong>{category?.name || rows[0]?.categoryName || 'Sin categoría'}</strong><small>{rows.length}</small></span><Icon name={categoryOpen ? 'expand_less' : 'expand_more'} /></button>
-              {categoryOpen && <div className="password-vault-credential-grid">{rows.map((item) => <CredentialCard key={item.id} item={item} canManage={canManage} revealed={revealed[item.id]} onReveal={reveal} onCopy={copyPassword} onEdit={openEditCredential} onDelete={removeCredential} />)}</div>}
+              {categoryOpen && <div className="password-vault-credential-grid">{rows.map((item) => <CredentialCard key={item.id} item={item} canManage={canManage} revealed={revealed[item.id]} onReveal={reveal} onCopy={copyPassword} onEdit={openEditCredential} onDelete={removeCredential} onMessage={setMessage} onError={setError} />)}</div>}
             </section>;
           })}{!count && <div className="password-vault-empty"><Icon name="key_off" /><strong>Sin credenciales</strong><span>{search ? 'No existen coincidencias para esta búsqueda.' : 'Este cliente todavía no tiene contraseñas guardadas.'}</span>{canManage && <button type="button" className="button button--primary button--compact" onClick={() => openNewCredential(client.id)}><Icon name="add" />Agregar credencial</button>}</div>}</div>}
         </article>;
