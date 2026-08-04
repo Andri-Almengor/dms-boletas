@@ -1,20 +1,10 @@
 import { AppError } from '../core/errors.js';
-import { env } from '../config/env.js';
-import { getNotificationEmailSettings } from './notification-email-settings.service.js';
 
 const UPLOAD_ACTION = 'customer.case.evidence.upload';
 const GET_ACTION = 'customer.case.evidence.get';
 
 function clean(value, maxLength = 12000) {
   return String(value ?? '').trim().slice(0, maxLength);
-}
-
-function uniqueEmails(value = []) {
-  const source = Array.isArray(value) ? value : String(value || '').split(/[;,\n\r]/);
-  return [...new Set(source
-    .flatMap((item) => Array.isArray(item) ? item : [item])
-    .map((item) => clean(item, 320).toLowerCase())
-    .filter((item) => /^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(item)))];
 }
 
 function appsScriptConfig() {
@@ -100,7 +90,7 @@ function casePayload(caseData = {}) {
   };
 }
 
-export async function uploadCustomerCaseEvidenceWithAppsScript({
+export function uploadCustomerCaseEvidenceWithAppsScript({
   caseData,
   evidence,
   index,
@@ -108,20 +98,10 @@ export async function uploadCustomerCaseEvidenceWithAppsScript({
 }) {
   const item = casePayload(caseData);
   const safeFingerprint = clean(fingerprint, 128);
-  const settings = await getNotificationEmailSettings();
-  const configuredViewers = item.ModoPrueba
-    ? [...settings.testRecipients, ...settings.testCc]
-    : [...settings.caseCreatedTo, ...settings.caseCreatedCc];
-  const viewerEmails = uniqueEmails([
-    ...configuredViewers,
-    clean(env.googleClientEmail, 320),
-  ]);
   return postAppsScript({
     action: UPLOAD_ACTION,
     idempotencyKey: `customer-case-evidence:${item.CasoID}:${safeFingerprint}`,
     case: item,
-    serviceAccountEmail: clean(env.googleClientEmail, 320),
-    viewerEmails,
     evidence: {
       index: Number(index || 0),
       fileName: clean(evidence.fileName, 250),

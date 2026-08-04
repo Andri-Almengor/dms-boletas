@@ -14,6 +14,7 @@ import '../../styles/customer-cases.css';
 import '../../styles/customer-cases-polish.css';
 import '../../styles/customer-cases-evidence-status.css';
 import '../../styles/customer-cases-workflow.css';
+import '../../styles/customer-case-detail-actions.css';
 
 function technicianView(record = {}) {
   return {
@@ -74,6 +75,7 @@ export default function CustomerCaseDetailPage() {
   const [loading, setLoading] = useState(true);
   const [saving, setSaving] = useState(false);
   const [resending, setResending] = useState(false);
+  const [resendingInitial, setResendingInitial] = useState(false);
   const [error, setError] = useState('');
   const [notice, setNotice] = useState('');
 
@@ -173,6 +175,26 @@ export default function CustomerCaseDetailPage() {
     }
   }
 
+  async function resendInitial() {
+    if (!item?.id || resendingInitial) return;
+    setResendingInitial(true);
+    setError('');
+    setNotice('');
+    try {
+      const response = await requestCustomerCase(CUSTOMER_CASE_ROUTES.resendInitial, {
+        caseId: item.id,
+        notificationType: 'INITIAL',
+      }, sessionToken);
+      const updated = customerCaseView(response.case || item);
+      setBundle((current) => ({ ...(current || {}), case: updated }));
+      setNotice(response.message || 'El correo inicial fue reenviado correctamente.');
+    } catch (sendError) {
+      setError(sendError.message || 'No se pudo reenviar el correo inicial.');
+    } finally {
+      setResendingInitial(false);
+    }
+  }
+
   if (loading) return <><div className="page"><div className="state-card state-card--loading"><Icon name="progress_activity" />Cargando caso...</div></div><CustomerCaseProcessingOverlay open title="Preparando el caso" message="Estamos cargando la solicitud, sus evidencias y los técnicos disponibles." steps={['Consultando la solicitud', 'Cargando evidencias', 'Preparando el detalle']} /></>;
   if (!item) return <div className="page"><div className="state-card state-card--error"><Icon name="error" /><h1>No se encontró el caso</h1><p>{error}</p><button className="button button--secondary" onClick={() => navigate('/casos')}>Volver</button></div></div>;
 
@@ -189,7 +211,7 @@ export default function CustomerCaseDetailPage() {
       <span className={`case-status-pill ${item.state === 'FINALIZADO' ? 'is-finished' : item.state === 'EN_PROCESO' ? 'is-process' : 'is-waiting'}`}><Icon name={item.state === 'FINALIZADO' ? 'task_alt' : item.state === 'EN_PROCESO' ? 'engineering' : 'schedule'} />{customerCaseStateLabel(item.state)}</span>
     </header>
 
-    {item.testMode && <section className="case-test-detail-banner"><Icon name="science" /><div><strong>Este es un caso de prueba</strong><span>El correo inicial se envió únicamente a andrick.almengor@solutionsdms.com. La boleta tendrá numeración PRUEBA y no consumirá el consecutivo real. Los técnicos que seleccione sí recibirán la asignación.</span></div></section>}
+    {item.testMode && <section className="case-test-detail-banner"><Icon name="science" /><div><strong>Este es un caso de prueba</strong><span>El correo inicial utiliza los destinatarios configurados para pruebas. La boleta tendrá numeración PRUEBA y no consumirá el consecutivo real. Los técnicos que seleccione sí recibirán la asignación.</span></div></section>}
     {error && <div className="alert alert--error"><Icon name="error" /><span>{error}</span></div>}
     {notice && <div className="alert alert--success"><Icon name="check_circle" /><span>{notice}</span></div>}
 
@@ -198,7 +220,7 @@ export default function CustomerCaseDetailPage() {
         <section className="case-detail-section"><header><span><Icon name="description" /></span><div><h2>Solicitud del cliente</h2><p>Información original enviada desde el formulario.</p></div></header><div className="case-detail-data-grid"><div><span>Cliente</span><strong>{item.client}</strong></div><div><span>Fecha de creación</span><strong>{dateDisplay(item.createdAt)}</strong></div><div><span>Generado por</span><strong>{item.requesterName}</strong></div><div><span>Correo</span><a href={`mailto:${item.requesterEmail}`}>{item.requesterEmail}</a></div><div className="is-wide"><span>Razón de la visita</span><strong>{item.reason}</strong></div><div className="is-wide"><span>Problema reportado</span><p>{item.problem}</p></div></div></section>
 
         <section className="case-detail-section"><header><span><Icon name="photo_library" /></span><div><h2>Evidencias ({evidenceRows.length}{requestedEvidenceCount > evidenceRows.length ? ` de ${requestedEvidenceCount}` : ''})</h2><p>Imágenes aportadas por el cliente.</p></div></header>
-          {failedEvidenceCount > 0 && <div className="case-evidence-admin-warning"><Icon name="warning" /><div><strong>La carga de evidencias quedó incompleta</strong><span>{failedEvidenceCount} archivo{failedEvidenceCount === 1 ? '' : 's'} no se pudo{failedEvidenceCount === 1 ? '' : 'ieron'} almacenar. {item.evidenceError || 'El caso sí fue creado y puede continuar su gestión.'}</span></div></div>}
+          {failedEvidenceCount > 0 && <div className="case-evidence-admin-warning"><Icon name="warning" /><div><strong>La carga de evidencias quedó incompleta</strong><span>{failedEvidenceCount === 1 ? 'No se pudo almacenar 1 archivo.' : `No se pudieron almacenar ${failedEvidenceCount} archivos.`} {item.evidenceError || 'El caso sí fue creado y puede continuar su gestión.'}</span></div></div>}
           {evidenceRows.length ? <div className="case-evidence-detail-grid">{evidenceRows.map((evidence) => <EvidenceCard key={evidence.CasoEvidenciaID} evidence={evidence} caseId={item.id} sessionToken={sessionToken} />)}</div> : <div className="case-section-empty"><Icon name="hide_image" /><span>{requestedEvidenceCount ? 'Las evidencias seleccionadas no lograron cargarse.' : 'El cliente no adjuntó evidencias.'}</span></div>}
         </section>
       </div>
@@ -215,7 +237,7 @@ export default function CustomerCaseDetailPage() {
 
         {item.ticketId && <section className="case-ticket-panel"><header><Icon name={item.testMode ? 'science' : 'confirmation_number'} /><div><strong>{item.testMode ? 'Boleta de prueba ' : 'Boleta #'}{item.ticketNumber || item.ticketId}</strong><span>{item.testMode ? 'No usa el consecutivo real' : 'Creada desde este caso'}</span></div></header><Link className="button button--secondary" to={`/boletas/${encodeURIComponent(item.ticketId)}`}><Icon name="open_in_new" />Abrir boleta</Link>{item.state === 'EN_PROCESO' && <button className="button button--ghost" type="button" onClick={resend} disabled={resending}><Icon name={resending ? 'progress_activity' : 'forward_to_inbox'} />{resending ? 'Reenviando...' : 'Reenviar correo a técnicos'}</button>}</section>}
 
-        <section className="case-notification-panel"><h3>Notificaciones</h3><div><span>{item.testMode ? 'Al crear (solo Andrick)' : 'Al crear'}</span><strong className={String(item.EstadoNotificacionInicial).toUpperCase() === 'ENVIADO' ? 'is-success' : 'is-warning'}>{item.EstadoNotificacionInicial || 'PENDIENTE'}</strong></div><div><span>A técnicos</span><strong className={String(item.EstadoNotificacionTecnicos).toUpperCase() === 'ENVIADO' ? 'is-success' : 'is-warning'}>{item.EstadoNotificacionTecnicos || 'PENDIENTE'}</strong></div><div><span>Evidencias</span><strong className={failedEvidenceCount ? 'is-warning' : 'is-success'}>{failedEvidenceCount ? `${evidenceRows.length}/${requestedEvidenceCount || evidenceRows.length}` : evidenceRows.length}</strong></div>{item.UltimoErrorNotificacion && <p>{item.UltimoErrorNotificacion}</p>}</section>
+        <section className="case-notification-panel"><h3>Notificaciones</h3><div><span>{item.testMode ? 'Al crear (modo prueba)' : 'Al crear'}</span><strong className={String(item.EstadoNotificacionInicial).toUpperCase() === 'ENVIADO' ? 'is-success' : 'is-warning'}>{item.EstadoNotificacionInicial || 'PENDIENTE'}</strong></div><div><span>A técnicos</span><strong className={String(item.EstadoNotificacionTecnicos).toUpperCase() === 'ENVIADO' ? 'is-success' : 'is-warning'}>{item.EstadoNotificacionTecnicos || 'PENDIENTE'}</strong></div><div><span>Evidencias</span><strong className={failedEvidenceCount ? 'is-warning' : 'is-success'}>{failedEvidenceCount ? `${evidenceRows.length}/${requestedEvidenceCount || evidenceRows.length}` : evidenceRows.length}</strong></div>{item.UltimoErrorNotificacion && <p>{item.UltimoErrorNotificacion}</p>}<button type="button" className="button button--secondary case-notification-resend" onClick={resendInitial} disabled={resendingInitial}><Icon name={resendingInitial ? 'progress_activity' : 'outgoing_mail'} />{resendingInitial ? 'Reenviando correo inicial...' : 'Reenviar correo inicial'}</button></section>
       </aside>
     </div>
   </div>;

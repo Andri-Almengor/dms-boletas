@@ -1,0 +1,40 @@
+.case-notification-panel .case-notification-resend {
+  width: 100%;
+  min-height: 42px;
+  margin-top: 12px;
+  justify-content: center;
+}
+
+.case-notification-panel > p {
+  overflow-wrap: anywhere;
+}
+
+@media (max-width: 760px) {
+  .case-detail-heading {
+    grid-template-columns: auto minmax(0, 1fr);
+    align-items: start;
+  }
+
+  .case-detail-heading > .case-status-pill {
+    grid-column: 2;
+    justify-self: start;
+    margin-top: 4px;
+  }
+
+  .case-test-detail-banner {
+    margin-top: 10px;
+  }
+
+  .case-evidence-admin-warning {
+    align-items: flex-start;
+  }
+
+  .case-evidence-admin-warning span {
+    overflow-wrap: anywhere;
+    line-height: 1.45;
+  }
+
+  .case-notification-panel .case-notification-resend {
+    min-height: 46px;
+  }
+}

@@ -152,7 +152,10 @@ function technicianPayload(technicians = []) {
   }));
 }
 
-function initialIdempotencyKey({ caseData, evidences, message, recipients }) {
+function initialIdempotencyKey({ caseData, evidences, message, recipients, forceResend }) {
+  if (forceResend) {
+    return `customer-case-created-resend:${clean(caseData.CasoID, 200)}:${uuid()}`;
+  }
   const evidenceIds = evidencePayload(evidences)
     .map((item) => `${item.CasoEvidenciaID || item.DriveFileID}|${item.TamanoBytes}`)
     .sort();
@@ -201,7 +204,12 @@ function assignmentIdempotencyKey({
   return `customer-case-assigned:${clean(caseData.CasoID, 200)}:${fingerprint}`;
 }
 
-export async function sendNewCustomerCaseEmail({ caseData, evidences, message }) {
+export async function sendNewCustomerCaseEmail({
+  caseData,
+  evidences,
+  message,
+  forceResend = false,
+}) {
   const item = casePayload(caseData);
   const settings = await getNotificationEmailSettings();
   const recipients = item.ModoPrueba
@@ -224,6 +232,7 @@ export async function sendNewCustomerCaseEmail({ caseData, evidences, message })
       evidences,
       message,
       recipients,
+      forceResend,
     }),
     case: item,
     evidences: evidencePayload(evidences),
