@@ -6,6 +6,7 @@ import {
 } from '../../services/customerCases';
 import '../../styles/customer-cases.css';
 import '../../styles/customer-cases-workflow.css';
+import '../../styles/customer-case-portal-accordion.css';
 
 async function copyText(value) {
   if (!value) return false;
@@ -13,7 +14,7 @@ async function copyText(value) {
   return true;
 }
 
-function PortalLink({ label, description, url, testMode, onMessage, onError }) {
+function PortalLink({ id, label, description, url, testMode, open, onToggle, onMessage, onError }) {
   async function copy() {
     try {
       await copyText(url);
@@ -24,22 +25,31 @@ function PortalLink({ label, description, url, testMode, onMessage, onError }) {
     }
   }
 
-  return <div className={`client-case-portal-card__link-group${testMode ? ' is-test' : ''}`}>
-    <div className="client-case-portal-card__link-label">
-      <span><Icon name={testMode ? 'science' : 'support_agent'} />{label}</span>
-      {testMode && <small>PRUEBA SEGURA</small>}
-    </div>
-    <p>{description}</p>
-    <div className="client-case-portal-card__url">
-      <input value={url || ''} readOnly aria-label={label} />
-      <button className="icon-button icon-button--outlined" type="button" onClick={copy} title="Copiar enlace"><Icon name="content_copy" /></button>
-    </div>
-    <a className="button button--secondary button--compact" href={url} target="_blank" rel="noreferrer"><Icon name="open_in_new" />Abrir {testMode ? 'prueba' : 'formulario'}</a>
-  </div>;
+  return <section className={`client-case-portal-card__link-group${testMode ? ' is-test' : ''}${open ? ' is-open' : ''}`}>
+    <button
+      type="button"
+      className="client-case-portal-card__link-toggle"
+      onClick={() => onToggle(id)}
+      aria-expanded={open}
+      aria-controls={`client-case-link-${id}`}
+    >
+      <span className="client-case-portal-card__link-icon"><Icon name={testMode ? 'science' : 'support_agent'} /></span>
+      <span className="client-case-portal-card__link-copy"><strong>{label}</strong><small>{description}</small></span>
+      <span className="client-case-portal-card__link-state">{testMode && <b>PRUEBA</b>}<Icon name={open ? 'expand_less' : 'expand_more'} /></span>
+    </button>
+    {open && <div id={`client-case-link-${id}`} className="client-case-portal-card__link-body">
+      <div className="client-case-portal-card__url">
+        <input value={url || ''} readOnly aria-label={label} onFocus={(event) => event.target.select()} />
+        <button className="icon-button icon-button--outlined" type="button" onClick={copy} title="Copiar enlace"><Icon name="content_copy" /></button>
+      </div>
+      <a className="button button--secondary button--compact" href={url} target="_blank" rel="noreferrer"><Icon name="open_in_new" />Abrir {testMode ? 'prueba' : 'formulario'}</a>
+    </div>}
+  </section>;
 }
 
 export default function ClientCasePortalCard({ clientId, clientName, sessionToken }) {
   const [portal, setPortal] = useState(null);
+  const [openLink, setOpenLink] = useState('real');
   const [loading, setLoading] = useState(true);
   const [busy, setBusy] = useState(false);
   const [message, setMessage] = useState('');
@@ -61,6 +71,10 @@ export default function ClientCasePortalCard({ clientId, clientName, sessionToke
 
   useEffect(() => { load(); }, [clientId, sessionToken]);
 
+  function toggleLink(id) {
+    setOpenLink((current) => current === id ? '' : id);
+  }
+
   async function createOrRotate(rotate = false) {
     if (rotate && !window.confirm(`¿Reemplazar los enlaces de ${clientName}? Los enlaces real y de prueba anteriores dejarán de funcionar de inmediato.`)) return;
     setBusy(true);
@@ -69,6 +83,7 @@ export default function ClientCasePortalCard({ clientId, clientName, sessionToke
     try {
       const result = await requestCustomerCase(CUSTOMER_CASE_ROUTES.clientLinkCreate, { clientId, rotate }, sessionToken);
       setPortal({ ...result, configured: true });
+      setOpenLink('real');
       setMessage(rotate ? 'Se generaron enlaces nuevos. Los anteriores fueron revocados.' : 'Los enlaces real y de prueba se generaron correctamente.');
     } catch (actionError) {
       setError(actionError.message || 'No se pudieron generar los enlaces.');
@@ -95,14 +110,14 @@ export default function ClientCasePortalCard({ clientId, clientName, sessionToke
   }
 
   return <section className="client-case-portal-card">
-    <header><span><Icon name="link" /></span><div><strong>Formularios reutilizables de casos</strong><small>El enlace real recibe casos operativos. El enlace de prueba permite validar correos y boletas sin afectar el consecutivo.</small></div></header>
+    <header><span><Icon name="link" /></span><div><strong>Formularios reutilizables de casos</strong><small>Abra el enlace que necesita. Los demás permanecen compactos.</small></div></header>
 
     {loading
       ? <p className="client-case-portal-card__message"><Icon name="progress_activity" /> Consultando enlaces...</p>
       : portal?.configured ? <>
         <div className="client-case-portal-card__links">
-          <PortalLink label="Enlace real del cliente" description="Notifica a coordinación, crea casos CAS y genera boletas con el consecutivo normal." url={portal.url} onMessage={setMessage} onError={setError} />
-          {portal.testUrl && <PortalLink label="Enlace exclusivo de prueba" description="El caso inicial se envía solo a Andrick. La boleta usa PRUEBA y no consume el consecutivo real. Los técnicos seleccionados sí reciben el correo." url={portal.testUrl} testMode onMessage={setMessage} onError={setError} />}
+          <PortalLink id="real" label="Enlace real del cliente" description="Notifica a coordinación y genera boletas con el consecutivo normal." url={portal.url} open={openLink === 'real'} onToggle={toggleLink} onMessage={setMessage} onError={setError} />
+          {portal.testUrl && <PortalLink id="test" label="Enlace exclusivo de prueba" description="Notifica a los destinatarios configurados para pruebas y no consume el consecutivo real." url={portal.testUrl} testMode open={openLink === 'test'} onToggle={toggleLink} onMessage={setMessage} onError={setError} />}
         </div>
         <div className="client-case-portal-card__actions">
           <button className="button button--secondary button--compact" type="button" onClick={toggle} disabled={busy}><Icon name={portal.active ? 'pause_circle' : 'play_circle'} />{portal.active ? 'Pausar enlaces' : 'Reactivar enlaces'}</button>
