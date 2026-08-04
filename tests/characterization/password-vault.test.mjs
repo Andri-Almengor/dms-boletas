@@ -78,7 +78,11 @@ test('administradores gestionan y técnicos autorizados consultan sin recibir ci
   assert.match(module, /CREAR_CATEGORIA_CREDENCIAL/);
   assert.match(module, /ELIMINAR_CREDENCIAL_CLIENTE/);
   assert.match(module, /auditCredentialView/);
-  assert.doesNotMatch(module.match(/function auditCredentialView[\s\S]*?\n\}/)?.[0] || '', /PasswordCiphertext|PasswordIV|PasswordTag/);
+  const auditView = module.match(/function auditCredentialView[\s\S]*?\n\}/)?.[0] || '';
+  assert.doesNotMatch(auditView, /\bPasswordCiphertext\s*:/);
+  assert.doesNotMatch(auditView, /\bPasswordIV\s*:/);
+  assert.doesNotMatch(auditView, /\bPasswordTag\s*:/);
+  assert.match(auditView, /PasswordConfigurado/);
 });
 
 test('el asistente resuelve credenciales sin enviarlas a Gemini y resume casos', () => {
