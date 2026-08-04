@@ -2,7 +2,7 @@ export const MAINTENANCE_FINALIZATION_PRIORITY = 90;
 
 export const MAINTENANCE_FINALIZATION_PHASES = Object.freeze([
   { id: 'ESPERANDO_SINCRONIZACION', label: 'Esperando sincronización', progress: 10 },
-  { id: 'VALIDANDO', label: 'Validando mantenimiento y firma', progress: 25 },
+  { id: 'VALIDANDO', label: 'Validando mantenimiento', progress: 25 },
   { id: 'GENERANDO_BOLETAS', label: 'Generando boletas automáticas', progress: 50 },
   { id: 'ENTREGANDO', label: 'Organizando evidencias y enviando', progress: 75 },
   { id: 'COMPLETANDO', label: 'Confirmando la finalización', progress: 90 },
