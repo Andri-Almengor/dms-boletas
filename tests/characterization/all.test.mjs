@@ -6,6 +6,7 @@ import './costa-rica-date.test.mjs';
 import './customer-cases.test.mjs';
 import './customer-cases-appscript-test-mode.test.mjs';
 import './customer-cases-drive-email-hotfix.test.mjs';
+import './customer-cases-accordion-sequence.test.mjs';
 import './data-client.test.mjs';
 import './evidence-memory.test.mjs';
 import './form-draft-lifecycle.test.mjs';
