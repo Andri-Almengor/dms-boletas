@@ -1,5 +1,10 @@
 import { google } from 'googleapis';
 import { env } from '../config/env.js';
+import { AppError } from '../core/errors.js';
+import {
+  isSheetsTransientError,
+  withSheetsTransientRetry,
+} from './sheets-transient-retry.js';
 
 const auth = new google.auth.JWT({
   email: env.googleClientEmail,
@@ -90,8 +95,11 @@ const readInflight = new Map();
 const readCache = new Map();
 const stats = {
   readCacheHits: 0,
+  readStaleHits: 0,
   readInflightHits: 0,
   readApiCalls: 0,
+  readTransientRetries: 0,
+  readTransientFailures: 0,
   writeApiCalls: 0,
 };
 
@@ -108,19 +116,22 @@ function stableKey(method, args) {
 function clearExpiredReadCache() {
   const now = Date.now();
   for (const [key, entry] of readCache.entries()) {
-    if (entry.expiresAt <= now) readCache.delete(key);
+    if (entry.staleUntil <= now) readCache.delete(key);
   }
 }
 
 function wrapRead(method, fn) {
   return async (args = {}) => {
     const key = stableKey(method, args);
+    const now = Date.now();
     const cached = readCache.get(key);
-    if (cached && cached.expiresAt > Date.now()) {
+    if (cached && cached.expiresAt > now) {
       stats.readCacheHits += 1;
       return cached.value;
     }
-    if (cached) readCache.delete(key);
+
+    const stale = cached && cached.staleUntil > now ? cached : null;
+    if (cached && !stale) readCache.delete(key);
     if (readInflight.has(key)) {
       stats.readInflightHits += 1;
       return readInflight.get(key);
@@ -128,12 +139,47 @@ function wrapRead(method, fn) {
 
     const request = readGate.run(async () => {
       stats.readApiCalls += 1;
-      const value = await fn(args);
-      if (env.sheetsGlobalReadCacheMs > 0) {
-        readCache.set(key, { value, expiresAt: Date.now() + env.sheetsGlobalReadCacheMs });
-        if (readCache.size > 500) clearExpiredReadCache();
+      try {
+        const value = await withSheetsTransientRetry(
+          () => fn(args),
+          {
+            retries: env.sheetsTransientRetries,
+            baseMs: env.sheetsTransientBackoffMs,
+            maxMs: env.sheetsTransientMaxBackoffMs,
+            onRetry: () => { stats.readTransientRetries += 1; },
+          },
+        );
+
+        if (env.sheetsGlobalReadCacheMs > 0 || env.sheetsGlobalReadStaleMs > 0) {
+          const storedAt = Date.now();
+          const expiresAt = storedAt + env.sheetsGlobalReadCacheMs;
+          readCache.set(key, {
+            value,
+            expiresAt,
+            staleUntil: expiresAt + env.sheetsGlobalReadStaleMs,
+          });
+          if (readCache.size > 500) clearExpiredReadCache();
+        }
+        return value;
+      } catch (error) {
+        if (stale && stale.staleUntil > Date.now()) {
+          stats.readStaleHits += 1;
+          return stale.value;
+        }
+        if (isSheetsTransientError(error)) {
+          stats.readTransientFailures += 1;
+          throw new AppError(
+            'SHEETS_TEMPORARILY_UNAVAILABLE',
+            'Google Sheets presentó un error temporal. La operación puede reintentarse sin perder la información guardada.',
+            503,
+            {
+              retryAfterSeconds: Math.max(2, Math.ceil(env.sheetsTransientMaxBackoffMs / 1000)),
+              googleStatus: Number(error?.response?.status || error?.status || error?.code || 0) || 0,
+            },
+          );
+        }
+        throw error;
       }
-      return value;
     }).finally(() => readInflight.delete(key));
 
     readInflight.set(key, request);
