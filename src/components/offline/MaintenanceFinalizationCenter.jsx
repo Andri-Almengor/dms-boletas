@@ -17,6 +17,10 @@ function currentMaintenanceId(pathname) {
   return decodeURIComponent(match[1]);
 }
 
+function isMaintenanceDetailRoute(pathname) {
+  return /^\/mantenimientos\/[^/]+\/?$/.test(pathname);
+}
+
 function clean(value) {
   return String(value ?? '').trim();
 }
@@ -25,6 +29,7 @@ export default function MaintenanceFinalizationCenter() {
   const { pathname } = useLocation();
   const { sessionToken, hasPermission } = useAuth();
   const maintenanceId = useMemo(() => currentMaintenanceId(pathname), [pathname]);
+  const detailRoute = useMemo(() => isMaintenanceDetailRoute(pathname), [pathname]);
   const canFinalize = hasPermission('USUARIOS_GESTIONAR');
   const [online, setOnline] = useState(() => navigator.onLine !== false);
   const [row, setRow] = useState(null);
@@ -95,7 +100,6 @@ export default function MaintenanceFinalizationCenter() {
   }, [maintenanceId, online, refresh, view.active, view.completed]);
 
   const status = clean(pick(row, ['Estado'], '')).toUpperCase();
-  const signatureRegistered = Boolean(pick(row, ['FirmaArchivoID', 'FirmaURL', 'Firma']));
   const devices = Number(pick(row, ['DispositivosRegistrados'], 0) || 0);
   const hasUnsynchronizedChanges = (queueState.operations || []).some((item) => item.kind !== 'maintenanceFinalize');
   const deferredNeeded = !online
@@ -103,12 +107,11 @@ export default function MaintenanceFinalizationCenter() {
     || Boolean(pick(row, ['OfflinePendiente'], false));
   const canRequest = Boolean(
     maintenanceId
+    && detailRoute
     && canFinalize
     && row
     && status === 'PENDIENTE'
-    && signatureRegistered
     && devices > 0
-    && deferredNeeded
     && !view.active,
   );
 
@@ -116,7 +119,9 @@ export default function MaintenanceFinalizationCenter() {
     if (!maintenanceId || working) return;
     const prompt = retry
       ? '¿Reintentar la finalización desde el último paso confirmado?'
-      : '¿Guardar la finalización para ejecutarla después de sincronizar todos los cambios?';
+      : deferredNeeded
+        ? '¿Guardar la finalización para ejecutarla después de sincronizar todos los cambios? La firma del cliente es opcional.'
+        : '¿Finalizar este mantenimiento? Si no existe firma, las boletas y PDF se generarán sin firma del cliente.';
     if (!window.confirm(prompt)) return;
     setWorking(true);
     setMessage('');
@@ -141,14 +146,16 @@ export default function MaintenanceFinalizationCenter() {
       <div className="maintenance-finalization-center__heading">
         <span className="maintenance-finalization-center__icon"><Icon name={view.canRetry ? 'error' : view.completed ? 'task_alt' : 'pending_actions'} /></span>
         <div>
-          <strong>{view.active ? view.label : 'Finalización disponible sin conexión'}</strong>
+          <strong>{view.active ? view.label : deferredNeeded ? 'Finalización disponible sin conexión' : 'Finalización disponible'}</strong>
           <small>{message || (view.error
             ? view.error
             : view.blocked
               ? 'Resuelva primero el conflicto de sincronización.'
               : view.active
                 ? 'El proceso continuará desde el último paso confirmado.'
-                : 'Puede dejarla programada; se ejecutará cuando la información esté sincronizada.')}</small>
+                : deferredNeeded
+                  ? 'Puede dejarla programada; se ejecutará cuando la información esté sincronizada. La firma es opcional.'
+                  : 'La firma es opcional. Si no está registrada, las boletas y PDF se generarán sin firma.')}</small>
         </div>
       </div>
 
@@ -161,7 +168,8 @@ export default function MaintenanceFinalizationCenter() {
       <div className="maintenance-finalization-center__actions">
         {canRequest && (
           <button type="button" onClick={() => finalize()} disabled={working}>
-            <Icon name="schedule_send" />{working ? 'Guardando...' : 'Finalizar al sincronizar'}
+            <Icon name={deferredNeeded ? 'schedule_send' : 'task_alt'} />
+            {working ? 'Procesando...' : deferredNeeded ? 'Finalizar al sincronizar' : 'Finalizar mantenimiento'}
           </button>
         )}
         {view.canRetry && (

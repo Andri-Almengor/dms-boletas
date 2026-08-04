@@ -1,9 +1,9 @@
+import './maintenance-optional-signature.patch.js';
 import { nowIso, pick } from '../core/utils.js';
 import { findById, updateRow } from '../infra/sheets.repository.js';
 import { maintenanceAutomationHandlers } from '../modules/maintenance-automation.module.js';
 import { maintenanceHandlers } from '../modules/maintenance.module.js';
 import { maintenanceReportAccessHandlers } from '../modules/maintenance-report-access.module.js';
-import { maintenanceHasSignature } from './maintenance-signature-request.service.js';
 import {
   markMaintenanceFinalizationStep,
   runResumableMaintenanceFinalization,
@@ -92,11 +92,9 @@ if (!maintenanceAutomationHandlers[INSTALL_FLAG]) {
   maintenanceAutomationHandlers.finalize = async (ctx) => {
     if (testMode(ctx)) return finalizeMaintenance(ctx);
     const id = maintenanceId(ctx);
-    return runResumableMaintenanceFinalization(ctx, id, async (tracker, initialRow) => {
+    return runResumableMaintenanceFinalization(ctx, id, async (tracker) => {
       await tracker.mark('VALIDANDO');
-      if (maintenanceHasSignature(initialRow)) {
-        await tracker.mark('GENERANDO_BOLETAS');
-      }
+      await tracker.mark('GENERANDO_BOLETAS');
       const trackedContext = { ...ctx, __maintenanceFinalizationTracker: tracker };
       const result = await finalizeMaintenance(trackedContext);
       return {
