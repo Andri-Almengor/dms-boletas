@@ -92,7 +92,8 @@ test('el asistente resuelve credenciales sin enviarlas a Gemini y resume casos',
   assert.match(patch, /newToday/);
   assert.match(patch, /sensitive:\s*rows\.length > 0/);
   assert.match(patch, /secretsSentToGemini:\s*false/);
-  assert.doesNotMatch(patch, /gemini/i);
+  assert.doesNotMatch(patch, /from ['"].*gemini.*['"]/i);
+  assert.doesNotMatch(patch, /generateContent|generateInitialCaseEmail|generateAssignedCaseEmail/);
 });
 
 test('la interfaz es desplegable, oculta secretos y separa acciones de los botones', () => {
