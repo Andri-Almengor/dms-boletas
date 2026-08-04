@@ -114,14 +114,23 @@ export default function MaintenanceFinalizationCenter() {
     && devices > 0
     && !view.active,
   );
+  const statusMessage = message || (view.error
+    ? view.error
+    : view.blocked
+      ? 'Resuelva primero el conflicto de sincronización.'
+      : view.active
+        ? 'El proceso continuará desde el último paso confirmado.'
+        : deferredNeeded
+          ? 'Puede dejar la finalización programada para ejecutarla al sincronizar.'
+          : '');
 
   async function finalize({ retry = false } = {}) {
     if (!maintenanceId || working) return;
     const prompt = retry
       ? '¿Reintentar la finalización desde el último paso confirmado?'
       : deferredNeeded
-        ? '¿Guardar la finalización para ejecutarla después de sincronizar todos los cambios? La firma del cliente es opcional.'
-        : '¿Finalizar este mantenimiento? Si no existe firma, las boletas y PDF se generarán sin firma del cliente.';
+        ? '¿Guardar la finalización para ejecutarla después de sincronizar todos los cambios?'
+        : '¿Finalizar este mantenimiento?';
     if (!window.confirm(prompt)) return;
     setWorking(true);
     setMessage('');
@@ -147,15 +156,7 @@ export default function MaintenanceFinalizationCenter() {
         <span className="maintenance-finalization-center__icon"><Icon name={view.canRetry ? 'error' : view.completed ? 'task_alt' : 'pending_actions'} /></span>
         <div>
           <strong>{view.active ? view.label : deferredNeeded ? 'Finalización disponible sin conexión' : 'Finalización disponible'}</strong>
-          <small>{message || (view.error
-            ? view.error
-            : view.blocked
-              ? 'Resuelva primero el conflicto de sincronización.'
-              : view.active
-                ? 'El proceso continuará desde el último paso confirmado.'
-                : deferredNeeded
-                  ? 'Puede dejarla programada; se ejecutará cuando la información esté sincronizada. La firma es opcional.'
-                  : 'La firma es opcional. Si no está registrada, las boletas y PDF se generarán sin firma.')}</small>
+          {statusMessage && <small>{statusMessage}</small>}
         </div>
       </div>
 
