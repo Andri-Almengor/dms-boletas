@@ -7,6 +7,7 @@ import {
   saveNotificationEmailSettings,
 } from '../../services/notificationEmailSettings';
 import '../../styles/notification-email-settings.css';
+import '../../styles/notification-email-settings-accordion.css';
 
 const EMPTY = Object.freeze({
   caseCreatedTo: '',
@@ -22,7 +23,7 @@ const GROUPS = Object.freeze([
     id: 'cases',
     icon: 'support_agent',
     title: 'Casos de clientes',
-    note: 'Controla el correo inicial y las copias cuando se asignan técnicos.',
+    note: 'Correo inicial del caso y copias al asignar técnicos.',
     fields: [
       {
         name: 'caseCreatedTo',
@@ -38,7 +39,7 @@ const GROUPS = Object.freeze([
       {
         name: 'caseAssignedCc',
         label: 'Copias al asignar técnicos',
-        help: 'Los técnicos seleccionados continúan como destinatarios principales; estos correos reciben una copia.',
+        help: 'Los técnicos continúan como destinatarios principales; estos correos reciben una copia.',
       },
     ],
   },
@@ -46,7 +47,7 @@ const GROUPS = Object.freeze([
     id: 'tickets',
     icon: 'description',
     title: 'Boletas',
-    note: 'Estas copias se agregan a los correos reales de finalización y reportes firmados.',
+    note: 'Copias de finalización y reportes firmados.',
     fields: [
       {
         name: 'ticketDefaultCc',
@@ -59,13 +60,13 @@ const GROUPS = Object.freeze([
     id: 'tests',
     icon: 'science',
     title: 'Modo de prueba',
-    note: 'Permite rotar la cuenta que recibe las pruebas sin modificar el código ni las variables del servidor.',
+    note: 'Destinatarios de casos y boletas de prueba.',
     fields: [
       {
         name: 'testRecipients',
         label: 'Destinatarios principales de prueba',
         required: true,
-        help: 'Reciben casos de prueba y pruebas de correo de boletas. En asignaciones de prueba reciben una copia junto con los técnicos elegidos.',
+        help: 'Reciben casos de prueba y pruebas de correo de boletas. En asignaciones reciben una copia junto con los técnicos elegidos.',
       },
       {
         name: 'testCc',
@@ -98,7 +99,7 @@ function Field({ definition, value, onChange }) {
       placeholder="correo1@empresa.com&#10;correo2@empresa.com"
     />
     <span className="notification-email-field__footer">
-      <small>Separe los correos con Enter, coma o punto y coma.</small>
+      <small>Separe con Enter, coma o punto y coma.</small>
       <b>{emails.length} correo{emails.length === 1 ? '' : 's'}</b>
     </span>
     {invalid.length > 0 && <span className="notification-email-field__error"><Icon name="error" />Revise: {invalid.join(', ')}</span>}
@@ -116,8 +117,17 @@ function normalizedPayload(form) {
   return Object.fromEntries(Object.keys(EMPTY).map((key) => [key, parseEmailListText(form[key])]));
 }
 
+function groupCount(group, form) {
+  return group.fields.reduce((total, field) => total + parseEmailListText(form[field.name]).length, 0);
+}
+
+function groupForField(name) {
+  return GROUPS.find((group) => group.fields.some((field) => field.name === name))?.id || 'cases';
+}
+
 export default function NotificationEmailSettingsPanel({ open, onClose, sessionToken }) {
   const [form, setForm] = useState(EMPTY);
+  const [openGroup, setOpenGroup] = useState('cases');
   const [loading, setLoading] = useState(false);
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState('');
@@ -127,6 +137,7 @@ export default function NotificationEmailSettingsPanel({ open, onClose, sessionT
     if (!open) return undefined;
     let active = true;
     const controller = new AbortController();
+    setOpenGroup('cases');
     setLoading(true);
     setError('');
     setMessage('');
@@ -169,16 +180,20 @@ export default function NotificationEmailSettingsPanel({ open, onClose, sessionT
   async function save(event) {
     event.preventDefault();
     const payload = normalizedPayload(form);
-    const invalid = Object.values(payload).flat().filter((email) => !validEmail(email));
-    if (invalid.length) {
+    const invalidField = Object.keys(payload).find((name) => payload[name].some((email) => !validEmail(email)));
+    if (invalidField) {
+      const invalid = payload[invalidField].filter((email) => !validEmail(email));
+      setOpenGroup(groupForField(invalidField));
       setError(`Revise los correos inválidos: ${invalid.slice(0, 5).join(', ')}.`);
       return;
     }
     if (!payload.caseCreatedTo.length) {
+      setOpenGroup('cases');
       setError('Debe configurar al menos un destinatario principal para los casos nuevos.');
       return;
     }
     if (!payload.testRecipients.length) {
+      setOpenGroup('tests');
       setError('Debe configurar al menos un destinatario para las pruebas.');
       return;
     }
@@ -207,7 +222,7 @@ export default function NotificationEmailSettingsPanel({ open, onClose, sessionT
           <div>
             <small>Administración</small>
             <h2 id="notification-email-settings-title">Destinatarios y copias</h2>
-            <p>Cambie los correos sin modificar el código ni volver a desplegar el backend.</p>
+            <p>Abra únicamente la sección que necesita editar.</p>
           </div>
         </div>
         <button type="button" className="notification-email-settings-panel__close" onClick={onClose} disabled={saving} aria-label="Cerrar"><Icon name="close" /></button>
@@ -216,12 +231,26 @@ export default function NotificationEmailSettingsPanel({ open, onClose, sessionT
       {loading ? <div className="notification-email-settings-state"><Icon name="progress_activity" /><strong>Cargando configuración...</strong><span>Consultando los valores guardados en la hoja Configuracion.</span></div>
         : <form onSubmit={save}>
           <div className="notification-email-settings-groups">
-            {GROUPS.map((group) => <section key={group.id} className={`notification-email-settings-group is-${group.id}`}>
-              <div className="notification-email-settings-group__heading"><span><Icon name={group.icon} /></span><div><h3>{group.title}</h3><p>{group.note}</p></div></div>
-              <div className="notification-email-settings-group__fields">
-                {group.fields.map((field) => <Field key={field.name} definition={field} value={form[field.name]} onChange={change} />)}
-              </div>
-            </section>)}
+            {GROUPS.map((group) => {
+              const expanded = openGroup === group.id;
+              const count = groupCount(group, form);
+              return <section key={group.id} className={`notification-email-settings-group is-${group.id}${expanded ? ' is-open' : ''}`}>
+                <button
+                  type="button"
+                  className="notification-email-settings-group__toggle"
+                  onClick={() => setOpenGroup((current) => current === group.id ? '' : group.id)}
+                  aria-expanded={expanded}
+                  aria-controls={`notification-email-group-${group.id}`}
+                >
+                  <span className="notification-email-settings-group__icon"><Icon name={group.icon} /></span>
+                  <span className="notification-email-settings-group__copy"><strong>{group.title}</strong><small>{group.note}</small></span>
+                  <span className="notification-email-settings-group__summary"><b>{count}</b><small>correo{count === 1 ? '' : 's'}</small><Icon name={expanded ? 'expand_less' : 'expand_more'} /></span>
+                </button>
+                {expanded && <div id={`notification-email-group-${group.id}`} className="notification-email-settings-group__fields">
+                  {group.fields.map((field) => <Field key={field.name} definition={field} value={form[field.name]} onChange={change} />)}
+                </div>}
+              </section>;
+            })}
           </div>
 
           {error && <div className="notification-email-settings-alert is-error"><Icon name="error" /><span>{error}</span></div>}
