@@ -15,9 +15,14 @@ import './services/customer-case-initial-email-retry.patch.js';
 import './services/customer-case-ticket-finalization.patch.js';
 import './services/metrics-assigned-hours.patch.js';
 import './services/metrics-dynamic-maintenance-counts.patch.js';
+import './services/password-vault-assistant.patch.js';
 import { env } from './config/env.js';
 import { dispatchAction } from './core/action-router.js';
 import { AppError } from './core/errors.js';
+import {
+  dispatchPasswordVaultAction,
+  isPasswordVaultRoute,
+} from './modules/password-vault.module.js';
 import { runWithActionConcurrency } from './services/action-concurrency.service.js';
 import {
   actionEnvelopeMiddleware,
@@ -86,7 +91,10 @@ app.post('/api/action', actionEnvelopeMiddleware, actionRateLimitMiddleware, asy
     res.setHeader('Cache-Control', 'no-store');
     const envelope = req.actionEnvelope;
     const requestOrigin = req.get('origin') || `${req.protocol}://${req.get('host')}`;
-    const data = await runWithActionConcurrency(envelope.route, () => dispatchAction({
+    const action = isPasswordVaultRoute(envelope.route)
+      ? dispatchPasswordVaultAction
+      : dispatchAction;
+    const data = await runWithActionConcurrency(envelope.route, () => action({
       route: envelope.route,
       payload: envelope.payload,
       sessionToken: envelope.sessionToken || req.headers.authorization?.replace(/^Bearer\s+/i, '') || '',
