@@ -11,6 +11,7 @@ import {
 import '../../styles/customer-cases.css';
 import '../../styles/customer-cases-polish.css';
 import '../../styles/customer-cases-workflow.css';
+import '../../styles/customer-case-public-redesign.css';
 
 const DMS_LOGO_URL = 'https://res.cloudinary.com/dj73vkht6/image/upload/v1784169860/DMS_logo_2_dusshv.jpg';
 const EMPTY_FORM = Object.freeze({ reason: '', problem: '', requesterName: '', email: '', website: '' });
@@ -35,6 +36,13 @@ function normalizedResult(response, selectedCount) {
       ? response.failedEvidenceNames.filter(Boolean)
       : [],
   };
+}
+
+function FormSection({ icon, title, note, children, className = '' }) {
+  return <section className={`customer-case-form-section${className ? ` ${className}` : ''}`}>
+    <header><span><Icon name={icon} /></span><div><h2>{title}</h2><p>{note}</p></div></header>
+    <div className="customer-case-form-section__fields">{children}</div>
+  </section>;
 }
 
 export default function PublicCustomerCasePage() {
@@ -222,17 +230,23 @@ export default function PublicCustomerCasePage() {
               <span className="eyebrow">{client?.name || 'Cliente DMS'}</span>
               <h1>{testMode ? 'Probar creación de caso' : 'Reporte un caso técnico'}</h1>
               <p>{testMode
-                ? 'Este formulario crea un caso y una boleta de prueba. El correo inicial llegará únicamente a Andrick; los técnicos seleccionados sí recibirán la asignación.'
-                : 'Describa la situación y adjunte fotografías que ayuden al equipo técnico a prepararse para la visita.'}</p>
+                ? 'Este formulario crea un caso y una boleta de prueba. El correo inicial llegará a los destinatarios configurados para pruebas; los técnicos seleccionados recibirán la asignación.'
+                : 'Comparta la información necesaria para que el equipo técnico pueda revisar y preparar la atención.'}</p>
             </div>
 
-            {testMode && <div className="case-test-banner"><Icon name="science" /><div><strong>Modo de prueba activo</strong><span>Este envío no notificará a coordinación y no utilizará el consecutivo real de boletas.</span></div></div>}
+            {testMode && <div className="case-test-banner"><Icon name="science" /><div><strong>Modo de prueba activo</strong><span>Este envío utiliza los destinatarios de prueba y no consume el consecutivo real de boletas.</span></div></div>}
 
             <form className="customer-case-public-form" onSubmit={submit} noValidate>
-              <label className="case-field is-wide"><span>Razón de la visita *</span><input value={form.reason} onChange={change('reason')} maxLength="2000" placeholder="Ejemplo: Cámara sin visualización en recepción" autoComplete="off" /></label>
-              <label className="case-field is-wide"><span>Problema que presenta *</span><textarea value={form.problem} onChange={change('problem')} maxLength="8000" rows="6" placeholder="Explique qué sucede, desde cuándo y en qué lugar se presenta." /></label>
-              <label className="case-field"><span>Nombre de quien genera el caso *</span><input value={form.requesterName} onChange={change('requesterName')} maxLength="250" autoComplete="name" placeholder="Nombre completo" /></label>
-              <label className="case-field"><span>Correo electrónico *</span><input value={form.email} onChange={change('email')} type="email" maxLength="320" autoComplete="email" placeholder="nombre@empresa.com" /></label>
+              <FormSection icon="build_circle" title="Detalle del problema" note="Indique claramente qué sucede y dónde se presenta." className="is-issue">
+                <label className="case-field is-wide"><span>Razón de la visita *</span><input value={form.reason} onChange={change('reason')} maxLength="2000" placeholder="Ejemplo: Cámara sin visualización en recepción" autoComplete="off" /></label>
+                <label className="case-field is-wide"><span>Problema que presenta *</span><textarea value={form.problem} onChange={change('problem')} maxLength="8000" rows="6" placeholder="Explique qué sucede, desde cuándo y en qué lugar se presenta." /></label>
+              </FormSection>
+
+              <FormSection icon="contact_mail" title="Datos de contacto" note="Estos datos permiten identificar a quien reporta el caso." className="is-contact">
+                <label className="case-field"><span>Nombre de quien genera el caso *</span><input value={form.requesterName} onChange={change('requesterName')} maxLength="250" autoComplete="name" placeholder="Nombre completo" /></label>
+                <label className="case-field"><span>Correo electrónico *</span><input value={form.email} onChange={change('email')} type="email" maxLength="320" autoComplete="email" placeholder="nombre@empresa.com" /></label>
+              </FormSection>
+
               <label className="case-honeypot" aria-hidden="true"><span>Sitio web</span><input value={form.website} onChange={change('website')} tabIndex="-1" autoComplete="off" /></label>
 
               <section className="case-upload-section">
