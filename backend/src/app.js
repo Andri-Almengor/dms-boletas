@@ -18,6 +18,7 @@ import './services/metrics-assigned-hours.patch.js';
 import './services/metrics-dynamic-maintenance-counts.patch.js';
 import './services/password-vault-assistant.patch.js';
 import './services/password-vault-system-assistant.patch.js';
+import { runWithSheetsRouteReadCache } from './services/sheets-route-read-cache.patch.js';
 import { env } from './config/env.js';
 import { dispatchAction } from './core/action-router.js';
 import { AppError } from './core/errors.js';
@@ -96,14 +97,16 @@ app.post('/api/action', actionEnvelopeMiddleware, actionRateLimitMiddleware, asy
     const action = isPasswordVaultRoute(envelope.route)
       ? dispatchPasswordVaultAction
       : dispatchAction;
-    const data = await runWithActionConcurrency(envelope.route, () => action({
-      route: envelope.route,
-      payload: envelope.payload,
-      sessionToken: envelope.sessionToken || req.headers.authorization?.replace(/^Bearer\s+/i, '') || '',
-      ip: req.ip,
-      userAgent: req.get('user-agent') || '',
-      origin: requestOrigin,
-    }));
+    const data = await runWithSheetsRouteReadCache(envelope.route, () => (
+      runWithActionConcurrency(envelope.route, () => action({
+        route: envelope.route,
+        payload: envelope.payload,
+        sessionToken: envelope.sessionToken || req.headers.authorization?.replace(/^Bearer\s+/i, '') || '',
+        ip: req.ip,
+        userAgent: req.get('user-agent') || '',
+        origin: requestOrigin,
+      }))
+    ));
     res.json({ ok: true, data });
   } catch (error) {
     next(error);
