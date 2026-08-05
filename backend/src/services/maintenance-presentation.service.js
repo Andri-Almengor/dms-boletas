@@ -17,6 +17,12 @@ function active(value) {
   return value !== false && String(value ?? 'true').toLowerCase() !== 'false';
 }
 
+function isVideoEvidence(image = {}) {
+  const mediaType = clean(image.TipoMedio || image.mediaType).toUpperCase();
+  const mimeType = clean(image.MimeType).toLowerCase();
+  return mediaType === 'VIDEO' || mimeType.startsWith('video/');
+}
+
 async function resolveBaseFolderId(provided) {
   const direct = clean(provided);
   if (direct) return direct;
@@ -47,11 +53,16 @@ function imagePayload(image = {}) {
     ArchivoID: clean(image.ArchivoID || image.DriveFileID),
     ArchivoURL: clean(image.ArchivoURL || image.DriveURL),
     MimeType: clean(image.MimeType, 'image/jpeg'),
+    TipoMedio: clean(image.TipoMedio, isVideoEvidence(image) ? 'VIDEO' : 'IMAGEN'),
+    DuracionSegundos: Number(image.DuracionSegundos || image.durationSeconds || 0),
     Activo: active(image.Activo),
   };
 }
 
 function devicePayload(device = {}) {
+  const evidence = (Array.isArray(device.Imagenes) ? device.Imagenes : [])
+    .filter((image) => active(image?.Activo))
+    .map(imagePayload);
   return {
     EvidenciaMantenimientoID: clean(device.EvidenciaMantenimientoID || device.DispositivoMantenimientoID || device.id),
     Zona: clean(device.Zona || device.UbicacionEspecifica),
@@ -61,15 +72,15 @@ function devicePayload(device = {}) {
     Fabricante: clean(device.Fabricante),
     Modelo: clean(device.Modelo),
     Serie: clean(device.Serie),
+    DireccionMAC: clean(device.DireccionMAC || device.MACAddress || device.macAddress),
     Funcionamiento: clean(device.Funcionamiento),
     EnUso: clean(device.EnUso),
     Estado: clean(device.Estado),
     Observacion: clean(device.Observacion),
     RespuestasJSON: device.RespuestasJSON || '{}',
     CarpetaDispositivoURL: clean(device.CarpetaDispositivoURL),
-    Imagenes: (Array.isArray(device.Imagenes) ? device.Imagenes : [])
-      .filter((image) => active(image?.Activo))
-      .map(imagePayload),
+    Imagenes: evidence.filter((item) => !isVideoEvidence(item)),
+    Videos: evidence.filter(isVideoEvidence),
   };
 }
 
@@ -123,11 +134,6 @@ async function postAppsScript(url, payload) {
   }
 }
 
-/**
- * Genera la presentación mediante el mismo Apps Script que crea los reportes.
- * El backend entrega los datos y los IDs privados de Drive; Apps Script inserta
- * los blobs directamente en Slides sin publicar las fotografías en Internet.
- */
 export async function generateMaintenancePresentationWithAppsScript({
   maintenance,
   devices,
