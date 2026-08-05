@@ -11,6 +11,17 @@
   box-shadow: 0 14px 36px rgba(15, 23, 42, 0.18);
 }
 
+/* El botón histórico continúa en el JSX antiguo, pero exigía firma. La acción
+ * operativa se inserta en este mismo footer mediante un portal y no muestra
+ * ninguna tarjeta de “Finalización disponible”. */
+.maintenance-detail-page .maintenance-detail-footer-actions > button.button--primary:first-child:not(.maintenance-finalize-footer-button) {
+  display: none;
+}
+
+.maintenance-finalize-footer-button {
+  order: -1;
+}
+
 .maintenance-finalization-center.has-error {
   border-color: #dc2626;
 }
@@ -97,7 +108,8 @@
     width: calc(100vw - 1.3rem);
   }
 
-  .maintenance-finalization-center__actions button {
+  .maintenance-finalization-center__actions button,
+  .maintenance-finalize-footer-button {
     width: 100%;
     justify-content: center;
   }
