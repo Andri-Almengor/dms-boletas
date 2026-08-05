@@ -14,6 +14,8 @@ import {
 } from '../../services/maintenanceSyncBase';
 import { todayInCostaRica } from '../../utils/costaRicaDate';
 import { createLocalId } from '../../utils/localId';
+import { evidenceMediaKind } from '../../utils/evidenceMedia';
+import { normalizeMacAddress } from '../../utils/macAddress';
 import {
   AUTOMATIC_PENDING_STATE,
   effectiveMaintenanceDeviceState,
@@ -24,7 +26,7 @@ export { fileToBase64 } from '../../utils/fileEncoding';
 export const MAINTENANCE_STEPS = [
   ['Información general', 'Cliente, ubicación, responsables, fechas y descripción.'],
   ['Cantidades esperadas', 'Indica cuántos dispositivos se revisarán por categoría.'],
-  ['Dispositivos y evidencias', 'Registra cada equipo, sus pruebas, técnicos y fotografías.'],
+  ['Dispositivos y evidencias', 'Registra cada equipo, sus pruebas, técnicos, fotografías y videos cortos.'],
   ['Revisión y finalización', 'Confirma la información y guarda o finaliza.'],
 ];
 
@@ -98,11 +100,15 @@ function parseAnswersBundle(row, categoryName) {
 }
 
 function mapImage(image, maintenanceId = '') {
+  const mediaType = String(pick(image, ['TipoMedio', 'mediaType'], '')).toLowerCase()
+    || evidenceMediaKind({ mimeType: pick(image, ['MimeType']), name: pick(image, ['Nombre', 'NombreArchivo']) });
   return {
     ...image,
     id: String(pick(image, ['FotoDispositivoID', 'imageId', 'id'])),
     Tipo: pick(image, ['Tipo', 'tipo'], 'Antes'),
     Nota: pick(image, ['Nota', 'nota']),
+    mediaType: mediaType === 'video' || mediaType === 'VIDEO' ? 'video' : mediaType === 'document' ? 'document' : 'image',
+    durationSeconds: Number(pick(image, ['DuracionSegundos', 'durationSeconds'], 0) || 0),
     syncBase: maintenanceImageSyncBase(image, maintenanceId),
     dirty: false,
   };
@@ -116,7 +122,7 @@ export function createMaintenanceDevice(category = 'Cámara') {
     fechaTrabajo: todayInCostaRica(), tecnicoIds: [],
     tipoDispositivoId: '', categoria: canonicalCategory,
     fabricanteId: '', fabricante: '', modeloId: '', modelo: '',
-    nombre: '', serie: '', funcionamiento: '', enUso: '', estado: AUTOMATIC_PENDING_STATE, observacion: '',
+    nombre: '', serie: '', macAddress: '', funcionamiento: '', enUso: '', estado: AUTOMATIC_PENDING_STATE, observacion: '',
     respuestas: createEmptyChecklist(canonicalCategory), questionDetails: [], images: [], newImages: [], syncBase: null,
   };
 }
@@ -169,8 +175,6 @@ export function mapMaintenanceDevice(row = {}) {
     id: String(pick(row, ['EvidenciaMantenimientoID', 'deviceId', 'id'])),
     ubicacionEquipoId: String(pick(row, ['UbicacionEquipoID', 'ubicacionEquipoId'])),
     ubicacionEquipoNombre: equipmentLocationName,
-    // `zona` se conserva como alias visual y de compatibilidad, pero siempre prioriza
-    // el nombre resuelto desde el dropdown de ubicación del equipo.
     zona: equipmentLocationName || legacyLocation,
     fechaTrabajo: dateInput(pick(row, ['FechaTrabajo', 'fechaTrabajo', 'FechaCreacion'], todayInCostaRica())),
     tecnicoIds: parseTechnicianIds(row),
@@ -182,6 +186,7 @@ export function mapMaintenanceDevice(row = {}) {
     modelo: pick(row, ['Modelo', 'modelo']),
     nombre: pick(row, ['NombreDispositivo', 'nombre', 'Nombre']),
     serie: pick(row, ['Serie', 'serie']),
+    macAddress: normalizeMacAddress(pick(row, ['DireccionMAC', 'MACAddress', 'MacAddress', 'macAddress'])),
     funcionamiento: pick(row, ['Funcionamiento', 'funcionamiento']),
     enUso: pick(row, ['EnUso', 'enUso']),
     estado: pick(row, ['Estado', 'estado'], AUTOMATIC_PENDING_STATE),
@@ -214,6 +219,7 @@ export function maintenanceDevicePayload(device, maintenanceId) {
   const category = canonicalMaintenanceCategoryName(device.categoria);
   const equipmentLocationName = String(device.ubicacionEquipoNombre || device.zona || '').trim();
   const effectiveState = effectiveMaintenanceDeviceState(device, getMaintenanceCategory(category).questions);
+  const macAddress = normalizeMacAddress(device.macAddress);
   return withSyncBase({
     maintenanceId, MantenimientoID: maintenanceId, deviceId: device.id,
     EvidenciaMantenimientoID: device.id,
@@ -221,7 +227,6 @@ export function maintenanceDevicePayload(device, maintenanceId) {
     ubicacionEquipoId: device.ubicacionEquipoId,
     UbicacionEquipoNombre: equipmentLocationName,
     ubicacionEquipoNombre: equipmentLocationName,
-    // Compatibilidad con reportes existentes: Zona replica el valor del dropdown.
     Zona: equipmentLocationName,
     zona: equipmentLocationName,
     FechaTrabajo: device.fechaTrabajo,
@@ -237,7 +242,10 @@ export function maintenanceDevicePayload(device, maintenanceId) {
     ModeloID: device.modeloId,
     Modelo: device.modelo,
     NombreDispositivo: device.nombre,
-    Serie: device.serie, Funcionamiento: device.funcionamiento,
+    Serie: device.serie,
+    DireccionMAC: macAddress,
+    macAddress,
+    Funcionamiento: device.funcionamiento,
     EnUso: device.enUso, Estado: effectiveState, Observacion: device.observacion,
     questionDetails: device.questionDetails || [],
     respuestasDetalle: device.questionDetails || [],

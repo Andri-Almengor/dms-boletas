@@ -87,7 +87,10 @@ function imagePayload(image, base64) {
     Tipo: image.type,
     Nota: image.note,
     fileName: image.file.name,
-    mimeType: image.file.type || 'image/jpeg',
+    mimeType: image.mimeType || image.file.type || 'image/jpeg',
+    mediaType: image.mediaType || 'image',
+    durationSeconds: Number(image.durationSeconds || 0),
+    size: Number(image.size || image.file.size || 0),
     base64,
   };
 }
@@ -138,7 +141,10 @@ async function uploadFallback({
         Tipo: image.type,
         Nota: image.note,
         fileName: image.file.name,
-        mimeType: image.file.type || 'image/jpeg',
+        mimeType: image.mimeType || image.file.type || 'image/jpeg',
+        mediaType: image.mediaType || 'image',
+        durationSeconds: Number(image.durationSeconds || 0),
+        size: Number(image.size || image.file.size || 0),
         base64,
       }, sessionToken, requestOptions(signal));
       uploaded.push({ ...uploadedView(result, maintenanceId), clientKey: image.localId });

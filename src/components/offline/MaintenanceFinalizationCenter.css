@@ -11,13 +11,15 @@
   box-shadow: 0 14px 36px rgba(15, 23, 42, 0.18);
 }
 
-/*
- * El centro de finalización es la única acción de cierre del mantenimiento.
- * El botón histórico de la página exigía firma y se oculta para evitar dos
- * acciones contradictorias. La firma continúa disponible, pero es opcional.
- */
-.maintenance-detail-page .maintenance-detail-footer-actions > button.button--primary:first-child {
+/* El botón histórico continúa en el JSX antiguo, pero exigía firma. La acción
+ * operativa se inserta en este mismo footer mediante un portal y no muestra
+ * ninguna tarjeta de “Finalización disponible”. */
+.maintenance-detail-page .maintenance-detail-footer-actions > button.button--primary:first-child:not(.maintenance-finalize-footer-button) {
   display: none;
+}
+
+.maintenance-finalize-footer-button {
+  order: -1;
 }
 
 .maintenance-finalization-center.has-error {
@@ -75,6 +77,10 @@
   margin-top: 0.75rem;
 }
 
+.maintenance-finalization-center__actions:empty {
+  display: none;
+}
+
 .maintenance-finalization-center__actions button {
   display: inline-flex;
   gap: 0.4rem;
@@ -102,7 +108,8 @@
     width: calc(100vw - 1.3rem);
   }
 
-  .maintenance-finalization-center__actions button {
+  .maintenance-finalization-center__actions button,
+  .maintenance-finalize-footer-button {
     width: 100%;
     justify-content: center;
   }

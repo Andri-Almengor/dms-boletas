@@ -2,6 +2,7 @@ import React, { useEffect, useRef, useState } from 'react';
 import { useAuth } from '../../AuthContext';
 import Icon from '../common/Icon';
 import { MODULE_ROUTES, requestAvailable } from '../../services/moduleApi';
+import { evidenceMediaKind } from '../../utils/evidenceMedia';
 
 function isProtectedGoogleUrl(value = '') {
   const url = String(value || '').trim();
@@ -60,12 +61,26 @@ export default function MediaPreview({ boletaUid, evidenceId, fileId, kind = 'ev
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [boletaUid, evidenceId, fileId, kind, directUrl, sessionToken]);
 
-  const image = String(mimeType || '').startsWith('image/') || String(source || '').startsWith('data:image/');
+  const resolvedKind = String(source || '').startsWith('data:video/')
+    ? 'video'
+    : String(source || '').startsWith('data:image/')
+      ? 'image'
+      : evidenceMediaKind({ mimeType, name: alt });
 
   if (loading && !source) return <div className="media-loading"><Icon name="progress_activity" /> Cargando...</div>;
   if (error && !source) return <div className="media-error"><Icon name="broken_image" /> <span>{error}</span>{canRequestProtected && <button type="button" onClick={() => { attemptedRef.current = false; loadProtectedMedia(true); }}>Reintentar</button>}</div>;
   if (!source) return <div className="media-error"><Icon name="hide_image" /><span>Archivo no disponible</span></div>;
-  if (!image) return <a className="evidence-file-link" href={source} target="_blank" rel="noreferrer"><Icon name="description" /> Abrir archivo</a>;
+
+  if (resolvedKind === 'video') {
+    return (
+      <div className="media-preview-video">
+        <video src={source} controls preload="metadata" playsInline aria-label={alt || 'Video de evidencia'} />
+        {loading && <span className="media-preview-button__loading"><Icon name="progress_activity" /></span>}
+      </div>
+    );
+  }
+
+  if (resolvedKind !== 'image') return <a className="evidence-file-link" href={source} target="_blank" rel="noreferrer"><Icon name="description" /> Abrir archivo</a>;
 
   return (
     <button className="media-preview-button" type="button" onClick={() => onOpen?.(source)} aria-label={`Abrir ${alt || 'evidencia'}`}>

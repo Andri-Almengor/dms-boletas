@@ -1,10 +1,12 @@
+import { normalizeMacAddress } from '../../utils/macAddress.js';
+
 export const TICKET_FORM_STEPS = Object.freeze([
   ['Información general', 'Título, categoría, tipo de falla, fecha y horas.'],
   ['Cliente y ubicación', 'Cliente, ubicación, supervisor y correos.'],
-  ['Dispositivo', 'Tipo, nombre del dispositivo, fabricante, modelo y serie.'],
+  ['Dispositivo', 'Tipo, nombre del dispositivo, fabricante, modelo, serie y dirección MAC.'],
   ['Trabajo realizado', 'Motivo, pruebas, resultado y recomendaciones.'],
   ['Técnicos', 'Seleccione una o varias personas asignadas.'],
-  ['Evidencias', 'Capture fotografías o seleccione archivos.'],
+  ['Evidencias', 'Capture fotografías, videos cortos o seleccione archivos.'],
   ['Firma', 'Firma de conformidad con dedo, mouse o lápiz.'],
   ['Revisión y envío', 'Confirme los datos y elija la acción final.'],
 ]);
@@ -15,7 +17,7 @@ export const EMPTY_TICKET_FORM = Object.freeze({
   clienteId: '', cliente: '', ubicacionId: '', ubicacion: '', ubicacionEquipoId: '', ubicacionEquipo: '',
   supervisorId: '', supervisor: '', correoSupervisor: '', correoCliente: '',
   tipoDispositivoId: '', tipoDispositivo: '', fabricanteId: '', fabricante: '', modeloId: '', modelo: '',
-  serie: '', nombreDispositivo: '', razonVisita: '', pruebasRealizadas: '', resultado: '', recomendaciones: '',
+  serie: '', macAddress: '', nombreDispositivo: '', razonVisita: '', pruebasRealizadas: '', resultado: '', recomendaciones: '',
   asignados: [], firma: '', enviarCorreoCliente: false, correosCC: '',
 });
 
@@ -94,6 +96,7 @@ export function mapTicketForm(data) {
     modeloId: String(readValue(row, ['ModeloID'])),
     modelo: readValue(row, ['Modelo']),
     serie: readValue(row, ['Serie']),
+    macAddress: normalizeMacAddress(readValue(row, ['DireccionMAC', 'MACAddress', 'MacAddress', 'macAddress'])),
     nombreDispositivo: readValue(row, ['Descripcion', 'Descripción', 'DescripcionEquipo', 'NombreEquipo']),
     razonVisita: readValue(row, ['RazonVisita', 'Razon_visita']),
     pruebasRealizadas: readValue(row, ['PruebasRealizadas']),
@@ -109,10 +112,12 @@ export function mapTicketForm(data) {
 
 export function buildTicketPayload(form, boletaUid, estado = 'PENDIENTE') {
   const totalHours = Number(form.horasTotales || 0);
+  const macAddress = normalizeMacAddress(form.macAddress);
   return {
     boletaUid,
     estado,
     ...form,
+    macAddress,
     horasTotales: totalHours,
     Titulo: form.titulo,
     CategoriaID: form.categoriaId,
@@ -140,6 +145,7 @@ export function buildTicketPayload(form, boletaUid, estado = 'PENDIENTE') {
     ModeloID: form.modeloId,
     Modelo: form.modelo,
     Serie: form.serie,
+    DireccionMAC: macAddress,
     RazonVisita: form.razonVisita,
     Descripcion: form.nombreDispositivo,
     PruebasRealizadas: form.pruebasRealizadas,

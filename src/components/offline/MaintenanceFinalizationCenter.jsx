@@ -1,4 +1,5 @@
 import React, { useCallback, useEffect, useMemo, useState } from 'react';
+import { createPortal } from 'react-dom';
 import { useLocation } from 'react-router-dom';
 import { useAuth } from '../../AuthContext';
 import Icon from '../common/Icon';
@@ -37,6 +38,7 @@ export default function MaintenanceFinalizationCenter() {
   const [allFinalizations, setAllFinalizations] = useState([]);
   const [working, setWorking] = useState(false);
   const [message, setMessage] = useState('');
+  const [footerTarget, setFooterTarget] = useState(null);
 
   const refresh = useCallback(async () => {
     const operations = await listQueuedOperations().catch(() => []);
@@ -62,14 +64,8 @@ export default function MaintenanceFinalizationCenter() {
   useEffect(() => {
     refresh();
     const handleChange = () => refresh();
-    const handleOnline = () => {
-      setOnline(true);
-      refresh();
-    };
-    const handleOffline = () => {
-      setOnline(false);
-      refresh();
-    };
+    const handleOnline = () => { setOnline(true); refresh(); };
+    const handleOffline = () => { setOnline(false); refresh(); };
     window.addEventListener('online', handleOnline);
     window.addEventListener('offline', handleOffline);
     window.addEventListener('dms-offline-queue-change', handleChange);
@@ -88,6 +84,17 @@ export default function MaintenanceFinalizationCenter() {
     };
   }, [refresh]);
 
+  useEffect(() => {
+    if (!detailRoute) {
+      setFooterTarget(null);
+      return undefined;
+    }
+    const resolveTarget = () => setFooterTarget(document.querySelector('.maintenance-detail-footer-actions'));
+    resolveTarget();
+    const timer = window.setTimeout(resolveTarget, 100);
+    return () => window.clearTimeout(timer);
+  }, [detailRoute, pathname, row]);
+
   const operation = useMemo(() => (
     (queueState.operations || []).find((item) => item.kind === 'maintenanceFinalize') || null
   ), [queueState.operations]);
@@ -102,9 +109,7 @@ export default function MaintenanceFinalizationCenter() {
   const status = clean(pick(row, ['Estado'], '')).toUpperCase();
   const devices = Number(pick(row, ['DispositivosRegistrados'], 0) || 0);
   const hasUnsynchronizedChanges = (queueState.operations || []).some((item) => item.kind !== 'maintenanceFinalize');
-  const deferredNeeded = !online
-    || hasUnsynchronizedChanges
-    || Boolean(pick(row, ['OfflinePendiente'], false));
+  const deferredNeeded = !online || hasUnsynchronizedChanges || Boolean(pick(row, ['OfflinePendiente'], false));
   const canRequest = Boolean(
     maintenanceId
     && detailRoute
@@ -114,15 +119,6 @@ export default function MaintenanceFinalizationCenter() {
     && devices > 0
     && !view.active,
   );
-  const statusMessage = message || (view.error
-    ? view.error
-    : view.blocked
-      ? 'Resuelva primero el conflicto de sincronización.'
-      : view.active
-        ? 'El proceso continuará desde el último paso confirmado.'
-        : deferredNeeded
-          ? 'Puede dejar la finalización programada para ejecutarla al sincronizar.'
-          : '');
 
   async function finalize({ retry = false } = {}) {
     if (!maintenanceId || working) return;
@@ -141,47 +137,61 @@ export default function MaintenanceFinalizationCenter() {
         : 'El mantenimiento fue finalizado.'));
       await refresh();
     } catch (error) {
-      setMessage(error?.message || 'No se pudo solicitar la finalización.');
+      setMessage(error?.message || 'No se pudo procesar la finalización.');
     } finally {
       setWorking(false);
     }
   }
 
-  if (!maintenanceId && !allFinalizations.length) return null;
-  if (maintenanceId && !view.active && !canRequest && !message) return null;
+  const footerButton = canRequest && footerTarget
+    ? createPortal(
+      <button className="button button--primary maintenance-finalize-footer-button" type="button" onClick={() => finalize()} disabled={working}>
+        <Icon name={deferredNeeded ? 'schedule_send' : 'task_alt'} />
+        {working ? 'Procesando...' : deferredNeeded ? 'Finalizar al sincronizar' : 'Finalizar mantenimiento'}
+      </button>,
+      footerTarget,
+    )
+    : null;
+
+  const showStatus = Boolean(
+    (!maintenanceId && allFinalizations.length)
+    || (maintenanceId && (view.active || message)),
+  );
+  if (!showStatus) return footerButton;
+
+  const statusMessage = message || view.error || (view.blocked
+    ? 'Resuelva primero el conflicto de sincronización.'
+    : view.active
+      ? 'El proceso continuará desde el último paso confirmado.'
+      : '');
 
   return (
-    <aside className={`maintenance-finalization-center${view.canRetry ? ' has-error' : ''}`} role="status" aria-live="polite">
-      <div className="maintenance-finalization-center__heading">
-        <span className="maintenance-finalization-center__icon"><Icon name={view.canRetry ? 'error' : view.completed ? 'task_alt' : 'pending_actions'} /></span>
-        <div>
-          <strong>{view.active ? view.label : deferredNeeded ? 'Finalización disponible sin conexión' : 'Finalización disponible'}</strong>
-          {statusMessage && <small>{statusMessage}</small>}
+    <>
+      {footerButton}
+      <aside className={`maintenance-finalization-center${view.canRetry ? ' has-error' : ''}`} role="status" aria-live="polite">
+        <div className="maintenance-finalization-center__heading">
+          <span className="maintenance-finalization-center__icon"><Icon name={view.canRetry ? 'error' : view.completed ? 'task_alt' : 'pending_actions'} /></span>
+          <div>
+            <strong>{view.active ? view.label : 'Estado de finalización'}</strong>
+            {statusMessage && <small>{statusMessage}</small>}
+          </div>
         </div>
-      </div>
 
-      {view.active && !view.completed && (
-        <div className="maintenance-finalization-center__progress" aria-label={`${view.progress}% completado`}>
-          <span style={{ width: `${view.progress}%` }} />
+        {view.active && !view.completed && (
+          <div className="maintenance-finalization-center__progress" aria-label={`${view.progress}% completado`}><span style={{ width: `${view.progress}%` }} /></div>
+        )}
+
+        <div className="maintenance-finalization-center__actions">
+          {view.canRetry && (
+            <button type="button" onClick={() => finalize({ retry: true })} disabled={working || view.blocked}>
+              <Icon name="refresh" />{working ? 'Reintentando...' : 'Reintentar finalización'}
+            </button>
+          )}
+          {!maintenanceId && allFinalizations.length > 0 && (
+            <span>{allFinalizations.length} finalización{allFinalizations.length === 1 ? '' : 'es'} pendiente{allFinalizations.length === 1 ? '' : 's'}.</span>
+          )}
         </div>
-      )}
-
-      <div className="maintenance-finalization-center__actions">
-        {canRequest && (
-          <button type="button" onClick={() => finalize()} disabled={working}>
-            <Icon name={deferredNeeded ? 'schedule_send' : 'task_alt'} />
-            {working ? 'Procesando...' : deferredNeeded ? 'Finalizar al sincronizar' : 'Finalizar mantenimiento'}
-          </button>
-        )}
-        {view.canRetry && (
-          <button type="button" onClick={() => finalize({ retry: true })} disabled={working || view.blocked}>
-            <Icon name="refresh" />{working ? 'Reintentando...' : 'Reintentar finalización'}
-          </button>
-        )}
-        {!maintenanceId && allFinalizations.length > 0 && (
-          <span>{allFinalizations.length} finalización{allFinalizations.length === 1 ? '' : 'es'} pendiente{allFinalizations.length === 1 ? '' : 's'}.</span>
-        )}
-      </div>
-    </aside>
+      </aside>
+    </>
   );
 }
