@@ -36,7 +36,7 @@ function EvidenceUploader({ items, onAdd, onUpdate, onRemove, disabled }) {
           <Icon name="perm_media" /><strong>Elegir varios archivos</strong><span>Fotos, videos, PDF o Word</span>
         </label>
       </div>
-      <div className="info-box"><Icon name="info" /><p>Los videos deben durar máximo 20 segundos y pesar hasta 16 MB. Sin internet, las evidencias quedan protegidas en este dispositivo y se enviarán al guardar y sincronizar la boleta.</p></div>
+      <div className="info-box"><Icon name="info" /><p>Los videos deben durar máximo 20 segundos y pesar hasta 15 MB. Sin internet, las evidencias quedan protegidas en este dispositivo y se enviarán al guardar y sincronizar la boleta.</p></div>
       <div className="ticket-evidence-grid">
         {items.map((item, index) => (
           <article className="evidence-edit-card" key={item.localId || `${item.name}-${index}`}>
