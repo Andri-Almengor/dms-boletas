@@ -2,7 +2,7 @@ import { badRequest } from '../core/errors.js';
 
 export const EVIDENCE_VIDEO_MAX_SECONDS = 20;
 export const EVIDENCE_IMAGE_MAX_BYTES = 15 * 1024 * 1024;
-export const EVIDENCE_VIDEO_MAX_BYTES = 16 * 1024 * 1024;
+export const EVIDENCE_VIDEO_MAX_BYTES = 15 * 1024 * 1024;
 export const EVIDENCE_DOCUMENT_MAX_BYTES = 15 * 1024 * 1024;
 
 const VIDEO_MIME_TYPES = new Set(['video/mp4', 'video/webm', 'video/quicktime', 'video/x-m4v']);
@@ -12,8 +12,9 @@ const DOCUMENT_MIME_TYPES = new Set([
   'application/vnd.openxmlformats-officedocument.wordprocessingml.document',
 ]);
 
-function clean(value) {
-  return String(value ?? '').trim();
+function clean(value, fallback = '') {
+  const text = String(value ?? '').trim();
+  return text || fallback;
 }
 
 function extension(value = '') {
@@ -68,7 +69,7 @@ export function validateEvidenceMediaPayload(payload = {}, { allowDocuments = fa
     if (!VIDEO_MIME_TYPES.has(mimeType)) {
       throw badRequest(`El video ${fileName} no tiene un formato compatible. Use MP4, MOV o WebM.`);
     }
-    if (size > EVIDENCE_VIDEO_MAX_BYTES) throw badRequest(`El video ${fileName} supera el límite de 16 MB.`);
+    if (size > EVIDENCE_VIDEO_MAX_BYTES) throw badRequest(`El video ${fileName} supera el límite de 15 MB.`);
     if (!Number.isFinite(durationSeconds) || durationSeconds <= 0) {
       throw badRequest(`No se pudo validar la duración del video ${fileName}. Selecciónelo nuevamente desde la aplicación.`);
     }
