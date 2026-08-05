@@ -1,4 +1,4 @@
-import { normalizeMacAddress } from '../../utils/macAddress';
+import { normalizeMacAddress } from '../../utils/macAddress.js';
 
 export const TICKET_FORM_STEPS = Object.freeze([
   ['Información general', 'Título, categoría, tipo de falla, fecha y horas.'],
