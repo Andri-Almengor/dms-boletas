@@ -26,6 +26,11 @@ import useTicketPersistence from '../../features/tickets/useTicketPersistence';
 import useTicketQuickCreate from '../../features/tickets/useTicketQuickCreate';
 import useTicketDraft from '../../hooks/useTicketDraft';
 import { pick } from '../../services/moduleApi';
+import {
+  createEvidencePreviewUrl,
+  prepareEvidenceFiles,
+} from '../../utils/evidenceMedia';
+import { macAddressError, normalizeMacAddress } from '../../utils/macAddress';
 
 const PROCESSING_COPY = Object.freeze({
   save: {
@@ -162,25 +167,40 @@ export default function TicketFormPage({ mode = 'create' }) {
     }));
   }
 
-  function addFiles(event) {
+  async function addFiles(event) {
     const files = Array.from(event.target.files || []);
-    setEvidences((current) => [
-      ...current,
-      ...files.map((file) => ({
-        localId: crypto.randomUUID?.() || `${Date.now()}-${Math.random()}`,
-        file,
-        name: file.name,
-        note: '',
-        mimeType: file.type || 'application/octet-stream',
-        previewUrl: file.type.startsWith('image/') ? URL.createObjectURL(file) : '',
-      })),
-    ]);
     event.target.value = '';
+    if (!files.length) return;
+    setError('');
+    try {
+      const prepared = await prepareEvidenceFiles(files, { allowDocuments: true });
+      setEvidences((current) => [
+        ...current,
+        ...prepared.map(({ file, mimeType, mediaType, durationSeconds, size }) => ({
+          localId: crypto.randomUUID?.() || `${Date.now()}-${Math.random()}`,
+          file,
+          name: file.name,
+          note: '',
+          mimeType,
+          mediaType,
+          durationSeconds,
+          size,
+          previewUrl: ['image', 'video'].includes(mediaType) ? createEvidencePreviewUrl(file) : '',
+        })),
+      ]);
+    } catch (fileError) {
+      setError(fileError.message || 'No se pudieron preparar las evidencias seleccionadas.');
+    }
   }
 
   function next() {
     const message = validateTicketStep(form, step);
     if (message) return setError(message);
+    if (step === 2) {
+      const macError = macAddressError(form.macAddress);
+      if (macError) return setError(macError);
+      if (form.macAddress) setForm((current) => ({ ...current, macAddress: normalizeMacAddress(current.macAddress) }));
+    }
     setError('');
     setStep((value) => Math.min(TICKET_FORM_STEPS.length - 1, value + 1));
     window.scrollTo({ top: 0, behavior: 'smooth' });
@@ -256,7 +276,10 @@ export default function TicketFormPage({ mode = 'create' }) {
               <DependentSelect label="Fabricante" name="fabricanteId" value={form.fabricanteId} selectedLabel={form.fabricante} options={opt.manufacturers} loading={catalogLoading.manufacturers} disabled={!form.tipoDispositivoId} canAdd={manageCatalogs && Boolean(form.tipoDispositivoId)} onAdd={() => openModal('manufacturer')} onChange={(event) => choose(event, catalogs.manufacturers, TICKET_FORM_IDS.manufacturers, 'fabricanteId', 'fabricante', ['Nombre'], { modeloId: '', modelo: '' })} />
               <DependentSelect label="Modelo" name="modeloId" value={form.modeloId} selectedLabel={form.modelo} options={opt.models} loading={catalogLoading.models} disabled={!form.tipoDispositivoId || !form.fabricanteId} canAdd={manageCatalogs && Boolean(form.fabricanteId)} onAdd={() => openModal('model')} onChange={(event) => choose(event, catalogs.models, TICKET_FORM_IDS.models, 'modeloId', 'modelo', ['Nombre'])} />
             </div>
-            <FormField label="Serie" name="serie" value={form.serie} onChange={update} />
+            <div className="ticket-form-grid">
+              <FormField label="Serie" name="serie" value={form.serie} onChange={update} />
+              <FormField label="Dirección MAC" name="macAddress" value={form.macAddress} onChange={update} onBlur={() => setForm((current) => ({ ...current, macAddress: normalizeMacAddress(current.macAddress) }))} placeholder="AA:BB:CC:DD:EE:FF" hint="Opcional. Se guarda con el formato AA:BB:CC:DD:EE:FF." autoComplete="off" />
+            </div>
           </>}
 
           {step === 3 && <>
@@ -282,6 +305,7 @@ export default function TicketFormPage({ mode = 'create' }) {
                 ['Supervisor', form.supervisor],
                 ['Nombre del dispositivo', form.nombreDispositivo],
                 ['Dispositivo', [form.tipoDispositivo, form.fabricante, form.modelo, form.serie].filter(Boolean).join(' · ')],
+                ['Dirección MAC', normalizeMacAddress(form.macAddress)],
                 ['Técnicos', selectedNames],
                 ['Evidencias', `${existingEvidenceCount + evidences.length} archivo(s)`],
                 ['Categoría', form.categoria],
