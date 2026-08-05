@@ -1,0 +1,70 @@
+.evidence-edit-card video,
+.maintenance-evidence-pending-grid video,
+.maintenance-device-image-card__preview video,
+.maintenance-evidence-video video,
+.media-preview-video video {
+  display: block;
+  width: 100%;
+  max-width: 100%;
+  background: #000;
+  object-fit: contain;
+}
+
+.evidence-edit-card video,
+.maintenance-evidence-pending-grid video,
+.maintenance-device-image-card__preview video {
+  aspect-ratio: 16 / 9;
+  border-radius: 12px;
+}
+
+.maintenance-evidence-video,
+.media-preview-video {
+  position: relative;
+  width: 100%;
+  overflow: hidden;
+  border-radius: 12px;
+  background: #000;
+}
+
+.maintenance-evidence-video video,
+.media-preview-video video {
+  min-height: 180px;
+  max-height: 520px;
+}
+
+.ticket-video-button {
+  border-style: solid;
+}
+
+.evidence-file-icon {
+  display: grid;
+  place-items: center;
+  min-height: 160px;
+  border-radius: 12px;
+  background: color-mix(in srgb, var(--surface, #fff) 92%, #64748b 8%);
+  color: var(--text-muted, #64748b);
+}
+
+.evidence-file-icon .material-symbols-outlined,
+.evidence-file-icon .material-icons,
+.evidence-file-icon .material-symbols-rounded {
+  font-size: 42px;
+}
+
+@media (max-width: 640px) {
+  .maintenance-evidence-video video,
+  .media-preview-video video {
+    min-height: 150px;
+    max-height: 65dvh;
+  }
+
+  .maintenance-evidence-picker {
+    display: grid;
+    grid-template-columns: 1fr;
+  }
+
+  .maintenance-evidence-picker .button {
+    width: 100%;
+    justify-content: center;
+  }
+}
