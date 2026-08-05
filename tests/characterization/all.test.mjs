@@ -1,4 +1,5 @@
 import './assistant-history-retention.test.mjs';
+import './assistant-password-vault-sheets-cache.test.mjs';
 import './backend-batching.test.mjs';
 import './backend-utils.test.mjs';
 import './catalog-resources.test.mjs';
