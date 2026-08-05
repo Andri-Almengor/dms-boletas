@@ -9,6 +9,7 @@ import './customer-cases-appscript-test-mode.test.mjs';
 import './customer-cases-drive-email-hotfix.test.mjs';
 import './customer-cases-accordion-sequence.test.mjs';
 import './data-client.test.mjs';
+import './device-video-evidence-mac.test.mjs';
 import './evidence-memory.test.mjs';
 import './form-draft-lifecycle.test.mjs';
 import './form-inline-creation-invariant.test.mjs';
