@@ -40,6 +40,9 @@ export async function uploadTicketAssets({ uid, form, evidences, sessionToken, s
         nota: item.note,
         fileName: item.file.name,
         mimeType: item.mimeType,
+        mediaType: item.mediaType,
+        durationSeconds: Number(item.durationSeconds || 0),
+        size: Number(item.size || item.file.size || 0),
         base64,
       }, sessionToken, options);
       uploaded.push({ evidenceId, result });
