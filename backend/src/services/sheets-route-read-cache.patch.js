@@ -14,7 +14,12 @@ const PASSWORD_VAULT_CLIENTS_TTL_MS = 2 * 60_000;
 const METADATA_TTL_MS = 10 * 60_000;
 
 const ASSISTANT_ROUTES = new Set(['assistant.chat', 'asistente.chat']);
-const PASSWORD_VAULT_PREFIXES = Object.freeze(['passwordVault.', 'credenciales.']);
+const PASSWORD_VAULT_READ_ROUTES = new Set([
+  'passwordVault.dashboard.get',
+  'credenciales.dashboard.get',
+  'passwordVault.credentials.reveal',
+  'credenciales.reveal',
+]);
 
 const PASSWORD_VAULT_SHEETS = new Set([
   'CategoriasCredenciales',
@@ -57,7 +62,7 @@ const stats = {
 function routeProfile(route) {
   const value = String(route || '').trim();
   if (ASSISTANT_ROUTES.has(value)) return 'assistant';
-  if (PASSWORD_VAULT_PREFIXES.some((prefix) => value.startsWith(prefix))) return 'password-vault';
+  if (PASSWORD_VAULT_READ_ROUTES.has(value)) return 'password-vault';
   return '';
 }
 
@@ -283,5 +288,6 @@ export const SHEETS_ROUTE_READ_CACHE_POLICY = Object.freeze({
   passwordVaultClientsTtlMs: PASSWORD_VAULT_CLIENTS_TTL_MS,
   metadataTtlMs: METADATA_TTL_MS,
   encryptedRowsOnly: true,
+  passwordVaultWritesCached: false,
   completedAssistantResponsesCached: false,
 });
