@@ -3,88 +3,103 @@ import Icon from '../common/Icon';
 import MaintenanceQuickDeviceCreator from './MaintenanceQuickDeviceCreator';
 import { fileToBase64 } from '../../pages/maintenance/maintenanceFormData';
 import { MODULE_ROUTES, pick, requestAvailable } from '../../services/moduleApi';
+import {
+  createEvidencePreviewUrl,
+  prepareEvidenceFiles,
+  releaseEvidencePreviewUrl,
+} from '../../utils/evidenceMedia';
 
-const MAX_IMAGE_BYTES = 15 * 1024 * 1024;
-
-function createPendingImage(file) {
+function createPendingEvidence(item) {
   return {
     localId: crypto.randomUUID?.() || `${Date.now()}-${Math.random()}`,
-    file,
+    file: item.file,
     type: 'Antes',
     note: '',
-    previewUrl: URL.createObjectURL(file),
+    mimeType: item.mimeType,
+    mediaType: item.mediaType,
+    durationSeconds: item.durationSeconds,
+    size: item.size,
+    previewUrl: createEvidencePreviewUrl(item.file),
   };
+}
+
+function EvidencePreview({ evidence }) {
+  if (evidence.mediaType === 'video') {
+    return <video src={evidence.previewUrl} controls preload="metadata" playsInline aria-label={evidence.file.name} />;
+  }
+  return <img src={evidence.previewUrl} alt={evidence.file.name} />;
 }
 
 function DeviceEvidenceUploader({ device, maintenanceId, sessionToken, onClose, onUploaded }) {
   const deviceId = String(pick(device, ['EvidenciaMantenimientoID', 'id']));
-  const [images, setImages] = useState([]);
+  const [evidences, setEvidences] = useState([]);
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState('');
-  const imagesRef = useRef([]);
+  const evidencesRef = useRef([]);
 
   useEffect(() => {
-    imagesRef.current = images;
-  }, [images]);
+    evidencesRef.current = evidences;
+  }, [evidences]);
 
   useEffect(() => () => {
-    imagesRef.current.forEach((image) => URL.revokeObjectURL(image.previewUrl));
+    evidencesRef.current.forEach((item) => releaseEvidencePreviewUrl(item.previewUrl));
   }, []);
 
-  function addFiles(event) {
+  async function addFiles(event) {
     const selected = Array.from(event.target.files || []);
     event.target.value = '';
-
-    const invalid = selected.find((file) => !String(file.type).startsWith('image/') || file.size > MAX_IMAGE_BYTES);
-    if (invalid) {
-      setError(invalid.size > MAX_IMAGE_BYTES
-        ? `La imagen ${invalid.name} supera el límite de 15 MB.`
-        : `El archivo ${invalid.name} no es una imagen válida.`);
-      return;
-    }
+    if (!selected.length) return;
 
     setError('');
-    setImages((current) => [...current, ...selected.map(createPendingImage)]);
+    try {
+      const prepared = await prepareEvidenceFiles(selected, { allowDocuments: false });
+      setEvidences((current) => [...current, ...prepared.map(createPendingEvidence)]);
+    } catch (selectionError) {
+      setError(selectionError.message || 'No se pudieron preparar las evidencias seleccionadas.');
+    }
   }
 
-  function updateImage(localId, values) {
-    setImages((current) => current.map((image) => image.localId === localId ? { ...image, ...values } : image));
+  function updateEvidence(localId, values) {
+    setEvidences((current) => current.map((item) => item.localId === localId ? { ...item, ...values } : item));
   }
 
-  function removeImage(localId) {
-    setImages((current) => {
-      const removed = current.find((image) => image.localId === localId);
-      if (removed) URL.revokeObjectURL(removed.previewUrl);
-      return current.filter((image) => image.localId !== localId);
+  function removeEvidence(localId) {
+    setEvidences((current) => {
+      const removed = current.find((item) => item.localId === localId);
+      if (removed) releaseEvidencePreviewUrl(removed.previewUrl);
+      return current.filter((item) => item.localId !== localId);
     });
   }
 
   async function upload() {
-    if (!images.length) {
-      setError('Seleccione al menos una fotografía.');
+    if (!evidences.length) {
+      setError('Seleccione al menos una fotografía o un video.');
       return;
     }
 
     setSaving(true);
     setError('');
     try {
-      for (const image of images) {
+      for (const evidence of evidences) {
         await requestAvailable(
           MODULE_ROUTES.maintenance.imageUpload,
           {
             maintenanceId,
             deviceId,
             DispositivoMantenimientoRef: deviceId,
-            Tipo: image.type,
-            Nota: image.note,
-            fileName: image.file.name,
-            mimeType: image.file.type || 'image/jpeg',
-            base64: await fileToBase64(image.file),
+            Tipo: evidence.type,
+            Nota: evidence.note,
+            fileName: evidence.file.name,
+            mimeType: evidence.mimeType,
+            mediaType: evidence.mediaType,
+            durationSeconds: Number(evidence.durationSeconds || 0),
+            size: Number(evidence.size || evidence.file.size || 0),
+            base64: await fileToBase64(evidence.file),
           },
           sessionToken,
         );
-        URL.revokeObjectURL(image.previewUrl);
-        setImages((current) => current.filter((item) => item.localId !== image.localId));
+        releaseEvidencePreviewUrl(evidence.previewUrl);
+        setEvidences((current) => current.filter((item) => item.localId !== evidence.localId));
       }
       await onUploaded?.();
       onClose();
@@ -118,47 +133,54 @@ function DeviceEvidenceUploader({ device, maintenanceId, sessionToken, onClose, 
             <input type="file" accept="image/*" capture="environment" onChange={addFiles} disabled={saving} />
           </label>
           <label className="button button--secondary">
-            <Icon name="photo_library" /> Seleccionar imágenes
-            <input type="file" accept="image/*" multiple onChange={addFiles} disabled={saving} />
+            <Icon name="videocam" /> Grabar video
+            <input type="file" accept="video/mp4,video/webm,video/quicktime,video/*" capture="environment" onChange={addFiles} disabled={saving} />
+          </label>
+          <label className="button button--secondary">
+            <Icon name="perm_media" /> Seleccionar archivos
+            <input type="file" accept="image/*,video/mp4,video/webm,video/quicktime,.mov,.mp4,.webm" multiple onChange={addFiles} disabled={saving} />
           </label>
         </div>
 
+        <div className="info-box"><Icon name="info" /><p>Los videos deben durar máximo 20 segundos y pesar hasta 15 MB.</p></div>
+
         <div className="maintenance-evidence-pending-grid">
-          {images.map((image) => (
-            <article key={image.localId}>
-              <img src={image.previewUrl} alt={image.file.name} />
+          {evidences.map((evidence) => (
+            <article key={evidence.localId}>
+              <EvidencePreview evidence={evidence} />
               <div className="maintenance-evidence-pending-grid__fields">
                 <label>
                   <span>Tipo de evidencia</span>
-                  <select value={image.type} onChange={(event) => updateImage(image.localId, { type: event.target.value })} disabled={saving}>
+                  <select value={evidence.type} onChange={(event) => updateEvidence(evidence.localId, { type: event.target.value })} disabled={saving}>
                     <option value="Antes">Antes</option>
                     <option value="Despues">Después</option>
                   </select>
                 </label>
                 <label>
                   <span>Nota</span>
-                  <input value={image.note} onChange={(event) => updateImage(image.localId, { note: event.target.value })} placeholder="Descripción opcional" disabled={saving} />
+                  <input value={evidence.note} onChange={(event) => updateEvidence(evidence.localId, { note: event.target.value })} placeholder="Descripción opcional" disabled={saving} />
                 </label>
+                {evidence.mediaType === 'video' && <small>Video · {Math.ceil(Number(evidence.durationSeconds || 0))} segundos</small>}
               </div>
-              <button className="icon-button icon-button--danger" type="button" onClick={() => removeImage(image.localId)} disabled={saving} aria-label="Quitar imagen">
+              <button className="icon-button icon-button--danger" type="button" onClick={() => removeEvidence(evidence.localId)} disabled={saving} aria-label="Quitar evidencia">
                 <Icon name="delete" />
               </button>
             </article>
           ))}
-          {!images.length && (
+          {!evidences.length && (
             <div className="maintenance-evidence-pending-empty">
-              <Icon name="add_a_photo" />
-              <strong>Agregue fotografías</strong>
-              <span>Podrá clasificarlas como Antes o Después.</span>
+              <Icon name="perm_media" />
+              <strong>Agregue fotografías o videos</strong>
+              <span>Podrá clasificarlos como Antes o Después.</span>
             </div>
           )}
         </div>
 
         <footer>
           <button className="button button--ghost" type="button" onClick={onClose} disabled={saving}>Cancelar</button>
-          <button className="button button--primary" type="button" onClick={upload} disabled={saving || !images.length}>
+          <button className="button button--primary" type="button" onClick={upload} disabled={saving || !evidences.length}>
             <Icon name={saving ? 'progress_activity' : 'cloud_upload'} />
-            {saving ? 'Guardando evidencias...' : `Guardar ${images.length || ''} evidencia${images.length === 1 ? '' : 's'}`}
+            {saving ? 'Guardando evidencias...' : `Guardar ${evidences.length || ''} evidencia${evidences.length === 1 ? '' : 's'}`}
           </button>
         </footer>
       </section>
