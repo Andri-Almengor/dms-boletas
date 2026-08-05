@@ -11,15 +11,6 @@
   box-shadow: 0 14px 36px rgba(15, 23, 42, 0.18);
 }
 
-/*
- * El centro de finalización es la única acción de cierre del mantenimiento.
- * El botón histórico de la página exigía firma y se oculta para evitar dos
- * acciones contradictorias. La firma continúa disponible, pero es opcional.
- */
-.maintenance-detail-page .maintenance-detail-footer-actions > button.button--primary:first-child {
-  display: none;
-}
-
 .maintenance-finalization-center.has-error {
   border-color: #dc2626;
 }
@@ -73,6 +64,10 @@
   gap: 0.55rem;
   align-items: center;
   margin-top: 0.75rem;
+}
+
+.maintenance-finalization-center__actions:empty {
+  display: none;
 }
 
 .maintenance-finalization-center__actions button {
