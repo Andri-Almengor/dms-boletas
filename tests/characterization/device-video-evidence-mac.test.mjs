@@ -26,6 +26,7 @@ test('boletas permiten grabar, seleccionar, validar y reproducir videos', () => 
   const form = source('src/pages/tickets/TicketFormPage.jsx');
   const uploader = source('src/components/forms/EvidenceUploader.jsx');
   const detail = source('src/pages/tickets/TicketDetailPage.jsx');
+  const multiSelect = source('src/components/forms/TicketEvidenceMultiSelectBridge.jsx');
   const preview = source('src/components/tickets/MediaPreview.jsx');
   const persistence = source('src/features/tickets/ticketPersistenceService.js');
 
@@ -36,6 +37,14 @@ test('boletas permiten grabar, seleccionar, validar y reproducir videos', () => 
   assert.match(detail, /videoInputRef/);
   assert.match(detail, /durationSeconds/);
   assert.match(detail, /Grabar video/);
+  assert.match(detail, /Tomar foto/);
+  assert.match(detail, /Seleccionar archivo/);
+  assert.match(multiSelect, /Seleccionar varios archivos/);
+  assert.match(multiSelect, /prepareEvidenceFiles\(files, \{ allowDocuments: true \}\)/);
+  assert.match(multiSelect, /mediaType: prepared\.mediaType/);
+  assert.match(multiSelect, /durationSeconds: Number\(prepared\.durationSeconds/);
+  assert.doesNotMatch(multiSelect, /actionButtons\[1\]/);
+  assert.doesNotMatch(multiSelect, /dmsOriginalLabel/);
   assert.match(preview, /resolvedKind === 'video'/);
   assert.match(preview, /<video src=\{source\} controls/);
   assert.match(persistence, /mediaType: item\.mediaType/);
