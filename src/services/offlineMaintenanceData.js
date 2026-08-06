@@ -15,8 +15,8 @@ import {
 
 const MAX_PENDING_PAGES = 25;
 const MAX_FINALIZED_PAGES = 2;
-const PENDING_DETAIL_LIMIT = 200;
-const FINALIZED_DETAIL_LIMIT = 20;
+const PENDING_DETAIL_LIMIT = 80;
+const FINALIZED_DETAIL_LIMIT = 10;
 const DETAIL_WORKERS = 2;
 const META_PREFIX = 'offline-maintenance-list-v1';
 
