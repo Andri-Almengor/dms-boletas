@@ -28,6 +28,7 @@ import './maintenance-ticket-report-quality.test.mjs';
 import './offline-catalog-sync.test.mjs';
 import './offline-dependency-repair.test.mjs';
 import './offline-finalization-resume.test.mjs';
+import './offline-maintenance-data.test.mjs';
 import './offline-maintenance-navigation.test.mjs';
 import './offline-media-storage.test.mjs';
 import './offline-sync-conflict.test.mjs';
