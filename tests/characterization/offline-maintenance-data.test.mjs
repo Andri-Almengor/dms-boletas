@@ -35,6 +35,7 @@ test('el payload de lista es idéntico para conexión y caché offline', () => {
   });
   assert.equal(normalizeMaintenanceStatus('finalizada'), 'FINALIZADO');
   assert.equal(normalizeMaintenanceStatus(''), 'PENDIENTE');
+  assert.equal(normalizeMaintenanceStatus('ANULADO'), 'ANULADO');
 });
 
 test('la búsqueda offline aplica estado, cliente, fecha y texto sobre los datos descargados', () => {
@@ -56,6 +57,7 @@ test('la búsqueda offline aplica estado, cliente, fecha y texto sobre los datos
   assert.equal(matchesMaintenanceListFilters(row, 'FINALIZADO', '', {}), false);
   assert.equal(matchesMaintenanceListFilters(row, 'PENDIENTE', '', { client: 'BCR' }), false);
   assert.equal(matchesMaintenanceListFilters(row, 'PENDIENTE', '', { dateFrom: '2026-08-07' }), false);
+  assert.equal(matchesMaintenanceListFilters({ ...row, Estado: 'ANULADO' }, 'PENDIENTE', '', {}), false);
 });
 
 test('la base operativa descarga listas paginadas y detalles con concurrencia limitada', () => {
