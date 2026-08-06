@@ -10,7 +10,9 @@ function pickValue(object, keys, fallback = '') {
 
 export function normalizeMaintenanceStatus(value) {
   const normalized = String(value || '').trim().toUpperCase();
-  return ['FINALIZADO', 'FINALIZADA'].includes(normalized) ? 'FINALIZADO' : 'PENDIENTE';
+  if (['FINALIZADO', 'FINALIZADA'].includes(normalized)) return 'FINALIZADO';
+  if (['PENDIENTE', 'PENDIENTES'].includes(normalized)) return 'PENDIENTE';
+  return normalized || 'PENDIENTE';
 }
 
 export function maintenanceRecordId(row = {}, fallback = '') {
