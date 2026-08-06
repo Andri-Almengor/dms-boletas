@@ -3,6 +3,7 @@ import { Link } from 'react-router-dom';
 import { useAuth } from '../../AuthContext';
 import Icon from '../../components/common/Icon';
 import useOfflineMode from '../../hooks/useOfflineMode';
+import { preloadOfflineMaintenanceData } from '../../services/offlineMaintenanceData';
 import { getOfflineStorageStats } from '../../services/offlineStore';
 import { preloadOfflineCatalogs } from '../../services/moduleApi';
 
@@ -90,16 +91,24 @@ export default function OfflineContentPage() {
     if (!offlineEnabled) setOfflineEnabled(true);
     setUpdating(true);
     setError('');
-    setMessage('Descargando la base operativa más reciente...');
+    setMessage('Descargando catálogos, mantenimientos y detalles de la base operativa...');
     try {
-      const results = await preloadOfflineCatalogs(sessionToken);
+      const catalogResults = await preloadOfflineCatalogs(sessionToken);
+      const maintenanceResults = await preloadOfflineMaintenanceData(sessionToken);
+      const results = [...catalogResults, ...maintenanceResults];
       const failed = results.filter((item) => item.status === 'rejected');
+      const detailFailures = maintenanceResults.reduce((sum, item) => (
+        sum + Number(item.status === 'fulfilled' ? item.value?.detailFailures || 0 : 0)
+      ), 0);
       const nextStats = await getOfflineStorageStats();
       setStats(nextStats);
-      if (failed.length) {
-        setMessage(`La descarga terminó con ${failed.length} sección${failed.length === 1 ? '' : 'es'} pendiente${failed.length === 1 ? '' : 's'}. Puede reintentar.`);
+      if (failed.length || detailFailures) {
+        const parts = [];
+        if (failed.length) parts.push(`${failed.length} sección${failed.length === 1 ? '' : 'es'} pendiente${failed.length === 1 ? '' : 's'}`);
+        if (detailFailures) parts.push(`${detailFailures} detalle${detailFailures === 1 ? '' : 's'} de mantenimiento pendiente${detailFailures === 1 ? '' : 's'}`);
+        setMessage(`La descarga terminó con ${parts.join(' y ')}. Puede reintentar sin perder lo que ya quedó guardado.`);
       } else {
-        setMessage('Modo sin conexión activado y contenido actualizado correctamente.');
+        setMessage('Modo sin conexión activado y base operativa actualizada correctamente.');
       }
     } catch (err) {
       setError(err?.message || 'No fue posible actualizar el contenido sin conexión.');
@@ -121,7 +130,7 @@ export default function OfflineContentPage() {
           <Link to="/mas" className="back-link"><Icon name="arrow_back" /> Más opciones</Link>
           <span className="eyebrow">MODO SIN CONEXIÓN</span>
           <h1>Contenido descargado</h1>
-          <p>Active esta función únicamente en los dispositivos que necesitan trabajar sin internet.</p>
+          <p>Descargue catálogos, mantenimientos visibles y sus detalles antes de salir a trabajar sin internet.</p>
         </div>
         {offlineEnabled && <button type="button" className="button button--primary offline-download-button" onClick={updateContent} disabled={updating || navigator.onLine === false}>
           <Icon name={updating ? 'sync' : 'download_for_offline'} />
