@@ -63,6 +63,8 @@ test('la base operativa descarga listas paginadas y detalles con concurrencia li
 
   assert.match(service, /MAX_PENDING_PAGES = 25/);
   assert.match(service, /MAX_FINALIZED_PAGES = 2/);
+  assert.match(service, /PENDING_DETAIL_LIMIT = 80/);
+  assert.match(service, /FINALIZED_DETAIL_LIMIT = 10/);
   assert.match(service, /DETAIL_WORKERS = 2/);
   assert.match(service, /requestAvailable\(MODULE_ROUTES\.maintenance\.list/);
   assert.match(service, /requestAvailable\(MODULE_ROUTES\.maintenance\.get, \{ maintenanceId \}/);
