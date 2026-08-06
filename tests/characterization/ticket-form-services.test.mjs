@@ -98,3 +98,24 @@ test('la persistencia conserva autosave, archivos y acciones finales', () => {
   assert.match(service, /MODULE_ROUTES\.tickets\.testFinalize/);
   assert.match(service, /MODULE_ROUTES\.tickets\.generatePdf/);
 });
+
+test('la creación de boletas bloquea dobles toques y reutiliza el mismo identificador antes de consumir un consecutivo', () => {
+  const hook = source('src/features/tickets/useTicketPersistence.js');
+  const backend = source('backend/src/modules/tickets.module.js');
+
+  assert.match(hook, /const createTicketUidRef = useRef\(''\)/);
+  assert.match(hook, /const createActionInFlightRef = useRef\(false\)/);
+  assert.match(hook, /createTicketUidRef\.current = createLocalId\('boleta'\)/);
+  assert.match(hook, /if \(!editing && createActionInFlightRef\.current\) return null/);
+  assert.match(hook, /if \(!editing\) createActionInFlightRef\.current = true/);
+  assert.match(hook, /boletaUid: editing \? boletaUid : createTicketUidRef\.current/);
+  assert.match(hook, /if \(!editing\) createActionInFlightRef\.current = false/);
+  assert.match(hook, /if \(editing \|\| !completed\)/);
+
+  const existingCheck = backend.indexOf('const existing = rows.find');
+  const consecutiveAssignment = backend.indexOf('BoletaID: nextTicketNumber(rows)');
+  assert.ok(existingCheck >= 0, 'El backend debe buscar primero una boleta con el BoletaUID solicitado');
+  assert.ok(consecutiveAssignment > existingCheck, 'La deduplicación debe ocurrir antes de asignar un consecutivo nuevo');
+  assert.match(backend, /if \(existing\) \{/);
+  assert.match(backend, /return enrichTicket\(existing\)/);
+});
