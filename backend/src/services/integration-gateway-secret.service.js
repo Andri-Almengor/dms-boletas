@@ -27,6 +27,7 @@ const HEADERS = Object.freeze([
 ]);
 
 let schemaPromise = null;
+const knownSecretIds = new Set();
 
 function text(value, maxLength = 500) {
   return String(value ?? '').trim().slice(0, maxLength);
@@ -171,17 +172,22 @@ export async function storeIntegrationGatewayToken({ gatewayId, token, actor = '
       ActualizadoPor: actor,
     });
   }
+  knownSecretIds.add(id);
   return { stored: true, gatewayId: id };
 }
 
 export async function backfillIntegrationGatewayToken(gateway, token) {
   const gatewayId = text(gateway?.GatewayID, 160);
   if (!gatewayId || !token) return { stored: false };
+  if (knownSecretIds.has(gatewayId)) return { stored: false, alreadyStored: true };
   await ensureIntegrationGatewaySecretSchema();
   const exists = (await readTable(SHEET)).some((row) => (
     String(row.GatewayID || '') === gatewayId && Boolean(String(row.TokenCiphertext || '').trim())
   ));
-  if (exists) return { stored: false, alreadyStored: true };
+  if (exists) {
+    knownSecretIds.add(gatewayId);
+    return { stored: false, alreadyStored: true };
+  }
   return storeIntegrationGatewayToken({ gatewayId, token, actor: gatewayId });
 }
 
@@ -193,6 +199,7 @@ export async function revealIntegrationGatewayToken(gatewayId) {
   if (!row?.TokenCiphertext) {
     throw notFound('El token todavía no está disponible para revelado. Mantenga el agente conectado unos segundos para registrarlo de forma cifrada.');
   }
+  knownSecretIds.add(id);
   return {
     gatewayId: id,
     token: decryptToken(row),
