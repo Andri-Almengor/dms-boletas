@@ -1,26 +1,76 @@
 # Descubrimiento de cámaras por red local
 
-Esta modalidad permite que **DMS Integration Gateway** detecte posibles cámaras IP directamente desde la red privada donde está instalado el agente, sin requerir Milestone ni OnGuard.
+Esta modalidad permite que **DMS Integration Gateway** detecte posibles cámaras IP directamente desde las redes a las que el equipo del gateway tenga acceso, sin requerir Milestone ni OnGuard.
 
 ## Alcance de esta etapa
 
 El agente usa únicamente descubrimiento e información técnica disponible sin credenciales:
 
-- ONVIF WS-Discovery por UDP 3702.
+- ONVIF WS-Discovery por UDP 3702 en la red local donde el multicast sea visible.
 - Comprobación TCP limitada a los puertos configurados, por defecto `80,443,554`.
 - Lectura de la página web raíz para identificar título y encabezado `Server`.
 - `RTSP OPTIONS` sin autenticación para identificar servicios de video.
 - Tabla ARP/vecinos del sistema operativo para obtener MAC cuando está disponible.
 
-El agente **no**:
+El agente no intenta contraseñas predeterminadas, no realiza fuerza bruta, no inicia sesión, no modifica dispositivos y no abre puertos entrantes.
 
-- intenta contraseñas predeterminadas;
-- realiza fuerza bruta;
-- inicia sesión en cámaras;
-- abre RTSP autenticado;
-- cambia configuración de dispositivos;
-- explora direcciones públicas;
-- abre puertos entrantes en la institución.
+## Objetivos configurables
+
+`DMS_NETWORK_TARGETS` permite controlar exactamente qué direcciones se revisan. Puede combinar varios objetivos separados por coma, punto y coma o salto de línea.
+
+Formatos admitidos:
+
+```text
+192.168.4.0/24
+192.168.4.100-192.168.4.200
+192.168.4.100-200
+192.168.4.100/200
+192.168.96.12
+```
+
+Significado:
+
+- `192.168.4.0/24`: revisa los hosts utilizables de la subred.
+- `192.168.4.100-192.168.4.200`: revisa únicamente ese rango exacto.
+- `192.168.4.100-200`: atajo para el mismo rango dentro del mismo bloque IPv4.
+- `192.168.4.100/200`: atajo adicional equivalente, pensado para facilitar la configuración operativa.
+- `192.168.96.12`: revisa una sola IP.
+
+Ejemplo con varias VLAN/redes enrutadas:
+
+```env
+DMS_NETWORK_TARGETS=192.168.4.100/200,192.168.96.1-80,10.20.120.0/24
+```
+
+El número de VLAN se puede documentar en DMS-Boletas, pero la VLAN por sí sola no da conectividad. El equipo donde corre el gateway debe tener una ruta válida hacia cada red objetivo.
+
+## Redes públicas o direccionamiento no RFC1918
+
+Por defecto el agente solo permite objetivos privados RFC1918:
+
+- `10.0.0.0/8`
+- `172.16.0.0/12`
+- `192.168.0.0/16`
+
+Una dirección como `201.1.2.10` o una red como `192.68.4.0/24` no pertenece a RFC1918. Si realmente forma parte de infraestructura administrada por el cliente y existe autorización para consultarla, debe habilitarse localmente:
+
+```env
+DMS_NETWORK_ALLOW_PUBLIC_TARGETS=true
+```
+
+Después puede configurarse de forma explícita:
+
+```env
+DMS_NETWORK_TARGETS=201.1.2.10
+```
+
+Los objetivos públicos nunca se detectan automáticamente, cada objetivo público está limitado a 256 direcciones y el total sigue sujeto a `DMS_NETWORK_MAX_HOSTS`.
+
+## Modo automático
+
+Si `DMS_NETWORK_TARGETS` y `DMS_NETWORK_CIDRS` están vacíos, el agente detecta las interfaces IPv4 privadas del equipo y utiliza un `/24` por interfaz. Esto es útil para una instalación inicial, pero para clientes con varias VLAN o rangos estáticos se recomienda configurar `DMS_NETWORK_TARGETS` explícitamente.
+
+`DMS_NETWORK_CIDRS` se conserva únicamente por compatibilidad con la primera versión del agente.
 
 ## Información que puede obtener
 
@@ -36,8 +86,8 @@ Dependiendo del dispositivo y su configuración puede obtener:
 - puertos detectados;
 - servidor HTTP;
 - servidor RTSP;
-- métodos de detección;
-- nivel de confianza de la clasificación.
+- método y nivel de confianza del descubrimiento;
+- objetivo/rango mediante el cual fue encontrado.
 
 No todas las cámaras publican todos esos datos sin autenticación. El nombre detectado se conserva como dato técnico y en DMS-Boletas se puede definir un **Nombre operativo** independiente.
 
@@ -49,7 +99,7 @@ El agente prioriza identificadores estables en este orden:
 2. Dirección MAC.
 3. Dirección IP como último recurso.
 
-La identidad final sigue usando:
+La identidad final continúa usando:
 
 ```text
 GatewayID + SourceSystem + ExternalID
@@ -57,38 +107,22 @@ GatewayID + SourceSystem + ExternalID
 
 Por eso renombrar una cámara en DMS-Boletas no crea otro dispositivo.
 
-## Seguridad del rango explorado
-
-Por defecto el agente detecta las interfaces IPv4 privadas del equipo. Solo se admiten redes RFC1918:
-
-- `10.0.0.0/8`
-- `172.16.0.0/12`
-- `192.168.0.0/16`
-
-Cada rango explorado está limitado a prefijos `/24` a `/30`. Si la interfaz local pertenece a una red más grande, el modo automático limita la exploración al `/24` donde está el agente.
-
-Para explorar varios segmentos autorizados, enumere varios `/24` explícitos:
-
-```env
-DMS_NETWORK_CIDRS=192.168.10.0/24,192.168.11.0/24
-```
-
-No configure redes sobre las que no tenga autorización administrativa.
-
 ## Configuración recomendada
 
 ```env
 DMS_GATEWAY_ADAPTER=network
+DMS_NETWORK_TARGETS=192.168.4.100/200,192.168.96.0/24
 DMS_NETWORK_CIDRS=
 DMS_NETWORK_SCAN_PORTS=80,443,554
 DMS_NETWORK_PROBE_TIMEOUT_MS=600
 DMS_NETWORK_ONVIF_TIMEOUT_MS=1500
 DMS_NETWORK_SCAN_CONCURRENCY=48
 DMS_NETWORK_MAX_HOSTS=1024
+DMS_NETWORK_ALLOW_PUBLIC_TARGETS=false
 DMS_GATEWAY_INVENTORY_SYNC_MS=600000
 ```
 
-Si `DMS_NETWORK_CIDRS` queda vacío, se detectan automáticamente las redes privadas del equipo.
+`DMS_NETWORK_MAX_HOSTS` limita la cantidad total de direcciones que se revisan aunque se configuren varios rangos.
 
 ## Primera prueba sin enviar datos a Render
 
@@ -102,6 +136,7 @@ Cambie en `.env`:
 
 ```env
 DMS_GATEWAY_ADAPTER=network
+DMS_NETWORK_TARGETS=192.168.4.100/200,192.168.96.0/24
 ```
 
 Luego ejecute:
@@ -111,7 +146,7 @@ npm run config:check
 npm run source:check
 ```
 
-`source:check` explora la red local y muestra cuántos posibles dispositivos de video detectó, pero no sincroniza el inventario con Render.
+`source:check` explora únicamente los objetivos configurados y muestra cuántos posibles dispositivos de video detectó, pero no sincroniza el inventario con Render.
 
 ## Activar en producción
 
@@ -149,12 +184,24 @@ Las siguientes sincronizaciones actualizan IP, MAC, modelo y estado detectado, p
 
 Guardar el campo vacío vuelve a utilizar el nombre detectado automáticamente.
 
+## VLAN y rutas
+
+Ejemplo:
+
+```text
+VLAN 4   -> 192.168.4.0/24
+VLAN 96  -> 192.168.96.0/24
+VLAN 120 -> 10.20.120.0/24
+```
+
+El gateway puede revisar todas si Windows tiene conectividad/enrutamiento hacia ellas. ONVIF WS-Discovery usa multicast y normalmente no cruza routers o VLAN, por lo que en una VLAN remota puede haber menos metadatos ONVIF aunque la cámara siga siendo detectable por IP, HTTP, HTTPS o RTSP.
+
 ## Limitaciones conocidas
 
 - Una cámara con ONVIF deshabilitado, RTSP en un puerto no incluido y una interfaz web sin identificadores puede no ser clasificada como cámara.
 - La MAC puede no estar disponible si el dispositivo está en otra VLAN o si el sistema operativo no la expone en su tabla vecina.
 - Si no existe UUID ONVIF ni MAC y la IP cambia, la identidad basada en IP puede crear una nueva entrada.
-- El escaneo no atraviesa routers o VLANs a menos que el equipo del gateway tenga ruta hacia ellas y se configuren explícitamente los CIDR autorizados.
+- El escaneo no atraviesa routers o VLAN a menos que el equipo del gateway tenga ruta hacia ellas.
 - Esta etapa no obtiene snapshots, video en vivo ni información que requiera credenciales.
 
 Las integraciones Milestone, OnGuard y ONVIF autenticado pueden agregarse posteriormente sin cambiar el contrato de inventario del gateway.
