@@ -158,11 +158,16 @@ export default function useFormDraft({
     clearDraft: () => {
       cancelledKeyRef.current = storageKey;
       window.clearTimeout(timerRef.current);
-      saveChainRef.current.catch(() => {}).then(() => deleteDraft(storageKey)).catch(() => {});
+      const deletion = saveChainRef.current
+        .catch(() => {})
+        .then(() => deleteDraft(storageKey))
+        .catch(() => {});
+      saveChainRef.current = deletion;
       normalizedLegacyKeys.forEach((legacyKey) => {
         try { localStorage.removeItem(legacyKey); } catch { /* Sin efecto. */ }
       });
       setStatus('idle');
+      return deletion;
     },
     markServerSaved: () => setStatus('server'),
     storageKey,
