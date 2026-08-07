@@ -10,7 +10,7 @@ export const TABLES = Object.freeze({
   Mantenimiento: { id: 'MantenimientoID' }, Evidencia_Mantenimientos: { id: 'EvidenciaMantenimientoID' }, 'Mantenimiento imagenes': { id: 'FotoDispositivoID' }, FirmaMantenimientoSolicitudes: { id: 'SolicitudFirmaMantenimientoID' },
   KnowledgeCategories: { id: 'CategoriaConocimientoID' }, KnowledgeArticles: { id: 'TutorialID' }, KnowledgeAttachments: { id: 'AdjuntoID' }, KnowledgeArticleCategories: { id: 'RelacionArticuloCategoriaID' },
   EncuestaPreguntas: { id: 'PreguntaID' }, Encuestas: { id: 'EncuestaID' }, EncuestaRespuestas: { id: 'RespuestaEncuestaID' },
-  IntegracionGateways: { id: 'GatewayID' }, IntegracionDispositivos: { id: 'DispositivoIntegracionID' }, IntegracionComandos: { id: 'ComandoID' },
+  IntegracionGateways: { id: 'GatewayID' }, IntegracionDispositivos: { id: 'DispositivoIntegracionID' }, IntegracionComandos: { id: 'ComandoID' }, IntegracionGatewaySecrets: { id: 'GatewayID' },
   Notificaciones: { id: 'NotificacionID' }, Auditoria: { id: 'AuditoriaID' }, Archivos: { id: 'ArchivoIDInterno' },
 });
 

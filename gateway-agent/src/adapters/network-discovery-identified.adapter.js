@@ -1,3 +1,4 @@
+import { cameraSignature } from './camera-brand-signatures.js';
 import { ConfigurableNetworkDiscoveryAdapter } from './network-discovery-configurable.adapter.js';
 import { identifyNetworkCamera } from './network-camera-identification.js';
 
@@ -38,6 +39,12 @@ function genericDetectedName(value, ip) {
   return !normalized || normalized === `cámara detectada ${String(ip).toLowerCase()}`;
 }
 
+function usefulManufacturer(value) {
+  const normalized = text(value, 160);
+  if (!normalized || /^(onvif|camera|ip camera|network camera|network_discovery)$/i.test(normalized)) return '';
+  return normalized;
+}
+
 function enrichDevice(device, identification) {
   if (!identification) return device;
   const metadata = device.metadata || {};
@@ -46,8 +53,35 @@ function enrichDevice(device, identification) {
     ? onvif.name
     : device.name;
   const macAddress = text(device.macAddress || identification.macAddress, 80).toUpperCase();
-  const manufacturer = text(identification.manufacturer || device.manufacturer, 160);
-  const model = text(identification.model || device.model, 160);
+  const signatureMaterial = [
+    identification.manufacturer,
+    identification.model,
+    device.manufacturer,
+    device.model,
+    device.name,
+    onvif.manufacturer,
+    onvif.model,
+    onvif.name,
+    onvif.hardware,
+    identification.web?.manufacturer,
+    identification.web?.model,
+    identification.web?.title,
+    identification.web?.generator,
+    identification.web?.server,
+  ].filter(Boolean).join(' ');
+  const signature = cameraSignature(signatureMaterial);
+  const manufacturer = text(
+    signature.manufacturer
+    || usefulManufacturer(identification.manufacturer)
+    || usefulManufacturer(device.manufacturer),
+    160,
+  );
+  const model = text(
+    signature.model
+    || identification.model
+    || device.model,
+    160,
+  );
   const confidence = identification.confidence === 'HIGH'
     ? 'HIGH'
     : metadata.discoveryConfidence || identification.confidence || 'MEDIUM';
@@ -64,12 +98,16 @@ function enrichDevice(device, identification) {
       onvifIdentified: Boolean(onvif.confirmed),
       onvifDeviceInformation: Boolean(onvif.manufacturer || onvif.model || onvif.firmwareVersion || onvif.serialNumber),
       macFromOnvif: Boolean(!device.macAddress && identification.macAddress),
+      brandSignature: Boolean(signature.manufacturer),
     },
     metadata: {
       ...metadata,
       discoveryConfidence: confidence,
       identificationLayer: 2,
-      identificationEvidence: identification.evidence || [],
+      identificationEvidence: [
+        ...(identification.evidence || []),
+        ...(signature.manufacturer ? ['MODEL_BRAND_SIGNATURE'] : []),
+      ],
       onvifConfirmed: Boolean(onvif.confirmed),
       onvifAuthRequired: Boolean(onvif.authRequired),
       onvifEndpoint: text(onvif.endpoint, 500),
@@ -81,6 +119,8 @@ function enrichDevice(device, identification) {
       serialNumber: text(onvif.serialNumber, 200),
       hardwareId: text(onvif.hardwareId, 200),
       onvifMacAddresses: Array.isArray(onvif.macAddresses) ? onvif.macAddresses.slice(0, 8) : [],
+      inferredManufacturer: signature.manufacturer,
+      inferredModel: signature.model,
       httpFingerprint: identification.web ? {
         manufacturer: text(identification.web.manufacturer, 160),
         model: text(identification.web.model, 160),
@@ -111,6 +151,7 @@ export class IdentifiedNetworkDiscoveryAdapter extends ConfigurableNetworkDiscov
       onvifUnicastDiscovery: this.identificationEnabled && this.unicastOnvifEnabled,
       onvifDeviceInformation: this.identificationEnabled,
       onvifNetworkInterfaces: this.identificationEnabled,
+      cameraBrandSignatures: this.identificationEnabled,
     };
   }
 
