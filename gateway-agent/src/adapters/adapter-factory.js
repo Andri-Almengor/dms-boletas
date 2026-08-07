@@ -1,5 +1,5 @@
 import { MilestoneAdapter } from './milestone.adapter.js';
-import { NetworkDiscoveryAdapter } from './network-discovery.adapter.js';
+import { ConfigurableNetworkDiscoveryAdapter } from './network-discovery-configurable.adapter.js';
 import { SimulatedAdapter } from './simulated.adapter.js';
 
 function envText(env, name, fallback = '') {
@@ -28,7 +28,7 @@ export function createAdapterFromEnvironment(env = process.env) {
   }
 
   if (['network', 'network-discovery', 'network_discovery', 'lan'].includes(adapterName)) {
-    return new NetworkDiscoveryAdapter({ env });
+    return new ConfigurableNetworkDiscoveryAdapter({ env });
   }
 
   if (adapterName === 'milestone') {
