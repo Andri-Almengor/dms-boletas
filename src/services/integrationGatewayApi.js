@@ -49,6 +49,15 @@ export function provisionIntegrationGateway(payload, sessionToken, options = {})
   });
 }
 
+export function revealIntegrationGatewayToken(gatewayId, sessionToken, options = {}) {
+  return request('/admin/credentials/reveal', {
+    method: 'POST',
+    body: { gatewayId },
+    sessionToken,
+    signal: options.signal,
+  });
+}
+
 export function revokeIntegrationGateway(gatewayId, sessionToken, options = {}) {
   return request('/admin/revoke', {
     method: 'POST',
@@ -71,6 +80,15 @@ export function updateIntegrationDeviceName(deviceId, name, sessionToken, option
   return request('/admin/devices/name', {
     method: 'POST',
     body: { deviceId, name },
+    sessionToken,
+    signal: options.signal,
+  });
+}
+
+export function updateIntegrationDeviceProfile(payload, sessionToken, options = {}) {
+  return request('/admin/devices/profile', {
+    method: 'POST',
+    body: payload,
     sessionToken,
     signal: options.signal,
   });
