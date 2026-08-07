@@ -93,3 +93,12 @@ export function updateIntegrationDeviceProfile(payload, sessionToken, options = 
     signal: options.signal,
   });
 }
+
+export function updateIntegrationDevicesLocation(payload, sessionToken, options = {}) {
+  return request('/admin/devices/location/batch', {
+    method: 'POST',
+    body: payload,
+    sessionToken,
+    signal: options.signal,
+  });
+}
