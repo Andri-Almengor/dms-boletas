@@ -3,6 +3,7 @@ import { Link, useSearchParams } from 'react-router-dom';
 import { apiRequest } from '../../api';
 import { useAuth } from '../../AuthContext';
 import Icon from '../../components/common/Icon';
+import GatewaySnapshotCard from '../../components/assistant/GatewaySnapshotCard';
 import '../../styles/assistant-sensitive.css';
 
 const STARTER_QUESTIONS = [
@@ -410,7 +411,7 @@ function AssistantMessage({ message, onSuggestion, onOption }) {
           {String(message.text || '').split(/\n+/).filter(Boolean).map((paragraph, index) => <p key={`${message.id}-${index}`}>{paragraph}</p>)}
         </div>
 
-        {message.sensitive && <div className="assistant-sensitive-notice"><Icon name="shield_lock" /><span>Esta respuesta contiene credenciales. No se guardará en el historial local del navegador. Oculte la pantalla antes de compartir o proyectar el dispositivo.</span></div>}
+        {message.sensitive && <div className="assistant-sensitive-notice"><Icon name="shield_lock" /><span>Esta respuesta contiene información sensible. No se guardará en el historial local del navegador. Oculte la pantalla antes de compartir o proyectar el dispositivo.</span></div>}
 
         {message.options?.length > 0 && (
           <div className="assistant-choice-list" aria-label="Opciones para aclarar la consulta">
@@ -425,6 +426,7 @@ function AssistantMessage({ message, onSuggestion, onOption }) {
 
         <AssistantStats stats={message.stats} />
         {message.tables?.map((table) => <AssistantDataTable key={table.id} table={table} />)}
+        {message.snapshot && <GatewaySnapshotCard snapshot={message.snapshot} />}
 
         {message.sources?.length > 0 && (
           <div className="assistant-sources">
@@ -519,6 +521,7 @@ export default function AssistantPageSecure() {
         resumeQuestion: response.resumeQuestion || question,
         tables: presentation.tables,
         stats: presentation.stats,
+        snapshot: response.facts?.gatewaySnapshot || null,
         sensitive: Boolean(response.sensitive),
       };
       setMessages((current) => [...current, assistantMessage]);
