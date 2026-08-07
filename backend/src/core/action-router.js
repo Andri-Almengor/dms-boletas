@@ -15,9 +15,9 @@ import { ticketDeliveryHandlers } from '../modules/ticket-delivery.module.js';
 import { ticketGroupSignatureHandlers as ticketSignatureHandlers } from '../modules/ticket-group-signature.module.js';
 import { publicSignatureHandlers } from '../modules/public-signature.module.js';
 import {
-  maintenanceDynamicQuestionHandlers as maintenanceAutomationHandlers,
+  maintenanceProgressChatHandlers as maintenanceAutomationHandlers,
   maintenanceQuestionHandlers,
-} from '../modules/maintenance-question-ready.module.js';
+} from '../modules/maintenance-progress-chat.module.js';
 import { maintenanceScalableImageHandlers } from '../modules/maintenance-scalable-images.module.js';
 import { maintenanceSignatureHandlers } from '../modules/maintenance-signature.module.js';
 import { knowledgeHandlers } from '../modules/knowledge.module.js';
