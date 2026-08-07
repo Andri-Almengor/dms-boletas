@@ -66,7 +66,7 @@ function text(value, maxLength = 500) {
 function canonicalManufacturer(value = '') {
   const raw = text(value, 250);
   if (!raw) return '';
-  return VENDOR_ALIASES.find(([, expression]) => expression.test(raw))?.[0] || raw;
+  return VENDOR_ALIASES.find(([, expression]) => expression.test(raw))?.[0] || '';
 }
 
 function modelFamily(material = '') {
@@ -85,17 +85,18 @@ function modelFamily(material = '') {
 }
 
 export function identifyCameraVendorProfile({ manufacturer = '', model = '', material = '' } = {}) {
-  const explicitManufacturer = canonicalManufacturer(manufacturer);
+  const rawManufacturer = text(manufacturer, 250);
+  const explicitManufacturer = canonicalManufacturer(rawManufacturer);
   const combined = [manufacturer, model, material].filter(Boolean).join(' ');
   const explicitAlias = VENDOR_ALIASES.find(([, expression]) => expression.test(combined));
-  const family = modelFamily([model, material].filter(Boolean).join(' '));
+  const family = modelFamily([model, manufacturer, material].filter(Boolean).join(' '));
 
-  // La marca entregada explícitamente por ONVIF tiene prioridad. Una familia de modelo
-  // solo completa la marca cuando la cámara no la publicó, evitando sobrescribir datos reales.
+  // La marca canónica publicada por el dispositivo tiene prioridad. Si el campo de fabricante
+  // viene vacío, genérico o incluso contiene el modelo, la familia conocida puede completar la marca.
   const resolvedManufacturer = explicitManufacturer
     || explicitAlias?.[0]
     || family?.manufacturer
-    || '';
+    || rawManufacturer;
 
   return {
     manufacturer: resolvedManufacturer,
