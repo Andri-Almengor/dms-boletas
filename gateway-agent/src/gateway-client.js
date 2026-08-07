@@ -1,5 +1,16 @@
 function normalizedBaseUrl(value) {
-  const url = new URL(String(value || '').trim());
+  const raw = String(value || '').trim();
+  if (!raw) {
+    throw new Error('Falta DMS_GATEWAY_URL. Use la URL pública de Render, por ejemplo https://su-servicio.onrender.com.');
+  }
+
+  let url;
+  try {
+    url = new URL(raw);
+  } catch {
+    throw new Error(`DMS_GATEWAY_URL no contiene una URL válida: ${raw}`);
+  }
+
   const local = ['localhost', '127.0.0.1', '::1'].includes(url.hostname);
   if (url.protocol !== 'https:' && !local) {
     throw new Error('DMS_GATEWAY_URL debe utilizar HTTPS fuera del entorno local.');
