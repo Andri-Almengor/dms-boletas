@@ -1,0 +1,29 @@
+name: Apply camera vendor capabilities patch
+
+on:
+  push:
+    branches:
+      - fix/camera-vendor-capabilities
+
+permissions:
+  contents: write
+
+jobs:
+  patch:
+    if: github.event.head_commit.message == 'Add camera vendor capability patch script'
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: fix/camera-vendor-capabilities
+          fetch-depth: 0
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+      - run: node scripts/patch-camera-vendor-capabilities.mjs
+      - run: |
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add gateway-agent/src/camera/onvif-camera-control.js backend/src/services/integration-gateway-answer-format.patch.js tests/characterization/gateway-camera-control-assistant.test.mjs
+          git commit -m "Improve camera snapshot and capability detection"
+          git push origin HEAD:fix/camera-vendor-capabilities
