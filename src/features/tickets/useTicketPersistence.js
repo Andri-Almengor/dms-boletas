@@ -1,4 +1,6 @@
 import { useCallback, useEffect, useRef, useState } from 'react';
+import { useAuth } from '../../AuthContext';
+import { deleteDraft } from '../../services/draftStore';
 import { isAbortError } from '../../services/requestErrors';
 import { createLocalId } from '../../utils/localId';
 import { releaseLocalFiles } from '../../utils/localFileLifecycle';
@@ -20,11 +22,15 @@ export default function useTicketPersistence({
   navigate,
   setError,
 }) {
+  const { user } = useAuth();
   const [saving, setSaving] = useState(false);
   const [activeAction, setActiveAction] = useState('');
   const [serverStatus, setServerStatus] = useState('idle');
   const createTicketUidRef = useRef('');
   const createActionInFlightRef = useRef(false);
+  const recoveryScope = String(user?.UsuarioID || user?.Correo || 'public');
+  const recoveryRoute = editing ? `/boletas/${boletaUid}/editar` : '/boletas/nueva';
+  const recoveryDraftKey = `${recoveryScope}:${recoveryRoute}`;
 
   // La creación conserva un único identificador durante toda la vida del
   // formulario. Así, incluso si una solicitud se repite por doble toque o por
@@ -90,7 +96,14 @@ export default function useTicketPersistence({
       });
       await runTicketPostSaveAction({ type, uid, form, sessionToken });
       releaseLocalFiles(evidences);
+
+      // Hay dos capas de recuperación: el borrador controlado del formulario
+      // y la captura global por ruta. Ambas deben desaparecer antes de navegar.
+      // Esperar las eliminaciones evita que una nueva boleta alcance a leer el
+      // borrador anterior mientras IndexedDB todavía lo está borrando.
       await clearDraft();
+      await deleteDraft(recoveryDraftKey);
+
       completed = true;
       navigate(`/boletas/${encodeURIComponent(uid)}`);
       return uid;
@@ -110,7 +123,7 @@ export default function useTicketPersistence({
         setActiveAction('');
       }
     }
-  }, [boletaUid, clearDraft, editing, evidences, form, navigate, sessionToken, setError]);
+  }, [boletaUid, clearDraft, editing, evidences, form, navigate, recoveryDraftKey, sessionToken, setError]);
 
   return {
     action,
