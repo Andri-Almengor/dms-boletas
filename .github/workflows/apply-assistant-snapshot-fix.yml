@@ -1,0 +1,31 @@
+name: Apply assistant snapshot fix
+
+on:
+  push:
+    branches:
+      - fix/assistant-gateway-snapshot-render
+
+permissions:
+  contents: write
+
+jobs:
+  patch:
+    if: github.actor != 'github-actions[bot]'
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+      - name: Aplicar parche
+        run: node scripts/patch-assistant-snapshot-render.mjs
+      - name: Guardar cambio
+        run: |
+          if git diff --quiet; then
+            echo "No hay cambios pendientes."
+            exit 0
+          fi
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add src/pages/assistant/AssistantPageSecure.jsx
+          git commit -m "Mostrar capturas del gateway dentro del chat"
+          git push origin HEAD:${GITHUB_REF_NAME}
