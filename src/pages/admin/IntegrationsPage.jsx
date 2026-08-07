@@ -8,6 +8,7 @@ import {
   provisionIntegrationGateway,
   revokeIntegrationGateway,
   sendIntegrationGatewayCommand,
+  updateIntegrationDeviceName,
 } from '../../services/integrationGatewayApi';
 
 const EMPTY_OVERVIEW = Object.freeze({
@@ -36,8 +37,31 @@ function commandLabel(type) {
 function statusClass(value) {
   const normalized = String(value || '').toUpperCase();
   if (['COMPLETADO', 'ACTIVO', 'ONLINE'].includes(normalized)) return 'status-chip--active';
-  if (['ERROR', 'REVOCADO', 'OFFLINE', 'DISABLED'].includes(normalized)) return 'status-chip--danger';
+  if (['ERROR', 'REVOCADO', 'OFFLINE', 'DISABLED', 'NO DETECTADO'].includes(normalized)) return 'status-chip--danger';
   return 'status-chip--pending';
+}
+
+function detectedInLatestSync(device) {
+  const value = device?.DetectadoEnUltimaSincronizacion;
+  return value !== false && String(value ?? 'true').toLowerCase() !== 'false';
+}
+
+function deviceStatus(device) {
+  if (!detectedInLatestSync(device)) return 'NO DETECTADO';
+  return device?.EstadoConexion || 'UNKNOWN';
+}
+
+function networkDetails(device) {
+  if (String(device?.SourceSystem || '').toUpperCase() !== 'NETWORK_DISCOVERY') return '';
+  const metadata = device.metadata || {};
+  const ports = Array.isArray(metadata.openPorts) && metadata.openPorts.length
+    ? `Puertos ${metadata.openPorts.join(', ')}`
+    : '';
+  return [
+    device.DireccionMAC ? `MAC ${device.DireccionMAC}` : '',
+    ports,
+    metadata.discoveryConfidence ? `Confianza ${metadata.discoveryConfidence}` : '',
+  ].filter(Boolean).join(' · ');
 }
 
 export default function IntegrationsPage() {
@@ -51,6 +75,7 @@ export default function IntegrationsPage() {
   const [issuedCredential, setIssuedCredential] = useState(null);
   const [form, setForm] = useState({ name: '', clientId: '' });
   const [expandedGateways, setExpandedGateways] = useState(() => new Set());
+  const [editingDevice, setEditingDevice] = useState(null);
 
   async function load({ silent = false } = {}) {
     if (!silent) setLoading(true);
@@ -107,6 +132,34 @@ export default function IntegrationsPage() {
       else next.add(gatewayId);
       return next;
     });
+  }
+
+  function editDeviceName(device) {
+    if (working) return;
+    setEditingDevice({
+      id: device.DispositivoIntegracionID,
+      value: device.NombreOperativo || device.NombreDetectado || '',
+      detectedName: device.NombreDetectado || '',
+    });
+  }
+
+  async function saveDeviceName(event) {
+    event.preventDefault();
+    if (!editingDevice || working) return;
+    const deviceId = editingDevice.id;
+    setWorking(`device:${deviceId}`);
+    setError('');
+    setNotice('');
+    try {
+      await updateIntegrationDeviceName(deviceId, editingDevice.value.trim(), sessionToken);
+      setEditingDevice(null);
+      setNotice('Nombre de la cámara actualizado. Las próximas sincronizaciones conservarán este nombre operativo.');
+      await load({ silent: true });
+    } catch (updateError) {
+      setError(updateError.message || 'No se pudo actualizar el nombre de la cámara.');
+    } finally {
+      setWorking('');
+    }
   }
 
   async function provision(event) {
@@ -199,7 +252,7 @@ export default function IntegrationsPage() {
 
     <div className="info-box integration-foundation-note">
       <Icon name="hub" />
-      <div><strong>Inventario local: simulación y Milestone XProtect</strong><p>El agente puede sincronizar cámaras simuladas o cámaras configuradas en Milestone. En dispositivos Milestone, <b>CONFIGURED</b> confirma que la cámara existe en XProtect, pero todavía no representa una verificación de video en vivo. El estado en tiempo real se incorporará en una etapa posterior.</p></div>
+      <div><strong>Inventario local: red, simulación y Milestone</strong><p>El agente puede descubrir posibles cámaras directamente en subredes privadas mediante ONVIF, RTSP y servicios web sin probar contraseñas. En <b>NETWORK_DISCOVERY</b>, ONLINE significa que el equipo respondió en la última exploración; no representa video continuo. El nombre detectado puede reemplazarse por un nombre operativo editable sin perder la identidad técnica del dispositivo.</p></div>
     </div>
 
     {error && <div className="alert alert--error"><Icon name="error" /><span>{error}</span></div>}
@@ -249,7 +302,26 @@ export default function IntegrationsPage() {
             <button type="button" className="button button--primary" disabled={Boolean(working)} onClick={() => sendCommand(gateway.GatewayID, 'INVENTORY_SYNC')}><Icon name="sync" /> Sincronizar inventario</button>
             <button type="button" className="button button--danger" disabled={Boolean(working)} onClick={() => revoke(gateway)}><Icon name="link_off" /> Revocar</button>
           </div>}
-          {devices.length > 0 && <div className="integration-device-list"><h3>Dispositivos detectados</h3>{visibleDevices.map((device) => <div className="integration-device-row" key={device.DispositivoIntegracionID}><span className="integration-device-row__icon"><Icon name={device.Tipo === 'CAMERA' ? 'videocam' : 'memory'} /></span><div><strong>{device.NombreOperativo || device.NombreDetectado}</strong><small>{[device.SourceSystem, device.Fabricante, device.Modelo, device.DireccionIP].filter(Boolean).join(' · ')}</small></div><span className={`status-chip ${statusClass(device.EstadoConexion)}`}>{device.EstadoConexion || 'UNKNOWN'}</span></div>)}{devices.length > 12 && <button type="button" className="button button--secondary" onClick={() => toggleGatewayDevices(gatewayId)}><Icon name={expanded ? 'expand_less' : 'expand_more'} /> {expanded ? 'Mostrar menos' : `Ver todos (${devices.length})`}</button>}</div>}
+          {devices.length > 0 && <div className="integration-device-list"><h3>Dispositivos detectados</h3>{visibleDevices.map((device) => {
+            const status = deviceStatus(device);
+            const networkMeta = networkDetails(device);
+            const editing = editingDevice?.id === device.DispositivoIntegracionID;
+            return <div className={`integration-device-row ${editing ? 'integration-device-row--editing' : ''}`} key={device.DispositivoIntegracionID}>
+              <span className="integration-device-row__icon"><Icon name={device.Tipo === 'CAMERA' ? 'videocam' : 'memory'} /></span>
+              <div className="integration-device-row__content">
+                <strong>{device.NombreOperativo || device.NombreDetectado}</strong>
+                {device.NombreOperativo && <small>Detectado como: {device.NombreDetectado}</small>}
+                <small>{[device.SourceSystem, device.Fabricante, device.Modelo, device.DireccionIP].filter(Boolean).join(' · ')}</small>
+                {networkMeta && <small>{networkMeta}</small>}
+                {editing && <form className="integration-device-name-form" onSubmit={saveDeviceName}>
+                  <label><span>Nombre operativo</span><input className="form-control" autoFocus maxLength={250} value={editingDevice.value} onChange={(event) => setEditingDevice((current) => ({ ...current, value: event.target.value }))} placeholder={editingDevice.detectedName || 'Nombre de la cámara'} /></label>
+                  <div><button type="submit" className="button button--primary" disabled={working === `device:${device.DispositivoIntegracionID}`}><Icon name="save" /> Guardar</button><button type="button" className="button button--secondary" disabled={Boolean(working)} onClick={() => setEditingDevice(null)}>Cancelar</button></div>
+                  <small>Deje el nombre vacío y guarde para volver a usar el nombre detectado automáticamente.</small>
+                </form>}
+              </div>
+              <div className="integration-device-row__side"><span className={`status-chip ${statusClass(status)}`}>{status}</span><button type="button" className="icon-button" disabled={Boolean(working)} onClick={() => editDeviceName(device)} aria-label={`Editar nombre de ${device.NombreOperativo || device.NombreDetectado}`} title="Editar nombre"><Icon name="edit" /></button></div>
+            </div>;
+          })}{devices.length > 12 && <button type="button" className="button button--secondary" onClick={() => toggleGatewayDevices(gatewayId)}><Icon name={expanded ? 'expand_less' : 'expand_more'} /> {expanded ? 'Mostrar menos' : `Ver todos (${devices.length})`}</button>}</div>}
         </article>;
       })}
     </div> : <div className="empty-state"><Icon name="router" /><h2>No hay gateways configurados</h2><p>Cree el primero para preparar una conexión saliente desde una red de pruebas.</p></div>}
