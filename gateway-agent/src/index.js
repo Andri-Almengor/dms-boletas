@@ -7,6 +7,7 @@ import { GatewayClient } from './gateway-client.js';
 
 const VERSION = '0.1.0';
 const envPath = path.resolve(process.cwd(), '.env');
+const checkConfigOnly = process.argv.includes('--check-config');
 
 if (existsSync(envPath)) {
   try {
@@ -49,6 +50,14 @@ try {
   console.error(`Configuración del agente incompleta: ${error?.message || 'revise el archivo .env'}`);
   console.error(`Archivo esperado: ${envPath}`);
   process.exit(1);
+}
+
+if (checkConfigOnly) {
+  const gatewayPreview = client.gatewayId.length > 18
+    ? `${client.gatewayId.slice(0, 18)}…`
+    : client.gatewayId;
+  console.log(`Configuración válida para ${gatewayPreview} en ${client.baseUrl}.`);
+  process.exit(0);
 }
 
 let stopping = false;
