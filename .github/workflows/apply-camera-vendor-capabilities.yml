@@ -10,7 +10,7 @@ permissions:
 
 jobs:
   patch:
-    if: github.event.head_commit.message == 'Add camera vendor capability patch script'
+    if: github.event.head_commit.message == 'Trigger camera vendor capability patch'
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
