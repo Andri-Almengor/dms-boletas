@@ -179,6 +179,9 @@ export async function storeIntegrationGatewayToken({ gatewayId, token, actor = '
 export async function backfillIntegrationGatewayToken(gateway, token) {
   const gatewayId = text(gateway?.GatewayID, 160);
   if (!gatewayId || !token) return { stored: false };
+  if (!integrationGatewayTokenEncryptionConfigured()) {
+    return { stored: false, encryptionConfigured: false };
+  }
   if (knownSecretIds.has(gatewayId)) return { stored: false, alreadyStored: true };
   await ensureIntegrationGatewaySecretSchema();
   const exists = (await readTable(SHEET)).some((row) => (
