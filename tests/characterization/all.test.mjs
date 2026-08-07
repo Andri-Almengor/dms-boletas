@@ -18,6 +18,7 @@ import './indexeddb-version-recovery.test.mjs';
 import './integration-gateway-foundation.test.mjs';
 import './milestone-inventory-adapter.test.mjs';
 import './network-camera-discovery.test.mjs';
+import './network-camera-identification-v2.test.mjs';
 import './list-pages.test.mjs';
 import './maintenance-checklist-status.test.mjs';
 import './maintenance-device-created-feedback.test.mjs';
