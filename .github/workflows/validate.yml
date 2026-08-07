@@ -10,6 +10,7 @@ permissions:
 jobs:
   build:
     runs-on: ubuntu-latest
+    timeout-minutes: 25
     steps:
       - name: Checkout
         uses: actions/checkout@v4
@@ -29,12 +30,18 @@ jobs:
       - name: Install backend dependencies
         run: npm ci --prefix backend
 
+      - name: Run characterization tests
+        run: npm run test:characterization
+
       - name: Build frontend
         run: npm run build
 
       - name: Check backend syntax
         run: |
           find backend/src -name '*.js' -print0 | xargs -0 -n1 node --check
+
+      - name: Check gateway agent syntax
+        run: npm --prefix gateway-agent run check
 
       - name: Audit production dependencies
         run: npm run audit:security

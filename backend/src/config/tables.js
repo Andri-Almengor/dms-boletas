@@ -10,10 +10,11 @@ export const TABLES = Object.freeze({
   Mantenimiento: { id: 'MantenimientoID' }, Evidencia_Mantenimientos: { id: 'EvidenciaMantenimientoID' }, 'Mantenimiento imagenes': { id: 'FotoDispositivoID' }, FirmaMantenimientoSolicitudes: { id: 'SolicitudFirmaMantenimientoID' },
   KnowledgeCategories: { id: 'CategoriaConocimientoID' }, KnowledgeArticles: { id: 'TutorialID' }, KnowledgeAttachments: { id: 'AdjuntoID' }, KnowledgeArticleCategories: { id: 'RelacionArticuloCategoriaID' },
   EncuestaPreguntas: { id: 'PreguntaID' }, Encuestas: { id: 'EncuestaID' }, EncuestaRespuestas: { id: 'RespuestaEncuestaID' },
+  IntegracionGateways: { id: 'GatewayID' }, IntegracionDispositivos: { id: 'DispositivoIntegracionID' }, IntegracionComandos: { id: 'ComandoID' },
   Notificaciones: { id: 'NotificacionID' }, Auditoria: { id: 'AuditoriaID' }, Archivos: { id: 'ArchivoIDInterno' },
 });
 
 export const DATE_FIELDS = new Set([
-  'Fecha','FechaTrabajo','FechaFinalizacion','FechaCreacion','FechaActualizacion','FechaInicio','FechaExpiracion','FechaRevocacion','FechaEnvio','FechaRespuesta','FinalizadaEn','UltimoAcceso','BloqueadoHasta','FechaFirma','FirmaFecha','FechaVisita','FechaProceso'
+  'Fecha','FechaTrabajo','FechaFinalizacion','FechaCreacion','FechaActualizacion','FechaInicio','FechaExpiracion','FechaRevocacion','FechaEnvio','FechaRespuesta','FinalizadaEn','UltimoAcceso','BloqueadoHasta','FechaFirma','FirmaFecha','FechaVisita','FechaProceso','UltimoContacto','UltimaSincronizacionInventario','UltimaConexion','UltimaVerificacion','FechaEntrega','ExpiraEn'
 ]);
 export const TIME_FIELDS = new Set(['HoraInicio','HoraFinal','HoraVisita']);

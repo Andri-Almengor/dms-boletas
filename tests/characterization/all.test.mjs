@@ -15,6 +15,7 @@ import './evidence-memory.test.mjs';
 import './form-draft-lifecycle.test.mjs';
 import './form-inline-creation-invariant.test.mjs';
 import './indexeddb-version-recovery.test.mjs';
+import './integration-gateway-foundation.test.mjs';
 import './list-pages.test.mjs';
 import './maintenance-checklist-status.test.mjs';
 import './maintenance-device-created-feedback.test.mjs';
