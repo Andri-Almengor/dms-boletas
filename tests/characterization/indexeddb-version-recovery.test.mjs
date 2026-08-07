@@ -74,7 +74,7 @@ test('el Service Worker renueva el shell y elimina cachés incompatibles', () =>
   const core = source('src/services/offlineStoreCore.js');
 
   assert.match(core, /const DB_VERSION = 3/);
-  assert.match(worker, /CACHE_NAME = `\$\{CACHE_PREFIX\}v4`/);
+  assert.match(worker, /CACHE_NAME = `\$\{CACHE_PREFIX\}v5`/);
   assert.match(worker, /key\.startsWith\(CACHE_PREFIX\) && key !== CACHE_NAME/);
   assert.match(worker, /self\.skipWaiting\(\)/);
   assert.match(worker, /self\.clients\.claim\(\)/);
