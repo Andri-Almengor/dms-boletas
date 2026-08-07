@@ -26,19 +26,27 @@ test('las credenciales de cámara se asignan por ID y se descifran solo al entre
   const admin = source('backend/src/services/integration-device-admin.service.js');
   const execution = source('backend/src/services/integration-camera-execution.service.js');
   const routes = source('backend/src/routes/integration-gateway.routes.js');
+  const page = source('src/pages/admin/IntegrationsPage.jsx');
   assert.match(admin, /CredencialCamaraID/);
   assert.match(admin, /no pertenece al cliente del gateway/i);
   assert.match(execution, /decryptVaultSecret/);
   assert.match(execution, /CredencialCamaraID/);
+  assert.match(execution, /UNIQUE_IP_MATCH/);
+  assert.match(execution, /exactIpMatches\.length === 1/);
   assert.match(execution, /Este objeto nunca se escribe en IntegracionComandos/);
   assert.match(routes, /buildCameraExecutionEnvelope/);
   assert.match(routes, /executionError/);
   assert.doesNotMatch(routes, /PasswordCiphertext|PasswordIV|PasswordTag/);
+  assert.match(page, /getPasswordVaultDashboard/);
+  assert.match(page, /Credencial de la cámara/);
+  assert.match(page, /credentialId: editingDevice\.credentialId/);
+  assert.match(page, /utilizará únicamente la credencial seleccionada/i);
 });
 
 test('el agente ONVIF usa una sola credencial, soporta snapshot, zoom, Home y reinicio', () => {
   const camera = source('gateway-agent/src/camera/onvif-camera-control.js');
   const adapter = source('gateway-agent/src/adapters/network-discovery-identified.adapter.js');
+  const envExample = source('gateway-agent/.env.example');
   assert.match(camera, /GetSnapshotUri/);
   assert.match(camera, /ContinuousMove/);
   assert.match(camera, /GotoHomePosition/);
@@ -49,6 +57,7 @@ test('el agente ONVIF usa una sola credencial, soporta snapshot, zoom, Home y re
   assert.match(adapter, /cameraAuthFallbacks:\s*0/);
   assert.match(adapter, /CAMERA_AUTH_COOLDOWN/);
   assert.match(adapter, /DMS_CAMERA_AUTH_COOLDOWN_MS/);
+  assert.match(envExample, /DMS_CAMERA_AUTH_COOLDOWN_MS=600000/);
 });
 
 test('las capturas son efímeras y la imagen no se persiste en el resultado del comando', () => {
@@ -66,6 +75,8 @@ test('las capturas son efímeras y la imagen no se persiste en el resultado del 
 
 test('el asistente exige gateway, cliente y cámara para acciones físicas y confirma reinicios', () => {
   const assistant = source('backend/src/services/integration-gateway-assistant.patch.js');
+  const credentialAssistant = source('backend/src/services/integration-gateway-credential-assistant.patch.js');
+  const formatter = source('backend/src/services/integration-gateway-answer-format.patch.js');
   const app = source('backend/src/app.js');
   const maintenanceGuard = source('backend/src/services/assistant-maintenance-keyword.patch.js');
   assert.match(assistant, /GATEWAY_WORD/);
@@ -74,8 +85,17 @@ test('el asistente exige gateway, cliente y cámara para acciones físicas y con
   assert.match(assistant, /pendingGatewayAction/);
   assert.match(assistant, /Confirmar reinicio/);
   assert.match(assistant, /USUARIOS_GESTIONAR/);
+  assert.match(credentialAssistant, /GATEWAY_CREDENTIAL_QUERY/);
+  assert.match(credentialAssistant, /Esta lista no prueba ninguna contraseña/);
+  assert.match(credentialAssistant, /ASIGNAR_CREDENCIAL_CAMARA_GATEWAY/);
+  assert.match(formatter, /gatewayInventory/);
+  assert.match(formatter, /gatewayCameraCapabilities/);
+  assert.match(formatter, /Captura temporal de cámara/);
   assert.match(maintenanceGuard, /incluya la palabra “mantenimiento”/);
   const maintenanceIndex = app.indexOf("./services/assistant-maintenance-keyword.patch.js");
   const gatewayIndex = app.indexOf("./services/integration-gateway-assistant.patch.js");
+  const credentialIndex = app.indexOf("./services/integration-gateway-credential-assistant.patch.js");
+  const formatterIndex = app.indexOf("./services/integration-gateway-answer-format.patch.js");
   assert.ok(maintenanceIndex >= 0 && gatewayIndex > maintenanceIndex, 'gateway debe envolver al guard de mantenimiento');
+  assert.ok(credentialIndex > gatewayIndex && formatterIndex > credentialIndex, 'credenciales y formato deben envolver al gateway');
 });
