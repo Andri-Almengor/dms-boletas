@@ -74,6 +74,14 @@ export const env = Object.freeze({
   maintenanceImageMetadataBatchMaxItems: optionalNumber('MAINTENANCE_IMAGE_METADATA_BATCH_MAX_ITEMS', 100, 1),
   maintenanceImageUploadConcurrency: optionalNumber('MAINTENANCE_IMAGE_UPLOAD_CONCURRENCY', 3, 1),
 
+  // Avance automático de mantenimientos al Chat configurado en cada cliente.
+  // Las horas se interpretan en la zona horaria indicada y el servicio omite
+  // sábados y domingos tanto para envíos programados como inmediatos.
+  maintenanceProgressChatEnabled: optionalBoolean('MAINTENANCE_PROGRESS_CHAT_ENABLED', true),
+  maintenanceProgressChatTimezone: optional('MAINTENANCE_PROGRESS_CHAT_TIMEZONE', 'America/Costa_Rica'),
+  maintenanceProgressChatHours: optional('MAINTENANCE_PROGRESS_CHAT_HOURS', '7,17'),
+  maintenanceProgressChatTickMs: optionalNumber('MAINTENANCE_PROGRESS_CHAT_TICK_MS', 30_000, 10_000),
+
   // Auditoría no bloqueante. Varias filas se agregan con una sola escritura.
   auditFlushMs: optionalNumber('AUDIT_FLUSH_MS', 5_000, 500),
   auditBatchSize: optionalNumber('AUDIT_BATCH_SIZE', 100, 1),
