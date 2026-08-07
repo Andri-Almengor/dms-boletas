@@ -69,6 +69,7 @@ test('el agente usa ONVIF y fallbacks de fabricante sin probar contraseñas alte
   const router = source('gateway-agent/src/camera/camera-control-router.js');
   const physical = source('gateway-agent/src/camera/camera-physical-actions.js');
   const advanced = source('gateway-agent/src/camera/camera-advanced-actions.js');
+  const imaging = source('gateway-agent/src/camera/camera-imaging-compatibility.js');
   const adapter = source('gateway-agent/src/adapters/network-discovery-identified.adapter.js');
   const envExample = source('gateway-agent/.env.example');
   assert.match(camera, /GetSnapshotUri/);
@@ -104,8 +105,11 @@ test('el agente usa ONVIF y fallbacks de fabricante sin probar contraseñas alte
   assert.match(advanced, /GetAudioOutputs/);
   assert.match(advanced, /CAMERA_DIAGNOSTIC/);
   assert.doesNotMatch(advanced, /passwords|credentialList|tryPasswords/i);
-  assert.match(adapter, /executeAdvancedCameraAction/);
+  assert.match(imaging, /executeAdvancedCameraAction/);
+  assert.match(imaging, /GetVideoSources/);
+  assert.match(adapter, /executeCameraActionWithValidatedImaging/);
   assert.match(adapter, /cameraAdvancedActions:\s*true/);
+  assert.match(adapter, /cameraImagingValidatedSources:\s*true/);
   assert.match(adapter, /cameraAuthFallbacks:\s*0/);
   assert.match(adapter, /CAMERA_AUTH_COOLDOWN/);
   assert.match(adapter, /DMS_CAMERA_AUTH_COOLDOWN_MS/);

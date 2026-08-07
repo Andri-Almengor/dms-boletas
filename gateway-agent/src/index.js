@@ -5,7 +5,7 @@ import process, { loadEnvFile } from 'node:process';
 import { createAdapterFromEnvironment } from './adapters/adapter-factory.js';
 import { GatewayClient } from './gateway-client.js';
 
-const VERSION = '1.0.0';
+const VERSION = '1.0.1';
 const envPath = path.resolve(process.cwd(), '.env');
 const checkConfigOnly = process.argv.includes('--check-config');
 const checkSourceOnly = process.argv.includes('--check-source');
