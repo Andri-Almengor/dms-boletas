@@ -103,8 +103,7 @@ export function normalizeInventoryItem(item = {}, gateway = {}) {
   const now = new Date().toISOString();
   const metadata = sanitizeIntegrationMetadata(item.metadata ?? item.Metadata ?? {});
   const capabilities = sanitizeIntegrationMetadata(item.capabilities ?? item.Capabilities ?? {});
-  const normalized = {
-    DispositivoIntegracionID: integrationDeviceId({ gatewayId, sourceSystem, externalId }),
+  const fingerprintSource = {
     GatewayID: gatewayId,
     ClienteID: text(gateway.ClienteID ?? gateway.clientId, 160),
     SourceSystem: sourceSystem,
@@ -116,16 +115,20 @@ export function normalizeInventoryItem(item = {}, gateway = {}) {
     Fabricante: text(item.manufacturer ?? item.Fabricante, 160),
     Modelo: text(item.model ?? item.Modelo, 160),
     EstadoConexion: text(item.status ?? item.EstadoConexion ?? 'UNKNOWN', 80).toUpperCase(),
-    UltimaConexion: text(item.lastSeenAt ?? item.UltimaConexion ?? now, 80),
-    UltimaVerificacion: now,
     CapabilitiesJSON: JSON.stringify(capabilities),
     MetadataJSON: JSON.stringify(metadata),
-    Activo: true,
   };
-  normalized.Fingerprint = createHash('sha256')
-    .update(JSON.stringify(stable(normalized)))
-    .digest('hex');
-  return normalized;
+
+  return {
+    DispositivoIntegracionID: integrationDeviceId({ gatewayId, sourceSystem, externalId }),
+    ...fingerprintSource,
+    UltimaConexion: text(item.lastSeenAt ?? item.UltimaConexion ?? now, 80),
+    UltimaVerificacion: now,
+    Activo: true,
+    Fingerprint: createHash('sha256')
+      .update(JSON.stringify(stable(fingerprintSource)))
+      .digest('hex'),
+  };
 }
 
 export function isGatewayOnline(lastSeenAt, now = Date.now(), timeoutMs = 90_000) {
