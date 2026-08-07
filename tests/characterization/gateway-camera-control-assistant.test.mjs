@@ -1,0 +1,81 @@
+import test from 'node:test';
+import assert from 'node:assert/strict';
+import { readFileSync } from 'node:fs';
+import { fileURLToPath } from 'node:url';
+import path from 'node:path';
+
+const ROOT = fileURLToPath(new URL('../../', import.meta.url));
+const source = (relativePath) => readFileSync(path.join(ROOT, relativePath), 'utf8');
+
+test('el gateway declara acciones de cámara explícitas y nunca comandos arbitrarios', () => {
+  const domain = source('backend/src/services/integration-gateway.domain.js');
+  for (const type of [
+    'CAMERA_AUTH_TEST',
+    'CAMERA_CAPABILITIES',
+    'CAMERA_SNAPSHOT',
+    'CAMERA_ZOOM_IN',
+    'CAMERA_ZOOM_OUT',
+    'CAMERA_ZOOM_STOP',
+    'CAMERA_GOTO_HOME',
+    'CAMERA_REBOOT',
+  ]) assert.match(domain, new RegExp(`'${type}'`));
+  assert.match(domain, /COMMAND_TYPES\.has\(type\)/);
+});
+
+test('las credenciales de cámara se asignan por ID y se descifran solo al entregar el comando', () => {
+  const admin = source('backend/src/services/integration-device-admin.service.js');
+  const execution = source('backend/src/services/integration-camera-execution.service.js');
+  const routes = source('backend/src/routes/integration-gateway.routes.js');
+  assert.match(admin, /CredencialCamaraID/);
+  assert.match(admin, /no pertenece al cliente del gateway/i);
+  assert.match(execution, /decryptVaultSecret/);
+  assert.match(execution, /CredencialCamaraID/);
+  assert.match(execution, /Este objeto nunca se escribe en IntegracionComandos/);
+  assert.match(routes, /buildCameraExecutionEnvelope/);
+  assert.match(routes, /executionError/);
+  assert.doesNotMatch(routes, /PasswordCiphertext|PasswordIV|PasswordTag/);
+});
+
+test('el agente ONVIF usa una sola credencial, soporta snapshot, zoom, Home y reinicio', () => {
+  const camera = source('gateway-agent/src/camera/onvif-camera-control.js');
+  const adapter = source('gateway-agent/src/adapters/network-discovery-identified.adapter.js');
+  assert.match(camera, /GetSnapshotUri/);
+  assert.match(camera, /ContinuousMove/);
+  assert.match(camera, /GotoHomePosition/);
+  assert.match(camera, /SystemReboot/);
+  assert.match(camera, /sameCameraUrl/);
+  assert.match(camera, /Este es el único segundo intento/);
+  assert.doesNotMatch(camera, /passwords|credentialList|tryPasswords/i);
+  assert.match(adapter, /cameraAuthFallbacks:\s*0/);
+  assert.match(adapter, /CAMERA_AUTH_COOLDOWN/);
+  assert.match(adapter, /DMS_CAMERA_AUTH_COOLDOWN_MS/);
+});
+
+test('las capturas son efímeras y la imagen no se persiste en el resultado del comando', () => {
+  const snapshots = source('backend/src/services/integration-gateway-snapshot.service.js');
+  const runtime = source('gateway-agent/src/index.js');
+  const routes = source('backend/src/routes/integration-gateway.routes.js');
+  assert.match(snapshots, /SNAPSHOT_TTL_MS = 5 \* 60_000/);
+  assert.match(snapshots, /MAX_SNAPSHOT_BYTES = 3 \* 1024 \* 1024/);
+  assert.doesNotMatch(snapshots, /appendRow|updateRow|sheetsApi/);
+  assert.match(runtime, /uploadSnapshot/);
+  assert.match(runtime, /dataBase64/);
+  assert.match(runtime, /snapshotId: stored\.snapshotId/);
+  assert.doesNotMatch(routes, /dataBase64.*ResultadoJSON/s);
+});
+
+test('el asistente exige gateway, cliente y cámara para acciones físicas y confirma reinicios', () => {
+  const assistant = source('backend/src/services/integration-gateway-assistant.patch.js');
+  const app = source('backend/src/app.js');
+  const maintenanceGuard = source('backend/src/services/assistant-maintenance-keyword.patch.js');
+  assert.match(assistant, /GATEWAY_WORD/);
+  assert.match(assistant, /Para consultas de gateway indique el nombre del cliente/);
+  assert.match(assistant, /necesito la IP o el nombre de la cámara/);
+  assert.match(assistant, /pendingGatewayAction/);
+  assert.match(assistant, /Confirmar reinicio/);
+  assert.match(assistant, /USUARIOS_GESTIONAR/);
+  assert.match(maintenanceGuard, /incluya la palabra “mantenimiento”/);
+  const maintenanceIndex = app.indexOf("./services/assistant-maintenance-keyword.patch.js");
+  const gatewayIndex = app.indexOf("./services/integration-gateway-assistant.patch.js");
+  assert.ok(maintenanceIndex >= 0 && gatewayIndex > maintenanceIndex, 'gateway debe envolver al guard de mantenimiento');
+});
