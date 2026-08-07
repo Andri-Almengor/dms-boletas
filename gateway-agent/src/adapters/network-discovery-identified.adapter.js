@@ -71,12 +71,17 @@ function enrichDevice(device, identification) {
   ].filter(Boolean).join(' ');
   const signature = cameraSignature(signatureMaterial);
   const manufacturer = text(
-    usefulManufacturer(identification.manufacturer)
-    || usefulManufacturer(device.manufacturer)
-    || signature.manufacturer,
+    signature.manufacturer
+    || usefulManufacturer(identification.manufacturer)
+    || usefulManufacturer(device.manufacturer),
     160,
   );
-  const model = text(identification.model || device.model || signature.model, 160);
+  const model = text(
+    signature.model
+    || identification.model
+    || device.model,
+    160,
+  );
   const confidence = identification.confidence === 'HIGH'
     ? 'HIGH'
     : metadata.discoveryConfidence || identification.confidence || 'MEDIUM';
