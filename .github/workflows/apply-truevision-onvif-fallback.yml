@@ -1,0 +1,31 @@
+name: Apply TruVision ONVIF fallback
+
+on:
+  push:
+    branches:
+      - fix/truevision-onvif-fallback
+
+permissions:
+  contents: write
+
+jobs:
+  patch:
+    if: github.actor != 'github-actions[bot]'
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+      - name: Aplicar compatibilidad ONVIF
+        run: node scripts/patch-truevision-onvif-fallback.mjs
+      - name: Guardar cambio
+        run: |
+          if git diff --quiet; then
+            echo "No hay cambios pendientes."
+            exit 0
+          fi
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add gateway-agent/src/camera/onvif-camera-control.js tests/characterization/gateway-camera-control-assistant.test.mjs
+          git commit -m "Agregar fallback ONVIF para cámaras TruVision"
+          git push origin HEAD:${GITHUB_REF_NAME}
