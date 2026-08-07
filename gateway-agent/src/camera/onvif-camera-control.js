@@ -28,6 +28,11 @@ function section(xml, localName) {
   return expression.exec(String(xml || ''))?.[1] || '';
 }
 
+function sections(xml, localName) {
+  const expression = new RegExp(`<[^>]*:?${localName}\\b[^>]*>([\\s\\S]*?)<\\/[^>]*:?${localName}>`, 'gi');
+  return [...String(xml || '').matchAll(expression)].map((match) => match[1] || '');
+}
+
 function firstToken(xml, localName) {
   const expression = new RegExp(`<[^>]*:?${localName}\\b[^>]*\\btoken=["']([^"']+)["']`, 'i');
   return clean(expression.exec(String(xml || ''))?.[1] || '', 500);
@@ -121,6 +126,11 @@ function soapEnvelope(body, auth) {
 function isAuthRejected(response) {
   return [401, 403].includes(Number(response?.statusCode || 0))
     || /NotAuthorized|FailedAuthentication|InvalidSecurity|ter:NotAuthorized|wsse:FailedAuthentication/i.test(String(response?.body || ''));
+}
+
+function isOptionalOnvifActionUnsupported(error) {
+  return error?.code === 'CAMERA_ONVIF_ERROR'
+    && /Optional Action Not Implemented|ActionNotSupported|InvalidOperation|NoSuchService/i.test(String(error?.message || ''));
 }
 
 export class CameraControlError extends Error {
@@ -226,19 +236,60 @@ function resolveDeviceEndpoint(device) {
   return new URL(`http://${ip}/onvif/device_service`);
 }
 
+function serviceUrlFromServices(xml, namespacePattern, expectedIp) {
+  for (const service of sections(xml, 'Service')) {
+    const namespace = localTag(service, 'Namespace');
+    if (!namespacePattern.test(namespace)) continue;
+    const url = sameCameraUrl(localTag(service, 'XAddr'), expectedIp);
+    if (url) return url;
+  }
+  return null;
+}
+
 async function serviceEndpoints(device, auth, timeoutMs) {
   const ip = clean(device.ipAddress, 100);
   const deviceUrl = resolveDeviceEndpoint(device);
-  const xml = await soapCall(
-    deviceUrl,
-    'http://www.onvif.org/ver10/device/wsdl/GetCapabilities',
-    '<tds:GetCapabilities><tds:Category>All</tds:Category></tds:GetCapabilities>',
-    auth,
-    timeoutMs,
-  );
-  const mediaUrl = sameCameraUrl(localTag(section(xml, 'Media'), 'XAddr'), ip);
-  const ptzUrl = sameCameraUrl(localTag(section(xml, 'PTZ'), 'XAddr'), ip);
-  return { deviceUrl, mediaUrl, ptzUrl };
+
+  try {
+    // Omitir Category es equivalente a solicitar todas las capacidades según ONVIF
+    // y evita firmwares que rechazan explícitamente Category=All con InvalidOperation.
+    const xml = await soapCall(
+      deviceUrl,
+      'http://www.onvif.org/ver10/device/wsdl/GetCapabilities',
+      '<tds:GetCapabilities/>',
+      auth,
+      timeoutMs,
+    );
+    const mediaUrl = sameCameraUrl(localTag(section(xml, 'Media'), 'XAddr'), ip);
+    const ptzUrl = sameCameraUrl(localTag(section(xml, 'PTZ'), 'XAddr'), ip);
+    return { deviceUrl, mediaUrl, ptzUrl, discoveryMethod: 'GET_CAPABILITIES' };
+  } catch (error) {
+    if (error.code === 'CAMERA_AUTH_REJECTED') throw error;
+    if (!isOptionalOnvifActionUnsupported(error)) throw error;
+  }
+
+  try {
+    // GetCapabilities está deprecado en ONVIF moderno. Algunos firmwares/OEM,
+    // incluyendo variantes compatibles de TruVision, solo exponen correctamente
+    // la enumeración genérica GetServices.
+    const xml = await soapCall(
+      deviceUrl,
+      'http://www.onvif.org/ver10/device/wsdl/GetServices',
+      '<tds:GetServices><tds:IncludeCapability>false</tds:IncludeCapability></tds:GetServices>',
+      auth,
+      timeoutMs,
+    );
+    const mediaUrl = serviceUrlFromServices(xml, /\/ver(?:10|20)\/media\/wsdl\/?$/i, ip);
+    const ptzUrl = serviceUrlFromServices(xml, /\/ver(?:10|20)\/ptz\/wsdl\/?$/i, ip);
+    return { deviceUrl, mediaUrl, ptzUrl, discoveryMethod: 'GET_SERVICES' };
+  } catch (error) {
+    if (error.code === 'CAMERA_AUTH_REJECTED') throw error;
+    if (!isOptionalOnvifActionUnsupported(error)) throw error;
+    // La autenticación ya fue aceptada; no se considera una contraseña errónea ni
+    // se activa una búsqueda de credenciales. La cámara simplemente no implementa
+    // los métodos opcionales de descubrimiento que necesitamos.
+    return { deviceUrl, mediaUrl: null, ptzUrl: null, discoveryMethod: 'DEVICE_ONLY' };
+  }
 }
 
 async function mediaProfile(mediaUrl, auth, timeoutMs) {
@@ -294,7 +345,16 @@ async function ptzCapabilities(ptzUrl, auth, timeoutMs) {
 
 async function getCapabilities(device, auth, timeoutMs) {
   const endpoints = await serviceEndpoints(device, auth, timeoutMs);
-  const profile = await mediaProfile(endpoints.mediaUrl, auth, timeoutMs);
+  let profile = null;
+  if (endpoints.mediaUrl) {
+    try {
+      profile = await mediaProfile(endpoints.mediaUrl, auth, timeoutMs);
+    } catch (error) {
+      if (error.code === 'CAMERA_AUTH_REJECTED') throw error;
+      // Un servicio Media parcialmente implementado no debe tumbar toda la
+      // consulta de capacidades. Se reporta la función concreta como no disponible.
+    }
+  }
   let snapshotSupported = false;
   if (profile?.profileToken && endpoints.mediaUrl) {
     try {

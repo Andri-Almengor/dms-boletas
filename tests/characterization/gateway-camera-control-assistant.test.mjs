@@ -53,6 +53,10 @@ test('el agente ONVIF usa una sola credencial, soporta snapshot, zoom, Home y re
   assert.match(camera, /SystemReboot/);
   assert.match(camera, /sameCameraUrl/);
   assert.match(camera, /Este es el único segundo intento/);
+  assert.match(camera, /<tds:GetCapabilities\/>/);
+  assert.match(camera, /GetServices/);
+  assert.match(camera, /Optional Action Not Implemented\|ActionNotSupported\|InvalidOperation/);
+  assert.match(camera, /discoveryMethod: 'GET_SERVICES'/);
   assert.doesNotMatch(camera, /passwords|credentialList|tryPasswords/i);
   assert.match(adapter, /cameraAuthFallbacks:\s*0/);
   assert.match(adapter, /CAMERA_AUTH_COOLDOWN/);
