@@ -32,19 +32,25 @@ function Invoke-ElevatedSelf {
   exit $process.ExitCode
 }
 
+function Get-InstalledService {
+  return Get-Service -Name $ServiceName -ErrorAction SilentlyContinue
+}
+
 function Show-ServiceStatus {
-  $service = Get-Service -Name $ServiceName -ErrorAction SilentlyContinue
+  $service = Get-InstalledService
   if (-not $service) {
     Write-Host 'El servicio DMS Integration Gateway no está instalado.' -ForegroundColor Yellow
     Write-Host 'Instálelo con: npm run service:install'
-    return
+    return $null
   }
 
+  $service.Refresh()
   $color = if ($service.Status -eq 'Running') { 'Green' } else { 'Yellow' }
   Write-Host "Servicio: $($service.DisplayName)"
   Write-Host "Estado: $($service.Status)" -ForegroundColor $color
   Write-Host "Inicio: $($service.StartType)"
   Write-Host "Carpeta: $AgentRoot"
+  return $service
 }
 
 function Show-RecentLogs {
@@ -73,12 +79,12 @@ if ($env:OS -ne 'Windows_NT') {
 }
 
 if ($Action -eq 'status') {
-  Show-ServiceStatus
+  Show-ServiceStatus | Out-Null
   exit 0
 }
 
 if ($Action -eq 'logs') {
-  Show-ServiceStatus
+  Show-ServiceStatus | Out-Null
   Show-RecentLogs
   exit 0
 }
@@ -91,7 +97,7 @@ if (-not (Test-Path -LiteralPath $WrapperPath -PathType Leaf)) {
   throw 'No se encontró el ejecutable del servicio. Ejecute npm run service:install.'
 }
 
-$service = Get-Service -Name $ServiceName -ErrorAction SilentlyContinue
+$service = Get-InstalledService
 if (-not $service) {
   throw 'El servicio no está instalado. Ejecute npm run service:install.'
 }
@@ -112,5 +118,13 @@ if ($LASTEXITCODE -ne 0) {
   throw "No fue posible ejecutar la acción '$Action' sobre el servicio."
 }
 
-Start-Sleep -Seconds 2
-Show-ServiceStatus
+$waitSeconds = if ($Action -eq 'stop') { 2 } else { 5 }
+Start-Sleep -Seconds $waitSeconds
+$service = Show-ServiceStatus
+
+if ($Action -in @('start', 'restart') -and $service -and $service.Status -ne 'Running') {
+  Write-Host ''
+  Write-Host 'El proceso arrancó pero se detuvo inmediatamente. Últimos logs:' -ForegroundColor Red
+  Show-RecentLogs
+  throw "DMS Integration Gateway no logró mantenerse en ejecución. Revise los logs anteriores."
+}
