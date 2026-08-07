@@ -20,6 +20,7 @@ import './services/password-vault-assistant.patch.js';
 import './services/password-vault-system-assistant.patch.js';
 import './services/assistant-maintenance-keyword.patch.js';
 import './services/integration-gateway-assistant.patch.js';
+import './services/integration-gateway-credential-assistant.patch.js';
 import { runWithSheetsRouteReadCache } from './services/sheets-route-read-cache.patch.js';
 import { env } from './config/env.js';
 import { dispatchAction } from './core/action-router.js';
