@@ -14,6 +14,9 @@ assert.match(shared, /beforeunload/);
 assert.match(shared, /deleteDraft\(storageKey\)/);
 assert.match(shared, /localStorage\.removeItem\(legacyKey\)/);
 assert.match(shared, /cancelledKeyRef\.current === storageKey/);
+assert.match(shared, /const deletion = saveChainRef\.current/);
+assert.match(shared, /saveChainRef\.current = deletion/);
+assert.match(shared, /return deletion/);
 
 assert.match(ticket, /useFormDraft/);
 assert.match(ticket, /namespace: 'ticket-state'/);
