@@ -26,6 +26,7 @@ import {
   dispatchPasswordVaultAction,
   isPasswordVaultRoute,
 } from './modules/password-vault.module.js';
+import { integrationGatewayRouter } from './routes/integration-gateway.routes.js';
 import { runWithActionConcurrency } from './services/action-concurrency.service.js';
 import {
   actionEnvelopeMiddleware,
@@ -83,6 +84,8 @@ app.use(cors({
 }));
 app.use(express.json({ limit: '25mb' }));
 app.use(express.text({ type: ['text/plain', 'application/javascript'], limit: '25mb' }));
+
+app.use('/api/integration-gateway', integrationGatewayRouter);
 
 app.get('/api/health', (_req, res) => {
   res.setHeader('Cache-Control', 'no-store');
