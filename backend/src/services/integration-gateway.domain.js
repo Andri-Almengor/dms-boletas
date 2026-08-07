@@ -8,7 +8,19 @@ import {
 export const INTEGRATION_COMMAND_TYPES = Object.freeze([
   'PING',
   'INVENTORY_SYNC',
+  'CAMERA_AUTH_TEST',
+  'CAMERA_CAPABILITIES',
+  'CAMERA_SNAPSHOT',
+  'CAMERA_ZOOM_IN',
+  'CAMERA_ZOOM_OUT',
+  'CAMERA_ZOOM_STOP',
+  'CAMERA_GOTO_HOME',
+  'CAMERA_REBOOT',
 ]);
+
+export const CAMERA_INTEGRATION_COMMAND_TYPES = Object.freeze(
+  INTEGRATION_COMMAND_TYPES.filter((type) => type.startsWith('CAMERA_')),
+);
 
 const COMMAND_TYPES = new Set(INTEGRATION_COMMAND_TYPES);
 const SENSITIVE_KEY = /(password|contrasena|contraseña|token|secret|credential|credencial|private.?key|authorization|cookie)/i;
