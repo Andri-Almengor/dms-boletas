@@ -43,6 +43,21 @@ jobs:
       - name: Check gateway agent syntax
         run: npm --prefix gateway-agent run check
 
+      - name: Check Windows service scripts
+        shell: pwsh
+        run: |
+          $errors = @()
+          Get-ChildItem gateway-agent/windows -Filter *.ps1 | ForEach-Object {
+            $tokens = $null
+            $parseErrors = $null
+            [System.Management.Automation.Language.Parser]::ParseFile($_.FullName, [ref]$tokens, [ref]$parseErrors) | Out-Null
+            if ($parseErrors) { $errors += $parseErrors }
+          }
+          if ($errors.Count -gt 0) {
+            $errors | Format-List | Out-String | Write-Error
+            exit 1
+          }
+
       - name: Audit production dependencies
         run: npm run audit:security
 
