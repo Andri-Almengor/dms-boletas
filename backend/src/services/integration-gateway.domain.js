@@ -118,11 +118,15 @@ export function normalizeInventoryItem(item = {}, gateway = {}) {
     CapabilitiesJSON: JSON.stringify(capabilities),
     MetadataJSON: JSON.stringify(metadata),
   };
+  const connectionVerified = item.connectionVerified ?? item.ConexionVerificada;
+  const lastConnection = connectionVerified === false
+    ? text(item.lastSeenAt ?? item.UltimaConexion, 80)
+    : text(item.lastSeenAt ?? item.UltimaConexion ?? now, 80);
 
   return {
     DispositivoIntegracionID: integrationDeviceId({ gatewayId, sourceSystem, externalId }),
     ...fingerprintSource,
-    UltimaConexion: text(item.lastSeenAt ?? item.UltimaConexion ?? now, 80),
+    UltimaConexion: lastConnection,
     UltimaVerificacion: now,
     Activo: true,
     Fingerprint: createHash('sha256')
