@@ -74,6 +74,7 @@ test('el adaptador de red no prueba contraseñas ni explora redes públicas', ()
   const adapter = source('gateway-agent/src/adapters/network-discovery.adapter.js');
   const factory = source('gateway-agent/src/adapters/adapter-factory.js');
   const envExample = source('gateway-agent/.env.example');
+  const networkDoc = source('gateway-agent/NETWORK_DISCOVERY.md');
 
   assert.match(adapter, /239\.255\.255\.250/);
   assert.match(adapter, /ONVIF_WS_DISCOVERY/);
@@ -83,8 +84,8 @@ test('el adaptador de red no prueba contraseñas ni explora redes públicas', ()
   assert.doesNotMatch(adapter, /brute|credential stuffing|default password|Authorization:\s*Basic/i);
   assert.match(factory, /NetworkDiscoveryAdapter/);
   assert.match(factory, /network-discovery/);
-  assert.match(envExample, /DMS_GATEWAY_ADAPTER=network/);
-  assert.match(envExample, /80,443,554/);
+  assert.match(networkDoc, /DMS_GATEWAY_ADAPTER=network/);
+  assert.match(envExample, /DMS_NETWORK_SCAN_PORTS=80,443,554/);
 });
 
 test('el nombre operativo se edita por una ruta administrativa y se conserva separado del detectado', () => {
