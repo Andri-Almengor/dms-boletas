@@ -116,6 +116,7 @@ test('la cámara descubierta usa identidad estable y expone solo metadatos técn
 
 test('el adaptador de red no prueba contraseñas y usa el plan de objetivos configurables', () => {
   const adapter = source('gateway-agent/src/adapters/network-discovery-configurable.adapter.js');
+  const identifiedAdapter = source('gateway-agent/src/adapters/network-discovery-identified.adapter.js');
   const targets = source('gateway-agent/src/adapters/network-targets.js');
   const factory = source('gateway-agent/src/adapters/adapter-factory.js');
   const envExample = source('gateway-agent/.env.example');
@@ -128,7 +129,8 @@ test('el adaptador de red no prueba contraseñas y usa el plan de objetivos conf
   assert.match(adapter, /DMS_NETWORK_ALLOW_PUBLIC_TARGETS/);
   assert.match(targets, /192\.168\.4\.100\/200/);
   assert.doesNotMatch(adapter, /brute|credential stuffing|default password|Authorization:\s*Basic/i);
-  assert.match(factory, /ConfigurableNetworkDiscoveryAdapter/);
+  assert.match(factory, /IdentifiedNetworkDiscoveryAdapter/);
+  assert.match(identifiedAdapter, /extends ConfigurableNetworkDiscoveryAdapter/);
   assert.match(factory, /network-discovery/);
   assert.match(networkDoc, /DMS_GATEWAY_ADAPTER=network/);
   assert.match(envExample, /DMS_NETWORK_SCAN_PORTS=80,443,554/);
