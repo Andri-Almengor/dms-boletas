@@ -23,13 +23,25 @@ function inventoryDetails(inventory = {}) {
 }
 
 function capabilityDetails(capabilities = {}) {
-  return [
-    `• Captura de imagen: ${capabilities.snapshot ? 'Sí' : 'No'}`,
-    `• PTZ: ${capabilities.ptz ? 'Sí' : 'No'}`,
-    `• Zoom continuo: ${capabilities.continuousZoom ? 'Sí' : 'No'}`,
-    `• Posición Home: ${capabilities.homePosition ? 'Sí' : 'No'}`,
-    `• Reinicio ONVIF: ${capabilities.reboot ? 'Sí' : 'No'}`,
+  const snapshotTransport = capabilities.snapshotTransport ? ` (${capabilities.snapshotTransport})` : '';
+  const snapshot = capabilities.snapshot
+    ? `Sí${snapshotTransport}`
+    : capabilities.snapshotStatus === 'UNDETERMINED'
+      ? 'No determinado todavía'
+      : 'No';
+  const details = [
+    `• Captura de imagen: ${snapshot}`,
+    `• PTZ ONVIF: ${capabilities.ptz ? 'Sí' : 'No detectado'}`,
+    `• Zoom PTZ continuo: ${capabilities.continuousZoom ? 'Sí' : 'No detectado'}`,
   ];
+  if (capabilities.opticalZoom) {
+    details.push(`• Zoom óptico del lente: Sí${capabilities.opticalZoomRatio ? ` (${capabilities.opticalZoomRatio})` : ''}; control remoto del lente aún no confirmado`);
+  }
+  details.push(
+    `• Posición Home: ${capabilities.homePosition ? 'Sí' : 'No detectada'}`,
+    `• Reinicio ONVIF: ${capabilities.reboot ? 'Sí' : 'No'}`,
+  );
+  return details;
 }
 
 assistantDynamicMaintenanceQuestionHandlers.chat = async function formattedGatewayChat(ctx) {
@@ -51,7 +63,7 @@ assistantDynamicMaintenanceQuestionHandlers.chat = async function formattedGatew
   if (capabilities) {
     result.answer = [
       clean(result.answer),
-      'Acciones disponibles según la respuesta ONVIF de la cámara:',
+      'Acciones detectadas mediante ONVIF y adaptadores compatibles del fabricante:',
       ...capabilityDetails(capabilities),
     ].join('\n');
   }
