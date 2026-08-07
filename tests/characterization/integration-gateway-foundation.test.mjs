@@ -106,12 +106,36 @@ test('el agente inicial usa HTTPS saliente y un adaptador simulado reemplazable'
   assert.match(runtime, /syncInventory/);
   assert.match(runtime, /loadEnvFile/);
   assert.match(runtime, /requiredEnvironment/);
+  assert.match(runtime, /--check-config/);
   assert.match(adapter, /externalId/);
   assert.match(adapter, /sourceSystem: 'SIMULATED'/);
   assert.match(readme, /copy \.env\.example \.env/);
   assert.match(readme, /MilestoneInventoryAdapter/);
   assert.match(readme, /OnGuardInventoryAdapter/);
   assert.doesNotMatch(runtime, /password|rtsp:\/\//i);
+});
+
+test('el agente se instala como servicio de Windows con reinicio y secretos locales', () => {
+  const installer = source('gateway-agent/windows/install-service.ps1');
+  const controller = source('gateway-agent/windows/service.ps1');
+  const uninstaller = source('gateway-agent/windows/uninstall-service.ps1');
+  const packageJson = source('gateway-agent/package.json');
+  const gitignore = source('.gitignore');
+
+  assert.match(installer, /WinSWVersion = '2\.12\.0'/);
+  assert.match(installer, /05B82D46AD331CC16BDC00DE5C6332C1EF818DF8CEEFCD49C726553209B3A0DA/);
+  assert.match(installer, /<startmode>Automatic<\/startmode>/);
+  assert.match(installer, /<delayedAutoStart>true<\/delayedAutoStart>/);
+  assert.match(installer, /<onfailure action="restart"/);
+  assert.match(installer, /icacls\.exe/);
+  assert.match(installer, /--check-config/);
+  assert.match(controller, /'status', 'start', 'stop', 'restart', 'logs'/);
+  assert.match(uninstaller, /El archivo de configuración se conservó/);
+  assert.match(packageJson, /service:install/);
+  assert.match(packageJson, /service:restart/);
+  assert.match(packageJson, /service:uninstall/);
+  assert.match(gitignore, /gateway-agent\/\.service\//);
+  assert.match(gitignore, /gateway-agent\/logs\//);
 });
 
 test('la interfaz administrativa no expone el token después de provisionar', () => {
