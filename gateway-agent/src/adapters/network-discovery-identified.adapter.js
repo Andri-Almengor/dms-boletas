@@ -1,7 +1,7 @@
 import { cameraSignature } from './camera-brand-signatures.js';
 import { ConfigurableNetworkDiscoveryAdapter } from './network-discovery-configurable.adapter.js';
 import { identifyNetworkCamera } from './network-camera-identification.js';
-import { executePhysicalCameraAction } from '../camera/camera-physical-actions.js';
+import { executeAdvancedCameraAction } from '../camera/camera-advanced-actions.js';
 
 function text(value, maxLength = 500) {
   return String(value ?? '').trim().slice(0, maxLength);
@@ -158,6 +158,8 @@ export class IdentifiedNetworkDiscoveryAdapter extends ConfigurableNetworkDiscov
       cameraBrandSignatures: this.identificationEnabled,
       cameraControl: true,
       cameraControlProtocol: 'ONVIF+VENDOR_SAFE_FALLBACKS',
+      cameraAdvancedActions: true,
+      cameraDiagnostics: true,
       cameraAuthFallbacks: 0,
     };
   }
@@ -217,7 +219,7 @@ export class IdentifiedNetworkDiscoveryAdapter extends ConfigurableNetworkDiscov
     if (ip && cooldownUntil) this.cameraAuthCooldowns.delete(ip);
 
     try {
-      return await executePhysicalCameraAction(command, { timeoutMs: this.cameraControlTimeoutMs });
+      return await executeAdvancedCameraAction(command, { timeoutMs: this.cameraControlTimeoutMs });
     } catch (error) {
       if (ip && error?.code === 'CAMERA_AUTH_REJECTED') {
         this.cameraAuthCooldowns.set(ip, Date.now() + this.cameraAuthCooldownMs);
