@@ -32,6 +32,8 @@ function capabilityDetails(capabilities = {}) {
   const details = [
     `• Captura de imagen: ${snapshot}`,
     `• PTZ ONVIF: ${capabilities.ptz ? 'Sí' : 'No detectado'}`,
+    `• Movimiento Pan/Tilt: ${capabilities.panTilt ? 'Sí' : 'No detectado'}`,
+    `• Presets PTZ: ${capabilities.presets ? `Sí (${Number(capabilities.presetCount || 0)})` : 'No detectados'}`,
     `• Zoom PTZ continuo: ${capabilities.continuousZoom ? 'Sí' : 'No detectado'}`,
   ];
   if (capabilities.opticalZoom) {
@@ -45,6 +47,14 @@ function capabilityDetails(capabilities = {}) {
     details.push(`• Restaurar vista amplia/normal: Sí${capabilities.restoreWideTransport ? ` (${capabilities.restoreWideTransport})` : ''}`);
   }
   details.push(
+    `• Auto Focus: ${capabilities.autofocus ? 'Sí' : 'No detectado'}`,
+    `• Día/Noche: ${capabilities.dayNight ? 'Sí' : 'No detectado'}`,
+    `• Control de iluminador IR: ${capabilities.irControl ? 'Sí' : 'No detectado'}`,
+    `• Wiper/limpiaparabrisas: ${capabilities.wiper ? 'Sí' : 'No detectado'}`,
+    `• Salidas de relé: ${Number(capabilities.relayOutputs || 0)}`,
+    `• Audio de entrada: ${capabilities.audioInput ? 'Sí' : 'No detectado'}`,
+    `• Audio de salida/backchannel: ${capabilities.audioOutput ? 'Sí' : 'No detectado'}`,
+    `• Diagnóstico integral: ${capabilities.diagnostics ? 'Disponible' : 'No detectado'}`,
     `• Posición Home PTZ: ${capabilities.homePosition ? 'Sí' : 'No detectada'}`,
     `• Reinicio ONVIF: ${capabilities.reboot ? 'Sí' : 'No'}`,
   );
@@ -69,6 +79,7 @@ function capabilityCommands(capabilities = {}, result = {}) {
   const suffix = `cámara ${camera} cliente ${client}`;
   const commands = [];
   if (capabilities.snapshot) commands.push(`gateway dame una captura de la ${suffix}`);
+  if (capabilities.autofocus) commands.push(`gateway enfoca la ${suffix}`);
   if (capabilities.continuousZoom || capabilities.lensZoomControl) {
     commands.push(`gateway acercar zoom de la ${suffix}`);
     commands.push(`gateway alejar zoom de la ${suffix}`);
@@ -77,6 +88,30 @@ function capabilityCommands(capabilities = {}, result = {}) {
   if (capabilities.homePosition || capabilities.restoreWide) {
     commands.push(`gateway volver zoom a normal de la ${suffix}`);
   }
+  if (capabilities.panTilt) {
+    commands.push(`gateway mueve a la izquierda la ${suffix}`);
+    commands.push(`gateway mueve a la derecha la ${suffix}`);
+    commands.push(`gateway mueve hacia arriba la ${suffix}`);
+    commands.push(`gateway mueve hacia abajo la ${suffix}`);
+    commands.push(`gateway detén movimiento PTZ de la ${suffix}`);
+  }
+  if (capabilities.presets) commands.push(`gateway lista presets de la ${suffix}`);
+  if (capabilities.dayNight) {
+    commands.push(`gateway pon modo día en la ${suffix}`);
+    commands.push(`gateway pon modo noche en la ${suffix}`);
+    commands.push(`gateway pon modo automático día noche en la ${suffix}`);
+  }
+  if (capabilities.irControl) {
+    commands.push(`gateway enciende IR de la ${suffix}`);
+    commands.push(`gateway apaga IR de la ${suffix}`);
+  }
+  if (capabilities.wiper) {
+    commands.push(`gateway activa limpiaparabrisas de la ${suffix}`);
+    commands.push(`gateway detén limpiaparabrisas de la ${suffix}`);
+  }
+  if (Number(capabilities.relayOutputs || 0) > 0) commands.push(`gateway lista relés de la ${suffix}`);
+  if (capabilities.audioTest) commands.push(`gateway prueba audio de la ${suffix}`);
+  if (capabilities.diagnostics) commands.push(`gateway diagnostica la ${suffix}`);
   if (capabilities.reboot) commands.push(`gateway reiniciar la ${suffix}`);
   return commands;
 }
@@ -106,8 +141,10 @@ assistantDynamicMaintenanceQuestionHandlers.chat = async function formattedGatew
       commands.length ? '' : null,
       commands.length ? 'Comandos que puede ejecutar para esta cámara:' : null,
       ...commands.map((command) => `• ${command}`),
+      '',
+      'Las operaciones críticas como factory reset, cambio de IP, cambio de contraseña, firmware o desactivar video no se ejecutan directamente desde el chat.',
     ].filter((value) => value !== null && value !== undefined).join('\n');
-    result.suggestions = [...new Set([...(Array.isArray(result.suggestions) ? result.suggestions : []), ...commands])].slice(0, 8);
+    result.suggestions = [...new Set([...(Array.isArray(result.suggestions) ? result.suggestions : []), ...commands])].slice(0, 10);
   }
 
   const snapshot = result.facts?.gatewaySnapshot;
