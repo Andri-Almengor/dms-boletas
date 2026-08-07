@@ -89,6 +89,13 @@ test('la persistencia conserva autosave, archivos y acciones finales', () => {
   assert.match(hook, /validateTicketForm/);
   assert.match(hook, /Registre la firma antes de continuar\./);
   assert.match(hook, /await clearDraft\(\)/);
+  assert.match(hook, /await deleteDraft\(recoveryDraftKey\)/);
+  assert.match(hook, /recoveryRoute = editing \? `\/boletas\/\$\{boletaUid\}\/editar` : '\/boletas\/nueva'/);
+  const controlledDelete = hook.indexOf('await clearDraft()');
+  const routeDelete = hook.indexOf('await deleteDraft(recoveryDraftKey)');
+  const navigation = hook.indexOf('navigate(`/boletas/${encodeURIComponent(uid)}`)');
+  assert.ok(controlledDelete >= 0 && routeDelete > controlledDelete, 'La captura por ruta debe limpiarse después del borrador controlado');
+  assert.ok(navigation > routeDelete, 'La navegación debe esperar a que ambos borradores hayan sido eliminados');
   assert.match(service, /MODULE_ROUTES\.tickets\.autosave/);
   assert.match(service, /MODULE_ROUTES\.tickets\.signatureUpload/);
   assert.match(service, /MODULE_ROUTES\.tickets\.evidenceUpload/);
