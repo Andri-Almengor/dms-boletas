@@ -36,19 +36,136 @@ DMS_GATEWAY_ID=gateway-entregado-por-la-aplicacion
 DMS_GATEWAY_TOKEN=token-mostrado-una-sola-vez
 ```
 
-6. Inicie el agente:
+6. Valide la configuración sin conectarse:
+
+```bat
+npm run config:check
+```
+
+7. Para una prueba manual, ejecute:
 
 ```bat
 npm start
 ```
 
-Desde la versión 0.1.0 el agente carga automáticamente `gateway-agent/.env` mediante la función nativa de Node.js. Las variables definidas directamente por Windows o por un servicio siguen teniendo prioridad sobre el archivo local.
+El agente carga automáticamente `gateway-agent/.env` mediante la función nativa de Node.js. Las variables definidas directamente por Windows o por un servicio tienen prioridad sobre el archivo local.
 
 El archivo `.env` está excluido de Git y no debe compartirse ni subirse al repositorio.
 
-## Ejecución como servicio
+## Instalar como servicio de Windows
 
-En producción las mismas variables pueden configurarse desde un servicio de Windows, systemd, Docker o el administrador de procesos elegido. El archivo `.env` es opcional cuando todas las variables ya existen en el entorno del proceso.
+La instalación como servicio permite que el agente:
+
+- inicie automáticamente con Windows;
+- funcione sin una ventana de CMD abierta;
+- se reinicie después de un fallo;
+- guarde logs rotativos;
+- mantenga el gateway conectado después de cerrar sesión.
+
+### Requisitos
+
+- Windows 10, Windows 11 o Windows Server compatible.
+- Node.js 20.12 o superior instalado.
+- Archivo `.env` completo y validado.
+- Acceso HTTPS saliente hacia Render y GitHub durante la instalación inicial.
+
+Antes de instalar el servicio, cierre cualquier ejecución manual del agente con `Ctrl + C` para no dejar dos procesos usando el mismo gateway.
+
+Desde CMD, dentro de `gateway-agent`, ejecute:
+
+```bat
+npm run service:install
+```
+
+El instalador solicita permisos de administrador mediante la ventana de Control de cuentas de usuario de Windows. Después:
+
+1. valida `.env`;
+2. localiza la ruta absoluta de `node.exe`;
+3. valida el agente sin conectarse;
+4. descarga WinSW 2.12.0 desde el repositorio oficial;
+5. verifica el SHA-256 fijado para el ejecutable x64;
+6. restringe los permisos de `.env`;
+7. instala `DMS Integration Gateway` como servicio;
+8. configura inicio automático retrasado;
+9. inicia el servicio.
+
+El servicio usa la cuenta local `SYSTEM`, pero solamente realiza conexiones HTTPS salientes. No publica puertos ni comparte carpetas.
+
+### Verificar estado
+
+```bat
+npm run service:status
+```
+
+Debe mostrar:
+
+```text
+Servicio: DMS Integration Gateway
+Estado: Running
+```
+
+Luego confirme en DMS-Boletas que el gateway aparece **EN LÍNEA**.
+
+### Consultar logs
+
+```bat
+npm run service:logs
+```
+
+Los archivos se guardan en:
+
+```text
+gateway-agent\logs
+```
+
+Se conservan hasta 10 archivos de aproximadamente 10 MB cada uno.
+
+### Administrar el servicio
+
+```bat
+npm run service:start
+npm run service:stop
+npm run service:restart
+npm run service:status
+npm run service:logs
+```
+
+Las acciones que modifican el servicio solicitan elevación de administrador automáticamente.
+
+### Desinstalar
+
+```bat
+npm run service:uninstall
+```
+
+La desinstalación conserva por seguridad:
+
+- `.env`;
+- los logs existentes.
+
+Para borrar también los logs:
+
+```powershell
+powershell -NoProfile -ExecutionPolicy Bypass -File windows/uninstall-service.ps1 -RemoveLogs
+```
+
+### Actualizar el agente
+
+Después de actualizar el repositorio:
+
+```bat
+git pull
+npm run config:check
+npm run service:restart
+```
+
+Si cambió la ubicación de la carpeta o la instalación de Node.js, vuelva a ejecutar:
+
+```bat
+npm run service:install
+```
+
+El instalador detecta una instalación anterior y la reemplaza sin borrar `.env` ni el inventario guardado en DMS-Boletas.
 
 ## Variables
 
@@ -63,7 +180,15 @@ En producción las mismas variables pueden configurarse desde un servicio de Win
 
 ## Errores de configuración
 
-Si falta una variable, el agente ahora muestra cuál valor debe completarse y la ubicación exacta esperada del archivo `.env`. Una URL de Render válida debe comenzar con `https://`.
+Si falta una variable, el agente muestra cuál valor debe completarse y la ubicación exacta esperada del archivo `.env`. Una URL de Render válida debe comenzar con `https://`.
+
+Si el servicio no inicia:
+
+1. ejecute `npm run config:check`;
+2. ejecute `npm run service:logs`;
+3. confirme que Node.js continúa instalado en la misma ruta;
+4. confirme que el equipo tiene acceso a la URL de Render;
+5. vuelva a ejecutar `npm run service:install`.
 
 ## Contrato para adaptadores futuros
 
@@ -89,6 +214,8 @@ Renombrar un dispositivo no crea otro registro.
 
 - El token no se guarda en el repositorio ni en Google Sheets en texto plano.
 - El backend almacena un hash `scrypt` con sal aleatoria.
+- El archivo `.env` queda limitado al usuario instalador, `SYSTEM` y administradores.
+- El instalador descarga WinSW desde su repositorio oficial y valida su SHA-256.
 - Los metadatos eliminan campos con nombres como `password`, `token`, `secret` o `credential`.
 - El agente solo puede operar sobre su propio `GatewayID`.
 - Los comandos permitidos actualmente son `PING` e `INVENTORY_SYNC`.
@@ -102,4 +229,3 @@ Renombrar un dispositivo no crea otro registro.
 - Estado de dispositivos en tiempo real.
 - Capturas protegidas bajo demanda.
 - Relación entre dispositivos importados y dispositivos de mantenimientos.
-- Instalador y ejecución como servicio de Windows.
