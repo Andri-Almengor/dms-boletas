@@ -26,6 +26,55 @@ function json(value, fallback = {}) {
   }
 }
 
+function credentialUrlHost(row = {}) {
+  const raw = text(row.URL, 2_000);
+  if (!raw) return '';
+  try {
+    const candidate = /^[a-z][a-z0-9+.-]*:\/\//i.test(raw) ? raw : `http://${raw}`;
+    return new URL(candidate).hostname.replace(/^\[|\]$/g, '').toLowerCase();
+  } catch {
+    return '';
+  }
+}
+
+function resolveCredential({ device, gateway, credentials = [] }) {
+  const clientId = text(gateway.ClienteID, 180);
+  const explicitId = text(device.CredencialCamaraID, 180);
+  const available = credentials.filter((row) => active(row) && text(row.ClienteID, 180) === clientId);
+
+  if (explicitId) {
+    const selected = available.find((row) => text(row.CredencialID, 180) === explicitId);
+    if (!selected) {
+      throw new AppError(
+        'CAMERA_CREDENTIAL_UNAVAILABLE',
+        'La credencial asignada ya no existe, está inactiva o pertenece a otro cliente.',
+        409,
+      );
+    }
+    return { credential: selected, selection: 'EXPLICIT' };
+  }
+
+  const ip = text(device.DireccionIP, 100).toLowerCase();
+  const exactIpMatches = available.filter((row) => credentialUrlHost(row) === ip);
+  if (exactIpMatches.length === 1) {
+    // Coincidencia determinista por URL/IP. Se elige una sola credencial antes
+    // de contactar la cámara; nunca se prueban las demás si esta falla.
+    return { credential: exactIpMatches[0], selection: 'UNIQUE_IP_MATCH' };
+  }
+  if (exactIpMatches.length > 1) {
+    throw new AppError(
+      'CAMERA_CREDENTIAL_AMBIGUOUS',
+      'Hay varias credenciales del cliente asociadas a esta IP. Asigne una credencial específica a la cámara antes de conectarse.',
+      409,
+    );
+  }
+  throw new AppError(
+    'CAMERA_CREDENTIAL_NOT_ASSIGNED',
+    'La cámara no tiene una credencial asignada ni existe una única credencial del cliente cuya URL coincida con su IP.',
+    409,
+  );
+}
+
 export function isCameraIntegrationCommand(type) {
   return CAMERA_COMMANDS.has(String(type || '').toUpperCase());
 }
@@ -50,33 +99,16 @@ export async function buildCameraExecutionEnvelope(gateway, command = {}) {
     throw badRequest('El dispositivo seleccionado no es una cámara.');
   }
 
-  const credentialId = text(device.CredencialCamaraID, 180);
-  if (!credentialId) {
-    throw new AppError(
-      'CAMERA_CREDENTIAL_NOT_ASSIGNED',
-      'La cámara no tiene una credencial asignada. Seleccione una credencial en Gateways e inventario.',
-      409,
-    );
-  }
-
-  const gatewayClientId = text(gateway.ClienteID, 180);
-  const credential = (tables.CredencialesClientes || []).find((row) => (
-    active(row)
-    && text(row.CredencialID, 180) === credentialId
-    && text(row.ClienteID, 180) === gatewayClientId
-  ));
-  if (!credential) {
-    throw new AppError(
-      'CAMERA_CREDENTIAL_UNAVAILABLE',
-      'La credencial asignada ya no existe, está inactiva o pertenece a otro cliente.',
-      409,
-    );
-  }
-
   const metadata = json(device.MetadataJSON, {});
   const capabilities = json(device.CapabilitiesJSON, {});
   const ipAddress = text(device.DireccionIP, 100);
   if (!ipAddress) throw badRequest('La cámara no tiene una dirección IP utilizable.');
+  const resolvedCredential = resolveCredential({
+    device,
+    gateway,
+    credentials: tables.CredencialesClientes || [],
+  });
+  const credential = resolvedCredential.credential;
 
   // La contraseña se descifra únicamente al entregar el comando al gateway.
   // Este objeto nunca se escribe en IntegracionComandos, AuditLog ni Sheets.
@@ -95,6 +127,7 @@ export async function buildCameraExecutionEnvelope(gateway, command = {}) {
     authentication: {
       username: text(credential.Usuario, 250),
       password: decryptVaultSecret(credential),
+      selection: resolvedCredential.selection,
     },
   };
 }
