@@ -18,6 +18,27 @@ test('el gateway declara acciones de cámara explícitas y nunca comandos arbitr
     'CAMERA_ZOOM_STOP',
     'CAMERA_GOTO_HOME',
     'CAMERA_REBOOT',
+    'CAMERA_AUTOFOCUS',
+    'CAMERA_PAN_LEFT',
+    'CAMERA_PAN_RIGHT',
+    'CAMERA_TILT_UP',
+    'CAMERA_TILT_DOWN',
+    'CAMERA_PTZ_STOP',
+    'CAMERA_PRESETS_LIST',
+    'CAMERA_PRESET_GOTO',
+    'CAMERA_DAY_MODE',
+    'CAMERA_NIGHT_MODE',
+    'CAMERA_DAYNIGHT_AUTO',
+    'CAMERA_IR_ON',
+    'CAMERA_IR_OFF',
+    'CAMERA_WIPER_ON',
+    'CAMERA_WIPER_OFF',
+    'CAMERA_RELAY_LIST',
+    'CAMERA_RELAY_ON',
+    'CAMERA_RELAY_OFF',
+    'CAMERA_AUDIO_TEST',
+    'CAMERA_HEALTH',
+    'CAMERA_DIAGNOSTIC',
   ]) assert.match(domain, new RegExp(`'${type}'`));
   assert.match(domain, /COMMAND_TYPES\.has\(type\)/);
 });
@@ -47,6 +68,7 @@ test('el agente usa ONVIF y fallbacks de fabricante sin probar contraseñas alte
   const camera = source('gateway-agent/src/camera/onvif-camera-control.js');
   const router = source('gateway-agent/src/camera/camera-control-router.js');
   const physical = source('gateway-agent/src/camera/camera-physical-actions.js');
+  const advanced = source('gateway-agent/src/camera/camera-advanced-actions.js');
   const adapter = source('gateway-agent/src/adapters/network-discovery-identified.adapter.js');
   const envExample = source('gateway-agent/.env.example');
   assert.match(camera, /GetSnapshotUri/);
@@ -70,7 +92,20 @@ test('el agente usa ONVIF y fallbacks de fabricante sin probar contraseñas alte
   assert.match(physical, /restoreWide/);
   assert.match(physical, /Único segundo intento/);
   assert.doesNotMatch(physical, /passwords|credentialList|tryPasswords/i);
-  assert.match(adapter, /executePhysicalCameraAction/);
+  assert.match(advanced, /CAMERA_AUTOFOCUS/);
+  assert.match(advanced, /GetPresets/);
+  assert.match(advanced, /GotoPreset/);
+  assert.match(advanced, /SetImagingSettings/);
+  assert.match(advanced, /IrCutFilter/);
+  assert.match(advanced, /SendAuxiliaryCommand/);
+  assert.match(advanced, /GetRelayOutputs/);
+  assert.match(advanced, /SetRelayOutputState/);
+  assert.match(advanced, /GetAudioSources/);
+  assert.match(advanced, /GetAudioOutputs/);
+  assert.match(advanced, /CAMERA_DIAGNOSTIC/);
+  assert.doesNotMatch(advanced, /passwords|credentialList|tryPasswords/i);
+  assert.match(adapter, /executeAdvancedCameraAction/);
+  assert.match(adapter, /cameraAdvancedActions:\s*true/);
   assert.match(adapter, /cameraAuthFallbacks:\s*0/);
   assert.match(adapter, /CAMERA_AUTH_COOLDOWN/);
   assert.match(adapter, /DMS_CAMERA_AUTH_COOLDOWN_MS/);
@@ -96,17 +131,79 @@ test('el asistente diferencia capacidades y devuelve comandos ejecutables para l
   assert.match(formatter, /PTZ ONVIF/);
   assert.match(formatter, /Zoom óptico del lente/);
   assert.match(formatter, /Restaurar vista amplia\/normal/);
+  assert.match(formatter, /Auto Focus/);
+  assert.match(formatter, /Día\/Noche/);
+  assert.match(formatter, /Wiper\/limpiaparabrisas/);
+  assert.match(formatter, /Salidas de relé/);
+  assert.match(formatter, /Audio de entrada/);
+  assert.match(formatter, /Diagnóstico integral/);
   assert.match(formatter, /Comandos que puede ejecutar para esta cámara/);
   assert.match(formatter, /gateway dame una captura/);
-  assert.match(formatter, /gateway acercar zoom/);
-  assert.match(formatter, /gateway alejar zoom/);
-  assert.match(formatter, /gateway detener zoom/);
-  assert.match(formatter, /gateway volver zoom a normal/);
-  assert.match(formatter, /gateway reiniciar/);
-  assert.match(formatter, /adaptadores compatibles del fabricante/);
+  assert.match(formatter, /gateway enfoca/);
+  assert.match(formatter, /gateway mueve a la izquierda/);
+  assert.match(formatter, /gateway lista presets/);
+  assert.match(formatter, /gateway pon modo automático día noche/);
+  assert.match(formatter, /gateway enciende IR/);
+  assert.match(formatter, /gateway activa limpiaparabrisas/);
+  assert.match(formatter, /gateway lista relés/);
+  assert.match(formatter, /gateway prueba audio/);
+  assert.match(formatter, /gateway diagnostica/);
+  assert.match(formatter, /factory reset/);
 });
 
-test('el asistente exige gateway, cliente y cámara para acciones físicas y confirma reinicios', () => {
+test('el gateway entiende consultas naturales de IP puertos estado y permite renombrar por IP', () => {
+  const natural = source('backend/src/services/integration-gateway-natural-language.patch.js');
+  const app = source('backend/src/app.js');
+  assert.match(natural, /gatewayNetworkTable/);
+  assert.match(natural, /MetadataJSON/);
+  assert.match(natural, /openPorts/);
+  assert.match(natural, /80:\s*'HTTP'/);
+  assert.match(natural, /443:\s*'HTTPS'/);
+  assert.match(natural, /554:\s*'RTSP'/);
+  assert.match(natural, /ONLINE/);
+  assert.match(natural, /OFFLINE/);
+  assert.match(natural, /updateIntegrationDeviceOperationalName/);
+  assert.match(natural, /ASISTENTE_RENOMBRAR_CAMARA_GATEWAY/);
+  assert.match(natural, /ponle "Nuevo nombre"/);
+  assert.match(natural, /acercamela|acercala/);
+  assert.match(natural, /muestrame lo que ve/);
+  assert.match(natural, /vista normal/);
+  assert.match(app, /integration-gateway-natural-language\.patch\.js/);
+  const formatterIndex = app.indexOf("./services/integration-gateway-answer-format.patch.js");
+  const naturalIndex = app.indexOf("./services/integration-gateway-natural-language.patch.js");
+  assert.ok(naturalIndex > formatterIndex, 'lenguaje natural debe envolver el pipeline gateway ya formateado');
+});
+
+test('el asistente avanzado soporta PTZ presets foco día noche IR wiper relés audio y diagnóstico con guardas', () => {
+  const advanced = source('backend/src/services/integration-gateway-advanced-actions.patch.js');
+  const app = source('backend/src/app.js');
+  assert.match(advanced, /CAMERA_AUTOFOCUS/);
+  assert.match(advanced, /CAMERA_PAN_LEFT/);
+  assert.match(advanced, /CAMERA_PRESETS_LIST/);
+  assert.match(advanced, /CAMERA_PRESET_GOTO/);
+  assert.match(advanced, /CAMERA_DAY_MODE/);
+  assert.match(advanced, /CAMERA_NIGHT_MODE/);
+  assert.match(advanced, /CAMERA_DAYNIGHT_AUTO/);
+  assert.match(advanced, /CAMERA_IR_ON/);
+  assert.match(advanced, /CAMERA_WIPER_ON/);
+  assert.match(advanced, /CAMERA_RELAY_LIST/);
+  assert.match(advanced, /CAMERA_RELAY_ON/);
+  assert.match(advanced, /CAMERA_AUDIO_TEST/);
+  assert.match(advanced, /CAMERA_DIAGNOSTIC/);
+  assert.match(advanced, /pendingGatewayAdvancedAction/);
+  assert.match(advanced, /puede accionar un equipo físico conectado/);
+  assert.match(advanced, /restablecimiento de fábrica/);
+  assert.match(advanced, /actualización de firmware/);
+  assert.match(advanced, /cambio de dirección IP/);
+  assert.match(advanced, /cambio de contraseña/);
+  assert.match(advanced, /desactivación del video/);
+  assert.match(app, /integration-gateway-advanced-actions\.patch\.js/);
+  const naturalIndex = app.indexOf("./services/integration-gateway-natural-language.patch.js");
+  const advancedIndex = app.indexOf("./services/integration-gateway-advanced-actions.patch.js");
+  assert.ok(advancedIndex > naturalIndex, 'acciones avanzadas deben envolver lenguaje natural');
+});
+
+test('el asistente exige gateway cliente y cámara para acciones físicas y confirma reinicios', () => {
   const assistant = source('backend/src/services/integration-gateway-assistant.patch.js');
   const credentialAssistant = source('backend/src/services/integration-gateway-credential-assistant.patch.js');
   const formatter = source('backend/src/services/integration-gateway-answer-format.patch.js');

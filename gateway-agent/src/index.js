@@ -5,7 +5,7 @@ import process, { loadEnvFile } from 'node:process';
 import { createAdapterFromEnvironment } from './adapters/adapter-factory.js';
 import { GatewayClient } from './gateway-client.js';
 
-const VERSION = '0.7.0';
+const VERSION = '1.0.0';
 const envPath = path.resolve(process.cwd(), '.env');
 const checkConfigOnly = process.argv.includes('--check-config');
 const checkSourceOnly = process.argv.includes('--check-source');
@@ -184,7 +184,6 @@ async function start() {
     await heartbeat(safeError(error)).catch(() => {});
   }
 
-  // Estos timers deben permanecer referenciados para mantener vivo el servicio.
   heartbeatTimer = setInterval(() => {
     heartbeat().catch((error) => log('Heartbeat fallido.', safeError(error)));
   }, heartbeatMs);
