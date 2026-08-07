@@ -10,11 +10,15 @@ import {
   parseOnvifDiscoveryXml,
   parsePrivateCidr,
 } from '../../gateway-agent/src/adapters/network-discovery.adapter.js';
+import {
+  parseNetworkTarget,
+  parseNetworkTargets,
+} from '../../gateway-agent/src/adapters/network-targets.js';
 
 const ROOT = fileURLToPath(new URL('../../', import.meta.url));
 const source = (relativePath) => readFileSync(path.join(ROOT, relativePath), 'utf8');
 
-test('el descubrimiento limita el escaneo a subredes IPv4 privadas pequeñas', () => {
+test('el descubrimiento limita el escaneo automático a subredes IPv4 privadas pequeñas', () => {
   assert.equal(isPrivateIpv4('192.168.1.25'), true);
   assert.equal(isPrivateIpv4('10.20.30.40'), true);
   assert.equal(isPrivateIpv4('172.20.1.5'), true);
@@ -23,6 +27,46 @@ test('el descubrimiento limita el escaneo a subredes IPv4 privadas pequeñas', (
   assert.equal(parsePrivateCidr('10.0.0.0/16'), null);
   assert.equal(parsePrivateCidr('203.0.113.0/24'), null);
   assert.deepEqual(hostsForCidrs(['192.168.50.0/30']), ['192.168.50.1', '192.168.50.2']);
+});
+
+test('los objetivos configurables aceptan CIDR, IP y rangos completos o abreviados', () => {
+  const cidr = parseNetworkTarget('192.168.4.0/24');
+  assert.equal(cidr.kind, 'CIDR');
+  assert.equal(cidr.hostCount, 254);
+  assert.equal(cidr.spec, '192.168.4.0/24');
+
+  const fullRange = parseNetworkTarget('192.168.4.100-192.168.4.200');
+  assert.equal(fullRange.kind, 'RANGE');
+  assert.equal(fullRange.hostCount, 101);
+  assert.equal(fullRange.spec, '192.168.4.100-192.168.4.200');
+
+  const shortRange = parseNetworkTarget('192.168.4.100-200');
+  assert.equal(shortRange.spec, '192.168.4.100-192.168.4.200');
+
+  const slashShortcut = parseNetworkTarget('192.168.4.100/200');
+  assert.equal(slashShortcut.spec, '192.168.4.100-192.168.4.200');
+
+  const single = parseNetworkTarget('192.168.96.12');
+  assert.equal(single.kind, 'IP');
+  assert.equal(single.hostCount, 1);
+});
+
+test('los destinos públicos requieren habilitación local explícita y quedan acotados', () => {
+  assert.throws(
+    () => parseNetworkTargets('201.1.2.10', { allowPublic: false, maxHosts: 1024 }),
+    /DMS_NETWORK_ALLOW_PUBLIC_TARGETS=true/,
+  );
+
+  const allowed = parseNetworkTargets('201.1.2.10,192.168.4.100/102', {
+    allowPublic: true,
+    maxHosts: 1024,
+  });
+  assert.deepEqual(allowed.hosts, ['201.1.2.10', '192.168.4.100', '192.168.4.101', '192.168.4.102']);
+
+  assert.throws(
+    () => parseNetworkTargets('201.1.0.0/23', { allowPublic: true, maxHosts: 1024 }),
+    /rango inválido|máximo/i,
+  );
 });
 
 test('el parser ONVIF usa UUID y scopes sin autenticarse contra la cámara', () => {
@@ -70,8 +114,9 @@ test('la cámara descubierta usa identidad estable y expone solo metadatos técn
   assert.doesNotMatch(JSON.stringify(item), /password|authorization|credential/i);
 });
 
-test('el adaptador de red no prueba contraseñas ni explora redes públicas', () => {
-  const adapter = source('gateway-agent/src/adapters/network-discovery.adapter.js');
+test('el adaptador de red no prueba contraseñas y usa el plan de objetivos configurables', () => {
+  const adapter = source('gateway-agent/src/adapters/network-discovery-configurable.adapter.js');
+  const targets = source('gateway-agent/src/adapters/network-targets.js');
   const factory = source('gateway-agent/src/adapters/adapter-factory.js');
   const envExample = source('gateway-agent/.env.example');
   const networkDoc = source('gateway-agent/NETWORK_DISCOVERY.md');
@@ -79,13 +124,15 @@ test('el adaptador de red no prueba contraseñas ni explora redes públicas', ()
   assert.match(adapter, /239\.255\.255\.250/);
   assert.match(adapter, /ONVIF_WS_DISCOVERY/);
   assert.match(adapter, /RTSP_OPTIONS/);
-  assert.match(adapter, /DMS_NETWORK_CIDRS/);
-  assert.match(adapter, /prefix < 24/);
+  assert.match(adapter, /DMS_NETWORK_TARGETS/);
+  assert.match(adapter, /DMS_NETWORK_ALLOW_PUBLIC_TARGETS/);
+  assert.match(targets, /192\.168\.4\.100\/200/);
   assert.doesNotMatch(adapter, /brute|credential stuffing|default password|Authorization:\s*Basic/i);
-  assert.match(factory, /NetworkDiscoveryAdapter/);
+  assert.match(factory, /ConfigurableNetworkDiscoveryAdapter/);
   assert.match(factory, /network-discovery/);
   assert.match(networkDoc, /DMS_GATEWAY_ADAPTER=network/);
   assert.match(envExample, /DMS_NETWORK_SCAN_PORTS=80,443,554/);
+  assert.match(envExample, /DMS_NETWORK_TARGETS=/);
 });
 
 test('el nombre operativo se edita por una ruta administrativa y se conserva separado del detectado', () => {
