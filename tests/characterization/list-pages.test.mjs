@@ -3,6 +3,7 @@ import { readFile } from 'node:fs/promises';
 
 const ticket = await readFile(new URL('../../src/pages/tickets/TicketListPage.jsx', import.meta.url), 'utf8');
 const maintenance = await readFile(new URL('../../src/pages/maintenance/MaintenanceListPage.jsx', import.meta.url), 'utf8');
+const maintenanceDomain = await readFile(new URL('../../src/features/maintenance/maintenanceListDomain.js', import.meta.url), 'utf8');
 
 for (const [name, source] of [['boletas', ticket], ['mantenimientos', maintenance]]) {
   assert.match(source, /usePaginatedResource/);
@@ -17,6 +18,8 @@ for (const [name, source] of [['boletas', ticket], ['mantenimientos', maintenanc
 assert.match(ticket, /TICKET_PAGE_SIZE = 50/);
 assert.match(ticket, /normalizeTicketStatus/);
 assert.match(ticket, /asignadoUsuarioId/);
-assert.match(maintenance, /PAGE_SIZE = 40/);
-assert.match(maintenance, /matchesFallbackFilters/);
-assert.match(maintenance, /maintenanceStatusFromQuery/);
+assert.match(maintenanceDomain, /MAINTENANCE_LIST_PAGE_SIZE = 40/);
+assert.match(maintenance, /PAGE_SIZE = MAINTENANCE_LIST_PAGE_SIZE/);
+assert.match(maintenance, /matchesMaintenanceListFilters/);
+assert.match(maintenance, /normalizeMaintenanceStatus/);
+assert.match(maintenance, /maintenanceListPayload/);
