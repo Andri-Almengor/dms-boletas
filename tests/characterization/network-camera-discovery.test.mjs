@@ -137,7 +137,7 @@ test('el adaptador de red no prueba contraseñas y usa el plan de objetivos conf
   assert.match(envExample, /DMS_NETWORK_TARGETS=/);
 });
 
-test('el nombre operativo se edita por una ruta administrativa y se conserva separado del detectado', () => {
+test('el nombre operativo y la ubicación se editan administrativamente sin perder el nombre detectado', () => {
   const route = source('backend/src/routes/integration-gateway.routes.js');
   const service = source('backend/src/services/integration-device-admin.service.js');
   const syncService = source('backend/src/services/integration-gateway.service.js');
@@ -145,14 +145,18 @@ test('el nombre operativo se edita por una ruta administrativa y se conserva sep
   const page = source('src/pages/admin/IntegrationsPage.jsx');
 
   assert.match(route, /\/admin\/devices\/name/);
+  assert.match(route, /\/admin\/devices\/profile/);
   assert.match(route, /requireAdmin/);
   assert.match(route, /ACTUALIZAR_NOMBRE_DISPOSITIVO_INTEGRACION/);
+  assert.match(route, /ACTUALIZAR_PERFIL_DISPOSITIVO_INTEGRACION/);
   assert.match(service, /NombreOperativo/);
+  assert.match(service, /UbicacionClienteID/);
   assert.match(syncService, /NombreOperativo: current\.NombreOperativo \|\| ''/);
   assert.match(api, /updateIntegrationDeviceName/);
+  assert.match(api, /updateIntegrationDeviceProfile/);
   assert.match(page, /Nombre operativo/);
-  assert.match(page, /Detectado como:/);
-  assert.match(page, /Las próximas sincronizaciones conservarán este nombre operativo/);
+  assert.match(page, /Nombre detectado:/);
+  assert.match(page, /se conservarán en futuras sincronizaciones/);
 });
 
 test('el agente puede resincronizar inventario de red periódicamente sin superponer escaneos', () => {
