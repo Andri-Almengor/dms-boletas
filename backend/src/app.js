@@ -18,6 +18,7 @@ import './services/metrics-assigned-hours.patch.js';
 import './services/metrics-dynamic-maintenance-counts.patch.js';
 import './services/password-vault-assistant.patch.js';
 import './services/password-vault-system-assistant.patch.js';
+import './services/assistant-maintenance-keyword.patch.js';
 import './services/integration-gateway-assistant.patch.js';
 import { runWithSheetsRouteReadCache } from './services/sheets-route-read-cache.patch.js';
 import { env } from './config/env.js';
