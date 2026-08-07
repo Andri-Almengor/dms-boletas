@@ -1,5 +1,5 @@
 const CACHE_PREFIX = 'dms-boletas-shell-';
-const CACHE_NAME = `${CACHE_PREFIX}v4`;
+const CACHE_NAME = `${CACHE_PREFIX}v5`;
 const APP_SHELL = ['/', '/manifest.webmanifest', '/icons/dms-icon.svg'];
 const NETWORK_TIMEOUT_MS = 5_000;
 
@@ -65,8 +65,11 @@ async function codeAssetResponse(request) {
   const cache = await caches.open(CACHE_NAME);
   try {
     const response = await fetchWithTimeout(request);
-    if (response.ok) await cache.put(request, response.clone());
-    return response;
+    if (response.ok) {
+      await cache.put(request, response.clone());
+      return response;
+    }
+    return (await cache.match(request)) || response;
   } catch {
     return (await cache.match(request)) || Response.error();
   }

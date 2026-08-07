@@ -1,3 +1,4 @@
+import './app-recovery.test.mjs';
 import './assistant-history-retention.test.mjs';
 import './assistant-password-vault-sheets-cache.test.mjs';
 import './backend-batching.test.mjs';

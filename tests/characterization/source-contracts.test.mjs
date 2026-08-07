@@ -77,7 +77,7 @@ test('moduleApi delega reintentos y aliases a una sola infraestructura', () => {
   const contents = source('src/services/moduleApi.js');
   includesAll(contents, [
     "import { requestFirstAvailable } from './aliasResolver';",
-    'export async function requestAvailable(routes, payload = {}, sessionToken = \'\', options = {})',
+    "export async function requestAvailable(routes, payload = {}, sessionToken = '', options = {})",
     'const result = await requestFirstAvailable(',
     '(route) => apiRequest(route, preparedPayload, sessionToken, options)',
   ]);

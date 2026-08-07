@@ -160,13 +160,14 @@ test('el agente se instala como servicio de Windows con reinicio y secretos loca
   assert.match(gitignore, /gateway-agent\/logs\//);
 });
 
-test('la interfaz administrativa mantiene el token oculto y lo revela solo bajo demanda', () => {
+test('la interfaz administrativa mantiene credenciales ocultas y gateways colapsados por defecto', () => {
   const page = source('src/pages/admin/IntegrationsPage.jsx');
   const api = source('src/services/integrationGatewayApi.js');
   const app = source('src/app/App.jsx');
   const more = source('src/pages/MorePage.jsx');
   const styles = source('src/styles/integration-gateway.css');
 
+  assert.match(page, /integration-gateway-section--collapsible/);
   assert.match(page, /integration-gateway-credentials/);
   assert.match(page, /Mostrar 30 s/);
   assert.match(page, /setRevealedTokens/);
