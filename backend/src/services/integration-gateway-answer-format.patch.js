@@ -46,9 +46,19 @@ function capabilityDetails(capabilities = {}) {
   if (capabilities.restoreWide) {
     details.push(`• Restaurar vista amplia/normal: Sí${capabilities.restoreWideTransport ? ` (${capabilities.restoreWideTransport})` : ''}`);
   }
+  const dayNightModes = [
+    capabilities.dayMode ? 'Día' : '',
+    capabilities.nightMode ? 'Noche' : '',
+    capabilities.dayNightAuto ? 'Automático' : '',
+  ].filter(Boolean);
+  const dayNightLabel = capabilities.dayNight
+    ? `Sí${dayNightModes.length ? ` (${dayNightModes.join(', ')})` : ''}`
+    : capabilities.imagingValidationStatus === 'NO_VALID_VIDEO_SOURCE'
+      ? 'No disponible: ningún VideoSource ONVIF válido para Imaging'
+      : 'No detectado';
   details.push(
     `• Auto Focus: ${capabilities.autofocus ? 'Sí' : 'No detectado'}`,
-    `• Día/Noche: ${capabilities.dayNight ? 'Sí' : 'No detectado'}`,
+    `• Día/Noche: ${dayNightLabel}`,
     `• Control de iluminador IR: ${capabilities.irControl ? 'Sí' : 'No detectado'}`,
     `• Wiper/limpiaparabrisas: ${capabilities.wiper ? 'Sí' : 'No detectado'}`,
     `• Salidas de relé: ${Number(capabilities.relayOutputs || 0)}`,
@@ -96,11 +106,9 @@ function capabilityCommands(capabilities = {}, result = {}) {
     commands.push(`gateway detén movimiento PTZ de la ${suffix}`);
   }
   if (capabilities.presets) commands.push(`gateway lista presets de la ${suffix}`);
-  if (capabilities.dayNight) {
-    commands.push(`gateway pon modo día en la ${suffix}`);
-    commands.push(`gateway pon modo noche en la ${suffix}`);
-    commands.push(`gateway pon modo automático día noche en la ${suffix}`);
-  }
+  if (capabilities.dayMode) commands.push(`gateway pon modo día en la ${suffix}`);
+  if (capabilities.nightMode) commands.push(`gateway pon modo noche en la ${suffix}`);
+  if (capabilities.dayNightAuto) commands.push(`gateway pon modo automático día noche en la ${suffix}`);
   if (capabilities.irControl) {
     commands.push(`gateway enciende IR de la ${suffix}`);
     commands.push(`gateway apaga IR de la ${suffix}`);
