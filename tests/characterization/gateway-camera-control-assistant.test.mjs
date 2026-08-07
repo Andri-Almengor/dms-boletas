@@ -106,6 +106,29 @@ test('el asistente diferencia capacidades y devuelve comandos ejecutables para l
   assert.match(formatter, /adaptadores compatibles del fabricante/);
 });
 
+test('el gateway entiende consultas naturales de IP puertos estado y permite renombrar por IP', () => {
+  const natural = source('backend/src/services/integration-gateway-natural-language.patch.js');
+  const app = source('backend/src/app.js');
+  assert.match(natural, /gatewayNetworkTable/);
+  assert.match(natural, /MetadataJSON/);
+  assert.match(natural, /openPorts/);
+  assert.match(natural, /80:\s*'HTTP'/);
+  assert.match(natural, /443:\s*'HTTPS'/);
+  assert.match(natural, /554:\s*'RTSP'/);
+  assert.match(natural, /ONLINE/);
+  assert.match(natural, /OFFLINE/);
+  assert.match(natural, /updateIntegrationDeviceOperationalName/);
+  assert.match(natural, /ASISTENTE_RENOMBRAR_CAMARA_GATEWAY/);
+  assert.match(natural, /ponle "Nuevo nombre"/);
+  assert.match(natural, /acercamela|acercala/);
+  assert.match(natural, /muestrame lo que ve/);
+  assert.match(natural, /vista normal/);
+  assert.match(app, /integration-gateway-natural-language\.patch\.js/);
+  const formatterIndex = app.indexOf("./services/integration-gateway-answer-format.patch.js");
+  const naturalIndex = app.indexOf("./services/integration-gateway-natural-language.patch.js");
+  assert.ok(naturalIndex > formatterIndex, 'lenguaje natural debe envolver el pipeline gateway ya formateado');
+});
+
 test('el asistente exige gateway, cliente y cámara para acciones físicas y confirma reinicios', () => {
   const assistant = source('backend/src/services/integration-gateway-assistant.patch.js');
   const credentialAssistant = source('backend/src/services/integration-gateway-credential-assistant.patch.js');
