@@ -1,6 +1,7 @@
 import { cameraSignature } from './camera-brand-signatures.js';
 import { ConfigurableNetworkDiscoveryAdapter } from './network-discovery-configurable.adapter.js';
 import { identifyNetworkCamera } from './network-camera-identification.js';
+import { executeOnvifCameraAction } from '../camera/onvif-camera-control.js';
 
 function text(value, maxLength = 500) {
   return String(value ?? '').trim().slice(0, maxLength);
@@ -141,6 +142,9 @@ export class IdentifiedNetworkDiscoveryAdapter extends ConfigurableNetworkDiscov
     this.identificationTimeoutMs = boundedNumber(env.DMS_NETWORK_IDENTIFICATION_TIMEOUT_MS, 1_200, 300, 5_000);
     this.unicastOnvifTimeoutMs = boundedNumber(env.DMS_NETWORK_ONVIF_UNICAST_TIMEOUT_MS, 700, 250, 3_000);
     this.identificationConcurrency = boundedNumber(env.DMS_NETWORK_IDENTIFICATION_CONCURRENCY, 12, 1, 32);
+    this.cameraControlTimeoutMs = boundedNumber(env.DMS_CAMERA_CONTROL_TIMEOUT_MS, 7_000, 2_000, 20_000);
+    this.cameraAuthCooldownMs = boundedNumber(env.DMS_CAMERA_AUTH_COOLDOWN_MS, 10 * 60_000, 60_000, 60 * 60_000);
+    this.cameraAuthCooldowns = new Map();
   }
 
   capabilities() {
@@ -152,6 +156,9 @@ export class IdentifiedNetworkDiscoveryAdapter extends ConfigurableNetworkDiscov
       onvifDeviceInformation: this.identificationEnabled,
       onvifNetworkInterfaces: this.identificationEnabled,
       cameraBrandSignatures: this.identificationEnabled,
+      cameraControl: true,
+      cameraControlProtocol: 'ONVIF',
+      cameraAuthFallbacks: 0,
     };
   }
 
@@ -195,5 +202,29 @@ export class IdentifiedNetworkDiscoveryAdapter extends ConfigurableNetworkDiscov
         return device;
       }
     });
+  }
+
+  async execute(command) {
+    const type = String(command?.Tipo || command?.type || '').toUpperCase();
+    if (!type.startsWith('CAMERA_')) return super.execute(command);
+
+    const ip = text(command?.execution?.device?.ipAddress, 100);
+    const now = Date.now();
+    const cooldownUntil = Number(this.cameraAuthCooldowns.get(ip) || 0);
+    if (ip && cooldownUntil > now) {
+      const error = new Error(`La autenticación de ${ip} está en enfriamiento para evitar bloquear la cámara. Espere ${Math.ceil((cooldownUntil - now) / 60_000)} minuto(s).`);
+      error.code = 'CAMERA_AUTH_COOLDOWN';
+      throw error;
+    }
+    if (ip && cooldownUntil) this.cameraAuthCooldowns.delete(ip);
+
+    try {
+      return await executeOnvifCameraAction(command, { timeoutMs: this.cameraControlTimeoutMs });
+    } catch (error) {
+      if (ip && error?.code === 'CAMERA_AUTH_REJECTED') {
+        this.cameraAuthCooldowns.set(ip, Date.now() + this.cameraAuthCooldownMs);
+      }
+      throw error;
+    }
   }
 }
