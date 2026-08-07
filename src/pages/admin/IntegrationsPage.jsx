@@ -11,6 +11,7 @@ import {
   revokeIntegrationGateway,
   sendIntegrationGatewayCommand,
   updateIntegrationDeviceProfile,
+  updateIntegrationDevicesLocation,
 } from '../../services/integrationGatewayApi';
 import { MODULE_ROUTES, normalizeItems, pick, requestAvailable } from '../../services/moduleApi';
 
@@ -20,7 +21,6 @@ const EMPTY_OVERVIEW = Object.freeze({
   commands: [],
   summary: { gateways: 0, online: 0, devices: 0, pendingCommands: 0 },
 });
-const PAGE_SIZES = [25, 50, 100];
 
 function normalized(value) {
   return String(value || '')
@@ -64,10 +64,6 @@ function displayName(device) {
   return device?.NombreOperativo || device?.NombreDetectado || 'Dispositivo sin nombre';
 }
 
-function locationText(device) {
-  return [device?.UbicacionCliente, device?.UbicacionEquipo].filter(Boolean).join(' · ') || 'Sin ubicación';
-}
-
 function optionFromClient(row) {
   const value = String(pick(row, ['ClienteID', 'id'], '') || '');
   const label = String(pick(row, ['Nombre', 'Clientes', 'RazonSocial'], 'Cliente sin nombre'));
@@ -88,6 +84,41 @@ function relationEquipment(row) {
   } : null;
 }
 
+function folderKey(device) {
+  const equipmentId = String(device?.UbicacionEquipoID || '').trim();
+  const locationId = String(device?.UbicacionClienteID || '').trim();
+  if (equipmentId) return `equipment:${equipmentId}`;
+  if (locationId) return `location:${locationId}:unassigned`;
+  return 'unassigned';
+}
+
+function buildLocationFolders(devices = []) {
+  const map = new Map();
+  devices.forEach((device) => {
+    const key = folderKey(device);
+    if (!map.has(key)) {
+      map.set(key, {
+        key,
+        locationId: String(device.UbicacionClienteID || ''),
+        locationName: String(device.UbicacionCliente || 'Sin ubicación general'),
+        equipmentLocationId: String(device.UbicacionEquipoID || ''),
+        equipmentLocationName: String(device.UbicacionEquipo || 'Sin ubicación del equipo'),
+        items: [],
+      });
+    }
+    map.get(key).items.push(device);
+  });
+  return [...map.values()]
+    .map((folder) => ({
+      ...folder,
+      items: [...folder.items].sort((a, b) => displayName(a).localeCompare(displayName(b), 'es', { numeric: true })),
+    }))
+    .sort((a, b) => (
+      a.locationName.localeCompare(b.locationName, 'es', { numeric: true })
+      || a.equipmentLocationName.localeCompare(b.equipmentLocationName, 'es', { numeric: true })
+    ));
+}
+
 export default function IntegrationsPage() {
   const { sessionToken } = useAuth();
   const [overview, setOverview] = useState(EMPTY_OVERVIEW);
@@ -104,14 +135,17 @@ export default function IntegrationsPage() {
   const [deviceRelations, setDeviceRelations] = useState({ locations: [], equipment: [] });
   const [deviceModalError, setDeviceModalError] = useState('');
   const [relationsLoading, setRelationsLoading] = useState(false);
+  const [selectedDeviceIds, setSelectedDeviceIds] = useState(() => new Set());
+  const [bulkEditor, setBulkEditor] = useState(null);
+  const [bulkRelations, setBulkRelations] = useState({ locations: [], equipment: [] });
+  const [bulkError, setBulkError] = useState('');
+  const [bulkLoading, setBulkLoading] = useState(false);
 
   const [query, setQuery] = useState('');
   const [clientFilter, setClientFilter] = useState('TODOS');
   const [manufacturerFilter, setManufacturerFilter] = useState('TODAS');
   const [modelFilter, setModelFilter] = useState('TODOS');
   const [statusFilter, setStatusFilter] = useState('TODOS');
-  const [pageSize, setPageSize] = useState(25);
-  const [page, setPage] = useState(1);
 
   async function load({ silent = false } = {}) {
     if (!silent) setLoading(true);
@@ -157,22 +191,29 @@ export default function IntegrationsPage() {
     return () => document.removeEventListener('visibilitychange', hideSecrets);
   }, []);
 
-  useEffect(() => { setPage(1); }, [query, clientFilter, manufacturerFilter, modelFilter, statusFilter, pageSize]);
+  useEffect(() => {
+    setSelectedDeviceIds(new Set());
+    setBulkEditor(null);
+    setManufacturerFilter('TODAS');
+    setModelFilter('TODOS');
+  }, [clientFilter]);
 
   const clientOptions = useMemo(() => clients.map(optionFromClient).filter(Boolean), [clients]);
   const gatewayById = useMemo(() => new Map(
     overview.gateways.map((gateway) => [String(gateway.GatewayID || ''), gateway]),
   ), [overview.gateways]);
-  const devicesByGateway = useMemo(() => overview.devices.reduce((map, device) => {
+
+  // Los dispositivos SIMULATED se conservan como datos históricos/técnicos,
+  // pero dejan de formar parte del inventario operativo mostrado al usuario.
+  const operationalDevices = useMemo(() => overview.devices.filter((device) => (
+    String(device.SourceSystem || '').toUpperCase() !== 'SIMULATED'
+  )), [overview.devices]);
+
+  const devicesByGateway = useMemo(() => operationalDevices.reduce((map, device) => {
     const gatewayId = String(device.GatewayID || '');
     map.set(gatewayId, (map.get(gatewayId) || 0) + 1);
     return map;
-  }, new Map()), [overview.devices]);
-
-  const manufacturers = useMemo(() => [...new Set(overview.devices.map((item) => String(item.Fabricante || '').trim()).filter(Boolean))]
-    .sort((a, b) => a.localeCompare(b, 'es')), [overview.devices]);
-  const models = useMemo(() => [...new Set(overview.devices.map((item) => String(item.Modelo || '').trim()).filter(Boolean))]
-    .sort((a, b) => a.localeCompare(b, 'es')), [overview.devices]);
+  }, new Map()), [operationalDevices]);
 
   const inventoryClientOptions = useMemo(() => {
     const map = new Map();
@@ -185,44 +226,53 @@ export default function IntegrationsPage() {
       .sort((a, b) => a.label.localeCompare(b.label, 'es'));
   }, [overview.gateways, clientOptions]);
 
+  const clientScopedDevices = useMemo(() => operationalDevices.filter((device) => {
+    if (clientFilter === 'TODOS') return true;
+    const gateway = gatewayById.get(String(device.GatewayID || '')) || {};
+    return String(gateway.ClienteID || device.ClienteID || '') === clientFilter;
+  }), [operationalDevices, gatewayById, clientFilter]);
+
+  const visibleGateways = useMemo(() => overview.gateways.filter((gateway) => (
+    clientFilter === 'TODOS' || String(gateway.ClienteID || '') === clientFilter
+  )), [overview.gateways, clientFilter]);
+
+  const manufacturers = useMemo(() => [...new Set(clientScopedDevices
+    .map((item) => String(item.Fabricante || '').trim()).filter(Boolean))]
+    .sort((a, b) => a.localeCompare(b, 'es')), [clientScopedDevices]);
+  const models = useMemo(() => [...new Set(clientScopedDevices
+    .filter((item) => manufacturerFilter === 'TODAS' || String(item.Fabricante || '') === manufacturerFilter)
+    .map((item) => String(item.Modelo || '').trim()).filter(Boolean))]
+    .sort((a, b) => a.localeCompare(b, 'es')), [clientScopedDevices, manufacturerFilter]);
+
+  useEffect(() => {
+    if (manufacturerFilter !== 'TODAS' && !manufacturers.includes(manufacturerFilter)) setManufacturerFilter('TODAS');
+  }, [manufacturerFilter, manufacturers]);
+  useEffect(() => {
+    if (modelFilter !== 'TODOS' && !models.includes(modelFilter)) setModelFilter('TODOS');
+  }, [modelFilter, models]);
+
   const filteredDevices = useMemo(() => {
     const search = normalized(query);
-    return overview.devices.filter((device) => {
+    return clientScopedDevices.filter((device) => {
       const gateway = gatewayById.get(String(device.GatewayID || '')) || {};
-      const clientId = String(gateway.ClienteID || device.ClienteID || '');
-      if (clientFilter !== 'TODOS' && clientId !== clientFilter) return false;
       if (manufacturerFilter !== 'TODAS' && String(device.Fabricante || '') !== manufacturerFilter) return false;
       if (modelFilter !== 'TODOS' && String(device.Modelo || '') !== modelFilter) return false;
       if (statusFilter !== 'TODOS' && deviceStatus(device) !== statusFilter) return false;
       if (!search) return true;
       return [
-        displayName(device),
-        device.NombreDetectado,
-        device.Fabricante,
-        device.Modelo,
-        device.DireccionIP,
-        device.DireccionMAC,
-        gateway.Cliente,
-        device.UbicacionCliente,
-        device.UbicacionEquipo,
-        deviceStatus(device),
+        displayName(device), device.NombreDetectado, device.Fabricante, device.Modelo,
+        device.DireccionIP, device.DireccionMAC, gateway.Cliente,
+        device.UbicacionCliente, device.UbicacionEquipo, deviceStatus(device),
       ].some((value) => normalized(value).includes(search));
-    }).sort((a, b) => {
-      const gatewayA = gatewayById.get(String(a.GatewayID || '')) || {};
-      const gatewayB = gatewayById.get(String(b.GatewayID || '')) || {};
-      return String(gatewayA.Cliente || '').localeCompare(String(gatewayB.Cliente || ''), 'es')
-        || locationText(a).localeCompare(locationText(b), 'es')
-        || displayName(a).localeCompare(displayName(b), 'es');
     });
-  }, [overview.devices, gatewayById, query, clientFilter, manufacturerFilter, modelFilter, statusFilter]);
+  }, [clientScopedDevices, gatewayById, query, manufacturerFilter, modelFilter, statusFilter]);
 
-  const totalPages = Math.max(1, Math.ceil(filteredDevices.length / pageSize));
-  const visibleDevices = filteredDevices.slice((page - 1) * pageSize, page * pageSize);
-  useEffect(() => { if (page > totalPages) setPage(totalPages); }, [page, totalPages]);
-
-  const onlineDevices = overview.devices.filter((item) => deviceStatus(item) === 'ONLINE').length;
-  const highConfidence = overview.devices.filter((item) => item.metadata?.discoveryConfidence === 'HIGH').length;
-  const withoutLocation = overview.devices.filter((item) => !item.UbicacionClienteID).length;
+  const folders = useMemo(() => buildLocationFolders(filteredDevices), [filteredDevices]);
+  const onlineDevices = clientScopedDevices.filter((item) => deviceStatus(item) === 'ONLINE').length;
+  const highConfidence = clientScopedDevices.filter((item) => item.metadata?.discoveryConfidence === 'HIGH').length;
+  const withoutLocation = clientScopedDevices.filter((item) => !item.UbicacionEquipoID).length;
+  const allFilteredSelected = filteredDevices.length > 0
+    && filteredDevices.every((device) => selectedDeviceIds.has(device.DispositivoIntegracionID));
 
   function rememberToken(gatewayId, token, seconds = 30) {
     const id = String(gatewayId || '');
@@ -252,10 +302,7 @@ export default function IntegrationsPage() {
     event.preventDefault();
     if (working) return;
     const name = gatewayForm.name.trim();
-    if (!name) {
-      setModalError('Escriba un nombre para el gateway.');
-      return;
-    }
+    if (!name) return setModalError('Escriba un nombre para el gateway.');
     const selectedClient = clientOptions.find((item) => item.value === gatewayForm.clientId);
     setWorking('provision');
     setModalError('');
@@ -271,7 +318,7 @@ export default function IntegrationsPage() {
       setGatewayModalOpen(false);
       setNotice(result.credentialRevealAvailable === false
         ? 'Gateway creado. El token está visible temporalmente; configure la llave de cifrado en Render para poder revelarlo después.'
-        : 'Gateway creado. El ID y el token quedan disponibles en el desplegable Credenciales.');
+        : 'Gateway creado. El ID y el token quedan disponibles en Credenciales.');
       await load({ silent: true });
     } catch (provisionError) {
       setModalError(provisionError.message || 'No se pudo crear el gateway.');
@@ -326,6 +373,14 @@ export default function IntegrationsPage() {
     }
   }
 
+  async function relationsForClient(clientId) {
+    const relations = await fetchClientRelations({ clientId, sessionToken });
+    return {
+      locations: (relations.locations || []).map(relationLocation).filter(Boolean),
+      equipment: (relations.equipment || []).map(relationEquipment).filter(Boolean),
+    };
+  }
+
   async function openDeviceEditor(device) {
     if (working) return;
     const gateway = gatewayById.get(String(device.GatewayID || '')) || {};
@@ -341,10 +396,7 @@ export default function IntegrationsPage() {
     if (!gateway.ClienteID) return;
     setRelationsLoading(true);
     try {
-      const relations = await fetchClientRelations({ clientId: gateway.ClienteID, sessionToken });
-      const locations = (relations.locations || []).map(relationLocation).filter(Boolean);
-      const equipment = (relations.equipment || []).map(relationEquipment).filter(Boolean);
-      setDeviceRelations({ locations, equipment });
+      setDeviceRelations(await relationsForClient(gateway.ClienteID));
     } catch (relationError) {
       setDeviceModalError(relationError.message || 'No se pudieron cargar las ubicaciones del cliente.');
     } finally {
@@ -375,8 +427,72 @@ export default function IntegrationsPage() {
     }
   }
 
+  function toggleDeviceSelection(deviceId) {
+    if (clientFilter === 'TODOS') return;
+    setSelectedDeviceIds((current) => {
+      const next = new Set(current);
+      if (next.has(deviceId)) next.delete(deviceId);
+      else next.add(deviceId);
+      return next;
+    });
+  }
+
+  function toggleAllFiltered() {
+    if (clientFilter === 'TODOS' || !filteredDevices.length) return;
+    setSelectedDeviceIds((current) => {
+      const next = new Set(current);
+      if (allFilteredSelected) filteredDevices.forEach((device) => next.delete(device.DispositivoIntegracionID));
+      else filteredDevices.forEach((device) => next.add(device.DispositivoIntegracionID));
+      return next;
+    });
+  }
+
+  async function openBulkEditor() {
+    if (clientFilter === 'TODOS' || !selectedDeviceIds.size || working) return;
+    setBulkError('');
+    setBulkRelations({ locations: [], equipment: [] });
+    setBulkEditor({ locationId: '', equipmentLocationId: '' });
+    setBulkLoading(true);
+    try {
+      setBulkRelations(await relationsForClient(clientFilter));
+    } catch (relationError) {
+      setBulkError(relationError.message || 'No se pudieron cargar las ubicaciones del cliente.');
+    } finally {
+      setBulkLoading(false);
+    }
+  }
+
+  async function saveBulkLocation(event) {
+    event.preventDefault();
+    if (!bulkEditor || working || !selectedDeviceIds.size) return;
+    if (!bulkEditor.locationId || !bulkEditor.equipmentLocationId) {
+      setBulkError('Seleccione la ubicación general y la Ubicación del equipo.');
+      return;
+    }
+    setWorking('bulk-location');
+    setBulkError('');
+    try {
+      const result = await updateIntegrationDevicesLocation({
+        deviceIds: [...selectedDeviceIds],
+        locationId: bulkEditor.locationId,
+        equipmentLocationId: bulkEditor.equipmentLocationId,
+      }, sessionToken);
+      setBulkEditor(null);
+      setSelectedDeviceIds(new Set());
+      setNotice(`${result.updated} cámara${result.updated === 1 ? '' : 's'} asignada${result.updated === 1 ? '' : 's'} a ${result.UbicacionEquipo}.`);
+      await load({ silent: true });
+    } catch (updateError) {
+      setBulkError(updateError.message || 'No se pudieron mover las cámaras seleccionadas.');
+    } finally {
+      setWorking('');
+    }
+  }
+
   const equipmentOptions = editingDevice
     ? deviceRelations.equipment.filter((item) => !editingDevice.locationId || item.locationId === editingDevice.locationId)
+    : [];
+  const bulkEquipmentOptions = bulkEditor
+    ? bulkRelations.equipment.filter((item) => !bulkEditor.locationId || item.locationId === bulkEditor.locationId)
     : [];
 
   return <div className="page admin-module-page integration-gateway-page">
@@ -385,7 +501,7 @@ export default function IntegrationsPage() {
         <Link to="/mas" className="back-link"><Icon name="arrow_back" /> Más opciones</Link>
         <span className="eyebrow">INFRAESTRUCTURA LOCAL</span>
         <h1>Gateways e inventario</h1>
-        <p>Administre los gateways y las cámaras detectadas con el mismo flujo operativo de los dispositivos de mantenimiento.</p>
+        <p>Administre los gateways y organice las cámaras por cliente, ubicación general y Ubicación del equipo.</p>
       </div>
       <div className="integration-heading-actions">
         <button type="button" className="button button--primary" onClick={() => { setModalError(''); setGatewayModalOpen(true); }} disabled={Boolean(working)}><Icon name="add" /> Crear gateway</button>
@@ -396,49 +512,55 @@ export default function IntegrationsPage() {
     {error && <div className="alert alert--error"><Icon name="error" /><span>{error}</span></div>}
     {notice && <div className="alert alert--success"><Icon name="check_circle" /><span>{notice}</span></div>}
 
-    <section className="integration-gateway-section">
-      <div className="integration-section-heading"><div><span className="eyebrow">CONEXIONES</span><h2>Gateways</h2><p>Las credenciales permanecen cerradas por defecto y el token solo se revela temporalmente.</p></div></div>
-      {loading ? <div className="state-card state-card--loading"><Icon name="progress_activity" /> Cargando gateways...</div> : overview.gateways.length ? <div className="integration-gateway-grid integration-gateway-grid--compact">
-        {overview.gateways.map((gateway) => {
-          const gatewayId = String(gateway.GatewayID || '');
-          const active = String(gateway.Estado || '').toUpperCase() === 'ACTIVO';
-          const revealed = revealedTokens[gatewayId]?.token || '';
-          return <article className="integration-gateway-card integration-gateway-card--compact" key={gatewayId}>
-            <header>
-              <span className="integration-gateway-card__icon"><Icon name="router" /></span>
-              <div><h2>{gateway.Nombre}</h2><p>{gateway.Cliente || 'Sin cliente relacionado'} · {devicesByGateway.get(gatewayId) || 0} dispositivo(s)</p></div>
-              <span className={`status-chip ${gateway.online && active ? 'status-chip--active' : active ? 'status-chip--pending' : 'status-chip--danger'}`}>{!active ? 'REVOCADO' : gateway.online ? 'EN LÍNEA' : 'SIN CONEXIÓN'}</span>
-            </header>
-            <dl className="integration-gateway-quick-data">
-              <div><dt>Equipo</dt><dd>{gateway.Hostname || 'No informado'}</dd></div>
-              <div><dt>Agente</dt><dd>{gateway.VersionAgente || 'No conectado'} · {gateway.Adaptador || 'SIMULATED'}</dd></div>
-              <div><dt>Último contacto</dt><dd>{dateTime(gateway.UltimoContacto)}</dd></div>
-            </dl>
-            <details className="integration-gateway-credentials">
-              <summary><span><Icon name="key" /> Credenciales</span><Icon name="expand_more" /></summary>
-              <div className="integration-gateway-credentials__body">
-                <label><span>Gateway ID</span><div><code>{gatewayId}</code><button className="icon-button" type="button" onClick={() => copyValue(gatewayId, 'Gateway ID')} aria-label="Copiar Gateway ID"><Icon name="content_copy" /></button></div></label>
-                <label><span>Token</span><div><code>{revealed || '••••••••••••••••••••••••'}</code>{revealed ? <button className="icon-button" type="button" onClick={() => copyValue(revealed, 'Token')} aria-label="Copiar token"><Icon name="content_copy" /></button> : <button className="button button--secondary integration-token-reveal" type="button" onClick={() => revealToken(gatewayId)} disabled={Boolean(working)}><Icon name="visibility" /> Mostrar 30 s</button>}</div></label>
-              </div>
-            </details>
-            {active && <div className="integration-gateway-card__actions">
-              <button type="button" className="button button--secondary" disabled={Boolean(working)} onClick={() => sendCommand(gatewayId, 'PING')}><Icon name="network_ping" /> Probar conexión</button>
-              <button type="button" className="button button--primary" disabled={Boolean(working)} onClick={() => sendCommand(gatewayId, 'INVENTORY_SYNC')}><Icon name="sync" /> Sincronizar</button>
-              <button type="button" className="button button--danger" disabled={Boolean(working)} onClick={() => revoke(gateway)}><Icon name="link_off" /> Revocar</button>
-            </div>}
-          </article>;
-        })}
-      </div> : <div className="empty-state"><Icon name="router" /><h2>No hay gateways configurados</h2><p>Use Crear gateway para registrar el primer equipo de integración.</p></div>}
-    </section>
+    <details className="integration-gateway-section integration-gateway-section--collapsible">
+      <summary className="integration-gateway-section__summary">
+        <span><Icon name="router" /><span><small>CONEXIONES</small><strong>Gateways</strong><em>{visibleGateways.length} configurado{visibleGateways.length === 1 ? '' : 's'}</em></span></span>
+        <Icon name="expand_more" />
+      </summary>
+      <div className="integration-gateway-section__body">
+        <p className="integration-gateway-section__hint">Esta sección permanece cerrada por defecto. Las credenciales de cada gateway también permanecen ocultas hasta que las solicite.</p>
+        {loading ? <div className="state-card state-card--loading"><Icon name="progress_activity" /> Cargando gateways...</div> : visibleGateways.length ? <div className="integration-gateway-grid integration-gateway-grid--compact">
+          {visibleGateways.map((gateway) => {
+            const gatewayId = String(gateway.GatewayID || '');
+            const active = String(gateway.Estado || '').toUpperCase() === 'ACTIVO';
+            const revealed = revealedTokens[gatewayId]?.token || '';
+            return <article className="integration-gateway-card integration-gateway-card--compact" key={gatewayId}>
+              <header>
+                <span className="integration-gateway-card__icon"><Icon name="router" /></span>
+                <div><h2>{gateway.Nombre}</h2><p>{gateway.Cliente || 'Sin cliente relacionado'} · {devicesByGateway.get(gatewayId) || 0} dispositivo(s)</p></div>
+                <span className={`status-chip ${gateway.online && active ? 'status-chip--active' : active ? 'status-chip--pending' : 'status-chip--danger'}`}>{!active ? 'REVOCADO' : gateway.online ? 'EN LÍNEA' : 'SIN CONEXIÓN'}</span>
+              </header>
+              <dl className="integration-gateway-quick-data">
+                <div><dt>Equipo</dt><dd>{gateway.Hostname || 'No informado'}</dd></div>
+                <div><dt>Agente</dt><dd>{gateway.VersionAgente || 'No conectado'} · {gateway.Adaptador || 'Sin adaptador'}</dd></div>
+                <div><dt>Último contacto</dt><dd>{dateTime(gateway.UltimoContacto)}</dd></div>
+              </dl>
+              <details className="integration-gateway-credentials">
+                <summary><span><Icon name="key" /> Credenciales</span><Icon name="expand_more" /></summary>
+                <div className="integration-gateway-credentials__body">
+                  <label><span>Gateway ID</span><div><code>{gatewayId}</code><button className="icon-button" type="button" onClick={() => copyValue(gatewayId, 'Gateway ID')} aria-label="Copiar Gateway ID"><Icon name="content_copy" /></button></div></label>
+                  <label><span>Token</span><div><code>{revealed || '••••••••••••••••••••••••'}</code>{revealed ? <button className="icon-button" type="button" onClick={() => copyValue(revealed, 'Token')} aria-label="Copiar token"><Icon name="content_copy" /></button> : <button className="button button--secondary integration-token-reveal" type="button" onClick={() => revealToken(gatewayId)} disabled={Boolean(working)}><Icon name="visibility" /> Mostrar 30 s</button>}</div></label>
+                </div>
+              </details>
+              {active && <div className="integration-gateway-card__actions">
+                <button type="button" className="button button--secondary" disabled={Boolean(working)} onClick={() => sendCommand(gatewayId, 'PING')}><Icon name="network_ping" /> Probar conexión</button>
+                <button type="button" className="button button--primary" disabled={Boolean(working)} onClick={() => sendCommand(gatewayId, 'INVENTORY_SYNC')}><Icon name="sync" /> Sincronizar</button>
+                <button type="button" className="button button--danger" disabled={Boolean(working)} onClick={() => revoke(gateway)}><Icon name="link_off" /> Revocar</button>
+              </div>}
+            </article>;
+          })}
+        </div> : <div className="empty-state"><Icon name="router" /><h2>No hay gateways para este cliente</h2><p>Cambie el filtro de cliente o cree un gateway nuevo.</p></div>}
+      </div>
+    </details>
 
     <section className="integration-inventory-panel maintenance-device-manager">
-      <div className="integration-section-heading"><div><span className="eyebrow">INVENTARIO</span><h2>Dispositivos detectados</h2><p>Filtre, ubique y renombre las cámaras sin cambiar la identidad técnica descubierta por el agente.</p></div></div>
+      <div className="integration-section-heading"><div><span className="eyebrow">INVENTARIO</span><h2>Cámaras por ubicación</h2><p>La Ubicación del cliente identifica la sede general y la Ubicación del equipo funciona como carpeta o zona donde quedan agrupadas las cámaras.</p></div></div>
 
       <section className="maintenance-device-summary maintenance-device-summary--compact integration-device-summary">
-        <div><strong>{overview.devices.length}</strong><span>detectados</span></div>
+        <div><strong>{clientScopedDevices.length}</strong><span>detectadas</span></div>
         <div><strong>{onlineDevices}</strong><span>en línea</span></div>
         <div><strong>{highConfidence}</strong><span>confianza alta</span></div>
-        <div className={withoutLocation ? 'is-pending' : ''}><strong>{withoutLocation}</strong><span>sin ubicación</span></div>
+        <div className={withoutLocation ? 'is-pending' : ''}><strong>{withoutLocation}</strong><span>sin zona</span></div>
       </section>
 
       <div className="maintenance-device-toolbar integration-device-toolbar">
@@ -446,51 +568,58 @@ export default function IntegrationsPage() {
         <select value={clientFilter} onChange={(event) => setClientFilter(event.target.value)} aria-label="Filtrar por cliente"><option value="TODOS">Todos los clientes</option>{inventoryClientOptions.map((item) => <option key={item.value} value={item.value}>{item.label}</option>)}</select>
         <select value={manufacturerFilter} onChange={(event) => setManufacturerFilter(event.target.value)} aria-label="Filtrar por marca"><option value="TODAS">Todas las marcas</option>{manufacturers.map((name) => <option key={name} value={name}>{name}</option>)}</select>
         <select value={modelFilter} onChange={(event) => setModelFilter(event.target.value)} aria-label="Filtrar por modelo"><option value="TODOS">Todos los modelos</option>{models.map((name) => <option key={name} value={name}>{name}</option>)}</select>
-        <select value={statusFilter} onChange={(event) => setStatusFilter(event.target.value)} aria-label="Filtrar por estado"><option value="TODOS">Todos los estados</option><option value="ONLINE">En línea</option><option value="NO DETECTADO">No detectados</option><option value="UNKNOWN">Sin estado</option></select>
-        <select value={pageSize} onChange={(event) => setPageSize(Number(event.target.value))} aria-label="Filas por página">{PAGE_SIZES.map((size) => <option key={size} value={size}>{size} por página</option>)}</select>
+        <select value={statusFilter} onChange={(event) => setStatusFilter(event.target.value)} aria-label="Filtrar por estado"><option value="TODOS">Todos los estados</option><option value="ONLINE">En línea</option><option value="NO DETECTADO">No detectadas</option><option value="UNKNOWN">Sin estado</option></select>
       </div>
 
       <div className="maintenance-device-category-chips integration-brand-chips" aria-label="Resumen por marca">
-        <button type="button" className={manufacturerFilter === 'TODAS' ? 'is-active' : ''} onClick={() => setManufacturerFilter('TODAS')}>Todas <span>{overview.devices.length}</span></button>
-        {manufacturers.map((name) => <button type="button" key={name} className={manufacturerFilter === name ? 'is-active' : ''} onClick={() => setManufacturerFilter(name)}>{name} <span>{overview.devices.filter((item) => item.Fabricante === name).length}</span></button>)}
+        <button type="button" className={manufacturerFilter === 'TODAS' ? 'is-active' : ''} onClick={() => setManufacturerFilter('TODAS')}>Todas <span>{clientScopedDevices.length}</span></button>
+        {manufacturers.map((name) => <button type="button" key={name} className={manufacturerFilter === name ? 'is-active' : ''} onClick={() => setManufacturerFilter(name)}>{name} <span>{clientScopedDevices.filter((item) => item.Fabricante === name).length}</span></button>)}
       </div>
 
-      {visibleDevices.length ? <>
-        <div className="maintenance-device-table-wrap integration-device-table-wrap">
-          <table className="maintenance-device-table integration-device-table">
-            <thead><tr><th>#</th><th>Dispositivo</th><th>Cliente</th><th>Ubicación</th><th>Marca / Modelo</th><th>IP / MAC</th><th>Estado</th><th aria-label="Acciones" /></tr></thead>
-            <tbody>{visibleDevices.map((device, index) => {
-              const gateway = gatewayById.get(String(device.GatewayID || '')) || {};
-              const status = deviceStatus(device);
-              return <tr key={device.DispositivoIntegracionID}>
-                <td className="maintenance-device-table__number">{(page - 1) * pageSize + index + 1}</td>
-                <td><button type="button" className="maintenance-device-name-button" onClick={() => openDeviceEditor(device)}><span className="maintenance-device-list__icon"><Icon name={device.Tipo === 'CAMERA' ? 'videocam' : 'memory'} /></span><span><strong>{displayName(device)}</strong>{device.NombreOperativo && <small>Detectado: {device.NombreDetectado}</small>}</span></button></td>
-                <td>{gateway.Cliente || 'Sin cliente'}</td>
-                <td>{locationText(device)}</td>
-                <td><strong className="integration-table-primary">{device.Fabricante || 'Marca no identificada'}</strong><small className="integration-table-secondary">{device.Modelo || 'Modelo no identificado'}</small></td>
-                <td><strong className="integration-table-primary">{device.DireccionIP || 'Sin IP'}</strong><small className="integration-table-secondary">{device.DireccionMAC || 'Sin MAC'}</small></td>
-                <td><span className={`maintenance-device-compact-state ${status === 'ONLINE' ? 'is-good' : 'is-warning'}`}>{status}</span>{device.metadata?.discoveryConfidence && <small className="integration-confidence">Confianza {device.metadata.discoveryConfidence}</small>}</td>
-                <td><button type="button" className="icon-button maintenance-device-open" onClick={() => openDeviceEditor(device)} aria-label={`Editar ${displayName(device)}`}><Icon name="edit" /></button></td>
-              </tr>;
-            })}</tbody>
-          </table>
-        </div>
+      {clientFilter === 'TODOS' ? <div className="integration-bulk-hint"><Icon name="info" /><span>Seleccione un cliente para habilitar la selección masiva y asignar cámaras rápidamente a una Ubicación del equipo.</span></div> : <div className="integration-bulk-toolbar">
+        <label><input type="checkbox" checked={allFilteredSelected} onChange={toggleAllFiltered} disabled={!filteredDevices.length || Boolean(working)} /><Icon name={allFilteredSelected ? 'check_box' : selectedDeviceIds.size ? 'indeterminate_check_box' : 'check_box_outline_blank'} /><span>{allFilteredSelected ? 'Deseleccionar filtradas' : 'Seleccionar todas las filtradas'}</span></label>
+        <strong>{selectedDeviceIds.size} seleccionada{selectedDeviceIds.size === 1 ? '' : 's'}</strong>
+        <button className="button button--primary button--compact" type="button" onClick={openBulkEditor} disabled={!selectedDeviceIds.size || Boolean(working)}><Icon name="drive_file_move" /> Asignar ubicación</button>
+      </div>}
 
-        <div className="maintenance-device-mobile-list integration-device-mobile-list">
-          {visibleDevices.map((device, index) => {
-            const gateway = gatewayById.get(String(device.GatewayID || '')) || {};
-            const status = deviceStatus(device);
-            return <button type="button" key={device.DispositivoIntegracionID} className="maintenance-device-mobile-row" onClick={() => openDeviceEditor(device)}>
-              <span className="maintenance-device-mobile-row__number">{(page - 1) * pageSize + index + 1}</span>
-              <span className="maintenance-device-list__icon"><Icon name={device.Tipo === 'CAMERA' ? 'videocam' : 'memory'} /></span>
-              <span className="maintenance-device-mobile-row__content"><strong>{displayName(device)}</strong><small>{gateway.Cliente || 'Sin cliente'} · {locationText(device)}</small><small>{[device.Fabricante, device.Modelo, device.DireccionIP].filter(Boolean).join(' · ')}</small><span><em className={status === 'ONLINE' ? 'is-good' : 'is-warning'}>{status}</em></span></span>
-              <Icon name="edit" />
-            </button>;
-          })}
-        </div>
-
-        <nav className="maintenance-device-pagination" aria-label="Paginación del inventario"><span>Mostrando {(page - 1) * pageSize + 1}–{Math.min(page * pageSize, filteredDevices.length)} de {filteredDevices.length}</span><div><button type="button" className="icon-button" onClick={() => setPage((value) => Math.max(1, value - 1))} disabled={page === 1}><Icon name="chevron_left" /></button><strong>{page} / {totalPages}</strong><button type="button" className="icon-button" onClick={() => setPage((value) => Math.min(totalPages, value + 1))} disabled={page === totalPages}><Icon name="chevron_right" /></button></div></nav>
-      </> : <div className="empty-state maintenance-device-empty"><Icon name="videocam_off" /><h3>{overview.devices.length ? 'No hay coincidencias' : 'Sin dispositivos detectados'}</h3><p>{overview.devices.length ? 'Cambie los filtros o el texto de búsqueda.' : 'Sincronice un gateway para comenzar a poblar el inventario.'}</p></div>}
+      {folders.length ? <div className="integration-location-folders">
+        {folders.map((folder) => <details className="integration-location-folder" key={folder.key}>
+          <summary>
+            <span className="integration-location-folder__icon"><Icon name={folder.equipmentLocationId ? 'folder' : 'folder_off'} /></span>
+            <span className="integration-location-folder__text"><strong>{folder.equipmentLocationName}</strong><small>{folder.locationName} · {folder.items.length} cámara{folder.items.length === 1 ? '' : 's'}</small></span>
+            <Icon name="expand_more" />
+          </summary>
+          <div className="integration-location-folder__body">
+            <div className="maintenance-device-table-wrap integration-device-table-wrap">
+              <table className="maintenance-device-table integration-device-table">
+                <thead><tr>{clientFilter !== 'TODOS' && <th className="integration-selection-column">Sel.</th>}<th>Dispositivo</th><th>Marca / Modelo</th><th>IP / MAC</th><th>Estado</th><th aria-label="Acciones" /></tr></thead>
+                <tbody>{folder.items.map((device) => {
+                  const status = deviceStatus(device);
+                  const selected = selectedDeviceIds.has(device.DispositivoIntegracionID);
+                  return <tr key={device.DispositivoIntegracionID} className={selected ? 'is-selected-for-move' : ''}>
+                    {clientFilter !== 'TODOS' && <td className="integration-selection-cell"><label><input type="checkbox" checked={selected} onChange={() => toggleDeviceSelection(device.DispositivoIntegracionID)} disabled={Boolean(working)} /><Icon name={selected ? 'check_box' : 'check_box_outline_blank'} /></label></td>}
+                    <td><button type="button" className="maintenance-device-name-button" onClick={() => openDeviceEditor(device)}><span className="maintenance-device-list__icon"><Icon name="videocam" /></span><span><strong>{displayName(device)}</strong>{device.NombreOperativo && <small>Detectado: {device.NombreDetectado}</small>}</span></button></td>
+                    <td><strong className="integration-table-primary">{device.Fabricante || 'Marca no identificada'}</strong><small className="integration-table-secondary">{device.Modelo || 'Modelo no identificado'}</small></td>
+                    <td><strong className="integration-table-primary">{device.DireccionIP || 'Sin IP'}</strong><small className="integration-table-secondary">{device.DireccionMAC || 'Sin MAC'}</small></td>
+                    <td><span className={`maintenance-device-compact-state ${status === 'ONLINE' ? 'is-good' : 'is-warning'}`}>{status}</span>{device.metadata?.discoveryConfidence && <small className="integration-confidence">Confianza {device.metadata.discoveryConfidence}</small>}</td>
+                    <td><button type="button" className="icon-button maintenance-device-open" onClick={() => openDeviceEditor(device)} aria-label={`Editar ${displayName(device)}`}><Icon name="edit" /></button></td>
+                  </tr>;
+                })}</tbody>
+              </table>
+            </div>
+            <div className="maintenance-device-mobile-list integration-device-mobile-list">
+              {folder.items.map((device) => {
+                const status = deviceStatus(device);
+                const selected = selectedDeviceIds.has(device.DispositivoIntegracionID);
+                return <div key={device.DispositivoIntegracionID} className={`integration-device-mobile-card${selected ? ' is-selected-for-move' : ''}`}>
+                  {clientFilter !== 'TODOS' && <label className="integration-device-mobile-card__select"><input type="checkbox" checked={selected} onChange={() => toggleDeviceSelection(device.DispositivoIntegracionID)} disabled={Boolean(working)} /><Icon name={selected ? 'check_box' : 'check_box_outline_blank'} /></label>}
+                  <button type="button" className="maintenance-device-mobile-row" onClick={() => openDeviceEditor(device)}><span className="maintenance-device-list__icon"><Icon name="videocam" /></span><span className="maintenance-device-mobile-row__content"><strong>{displayName(device)}</strong><small>{[device.Fabricante, device.Modelo, device.DireccionIP].filter(Boolean).join(' · ')}</small><span><em className={status === 'ONLINE' ? 'is-good' : 'is-warning'}>{status}</em></span></span><Icon name="edit" /></button>
+                </div>;
+              })}
+            </div>
+          </div>
+        </details>)}
+      </div> : <div className="empty-state maintenance-device-empty"><Icon name="videocam_off" /><h3>{clientScopedDevices.length ? 'No hay coincidencias' : 'Sin cámaras detectadas'}</h3><p>{clientScopedDevices.length ? 'Cambie los filtros o el texto de búsqueda.' : 'Sincronice un gateway de red para comenzar a poblar el inventario.'}</p></div>}
     </section>
 
     {overview.commands.length > 0 && <details className="integration-command-history integration-collapsible-history"><summary><span><Icon name="history" /> Comandos recientes</span><Icon name="expand_more" /></summary><div className="integration-command-list">{overview.commands.slice(0, 20).map((command) => <div key={command.ComandoID}><span className={`status-chip ${statusClass(command.Estado)}`}>{command.Estado}</span><strong>{commandLabel(command.Tipo)}</strong><small>{dateTime(command.FechaCreacion)} · {command.GatewayID}</small>{command.ErrorMensaje && <em>{command.ErrorMensaje}</em>}</div>)}</div></details>}
@@ -509,6 +638,14 @@ export default function IntegrationsPage() {
           <label className="field-group"><span className="field-label">Ubicación del equipo</span><select className="form-control" value={editingDevice.equipmentLocationId} disabled={relationsLoading || !editingDevice.locationId} onChange={(event) => setEditingDevice((current) => ({ ...current, equipmentLocationId: event.target.value }))}><option value="">Sin ubicación de equipo</option>{equipmentOptions.map((item) => <option key={item.id} value={item.id}>{item.name}</option>)}</select></label>
           {relationsLoading && <div className="state-card state-card--loading integration-relations-loading"><Icon name="progress_activity" /> Cargando ubicaciones...</div>}
         </> : <div className="alert alert--warning"><Icon name="info" /><span>Este gateway no tiene cliente relacionado. Para asignar una ubicación primero debe estar asociado a un cliente.</span></div>}
+      </>}
+    </InlineCreateModal>
+
+    <InlineCreateModal open={Boolean(bulkEditor)} title={`Asignar ubicación a ${selectedDeviceIds.size} cámara${selectedDeviceIds.size === 1 ? '' : 's'}`} description="Todas las cámaras seleccionadas quedarán agrupadas en la misma Ubicación del equipo, igual que los dispositivos de mantenimiento." saving={working === 'bulk-location'} error={bulkError} onClose={() => { if (!working) setBulkEditor(null); }} onSubmit={saveBulkLocation}>
+      {bulkEditor && <>
+        <label className="field-group"><span className="field-label">Ubicación del cliente</span><select className="form-control" value={bulkEditor.locationId} disabled={bulkLoading} onChange={(event) => setBulkEditor((current) => ({ ...current, locationId: event.target.value, equipmentLocationId: '' }))}><option value="">Seleccione ubicación general</option>{bulkRelations.locations.map((item) => <option key={item.id} value={item.id}>{item.name}</option>)}</select></label>
+        <label className="field-group"><span className="field-label">Ubicación del equipo</span><select className="form-control" value={bulkEditor.equipmentLocationId} disabled={bulkLoading || !bulkEditor.locationId} onChange={(event) => setBulkEditor((current) => ({ ...current, equipmentLocationId: event.target.value }))}><option value="">Seleccione carpeta / zona</option>{bulkEquipmentOptions.map((item) => <option key={item.id} value={item.id}>{item.name}</option>)}</select></label>
+        {bulkLoading && <div className="state-card state-card--loading integration-relations-loading"><Icon name="progress_activity" /> Cargando ubicaciones...</div>}
       </>}
     </InlineCreateModal>
   </div>;
