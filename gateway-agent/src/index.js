@@ -5,7 +5,7 @@ import process, { loadEnvFile } from 'node:process';
 import { createAdapterFromEnvironment } from './adapters/adapter-factory.js';
 import { GatewayClient } from './gateway-client.js';
 
-const VERSION = '0.7.0';
+const VERSION = '0.9.0';
 const envPath = path.resolve(process.cwd(), '.env');
 const checkConfigOnly = process.argv.includes('--check-config');
 const checkSourceOnly = process.argv.includes('--check-source');
@@ -79,164 +79,143 @@ function createGatewayClient() {
     baseUrl: requiredEnvironment('DMS_GATEWAY_URL'),
     gatewayId: requiredEnvironment('DMS_GATEWAY_ID'),
     token: requiredEnvironment('DMS_GATEWAY_TOKEN'),
+    timeoutMs: Number(process.env.DMS_GATEWAY_TIMEOUT_MS || 12_000),
   });
 }
 
-async function heartbeat(lastError = '') {
-  const result = await client.heartbeat({
-    version: VERSION,
-    name: process.env.DMS_GATEWAY_NAME || os.hostname(),
-    hostname: os.hostname(),
-    platform: `${os.platform()} ${os.release()} ${os.arch()}`,
-    adapter: adapter.name,
-    capabilities: adapter.capabilities(),
-    lastError,
-  });
-  log('Heartbeat confirmado.', result.online ? 'ONLINE' : 'RECIBIDO');
-  return result;
-}
-
-async function syncInventory() {
-  if (inventoryPromise) return inventoryPromise;
-  inventoryPromise = (async () => {
-    const startedAt = Date.now();
-    const devices = await adapter.listDevices();
-    const result = await client.syncInventory(devices);
-    log(
-      'Inventario sincronizado.',
-      `${result.accepted} dispositivo(s), ${result.added} nuevo(s), ${Date.now() - startedAt} ms.`,
-    );
-    return result;
-  })();
+async function heartbeat() {
   try {
-    return await inventoryPromise;
-  } finally {
-    inventoryPromise = null;
+    await client.heartbeat({
+      hostname: os.hostname(),
+      agentVersion: `${VERSION} · ${adapter.name}`,
+      capabilities: adapter.capabilities(),
+    });
+    log('Heartbeat enviado.', 'Estado ONLINE.');
+  } catch (error) {
+    log('Heartbeat falló.', safeError(error));
   }
 }
 
-async function persistSnapshotIfPresent(commandId, result = {}) {
+async function syncInventory(reason = 'manual') {
+  if (inventoryPromise) return inventoryPromise;
+  inventoryPromise = (async () => {
+    try {
+      log('Sincronizando inventario.', `Motivo: ${reason}.`);
+      const devices = await adapter.listDevices();
+      const result = await client.syncInventory(devices);
+      log('Inventario sincronizado.', `${result?.received ?? devices.length} dispositivo(s) reportado(s).`);
+      return result;
+    } finally {
+      inventoryPromise = null;
+    }
+  })();
+  return inventoryPromise;
+}
+
+async function uploadSnapshot(command, result) {
   const snapshot = result?.snapshot;
   if (!snapshot?.dataBase64) return result;
-  const deviceId = String(result?.camera?.deviceId || commandId);
   const stored = await client.uploadSnapshot({
-    commandId,
-    deviceId,
-    mimeType: snapshot.mimeType || 'image/jpeg',
+    commandId: command.ComandoID,
+    deviceId: command.payload?.deviceId || command.payload?.DispositivoIntegracionID || '',
+    mimeType: snapshot.mimeType,
     dataBase64: snapshot.dataBase64,
+    capturedAt: snapshot.capturedAt,
   });
   return {
     ...result,
     snapshot: {
       snapshotId: stored.snapshotId,
+      expiresAt: stored.expiresAt,
       mimeType: stored.mimeType,
       bytes: stored.bytes,
-      capturedAt: snapshot.capturedAt || new Date().toISOString(),
-      expiresAt: stored.expiresAt,
+      transport: snapshot.transport || '',
     },
   };
 }
 
-async function processCommand(command) {
-  const commandId = String(command?.ComandoID || command?.commandId || '');
-  if (!commandId) return;
+async function executeCommand(command) {
   try {
-    const type = String(command.Tipo || command.type || '').toUpperCase();
+    const type = String(command.Tipo || '').toUpperCase();
     let result;
-    if (type === 'INVENTORY_SYNC') {
-      const inventory = await syncInventory();
-      result = { inventoryRequested: true, inventory };
-    } else {
-      result = await adapter.execute(command);
-    }
-    result = await persistSnapshotIfPresent(commandId, result);
-    await client.completeCommand(commandId, result);
-    log('Comando completado.', `${command.Tipo} · ${commandId}`);
+    if (type === 'INVENTORY_SYNC') result = await syncInventory('command');
+    else result = await adapter.execute(command);
+    result = await uploadSnapshot(command, result);
+    await client.completeCommand(command.ComandoID, result || {});
+    log('Comando completado.', `${type} · ${command.ComandoID}`);
   } catch (error) {
-    await client.failCommand(commandId, error).catch(() => {});
-    log('Comando fallido.', `${commandId} · ${safeError(error)}`);
+    await client.failCommand(command.ComandoID, {
+      code: error?.code || 'COMMAND_FAILED',
+      message: error?.message || 'Error desconocido al ejecutar el comando.',
+    });
+    log('Comando falló.', `${command.Tipo} · ${safeError(error)}`);
   }
 }
 
-async function pollCommands() {
+async function poll() {
   if (polling || stopping) return;
   polling = true;
   try {
     const commands = await client.pollCommands();
     for (const command of commands || []) {
-      if (stopping) break;
-      await processCommand(command);
+      await executeCommand(command);
     }
   } catch (error) {
-    log('No fue posible consultar comandos.', safeError(error));
+    log('Polling falló.', safeError(error));
   } finally {
     polling = false;
   }
 }
 
 async function start() {
+  client = createGatewayClient();
   log('Iniciando DMS Integration Gateway Agent.', `v${VERSION} · ${adapter.name}`);
-  try {
-    await heartbeat();
-    await syncInventory();
-  } catch (error) {
-    log('La conexión inicial no pudo completarse.', safeError(error));
-    await heartbeat(safeError(error)).catch(() => {});
-  }
-
-  // Estos timers deben permanecer referenciados para mantener vivo el servicio.
-  heartbeatTimer = setInterval(() => {
-    heartbeat().catch((error) => log('Heartbeat fallido.', safeError(error)));
-  }, heartbeatMs);
-  pollTimer = setInterval(() => void pollCommands(), pollMs);
+  await heartbeat();
   if (inventoryMs > 0) {
-    inventoryTimer = setInterval(() => {
-      syncInventory().catch((error) => log('Sincronización periódica fallida.', safeError(error)));
-    }, inventoryMs);
-    log('Sincronización periódica habilitada.', `Cada ${Math.round(inventoryMs / 60_000)} minuto(s).`);
+    try {
+      await syncInventory('startup');
+    } catch (error) {
+      log('Sincronización inicial falló.', safeError(error));
+    }
   }
-
-  await pollCommands();
+  await poll();
+  heartbeatTimer = setInterval(heartbeat, heartbeatMs);
+  pollTimer = setInterval(poll, pollMs);
+  if (inventoryMs > 0) inventoryTimer = setInterval(() => syncInventory('periodic').catch((error) => log('Sincronización periódica falló.', safeError(error))), inventoryMs);
 }
 
-async function shutdown(signal) {
+async function stop(signal) {
   if (stopping) return;
   stopping = true;
-  clearInterval(heartbeatTimer);
-  clearInterval(pollTimer);
-  clearInterval(inventoryTimer);
-  log(`Cerrando agente por ${signal}.`);
-  if (client) await heartbeat(`Agente detenido por ${signal}`).catch(() => {});
+  log('Deteniendo agente.', signal || 'shutdown');
+  if (heartbeatTimer) clearInterval(heartbeatTimer);
+  if (pollTimer) clearInterval(pollTimer);
+  if (inventoryTimer) clearInterval(inventoryTimer);
   process.exit(0);
 }
 
-async function bootstrap() {
-  if (checkSourceOnly) {
-    await validateSource();
-    return;
-  }
+process.on('SIGINT', () => stop('SIGINT'));
+process.on('SIGTERM', () => stop('SIGTERM'));
 
-  client = createGatewayClient();
-  if (checkConfigOnly) {
-    const gatewayPreview = client.gatewayId.length > 18
-      ? `${client.gatewayId.slice(0, 18)}…`
-      : client.gatewayId;
-    console.log(
-      `Configuración válida para ${gatewayPreview} en ${client.baseUrl}. Adaptador: ${adapter.name}.`,
-    );
-    return;
+if (checkConfigOnly) {
+  try {
+    createGatewayClient();
+    console.log(`Configuración válida. Adaptador: ${adapter.name}.`);
+    process.exit(0);
+  } catch (error) {
+    console.error(safeError(error));
+    process.exit(1);
   }
-
-  await start();
+} else if (checkSourceOnly) {
+  validateSource()
+    .then(() => process.exit(0))
+    .catch((error) => {
+      console.error(safeError(error));
+      process.exit(1);
+    });
+} else {
+  start().catch((error) => {
+    console.error(`No fue posible iniciar el agente: ${safeError(error)}`);
+    process.exit(1);
+  });
 }
-
-process.on('SIGINT', () => void shutdown('SIGINT'));
-process.on('SIGTERM', () => void shutdown('SIGTERM'));
-process.on('unhandledRejection', (error) => {
-  log('Promesa no controlada.', safeError(error));
-});
-
-bootstrap().catch((error) => {
-  console.error(`No fue posible iniciar el agente: ${safeError(error)}`);
-  process.exit(1);
-});
