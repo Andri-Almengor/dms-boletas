@@ -46,6 +46,7 @@ test('las credenciales de cámara se asignan por ID y se descifran solo al entre
 test('el agente usa ONVIF y fallbacks de fabricante sin probar contraseñas alternativas', () => {
   const camera = source('gateway-agent/src/camera/onvif-camera-control.js');
   const router = source('gateway-agent/src/camera/camera-control-router.js');
+  const physical = source('gateway-agent/src/camera/camera-physical-actions.js');
   const adapter = source('gateway-agent/src/adapters/network-discovery-identified.adapter.js');
   const envExample = source('gateway-agent/.env.example');
   assert.match(camera, /GetSnapshotUri/);
@@ -60,11 +61,16 @@ test('el agente usa ONVIF y fallbacks de fabricante sin probar contraseñas alte
   assert.match(router, /ONVIF_MEDIA2/);
   assert.match(router, /HANWHA_SUNAPI/);
   assert.match(router, /stw-cgi\/video\.cgi\?msubmenu=snapshot&action=view/);
-  assert.match(router, /PND-A7082RV/);
-  assert.match(router, /HARDWARE_PRESENT_CONTROL_NOT_CONFIRMED/);
   assert.match(router, /sameCameraUrl/);
-  assert.doesNotMatch(router, /passwords|credentialList|tryPasswords/i);
-  assert.match(adapter, /executeCameraAction/);
+  assert.match(physical, /PND-A7082RV/);
+  assert.match(physical, /HANWHA_SUNAPI_LENS/);
+  assert.match(physical, /ptzcontrol\.cgi\?msubmenu=absolute&action=control&Zoom=/);
+  assert.match(physical, /Mode=SimpleFocus/);
+  assert.match(physical, /OperationType=All/);
+  assert.match(physical, /restoreWide/);
+  assert.match(physical, /Único segundo intento/);
+  assert.doesNotMatch(physical, /passwords|credentialList|tryPasswords/i);
+  assert.match(adapter, /executePhysicalCameraAction/);
   assert.match(adapter, /cameraAuthFallbacks:\s*0/);
   assert.match(adapter, /CAMERA_AUTH_COOLDOWN/);
   assert.match(adapter, /DMS_CAMERA_AUTH_COOLDOWN_MS/);
@@ -84,11 +90,19 @@ test('las capturas son efímeras y la imagen no se persiste en el resultado del 
   assert.doesNotMatch(routes, /dataBase64.*ResultadoJSON/s);
 });
 
-test('el asistente diferencia no detectado de no soportado y muestra zoom óptico conocido', () => {
+test('el asistente diferencia capacidades y devuelve comandos ejecutables para las disponibles', () => {
   const formatter = source('backend/src/services/integration-gateway-answer-format.patch.js');
   assert.match(formatter, /No determinado todavía/);
   assert.match(formatter, /PTZ ONVIF/);
   assert.match(formatter, /Zoom óptico del lente/);
+  assert.match(formatter, /Restaurar vista amplia\/normal/);
+  assert.match(formatter, /Comandos que puede ejecutar para esta cámara/);
+  assert.match(formatter, /gateway dame una captura/);
+  assert.match(formatter, /gateway acercar zoom/);
+  assert.match(formatter, /gateway alejar zoom/);
+  assert.match(formatter, /gateway detener zoom/);
+  assert.match(formatter, /gateway volver zoom a normal/);
+  assert.match(formatter, /gateway reiniciar/);
   assert.match(formatter, /adaptadores compatibles del fabricante/);
 });
 
