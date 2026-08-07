@@ -1,6 +1,6 @@
 {
   "name": "dms-integration-gateway-agent",
-  "version": "0.1.0",
+  "version": "0.2.0",
   "private": true,
   "type": "module",
   "engines": {
@@ -9,6 +9,7 @@
   "scripts": {
     "start": "node src/index.js",
     "config:check": "node src/index.js --check-config",
+    "source:check": "node src/index.js --check-source",
     "service:install": "powershell -NoProfile -ExecutionPolicy Bypass -File windows/install-service.ps1",
     "service:status": "powershell -NoProfile -ExecutionPolicy Bypass -File windows/service.ps1 -Action status",
     "service:start": "powershell -NoProfile -ExecutionPolicy Bypass -File windows/service.ps1 -Action start",
@@ -16,6 +17,6 @@
     "service:restart": "powershell -NoProfile -ExecutionPolicy Bypass -File windows/service.ps1 -Action restart",
     "service:logs": "powershell -NoProfile -ExecutionPolicy Bypass -File windows/service.ps1 -Action logs",
     "service:uninstall": "powershell -NoProfile -ExecutionPolicy Bypass -File windows/uninstall-service.ps1",
-    "check": "node --check src/index.js && node --check src/gateway-client.js && node --check src/adapters/simulated.adapter.js"
+    "check": "node --check src/index.js && node --check src/gateway-client.js && node --check src/adapters/adapter-factory.js && node --check src/adapters/simulated.adapter.js && node --check src/adapters/milestone.adapter.js"
   }
 }

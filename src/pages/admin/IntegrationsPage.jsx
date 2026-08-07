@@ -36,7 +36,7 @@ function commandLabel(type) {
 function statusClass(value) {
   const normalized = String(value || '').toUpperCase();
   if (['COMPLETADO', 'ACTIVO', 'ONLINE'].includes(normalized)) return 'status-chip--active';
-  if (['ERROR', 'REVOCADO', 'OFFLINE'].includes(normalized)) return 'status-chip--danger';
+  if (['ERROR', 'REVOCADO', 'OFFLINE', 'DISABLED'].includes(normalized)) return 'status-chip--danger';
   return 'status-chip--pending';
 }
 
@@ -50,6 +50,7 @@ export default function IntegrationsPage() {
   const [notice, setNotice] = useState('');
   const [issuedCredential, setIssuedCredential] = useState(null);
   const [form, setForm] = useState({ name: '', clientId: '' });
+  const [expandedGateways, setExpandedGateways] = useState(() => new Set());
 
   async function load({ silent = false } = {}) {
     if (!silent) setLoading(true);
@@ -98,6 +99,15 @@ export default function IntegrationsPage() {
     map.get(gatewayId).push(device);
     return map;
   }, new Map()), [overview.devices]);
+
+  function toggleGatewayDevices(gatewayId) {
+    setExpandedGateways((current) => {
+      const next = new Set(current);
+      if (next.has(gatewayId)) next.delete(gatewayId);
+      else next.add(gatewayId);
+      return next;
+    });
+  }
 
   async function provision(event) {
     event.preventDefault();
@@ -189,7 +199,7 @@ export default function IntegrationsPage() {
 
     <div className="info-box integration-foundation-note">
       <Icon name="hub" />
-      <div><strong>Primera fase: infraestructura y simulación</strong><p>El agente ya puede autenticarse, enviar heartbeat, sincronizar inventario simulado y recibir comandos. Milestone, OnGuard y cámaras reales se incorporarán mediante adaptadores posteriores.</p></div>
+      <div><strong>Inventario local: simulación y Milestone XProtect</strong><p>El agente puede sincronizar cámaras simuladas o cámaras configuradas en Milestone. En dispositivos Milestone, <b>CONFIGURED</b> confirma que la cámara existe en XProtect, pero todavía no representa una verificación de video en vivo. El estado en tiempo real se incorporará en una etapa posterior.</p></div>
     </div>
 
     {error && <div className="alert alert--error"><Icon name="error" /><span>{error}</span></div>}
@@ -220,8 +230,11 @@ export default function IntegrationsPage() {
 
     {loading ? <div className="state-card state-card--loading"><Icon name="progress_activity" /> Cargando gateways...</div> : overview.gateways.length ? <div className="integration-gateway-grid">
       {overview.gateways.map((gateway) => {
-        const devices = devicesByGateway.get(String(gateway.GatewayID)) || [];
+        const gatewayId = String(gateway.GatewayID);
+        const devices = devicesByGateway.get(gatewayId) || [];
         const active = String(gateway.Estado || '').toUpperCase() === 'ACTIVO';
+        const expanded = expandedGateways.has(gatewayId);
+        const visibleDevices = expanded ? devices : devices.slice(0, 12);
         return <article className="integration-gateway-card" key={gateway.GatewayID}>
           <header><span className="integration-gateway-card__icon"><Icon name="router" /></span><div><h2>{gateway.Nombre}</h2><p>{gateway.Cliente || 'Sin cliente relacionado'}</p></div><span className={`status-chip ${gateway.online && active ? 'status-chip--active' : active ? 'status-chip--pending' : 'status-chip--danger'}`}>{!active ? 'REVOCADO' : gateway.online ? 'EN LÍNEA' : 'SIN CONEXIÓN'}</span></header>
           <dl>
@@ -236,7 +249,7 @@ export default function IntegrationsPage() {
             <button type="button" className="button button--primary" disabled={Boolean(working)} onClick={() => sendCommand(gateway.GatewayID, 'INVENTORY_SYNC')}><Icon name="sync" /> Sincronizar inventario</button>
             <button type="button" className="button button--danger" disabled={Boolean(working)} onClick={() => revoke(gateway)}><Icon name="link_off" /> Revocar</button>
           </div>}
-          {devices.length > 0 && <div className="integration-device-list"><h3>Dispositivos detectados</h3>{devices.slice(0, 12).map((device) => <div className="integration-device-row" key={device.DispositivoIntegracionID}><span className="integration-device-row__icon"><Icon name={device.Tipo === 'CAMERA' ? 'videocam' : 'memory'} /></span><div><strong>{device.NombreOperativo || device.NombreDetectado}</strong><small>{[device.SourceSystem, device.Fabricante, device.Modelo, device.DireccionIP].filter(Boolean).join(' · ')}</small></div><span className={`status-chip ${statusClass(device.EstadoConexion)}`}>{device.EstadoConexion || 'UNKNOWN'}</span></div>)}</div>}
+          {devices.length > 0 && <div className="integration-device-list"><h3>Dispositivos detectados</h3>{visibleDevices.map((device) => <div className="integration-device-row" key={device.DispositivoIntegracionID}><span className="integration-device-row__icon"><Icon name={device.Tipo === 'CAMERA' ? 'videocam' : 'memory'} /></span><div><strong>{device.NombreOperativo || device.NombreDetectado}</strong><small>{[device.SourceSystem, device.Fabricante, device.Modelo, device.DireccionIP].filter(Boolean).join(' · ')}</small></div><span className={`status-chip ${statusClass(device.EstadoConexion)}`}>{device.EstadoConexion || 'UNKNOWN'}</span></div>)}{devices.length > 12 && <button type="button" className="button button--secondary" onClick={() => toggleGatewayDevices(gatewayId)}><Icon name={expanded ? 'expand_less' : 'expand_more'} /> {expanded ? 'Mostrar menos' : `Ver todos (${devices.length})`}</button>}</div>}
         </article>;
       })}
     </div> : <div className="empty-state"><Icon name="router" /><h2>No hay gateways configurados</h2><p>Cree el primero para preparar una conexión saliente desde una red de pruebas.</p></div>}

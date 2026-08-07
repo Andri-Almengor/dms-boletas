@@ -24,6 +24,15 @@ export class SimulatedAdapter {
     };
   }
 
+  async testConnection() {
+    return {
+      ok: true,
+      adapter: this.name,
+      siteName: 'Simulador local DMS',
+      checkedAt: new Date().toISOString(),
+    };
+  }
+
   async listDevices() {
     const now = new Date().toISOString();
     return Array.from({ length: this.deviceCount }, (_, index) => ({
@@ -54,8 +63,7 @@ export class SimulatedAdapter {
     if (type === 'PING') {
       return {
         pong: true,
-        adapter: this.name,
-        receivedAt: new Date().toISOString(),
+        ...(await this.testConnection()),
       };
     }
     if (type === 'INVENTORY_SYNC') {

@@ -53,6 +53,15 @@ test('el inventario usa una identidad estable y elimina secretos de los metadato
   }));
   assert.doesNotMatch(first.MetadataJSON, /no-debe-salir|tampoco/);
   assert.match(first.MetadataJSON, /Entrada/);
+
+  const configuredOnly = normalizeInventoryItem({
+    ...item,
+    sourceSystem: 'MILESTONE',
+    status: 'CONFIGURED',
+    connectionVerified: false,
+  }, gateway);
+  assert.equal(configuredOnly.UltimaConexion, '');
+  assert.equal(configuredOnly.EstadoConexion, 'CONFIGURED');
 });
 
 test('los comandos permitidos y su deduplicación permanecen declarativos', () => {
@@ -90,29 +99,37 @@ test('el backend conserva una API separada para administradores y agentes', () =
   assert.match(tables, /IntegracionComandos/);
 });
 
-test('el agente inicial usa HTTPS saliente y un adaptador simulado reemplazable', () => {
+test('el agente usa una fábrica de adaptadores con simulación y Milestone', () => {
   const client = source('gateway-agent/src/gateway-client.js');
   const runtime = source('gateway-agent/src/index.js');
-  const adapter = source('gateway-agent/src/adapters/simulated.adapter.js');
+  const factory = source('gateway-agent/src/adapters/adapter-factory.js');
+  const simulated = source('gateway-agent/src/adapters/simulated.adapter.js');
+  const milestone = source('gateway-agent/src/adapters/milestone.adapter.js');
   const readme = source('gateway-agent/README.md');
 
   assert.match(client, /Authorization/);
   assert.match(client, /X-DMS-Gateway-ID/);
   assert.match(client, /https:/);
   assert.match(client, /Falta DMS_GATEWAY_URL/);
-  assert.match(runtime, /SimulatedAdapter/);
+  assert.match(runtime, /createAdapterFromEnvironment/);
   assert.match(runtime, /heartbeat/);
   assert.match(runtime, /pollCommands/);
   assert.match(runtime, /syncInventory/);
   assert.match(runtime, /loadEnvFile/);
   assert.match(runtime, /requiredEnvironment/);
   assert.match(runtime, /--check-config/);
+  assert.match(runtime, /--check-source/);
   assert.match(runtime, /setInterval/);
   assert.doesNotMatch(runtime, /\.unref\s*\(/);
-  assert.match(adapter, /externalId/);
-  assert.match(adapter, /sourceSystem: 'SIMULATED'/);
-  assert.match(readme, /copy \.env\.example \.env/);
-  assert.match(readme, /MilestoneInventoryAdapter/);
+  assert.match(factory, /SimulatedAdapter/);
+  assert.match(factory, /MilestoneAdapter/);
+  assert.match(factory, /DMS_GATEWAY_ADAPTER/);
+  assert.match(simulated, /sourceSystem: 'SIMULATED'/);
+  assert.match(milestone, /sourceSystem: 'MILESTONE'/);
+  assert.match(milestone, /GrantValidatorClient/);
+  assert.match(milestone, /\/api\/rest\/v1\/\$\{resource\}/);
+  assert.match(milestone, /connectionVerified: false/);
+  assert.match(readme, /DMS_GATEWAY_ADAPTER=milestone/);
   assert.match(readme, /OnGuardInventoryAdapter/);
   assert.doesNotMatch(runtime, /password|rtsp:\/\//i);
 });
@@ -135,6 +152,7 @@ test('el agente se instala como servicio de Windows con reinicio y secretos loca
   assert.match(controller, /El proceso arrancó pero se detuvo inmediatamente/);
   assert.match(controller, /Show-RecentLogs/);
   assert.match(uninstaller, /El archivo de configuración se conservó/);
+  assert.match(packageJson, /source:check/);
   assert.match(packageJson, /service:install/);
   assert.match(packageJson, /service:restart/);
   assert.match(packageJson, /service:uninstall/);
