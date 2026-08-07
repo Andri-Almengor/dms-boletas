@@ -122,7 +122,7 @@ test('las respuestas sensibles no se guardan en el historial local del asistente
   assert.match(assistant, /filter\(\(item\) => !item\.sensitive &&/);
   assert.match(assistant, /AssistantSecretCell/);
   assert.match(assistant, /30_000/);
-  assert.match(assistant, /Esta respuesta contiene credenciales/);
+  assert.match(assistant, /Esta respuesta contiene información sensible/);
   assert.match(assistant, /los secretos no se envían a Gemini/);
 });
 
