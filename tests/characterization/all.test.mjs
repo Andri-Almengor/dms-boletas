@@ -27,6 +27,7 @@ import './maintenance-device-persistence.test.mjs';
 import './maintenance-form-orchestration.test.mjs';
 import './maintenance-form-resources.test.mjs';
 import './maintenance-optional-signature-finalization.test.mjs';
+import './maintenance-progress-chat.test.mjs';
 import './maintenance-ticket-report-quality.test.mjs';
 import './offline-catalog-sync.test.mjs';
 import './offline-dependency-repair.test.mjs';
