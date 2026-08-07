@@ -8,6 +8,10 @@ import { readTables } from './infra/sheets.repository.js';
 import { googleSheetsGateSnapshot } from './infra/google.js';
 import { auditQueueSnapshot, flushAuditQueue } from './services/audit.service.js';
 import { actionConcurrencySnapshot } from './services/action-concurrency.service.js';
+import {
+  startMaintenanceProgressScheduler,
+  stopMaintenanceProgressScheduler,
+} from './services/maintenance-progress-chat.service.js';
 
 function mb(value) {
   return Math.round((Number(value || 0) / 1024 / 1024) * 10) / 10;
@@ -86,6 +90,8 @@ server.listen(env.port, '0.0.0.0', () => {
     console.warn('FRONTEND_ORIGIN permite cualquier origen. Configure una lista explícita para endurecer CORS en producción.');
   }
 
+  startMaintenanceProgressScheduler();
+
   // Una sola lectura batch prepara autenticación, permisos y catálogos antes
   // de que varios técnicos abran la aplicación al mismo tiempo después de un
   // reinicio de Render. No bloquea el arranque ni el health check.
@@ -120,6 +126,7 @@ function shutdown(signal) {
   if (shuttingDown) return;
   shuttingDown = true;
   console.log(`${signal}: cerrando servidor...`);
+  stopMaintenanceProgressScheduler();
 
   server.close(async () => {
     await flushAuditQueue().catch(() => {});
