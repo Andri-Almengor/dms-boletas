@@ -1,41 +1,30 @@
 import { randomUUID } from 'node:crypto';
+import { execFile } from 'node:child_process';
 import dgram from 'node:dgram';
 import http from 'node:http';
 import https from 'node:https';
 import net from 'node:net';
 import os from 'node:os';
-import { execFile } from 'node:child_process';
 import { promisify } from 'node:util';
 
 const execFileAsync = promisify(execFile);
 const DEFAULT_PORTS = Object.freeze([80, 443, 554]);
-const CAMERA_HINT = /(axis|hikvision|hikvision-webs|dahua|hanwha|wisenet|bosch|avigilon|uniview|\bunv\b|reolink|vivotek|pelco|mobotix|network\s*camera|ip\s*camera|camera|network\s*video|nvr|dvr)/i;
+const CAMERA_HINT = /(axis|hikvision|dahua|hanwha|wisenet|bosch|avigilon|uniview|\bunv\b|reolink|vivotek|pelco|mobotix|network\s*camera|ip\s*camera|camera|network\s*video|nvr|dvr)/i;
 const MANUFACTURERS = Object.freeze([
-  ['AXIS', /axis/i],
-  ['Hikvision', /hikvision/i],
-  ['Dahua', /dahua/i],
-  ['Hanwha Vision', /hanwha|wisenet/i],
-  ['Bosch', /bosch/i],
-  ['Avigilon', /avigilon/i],
-  ['Uniview', /uniview|\bunv\b/i],
-  ['Reolink', /reolink/i],
-  ['Vivotek', /vivotek/i],
-  ['Pelco', /pelco/i],
-  ['MOBOTIX', /mobotix/i],
+  ['AXIS', /axis/i], ['Hikvision', /hikvision/i], ['Dahua', /dahua/i],
+  ['Hanwha Vision', /hanwha|wisenet/i], ['Bosch', /bosch/i], ['Avigilon', /avigilon/i],
+  ['Uniview', /uniview|\bunv\b/i], ['Reolink', /reolink/i], ['Vivotek', /vivotek/i],
+  ['Pelco', /pelco/i], ['MOBOTIX', /mobotix/i],
 ]);
-
-function number(value, fallback, min, max) {
-  const parsed = Number(value);
-  if (!Number.isFinite(parsed)) return fallback;
-  return Math.min(max, Math.max(min, Math.floor(parsed)));
-}
 
 function text(value, maxLength = 500) {
   return String(value ?? '').trim().slice(0, maxLength);
 }
 
-function decodeScope(value) {
-  try { return decodeURIComponent(value); } catch { return value; }
+function boundedNumber(value, fallback, min, max) {
+  const parsed = Number(value);
+  if (!Number.isFinite(parsed)) return fallback;
+  return Math.min(max, Math.max(min, Math.floor(parsed)));
 }
 
 function ipv4ToInt(ip) {
@@ -66,7 +55,7 @@ export function parsePrivateCidr(value) {
   const prefix = Number(match[2]);
   if (ipInt === null || prefix < 24 || prefix > 30 || !isPrivateIpv4(match[1])) return null;
   const mask = (0xffffffff << (32 - prefix)) >>> 0;
-  const network = ipInt & mask;
+  const network = (ipInt & mask) >>> 0;
   const broadcast = (network | (~mask >>> 0)) >>> 0;
   return {
     cidr: `${intToIpv4(network)}/${prefix}`,
@@ -77,17 +66,16 @@ export function parsePrivateCidr(value) {
   };
 }
 
-function clampInterfaceCidr(address, cidr) {
+function interfaceCidr(address, cidr) {
   const parsed = parsePrivateCidr(cidr);
   if (parsed) return parsed.cidr;
   if (!isPrivateIpv4(address)) return '';
   const parts = String(address).split('.');
-  if (parts.length !== 4) return '';
-  return `${parts[0]}.${parts[1]}.${parts[2]}.0/24`;
+  return parts.length === 4 ? `${parts[0]}.${parts[1]}.${parts[2]}.0/24` : '';
 }
 
-export function detectLocalPrivateCidrs(raw = '') {
-  const explicit = String(raw || '').split(',').map((item) => item.trim()).filter(Boolean);
+export function detectLocalPrivateCidrs(configured = '') {
+  const explicit = String(configured || '').split(',').map((value) => value.trim()).filter(Boolean);
   if (explicit.length) {
     const parsed = explicit.map(parsePrivateCidr);
     if (parsed.some((item) => !item)) {
@@ -100,28 +88,32 @@ export function detectLocalPrivateCidrs(raw = '') {
   Object.values(os.networkInterfaces()).flat().filter(Boolean).forEach((entry) => {
     const family = typeof entry.family === 'string' ? entry.family : String(entry.family);
     if (entry.internal || !['IPv4', '4'].includes(family) || !isPrivateIpv4(entry.address)) return;
-    const cidr = clampInterfaceCidr(entry.address, entry.cidr || '');
+    const cidr = interfaceCidr(entry.address, entry.cidr || '');
     if (cidr) found.push(cidr);
   });
   return [...new Set(found)].slice(0, 8);
 }
 
 export function hostsForCidrs(cidrs = [], maxHosts = 1_024) {
-  const result = [];
+  const hosts = [];
   const seen = new Set();
-  for (const value of cidrs) {
-    const parsed = parsePrivateCidr(value);
+  for (const cidr of cidrs) {
+    const parsed = parsePrivateCidr(cidr);
     if (!parsed) continue;
     for (let current = parsed.network + 1; current < parsed.broadcast; current += 1) {
       const ip = intToIpv4(current);
       if (!seen.has(ip)) {
         seen.add(ip);
-        result.push(ip);
+        hosts.push(ip);
       }
-      if (result.length >= maxHosts) return result;
+      if (hosts.length >= maxHosts) return hosts;
     }
   }
-  return result;
+  return hosts;
+}
+
+function decodeScope(value) {
+  try { return decodeURIComponent(value); } catch { return value; }
 }
 
 function xmlTag(xml, localName) {
@@ -174,15 +166,15 @@ function mergeCandidate(map, ip, patch = {}) {
   map.set(ip, current);
 }
 
-async function onvifDiscovery({ timeoutMs = 1_500 } = {}) {
+async function discoverOnvif(timeoutMs) {
   const probe = `<?xml version="1.0" encoding="UTF-8"?>\n<e:Envelope xmlns:e="http://www.w3.org/2003/05/soap-envelope" xmlns:w="http://schemas.xmlsoap.org/ws/2004/08/addressing" xmlns:d="http://schemas.xmlsoap.org/ws/2005/04/discovery" xmlns:dn="http://www.onvif.org/ver10/network/wsdl"><e:Header><w:MessageID>uuid:${randomUUID()}</w:MessageID><w:To e:mustUnderstand="true">urn:schemas-xmlsoap-org:ws:2005:04:discovery</w:To><w:Action e:mustUnderstand="true">http://schemas.xmlsoap.org/ws/2005/04/discovery/Probe</w:Action></e:Header><e:Body><d:Probe><d:Types>dn:NetworkVideoTransmitter</d:Types></d:Probe></e:Body></e:Envelope>`;
   const socket = dgram.createSocket('udp4');
   const responses = [];
   return new Promise((resolve) => {
-    let settled = false;
+    let finished = false;
     const finish = () => {
-      if (settled) return;
-      settled = true;
+      if (finished) return;
+      finished = true;
       try { socket.close(); } catch { /* noop */ }
       resolve(responses);
     };
@@ -204,15 +196,15 @@ async function onvifDiscovery({ timeoutMs = 1_500 } = {}) {
   });
 }
 
-async function isPortOpen(ip, port, timeoutMs) {
+async function portOpen(ip, port, timeoutMs) {
   return new Promise((resolve) => {
     const socket = new net.Socket();
     let done = false;
-    const finish = (value) => {
+    const finish = (result) => {
       if (done) return;
       done = true;
       socket.destroy();
-      resolve(value);
+      resolve(result);
     };
     socket.setTimeout(timeoutMs);
     socket.once('connect', () => finish(true));
@@ -236,11 +228,10 @@ async function mapLimit(items, concurrency, worker) {
   return results;
 }
 
-async function probeHttp(ip, port, timeoutMs) {
-  const secure = port === 443;
-  const module = secure ? https : http;
+async function probeWeb(ip, port, timeoutMs) {
+  const transport = port === 443 ? https : http;
   return new Promise((resolve) => {
-    const request = module.request({
+    const request = transport.request({
       hostname: ip,
       port,
       path: '/',
@@ -249,8 +240,8 @@ async function probeHttp(ip, port, timeoutMs) {
       rejectUnauthorized: false,
       headers: {
         'User-Agent': 'DMS-Integration-Gateway/0.3',
-        'Accept': 'text/html,application/xhtml+xml;q=0.8,*/*;q=0.2',
-        'Connection': 'close',
+        Accept: 'text/html,application/xhtml+xml;q=0.8,*/*;q=0.2',
+        Connection: 'close',
       },
     }, (response) => {
       let body = '';
@@ -258,15 +249,11 @@ async function probeHttp(ip, port, timeoutMs) {
       response.on('data', (chunk) => {
         if (body.length < 16_384) body += chunk.slice(0, 16_384 - body.length);
       });
-      response.on('end', () => {
-        const title = text(body.match(/<title[^>]*>([\s\S]*?)<\/title>/i)?.[1]?.replace(/\s+/g, ' ') || '', 180);
-        resolve({
-          statusCode: response.statusCode || 0,
-          server: text(response.headers.server, 180),
-          realm: text(String(response.headers['www-authenticate'] || '').match(/realm="?([^",]+)"?/i)?.[1] || '', 180),
-          title,
-        });
-      });
+      response.on('end', () => resolve({
+        server: text(response.headers.server, 180),
+        realm: text(String(response.headers['www-authenticate'] || '').match(/realm="?([^",]+)"?/i)?.[1] || '', 180),
+        title: text(body.match(/<title[^>]*>([\s\S]*?)<\/title>/i)?.[1]?.replace(/\s+/g, ' ') || '', 180),
+      }));
     });
     request.once('timeout', () => request.destroy());
     request.once('error', () => resolve(null));
@@ -283,9 +270,7 @@ async function probeRtsp(ip, timeoutMs) {
       if (done) return;
       done = true;
       socket.destroy();
-      const server = text(response.match(/^Server:\s*(.+)$/im)?.[1] || '', 180);
-      const status = text(response.match(/^RTSP\/\d\.\d\s+(\d+)/im)?.[1] || '', 10);
-      resolve({ server, statusCode: status ? Number(status) : 0 });
+      resolve({ server: text(response.match(/^Server:\s*(.+)$/im)?.[1] || '', 180) });
     };
     socket.setTimeout(timeoutMs);
     socket.once('connect', () => {
@@ -302,87 +287,71 @@ async function probeRtsp(ip, timeoutMs) {
   });
 }
 
-async function neighborTable() {
-  const result = new Map();
+async function readNeighborTable() {
+  const macs = new Map();
   try {
     if (process.platform === 'win32') {
       const { stdout } = await execFileAsync('arp.exe', ['-a'], { windowsHide: true, timeout: 4_000 });
       String(stdout).split(/\r?\n/).forEach((line) => {
         const match = line.match(/\b(\d{1,3}(?:\.\d{1,3}){3})\s+([0-9a-f]{2}(?:-[0-9a-f]{2}){5})\s+/i);
-        if (match) result.set(match[1], match[2].replace(/-/g, ':').toUpperCase());
+        if (match) macs.set(match[1], match[2].replace(/-/g, ':').toUpperCase());
       });
     } else if (process.platform === 'linux') {
       const { stdout } = await execFileAsync('ip', ['neigh', 'show'], { timeout: 4_000 });
       String(stdout).split(/\r?\n/).forEach((line) => {
         const match = line.match(/^(\d{1,3}(?:\.\d{1,3}){3}).*\blladdr\s+([0-9a-f:]{17})\b/i);
-        if (match) result.set(match[1], match[2].toUpperCase());
+        if (match) macs.set(match[1], match[2].toUpperCase());
       });
     } else {
       const { stdout } = await execFileAsync('arp', ['-an'], { timeout: 4_000 });
       String(stdout).split(/\r?\n/).forEach((line) => {
         const match = line.match(/\((\d{1,3}(?:\.\d{1,3}){3})\)\s+at\s+([0-9a-f:]{17})/i);
-        if (match) result.set(match[1], match[2].toUpperCase());
+        if (match) macs.set(match[1], match[2].toUpperCase());
       });
     }
   } catch {
-    // La MAC es opcional; el descubrimiento continúa si el SO no expone la tabla vecina.
+    // La MAC es opcional.
   }
-  return result;
+  return macs;
 }
 
-function inferManufacturer(candidate) {
-  const material = [
-    candidate.onvif?.hardware,
-    candidate.onvif?.name,
-    candidate.http?.server,
-    candidate.http?.realm,
-    candidate.http?.title,
-    candidate.rtsp?.server,
-  ].filter(Boolean).join(' ');
-  return MANUFACTURERS.find(([, pattern]) => pattern.test(material))?.[0] || '';
+function candidateMaterial(candidate) {
+  return [candidate.onvif?.hardware, candidate.onvif?.name, candidate.http?.server,
+    candidate.http?.realm, candidate.http?.title, candidate.rtsp?.server].filter(Boolean).join(' ');
 }
 
-function cameraConfidence(candidate) {
-  const material = [
-    candidate.onvif?.hardware,
-    candidate.onvif?.name,
-    candidate.http?.server,
-    candidate.http?.realm,
-    candidate.http?.title,
-    candidate.rtsp?.server,
-  ].filter(Boolean).join(' ');
+function manufacturer(candidate) {
+  const material = candidateMaterial(candidate);
+  return MANUFACTURERS.find(([, expression]) => expression.test(material))?.[0] || '';
+}
+
+function confidence(candidate) {
+  const material = candidateMaterial(candidate);
   if (candidate.onvif) return 'HIGH';
   if (CAMERA_HINT.test(material) && candidate.openPorts.has(554)) return 'HIGH';
-  if (CAMERA_HINT.test(material)) return 'MEDIUM';
-  if (candidate.openPorts.has(554)) return 'MEDIUM';
+  if (CAMERA_HINT.test(material) || candidate.openPorts.has(554)) return 'MEDIUM';
   return 'LOW';
 }
 
-function candidateIsVideoDevice(candidate) {
-  return cameraConfidence(candidate) !== 'LOW';
-}
-
-function cleanDetectedName(candidate) {
-  const candidates = [candidate.onvif?.name, candidate.http?.title, candidate.http?.realm]
+function detectedName(candidate) {
+  return [candidate.onvif?.name, candidate.http?.title, candidate.http?.realm]
     .map((value) => text(value, 180))
-    .filter((value) => value && !/^(login|web service|index)$/i.test(value));
-  return candidates[0] || `Cámara detectada ${candidate.ip}`;
+    .find((value) => value && !/^(login|web service|index)$/i.test(value))
+    || `Cámara detectada ${candidate.ip}`;
 }
 
 export function candidateToInventoryItem(candidate, macAddress = '', now = new Date().toISOString()) {
-  if (!candidate || !candidate.ip || !candidateIsVideoDevice(candidate)) return null;
-  const manufacturer = inferManufacturer(candidate);
-  const onvifUuid = text(candidate.onvif?.uuid, 250);
+  if (!candidate?.ip || confidence(candidate) === 'LOW') return null;
   const mac = text(macAddress, 40).toUpperCase();
-  const externalId = onvifUuid ? `onvif:${onvifUuid}` : mac ? `mac:${mac}` : `ip:${candidate.ip}`;
+  const uuid = text(candidate.onvif?.uuid, 250);
   return {
-    externalId,
+    externalId: uuid ? `onvif:${uuid}` : mac ? `mac:${mac}` : `ip:${candidate.ip}`,
     sourceSystem: 'NETWORK_DISCOVERY',
     type: 'CAMERA',
-    name: cleanDetectedName(candidate),
+    name: detectedName(candidate),
     ipAddress: candidate.ip,
     macAddress: mac,
-    manufacturer,
+    manufacturer: manufacturer(candidate),
     model: text(candidate.onvif?.hardware, 160),
     status: 'ONLINE',
     lastSeenAt: now,
@@ -394,7 +363,7 @@ export function candidateToInventoryItem(candidate, macAddress = '', now = new D
       rtspDetected: candidate.openPorts.has(554),
     },
     metadata: {
-      discoveryConfidence: cameraConfidence(candidate),
+      discoveryConfidence: confidence(candidate),
       discoveryMethods: [...candidate.methods],
       openPorts: [...candidate.openPorts].sort((a, b) => a - b),
       onvifLocation: text(candidate.onvif?.location, 250),
@@ -411,14 +380,13 @@ export class NetworkDiscoveryAdapter {
     this.name = 'NETWORK_DISCOVERY';
     this.cidrs = detectLocalPrivateCidrs(env.DMS_NETWORK_CIDRS || '');
     this.scanPorts = String(env.DMS_NETWORK_SCAN_PORTS || DEFAULT_PORTS.join(','))
-      .split(',')
-      .map(Number)
+      .split(',').map(Number)
       .filter((port) => Number.isInteger(port) && port >= 1 && port <= 65535)
       .slice(0, 8);
-    this.timeoutMs = number(env.DMS_NETWORK_PROBE_TIMEOUT_MS, 600, 200, 5_000);
-    this.concurrency = number(env.DMS_NETWORK_SCAN_CONCURRENCY, 48, 4, 96);
-    this.maxHosts = number(env.DMS_NETWORK_MAX_HOSTS, 1_024, 1, 2_000);
-    this.onvifTimeoutMs = number(env.DMS_NETWORK_ONVIF_TIMEOUT_MS, 1_500, 500, 5_000);
+    this.timeoutMs = boundedNumber(env.DMS_NETWORK_PROBE_TIMEOUT_MS, 600, 200, 5_000);
+    this.onvifTimeoutMs = boundedNumber(env.DMS_NETWORK_ONVIF_TIMEOUT_MS, 1_500, 500, 5_000);
+    this.concurrency = boundedNumber(env.DMS_NETWORK_SCAN_CONCURRENCY, 48, 4, 96);
+    this.maxHosts = boundedNumber(env.DMS_NETWORK_MAX_HOSTS, 1_024, 1, 2_000);
   }
 
   capabilities() {
@@ -452,28 +420,25 @@ export class NetworkDiscoveryAdapter {
     if (!this.cidrs.length) return [];
     const candidates = new Map();
 
-    const onvifResponses = await onvifDiscovery({ timeoutMs: this.onvifTimeoutMs });
-    onvifResponses.forEach((response) => {
+    (await discoverOnvif(this.onvifTimeoutMs)).forEach((response) => {
       mergeCandidate(candidates, response.ip, { method: 'ONVIF_WS_DISCOVERY', onvif: response });
     });
 
-    const hosts = hostsForCidrs(this.cidrs, this.maxHosts);
     const tasks = [];
-    hosts.forEach((ip) => this.scanPorts.forEach((port) => tasks.push({ ip, port })));
-    const openResults = await mapLimit(tasks, this.concurrency, async ({ ip, port }) => ({
-      ip,
-      port,
-      open: await isPortOpen(ip, port, this.timeoutMs),
+    hostsForCidrs(this.cidrs, this.maxHosts).forEach((ip) => {
+      this.scanPorts.forEach((port) => tasks.push({ ip, port }));
+    });
+    const checks = await mapLimit(tasks, this.concurrency, async ({ ip, port }) => ({
+      ip, port, open: await portOpen(ip, port, this.timeoutMs),
     }));
-    openResults.filter((item) => item.open).forEach(({ ip, port }) => {
+    checks.filter((item) => item.open).forEach(({ ip, port }) => {
       mergeCandidate(candidates, ip, { method: `TCP_${port}`, openPort: port });
     });
 
-    const candidateList = [...candidates.values()];
-    await mapLimit(candidateList, Math.min(16, this.concurrency), async (candidate) => {
+    await mapLimit([...candidates.values()], Math.min(16, this.concurrency), async (candidate) => {
       const webPort = candidate.openPorts.has(443) ? 443 : candidate.openPorts.has(80) ? 80 : 0;
       if (webPort) {
-        const info = await probeHttp(candidate.ip, webPort, Math.max(750, this.timeoutMs));
+        const info = await probeWeb(candidate.ip, webPort, Math.max(750, this.timeoutMs));
         if (info) mergeCandidate(candidates, candidate.ip, { method: `HTTP_${webPort}`, http: info });
       }
       if (candidate.openPorts.has(554)) {
@@ -482,7 +447,7 @@ export class NetworkDiscoveryAdapter {
       }
     });
 
-    const macs = await neighborTable();
+    const macs = await readNeighborTable();
     const now = new Date().toISOString();
     return [...candidates.values()]
       .map((candidate) => candidateToInventoryItem(candidate, macs.get(candidate.ip) || '', now))
@@ -493,12 +458,7 @@ export class NetworkDiscoveryAdapter {
   async execute(command) {
     const type = String(command?.Tipo || command?.type || '').toUpperCase();
     if (type === 'PING') {
-      return {
-        pong: true,
-        adapter: this.name,
-        cidrs: this.cidrs,
-        receivedAt: new Date().toISOString(),
-      };
+      return { pong: true, adapter: this.name, cidrs: this.cidrs, receivedAt: new Date().toISOString() };
     }
     if (type === 'INVENTORY_SYNC') {
       const devices = await this.listDevices();
