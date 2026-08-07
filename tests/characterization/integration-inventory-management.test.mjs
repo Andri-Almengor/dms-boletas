@@ -32,32 +32,45 @@ test('el token recuperable se cifra separado del hash y nunca se devuelve en el 
   assert.match(routes, /REVELAR_TOKEN_GATEWAY_INTEGRACION/);
 });
 
-test('la edición de cámara conserva nombre operativo y valida ubicaciones del cliente', () => {
+test('la edición y el movimiento masivo validan ubicaciones del cliente', () => {
   const service = source('backend/src/services/integration-device-admin.service.js');
   const routes = source('backend/src/routes/integration-gateway.routes.js');
   assert.match(service, /UbicacionClienteID/);
   assert.match(service, /UbicacionEquipoID/);
   assert.match(service, /ClienteUbicaciones/);
   assert.match(service, /ClienteUbicacionesEquipo/);
-  assert.match(service, /no pertenece al cliente del gateway/i);
+  assert.match(service, /updateIntegrationDevicesLocation/);
+  assert.match(service, /La asignación masiva solo admite dispositivos de un mismo cliente/);
+  assert.match(service, /Seleccione la Ubicación del equipo donde se agruparán las cámaras/);
   assert.match(routes, /\/admin\/devices\/profile/);
-  assert.match(routes, /ACTUALIZAR_PERFIL_DISPOSITIVO_INTEGRACION/);
+  assert.match(routes, /\/admin\/devices\/location\/batch/);
+  assert.match(routes, /MOVER_DISPOSITIVOS_INTEGRACION_UBICACION/);
 });
 
-test('la interfaz usa modal de creación, credenciales desplegables y filtros de mantenimiento', () => {
+test('la interfaz agrupa por ubicación, filtra por cliente y oculta simulaciones operativas', () => {
   const page = source('src/pages/admin/IntegrationsPage.jsx');
   const adminStyles = source('src/styles/routes/admin.js');
+  const styles = source('src/styles/integration-gateway.css');
   const api = source('src/services/integrationGatewayApi.js');
   assert.match(page, /InlineCreateModal/);
   assert.match(page, /Crear gateway/);
+  assert.match(page, /integration-gateway-section--collapsible/);
   assert.match(page, /integration-gateway-credentials/);
   assert.match(page, /Todos los clientes/);
   assert.match(page, /Todas las marcas/);
   assert.match(page, /Todos los modelos/);
-  assert.match(page, /maintenance-device-table/);
+  assert.match(page, /buildLocationFolders/);
+  assert.match(page, /integration-location-folder/);
+  assert.match(page, /Seleccionar todas las filtradas/);
+  assert.match(page, /Asignar ubicación/);
+  assert.match(page, /SourceSystem \|\| ''\)\.toUpperCase\(\) !== 'SIMULATED'/);
   assert.match(page, /Ubicación del cliente/);
+  assert.match(page, /Ubicación del equipo/);
   assert.match(page, /Nombre operativo/);
+  assert.match(styles, /:root\[data-theme='dark'\] \.integration-gateway-credentials/);
+  assert.match(styles, /var\(--surface-card/);
   assert.match(adminStyles, /maintenance-device-inventory\.css/);
   assert.match(api, /revealIntegrationGatewayToken/);
   assert.match(api, /updateIntegrationDeviceProfile/);
+  assert.match(api, /updateIntegrationDevicesLocation/);
 });
