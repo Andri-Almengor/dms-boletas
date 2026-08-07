@@ -139,12 +139,15 @@ async function start() {
     await heartbeat(safeError(error)).catch(() => {});
   }
 
+  // Estos timers deben permanecer referenciados. Son los handles que mantienen
+  // vivo el proceso cuando se ejecuta como servicio de Windows. Usar unref()
+  // aquí provoca que Node termine al finalizar el primer poll y WinSW marque
+  // inmediatamente el servicio como Stopped.
   heartbeatTimer = setInterval(() => {
     heartbeat().catch((error) => log('Heartbeat fallido.', safeError(error)));
   }, heartbeatMs);
   pollTimer = setInterval(() => void pollCommands(), pollMs);
-  heartbeatTimer.unref?.();
-  pollTimer.unref?.();
+
   await pollCommands();
 }
 

@@ -107,6 +107,8 @@ test('el agente inicial usa HTTPS saliente y un adaptador simulado reemplazable'
   assert.match(runtime, /loadEnvFile/);
   assert.match(runtime, /requiredEnvironment/);
   assert.match(runtime, /--check-config/);
+  assert.match(runtime, /setInterval/);
+  assert.doesNotMatch(runtime, /\.unref\s*\(/);
   assert.match(adapter, /externalId/);
   assert.match(adapter, /sourceSystem: 'SIMULATED'/);
   assert.match(readme, /copy \.env\.example \.env/);
@@ -130,6 +132,8 @@ test('el agente se instala como servicio de Windows con reinicio y secretos loca
   assert.match(installer, /icacls\.exe/);
   assert.match(installer, /--check-config/);
   assert.match(controller, /'status', 'start', 'stop', 'restart', 'logs'/);
+  assert.match(controller, /El proceso arrancó pero se detuvo inmediatamente/);
+  assert.match(controller, /Show-RecentLogs/);
   assert.match(uninstaller, /El archivo de configuración se conservó/);
   assert.match(packageJson, /service:install/);
   assert.match(packageJson, /service:restart/);
