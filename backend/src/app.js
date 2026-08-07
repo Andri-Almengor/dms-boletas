@@ -22,6 +22,7 @@ import './services/assistant-maintenance-keyword.patch.js';
 import './services/integration-gateway-assistant.patch.js';
 import './services/integration-gateway-credential-assistant.patch.js';
 import './services/integration-gateway-answer-format.patch.js';
+import './services/integration-gateway-natural-language.patch.js';
 import { runWithSheetsRouteReadCache } from './services/sheets-route-read-cache.patch.js';
 import { env } from './config/env.js';
 import { dispatchAction } from './core/action-router.js';
