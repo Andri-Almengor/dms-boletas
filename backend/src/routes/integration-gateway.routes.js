@@ -2,7 +2,15 @@ import express from 'express';
 import { AppError, forbidden } from '../core/errors.js';
 import { authenticate } from '../services/auth.service.js';
 import { audit } from '../services/audit.service.js';
-import { updateIntegrationDeviceOperationalName } from '../services/integration-device-admin.service.js';
+import {
+  updateIntegrationDeviceOperationalName,
+  updateIntegrationDeviceProfile,
+} from '../services/integration-device-admin.service.js';
+import {
+  backfillIntegrationGatewayToken,
+  revealIntegrationGatewayToken,
+  storeIntegrationGatewayToken,
+} from '../services/integration-gateway-secret.service.js';
 import {
   authenticateIntegrationGateway,
   completeIntegrationCommand,
@@ -74,10 +82,15 @@ async function requireAdmin(req) {
 }
 
 async function requireGateway(req) {
-  return authenticateIntegrationGateway({
+  const token = bearerToken(req);
+  const gateway = await authenticateIntegrationGateway({
     gatewayId: req.get('x-dms-gateway-id'),
-    token: bearerToken(req),
+    token,
   });
+  // Migración transparente para gateways creados antes de que existiera el revelado.
+  // Si el cifrado todavía no está configurado, la autenticación del agente no se interrumpe.
+  await backfillIntegrationGatewayToken(gateway, token).catch(() => {});
+  return gateway;
 }
 
 function route(handler) {
@@ -107,6 +120,18 @@ integrationGatewayRouter.post('/admin/provision', route(async (req) => {
     clientName: req.body?.clientName,
     actor: auth.user.UsuarioID,
   });
+  let credentialRevealAvailable = false;
+  try {
+    await storeIntegrationGatewayToken({
+      gatewayId: result.gateway.GatewayID,
+      token: result.token,
+      actor: auth.user.UsuarioID,
+    });
+    credentialRevealAvailable = true;
+  } catch {
+    // El hash de autenticación sigue siendo válido. El panel explicará que hace falta
+    // configurar la llave de cifrado para poder revelar el token posteriormente.
+  }
   await audit(
     requestContext(req, auth),
     'PROVISIONAR_GATEWAY_INTEGRACION',
@@ -114,6 +139,20 @@ integrationGatewayRouter.post('/admin/provision', route(async (req) => {
     result.gateway.GatewayID,
     null,
     result.gateway,
+  );
+  return { ...result, credentialRevealAvailable };
+}));
+
+integrationGatewayRouter.post('/admin/credentials/reveal', route(async (req) => {
+  const auth = await requireAdmin(req);
+  const result = await revealIntegrationGatewayToken(req.body?.gatewayId);
+  await audit(
+    requestContext(req, auth),
+    'REVELAR_TOKEN_GATEWAY_INTEGRACION',
+    'IntegracionGateways',
+    result.gatewayId,
+    null,
+    { GatewayID: result.gatewayId, RevealedAt: result.revealedAt },
   );
   return result;
 }));
@@ -172,6 +211,31 @@ integrationGatewayRouter.post('/admin/devices/name', route(async (req) => {
       GatewayID: result.GatewayID,
       NombreDetectado: result.NombreDetectado,
       NombreOperativo: result.NombreOperativo,
+    },
+  );
+  return result;
+}));
+
+integrationGatewayRouter.post('/admin/devices/profile', route(async (req) => {
+  const auth = await requireAdmin(req);
+  const result = await updateIntegrationDeviceProfile({
+    deviceId: req.body?.deviceId,
+    name: req.body?.name,
+    locationId: req.body?.locationId,
+    equipmentLocationId: req.body?.equipmentLocationId,
+    actor: auth.user.UsuarioID,
+  });
+  await audit(
+    requestContext(req, auth),
+    'ACTUALIZAR_PERFIL_DISPOSITIVO_INTEGRACION',
+    'IntegracionDispositivos',
+    result.DispositivoIntegracionID,
+    null,
+    {
+      GatewayID: result.GatewayID,
+      NombreOperativo: result.NombreOperativo,
+      UbicacionClienteID: result.UbicacionClienteID,
+      UbicacionEquipoID: result.UbicacionEquipoID,
     },
   );
   return result;
