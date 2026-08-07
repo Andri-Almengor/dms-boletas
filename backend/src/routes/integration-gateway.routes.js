@@ -5,6 +5,7 @@ import { audit } from '../services/audit.service.js';
 import {
   updateIntegrationDeviceOperationalName,
   updateIntegrationDeviceProfile,
+  updateIntegrationDevicesLocation,
 } from '../services/integration-device-admin.service.js';
 import {
   backfillIntegrationGatewayToken,
@@ -87,8 +88,6 @@ async function requireGateway(req) {
     gatewayId: req.get('x-dms-gateway-id'),
     token,
   });
-  // Migración transparente para gateways creados antes de que existiera el revelado.
-  // Si el cifrado todavía no está configurado, la autenticación del agente no se interrumpe.
   await backfillIntegrationGatewayToken(gateway, token).catch(() => {});
   return gateway;
 }
@@ -129,8 +128,7 @@ integrationGatewayRouter.post('/admin/provision', route(async (req) => {
     });
     credentialRevealAvailable = true;
   } catch {
-    // El hash de autenticación sigue siendo válido. El panel explicará que hace falta
-    // configurar la llave de cifrado para poder revelar el token posteriormente.
+    // El hash de autenticación sigue siendo válido aunque el revelado no esté configurado.
   }
   await audit(
     requestContext(req, auth),
@@ -234,6 +232,30 @@ integrationGatewayRouter.post('/admin/devices/profile', route(async (req) => {
     {
       GatewayID: result.GatewayID,
       NombreOperativo: result.NombreOperativo,
+      UbicacionClienteID: result.UbicacionClienteID,
+      UbicacionEquipoID: result.UbicacionEquipoID,
+    },
+  );
+  return result;
+}));
+
+integrationGatewayRouter.post('/admin/devices/location/batch', route(async (req) => {
+  const auth = await requireAdmin(req);
+  const result = await updateIntegrationDevicesLocation({
+    deviceIds: req.body?.deviceIds,
+    locationId: req.body?.locationId,
+    equipmentLocationId: req.body?.equipmentLocationId,
+    actor: auth.user.UsuarioID,
+  });
+  await audit(
+    requestContext(req, auth),
+    'MOVER_DISPOSITIVOS_INTEGRACION_UBICACION',
+    'IntegracionDispositivos',
+    `batch:${Date.now()}`,
+    null,
+    {
+      Cantidad: result.updated,
+      ClienteID: result.clientId,
       UbicacionClienteID: result.UbicacionClienteID,
       UbicacionEquipoID: result.UbicacionEquipoID,
     },
