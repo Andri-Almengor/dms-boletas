@@ -43,8 +43,9 @@ test('las credenciales de cámara se asignan por ID y se descifran solo al entre
   assert.match(page, /utilizará únicamente la credencial seleccionada/i);
 });
 
-test('el agente ONVIF usa una sola credencial, soporta snapshot, zoom, Home y reinicio', () => {
+test('el agente usa ONVIF y fallbacks de fabricante sin probar contraseñas alternativas', () => {
   const camera = source('gateway-agent/src/camera/onvif-camera-control.js');
+  const router = source('gateway-agent/src/camera/camera-control-router.js');
   const adapter = source('gateway-agent/src/adapters/network-discovery-identified.adapter.js');
   const envExample = source('gateway-agent/.env.example');
   assert.match(camera, /GetSnapshotUri/);
@@ -55,9 +56,15 @@ test('el agente ONVIF usa una sola credencial, soporta snapshot, zoom, Home y re
   assert.match(camera, /Este es el único segundo intento/);
   assert.match(camera, /<tds:GetCapabilities\/>/);
   assert.match(camera, /GetServices/);
-  assert.match(camera, /Optional Action Not Implemented\|ActionNotSupported\|InvalidOperation/);
-  assert.match(camera, /discoveryMethod: 'GET_SERVICES'/);
   assert.doesNotMatch(camera, /passwords|credentialList|tryPasswords/i);
+  assert.match(router, /ONVIF_MEDIA2/);
+  assert.match(router, /HANWHA_SUNAPI/);
+  assert.match(router, /stw-cgi\/video\.cgi\?msubmenu=snapshot&action=view/);
+  assert.match(router, /PND-A7082RV/);
+  assert.match(router, /HARDWARE_PRESENT_CONTROL_NOT_CONFIRMED/);
+  assert.match(router, /sameCameraUrl/);
+  assert.doesNotMatch(router, /passwords|credentialList|tryPasswords/i);
+  assert.match(adapter, /executeCameraAction/);
   assert.match(adapter, /cameraAuthFallbacks:\s*0/);
   assert.match(adapter, /CAMERA_AUTH_COOLDOWN/);
   assert.match(adapter, /DMS_CAMERA_AUTH_COOLDOWN_MS/);
@@ -75,6 +82,14 @@ test('las capturas son efímeras y la imagen no se persiste en el resultado del 
   assert.match(runtime, /dataBase64/);
   assert.match(runtime, /snapshotId: stored\.snapshotId/);
   assert.doesNotMatch(routes, /dataBase64.*ResultadoJSON/s);
+});
+
+test('el asistente diferencia no detectado de no soportado y muestra zoom óptico conocido', () => {
+  const formatter = source('backend/src/services/integration-gateway-answer-format.patch.js');
+  assert.match(formatter, /No determinado todavía/);
+  assert.match(formatter, /PTZ ONVIF/);
+  assert.match(formatter, /Zoom óptico del lente/);
+  assert.match(formatter, /adaptadores compatibles del fabricante/);
 });
 
 test('el asistente exige gateway, cliente y cámara para acciones físicas y confirma reinicios', () => {
