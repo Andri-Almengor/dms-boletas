@@ -114,6 +114,28 @@ export class IdentifiedNetworkDiscoveryAdapter extends ConfigurableNetworkDiscov
     };
   }
 
+  async testConnection() {
+    if (!this.hosts.length) {
+      const error = new Error('No hay direcciones configuradas para explorar. Configure DMS_NETWORK_TARGETS.');
+      error.code = 'NETWORK_DISCOVERY_NO_TARGETS';
+      throw error;
+    }
+    const devices = await this.listDevices();
+    const identified = devices.filter((device) => device.manufacturer || device.model || device.macAddress).length;
+    const onvifConfirmed = devices.filter((device) => device.metadata?.onvifConfirmed).length;
+    const highConfidence = devices.filter((device) => device.metadata?.discoveryConfidence === 'HIGH').length;
+    return {
+      source: this.name,
+      targets: this.targetSpecs(),
+      hosts: this.hosts.length,
+      devices: devices.length,
+      identified,
+      onvifConfirmed,
+      highConfidence,
+      message: `${devices.length} posible(s) cámara(s); ${identified} con fabricante/modelo/MAC; ${onvifConfirmed} ONVIF confirmado(s); ${highConfidence} con confianza HIGH.`,
+    };
+  }
+
   async listDevices() {
     const devices = await super.listDevices();
     if (!this.identificationEnabled || !devices.length) return devices;
