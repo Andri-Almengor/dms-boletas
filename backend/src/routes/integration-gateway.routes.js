@@ -2,6 +2,7 @@ import express from 'express';
 import { AppError, forbidden } from '../core/errors.js';
 import { authenticate } from '../services/auth.service.js';
 import { audit } from '../services/audit.service.js';
+import { updateIntegrationDeviceOperationalName } from '../services/integration-device-admin.service.js';
 import {
   authenticateIntegrationGateway,
   completeIntegrationCommand,
@@ -149,6 +150,28 @@ integrationGatewayRouter.post('/admin/commands', route(async (req) => {
       GatewayID: result.GatewayID,
       Tipo: result.Tipo,
       Estado: result.Estado,
+    },
+  );
+  return result;
+}));
+
+integrationGatewayRouter.post('/admin/devices/name', route(async (req) => {
+  const auth = await requireAdmin(req);
+  const result = await updateIntegrationDeviceOperationalName({
+    deviceId: req.body?.deviceId,
+    name: req.body?.name,
+    actor: auth.user.UsuarioID,
+  });
+  await audit(
+    requestContext(req, auth),
+    'ACTUALIZAR_NOMBRE_DISPOSITIVO_INTEGRACION',
+    'IntegracionDispositivos',
+    result.DispositivoIntegracionID,
+    null,
+    {
+      GatewayID: result.GatewayID,
+      NombreDetectado: result.NombreDetectado,
+      NombreOperativo: result.NombreOperativo,
     },
   );
   return result;

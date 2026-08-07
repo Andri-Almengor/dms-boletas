@@ -5,7 +5,7 @@ import process, { loadEnvFile } from 'node:process';
 import { createAdapterFromEnvironment } from './adapters/adapter-factory.js';
 import { GatewayClient } from './gateway-client.js';
 
-const VERSION = '0.2.0';
+const VERSION = '0.3.0';
 const envPath = path.resolve(process.cwd(), '.env');
 const checkConfigOnly = process.argv.includes('--check-config');
 const checkSourceOnly = process.argv.includes('--check-source');
@@ -44,12 +44,19 @@ try {
 
 const heartbeatMs = Math.max(10_000, Number(process.env.DMS_GATEWAY_HEARTBEAT_MS || 30_000));
 const pollMs = Math.max(5_000, Number(process.env.DMS_GATEWAY_POLL_MS || 10_000));
+const defaultInventoryMs = adapter.name === 'NETWORK_DISCOVERY' ? 10 * 60_000 : 0;
+const configuredInventoryMs = Number(process.env.DMS_GATEWAY_INVENTORY_SYNC_MS || defaultInventoryMs);
+const inventoryMs = configuredInventoryMs > 0
+  ? Math.max(60_000, Math.min(24 * 60 * 60_000, configuredInventoryMs))
+  : 0;
 
 let client = null;
 let stopping = false;
 let polling = false;
+let inventoryPromise = null;
 let heartbeatTimer = null;
 let pollTimer = null;
+let inventoryTimer = null;
 
 function log(message, details = '') {
   const suffix = details ? ` ${details}` : '';
@@ -62,7 +69,8 @@ async function validateSource() {
   }
   const result = await adapter.testConnection();
   const site = result?.siteName ? ` · ${result.siteName}` : '';
-  console.log(`Fuente ${adapter.name} accesible${site}.`);
+  const message = result?.message ? ` ${result.message}` : '';
+  console.log(`Fuente ${adapter.name} accesible${site}.${message}`);
   return result;
 }
 
@@ -89,21 +97,35 @@ async function heartbeat(lastError = '') {
 }
 
 async function syncInventory() {
-  const devices = await adapter.listDevices();
-  const result = await client.syncInventory(devices);
-  log('Inventario sincronizado.', `${result.accepted} dispositivo(s), ${result.added} nuevo(s).`);
-  return result;
+  if (inventoryPromise) return inventoryPromise;
+  inventoryPromise = (async () => {
+    const startedAt = Date.now();
+    const devices = await adapter.listDevices();
+    const result = await client.syncInventory(devices);
+    log(
+      'Inventario sincronizado.',
+      `${result.accepted} dispositivo(s), ${result.added} nuevo(s), ${Date.now() - startedAt} ms.`,
+    );
+    return result;
+  })();
+  try {
+    return await inventoryPromise;
+  } finally {
+    inventoryPromise = null;
+  }
 }
 
 async function processCommand(command) {
   const commandId = String(command?.ComandoID || command?.commandId || '');
   if (!commandId) return;
   try {
-    const result = await adapter.execute(command);
-    if (String(command.Tipo || '').toUpperCase() === 'INVENTORY_SYNC') {
-      const inventoryResult = await client.syncInventory(result.devices || []);
-      delete result.devices;
-      result.inventory = inventoryResult;
+    const type = String(command.Tipo || command.type || '').toUpperCase();
+    let result;
+    if (type === 'INVENTORY_SYNC') {
+      const inventory = await syncInventory();
+      result = { inventoryRequested: true, inventory };
+    } else {
+      result = await adapter.execute(command);
     }
     await client.completeCommand(commandId, result);
     log('Comando completado.', `${command.Tipo} · ${commandId}`);
@@ -144,6 +166,12 @@ async function start() {
     heartbeat().catch((error) => log('Heartbeat fallido.', safeError(error)));
   }, heartbeatMs);
   pollTimer = setInterval(() => void pollCommands(), pollMs);
+  if (inventoryMs > 0) {
+    inventoryTimer = setInterval(() => {
+      syncInventory().catch((error) => log('Sincronización periódica fallida.', safeError(error)));
+    }, inventoryMs);
+    log('Sincronización periódica habilitada.', `Cada ${Math.round(inventoryMs / 60_000)} minuto(s).`);
+  }
 
   await pollCommands();
 }
@@ -153,6 +181,7 @@ async function shutdown(signal) {
   stopping = true;
   clearInterval(heartbeatTimer);
   clearInterval(pollTimer);
+  clearInterval(inventoryTimer);
   log(`Cerrando agente por ${signal}.`);
   if (client) await heartbeat(`Agente detenido por ${signal}`).catch(() => {});
   process.exit(0);

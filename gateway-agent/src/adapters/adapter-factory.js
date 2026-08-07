@@ -1,4 +1,5 @@
 import { MilestoneAdapter } from './milestone.adapter.js';
+import { NetworkDiscoveryAdapter } from './network-discovery.adapter.js';
 import { SimulatedAdapter } from './simulated.adapter.js';
 
 function envText(env, name, fallback = '') {
@@ -26,6 +27,10 @@ export function createAdapterFromEnvironment(env = process.env) {
     });
   }
 
+  if (['network', 'network-discovery', 'network_discovery', 'lan'].includes(adapterName)) {
+    return new NetworkDiscoveryAdapter({ env });
+  }
+
   if (adapterName === 'milestone') {
     return new MilestoneAdapter({
       baseUrl: required(env, 'DMS_MILESTONE_URL'),
@@ -41,6 +46,6 @@ export function createAdapterFromEnvironment(env = process.env) {
   }
 
   throw new Error(
-    `DMS_GATEWAY_ADAPTER=${adapterName || '(vacío)'} no es válido. Use simulated o milestone.`,
+    `DMS_GATEWAY_ADAPTER=${adapterName || '(vacío)'} no es válido. Use simulated, network o milestone.`,
   );
 }

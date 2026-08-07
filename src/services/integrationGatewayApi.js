@@ -66,3 +66,12 @@ export function sendIntegrationGatewayCommand(gatewayId, type, sessionToken, opt
     signal: options.signal,
   });
 }
+
+export function updateIntegrationDeviceName(deviceId, name, sessionToken, options = {}) {
+  return request('/admin/devices/name', {
+    method: 'POST',
+    body: { deviceId, name },
+    sessionToken,
+    signal: options.signal,
+  });
+}
