@@ -28,5 +28,5 @@ test('el service worker renueva el shell y conserva fallback de assets cuando un
   const worker = source('public/sw.js');
   assert.match(worker, /CACHE_NAME = `\$\{CACHE_PREFIX\}v5`/);
   assert.match(worker, /cache\.match\(request\)\) \|\| response/);
-  assert.match(worker, /updateViaCache/);
+  assert.match(worker, /cache:\s*'no-cache'/);
 });
