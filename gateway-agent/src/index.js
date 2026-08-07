@@ -2,12 +2,13 @@ import { existsSync } from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
 import process, { loadEnvFile } from 'node:process';
-import { SimulatedAdapter } from './adapters/simulated.adapter.js';
+import { createAdapterFromEnvironment } from './adapters/adapter-factory.js';
 import { GatewayClient } from './gateway-client.js';
 
-const VERSION = '0.1.0';
+const VERSION = '0.2.0';
 const envPath = path.resolve(process.cwd(), '.env');
 const checkConfigOnly = process.argv.includes('--check-config');
+const checkSourceOnly = process.argv.includes('--check-source');
 
 if (existsSync(envPath)) {
   try {
@@ -22,44 +23,29 @@ function requiredEnvironment(name) {
   const value = String(process.env[name] || '').trim();
   if (!value) {
     throw new Error(
-      `Falta ${name}. Copie .env.example como .env y complete la URL, el Gateway ID y el token.`,
+      `Falta ${name}. Copie .env.example como .env y complete la configuración requerida.`,
     );
   }
   return value;
 }
 
-const adapterName = String(process.env.DMS_GATEWAY_ADAPTER || 'simulated').trim().toLowerCase();
-if (adapterName !== 'simulated') {
-  throw new Error('En esta primera fase solo está disponible DMS_GATEWAY_ADAPTER=simulated.');
+function safeError(error) {
+  return `${error?.code || 'ERROR'}: ${error?.message || 'Error desconocido'}`;
 }
 
-const heartbeatMs = Math.max(10_000, Number(process.env.DMS_GATEWAY_HEARTBEAT_MS || 30_000));
-const pollMs = Math.max(5_000, Number(process.env.DMS_GATEWAY_POLL_MS || 10_000));
-const adapter = new SimulatedAdapter({
-  deviceCount: process.env.DMS_SIMULATED_DEVICE_COUNT,
-});
-
-let client;
+let adapter;
 try {
-  client = new GatewayClient({
-    baseUrl: requiredEnvironment('DMS_GATEWAY_URL'),
-    gatewayId: requiredEnvironment('DMS_GATEWAY_ID'),
-    token: requiredEnvironment('DMS_GATEWAY_TOKEN'),
-  });
+  adapter = createAdapterFromEnvironment(process.env);
 } catch (error) {
-  console.error(`Configuración del agente incompleta: ${error?.message || 'revise el archivo .env'}`);
+  console.error(`Configuración del adaptador incompleta: ${error?.message || 'revise el archivo .env'}`);
   console.error(`Archivo esperado: ${envPath}`);
   process.exit(1);
 }
 
-if (checkConfigOnly) {
-  const gatewayPreview = client.gatewayId.length > 18
-    ? `${client.gatewayId.slice(0, 18)}…`
-    : client.gatewayId;
-  console.log(`Configuración válida para ${gatewayPreview} en ${client.baseUrl}.`);
-  process.exit(0);
-}
+const heartbeatMs = Math.max(10_000, Number(process.env.DMS_GATEWAY_HEARTBEAT_MS || 30_000));
+const pollMs = Math.max(5_000, Number(process.env.DMS_GATEWAY_POLL_MS || 10_000));
 
+let client = null;
 let stopping = false;
 let polling = false;
 let heartbeatTimer = null;
@@ -70,8 +56,22 @@ function log(message, details = '') {
   console.log(`[${new Date().toISOString()}] ${message}${suffix}`);
 }
 
-function safeError(error) {
-  return `${error?.code || 'ERROR'}: ${error?.message || 'Error desconocido'}`;
+async function validateSource() {
+  if (typeof adapter.testConnection !== 'function') {
+    throw new Error(`El adaptador ${adapter.name} no implementa una prueba de fuente.`);
+  }
+  const result = await adapter.testConnection();
+  const site = result?.siteName ? ` · ${result.siteName}` : '';
+  console.log(`Fuente ${adapter.name} accesible${site}.`);
+  return result;
+}
+
+function createGatewayClient() {
+  return new GatewayClient({
+    baseUrl: requiredEnvironment('DMS_GATEWAY_URL'),
+    gatewayId: requiredEnvironment('DMS_GATEWAY_ID'),
+    token: requiredEnvironment('DMS_GATEWAY_TOKEN'),
+  });
 }
 
 async function heartbeat(lastError = '') {
@@ -139,10 +139,7 @@ async function start() {
     await heartbeat(safeError(error)).catch(() => {});
   }
 
-  // Estos timers deben permanecer referenciados. Son los handles que mantienen
-  // vivo el proceso cuando se ejecuta como servicio de Windows. Usar unref()
-  // aquí provoca que Node termine al finalizar el primer poll y WinSW marque
-  // inmediatamente el servicio como Stopped.
+  // Estos timers deben permanecer referenciados para mantener vivo el servicio.
   heartbeatTimer = setInterval(() => {
     heartbeat().catch((error) => log('Heartbeat fallido.', safeError(error)));
   }, heartbeatMs);
@@ -157,8 +154,28 @@ async function shutdown(signal) {
   clearInterval(heartbeatTimer);
   clearInterval(pollTimer);
   log(`Cerrando agente por ${signal}.`);
-  await heartbeat(`Agente detenido por ${signal}`).catch(() => {});
+  if (client) await heartbeat(`Agente detenido por ${signal}`).catch(() => {});
   process.exit(0);
+}
+
+async function bootstrap() {
+  if (checkSourceOnly) {
+    await validateSource();
+    return;
+  }
+
+  client = createGatewayClient();
+  if (checkConfigOnly) {
+    const gatewayPreview = client.gatewayId.length > 18
+      ? `${client.gatewayId.slice(0, 18)}…`
+      : client.gatewayId;
+    console.log(
+      `Configuración válida para ${gatewayPreview} en ${client.baseUrl}. Adaptador: ${adapter.name}.`,
+    );
+    return;
+  }
+
+  await start();
 }
 
 process.on('SIGINT', () => void shutdown('SIGINT'));
@@ -167,7 +184,7 @@ process.on('unhandledRejection', (error) => {
   log('Promesa no controlada.', safeError(error));
 });
 
-start().catch((error) => {
+bootstrap().catch((error) => {
   console.error(`No fue posible iniciar el agente: ${safeError(error)}`);
   process.exit(1);
 });
