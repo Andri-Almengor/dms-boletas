@@ -5,7 +5,7 @@ import process, { loadEnvFile } from 'node:process';
 import { createAdapterFromEnvironment } from './adapters/adapter-factory.js';
 import { GatewayClient } from './gateway-client.js';
 
-const VERSION = '0.6.0';
+const VERSION = '0.7.0';
 const envPath = path.resolve(process.cwd(), '.env');
 const checkConfigOnly = process.argv.includes('--check-config');
 const checkSourceOnly = process.argv.includes('--check-source');
@@ -115,6 +115,28 @@ async function syncInventory() {
   }
 }
 
+async function persistSnapshotIfPresent(commandId, result = {}) {
+  const snapshot = result?.snapshot;
+  if (!snapshot?.dataBase64) return result;
+  const deviceId = String(result?.camera?.deviceId || commandId);
+  const stored = await client.uploadSnapshot({
+    commandId,
+    deviceId,
+    mimeType: snapshot.mimeType || 'image/jpeg',
+    dataBase64: snapshot.dataBase64,
+  });
+  return {
+    ...result,
+    snapshot: {
+      snapshotId: stored.snapshotId,
+      mimeType: stored.mimeType,
+      bytes: stored.bytes,
+      capturedAt: snapshot.capturedAt || new Date().toISOString(),
+      expiresAt: stored.expiresAt,
+    },
+  };
+}
+
 async function processCommand(command) {
   const commandId = String(command?.ComandoID || command?.commandId || '');
   if (!commandId) return;
@@ -127,6 +149,7 @@ async function processCommand(command) {
     } else {
       result = await adapter.execute(command);
     }
+    result = await persistSnapshotIfPresent(commandId, result);
     await client.completeCommand(commandId, result);
     log('Comando completado.', `${command.Tipo} · ${commandId}`);
   } catch (error) {
