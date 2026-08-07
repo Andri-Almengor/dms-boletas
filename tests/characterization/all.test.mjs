@@ -17,6 +17,7 @@ import './evidence-memory.test.mjs';
 import './form-draft-lifecycle.test.mjs';
 import './form-inline-creation-invariant.test.mjs';
 import './gateway-camera-control-assistant.test.mjs';
+import './gateway-imaging-source-validation.test.mjs';
 import './indexeddb-version-recovery.test.mjs';
 import './integration-gateway-foundation.test.mjs';
 import './integration-inventory-management.test.mjs';
