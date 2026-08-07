@@ -99,12 +99,16 @@ test('el agente inicial usa HTTPS saliente y un adaptador simulado reemplazable'
   assert.match(client, /Authorization/);
   assert.match(client, /X-DMS-Gateway-ID/);
   assert.match(client, /https:/);
+  assert.match(client, /Falta DMS_GATEWAY_URL/);
   assert.match(runtime, /SimulatedAdapter/);
   assert.match(runtime, /heartbeat/);
   assert.match(runtime, /pollCommands/);
   assert.match(runtime, /syncInventory/);
+  assert.match(runtime, /loadEnvFile/);
+  assert.match(runtime, /requiredEnvironment/);
   assert.match(adapter, /externalId/);
   assert.match(adapter, /sourceSystem: 'SIMULATED'/);
+  assert.match(readme, /copy \.env\.example \.env/);
   assert.match(readme, /MilestoneInventoryAdapter/);
   assert.match(readme, /OnGuardInventoryAdapter/);
   assert.doesNotMatch(runtime, /password|rtsp:\/\//i);
