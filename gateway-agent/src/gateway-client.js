@@ -82,6 +82,15 @@ export class GatewayClient {
     return this.request('/commands/poll', {});
   }
 
+  uploadSnapshot({ commandId, deviceId, mimeType, dataBase64 }) {
+    return this.request('/snapshots', {
+      commandId,
+      deviceId,
+      mimeType,
+      dataBase64,
+    });
+  }
+
   completeCommand(commandId, result = {}) {
     return this.request('/commands/result', {
       commandId,

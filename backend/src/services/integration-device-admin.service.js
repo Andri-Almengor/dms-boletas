@@ -15,6 +15,7 @@ const DEVICE_ADMIN_COLUMNS = Object.freeze([
   'UbicacionCliente',
   'UbicacionEquipoID',
   'UbicacionEquipo',
+  'CredencialCamaraID',
 ]);
 const MAX_BATCH_DEVICES = 500;
 
@@ -23,7 +24,9 @@ function text(value, maxLength = 250) {
 }
 
 function active(row = {}) {
-  return row.Activo !== false && String(row.Activo ?? 'true').toLowerCase() !== 'false';
+  return row.Activo !== false
+    && String(row.Activo ?? 'true').toLowerCase() !== 'false'
+    && String(row.Estado || 'ACTIVO').toUpperCase() !== 'INACTIVO';
 }
 
 async function prepareDeviceAdminSchema() {
@@ -86,6 +89,19 @@ function resolveLocationSelection({
   };
 }
 
+function resolveCameraCredential({ clientId, credentialId = '', credentials = [] } = {}) {
+  const selectedId = text(credentialId, 180);
+  if (!selectedId) return '';
+  if (!clientId) throw badRequest('Primero relacione el gateway con un cliente para asignar una credencial de cámara.');
+  const row = credentials.find((item) => (
+    active(item)
+    && text(item.CredencialID, 180) === selectedId
+    && text(item.ClienteID, 180) === clientId
+  ));
+  if (!row) throw badRequest('La credencial seleccionada no pertenece al cliente del gateway o está inactiva.');
+  return selectedId;
+}
+
 export async function updateIntegrationDeviceOperationalName({
   deviceId,
   name,
@@ -111,6 +127,7 @@ export async function updateIntegrationDeviceProfile({
   name,
   locationId = '',
   equipmentLocationId = '',
+  credentialId = '',
   actor = 'SYSTEM',
 } = {}) {
   const current = await currentDevice(deviceId);
@@ -118,6 +135,7 @@ export async function updateIntegrationDeviceProfile({
     'IntegracionGateways',
     'ClienteUbicaciones',
     'ClienteUbicacionesEquipo',
+    'CredencialesClientes',
   ]);
   const gateway = (tables.IntegracionGateways || [])
     .find((item) => String(item.GatewayID || '') === String(current.GatewayID || ''));
@@ -131,6 +149,11 @@ export async function updateIntegrationDeviceProfile({
     locations: tables.ClienteUbicaciones || [],
     equipmentLocations: tables.ClienteUbicacionesEquipo || [],
   });
+  const selectedCredentialId = resolveCameraCredential({
+    clientId,
+    credentialId,
+    credentials: tables.CredencialesClientes || [],
+  });
   const operationalName = text(name, 250);
   const updated = await updateRow(DEVICES_SHEET, current.DispositivoIntegracionID, {
     NombreOperativo: operationalName,
@@ -138,6 +161,7 @@ export async function updateIntegrationDeviceProfile({
     UbicacionCliente: selection.locationName,
     UbicacionEquipoID: selection.equipmentLocationId,
     UbicacionEquipo: selection.equipmentLocationName,
+    CredencialCamaraID: selectedCredentialId,
     FechaActualizacion: nowIso(),
   });
 
@@ -148,6 +172,8 @@ export async function updateIntegrationDeviceProfile({
     UbicacionCliente: selection.locationName,
     UbicacionEquipoID: selection.equipmentLocationId,
     UbicacionEquipo: selection.equipmentLocationName,
+    CredencialCamaraID: selectedCredentialId,
+    cameraCredentialConfigured: Boolean(selectedCredentialId),
     displayName: operationalName || current.NombreDetectado || '',
     updatedBy: actor,
   };

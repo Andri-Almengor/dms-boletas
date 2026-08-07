@@ -14,6 +14,7 @@ import {
   updateIntegrationDevicesLocation,
 } from '../../services/integrationGatewayApi';
 import { MODULE_ROUTES, normalizeItems, pick, requestAvailable } from '../../services/moduleApi';
+import { getPasswordVaultDashboard } from '../../services/passwordVault';
 
 const EMPTY_OVERVIEW = Object.freeze({
   gateways: [],
@@ -84,6 +85,20 @@ function relationEquipment(row) {
   } : null;
 }
 
+function credentialOption(row) {
+  const id = String(row?.id || '');
+  if (!id || row?.active === false || !row?.hasPassword) return null;
+  const category = String(row.categoryName || 'Sin categoría');
+  const name = String(row.name || 'Credencial');
+  const username = String(row.username || 'sin usuario');
+  const url = String(row.url || '').trim();
+  return {
+    id,
+    label: `${category} · ${name} · ${username}`,
+    url,
+  };
+}
+
 function folderKey(device) {
   const equipmentId = String(device?.UbicacionEquipoID || '').trim();
   const locationId = String(device?.UbicacionClienteID || '').trim();
@@ -132,7 +147,7 @@ export default function IntegrationsPage() {
   const [modalError, setModalError] = useState('');
   const [revealedTokens, setRevealedTokens] = useState({});
   const [editingDevice, setEditingDevice] = useState(null);
-  const [deviceRelations, setDeviceRelations] = useState({ locations: [], equipment: [] });
+  const [deviceRelations, setDeviceRelations] = useState({ locations: [], equipment: [], credentials: [] });
   const [deviceModalError, setDeviceModalError] = useState('');
   const [relationsLoading, setRelationsLoading] = useState(false);
   const [selectedDeviceIds, setSelectedDeviceIds] = useState(() => new Set());
@@ -374,10 +389,14 @@ export default function IntegrationsPage() {
   }
 
   async function relationsForClient(clientId) {
-    const relations = await fetchClientRelations({ clientId, sessionToken });
+    const [relations, vault] = await Promise.all([
+      fetchClientRelations({ clientId, sessionToken }),
+      getPasswordVaultDashboard({ clientId }, sessionToken).catch(() => ({ credentials: [] })),
+    ]);
     return {
       locations: (relations.locations || []).map(relationLocation).filter(Boolean),
       equipment: (relations.equipment || []).map(relationEquipment).filter(Boolean),
+      credentials: (vault.credentials || []).map(credentialOption).filter(Boolean),
     };
   }
 
@@ -385,13 +404,14 @@ export default function IntegrationsPage() {
     if (working) return;
     const gateway = gatewayById.get(String(device.GatewayID || '')) || {};
     setDeviceModalError('');
-    setDeviceRelations({ locations: [], equipment: [] });
+    setDeviceRelations({ locations: [], equipment: [], credentials: [] });
     setEditingDevice({
       device,
       gateway,
       name: device.NombreOperativo || device.NombreDetectado || '',
       locationId: String(device.UbicacionClienteID || ''),
       equipmentLocationId: String(device.UbicacionEquipoID || ''),
+      credentialId: String(device.CredencialCamaraID || ''),
     });
     if (!gateway.ClienteID) return;
     setRelationsLoading(true);
@@ -416,9 +436,10 @@ export default function IntegrationsPage() {
         name: editingDevice.name.trim(),
         locationId: editingDevice.locationId,
         equipmentLocationId: editingDevice.equipmentLocationId,
+        credentialId: editingDevice.credentialId,
       }, sessionToken);
       setEditingDevice(null);
-      setNotice('Cámara actualizada. El nombre y la ubicación se conservarán en futuras sincronizaciones.');
+      setNotice('Cámara actualizada. Nombre, ubicación y credencial asignada se conservarán en futuras sincronizaciones.');
       await load({ silent: true });
     } catch (updateError) {
       setDeviceModalError(updateError.message || 'No se pudo actualizar la cámara.');
@@ -634,10 +655,12 @@ export default function IntegrationsPage() {
         <label className="field-group"><span className="field-label">Nombre operativo</span><input className="form-control" value={editingDevice.name} onChange={(event) => setEditingDevice((current) => ({ ...current, name: event.target.value }))} maxLength={250} placeholder={editingDevice.device.NombreDetectado || 'Nombre de la cámara'} /></label>
         <div className="integration-detected-name-note"><Icon name="sensors" /><span>Nombre detectado: <strong>{editingDevice.device.NombreDetectado || 'Sin nombre detectado'}</strong>. Este dato técnico no se modifica.</span></div>
         {editingDevice.gateway.ClienteID ? <>
+          <label className="field-group"><span className="field-label">Credencial de la cámara</span><select className="form-control" value={editingDevice.credentialId} disabled={relationsLoading} onChange={(event) => setEditingDevice((current) => ({ ...current, credentialId: event.target.value }))}><option value="">Sin credencial asignada</option>{deviceRelations.credentials.map((item) => <option key={item.id} value={item.id}>{item.label}</option>)}</select></label>
+          <div className="integration-detected-name-note"><Icon name="shield_lock" /><span>El gateway utilizará únicamente la credencial seleccionada. Si la cámara la rechaza, no probará otras credenciales y activará un período de enfriamiento. <Link to={`/credenciales?clientId=${encodeURIComponent(editingDevice.gateway.ClienteID)}`}>Administrar credenciales</Link>.</span></div>
           <label className="field-group"><span className="field-label">Ubicación del cliente</span><select className="form-control" value={editingDevice.locationId} disabled={relationsLoading} onChange={(event) => setEditingDevice((current) => ({ ...current, locationId: event.target.value, equipmentLocationId: '' }))}><option value="">Sin ubicación asignada</option>{deviceRelations.locations.map((item) => <option key={item.id} value={item.id}>{item.name}</option>)}</select></label>
           <label className="field-group"><span className="field-label">Ubicación del equipo</span><select className="form-control" value={editingDevice.equipmentLocationId} disabled={relationsLoading || !editingDevice.locationId} onChange={(event) => setEditingDevice((current) => ({ ...current, equipmentLocationId: event.target.value }))}><option value="">Sin ubicación de equipo</option>{equipmentOptions.map((item) => <option key={item.id} value={item.id}>{item.name}</option>)}</select></label>
-          {relationsLoading && <div className="state-card state-card--loading integration-relations-loading"><Icon name="progress_activity" /> Cargando ubicaciones...</div>}
-        </> : <div className="alert alert--warning"><Icon name="info" /><span>Este gateway no tiene cliente relacionado. Para asignar una ubicación primero debe estar asociado a un cliente.</span></div>}
+          {relationsLoading && <div className="state-card state-card--loading integration-relations-loading"><Icon name="progress_activity" /> Cargando ubicaciones y credenciales...</div>}
+        </> : <div className="alert alert--warning"><Icon name="info" /><span>Este gateway no tiene cliente relacionado. Para asignar una ubicación o credencial primero debe estar asociado a un cliente.</span></div>}
       </>}
     </InlineCreateModal>
 

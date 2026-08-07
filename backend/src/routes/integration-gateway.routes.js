@@ -7,6 +7,11 @@ import {
   updateIntegrationDeviceProfile,
   updateIntegrationDevicesLocation,
 } from '../services/integration-device-admin.service.js';
+import { buildCameraExecutionEnvelope, isCameraIntegrationCommand } from '../services/integration-camera-execution.service.js';
+import {
+  readIntegrationGatewaySnapshot,
+  registerIntegrationGatewaySnapshot,
+} from '../services/integration-gateway-snapshot.service.js';
 import {
   backfillIntegrationGatewayToken,
   revealIntegrationGatewayToken,
@@ -105,6 +110,20 @@ function route(handler) {
 }
 
 export const integrationGatewayRouter = express.Router();
+
+integrationGatewayRouter.get('/snapshots/:snapshotId', (req, res) => {
+  const snapshot = readIntegrationGatewaySnapshot(req.params.snapshotId, req.query?.access);
+  if (!snapshot) {
+    res.setHeader('Cache-Control', 'no-store');
+    res.status(404).json({ ok: false, error: { code: 'SNAPSHOT_NOT_FOUND', message: 'La captura expiró o no es válida.' } });
+    return;
+  }
+  res.setHeader('Cache-Control', 'no-store, private, max-age=0');
+  res.setHeader('Content-Type', snapshot.mimeType);
+  res.setHeader('Content-Length', String(snapshot.buffer.length));
+  res.setHeader('Content-Disposition', 'inline');
+  res.send(snapshot.buffer);
+});
 
 integrationGatewayRouter.get('/admin/overview', route(async (req) => {
   await requireAdmin(req);
@@ -221,6 +240,7 @@ integrationGatewayRouter.post('/admin/devices/profile', route(async (req) => {
     name: req.body?.name,
     locationId: req.body?.locationId,
     equipmentLocationId: req.body?.equipmentLocationId,
+    credentialId: req.body?.credentialId,
     actor: auth.user.UsuarioID,
   });
   await audit(
@@ -234,6 +254,7 @@ integrationGatewayRouter.post('/admin/devices/profile', route(async (req) => {
       NombreOperativo: result.NombreOperativo,
       UbicacionClienteID: result.UbicacionClienteID,
       UbicacionEquipoID: result.UbicacionEquipoID,
+      CredencialCamaraAsignada: Boolean(result.CredencialCamaraID),
     },
   );
   return result;
@@ -277,7 +298,31 @@ integrationGatewayRouter.post('/inventory', route(async (req) => {
 
 integrationGatewayRouter.post('/commands/poll', route(async (req) => {
   const gateway = await requireGateway(req);
-  return pollIntegrationCommands(gateway);
+  const commands = await pollIntegrationCommands(gateway);
+  return Promise.all((commands || []).map(async (command) => {
+    if (!isCameraIntegrationCommand(command.Tipo)) return command;
+    try {
+      return {
+        ...command,
+        execution: await buildCameraExecutionEnvelope(gateway, command),
+      };
+    } catch (error) {
+      // No se entrega ningún secreto cuando la preparación falla. El agente
+      // marca el comando como fallido sin intentar credenciales alternativas.
+      return {
+        ...command,
+        executionError: {
+          code: error?.code || 'CAMERA_EXECUTION_PREPARE_FAILED',
+          message: error?.message || 'No fue posible preparar la cámara para la acción.',
+        },
+      };
+    }
+  }));
+}));
+
+integrationGatewayRouter.post('/snapshots', route(async (req) => {
+  const gateway = await requireGateway(req);
+  return registerIntegrationGatewaySnapshot(gateway, req.body || {});
 }));
 
 integrationGatewayRouter.post('/commands/result', route(async (req) => {
