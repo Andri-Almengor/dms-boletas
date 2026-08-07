@@ -1,9 +1,32 @@
+import { existsSync } from 'node:fs';
 import os from 'node:os';
-import process from 'node:process';
+import path from 'node:path';
+import process, { loadEnvFile } from 'node:process';
 import { SimulatedAdapter } from './adapters/simulated.adapter.js';
 import { GatewayClient } from './gateway-client.js';
 
 const VERSION = '0.1.0';
+const envPath = path.resolve(process.cwd(), '.env');
+
+if (existsSync(envPath)) {
+  try {
+    loadEnvFile(envPath);
+  } catch (error) {
+    console.error(`No fue posible leer ${envPath}: ${error?.message || 'archivo inválido'}`);
+    process.exit(1);
+  }
+}
+
+function requiredEnvironment(name) {
+  const value = String(process.env[name] || '').trim();
+  if (!value) {
+    throw new Error(
+      `Falta ${name}. Copie .env.example como .env y complete la URL, el Gateway ID y el token.`,
+    );
+  }
+  return value;
+}
+
 const adapterName = String(process.env.DMS_GATEWAY_ADAPTER || 'simulated').trim().toLowerCase();
 if (adapterName !== 'simulated') {
   throw new Error('En esta primera fase solo está disponible DMS_GATEWAY_ADAPTER=simulated.');
@@ -14,11 +37,19 @@ const pollMs = Math.max(5_000, Number(process.env.DMS_GATEWAY_POLL_MS || 10_000)
 const adapter = new SimulatedAdapter({
   deviceCount: process.env.DMS_SIMULATED_DEVICE_COUNT,
 });
-const client = new GatewayClient({
-  baseUrl: process.env.DMS_GATEWAY_URL,
-  gatewayId: process.env.DMS_GATEWAY_ID,
-  token: process.env.DMS_GATEWAY_TOKEN,
-});
+
+let client;
+try {
+  client = new GatewayClient({
+    baseUrl: requiredEnvironment('DMS_GATEWAY_URL'),
+    gatewayId: requiredEnvironment('DMS_GATEWAY_ID'),
+    token: requiredEnvironment('DMS_GATEWAY_TOKEN'),
+  });
+} catch (error) {
+  console.error(`Configuración del agente incompleta: ${error?.message || 'revise el archivo .env'}`);
+  console.error(`Archivo esperado: ${envPath}`);
+  process.exit(1);
+}
 
 let stopping = false;
 let polling = false;

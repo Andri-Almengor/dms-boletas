@@ -16,22 +16,43 @@ Agente local DMS
 
 El agente nunca abre un puerto entrante en la institución. Todas las solicitudes se originan desde el equipo local hacia Render.
 
-## Preparación
+## Preparación local en Windows
 
 1. Desde DMS-Boletas, un administrador crea un gateway.
 2. La aplicación muestra un `GatewayID` y un token una sola vez.
-3. En el equipo local, defina las variables de `.env.example` en el entorno del sistema o servicio.
-4. Ejecute:
+3. Abra CMD dentro de `gateway-agent`.
+4. Cree el archivo local de configuración:
 
-```bash
+```bat
+copy .env.example .env
+notepad .env
+```
+
+5. Reemplace los tres valores obligatorios:
+
+```env
+DMS_GATEWAY_URL=https://su-servicio.onrender.com
+DMS_GATEWAY_ID=gateway-entregado-por-la-aplicacion
+DMS_GATEWAY_TOKEN=token-mostrado-una-sola-vez
+```
+
+6. Inicie el agente:
+
+```bat
 npm start
 ```
 
-Node.js no carga archivos `.env` automáticamente. En producción configure las variables desde el servicio de Windows, systemd, Docker o el administrador de procesos elegido.
+Desde la versión 0.1.0 el agente carga automáticamente `gateway-agent/.env` mediante la función nativa de Node.js. Las variables definidas directamente por Windows o por un servicio siguen teniendo prioridad sobre el archivo local.
+
+El archivo `.env` está excluido de Git y no debe compartirse ni subirse al repositorio.
+
+## Ejecución como servicio
+
+En producción las mismas variables pueden configurarse desde un servicio de Windows, systemd, Docker o el administrador de procesos elegido. El archivo `.env` es opcional cuando todas las variables ya existen en el entorno del proceso.
 
 ## Variables
 
-- `DMS_GATEWAY_URL`: URL pública de Render, sin `/api/action`.
+- `DMS_GATEWAY_URL`: URL pública de Render, sin `/api/action` ni `/api/integration-gateway`.
 - `DMS_GATEWAY_ID`: identificador entregado por DMS-Boletas.
 - `DMS_GATEWAY_TOKEN`: token mostrado una sola vez al provisionar.
 - `DMS_GATEWAY_NAME`: nombre descriptivo de la sede.
@@ -39,6 +60,10 @@ Node.js no carga archivos `.env` automáticamente. En producción configure las 
 - `DMS_GATEWAY_HEARTBEAT_MS`: intervalo de heartbeat, mínimo 10 segundos.
 - `DMS_GATEWAY_POLL_MS`: intervalo para consultar comandos, mínimo 5 segundos.
 - `DMS_SIMULATED_DEVICE_COUNT`: entre 1 y 25 cámaras virtuales.
+
+## Errores de configuración
+
+Si falta una variable, el agente ahora muestra cuál valor debe completarse y la ubicación exacta esperada del archivo `.env`. Una URL de Render válida debe comenzar con `https://`.
 
 ## Contrato para adaptadores futuros
 
