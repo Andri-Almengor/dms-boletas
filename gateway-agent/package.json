@@ -1,6 +1,6 @@
 {
   "name": "dms-integration-gateway-agent",
-  "version": "0.3.0",
+  "version": "0.4.0",
   "private": true,
   "type": "module",
   "engines": {
@@ -17,6 +17,6 @@
     "service:restart": "powershell -NoProfile -ExecutionPolicy Bypass -File windows/service.ps1 -Action restart",
     "service:logs": "powershell -NoProfile -ExecutionPolicy Bypass -File windows/service.ps1 -Action logs",
     "service:uninstall": "powershell -NoProfile -ExecutionPolicy Bypass -File windows/uninstall-service.ps1",
-    "check": "node --check src/index.js && node --check src/gateway-client.js && node --check src/adapters/adapter-factory.js && node --check src/adapters/simulated.adapter.js && node --check src/adapters/network-discovery.adapter.js && node --check src/adapters/milestone.adapter.js"
+    "check": "node --check src/index.js && node --check src/gateway-client.js && node --check src/adapters/adapter-factory.js && node --check src/adapters/simulated.adapter.js && node --check src/adapters/network-targets.js && node --check src/adapters/network-discovery-configurable.adapter.js && node --check src/adapters/milestone.adapter.js"
   }
 }
