@@ -1,6 +1,7 @@
 import React, { useEffect, useState } from 'react';
 import { Link, useNavigate } from 'react-router-dom';
 import { useAuth } from '../AuthContext';
+import WeeklyBackupCard from '../components/admin/WeeklyBackupCard';
 import Icon from '../components/common/Icon';
 import InstallAppCard from '../components/pwa/InstallAppCard';
 import useOfflineMode from '../hooks/useOfflineMode';
@@ -222,6 +223,7 @@ export default function MorePage() {
             {canViewCatalogs && <MenuRow to="/catalogos/preguntas-mantenimiento" icon="rule" label="Preguntas de mantenimiento" note="Preguntas Sí/No relacionadas con cada tipo de dispositivo" />}
             <MenuRow to="/cambiar-contrasena" icon="lock_reset" label="Cambiar contraseña" note="Seguridad de la cuenta" />
           </div>
+          {isAdmin && <WeeklyBackupCard />}
         </section>
 
         <section className="menu-section more-page__section more-page__section--session">
