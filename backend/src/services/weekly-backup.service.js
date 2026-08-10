@@ -1,7 +1,10 @@
 import { env } from '../config/env.js';
-import { appendRow, readTable, updateRow } from '../infra/sheets.repository.js';
+import {
+  appendRows,
+  readTable,
+  updateRows,
+} from '../infra/sheets.repository.js';
 import { copyDriveFile, createFolder, getDriveFile } from '../infra/drive.repository.js';
-import { getConfig } from '../modules/config.module.js';
 
 const BACKUP_KEYS = Object.freeze({
   enabled: 'BACKUP_WEEKLY_ENABLED',
@@ -73,16 +76,18 @@ function backupSettingsFromConfig(config = {}) {
 
 async function upsertConfigEntries(entries = {}) {
   const rows = await readTable('Configuracion', { force: true });
-  const existingKeys = new Set(rows.map((row) => String(row.Clave || '')).filter(Boolean));
+  const existing = new Map(rows.map((row) => [String(row.Clave || ''), row]).filter(([key]) => key));
+  const updates = [];
+  const inserts = [];
+
   for (const [key, rawValue] of Object.entries(entries)) {
     const value = rawValue === undefined || rawValue === null ? '' : String(rawValue);
-    if (existingKeys.has(key)) {
-      await updateRow('Configuracion', key, { Valor: value });
-    } else {
-      await appendRow('Configuracion', { Clave: key, Valor: value });
-      existingKeys.add(key);
-    }
+    if (existing.has(key)) updates.push({ idValue: key, patch: { Valor: value } });
+    else inserts.push({ Clave: key, Valor: value });
   }
+
+  if (updates.length) await updateRows('Configuracion', updates, 'Clave');
+  if (inserts.length) await appendRows('Configuracion', inserts);
 }
 
 function costaRicaParts(now = new Date(), timeZone = DEFAULT_TIMEZONE) {
@@ -147,12 +152,14 @@ async function ensureBackupFolder(settings) {
   if (settings.folderId) {
     try {
       const existing = await getDriveFile(settings.folderId);
-      if (!existing.trashed) return existing;
+      if (!existing.trashed && existing.mimeType === 'application/vnd.google-apps.folder') return existing;
     } catch {
       // Si la carpeta configurada ya no existe, se recrea bajo la raíz actual.
     }
   }
-  const config = await getConfig();
+
+  const rows = await readTable('Configuracion');
+  const config = configMap(rows);
   const folder = await createFolder('Respaldos DMS Boletas', clean(config.ROOT_FOLDER_ID, 300));
   const folderUrl = folder.webViewLink || `https://drive.google.com/drive/folders/${encodeURIComponent(folder.id)}`;
   await upsertConfigEntries({
