@@ -5,23 +5,93 @@ import {
   notificationEmailSettingsForClient,
   updateNotificationEmailSettings,
 } from '../services/notification-email-settings.service.js';
+import {
+  createWeeklyBackup,
+  getWeeklyBackupStatus,
+  updateWeeklyBackupSettings,
+} from '../services/weekly-backup.service.js';
 import { audit } from '../services/audit.service.js';
 
 const DEFAULT_TICKET_TEMPLATE_ID = '1QsEaLN8RL5Ry_EBZvBeKoWo6NHZHNmKHckAWT85fhBE';
 const SENSITIVE_KEY = /(WEBHOOK|SECRET|PASSWORD|TOKEN|PRIVATE|API_KEY)/i;
 const SENSITIVE_VALUE = /chat\.googleapis\.com|-----BEGIN [A-Z ]*PRIVATE KEY-----/i;
 const NOTIFICATION_SECTION = 'NOTIFICATION_EMAILS';
+const BACKUP_SECTION = 'BACKUPS';
 
 function clean(value, maxLength = 200) {
   return String(value ?? '').trim().slice(0, maxLength);
 }
 
-function canManageNotificationSettings(ctx = {}) {
+function canManageAdminSettings(ctx = {}) {
   return Array.isArray(ctx.permissions) && ctx.permissions.includes('USUARIOS_GESTIONAR');
 }
 
+function requestedSection(payload = {}) {
+  return clean(payload.section || payload.seccion || payload.configSection, 80).toUpperCase();
+}
+
 function requestedNotificationSection(payload = {}) {
-  return clean(payload.section || payload.seccion || payload.configSection, 80).toUpperCase() === NOTIFICATION_SECTION;
+  return requestedSection(payload) === NOTIFICATION_SECTION;
+}
+
+function requestedBackupSection(payload = {}) {
+  return requestedSection(payload) === BACKUP_SECTION;
+}
+
+async function handleBackupSection(ctx, payload) {
+  if (!canManageAdminSettings(ctx)) {
+    throw forbidden('Solo un administrador puede consultar o modificar las copias de respaldo.');
+  }
+
+  const operation = clean(payload.operation || payload.operacion || 'GET', 20).toUpperCase();
+  if (['UPDATE', 'SAVE', 'GUARDAR'].includes(operation)) {
+    const before = await getWeeklyBackupStatus();
+    const after = await updateWeeklyBackupSettings({
+      enabled: payload.enabled ?? payload.activo,
+      day: payload.day ?? payload.dia,
+      hour: payload.hour ?? payload.hora,
+    });
+    await audit(
+      ctx,
+      'ACTUALIZAR_RESPALDO_SEMANAL',
+      'Configuracion',
+      BACKUP_SECTION,
+      before,
+      after,
+    ).catch(() => {});
+    return { section: BACKUP_SECTION, settings: after, updated: true };
+  }
+
+  if (['CREATE', 'BACKUP', 'RESPALDAR', 'CREAR'].includes(operation)) {
+    const backup = await createWeeklyBackup({
+      actor: ctx.user?.UsuarioID || ctx.user?.Correo || 'SYSTEM',
+    });
+    await audit(
+      ctx,
+      'CREAR_RESPALDO_MANUAL',
+      'Configuracion',
+      BACKUP_SECTION,
+      null,
+      {
+        fileId: backup.fileId,
+        fileName: backup.fileName,
+        createdAt: backup.createdAt,
+        slot: backup.slot,
+      },
+    ).catch(() => {});
+    return {
+      section: BACKUP_SECTION,
+      settings: await getWeeklyBackupStatus(),
+      backup,
+      created: true,
+    };
+  }
+
+  return {
+    section: BACKUP_SECTION,
+    settings: await getWeeklyBackupStatus(),
+    updated: false,
+  };
 }
 
 export async function getConfig() {
@@ -38,8 +108,10 @@ export async function getConfig() {
 
 export async function getClientConfig(ctx = {}) {
   const payload = ctx?.payload || {};
+  if (requestedBackupSection(payload)) return handleBackupSection(ctx, payload);
+
   if (requestedNotificationSection(payload)) {
-    if (!canManageNotificationSettings(ctx)) {
+    if (!canManageAdminSettings(ctx)) {
       throw forbidden('Solo un administrador puede consultar o modificar los destinatarios de correo.');
     }
     const operation = clean(payload.operation || payload.operacion || 'GET', 20).toUpperCase();
