@@ -14,6 +14,7 @@ import { audit } from '../services/audit.service.js';
 
 const DEFAULT_TICKET_TEMPLATE_ID = '1QsEaLN8RL5Ry_EBZvBeKoWo6NHZHNmKHckAWT85fhBE';
 const SENSITIVE_KEY = /(WEBHOOK|SECRET|PASSWORD|TOKEN|PRIVATE|API_KEY)/i;
+const ADMIN_ONLY_KEY = /^BACKUP_/i;
 const SENSITIVE_VALUE = /chat\.googleapis\.com|-----BEGIN [A-Z ]*PRIVATE KEY-----/i;
 const NOTIFICATION_SECTION = 'NOTIFICATION_EMAILS';
 const BACKUP_SECTION = 'BACKUPS';
@@ -142,6 +143,8 @@ export async function getClientConfig(ctx = {}) {
 
   const config = await getConfig();
   return Object.fromEntries(Object.entries(config).filter(([key, value]) => (
-    !SENSITIVE_KEY.test(String(key)) && !SENSITIVE_VALUE.test(String(value || ''))
+    !SENSITIVE_KEY.test(String(key))
+    && !ADMIN_ONLY_KEY.test(String(key))
+    && !SENSITIVE_VALUE.test(String(value || ''))
   )));
 }
