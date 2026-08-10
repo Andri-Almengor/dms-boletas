@@ -12,6 +12,10 @@ import {
   startMaintenanceProgressScheduler,
   stopMaintenanceProgressScheduler,
 } from './services/maintenance-progress-chat.service.js';
+import {
+  startWeeklyBackupScheduler,
+  stopWeeklyBackupScheduler,
+} from './services/weekly-backup.service.js';
 
 function mb(value) {
   return Math.round((Number(value || 0) / 1024 / 1024) * 10) / 10;
@@ -91,6 +95,7 @@ server.listen(env.port, '0.0.0.0', () => {
   }
 
   startMaintenanceProgressScheduler();
+  startWeeklyBackupScheduler();
 
   // Una sola lectura batch prepara autenticación, permisos y catálogos antes
   // de que varios técnicos abran la aplicación al mismo tiempo después de un
@@ -127,6 +132,7 @@ function shutdown(signal) {
   shuttingDown = true;
   console.log(`${signal}: cerrando servidor...`);
   stopMaintenanceProgressScheduler();
+  stopWeeklyBackupScheduler();
 
   server.close(async () => {
     await flushAuditQueue().catch(() => {});
