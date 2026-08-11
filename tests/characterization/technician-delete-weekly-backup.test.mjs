@@ -51,6 +51,7 @@ test('el selector de técnicos muestra los nombres también en la vista de escri
   assert.match(selector, /onFocus=\{\(\) => setOptionsOpen\(true\)\}/);
   assert.match(selector, /item\.label/);
   assert.match(desktopCss, /\.technician-select\.is-options-open \.technician-options/);
+  assert.match(desktopCss, /\.technician-select__search-input\s*\{[^}]*padding-right:\s*48px/s);
   assert.match(editor, /Técnicos que realizaron este trabajo/);
   assert.match(editor, /TechnicianMultiSelect/);
 });
