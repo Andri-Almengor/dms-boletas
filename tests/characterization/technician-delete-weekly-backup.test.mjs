@@ -40,6 +40,21 @@ test('los técnicos pueden eliminar dispositivos solo mientras el mantenimiento 
   assert.match(bridge, /Eliminar dispositivo/);
 });
 
+test('el selector de técnicos muestra los nombres también en la vista de escritorio', () => {
+  const selector = source('src/components/forms/TechnicianMultiSelect.jsx');
+  const desktopCss = source('src/styles/maintenance-device-desktop-fixes.css');
+  const editor = source('src/components/maintenance/MaintenanceDeviceEditor.jsx');
+
+  assert.match(selector, /useState\(true\)/);
+  assert.match(selector, /is-options-open/);
+  assert.match(selector, /technician-select__toggle/);
+  assert.match(selector, /onFocus=\{\(\) => setOptionsOpen\(true\)\}/);
+  assert.match(selector, /item\.label/);
+  assert.match(desktopCss, /\.technician-select\.is-options-open \.technician-options/);
+  assert.match(editor, /Técnicos que realizaron este trabajo/);
+  assert.match(editor, /TechnicianMultiSelect/);
+});
+
 test('el respaldo semanal copia el libro maestro completo y evita duplicar la misma semana', () => {
   const backups = source('backend/src/services/weekly-backup.service.js');
   const config = source('backend/src/modules/config.module.js');
