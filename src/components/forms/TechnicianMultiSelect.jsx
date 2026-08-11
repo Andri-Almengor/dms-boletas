@@ -11,6 +11,7 @@ function normalized(value) {
 
 export default function TechnicianMultiSelect({ users = [], selectedIds = [], onChange, disabled }) {
   const [search, setSearch] = useState('');
+  const [optionsOpen, setOptionsOpen] = useState(true);
   const selectedSet = useMemo(() => new Set(selectedIds.map(String)), [selectedIds]);
   const filtered = useMemo(() => {
     const term = normalized(search);
@@ -25,7 +26,7 @@ export default function TechnicianMultiSelect({ users = [], selectedIds = [], on
       : [...selectedIds.map(String), id]);
   }
 
-  return <div className="technician-select">
+  return <div className={`technician-select${optionsOpen ? ' is-options-open' : ''}`}>
     <label className="field-group">
       <span className="field-label">Buscar técnicos</span>
       <div className="technician-select__search">
@@ -34,12 +35,27 @@ export default function TechnicianMultiSelect({ users = [], selectedIds = [], on
           type="search"
           className="technician-select__search-input"
           value={search}
-          onChange={(event) => setSearch(event.target.value)}
+          onChange={(event) => {
+            setSearch(event.target.value);
+            setOptionsOpen(true);
+          }}
+          onFocus={() => setOptionsOpen(true)}
           placeholder="Buscar por nombre..."
           aria-label="Buscar técnicos por nombre o correo"
           autoComplete="off"
           disabled={disabled}
         />
+        <button
+          type="button"
+          className="technician-select__toggle"
+          onClick={() => setOptionsOpen((current) => !current)}
+          aria-expanded={optionsOpen}
+          aria-label={optionsOpen ? 'Ocultar lista de técnicos' : 'Mostrar lista de técnicos'}
+          title={optionsOpen ? 'Ocultar técnicos' : 'Mostrar técnicos'}
+          disabled={disabled}
+        >
+          <Icon name={optionsOpen ? 'expand_less' : 'expand_more'} />
+        </button>
       </div>
     </label>
 

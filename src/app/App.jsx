@@ -36,6 +36,7 @@ const MobileTimePickerBridge = lazy(() => import('../components/forms/MobileTime
 const TicketHoursCeilingBridge = lazy(() => import('../components/forms/TicketHoursCeilingBridge'));
 const TicketEvidenceMultiSelectBridge = lazy(() => import('../components/forms/TicketEvidenceMultiSelectBridge'));
 const ActionProcessingBridge = lazy(() => import('../components/feedback/ActionProcessingBridge'));
+const OperationalDeleteBridge = lazy(() => import('../components/operational/OperationalDeleteBridge'));
 
 const ChangePasswordPage = lazyPage(() => import('../pages/ChangePasswordPage'), routeStyles.admin);
 const HomePage = lazyPage(() => import('../pages/HomePage'), routeStyles.home);
@@ -139,6 +140,7 @@ export default function App() {
     <FormRecoveryRuntime />
     <OptionalOfflineRuntime />
     <Suspense fallback={null}><ActionProcessingBridge /></Suspense>
+    <Suspense fallback={null}><OperationalDeleteBridge /></Suspense>
     <RouteScopedBridges />
     <Suspense fallback={<RouteLoading />}>
       <Routes>
