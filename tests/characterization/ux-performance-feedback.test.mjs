@@ -65,13 +65,18 @@ test('las operaciones largas y el inventario móvil conservan retroalimentación
   assert.match(mobileStyles, /padding-bottom: calc\(var\(--bottom-nav-height\)/);
 });
 
-test('el selector de técnicos muestra la lista directamente y no renderiza una flecha sin función', () => {
+test('el selector de técnicos muestra la lista y usa un desplegable funcional en escritorio', () => {
   const contents = source('src/components/forms/TechnicianMultiSelect.jsx');
+  const desktopStyles = source('src/styles/maintenance-device-desktop-fixes.css');
   assert.match(contents, /type="search"/);
   assert.match(contents, /aria-label="Buscar técnicos por nombre o correo"/);
-  assert.doesNotMatch(contents, /technician-select__toggle/);
-  assert.doesNotMatch(contents, /expand_less|expand_more/);
-  assert.doesNotMatch(contents, /optionsOpen|setOptionsOpen/);
+  assert.match(contents, /const \[optionsOpen, setOptionsOpen\] = useState\(true\)/);
+  assert.match(contents, /technician-select__toggle/);
+  assert.match(contents, /is-options-open/);
+  assert.match(contents, /expand_less|expand_more/);
+  assert.match(contents, /onFocus=\{\(\) => setOptionsOpen\(true\)\}/);
+  assert.match(desktopStyles, /\.technician-select\.is-options-open \.technician-options/);
+  assert.match(desktopStyles, /@media \(max-width: 760px\)[\s\S]*\.technician-select__toggle\s*\{[\s\S]*display: none/);
 });
 
 test('el detalle limpia la evidencia y adapta la firma al modo oscuro', () => {
