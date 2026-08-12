@@ -37,6 +37,7 @@ export default function MaintenanceFinalizationCenter() {
   const [queueState, setQueueState] = useState({ operations: [] });
   const [allFinalizations, setAllFinalizations] = useState([]);
   const [working, setWorking] = useState(false);
+  const [workingRetry, setWorkingRetry] = useState(false);
   const [message, setMessage] = useState('');
   const [footerTarget, setFooterTarget] = useState(null);
 
@@ -124,11 +125,12 @@ export default function MaintenanceFinalizationCenter() {
   async function finalize({ retry = false } = {}) {
     if (!maintenanceId || working) return;
     const prompt = retry
-      ? '¿Reintentar la finalización desde el último paso confirmado?'
+      ? '¿Reintentar la finalización? La firma del cliente no es obligatoria y las boletas pueden generarse sin firma.'
       : deferredNeeded
-        ? '¿Guardar la finalización para ejecutarla después de sincronizar todos los cambios?'
-        : '¿Finalizar este mantenimiento?';
+        ? '¿Guardar la finalización para ejecutarla después de sincronizar todos los cambios? La firma es opcional.'
+        : '¿Finalizar este mantenimiento? Si no existe firma, las boletas y PDF se generarán sin firma.';
     if (!window.confirm(prompt)) return;
+    setWorkingRetry(retry);
     setWorking(true);
     setMessage('');
     try {
@@ -139,11 +141,10 @@ export default function MaintenanceFinalizationCenter() {
       await refresh();
     } catch (error) {
       setMessage(error?.message || 'No se pudo procesar la finalización.');
-      // El backend registra EstadoFinalizacion=ERROR. Se vuelve a leer de inmediato
-      // para que la interfaz ofrezca el reintento sin exigir recargar la página.
       await refresh();
     } finally {
       setWorking(false);
+      setWorkingRetry(false);
     }
   }
 
@@ -170,10 +171,9 @@ export default function MaintenanceFinalizationCenter() {
     (!maintenanceId && allFinalizations.length)
     || (maintenanceId && (working || view.active || message)),
   );
-  if (!showStatus) return footerButton;
 
   const statusMessage = working && !view.active
-    ? 'Iniciando la finalización y preparando las boletas automáticas...'
+    ? 'Preparando las boletas automáticas. La firma no es obligatoria.'
     : message || view.error || (view.blocked
       ? 'Resuelva primero el conflicto de sincronización.'
       : view.active
@@ -181,12 +181,33 @@ export default function MaintenanceFinalizationCenter() {
         : '');
   const displayProgress = view.active ? view.progress : working ? 5 : 0;
   const displayLabel = working && !view.active
-    ? 'Iniciando finalización'
+    ? workingRetry ? 'Reintentando finalización' : 'Iniciando finalización'
     : view.active ? view.label : 'Estado de finalización';
+
+  const blockingOverlay = working && typeof document !== 'undefined'
+    ? createPortal(
+      <div className="maintenance-finalization-blocking" role="alert" aria-live="assertive" aria-busy="true">
+        <div className="maintenance-finalization-blocking__card">
+          <span className="maintenance-finalization-blocking__spinner"><Icon name="progress_activity" /></span>
+          <span className="maintenance-finalization-blocking__eyebrow">Finalización de mantenimiento</span>
+          <h2>{workingRetry ? 'Reintentando finalización' : 'Finalizando mantenimiento'}</h2>
+          <p>{view.active ? view.label : 'Validando el mantenimiento y preparando las boletas automáticas...'}</p>
+          <div className="maintenance-finalization-blocking__progress" aria-label={`${Math.max(displayProgress, 5)}% completado`}>
+            <span style={{ width: `${Math.max(displayProgress, 5)}%` }} />
+          </div>
+          <small>No cierre la aplicación mientras se generan y envían las boletas. La firma del cliente es opcional.</small>
+        </div>
+      </div>,
+      document.body,
+    )
+    : null;
+
+  if (!showStatus) return <>{footerButton}{blockingOverlay}</>;
 
   return (
     <>
       {footerButton}
+      {blockingOverlay}
       <aside className={`maintenance-finalization-center${view.canRetry ? ' has-error' : ''}`} role="status" aria-live="polite">
         <div className="maintenance-finalization-center__heading">
           <span className="maintenance-finalization-center__icon"><Icon name={view.canRetry ? 'error' : view.completed ? 'task_alt' : 'pending_actions'} /></span>

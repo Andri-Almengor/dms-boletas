@@ -22,6 +22,19 @@ test('la firma es opcional para finalizar el mantenimiento', () => {
   assert.doesNotMatch(policy, /MAINTENANCE_SIGNATURE_REQUIRED/);
 });
 
+test('un guardián previo evita que la función antigua de firma sea alcanzada', () => {
+  const guard = source('backend/src/services/maintenance-unsigned-finalization-guard.patch.js');
+  const resume = source('backend/src/services/maintenance-finalization-resume.patch.js');
+
+  assert.match(guard, /if \(!maintenanceHasSignature\(maintenance\)\)/);
+  assert.match(guard, /return finalizeUnsigned\(ctx, id\)/);
+  assert.match(guard, /generateMaintenanceTickets\(ctx, id\)/);
+  assert.match(guard, /maintenanceReportAccessHandlers\.finalize\(ctx\)/);
+  assert.match(guard, /FirmaEstadoFinalizacion:\s*'OMITIDA'/);
+  assert.match(guard, /UltimoErrorFinalizacion:\s*''/);
+  assert.match(resume, /^import '\.\/maintenance-unsigned-finalization-guard\.patch\.js';\nimport '\.\/maintenance-optional-signature\.patch\.js';/m);
+});
+
 test('las boletas automáticas se finalizan y envían aunque el mantenimiento no tenga firma', () => {
   const delivery = source('backend/src/modules/ticket-delivery.module.js');
   const generation = source('backend/src/services/maintenance-ticket-generation.service.js');
@@ -49,7 +62,8 @@ test('el flujo firmado existente se conserva cuando hay firma', () => {
 test('la reanudación genera boletas con o sin firma y conserva los pasos idempotentes', () => {
   const resume = source('backend/src/services/maintenance-finalization-resume.patch.js');
 
-  assert.match(resume, /^import '\.\/maintenance-optional-signature\.patch\.js';/m);
+  assert.match(resume, /maintenance-unsigned-finalization-guard\.patch\.js/);
+  assert.match(resume, /maintenance-optional-signature\.patch\.js/);
   assert.match(resume, /tracker\.mark\('VALIDANDO'\)/);
   assert.match(resume, /tracker\.mark\('GENERANDO_BOLETAS'\)/);
   assert.match(resume, /mark\('ENTREGANDO'/);
@@ -67,6 +81,7 @@ test('la interfaz permite finalizar sin firma y usa una sola acción de cierre',
   assert.match(center, /devices > 0/);
   assert.match(center, /Finalizar mantenimiento/);
   assert.match(center, /Finalizar al sincronizar/);
+  assert.match(center, /Si no existe firma, las boletas y PDF se generarán sin firma/);
   assert.match(styles, /maintenance-detail-footer-actions > button\.button--primary:first-child/);
   assert.match(styles, /display:\s*none/);
   assert.match(domain, /label:\s*'Validando mantenimiento'/);
@@ -85,24 +100,41 @@ test('la finalización sin firma está disponible aunque el modo offline esté d
   assert.doesNotMatch(optionalOfflineBlock, /MaintenanceFinalizationCenter/);
 });
 
-test('un error anterior permite reintentar y muestra progreso desde el primer toque', () => {
+test('un error anterior de firma se convierte en reintento aunque el estado haya quedado inconsistente', () => {
   const center = source('src/components/offline/MaintenanceFinalizationCenter.jsx');
+  const domain = source('src/services/maintenanceFinalizationDomain.js');
 
+  assert.match(domain, /legacySignatureError/);
+  assert.match(domain, /debe firmar el mantenimiento general/);
+  assert.match(domain, /legacySignatureFailure[\s\S]*state = 'ERROR'/);
+  assert.match(domain, /Ahora puede reintentarse y finalizarse sin firma/);
+  assert.match(domain, /canRetry:[\s\S]*legacySignatureFailure/);
   assert.match(center, /\(!view\.active \|\| view\.canRetry\)/);
   assert.match(center, /onClick=\{\(\) => finalize\(\{ retry: retryFromError \}\)\}/);
   assert.match(center, /retryFromError \? 'Reintentar finalización'/);
   assert.match(center, /catch \(error\) \{[\s\S]*setMessage\([\s\S]*await refresh\(\);/);
-  assert.match(center, /maintenanceId && \(working \|\| view\.active \|\| message\)/);
-  assert.match(center, /working && !view\.active[\s\S]*'Iniciando finalización'/);
-  assert.match(center, /\(working \|\| view\.active\) && !view\.completed/);
-  assert.match(center, /displayProgress = view\.active \? view\.progress : working \? 5 : 0/);
+});
+
+test('la pantalla de carga bloquea la interfaz desde el primer toque', () => {
+  const center = source('src/components/offline/MaintenanceFinalizationCenter.jsx');
+  const styles = source('src/components/offline/MaintenanceFinalizationCenter.css');
+
+  assert.match(center, /maintenance-finalization-blocking/);
+  assert.match(center, /aria-busy="true"/);
+  assert.match(center, /Finalizando mantenimiento/);
+  assert.match(center, /No cierre la aplicación mientras se generan y envían las boletas/);
+  assert.match(styles, /\.maintenance-finalization-blocking\s*\{[\s\S]*position:\s*fixed[\s\S]*inset:\s*0[\s\S]*z-index:\s*5000/);
+  assert.match(styles, /maintenance-finalization-spin/);
 });
 
 test('la omisión de firma queda registrada y no se presenta como firma incluida', () => {
   const policy = source('backend/src/services/maintenance-optional-signature.patch.js');
+  const guard = source('backend/src/services/maintenance-unsigned-finalization-guard.patch.js');
 
   assert.match(policy, /FirmaOmitidaAlFinalizar:\s*!included/);
   assert.match(policy, /Los PDF fueron creados sin firma del cliente/);
   assert.match(policy, /ticketGeneration:[\s\S]*signatureIncluded:\s*false/);
   assert.match(policy, /refreshedSignedReports:\s*\[\]/);
+  assert.match(guard, /FirmaOmitidaAlFinalizar:\s*true/);
+  assert.match(guard, /signatureStatus:\s*'OMITIDA'/);
 });
