@@ -85,6 +85,19 @@ test('la finalización sin firma está disponible aunque el modo offline esté d
   assert.doesNotMatch(optionalOfflineBlock, /MaintenanceFinalizationCenter/);
 });
 
+test('un error anterior permite reintentar y muestra progreso desde el primer toque', () => {
+  const center = source('src/components/offline/MaintenanceFinalizationCenter.jsx');
+
+  assert.match(center, /\(!view\.active \|\| view\.canRetry\)/);
+  assert.match(center, /onClick=\{\(\) => finalize\(\{ retry: retryFromError \}\)\}/);
+  assert.match(center, /retryFromError \? 'Reintentar finalización'/);
+  assert.match(center, /catch \(error\) \{[\s\S]*setMessage\([\s\S]*await refresh\(\);/);
+  assert.match(center, /maintenanceId && \(working \|\| view\.active \|\| message\)/);
+  assert.match(center, /working && !view\.active[\s\S]*'Iniciando finalización'/);
+  assert.match(center, /\(working \|\| view\.active\) && !view\.completed/);
+  assert.match(center, /displayProgress = view\.active \? view\.progress : working \? 5 : 0/);
+});
+
 test('la omisión de firma queda registrada y no se presenta como firma incluida', () => {
   const policy = source('backend/src/services/maintenance-optional-signature.patch.js');
 
