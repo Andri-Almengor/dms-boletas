@@ -1,3 +1,4 @@
+import './maintenance-unsigned-finalization-guard.patch.js';
 import './maintenance-optional-signature.patch.js';
 import { nowIso, pick } from '../core/utils.js';
 import { findById, updateRow } from '../infra/sheets.repository.js';
