@@ -13,6 +13,13 @@ function clean(value) {
   return String(value ?? '').trim();
 }
 
+function legacySignatureError(value) {
+  const text = clean(value).toLowerCase();
+  return text.includes('debe firmar el mantenimiento general')
+    || text.includes('mantenimiento general debe contar con la firma del cliente')
+    || text.includes('maintenance_signature_required');
+}
+
 export function maintenanceFinalizationDedupeKey(maintenanceId) {
   return `maintenanceFinalize:${clean(maintenanceId)}`;
 }
@@ -43,6 +50,8 @@ export function maintenanceFinalizationView(row = {}, operation = null) {
   const serverState = clean(row.EstadoFinalizacion).toUpperCase();
   let phaseId = clean(row.PasoFinalizacion).toUpperCase();
   let state = serverState;
+  const storedError = clean(operation?.lastError || row.UltimoErrorFinalizacion);
+  const legacySignatureFailure = legacySignatureError(storedError);
 
   if (operation) {
     if (!phaseId || ['PENDIENTE', 'ERROR', 'CONFLICT'].includes(operationStatus)) {
@@ -57,10 +66,17 @@ export function maintenanceFinalizationView(row = {}, operation = null) {
   if (clean(row.Estado).toUpperCase() === 'FINALIZADO') {
     state = 'COMPLETADO';
     phaseId = 'COMPLETADO';
+  } else if (legacySignatureFailure) {
+    // Los mantenimientos que fallaron con la política antigua de firma deben
+    // quedar recuperables aunque EstadoFinalizacion haya quedado EN_PROCESO.
+    state = 'ERROR';
+    phaseId = 'VALIDANDO';
   }
 
   const phase = finalizationPhase(phaseId || (state === 'COMPLETADO' ? 'COMPLETADO' : 'ESPERANDO_SINCRONIZACION'));
-  const error = clean(operation?.lastError || row.UltimoErrorFinalizacion);
+  const error = legacySignatureFailure
+    ? 'Este mantenimiento quedó detenido por la política anterior de firma. Ahora puede reintentarse y finalizarse sin firma.'
+    : storedError;
   const active = Boolean(operation)
     || ['PENDIENTE_SINCRONIZACION', 'EN_PROCESO', 'ERROR', 'BLOQUEADO'].includes(state);
 
@@ -71,8 +87,9 @@ export function maintenanceFinalizationView(row = {}, operation = null) {
     label: phase.label,
     progress: phase.progress,
     error,
-    canRetry: state === 'ERROR' || operationStatus === 'ERROR',
+    canRetry: state === 'ERROR' || operationStatus === 'ERROR' || legacySignatureFailure,
     blocked: state === 'BLOQUEADO' || operationStatus === 'CONFLICT',
     completed: state === 'COMPLETADO',
+    legacySignatureFailure,
   };
 }
