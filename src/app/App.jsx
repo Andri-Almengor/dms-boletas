@@ -121,6 +121,10 @@ function FormRecoveryRuntime() {
   return <Suspense fallback={null}><FormRecoveryManager /></Suspense>;
 }
 
+function MaintenanceFinalizationRuntime() {
+  return <Suspense fallback={null}><MaintenanceFinalizationCenter /></Suspense>;
+}
+
 function OptionalOfflineRuntime() {
   const [offlineEnabled] = useOfflineMode();
 
@@ -131,13 +135,13 @@ function OptionalOfflineRuntime() {
   if (!offlineEnabled) return null;
   return <Suspense fallback={null}>
     <ClientCatalogSyncBridge />
-    <MaintenanceFinalizationCenter />
   </Suspense>;
 }
 
 export default function App() {
   return <>
     <FormRecoveryRuntime />
+    <MaintenanceFinalizationRuntime />
     <OptionalOfflineRuntime />
     <Suspense fallback={null}><ActionProcessingBridge /></Suspense>
     <Suspense fallback={null}><OperationalDeleteBridge /></Suspense>
