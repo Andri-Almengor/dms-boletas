@@ -11,9 +11,6 @@
   box-shadow: 0 14px 36px rgba(15, 23, 42, 0.18);
 }
 
-/* El botón histórico continúa en el JSX antiguo, pero exigía firma. La acción
- * operativa se inserta en este mismo footer mediante un portal y no muestra
- * ninguna tarjeta de “Finalización disponible”. */
 .maintenance-detail-page .maintenance-detail-footer-actions > button.button--primary:first-child:not(.maintenance-finalize-footer-button) {
   display: none;
 }
@@ -53,15 +50,20 @@
   background: rgba(183, 19, 26, 0.1);
 }
 
-.maintenance-finalization-center__progress {
+.maintenance-finalization-center__progress,
+.maintenance-finalization-blocking__progress {
   height: 7px;
-  margin-top: 0.75rem;
   overflow: hidden;
   border-radius: 999px;
   background: rgba(100, 116, 139, 0.2);
 }
 
-.maintenance-finalization-center__progress span {
+.maintenance-finalization-center__progress {
+  margin-top: 0.75rem;
+}
+
+.maintenance-finalization-center__progress span,
+.maintenance-finalization-blocking__progress span {
   display: block;
   height: 100%;
   border-radius: inherit;
@@ -101,6 +103,91 @@
   opacity: 0.65;
 }
 
+.maintenance-finalization-blocking {
+  position: fixed;
+  inset: 0;
+  z-index: 5000;
+  display: grid;
+  place-items: center;
+  padding: 20px;
+  background: rgba(10, 10, 12, 0.76);
+  backdrop-filter: blur(8px);
+}
+
+.maintenance-finalization-blocking__card {
+  width: min(440px, 100%);
+  display: grid;
+  justify-items: center;
+  gap: 12px;
+  padding: 28px 24px;
+  border: 1px solid rgba(255, 105, 120, 0.35);
+  border-radius: 22px;
+  background: var(--surface, #fff);
+  color: var(--text-color, #111827);
+  box-shadow: 0 28px 80px rgba(0, 0, 0, 0.35);
+  text-align: center;
+}
+
+.maintenance-finalization-blocking__spinner {
+  width: 58px;
+  height: 58px;
+  display: grid;
+  place-items: center;
+  border-radius: 18px;
+  background: rgba(255, 102, 119, 0.14);
+  color: var(--primary, #b7131a);
+}
+
+.maintenance-finalization-blocking__spinner .material-symbols-outlined,
+.maintenance-finalization-blocking__spinner .material-icons,
+.maintenance-finalization-blocking__spinner .material-symbols-rounded {
+  font-size: 34px;
+  animation: maintenance-finalization-spin 0.9s linear infinite;
+}
+
+.maintenance-finalization-blocking__eyebrow {
+  color: var(--primary, #b7131a);
+  font-size: 0.75rem;
+  font-weight: 800;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+}
+
+.maintenance-finalization-blocking__card h2,
+.maintenance-finalization-blocking__card p,
+.maintenance-finalization-blocking__card small {
+  margin: 0;
+}
+
+.maintenance-finalization-blocking__card h2 {
+  font-size: 1.35rem;
+}
+
+.maintenance-finalization-blocking__card p {
+  color: var(--text-muted, #64748b);
+  line-height: 1.45;
+}
+
+.maintenance-finalization-blocking__card small {
+  color: var(--text-muted, #64748b);
+  line-height: 1.4;
+}
+
+.maintenance-finalization-blocking__progress {
+  width: 100%;
+  margin-top: 2px;
+}
+
+@keyframes maintenance-finalization-spin {
+  to { transform: rotate(360deg); }
+}
+
+[data-theme='dark'] .maintenance-finalization-blocking__card {
+  background: #211d1f;
+  color: #fff;
+  border-color: #5e4248;
+}
+
 @media (max-width: 640px) {
   .maintenance-finalization-center {
     right: 0.65rem;
@@ -112,5 +199,15 @@
   .maintenance-finalize-footer-button {
     width: 100%;
     justify-content: center;
+  }
+
+  .maintenance-finalization-blocking {
+    padding: 14px;
+  }
+
+  .maintenance-finalization-blocking__card {
+    width: 100%;
+    padding: 24px 18px max(24px, env(safe-area-inset-bottom));
+    border-radius: 20px;
   }
 }
