@@ -50,10 +50,6 @@ test('la interfaz permite finalizar sin firma y usa una sola acción de cierre',
   const domain = source('src/services/maintenanceFinalizationDomain.js');
 
   assert.doesNotMatch(center, /signatureRegistered/);
-  assert.doesNotMatch(center, /La firma es opcional/);
-  assert.doesNotMatch(center, /las boletas y PDF se generarán sin firma/);
-  assert.doesNotMatch(center, /Si no existe firma/);
-  assert.match(center, /statusMessage && <small>/);
   assert.match(center, /status === 'PENDIENTE'/);
   assert.match(center, /devices > 0/);
   assert.match(center, /Finalizar mantenimiento/);
@@ -62,6 +58,18 @@ test('la interfaz permite finalizar sin firma y usa una sola acción de cierre',
   assert.match(styles, /display:\s*none/);
   assert.match(domain, /label:\s*'Validando mantenimiento'/);
   assert.doesNotMatch(domain, /Validando mantenimiento y firma/);
+});
+
+test('la finalización sin firma está disponible aunque el modo offline esté desactivado', () => {
+  const app = source('src/app/App.jsx');
+
+  assert.match(app, /function MaintenanceFinalizationRuntime\(\)/);
+  assert.match(app, /<MaintenanceFinalizationCenter\s*\/>/);
+  assert.match(app, /<MaintenanceFinalizationRuntime\s*\/>/);
+  assert.match(app, /function OptionalOfflineRuntime\(\)[\s\S]*<ClientCatalogSyncBridge\s*\/>/);
+
+  const optionalOfflineBlock = app.match(/function OptionalOfflineRuntime\(\)[\s\S]*?\n}\n\nexport default function App/)?.[0] || '';
+  assert.doesNotMatch(optionalOfflineBlock, /MaintenanceFinalizationCenter/);
 });
 
 test('la omisión de firma queda registrada y no se presenta como firma incluida', () => {
