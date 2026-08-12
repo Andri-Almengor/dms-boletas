@@ -56,15 +56,15 @@ function sameWorkflowState(ticket = {}, expected = {}) {
     && clean(ticket.UltimoErrorNotificacion) === clean(expected.UltimoErrorNotificacion);
 }
 
-async function inheritMaintenanceSignature(ticket, actor) {
+async function inheritMaintenanceSignatureIfAvailable(ticket, actor) {
   const maintenanceId = clean(ticket?.OrigenMantenimientoID);
   if (!maintenanceId) return ticket;
 
   const maintenance = await findById('Mantenimiento', maintenanceId);
   if (!maintenanceHasSignature(maintenance)) {
-    throw badRequest(
-      'El mantenimiento general debe contar con la firma del cliente antes de finalizar sus boletas automáticas.',
-    );
+    // La firma del mantenimiento es opcional. Si no existe, la boleta automática
+    // continúa su finalización y el generador crea el PDF sin firma.
+    return ticket;
   }
 
   await synchronizeMaintenanceSignatureToTickets(
@@ -165,7 +165,7 @@ export const ticketDeliveryHandlers = {
     const requestedId = pick(ctx.payload, ['boletaUid', 'BoletaUID', 'id']);
     let requestedTicket = await findById('Boletas', requestedId);
     await ticketAccessHandlers.assertTicketAccess(ctx, requestedTicket, 'finalizar');
-    requestedTicket = await inheritMaintenanceSignature(
+    requestedTicket = await inheritMaintenanceSignatureIfAvailable(
       requestedTicket,
       ctx.user.UsuarioID,
     );
