@@ -22,8 +22,20 @@ test('la firma es opcional para finalizar el mantenimiento', () => {
   assert.doesNotMatch(policy, /MAINTENANCE_SIGNATURE_REQUIRED/);
 });
 
+test('las boletas automáticas se finalizan y envían aunque el mantenimiento no tenga firma', () => {
+  const delivery = source('backend/src/modules/ticket-delivery.module.js');
+  const generation = source('backend/src/services/maintenance-ticket-generation.service.js');
+
+  assert.match(delivery, /inheritMaintenanceSignatureIfAvailable/);
+  assert.match(delivery, /if \(!maintenanceHasSignature\(maintenance\)\) \{[\s\S]*return ticket;/);
+  assert.doesNotMatch(delivery, /mantenimiento general debe contar con la firma del cliente antes de finalizar sus boletas automáticas/i);
+  assert.match(delivery, /deliverTicket\(ctx, \{ ticketId: currentGroup\.rootId, testMode: false \}\)/);
+  assert.match(generation, /ticketDeliveryHandlers\.finalize\(systemContext\)/);
+});
+
 test('el flujo firmado existente se conserva cuando hay firma', () => {
   const policy = source('backend/src/services/maintenance-optional-signature.patch.js');
+  const delivery = source('backend/src/modules/ticket-delivery.module.js');
 
   assert.match(policy, /maintenanceHasSignature\(maintenance\)/);
   assert.match(policy, /const result = await originalFinalize\(ctx\)/);
@@ -31,6 +43,7 @@ test('el flujo firmado existente se conserva cuando hay firma', () => {
   assert.match(policy, /signatureStatus:\s*'INCLUIDA'/);
   assert.match(policy, /FINALIZAR_MANTENIMIENTO_CON_FIRMA/);
   assert.match(policy, /signedReportsPreserved:\s*true/);
+  assert.match(delivery, /synchronizeMaintenanceSignatureToTickets\(/);
 });
 
 test('la reanudación genera boletas con o sin firma y conserva los pasos idempotentes', () => {
