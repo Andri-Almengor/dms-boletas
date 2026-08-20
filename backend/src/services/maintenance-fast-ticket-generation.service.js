@@ -32,7 +32,10 @@ const EVIDENCE_ORIGIN_COLUMNS = [
 // Sheets admite 50.000 caracteres por celda. Se deja margen suficiente para
 // conversiones, compatibilidad y ediciones posteriores sin rozar el límite.
 export const MAINTENANCE_TICKET_SAFE_CELL_CHARS = 40_000;
-const DELIVERY_CONCURRENCY = 2;
+// El Apps Script de reportes usa un ScriptLock global durante la creación del
+// documento. Por eso los PDFs se mantienen secuenciales: la optimización se
+// concentra en eliminar Gemini del camino crítico y agrupar escrituras Sheets.
+const DELIVERY_CONCURRENCY = 1;
 const UPDATE_BATCH_ROWS = 40;
 const APPEND_BATCH_ROWS = 80;
 
@@ -78,19 +81,21 @@ function dateOnly(value, fallback = '') {
 
 export function fitMaintenanceTicketCell(value, max = MAINTENANCE_TICKET_SAFE_CELL_CHARS) {
   const text = String(value ?? '');
-  if (text.length <= max) return text;
+  const safeMax = Math.max(1, Number(max) || MAINTENANCE_TICKET_SAFE_CELL_CHARS);
+  if (text.length <= safeMax) return text;
   const suffix = '\n\n[Contenido resumido para compatibilidad con Google Sheets. Consulte el mantenimiento y la carpeta de evidencias para el detalle completo.]';
-  return `${text.slice(0, Math.max(0, max - suffix.length))}${suffix}`;
+  if (safeMax <= suffix.length) return text.slice(0, safeMax);
+  return `${text.slice(0, safeMax - suffix.length)}${suffix}`;
 }
 
 function technicianIdsFor(device, maintenance) {
   const direct = asArray(device.TecnicoIDsJSON || device.TecnicoIDs || device.tecnicoIds)
-    .map(clean)
+    .map((value) => clean(value))
     .filter(Boolean);
   if (direct.length) return [...new Set(direct)].sort();
 
   const maintenanceIds = asArray(maintenance.ResponsableIDsJSON || maintenance.ResponsableIDs)
-    .map(clean)
+    .map((value) => clean(value))
     .filter(Boolean);
   if (maintenanceIds.length) return [...new Set(maintenanceIds)].sort();
 
