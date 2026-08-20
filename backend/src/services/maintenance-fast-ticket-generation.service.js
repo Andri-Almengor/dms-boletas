@@ -32,9 +32,25 @@ const EVIDENCE_ORIGIN_COLUMNS = [
 // Sheets admite 50.000 caracteres por celda. Se deja margen suficiente para
 // conversiones, compatibilidad y ediciones posteriores sin rozar el límite.
 export const MAINTENANCE_TICKET_SAFE_CELL_CHARS = 40_000;
+
+// Una finalización grande se reparte en varias boletas del mismo día y grupo
+// técnico. Los límites se pueden ajustar por variables de entorno sin cambiar
+// el contrato del frontend ni la estructura de las hojas.
+function positiveEnvInteger(name, fallback, minimum = 1, maximum = 100_000) {
+  const parsed = Number.parseInt(String(process.env[name] ?? ''), 10);
+  if (!Number.isFinite(parsed)) return fallback;
+  return Math.min(maximum, Math.max(minimum, parsed));
+}
+
+export const MAINTENANCE_TICKET_SPLIT_LIMITS = Object.freeze({
+  maxDevices: positiveEnvInteger('MAINTENANCE_TICKET_MAX_DEVICES', 12, 1, 100),
+  maxEvidences: positiveEnvInteger('MAINTENANCE_TICKET_MAX_EVIDENCES', 18, 1, 100),
+  maxEstimatedTextChars: positiveEnvInteger('MAINTENANCE_TICKET_MAX_TEXT_CHARS', 24_000, 2_000, 40_000),
+});
+
 // El Apps Script de reportes usa un ScriptLock global durante la creación del
-// documento. Por eso los PDFs se mantienen secuenciales: la optimización se
-// concentra en eliminar Gemini del camino crítico y agrupar escrituras Sheets.
+// documento. Por eso los PDFs se mantienen secuenciales: ahora cada llamada
+// recibe una parte mucho más pequeña del mantenimiento.
 const DELIVERY_CONCURRENCY = 1;
 const UPDATE_BATCH_ROWS = 40;
 const APPEND_BATCH_ROWS = 80;
@@ -110,7 +126,110 @@ function workDateFor(device, maintenance) {
   );
 }
 
-function buildGroups(bundle) {
+function deviceTextWeight(device = {}) {
+  const relevant = [
+    device.NombreDispositivo,
+    device.Zona,
+    device.Categoria,
+    device.TipoDispositivo,
+    device.Fabricante,
+    device.Modelo,
+    device.Serie,
+    device.Funcionamiento,
+    device.EnUso,
+    device.Estado,
+    device.Observacion,
+    device.RespuestasJSON,
+  ];
+  // El informe genera narrativa adicional alrededor de cada dato. Se añade un
+  // margen fijo para aproximar ese texto sin tener que construir el PDF antes.
+  return Math.max(900, relevant.reduce((sum, value) => sum + String(value ?? '').length, 0) + 700);
+}
+
+function imagesByDevice(bundle) {
+  const map = new Map();
+  for (const image of bundle.images) {
+    const deviceId = String(image.DispositivoMantenimientoRef || '');
+    if (!map.has(deviceId)) map.set(deviceId, []);
+    map.get(deviceId).push(String(image.FotoDispositivoID || ''));
+  }
+  return map;
+}
+
+function chunkArray(items, size) {
+  if (!items.length) return [[]];
+  const result = [];
+  for (let index = 0; index < items.length; index += size) {
+    result.push(items.slice(index, index + size));
+  }
+  return result;
+}
+
+function splitBaseGroup(bundle, baseGroup) {
+  const limits = MAINTENANCE_TICKET_SPLIT_LIMITS;
+  const deviceImages = imagesByDevice(bundle);
+  const units = [];
+
+  for (const device of baseGroup.devices) {
+    const deviceId = String(device.EvidenciaMantenimientoID || '');
+    const imageChunks = chunkArray(deviceImages.get(deviceId) || [], limits.maxEvidences);
+    imageChunks.forEach((imageIds, continuationIndex) => {
+      units.push({
+        device,
+        imageIds,
+        textWeight: deviceTextWeight(device),
+        continuationIndex,
+      });
+    });
+  }
+
+  const rawParts = [];
+  let current = null;
+  const freshPart = () => ({ devices: [], imageIds: [], estimatedTextChars: 0 });
+  const flush = () => {
+    if (current?.devices.length) rawParts.push(current);
+    current = freshPart();
+  };
+  current = freshPart();
+
+  for (const unit of units) {
+    const deviceId = String(unit.device.EvidenciaMantenimientoID || '');
+    const alreadyIncluded = current.devices.some((item) => String(item.EvidenciaMantenimientoID || '') === deviceId);
+    const nextDeviceCount = current.devices.length + (alreadyIncluded ? 0 : 1);
+    const nextEvidenceCount = current.imageIds.length + unit.imageIds.length;
+    const nextTextChars = current.estimatedTextChars + (alreadyIncluded ? 0 : unit.textWeight);
+    const exceeds = current.devices.length > 0 && (
+      nextDeviceCount > limits.maxDevices
+      || nextEvidenceCount > limits.maxEvidences
+      || nextTextChars > limits.maxEstimatedTextChars
+    );
+
+    if (exceeds) flush();
+
+    const inNewPart = current.devices.some((item) => String(item.EvidenciaMantenimientoID || '') === deviceId);
+    if (!inNewPart) {
+      current.devices.push(unit.device);
+      current.estimatedTextChars += unit.textWeight;
+    }
+    current.imageIds.push(...unit.imageIds);
+  }
+  flush();
+
+  const partCount = rawParts.length;
+  return rawParts.map((part, index) => ({
+    ...baseGroup,
+    // La primera parte conserva la clave histórica. Si la finalización anterior
+    // alcanzó a crear una boleta antes de fallar, esa misma boleta se reutiliza.
+    key: index === 0 ? baseGroup.key : `${baseGroup.key}|parte:${index + 1}`,
+    devices: part.devices,
+    imageIds: part.imageIds,
+    estimatedTextChars: part.estimatedTextChars,
+    partIndex: index + 1,
+    partCount,
+  }));
+}
+
+export function buildMaintenanceTicketGroups(bundle) {
   const usersById = new Map(bundle.users.map((user) => [clean(user.UsuarioID), user]));
   const groups = new Map();
 
@@ -140,13 +259,15 @@ function buildGroups(bundle) {
     groups.get(key).devices.push(device);
   }
 
-  return [...groups.values()].sort((left, right) => {
+  const baseGroups = [...groups.values()].sort((left, right) => {
     const byDate = left.date.localeCompare(right.date);
     return byDate || left.technicians.map((item) => item.name).join(', ').localeCompare(
       right.technicians.map((item) => item.name).join(', '),
       'es',
     );
   });
+
+  return baseGroups.flatMap((group) => splitBaseGroup(bundle, group));
 }
 
 function supervisorFor(bundle) {
@@ -214,10 +335,19 @@ async function loadBundle(maintenanceId) {
   };
 }
 
-function sourceHashFor(bundle, group) {
+function groupImages(bundle, group) {
+  if (Array.isArray(group.imageIds)) {
+    const allowed = new Set(group.imageIds.map(String));
+    return bundle.images.filter((image) => allowed.has(String(image.FotoDispositivoID)));
+  }
   const deviceIds = new Set(group.devices.map((device) => String(device.EvidenciaMantenimientoID)));
+  return bundle.images.filter((image) => deviceIds.has(String(image.DispositivoMantenimientoRef)));
+}
+
+function sourceHashFor(bundle, group) {
   return sha256(JSON.stringify({
     group: group.key,
+    part: [group.partIndex || 1, group.partCount || 1],
     devices: group.devices.map((device) => ({
       id: device.EvidenciaMantenimientoID,
       name: device.NombreDispositivo,
@@ -228,9 +358,7 @@ function sourceHashFor(bundle, group) {
       estado: device.Estado,
       observacion: device.Observacion,
     })),
-    images: bundle.images
-      .filter((image) => deviceIds.has(String(image.DispositivoMantenimientoRef)))
-      .map((image) => image.FotoDispositivoID),
+    images: groupImages(bundle, group).map((image) => image.FotoDispositivoID),
   }));
 }
 
@@ -240,9 +368,9 @@ async function updateRowsInChunks(sheetName, updates, idColumn) {
   }
 }
 
-async function syncTicketEvidencesFast(ctx, bundle, ticketId, maintenanceId, devices) {
-  const deviceIds = new Set(devices.map((device) => String(device.EvidenciaMantenimientoID)));
-  const selectedImages = bundle.images.filter((image) => deviceIds.has(String(image.DispositivoMantenimientoRef)));
+async function syncTicketEvidencesFast(ctx, bundle, ticketId, maintenanceId, group) {
+  const devices = group.devices;
+  const selectedImages = groupImages(bundle, group);
   const current = bundle.evidenceRows.filter((item) => String(item.BoletaUID) === String(ticketId));
   const currentById = new Map(current.map((item) => [String(item.EvidenciaID), item]));
   const expectedIds = new Set();
@@ -302,9 +430,13 @@ function ticketPayload(bundle, group, draft, unchangedFinalized, existing) {
   const supervisor = supervisorFor(bundle);
   const category = catalogMatch(bundle.categories, ['mantenimiento', 'mantenimientos']);
   const failureType = catalogMatch(bundle.failureTypes, ['mantenimiento preventivo', 'mantenimiento', 'preventivo']);
+  const partLabel = group.partCount > 1 ? ` - Parte ${group.partIndex} de ${group.partCount}` : '';
+  const partNote = group.partCount > 1
+    ? `\n\nEste reporte corresponde a la parte ${group.partIndex} de ${group.partCount} del mantenimiento realizado el ${group.date}.`
+    : '';
   return {
     payload: {
-      Titulo: fitMaintenanceTicketCell(clean(draft.titulo, `Mantenimiento ${group.date}`), 120),
+      Titulo: fitMaintenanceTicketCell(`${clean(draft.titulo, `Mantenimiento ${group.date}`)}${partLabel}`, 120),
       Estado: unchangedFinalized ? existing.Estado : 'PENDIENTE',
       Fecha: group.date,
       HoraInicio: '',
@@ -325,7 +457,7 @@ function ticketPayload(bundle, group, draft, unchangedFinalized, existing) {
       TipoFallaID: clean(failureType?.TipoFallaID),
       TipoFalla: clean(failureType?.Nombre, 'Mantenimiento preventivo'),
       TipoDispositivo: fitMaintenanceTicketCell([...new Set(group.devices.map((device) => clean(device.Categoria || device.TipoDispositivo)).filter(Boolean))].join(', '), 1000),
-      Descripcion: fitMaintenanceTicketCell(draft.descripcion),
+      Descripcion: fitMaintenanceTicketCell(`${draft.descripcion}${partNote}`),
       RazonVisita: fitMaintenanceTicketCell(draft.razonVisita),
       PruebasRealizadas: fitMaintenanceTicketCell(draft.pruebasRealizadas),
       Resultado: fitMaintenanceTicketCell(draft.resultado),
@@ -368,7 +500,7 @@ async function upsertGeneratedTicketFast(ctx, bundle, group) {
     FechaActualizacion: nowIso(),
   });
 
-  await syncTicketEvidencesFast(ctx, bundle, ticketId, maintenanceId, group.devices);
+  await syncTicketEvidencesFast(ctx, bundle, ticketId, maintenanceId, group);
 
   let delivery = null;
   if (!unchangedFinalized) {
@@ -391,9 +523,12 @@ async function upsertGeneratedTicketFast(ctx, bundle, group) {
     ticketNumber: stored.BoletaID || ticketId,
     title: stored.Titulo || payload.Titulo,
     date: group.date,
+    partIndex: group.partIndex || 1,
+    partCount: group.partCount || 1,
     technicianIds: group.technicianIds,
     technicians: group.technicians.map((technician) => technician.name),
     deviceCount: group.devices.length,
+    evidenceCount: groupImages(bundle, group).length,
     supervisorEmails: prepared.supervisor.emails,
     clientChatConfigured: Boolean(clean(bundle.client?.ChatWebhook || bundle.client?.ChatWebhookURL)),
     geminiUsed: false,
@@ -429,7 +564,7 @@ export async function generateMaintenanceTicketsFast(ctx, maintenanceId) {
   ]);
 
   const bundle = await loadBundle(id);
-  const groups = buildGroups(bundle);
+  const groups = buildMaintenanceTicketGroups(bundle);
   const generated = await concurrentMap(
     groups,
     DELIVERY_CONCURRENCY,
@@ -450,8 +585,15 @@ export async function generateMaintenanceTicketsFast(ctx, maintenanceId) {
   await audit(ctx, 'GENERAR_BOLETAS_DESDE_MANTENIMIENTO', 'Mantenimiento', id, null, {
     CantidadBoletas: generated.length,
     Boletas: generated.map((item) => item.ticketNumber),
-    Grupos: generated.map((item) => ({ fecha: item.date, tecnicos: item.technicians, dispositivos: item.deviceCount })),
-    Estrategia: 'FINALIZACION_OPTIMIZADA',
+    Grupos: generated.map((item) => ({
+      fecha: item.date,
+      parte: `${item.partIndex}/${item.partCount}`,
+      tecnicos: item.technicians,
+      dispositivos: item.deviceCount,
+      evidencias: item.evidenceCount,
+    })),
+    LimitesDivision: MAINTENANCE_TICKET_SPLIT_LIMITS,
+    Estrategia: 'FINALIZACION_OPTIMIZADA_DIVIDIDA',
   }).catch(() => {});
 
   return {
@@ -459,10 +601,12 @@ export async function generateMaintenanceTicketsFast(ctx, maintenanceId) {
     ticketCount: generated.length,
     ticketIds: generated.map((item) => item.ticketId),
     tickets: generated,
+    splitLimits: MAINTENANCE_TICKET_SPLIT_LIMITS,
     warnings: generated.flatMap((item) => [
       item.supervisorEmails.length ? '' : `La boleta ${item.ticketNumber} no encontró correo de supervisor; se utilizaron los destinatarios alternativos disponibles.`,
       item.clientChatConfigured ? '' : `El cliente no tiene Chat configurado para la boleta ${item.ticketNumber}.`,
     ]).filter(Boolean),
     optimized: true,
+    splitLargeGroups: true,
   };
 }
