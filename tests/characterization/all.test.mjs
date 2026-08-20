@@ -37,6 +37,7 @@ import './maintenance-form-resources.test.mjs';
 import './maintenance-optional-signature-finalization.test.mjs';
 import './maintenance-progress-chat.test.mjs';
 import './maintenance-ticket-report-quality.test.mjs';
+import './maintenance-ticket-splitting.test.mjs';
 import './offline-catalog-sync.test.mjs';
 import './offline-dependency-repair.test.mjs';
 import './offline-finalization-resume.test.mjs';
