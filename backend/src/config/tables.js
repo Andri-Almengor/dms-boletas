@@ -8,7 +8,7 @@ export const TABLES = Object.freeze({
   Categorias: { id: 'CategoriaID' }, TiposDispositivo: { id: 'TipoDispositivoID' }, Fabricantes: { id: 'FabricanteID' }, Modelos: { id: 'ModeloID' }, TiposFalla: { id: 'TipoFallaID' }, TipoDispositivoFabricantes: { id: 'RelacionID' }, TipoDispositivoPreguntas: { id: 'PreguntaDispositivoID' },
   Boletas: { id: 'BoletaUID' }, BoletaAsignados: { id: 'BoletaAsignadoID' }, EvidenciasBoleta: { id: 'EvidenciaID' }, RespuestasBoleta: { id: 'RespuestaID' }, Consecutivos: { id: 'ConsecutivoID' }, FirmaSolicitudes: { id: 'SolicitudFirmaID' },
   Mantenimiento: { id: 'MantenimientoID' }, Evidencia_Mantenimientos: { id: 'EvidenciaMantenimientoID' }, 'Mantenimiento imagenes': { id: 'FotoDispositivoID' }, FirmaMantenimientoSolicitudes: { id: 'SolicitudFirmaMantenimientoID' },
-  KnowledgeCategories: { id: 'CategoriaConocimientoID' }, KnowledgeArticles: { id: 'TutorialID' }, KnowledgeAttachments: { id: 'AdjuntoID' }, KnowledgeArticleCategories: { id: 'RelacionArticuloCategoriaID' },
+  KnowledgeCategories: { id: 'CategoriaConocimientoID' }, KnowledgeArticles: { id: 'TutorialID' }, KnowledgeAttachments: { id: 'AdjuntoID' }, KnowledgeArticleCategories: { id: 'RelacionArticuloCategoriaID' }, KnowledgeArticleContent: { id: 'ContenidoParteID' },
   EncuestaPreguntas: { id: 'PreguntaID' }, Encuestas: { id: 'EncuestaID' }, EncuestaRespuestas: { id: 'RespuestaEncuestaID' },
   IntegracionGateways: { id: 'GatewayID' }, IntegracionDispositivos: { id: 'DispositivoIntegracionID' }, IntegracionComandos: { id: 'ComandoID' }, IntegracionGatewaySecrets: { id: 'GatewayID' },
   Notificaciones: { id: 'NotificacionID' }, Auditoria: { id: 'AuditoriaID' }, Archivos: { id: 'ArchivoIDInterno' },

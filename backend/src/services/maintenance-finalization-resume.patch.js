@@ -111,3 +111,8 @@ if (!maintenanceAutomationHandlers[INSTALL_FLAG]) {
   };
   maintenanceAutomationHandlers[INSTALL_FLAG] = true;
 }
+
+// Este parche se carga después de instalar la política de firma opcional y la
+// reanudación persistente. Así puede sustituir únicamente el camino pesado de
+// producción sin alterar las pruebas ni los contratos anteriores.
+await import('./maintenance-finalization-performance.patch.js');
