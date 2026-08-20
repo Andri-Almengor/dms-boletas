@@ -21,6 +21,7 @@ import './gateway-imaging-source-validation.test.mjs';
 import './indexeddb-version-recovery.test.mjs';
 import './integration-gateway-foundation.test.mjs';
 import './integration-inventory-management.test.mjs';
+import './knowledge-long-content.test.mjs';
 import './milestone-inventory-adapter.test.mjs';
 import './network-camera-discovery.test.mjs';
 import './network-camera-identification-v2.test.mjs';
