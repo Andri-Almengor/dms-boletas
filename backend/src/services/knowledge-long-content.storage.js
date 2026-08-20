@@ -23,6 +23,7 @@ export const KNOWLEDGE_CONTENT_HEADERS = [
   'FechaActualizacion',
 ];
 
+const WRITE_BATCH_SIZE = 20;
 let ensurePromise = null;
 let ensured = false;
 
@@ -70,6 +71,16 @@ async function ensureHeaders() {
 
   invalidateTableCache(KNOWLEDGE_CONTENT_SHEET);
   await getHeaders(KNOWLEDGE_CONTENT_SHEET, true);
+}
+
+async function writeUpdatesInBatches(updates = []) {
+  for (let offset = 0; offset < updates.length; offset += WRITE_BATCH_SIZE) {
+    await updateRows(
+      KNOWLEDGE_CONTENT_SHEET,
+      updates.slice(offset, offset + WRITE_BATCH_SIZE),
+      'ContenidoParteID',
+    );
+  }
 }
 
 export async function ensureKnowledgeLongContentStorage() {
@@ -191,8 +202,8 @@ export async function replaceKnowledgeArticleContent(tutorialId, content, actor 
     });
   });
 
-  if (updates.length) await updateRows(KNOWLEDGE_CONTENT_SHEET, updates, 'ContenidoParteID');
-  if (creates.length) await appendRows(KNOWLEDGE_CONTENT_SHEET, creates);
+  if (updates.length) await writeUpdatesInBatches(updates);
+  if (creates.length) await appendRows(KNOWLEDGE_CONTENT_SHEET, creates, { chunkSize: WRITE_BATCH_SIZE });
 
   return { tutorialId: id, parts: chunks.length, length: String(content ?? '').length };
 }
@@ -215,5 +226,5 @@ export async function deactivateKnowledgeArticleContent(tutorialId, actor = '') 
       },
     }));
 
-  if (updates.length) await updateRows(KNOWLEDGE_CONTENT_SHEET, updates, 'ContenidoParteID');
+  if (updates.length) await writeUpdatesInBatches(updates);
 }
