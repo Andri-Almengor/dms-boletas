@@ -21,11 +21,11 @@ test('la notificación de firma resuelve destinatarios desde asignaciones reales
 test('una firma nueva de boleta notifica asignados una sola vez y el correo no invalida la firma', () => {
   const module = source('backend/src/modules/ticket-group-signature.module.js');
   const alreadySignedIndex = module.indexOf('if (signed.alreadySigned)');
-  const notifyIndex = module.indexOf('notifyTicketSignatureCompleted');
+  const notifyIndex = module.indexOf('await notifyTicketSignatureCompleted');
 
   assert.ok(alreadySignedIndex >= 0, 'Debe conservar el retorno para firmas ya existentes.');
   assert.ok(notifyIndex > alreadySignedIndex, 'La notificación debe ocurrir solo después de descartar alreadySigned.');
-  assert.match(module, /try \{[\s\S]*notifyTicketSignatureCompleted\([\s\S]*\} catch \(error\) \{/);
+  assert.match(module, /try \{[\s\S]*await notifyTicketSignatureCompleted\([\s\S]*\} catch \(error\) \{/);
   assert.match(module, /assigneesNotified: Boolean\(assigneeNotification\.sent\)/);
 });
 
@@ -33,8 +33,8 @@ test('el mantenimiento notifica responsables solo para una firma real y nueva', 
   const module = source('backend/src/modules/maintenance-signature.module.js');
 
   assert.match(module, /if \(!signed\.testMode && !signed\.alreadySigned\) \{/);
-  assert.match(module, /notifyMaintenanceSignatureCompleted\(/);
-  assert.match(module, /try \{[\s\S]*notifyMaintenanceSignatureCompleted\([\s\S]*\} catch \(error\) \{/);
+  assert.match(module, /await notifyMaintenanceSignatureCompleted\(/);
+  assert.match(module, /try \{[\s\S]*await notifyMaintenanceSignatureCompleted\([\s\S]*\} catch \(error\) \{/);
   assert.match(module, /Las firmas de prueba no notifican responsables/);
 });
 
