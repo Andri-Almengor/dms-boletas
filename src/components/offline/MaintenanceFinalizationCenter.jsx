@@ -148,8 +148,8 @@ export default function MaintenanceFinalizationCenter() {
     const prompt = retry
       ? '¿Reanudar la finalización desde la unidad que falló? Todo lo ya completado se conservará.'
       : deferredNeeded
-        ? '¿Guardar la finalización para ejecutarla después de sincronizar todos los cambios?'
-        : '¿Iniciar la finalización escalonada? El proceso guardará el avance automáticamente y puede tardar según el tamaño del mantenimiento.';
+        ? '¿Guardar la finalización para ejecutarla después de sincronizar todos los cambios? Si no existe firma, las boletas y PDF se generarán sin firma.'
+        : '¿Iniciar la finalización escalonada? Si no existe firma, las boletas y PDF se generarán sin firma. El proceso guardará el avance automáticamente y puede tardar según el tamaño del mantenimiento.';
     if (!window.confirm(prompt)) return;
     setWorkingRetry(retry);
     setWorking(true);
@@ -204,7 +204,7 @@ export default function MaintenanceFinalizationCenter() {
   const evidenceTotal = Number(pick(row, ['FinalizacionTotalEvidencias'], 0) || 0);
   const evidenceDone = Number(pick(row, ['FinalizacionEvidenciasProcesadas'], 0) || 0);
   const storedMessage = clean(pick(row, ['FinalizacionMensaje'], ''));
-  const statusMessage = message || view.error || storedMessage || (view.active
+  const statusMessage = view.error || storedMessage || message || (view.active
     ? 'La finalización continúa en segundo plano y guarda cada paso confirmado.'
     : '');
 
