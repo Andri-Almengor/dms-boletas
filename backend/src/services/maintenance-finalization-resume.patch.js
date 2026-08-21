@@ -122,3 +122,8 @@ await import('./maintenance-ticket-archive-only.patch.js');
 // y toma únicamente la finalización real de producción.
 await import('./maintenance-finalization-performance.patch.js');
 await import('./maintenance-staged-finalization.patch.js');
+
+// Esta última capa proyecta el job persistente sobre las respuestas normales
+// del mantenimiento. De ese modo un reinicio de Render no depende de que la
+// hoja Mantenimiento tenga columnas Finalizacion* para descubrir/reanudar el job.
+await import('./maintenance-finalization-job-discovery.patch.js');
