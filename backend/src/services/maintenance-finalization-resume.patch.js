@@ -10,6 +10,10 @@ import {
   runResumableMaintenanceFinalization,
 } from './maintenance-finalization-state.service.js';
 
+// Corrige antes de capturar handlers heredados: evita escrituras AS:BB en
+// Mantenimiento y convierte la firma existente en un estado consultable/editable.
+await import('./maintenance-grid-signature-hotfix.patch.js');
+
 const INSTALL_FLAG = Symbol.for('dms.maintenanceFinalizationResume');
 
 function clean(value) {
