@@ -1,5 +1,6 @@
 import React, { useEffect, useState } from 'react';
 import Icon from '../common/Icon';
+import SignaturePad from '../tickets/SignaturePad';
 import { requestAvailable } from '../../services/moduleApi';
 
 const SIGNATURE_LINK_ROUTES = [
@@ -21,8 +22,16 @@ export default function MaintenanceSignatureCard({
   const [info, setInfo] = useState(null);
   const [loading, setLoading] = useState(true);
   const [testing, setTesting] = useState(false);
+  const [saving, setSaving] = useState(false);
+  const [editing, setEditing] = useState(false);
+  const [signatureDraft, setSignatureDraft] = useState('');
   const [error, setError] = useState('');
   const [notice, setNotice] = useState('');
+
+  function applyInfo(data) {
+    setInfo(data);
+    onStatusChange?.(Boolean(data?.signed || data?.request?.status === 'FIRMADA'));
+  }
 
   async function load() {
     setLoading(true);
@@ -33,10 +42,9 @@ export default function MaintenanceSignatureCard({
         { maintenanceId, MantenimientoID: maintenanceId },
         sessionToken,
       );
-      setInfo(data);
-      onStatusChange?.(Boolean(data?.signed || data?.request?.status === 'FIRMADA'));
+      applyInfo(data);
     } catch (loadError) {
-      setError(loadError.message || 'No se pudo preparar el enlace de firma.');
+      setError(loadError.message || 'No se pudo consultar la firma del mantenimiento.');
     } finally {
       setLoading(false);
     }
@@ -53,11 +61,10 @@ export default function MaintenanceSignatureCard({
     )
       .then((data) => {
         if (!active) return;
-        setInfo(data);
-        onStatusChange?.(Boolean(data?.signed || data?.request?.status === 'FIRMADA'));
+        applyInfo(data);
       })
       .catch((loadError) => {
-        if (active) setError(loadError.message || 'No se pudo preparar el enlace de firma.');
+        if (active) setError(loadError.message || 'No se pudo consultar la firma del mantenimiento.');
       })
       .finally(() => { if (active) setLoading(false); });
 
@@ -74,6 +81,7 @@ export default function MaintenanceSignatureCard({
 
   const request = info?.request || null;
   const signed = Boolean(info?.signed || request?.status === 'FIRMADA');
+  const signature = info?.signature || {};
   const url = request?.url || '';
 
   async function copyLink() {
@@ -102,6 +110,37 @@ export default function MaintenanceSignatureCard({
       if (shareError?.name !== 'AbortError') {
         setNotice('No se pudo compartir. Use el botón Copiar enlace.');
       }
+    }
+  }
+
+  async function saveReplacement() {
+    if (!signatureDraft?.startsWith('data:image/')) {
+      setError('Dibuje la nueva firma antes de guardarla.');
+      return;
+    }
+    setSaving(true);
+    setError('');
+    setNotice('');
+    try {
+      const data = await requestAvailable(
+        SIGNATURE_LINK_ROUTES,
+        {
+          maintenanceId,
+          MantenimientoID: maintenanceId,
+          base64: signatureDraft.split(',')[1],
+          mimeType: 'image/png',
+          replaceSignature: true,
+        },
+        sessionToken,
+      );
+      applyInfo(data);
+      setSignatureDraft('');
+      setEditing(false);
+      setNotice(data?.message || 'Firma del mantenimiento actualizada correctamente.');
+    } catch (saveError) {
+      setError(saveError.message || 'No se pudo actualizar la firma del mantenimiento.');
+    } finally {
+      setSaving(false);
     }
   }
 
@@ -134,7 +173,7 @@ export default function MaintenanceSignatureCard({
       <section className="ticket-public-signature-card" aria-label="Firma general del mantenimiento">
         <div className="ticket-public-signature-card__heading">
           <Icon name="progress_activity" />
-          <div><strong>Preparando firma general</strong><span>Espere un momento...</span></div>
+          <div><strong>Consultando firma general</strong><span>Espere un momento...</span></div>
         </div>
       </section>
     );
@@ -147,10 +186,71 @@ export default function MaintenanceSignatureCard({
         <div>
           <strong>{signed ? 'Firma general del cliente registrada' : 'Firma general del mantenimiento'}</strong>
           <span>{signed
-            ? 'Esta firma se copiará automáticamente a todas las boletas generadas desde este mantenimiento.'
+            ? 'Esta es la firma actualmente asociada al mantenimiento y a sus boletas automáticas.'
             : 'El cliente firma una sola vez el mantenimiento completo. No se firma cada dispositivo por separado.'}</span>
         </div>
       </div>
+
+      {signed && !editing && (
+        <div className="maintenance-signature-current">
+          {signature.dataUrl ? (
+            <div className="signature-display">
+              <img src={signature.dataUrl} alt="Firma actual del mantenimiento" />
+            </div>
+          ) : (
+            <div className="info-box">
+              <Icon name="verified" />
+              <p>La firma está registrada{signature.mediaError ? ', pero no fue posible cargar su vista previa.' : '.'}</p>
+            </div>
+          )}
+          {signature.url && (
+            <a className="button button--ghost button--compact" href={signature.url} target="_blank" rel="noreferrer">
+              <Icon name="open_in_new" /> Abrir archivo de firma
+            </a>
+          )}
+          {isAdmin && (
+            <div className="ticket-public-signature-card__actions">
+              <button
+                className="button button--secondary button--compact"
+                type="button"
+                onClick={() => { setSignatureDraft(''); setEditing(true); setError(''); setNotice(''); }}
+                disabled={disabled || saving}
+              >
+                <Icon name="edit" /> Editar / reemplazar firma
+              </button>
+            </div>
+          )}
+        </div>
+      )}
+
+      {signed && editing && (
+        <div className="ticket-signature-editor">
+          <div className="info-box">
+            <Icon name="info" />
+            <p>La nueva firma reemplazará la firma general del mantenimiento y se sincronizará con las boletas automáticas relacionadas.</p>
+          </div>
+          <SignaturePad value={signatureDraft} onChange={setSignatureDraft} />
+          <div className="ticket-signature-editor__actions">
+            <button
+              className="button button--secondary"
+              type="button"
+              disabled={saving}
+              onClick={() => { setSignatureDraft(''); setEditing(false); }}
+            >
+              <Icon name="close" /> Cancelar
+            </button>
+            <button
+              className="button button--primary"
+              type="button"
+              disabled={saving || !signatureDraft}
+              onClick={saveReplacement}
+            >
+              <Icon name={saving ? 'progress_activity' : 'save'} />
+              {saving ? 'Guardando...' : 'Guardar nueva firma'}
+            </button>
+          </div>
+        </div>
+      )}
 
       {!signed && url && (
         <>
@@ -175,7 +275,7 @@ export default function MaintenanceSignatureCard({
         </>
       )}
 
-      {isAdmin && (
+      {isAdmin && !editing && (
         <div className="ticket-public-signature-card__actions">
           <button className="button button--secondary button--compact" type="button" onClick={openTestLink} disabled={disabled || testing}>
             <Icon name={testing ? 'progress_activity' : 'science'} />
@@ -184,7 +284,7 @@ export default function MaintenanceSignatureCard({
         </div>
       )}
 
-      {!signed && <small className="field-hint">Para finalizar el mantenimiento y generar las boletas automáticas, primero debe registrarse esta firma general.</small>}
+      {!signed && <small className="field-hint">La firma es opcional. Si se registra, se aplicará a las boletas automáticas relacionadas.</small>}
       {error && <div className="public-signature-error"><Icon name="error" /><span>{error}</span></div>}
       {notice && <small className="field-hint">{notice}</small>}
     </section>
