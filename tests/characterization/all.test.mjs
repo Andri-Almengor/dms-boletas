@@ -34,6 +34,7 @@ import './maintenance-device-lifecycle.test.mjs';
 import './maintenance-device-persistence.test.mjs';
 import './maintenance-finalization-performance.test.mjs';
 import './maintenance-staged-finalization.test.mjs';
+import './maintenance-finalization-router-bootstrap.test.mjs';
 import './maintenance-drive-archive.test.mjs';
 import './maintenance-finalization-columns-signature-hotfix.test.mjs';
 import './maintenance-form-orchestration.test.mjs';
