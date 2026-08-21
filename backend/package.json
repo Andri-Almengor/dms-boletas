@@ -7,9 +7,9 @@
     "node": ">=20"
   },
   "scripts": {
-    "dev": "node --watch src/server.js",
-    "start": "node src/server.js",
-    "check": "node --check src/server.js"
+    "dev": "node --import ./src/services/gemini-model-router.bootstrap.js --watch src/server.js",
+    "start": "node --import ./src/services/gemini-model-router.bootstrap.js src/server.js",
+    "check": "node --check src/services/gemini-model-router.bootstrap.js && node --check src/server.js"
   },
   "dependencies": {
     "compression": "^1.7.5",
