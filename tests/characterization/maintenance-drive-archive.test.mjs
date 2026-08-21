@@ -89,10 +89,23 @@ test('la finalización no obliga a ampliar Mantenimiento con columnas administra
   ]);
 });
 
-test('el parche de archivo se instala antes del worker escalonado', () => {
+test('el parche de archivo se instala antes del worker escalonado y el descubrimiento después', () => {
   const resume = source('backend/src/services/maintenance-finalization-resume.patch.js');
   const archive = resume.indexOf("await import('./maintenance-ticket-archive-only.patch.js')");
   const staged = resume.indexOf("await import('./maintenance-staged-finalization.patch.js')");
+  const discovery = resume.indexOf("await import('./maintenance-finalization-job-discovery.patch.js')");
   assert.ok(archive >= 0);
   assert.ok(staged > archive);
+  assert.ok(discovery > staged);
+});
+
+test('un reinicio puede descubrir el job por MantenimientoID aunque no exista FinalizacionJobID en la fila', () => {
+  const discovery = source('backend/src/services/maintenance-finalization-job-discovery.patch.js');
+  includesAll(discovery, [
+    'findFinalizationJobForMaintenance(id, row.FinalizacionJobID)',
+    'FinalizacionJobID: row.FinalizacionJobID || job.JobID ||',
+    "clean(job.Estado).toUpperCase() === 'EN_PROCESO'",
+    'maintenanceProgressChatHandlers.finalize({',
+    'La finalización continúa en segundo plano.',
+  ]);
 });
