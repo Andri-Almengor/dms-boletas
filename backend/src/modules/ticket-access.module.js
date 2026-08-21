@@ -25,6 +25,40 @@ function userId(ctx) {
   return String(ctx.user?.UsuarioID || '').trim();
 }
 
+function mediaKind(payload = {}) {
+  return String(pick(payload, ['kind', 'tipo'], '') || '').trim().toLowerCase();
+}
+
+function requestsSignature(payload = {}) {
+  return ['signature', 'firma'].includes(mediaKind(payload));
+}
+
+function isMaintenanceTicket(ticket = {}) {
+  const maintenanceId = String(ticket.OrigenMantenimientoID || ticket.MantenimientoID || '').trim();
+  const flag = ticket.EsBoletaMantenimiento === true
+    || String(ticket.EsBoletaMantenimiento || '').trim().toLowerCase() === 'true';
+  return Boolean(maintenanceId || flag);
+}
+
+function hasStoredSignatureFile(ticket = {}) {
+  return Boolean(String(pick(ticket, ['FirmaArchivoID', 'FirmaFileID'], '') || '').trim());
+}
+
+function optionalMaintenanceSignatureResponse(ticket = {}) {
+  return {
+    missing: true,
+    optional: true,
+    kind: 'signature',
+    boletaUid: ticket.BoletaUID || '',
+    maintenanceId: ticket.OrigenMantenimientoID || ticket.MantenimientoID || '',
+    fileId: '',
+    dataUrl: '',
+    url: '',
+    mimeType: ticket.FirmaMimeType || 'image/png',
+    message: 'Esta boleta automática de mantenimiento no tiene firma individual. La firma del mantenimiento es opcional.',
+  };
+}
+
 function assignedTicketIds(assignments, selectedUserId) {
   const selected = String(selectedUserId || '').trim();
   if (!selected) return new Set();
@@ -189,6 +223,11 @@ export const ticketAccessHandlers = {
   mediaGet: async (ctx) => {
     const ticket = await ticketForMedia(ctx.payload);
     await assertTicketAccess(ctx, ticket);
+
+    if (requestsSignature(ctx.payload) && isMaintenanceTicket(ticket) && !hasStoredSignatureFile(ticket)) {
+      return optionalMaintenanceSignatureResponse(ticket);
+    }
+
     return ticketHandlers.mediaGet(ctx);
   },
 
