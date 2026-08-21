@@ -2,6 +2,7 @@ import { nowIso, pick } from '../core/utils.js';
 import { findById, updateRow } from '../infra/sheets.repository.js';
 import { maintenanceAutomationHandlers } from '../modules/maintenance-automation.module.js';
 import { maintenanceHandlers } from '../modules/maintenance.module.js';
+import { maintenanceProgressChatHandlers } from '../modules/maintenance-progress-chat.module.js';
 import { ticketDeliveryHandlers } from '../modules/ticket-delivery.module.js';
 import { audit } from './audit.service.js';
 import {
@@ -10,10 +11,12 @@ import {
 } from './maintenance-fast-ticket-generation.service.js';
 import { deliverMaintenanceFast } from './maintenance-fast-delivery.service.js';
 import { runResumableMaintenanceFinalization } from './maintenance-finalization-state.service.js';
+import { ensureMaintenanceQuestionsReady } from './maintenance-question-bootstrap.service.js';
 import { maintenanceHasSignature } from './maintenance-signature-request.service.js';
 import { ensureSheetColumns } from './sheet-columns.service.js';
 
 const INSTALL_FLAG = Symbol.for('dms.maintenanceFinalizationPerformance');
+const ROUTER_INSTALL_FLAG = Symbol.for('dms.maintenanceFinalizationPerformance.router');
 
 const DELIVERY_COLUMNS = [
   'CarpetaDriveID',
@@ -205,4 +208,18 @@ if (!maintenanceAutomationHandlers[INSTALL_FLAG]) {
   };
 
   maintenanceAutomationHandlers[INSTALL_FLAG] = true;
+}
+
+// El router no despacha directamente maintenanceAutomationHandlers. La cadena
+// question-ready/progress-chat crea objetos nuevos mediante spread/wrappers y,
+// por tanto, conserva una referencia histórica de finalize. Instalamos también
+// aquí el camino optimizado sobre el objeto final que action-router importa.
+if (!maintenanceProgressChatHandlers[ROUTER_INSTALL_FLAG]) {
+  const previousRouterFinalize = maintenanceProgressChatHandlers.finalize;
+  maintenanceProgressChatHandlers.finalize = async (ctx) => {
+    if (testMode(ctx)) return previousRouterFinalize(ctx);
+    await ensureMaintenanceQuestionsReady(ctx.user?.UsuarioID || 'SYSTEM');
+    return maintenanceAutomationHandlers.finalize(ctx);
+  };
+  maintenanceProgressChatHandlers[ROUTER_INSTALL_FLAG] = true;
 }
