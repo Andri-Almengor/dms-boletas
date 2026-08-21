@@ -70,3 +70,26 @@ test('el camino de producción conserva reanudación persistente y usa los servi
   ]);
   assert.match(resume, /maintenance-finalization-performance\.patch\.js/);
 });
+
+test('la ruta real de maintenance.finalize recibe el optimizador y no una copia histórica', () => {
+  const performance = source('backend/src/services/maintenance-finalization-performance.patch.js');
+  const progress = source('backend/src/modules/maintenance-progress-chat.module.js');
+  const router = source('backend/src/core/action-router.js');
+
+  includesAll(performance, [
+    "import { maintenanceProgressChatHandlers } from '../modules/maintenance-progress-chat.module.js';",
+    'maintenanceProgressChatHandlers.finalize = async (ctx) => {',
+    'await ensureMaintenanceQuestionsReady(',
+    'return maintenanceAutomationHandlers.finalize(ctx);',
+  ]);
+  assert.match(
+    progress,
+    /maintenanceProgressChatHandlers\s*=\s*\{[\s\S]*\.\.\.baseMaintenanceHandlers/,
+    'el contrato documenta que progress-chat crea una copia de los handlers base',
+  );
+  assert.match(
+    router,
+    /maintenanceProgressChatHandlers as maintenanceAutomationHandlers/,
+    'action-router debe continuar usando el objeto final progress-chat que el parche corrige',
+  );
+});
