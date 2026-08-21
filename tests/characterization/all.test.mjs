@@ -51,6 +51,7 @@ import './paginated-resource.test.mjs';
 import './password-vault.test.mjs';
 import './password-vault-system-search.test.mjs';
 import './security-hardening.test.mjs';
+import './server-concurrency-isolation.test.mjs';
 import './shared-utilities.test.mjs';
 import './sheets-transient-retry.test.mjs';
 import './source-contracts.test.mjs';
