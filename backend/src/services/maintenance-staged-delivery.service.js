@@ -1,5 +1,10 @@
 import { appendRow, readTables } from '../infra/sheets.repository.js';
-import { copyDriveFile, createFolder, uploadBuffer } from '../infra/drive.repository.js';
+import {
+  copyDriveFile,
+  createFolder,
+  extractDriveFileId,
+  uploadBuffer,
+} from '../infra/drive.repository.js';
 import { driveApi } from '../infra/google.js';
 import { getConfig } from '../modules/config.module.js';
 import { sendChatMessage } from './chat.service.js';
@@ -174,14 +179,27 @@ async function loadBundle(id) {
 
 async function folderStructure(bundle, config) {
   const rootId = rootFolder(config);
-  if (!rootId) throw new AppError('MAINTENANCE_ROOT_FOLDER_MISSING', 'Configure una carpeta raíz para los mantenimientos.', 500);
-  const client = await createFolder(bundle.maintenance.Cliente || bundle.client?.Nombre || 'Cliente sin nombre', rootId);
+  if (!rootId) {
+    throw new AppError('MAINTENANCE_ROOT_FOLDER_MISSING', 'Configure la carpeta raíz Mantenimientos.', 500);
+  }
+  // El root configurado representa la carpeta "Mantenimientos". Debajo se
+  // conserva un único expediente por cliente y mantenimiento.
+  const client = await createFolder(
+    bundle.maintenance.Cliente || bundle.client?.Nombre || 'Cliente sin nombre',
+    rootId,
+  );
   const maintenance = await createFolder(
     `${dateName(bundle.maintenance.Fecha)} - ${safe(bundle.maintenance.TituloMantenimiento, 'Mantenimiento')} - ${safe(bundle.maintenance.MantenimientoID, 'SIN ID')}`,
     client.id,
   );
+  const [boletas, zones] = await Promise.all([
+    createFolder('Boletas', maintenance.id),
+    createFolder('Zonas', maintenance.id),
+  ]);
   return {
     client,
+    boletas,
+    zones,
     maintenance: {
       ...maintenance,
       webViewLink: maintenance.webViewLink || `https://drive.google.com/drive/folders/${maintenance.id}`,
@@ -189,15 +207,32 @@ async function folderStructure(bundle, config) {
   };
 }
 
-function deviceInfo(device, images) {
+function deviceInfo(bundle, device, images) {
   let answers = {};
   try { answers = JSON.parse(device.RespuestasJSON || '{}'); } catch { answers = {}; }
+  const evidenceLines = images.length
+    ? images.map((image, index) => [
+      `${index + 1}. ${image.Tipo || 'Evidencia'}`,
+      `Archivo: ${image.Nombre || 'N/A'}`,
+      `Nota: ${image.Nota || 'N/A'}`,
+      `Drive: ${image.DriveURL || image.DriveFileID || 'N/A'}`,
+    ].join(' | '))
+    : ['Sin evidencias registradas.'];
   return [
-    'INFORMACIÓN DEL DISPOSITIVO',
+    'LOG DE DISPOSITIVO - MANTENIMIENTO DMS',
+    '',
+    'MANTENIMIENTO',
+    `MantenimientoID: ${bundle.maintenance.MantenimientoID || 'N/A'}`,
+    `Cliente: ${bundle.maintenance.Cliente || bundle.client?.Nombre || 'N/A'}`,
+    `Título: ${bundle.maintenance.TituloMantenimiento || 'N/A'}`,
+    `Fecha: ${bundle.maintenance.Fecha || 'N/A'}`,
+    '',
+    'DISPOSITIVO',
+    `DispositivoID: ${device.EvidenciaMantenimientoID || 'N/A'}`,
     `Nombre: ${device.NombreDispositivo || 'N/A'}`,
     `Zona: ${device.Zona || 'N/A'}`,
+    `Tipo de dispositivo: ${device.TipoDispositivo || 'N/A'}`,
     `Categoría: ${device.Categoria || 'N/A'}`,
-    `Tipo: ${device.TipoDispositivo || 'N/A'}`,
     `Fabricante: ${device.Fabricante || 'N/A'}`,
     `Modelo: ${device.Modelo || 'N/A'}`,
     `Serie: ${device.Serie || 'N/A'}`,
@@ -206,10 +241,15 @@ function deviceInfo(device, images) {
     `Estado: ${device.Estado || 'N/A'}`,
     `Observación: ${device.Observacion || 'N/A'}`,
     '',
-    'CHECKLIST',
-    ...Object.entries(answers).map(([key, value]) => `${key}: ${typeof value === 'object' ? JSON.stringify(value) : value}`),
+    'CHECKLIST / RESPUESTAS',
+    ...(Object.keys(answers).length
+      ? Object.entries(answers).map(([key, value]) => `${key}: ${typeof value === 'object' ? JSON.stringify(value) : value}`)
+      : ['Sin respuestas adicionales.']),
     '',
-    `Evidencias: ${images.length}`,
+    `EVIDENCIAS (${images.length})`,
+    ...evidenceLines,
+    '',
+    `Log generado: ${nowIso()}`,
   ].join('\n');
 }
 
@@ -226,6 +266,50 @@ function globalEvidenceNames(device, images) {
     });
   });
   return map;
+}
+
+async function evidenceFolder(deviceFolderId, kind, cache) {
+  if (cache.has(kind)) return cache.get(kind);
+  const name = kind === 'ANTES' ? 'Antes' : kind === 'DESPUES' ? 'Despues' : 'Otros';
+  const folder = await createFolder(name, deviceFolderId);
+  cache.set(kind, folder);
+  return folder;
+}
+
+export async function archiveMaintenanceTicketPdf({
+  maintenanceId,
+  ticketId,
+  ticketNumber,
+  title,
+  pdfId = '',
+  pdfUrl = '',
+}) {
+  const id = clean(maintenanceId);
+  if (!id) throw new AppError('VALIDATION_ERROR', 'No se indicó el mantenimiento para archivar la boleta.', 400);
+  const sourceId = clean(pdfId) || extractDriveFileId(pdfUrl);
+  if (!sourceId) {
+    throw new AppError(
+      'MAINTENANCE_TICKET_PDF_MISSING',
+      `La boleta ${ticketNumber || ticketId || ''} no tiene un PDF de Drive válido.`,
+      500,
+    );
+  }
+  const [bundle, config] = await Promise.all([loadBundle(id), getConfig()]);
+  const folders = await folderStructure(bundle, config);
+  const fileName = `Boleta ${safe(ticketNumber || ticketId, 'SIN-ID', 50)} - ${safe(title, 'Mantenimiento', 80)}.pdf`;
+  const copied = await copyOnce(sourceId, folders.boletas.id, fileName);
+  return {
+    maintenanceId: id,
+    ticketId: clean(ticketId),
+    pdfId: sourceId,
+    archivedPdfId: copied.id,
+    archivedPdfUrl: copied.webViewLink || `https://drive.google.com/file/d/${copied.id}/view`,
+    boletasFolderId: folders.boletas.id,
+    boletasFolderUrl: folders.boletas.webViewLink || `https://drive.google.com/drive/folders/${folders.boletas.id}`,
+    maintenanceFolderId: folders.maintenance.id,
+    maintenanceFolderUrl: folders.maintenance.webViewLink,
+    skipped: Boolean(copied.skipped),
+  };
 }
 
 export async function prepareStagedDrivePlan(maintenanceId) {
@@ -276,25 +360,32 @@ export async function processStagedDriveItem(ctx, maintenanceId, item) {
   const [bundle, config] = await Promise.all([loadBundle(id), getConfig()]);
   const device = bundle.devices.find((candidate) => clean(candidate.EvidenciaMantenimientoID) === deviceId);
   if (!device) throw new AppError('MAINTENANCE_DEVICE_NOT_FOUND', `No se encontró el dispositivo ${deviceId}.`, 404);
-  const folders = await folderStructure(bundle, config);
-  const zone = await createFolder(device.Zona || 'Zona sin nombre', folders.maintenance.id);
-  const category = await createFolder(device.Categoria || device.TipoDispositivo || 'Categoría sin nombre', zone.id);
-  const folder = await createFolder(device.NombreDispositivo || device.EvidenciaMantenimientoID || 'Dispositivo', category.id);
-  const [before, after, other] = await Promise.all([
-    createFolder('Evidencia del antes', folder.id),
-    createFolder('Evidencia del despues', folder.id),
-    createFolder('Otras evidencias', folder.id),
-  ]);
 
-  const allImages = sortImages(bundle.images.filter((image) => clean(image.DispositivoMantenimientoRef) === deviceId));
+  const folders = await folderStructure(bundle, config);
+  const zone = await createFolder(device.Zona || 'Zona sin nombre', folders.zones.id);
+  const type = await createFolder(
+    device.TipoDispositivo || device.Categoria || 'Tipo de dispositivo sin nombre',
+    zone.id,
+  );
+  const deviceFolder = await createFolder(
+    device.NombreDispositivo || device.EvidenciaMantenimientoID || 'Dispositivo',
+    type.id,
+  );
+
+  const allImages = sortImages(
+    bundle.images.filter((image) => clean(image.DispositivoMantenimientoRef) === deviceId),
+  );
   const start = (part - 1) * STAGED_DRIVE_IMAGE_CHUNK;
   const selected = allImages.slice(start, start + STAGED_DRIVE_IMAGE_CHUNK);
   const names = globalEvidenceNames(device, allImages);
+  const evidenceFolders = new Map();
+
   const copyResults = await concurrentMap(selected, IMAGE_COPY_CONCURRENCY, async (image) => {
-    const meta = names.get(clean(image.FotoDispositivoID)) || { kind: imageKind(image.Tipo), name: safe(image.Nombre, 'Evidencia') };
-    const target = meta.kind === 'ANTES' ? before : meta.kind === 'DESPUES' ? after : other;
+    const meta = names.get(clean(image.FotoDispositivoID))
+      || { kind: imageKind(image.Tipo), name: safe(image.Nombre, 'Evidencia') };
     try {
       if (!clean(image.DriveFileID)) throw new Error('La evidencia no tiene DriveFileID.');
+      const target = await evidenceFolder(deviceFolder.id, meta.kind, evidenceFolders);
       const result = await copyOnce(image.DriveFileID, target.id, meta.name);
       return { skipped: Boolean(result.skipped), error: '' };
     } catch (error) {
@@ -303,7 +394,11 @@ export async function processStagedDriveItem(ctx, maintenanceId, item) {
   });
 
   if (part === totalParts) {
-    await replaceText(folder.id, 'INFO-DISPOSITIVO.txt', deviceInfo(device, allImages));
+    await replaceText(
+      deviceFolder.id,
+      `LOG - ${safe(device.NombreDispositivo || deviceId, 'Dispositivo', 80)}.txt`,
+      deviceInfo(bundle, device, allImages),
+    );
   }
 
   const errors = copyResults.map((result) => result.error).filter(Boolean);
@@ -318,8 +413,8 @@ export async function processStagedDriveItem(ctx, maintenanceId, item) {
     copied,
     skipped,
     errors,
-    folderId: folder.id,
-    folderUrl: folder.webViewLink || `https://drive.google.com/drive/folders/${folder.id}`,
+    folderId: deviceFolder.id,
+    folderUrl: deviceFolder.webViewLink || `https://drive.google.com/drive/folders/${deviceFolder.id}`,
     maintenanceFolderId: folders.maintenance.id,
     maintenanceFolderUrl: folders.maintenance.webViewLink,
   };
@@ -362,19 +457,11 @@ export async function finalizeStagedMaintenanceDelivery(ctx, maintenanceId, driv
   const existing = completed.reduce((sum, item) => sum + Number(item.Existentes || 0), 0);
   const errors = driveItems.map((item) => clean(item.UltimoError)).filter(Boolean);
   const dest = destination(bundle, config);
+
+  // Chat deja de transportar el expediente. Toda la información queda en Drive.
   const text = [
-    '✅ MANTENIMIENTO FINALIZADO',
-    `Cliente: ${bundle.maintenance.Cliente || bundle.client?.Nombre || 'Sin cliente'}`,
-    `Título: ${bundle.maintenance.TituloMantenimiento || 'Mantenimiento'}`,
-    `Fecha: ${bundle.maintenance.Fecha || 'Sin fecha'}`,
-    `Dispositivos procesados: ${deviceIds.size}`,
-    `Evidencias procesadas: ${images}`,
-    `Evidencias copiadas: ${copied}`,
-    `Evidencias ya existentes: ${existing}`,
-    `Errores registrados: ${errors.length}`,
-    '',
-    'Carpeta completa del mantenimiento:',
-    folders.maintenance.webViewLink,
+    '✅ Mantenimiento finalizado correctamente.',
+    `Expediente completo: ${folders.maintenance.webViewLink}`,
   ].join('\n');
 
   let chat = { sent: false, skipped: true };
@@ -392,16 +479,19 @@ export async function finalizeStagedMaintenanceDelivery(ctx, maintenanceId, driv
   }
 
   const logLines = [
-    'LOG DE FINALIZACIÓN ESCALONADA DMS',
+    'LOG DE FINALIZACIÓN DE MANTENIMIENTO DMS',
     `MantenimientoID: ${id}`,
-    `Cliente: ${bundle.maintenance.Cliente || 'N/A'}`,
+    `Cliente: ${bundle.maintenance.Cliente || bundle.client?.Nombre || 'N/A'}`,
     `Título: ${bundle.maintenance.TituloMantenimiento || 'N/A'}`,
+    `Fecha: ${bundle.maintenance.Fecha || 'N/A'}`,
     `Carpeta: ${folders.maintenance.webViewLink}`,
+    `Carpeta de boletas: ${folders.boletas.webViewLink || `https://drive.google.com/drive/folders/${folders.boletas.id}`}`,
+    `Carpeta de zonas: ${folders.zones.webViewLink || `https://drive.google.com/drive/folders/${folders.zones.id}`}`,
     `Dispositivos: ${deviceIds.size}`,
     `Evidencias: ${images}`,
     `Copiadas: ${copied}`,
     `Ya existentes: ${existing}`,
-    `Errores: ${errors.length}`,
+    `Errores de copia: ${errors.length}`,
     chatError ? `Error de Chat: ${chatError}` : '',
     '',
     ...(errors.length ? ['ERRORES REGISTRADOS', ...errors] : []),
@@ -418,16 +508,21 @@ export async function finalizeStagedMaintenanceDelivery(ctx, maintenanceId, driv
     maintenanceId: id,
     folderId: folders.maintenance.id,
     folderUrl: folders.maintenance.webViewLink,
+    boletasFolderId: folders.boletas.id,
+    boletasFolderUrl: folders.boletas.webViewLink || `https://drive.google.com/drive/folders/${folders.boletas.id}`,
+    zonesFolderId: folders.zones.id,
+    zonesFolderUrl: folders.zones.webViewLink || `https://drive.google.com/drive/folders/${folders.zones.id}`,
     destination: dest.label,
     fallbackToTest: dest.fallback,
     chat,
     chatError,
-    notificationState: chatError || dest.skipped ? 'ERROR' : 'ENVIADO',
+    notificationState: dest.skipped ? 'OMITIDO' : chatError ? 'ERROR' : 'ENVIADO',
     devices: deviceIds.size,
     imagesExpected: images,
     imagesCopied: copied,
     imagesAlreadyPresent: existing,
     errors,
     staged: true,
+    archiveOnlyChat: true,
   };
 }

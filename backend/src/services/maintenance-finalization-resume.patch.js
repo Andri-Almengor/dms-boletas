@@ -112,8 +112,18 @@ if (!maintenanceAutomationHandlers[INSTALL_FLAG]) {
   maintenanceAutomationHandlers[INSTALL_FLAG] = true;
 }
 
+// Las boletas automáticas de mantenimiento se convierten en archivos del
+// expediente: PDF sí, pero sin correo/encuesta/firma pendiente/Chat individual.
+// Se instala antes del worker escalonado para que cada item use este handler.
+await import('./maintenance-ticket-archive-only.patch.js');
+
 // El camino optimizado se instala primero para conservar compatibilidad con
 // mantenimientos pequeños y modo prueba. La capa escalonada se carga al final
 // y toma únicamente la finalización real de producción.
 await import('./maintenance-finalization-performance.patch.js');
 await import('./maintenance-staged-finalization.patch.js');
+
+// Esta última capa proyecta el job persistente sobre las respuestas normales
+// del mantenimiento. De ese modo un reinicio de Render no depende de que la
+// hoja Mantenimiento tenga columnas Finalizacion* para descubrir/reanudar el job.
+await import('./maintenance-finalization-job-discovery.patch.js');
