@@ -33,6 +33,7 @@ import './maintenance-device-lifecycle.test.mjs';
 import './maintenance-device-persistence.test.mjs';
 import './maintenance-finalization-performance.test.mjs';
 import './maintenance-staged-finalization.test.mjs';
+import './maintenance-drive-archive.test.mjs';
 import './maintenance-form-orchestration.test.mjs';
 import './maintenance-form-resources.test.mjs';
 import './maintenance-optional-signature-finalization.test.mjs';
