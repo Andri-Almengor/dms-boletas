@@ -1,7 +1,6 @@
 import { AppError } from '../core/errors.js';
 import { nowIso, pick } from '../core/utils.js';
 import { findById, updateRow } from '../infra/sheets.repository.js';
-import { ensureSheetColumns } from './sheet-columns.service.js';
 
 export const MAINTENANCE_FINALIZATION_COLUMNS = Object.freeze([
   'EstadoFinalizacion',
@@ -32,8 +31,17 @@ function requestId(ctx, maintenanceId, row = {}) {
     || `finalize-${maintenanceId}`;
 }
 
+/**
+ * Compatibilidad con las capas históricas de finalización.
+ *
+ * Desde la finalización escalonada, el estado durable vive en
+ * MaintenanceFinalizationJobs / MaintenanceFinalizationItems. Estas columnas
+ * pueden existir en instalaciones antiguas, pero NO son un requisito y no se
+ * deben crear dinámicamente en Mantenimiento. updateRow ya ignora cualquier
+ * campo cuyo encabezado no exista físicamente.
+ */
 export async function ensureMaintenanceFinalizationColumns() {
-  await ensureSheetColumns('Mantenimiento', MAINTENANCE_FINALIZATION_COLUMNS);
+  return MAINTENANCE_FINALIZATION_COLUMNS;
 }
 
 export async function markMaintenanceFinalizationStep(maintenanceId, step, patch = {}) {
