@@ -2,12 +2,14 @@ import { env } from '../config/env.js';
 import { AsyncSemaphore } from '../core/semaphore.js';
 
 const writeActions = new AsyncSemaphore({
+  name: 'action-write',
   max: env.writeActionMaxConcurrent,
   queueLimit: env.httpQueueLimit,
   timeoutMs: env.httpQueueTimeoutMs,
 });
 
 const heavyActions = new AsyncSemaphore({
+  name: 'action-heavy',
   max: env.heavyActionMaxConcurrent,
   queueLimit: Math.max(10, Math.ceil(env.httpQueueLimit / 3)),
   timeoutMs: Math.max(env.httpQueueTimeoutMs, 30_000),
@@ -53,6 +55,17 @@ function isHeavyRoute(route) {
     || value.includes('probar');
 }
 
+function addBusyContext(error, route, { heavy, write }) {
+  if (!error || !['SERVER_BUSY', 'SERVER_BUSY_TIMEOUT'].includes(error.code)) return error;
+  error.details = {
+    ...(error.details || {}),
+    route: normalizedRoute(route),
+    heavy,
+    write,
+  };
+  return error;
+}
+
 export async function runWithActionConcurrency(route, operation) {
   const heavy = isHeavyRoute(route);
   const write = !isReadRoute(route);
@@ -60,11 +73,17 @@ export async function runWithActionConcurrency(route, operation) {
   let releaseWrite;
 
   try {
-    // Todas las acciones adquieren recursos en el mismo orden para evitar
-    // bloqueos cruzados entre una finalización y una escritura normal.
-    if (heavy) releaseHeavy = await heavyActions.acquire();
-    if (write) releaseWrite = await writeActions.acquire();
+    // Las acciones pesadas tienen un carril exclusivo. No reservan además un
+    // slot de escrituras normales durante varios minutos: las escrituras a
+    // Sheets ya están serializadas por los gates internos del repositorio.
+    if (heavy) {
+      releaseHeavy = await heavyActions.acquire();
+    } else if (write) {
+      releaseWrite = await writeActions.acquire();
+    }
     return await operation();
+  } catch (error) {
+    throw addBusyContext(error, route, { heavy, write });
   } finally {
     releaseWrite?.();
     releaseHeavy?.();

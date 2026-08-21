@@ -1,10 +1,27 @@
 export class AsyncSemaphore {
-  constructor({ max = 1, queueLimit = 100, timeoutMs = 15000 } = {}) {
+  constructor({ name = 'semaphore', max = 1, queueLimit = 100, timeoutMs = 15000 } = {}) {
+    this.name = String(name || 'semaphore');
     this.max = Math.max(1, Number(max) || 1);
     this.queueLimit = Math.max(0, Number(queueLimit) || 0);
     this.timeoutMs = Math.max(0, Number(timeoutMs) || 0);
     this.active = 0;
     this.queue = [];
+  }
+
+  busyError(code, message) {
+    const error = new Error(message);
+    error.code = code;
+    error.status = 503;
+    error.semaphoreLane = this.name;
+    error.details = {
+      lane: this.name,
+      active: this.active,
+      waiting: this.queue.length,
+      max: this.max,
+      queueLimit: this.queueLimit,
+      timeoutMs: this.timeoutMs,
+    };
+    return error;
   }
 
   acquire() {
@@ -13,10 +30,10 @@ export class AsyncSemaphore {
       return Promise.resolve(this.releaseFactory());
     }
     if (this.queue.length >= this.queueLimit) {
-      const error = new Error('El servidor está ocupado. Intente nuevamente en unos segundos.');
-      error.code = 'SERVER_BUSY';
-      error.status = 503;
-      return Promise.reject(error);
+      return Promise.reject(this.busyError(
+        'SERVER_BUSY',
+        'El servidor está ocupado. Intente nuevamente en unos segundos.',
+      ));
     }
     return new Promise((resolve, reject) => {
       const entry = { resolve, reject, timer: null };
@@ -24,10 +41,10 @@ export class AsyncSemaphore {
         entry.timer = setTimeout(() => {
           const index = this.queue.indexOf(entry);
           if (index >= 0) this.queue.splice(index, 1);
-          const error = new Error('La solicitud esperó demasiado porque el servidor está ocupado.');
-          error.code = 'SERVER_BUSY_TIMEOUT';
-          error.status = 503;
-          reject(error);
+          reject(this.busyError(
+            'SERVER_BUSY_TIMEOUT',
+            'La solicitud esperó demasiado porque el servidor está ocupado.',
+          ));
         }, this.timeoutMs);
         entry.timer.unref?.();
       }
@@ -56,6 +73,7 @@ export class AsyncSemaphore {
 
   snapshot() {
     return {
+      lane: this.name,
       active: this.active,
       waiting: this.queue.length,
       max: this.max,

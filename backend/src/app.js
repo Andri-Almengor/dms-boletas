@@ -37,6 +37,7 @@ import {
 } from './modules/password-vault.module.js';
 import { integrationGatewayRouter } from './routes/integration-gateway.routes.js';
 import { runWithActionConcurrency } from './services/action-concurrency.service.js';
+import { runWithActionSingleFlight } from './services/action-single-flight.service.js';
 import {
   actionEnvelopeMiddleware,
   actionRateLimitMiddleware,
@@ -106,19 +107,25 @@ app.post('/api/action', actionEnvelopeMiddleware, actionRateLimitMiddleware, asy
     res.setHeader('Cache-Control', 'no-store');
     const envelope = req.actionEnvelope;
     const requestOrigin = req.get('origin') || `${req.protocol}://${req.get('host')}`;
+    const sessionToken = envelope.sessionToken || req.headers.authorization?.replace(/^Bearer\s+/i, '') || '';
     const action = isPasswordVaultRoute(envelope.route)
       ? dispatchPasswordVaultAction
       : dispatchAction;
-    const data = await runWithSheetsRouteReadCache(envelope.route, () => (
+    const execute = () => runWithSheetsRouteReadCache(envelope.route, () => (
       runWithActionConcurrency(envelope.route, () => action({
         route: envelope.route,
         payload: envelope.payload,
-        sessionToken: envelope.sessionToken || req.headers.authorization?.replace(/^Bearer\s+/i, '') || '',
+        sessionToken,
         ip: req.ip,
         userAgent: req.get('user-agent') || '',
         origin: requestOrigin,
       }))
     ));
+    const data = await runWithActionSingleFlight({
+      route: envelope.route,
+      payload: envelope.payload,
+      sessionToken,
+    }, execute);
     res.json({ ok: true, data });
   } catch (error) {
     next(error);

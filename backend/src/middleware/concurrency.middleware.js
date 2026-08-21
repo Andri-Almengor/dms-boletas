@@ -2,12 +2,14 @@ import { env } from '../config/env.js';
 import { AsyncSemaphore } from '../core/semaphore.js';
 
 const allRequests = new AsyncSemaphore({
+  name: 'http-all',
   max: env.httpMaxConcurrentRequests,
   queueLimit: env.httpQueueLimit,
   timeoutMs: env.httpQueueTimeoutMs,
 });
 
 const largeRequests = new AsyncSemaphore({
+  name: 'http-large',
   max: env.httpMaxConcurrentLargeRequests,
   queueLimit: Math.max(10, Math.ceil(env.httpQueueLimit / 4)),
   timeoutMs: env.httpQueueTimeoutMs,
@@ -37,6 +39,14 @@ export async function concurrencyMiddleware(req, res, next) {
   } catch (error) {
     releaseAll?.();
     releaseLarge?.();
+    if (error && ['SERVER_BUSY', 'SERVER_BUSY_TIMEOUT'].includes(error.code)) {
+      error.details = {
+        ...(error.details || {}),
+        method: String(req.method || '').toUpperCase(),
+        path: String(req.url || '').split('?', 1)[0],
+        contentLength: Number(req.headers['content-length'] || 0),
+      };
+    }
     next(error);
   }
 }
