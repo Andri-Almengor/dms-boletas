@@ -112,7 +112,8 @@ if (!maintenanceAutomationHandlers[INSTALL_FLAG]) {
   maintenanceAutomationHandlers[INSTALL_FLAG] = true;
 }
 
-// Este parche se carga después de instalar la política de firma opcional y la
-// reanudación persistente. Así puede sustituir únicamente el camino pesado de
-// producción sin alterar las pruebas ni los contratos anteriores.
+// El camino optimizado se instala primero para conservar compatibilidad con
+// mantenimientos pequeños y modo prueba. La capa escalonada se carga al final
+// y toma únicamente la finalización real de producción.
 await import('./maintenance-finalization-performance.patch.js');
+await import('./maintenance-staged-finalization.patch.js');

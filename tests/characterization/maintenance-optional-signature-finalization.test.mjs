@@ -112,19 +112,18 @@ test('un error anterior de firma se convierte en reintento aunque el estado haya
   assert.match(center, /\(!view\.active \|\| view\.canRetry\)/);
   assert.match(center, /onClick=\{\(\) => finalize\(\{ retry: retryFromError \}\)\}/);
   assert.match(center, /retryFromError \? 'Reintentar finalización'/);
-  assert.match(center, /catch \(error\) \{[\s\S]*setMessage\([\s\S]*await refresh\(\);/);
+  assert.match(center, /catch \(error\) \{[\s\S]*setMessage\([\s\S]*await refreshStatus\(\);/);
 });
 
-test('la pantalla de carga bloquea la interfaz desde el primer toque', () => {
+test('la finalización escalonada no bloquea la interfaz y consulta progreso liviano', () => {
   const center = source('src/components/offline/MaintenanceFinalizationCenter.jsx');
-  const styles = source('src/components/offline/MaintenanceFinalizationCenter.css');
 
-  assert.match(center, /maintenance-finalization-blocking/);
-  assert.match(center, /aria-busy="true"/);
-  assert.match(center, /Finalizando mantenimiento/);
-  assert.match(center, /No cierre la aplicación mientras se generan y envían las boletas/);
-  assert.match(styles, /\.maintenance-finalization-blocking\s*\{[\s\S]*position:\s*fixed[\s\S]*inset:\s*0[\s\S]*z-index:\s*5000/);
-  assert.match(styles, /maintenance-finalization-spin/);
+  assert.doesNotMatch(center, /maintenance-finalization-blocking/);
+  assert.doesNotMatch(center, /No cierre la aplicación mientras se generan y envían las boletas/);
+  assert.match(center, /finalizationStatusOnly:\s*true/);
+  assert.match(center, /window\.setInterval\(refreshStatus, 5_000\)/);
+  assert.match(center, /Puede continuar utilizando la aplicación/);
+  assert.match(center, /Reintentar desde el último paso/);
 });
 
 test('la omisión de firma queda registrada y no se presenta como firma incluida', () => {
