@@ -115,3 +115,17 @@ test('la integración reintenta solo lecturas, usa caché stale y devuelve 503 c
   assert.match(envSource, /SHEETS_TRANSIENT_MAX_BACKOFF_MS/);
   assert.match(envSource, /SHEETS_GLOBAL_READ_STALE_MS/);
 });
+
+test('si una hoja alcanza su límite físico, agrega solo las columnas faltantes y escribe encabezados en el mismo batch', () => {
+  const columnsSource = source('backend/src/services/sheet-columns.service.js');
+
+  assert.match(columnsSource, /exceeds grid limits/);
+  assert.match(columnsSource, /range: `\$\{quote\(sheetName\)\}!1:1`/);
+  assert.match(columnsSource, /const requiredColumns = startColumnIndex \+ missing\.length/);
+  assert.match(columnsSource, /length: requiredColumns - currentColumns/);
+  assert.match(columnsSource, /appendDimension/);
+  assert.match(columnsSource, /updateCells/);
+  assert.match(columnsSource, /requestBody: \{ requests \}/);
+  assert.match(columnsSource, /return ensureColumns\(sheetName, requested\)/);
+  assert.doesNotMatch(columnsSource, /AS1:BB1|AS:BB/);
+});
