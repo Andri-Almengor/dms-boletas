@@ -59,6 +59,7 @@ import './security-hardening.test.mjs';
 import './server-concurrency-isolation.test.mjs';
 import './shared-utilities.test.mjs';
 import './sheets-transient-retry.test.mjs';
+import './signature-completion-email.test.mjs';
 import './source-contracts.test.mjs';
 import './technician-delete-weekly-backup.test.mjs';
 import './ticket-detail-evidence-ui.test.mjs';

@@ -1,6 +1,7 @@
 import { findById } from '../infra/sheets.repository.js';
 import { audit } from '../services/audit.service.js';
 import { deliverSignedTicket } from '../services/ticket-group-delivery.service.js';
+import { notifyTicketSignatureCompleted } from '../services/signature-completion-notification.service.js';
 import {
   applyPublicSignature,
   ensureSignatureRequestForTicket,
@@ -128,6 +129,28 @@ export const ticketGroupSignatureHandlers = {
       user: { UsuarioID: 'CLIENTE', Nombre: 'Cliente' },
       permissions: [],
     };
+
+    let assigneeNotification = {
+      sent: false,
+      skipped: true,
+      reason: '',
+      recipientCount: 0,
+    };
+    try {
+      assigneeNotification = await notifyTicketSignatureCompleted({
+        group,
+        signedAt: signed.request?.signedAt || signed.ticket?.FirmaFecha || '',
+      });
+    } catch (error) {
+      assigneeNotification = {
+        sent: false,
+        skipped: false,
+        error: String(error?.message || error),
+        recipientCount: 0,
+      };
+      console.warn(`[signature-email][ticket:${group.rootId}] ${assigneeNotification.error}`);
+    }
+
     const finalized = group.visits.some(isFinalized);
     let delivery = null;
     let deliveryError = '';
@@ -165,6 +188,11 @@ export const ticketGroupSignatureHandlers = {
       SolicitudFirmaID: signed.request.id,
       EstadoEntrega: finalized ? (delivery?.notificationState || 'ERROR') : 'ESPERANDO_FINALIZACION',
       ErrorEntrega: deliveryError || delivery?.errors?.join(' | ') || '',
+      CorreoAsignadosEstado: assigneeNotification.sent
+        ? 'ENVIADO'
+        : assigneeNotification.skipped ? 'OMITIDO' : 'ERROR',
+      CorreoAsignadosCantidad: assigneeNotification.recipientCount || 0,
+      CorreoAsignadosError: assigneeNotification.error || assigneeNotification.reason || '',
     }).catch(() => {});
 
     const message = !finalized
@@ -181,6 +209,7 @@ export const ticketGroupSignatureHandlers = {
       delivery,
       deliveryState: finalized ? (delivery?.notificationState || 'ERROR') : 'ESPERANDO_FINALIZACION',
       deliveryError,
+      assigneesNotified: Boolean(assigneeNotification.sent),
       message,
     };
   },

@@ -2,6 +2,7 @@ import { forbidden } from '../core/errors.js';
 import { pick } from '../core/utils.js';
 import { findById, readTable } from '../infra/sheets.repository.js';
 import { audit } from '../services/audit.service.js';
+import { notifyMaintenanceSignatureCompleted } from '../services/signature-completion-notification.service.js';
 import {
   applyPublicMaintenanceSignature,
   ensureMaintenanceSignatureRequest,
@@ -115,6 +116,29 @@ export const maintenanceSignatureHandlers = {
       permissions: [],
     };
 
+    let assigneeNotification = {
+      sent: false,
+      skipped: true,
+      reason: signed.testMode ? 'Las firmas de prueba no notifican responsables.' : '',
+      recipientCount: 0,
+    };
+    if (!signed.testMode && !signed.alreadySigned) {
+      try {
+        assigneeNotification = await notifyMaintenanceSignatureCompleted({
+          maintenance: signed.maintenance,
+          signedAt: signed.request?.signedAt || signed.maintenance?.FirmaFecha || '',
+        });
+      } catch (error) {
+        assigneeNotification = {
+          sent: false,
+          skipped: false,
+          error: String(error?.message || error),
+          recipientCount: 0,
+        };
+        console.warn(`[signature-email][maintenance:${signed.maintenance.MantenimientoID}] ${assigneeNotification.error}`);
+      }
+    }
+
     await audit(
       systemContext,
       signed.testMode ? 'PROBAR_FIRMA_MANTENIMIENTO' : 'FIRMAR_MANTENIMIENTO_CLIENTE',
@@ -128,6 +152,11 @@ export const maintenanceSignatureHandlers = {
         FirmaURL: signed.file?.webViewLink || '',
         BoletasSincronizadas: signed.synchronizedTickets || 0,
         EstadoMantenimientoCambiado: false,
+        CorreoAsignadosEstado: assigneeNotification.sent
+          ? 'ENVIADO'
+          : assigneeNotification.skipped ? 'OMITIDO' : 'ERROR',
+        CorreoAsignadosCantidad: assigneeNotification.recipientCount || 0,
+        CorreoAsignadosError: assigneeNotification.error || assigneeNotification.reason || '',
       },
     ).catch(() => {});
 
@@ -147,6 +176,7 @@ export const maintenanceSignatureHandlers = {
       maintenance,
       ticket: maintenance,
       synchronizedTickets: signed.synchronizedTickets || 0,
+      assigneesNotified: Boolean(assigneeNotification.sent),
       message,
     };
   },
