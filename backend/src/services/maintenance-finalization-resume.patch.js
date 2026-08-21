@@ -112,6 +112,11 @@ if (!maintenanceAutomationHandlers[INSTALL_FLAG]) {
   maintenanceAutomationHandlers[INSTALL_FLAG] = true;
 }
 
+// Las boletas automáticas de mantenimiento se convierten en archivos del
+// expediente: PDF sí, pero sin correo/encuesta/firma pendiente/Chat individual.
+// Se instala antes del worker escalonado para que cada item use este handler.
+await import('./maintenance-ticket-archive-only.patch.js');
+
 // El camino optimizado se instala primero para conservar compatibilidad con
 // mantenimientos pequeños y modo prueba. La capa escalonada se carga al final
 // y toma únicamente la finalización real de producción.
