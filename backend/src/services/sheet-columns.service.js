@@ -5,6 +5,49 @@ import { ensureColumns, getHeaders } from '../infra/sheets.repository.js';
 const sheetTails = new Map();
 const confirmedColumns = new Map();
 
+// El progreso detallado de la finalización escalonada vive en
+// MaintenanceFinalizationJobs / MaintenanceFinalizationItems. Estas columnas
+// son compatibles si ya existen en Mantenimiento, pero no deben forzar el
+// crecimiento físico de esa hoja solo para ejecutar un job.
+const OPTIONAL_MAINTENANCE_FINALIZATION_COLUMNS = new Set([
+  'EstadoFinalizacion',
+  'PasoFinalizacion',
+  'FinalizacionSolicitudID',
+  'FinalizacionIntentos',
+  'FinalizacionSolicitadaEn',
+  'FinalizacionIniciadaEn',
+  'FinalizacionActualizadaEn',
+  'FinalizacionCompletadaEn',
+  'FinalizacionSolicitadaPor',
+  'UltimoErrorFinalizacion',
+  'FinalizacionJobID',
+  'FinalizacionProgreso',
+  'FinalizacionTotalBoletas',
+  'FinalizacionBoletasCompletadas',
+  'FinalizacionTotalDispositivos',
+  'FinalizacionDispositivosCompletados',
+  'FinalizacionTotalEvidencias',
+  'FinalizacionEvidenciasProcesadas',
+  'FinalizacionMensaje',
+  'FirmaEstadoFinalizacion',
+  'FirmaOmitidaAlFinalizar',
+  'CarpetaDriveID',
+  'CarpetaDriveURL',
+  'EstadoNotificacion',
+  'ChatDestino',
+  'ChatEnviadoEn',
+  'ChatFallbackPruebas',
+  'ImagenesEsperadas',
+  'ImagenesCopiadas',
+  'ImagenesYaExistentes',
+  'ErroresCopia',
+  'BoletasGeneradasJSON',
+  'BoletasGeneradasCantidad',
+  'BoletasGeneradasEn',
+  'EstadoBoletasMantenimiento',
+  'UltimoErrorBoletasMantenimiento',
+]);
+
 function confirmedSet(sheetName) {
   if (!confirmedColumns.has(sheetName)) confirmedColumns.set(sheetName, new Set());
   return confirmedColumns.get(sheetName);
@@ -18,6 +61,12 @@ function isGridLimitError(error) {
   const text = `${error?.message || ''} ${error?.response?.data?.error?.message || ''}`.toLowerCase();
   return text.includes('exceeds grid limits')
     || (text.includes('max columns') && text.includes('range'));
+}
+
+function maintenanceColumnsAreOptional(sheetName, missing = []) {
+  return sheetName === 'Mantenimiento'
+    && missing.length > 0
+    && missing.every((column) => OPTIONAL_MAINTENANCE_FINALIZATION_COLUMNS.has(column));
 }
 
 async function repairGridAndHeaders(sheetName, requested) {
@@ -73,9 +122,6 @@ async function repairGridAndHeaders(sheetName, requested) {
     },
   });
 
-  // appendDimension y updateCells viajan en el mismo batch. Google Sheets
-  // aplica las solicitudes en orden, evitando que el encabezado se escriba
-  // antes de que la cuadrícula haya crecido físicamente.
   await sheetsApi.spreadsheets.batchUpdate({
     spreadsheetId: env.sheetId,
     requestBody: { requests },
@@ -88,7 +134,6 @@ async function ensureColumnsResilient(sheetName, requested) {
   } catch (error) {
     if (!isGridLimitError(error)) throw error;
     await repairGridAndHeaders(sheetName, requested);
-    // Reutiliza el camino normal para invalidar/refrescar las cachés del repositorio.
     return ensureColumns(sheetName, requested);
   }
 }
@@ -114,6 +159,14 @@ export async function ensureSheetColumns(sheetName, columns = []) {
     headers.forEach((header) => currentKnown.add(header));
     const missing = requested.filter((column) => !currentKnown.has(column));
     if (!missing.length) return headers;
+
+    if (maintenanceColumnsAreOptional(sheetName, missing)) {
+      // Se recuerdan como columnas virtuales para no repetir la comprobación.
+      // updateRow solo persistirá las que existan físicamente; el job conserva
+      // el estado completo aunque la hoja Mantenimiento tenga 44 columnas.
+      missing.forEach((column) => currentKnown.add(column));
+      return headers;
+    }
 
     const ensured = await ensureColumnsResilient(sheetName, requested);
     ensured.forEach((header) => currentKnown.add(header));
