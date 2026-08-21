@@ -31,7 +31,11 @@ jobs:
         run: npm ci --prefix backend
 
       - name: Run characterization tests
-        run: npm run test:characterization
+        shell: bash
+        run: |
+          mkdir -p .artifacts
+          set -o pipefail
+          npm run test:characterization 2>&1 | tee .artifacts/characterization.log
 
       - name: Build frontend
         run: npm run build
