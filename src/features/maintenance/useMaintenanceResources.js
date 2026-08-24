@@ -18,6 +18,52 @@ import {
 
 const CLIENT_PAGE_SIZE = 80;
 
+async function loadAllActiveClients({ sessionToken, signal, query = '' }) {
+  const normalizedQuery = String(query || '').trim();
+  const firstPage = await loadCatalogResource({
+    routes: MODULE_ROUTES.clients.list,
+    payload: {
+      page: 1,
+      pageSize: CLIENT_PAGE_SIZE,
+      activo: true,
+      ...(normalizedQuery ? { q: normalizedQuery } : {}),
+    },
+    sessionToken,
+    signal,
+    // Los clientes pueden crearse desde otra pantalla o sesión. El formulario de
+    // mantenimiento debe consultar el catálogo actual y no conservar hasta 5 min
+    // una primera página que ya quedó desactualizada.
+    force: true,
+  });
+
+  let collected = firstPage.items.map(maintenanceClientView);
+  const total = Math.max(collected.length, Number(firstPage.total || 0));
+  const totalPages = Math.max(1, Math.ceil(total / CLIENT_PAGE_SIZE));
+
+  for (let page = 2; page <= totalPages; page += 1) {
+    if (signal?.aborted) break;
+    const nextPage = await loadCatalogResource({
+      routes: MODULE_ROUTES.clients.list,
+      payload: {
+        page,
+        pageSize: CLIENT_PAGE_SIZE,
+        activo: true,
+        ...(normalizedQuery ? { q: normalizedQuery } : {}),
+      },
+      sessionToken,
+      signal,
+      force: true,
+    });
+    collected = mergeCatalogItems(
+      collected,
+      nextPage.items.map(maintenanceClientView),
+      (item, index, source) => item.id || `${source}-${index}`,
+    );
+  }
+
+  return collected;
+}
+
 function initialEquipmentFromDevices(devices, form) {
   const byId = new Map();
   devices.forEach((device) => {
@@ -55,14 +101,12 @@ export default function useMaintenanceResources({
     const controller = new AbortController();
     clientSearchControllerRef.current = controller;
     try {
-      const result = await loadCatalogResource({
-        routes: MODULE_ROUTES.clients.list,
-        payload: { page: 1, pageSize: CLIENT_PAGE_SIZE, activo: true, q: String(query || '').trim() },
+      const incoming = await loadAllActiveClients({
         sessionToken,
         signal: controller.signal,
+        query,
       });
       if (controller.signal.aborted) return [];
-      const incoming = result.items.map(maintenanceClientView);
       setClients((current) => mergeCatalogItems(
         current,
         incoming,
@@ -80,9 +124,7 @@ export default function useMaintenanceResources({
     setLoading(true);
 
     Promise.all([
-      loadCatalogResource({
-        routes: MODULE_ROUTES.clients.list,
-        payload: { page: 1, pageSize: CLIENT_PAGE_SIZE, activo: true },
+      loadAllActiveClients({
         sessionToken,
         signal: controller.signal,
       }),
@@ -100,9 +142,9 @@ export default function useMaintenanceResources({
           { signal: controller.signal },
         )
         : Promise.resolve(null),
-    ]).then(([clientData, userData, maintenanceData]) => {
+    ]).then(([clientItems, userData, maintenanceData]) => {
       if (controller.signal.aborted) return;
-      setClients(clientData.items.map(maintenanceClientView));
+      setClients(clientItems);
       setUsers(activeMaintenanceUsers(userData.items));
 
       if (maintenanceData) {
