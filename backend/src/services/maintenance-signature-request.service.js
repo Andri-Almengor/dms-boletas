@@ -126,11 +126,11 @@ export async function ensureMaintenanceSignatureStorage() {
 
 function publicBaseUrl(origin = '') {
   const candidates = [
-    origin,
-    process.env.PUBLIC_APP_URL,
     process.env.APP_PUBLIC_URL,
+    process.env.PUBLIC_APP_URL,
     process.env.RENDER_EXTERNAL_URL,
     process.env.FRONTEND_ORIGIN,
+    origin,
   ];
   const selected = candidates
     .map((value) => clean(value))
@@ -143,6 +143,25 @@ function publicBaseUrl(origin = '') {
     );
   }
   return selected.replace(/\/+$/, '');
+}
+
+function publicSignatureUrl(token, origin = '') {
+  return `${publicBaseUrl(origin)}/firmar/${encodeURIComponent(clean(token))}`;
+}
+
+async function refreshPendingPublicUrl(row, origin = '', actor = 'SISTEMA') {
+  if (clean(row.Estado).toUpperCase() !== 'PENDIENTE') return row;
+  const token = clean(row.Token);
+  if (!token) return row;
+
+  const expectedUrl = publicSignatureUrl(token, origin);
+  if (clean(row.FirmaURLPublica) === expectedUrl) return row;
+
+  return updateRow(SHEET_NAME, row.SolicitudFirmaMantenimientoID, {
+    FirmaURLPublica: expectedUrl,
+    ActualizadoPor: actor || 'SISTEMA',
+    FechaActualizacion: nowIso(),
+  });
 }
 
 export function maintenanceHasSignature(maintenance = {}) {
@@ -233,12 +252,15 @@ export async function ensureMaintenanceSignatureRequest({
 
   for (const candidate of candidates) {
     const current = await expireIfNeeded(candidate);
-    if (clean(current.Estado).toUpperCase() === 'PENDIENTE') return requestView(current);
+    if (clean(current.Estado).toUpperCase() === 'PENDIENTE') {
+      const refreshed = await refreshPendingPublicUrl(current, origin, actor);
+      return requestView(refreshed);
+    }
   }
 
   const createdAt = nowIso();
   const token = `mntsig_${crypto.randomBytes(32).toString('base64url')}`;
-  const url = `${publicBaseUrl(origin)}/firmar/${encodeURIComponent(token)}`;
+  const url = publicSignatureUrl(token, origin);
   const row = {
     SolicitudFirmaMantenimientoID: uuid(),
     Token: token,
