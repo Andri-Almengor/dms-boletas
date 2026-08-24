@@ -70,13 +70,17 @@ test('filtra equipos localmente por sede', () => {
   assert.deepEqual(filterMaintenanceEquipment(rows, ''), []);
 });
 
-test('la carga usa relaciones agrupadas, clientes paginados y cancelación', () => {
+test('la carga usa relaciones agrupadas, todos los clientes frescos por páginas y cancelación', () => {
   const resources = source('src/features/maintenance/useMaintenanceResources.js');
   assert.ok(resources.includes("import { fetchClientRelations } from '../../services/clientRelations';"));
   assert.ok(resources.includes('const CLIENT_PAGE_SIZE = 80;'));
-  assert.ok(resources.includes('loadCatalogResource({'));
+  assert.ok(resources.includes('async function loadAllActiveClients'));
+  assert.ok(resources.includes('const totalPages = Math.max(1, Math.ceil(total / CLIENT_PAGE_SIZE));'));
+  assert.ok(resources.includes('for (let page = 2; page <= totalPages; page += 1)'));
+  assert.ok(resources.includes('force: true'));
   assert.ok(resources.includes('searchClients'));
-  assert.ok(resources.includes("q: String(query || '').trim()"));
+  assert.ok(resources.includes('query,'));
+  assert.ok(resources.includes('loadAllActiveClients({'));
   assert.ok(resources.includes('const controller = new AbortController();'));
   assert.ok(resources.includes('signal: controller.signal'));
   assert.ok(resources.includes('return () => controller.abort();'));
