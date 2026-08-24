@@ -112,17 +112,36 @@ export async function ensureSignatureStorage() {
 
 function publicBaseUrl(origin = '') {
   const candidates = [
-    origin,
-    process.env.PUBLIC_APP_URL,
     process.env.APP_PUBLIC_URL,
+    process.env.PUBLIC_APP_URL,
     process.env.RENDER_EXTERNAL_URL,
     process.env.FRONTEND_ORIGIN,
+    origin,
   ];
   const selected = candidates.map(clean).find((value) => /^https?:\/\//i.test(value) && value !== '*');
   if (!selected) {
     throw new AppError('SIGNATURE_PUBLIC_URL_MISSING', 'No fue posible determinar la URL pública para firmar la boleta.', 503);
   }
   return selected.replace(/\/+$/, '');
+}
+
+function publicSignatureUrl(token, origin = '') {
+  return `${publicBaseUrl(origin)}/firmar/${encodeURIComponent(clean(token))}`;
+}
+
+async function refreshPendingPublicUrl(row, origin = '', actor = 'SISTEMA') {
+  if (clean(row.Estado).toUpperCase() !== 'PENDIENTE') return row;
+  const token = clean(row.Token);
+  if (!token) return row;
+
+  const expectedUrl = publicSignatureUrl(token, origin);
+  if (clean(row.FirmaURLPublica) === expectedUrl) return row;
+
+  return updateRow(SHEET_NAME, row.SolicitudFirmaID, {
+    FirmaURLPublica: expectedUrl,
+    ActualizadoPor: actor || 'SISTEMA',
+    FechaActualizacion: nowIso(),
+  });
 }
 
 export function ticketHasSignature(ticket = {}) {
@@ -189,12 +208,15 @@ export async function ensureSignatureRequestForTicket({ ticketId, origin = '', a
 
   for (const candidate of candidates) {
     const current = await expireIfNeeded(candidate);
-    if (clean(current.Estado).toUpperCase() === 'PENDIENTE') return requestView(current);
+    if (clean(current.Estado).toUpperCase() === 'PENDIENTE') {
+      const refreshed = await refreshPendingPublicUrl(current, origin, actor);
+      return requestView(refreshed);
+    }
   }
 
   const createdAt = nowIso();
   const token = crypto.randomBytes(32).toString('base64url');
-  const url = `${publicBaseUrl(origin)}/firmar/${encodeURIComponent(token)}`;
+  const url = publicSignatureUrl(token, origin);
   const row = {
     SolicitudFirmaID: uuid(),
     Token: token,
