@@ -16,8 +16,9 @@ const DRIVE_RESUMABLE_PREFIX = 'https://www.googleapis.com/upload/drive/v3/files
 const TICKET_MEDIA_COLUMNS = ['TipoMedio', 'DuracionSegundos', 'TamanoBytes'];
 const MAINTENANCE_MEDIA_COLUMNS = ['TipoMedio', 'DuracionSegundos'];
 
-function clean(value) {
-  return String(value ?? '').trim();
+function clean(value, fallback = '') {
+  const text = String(value ?? '').trim();
+  return text || fallback;
 }
 
 function validClientGeneratedId(value) {
@@ -108,6 +109,21 @@ function existingMaintenanceEvidence(rows, imageId, deviceId) {
   if (!existing) return null;
   if (clean(existing.DispositivoMantenimientoRef) !== clean(deviceId)) throw badRequest('La evidencia local ya pertenece a otro dispositivo.');
   return existing;
+}
+
+async function findExistingEvidence(token, kind) {
+  if (kind === 'ticket') {
+    return existingTicketEvidence(
+      await readTable('EvidenciasBoleta', { force: true }),
+      token.evidenceId,
+      token.boletaUid,
+    );
+  }
+  return existingMaintenanceEvidence(
+    await readTable('Mantenimiento imagenes', { force: true }),
+    token.imageId,
+    token.deviceId,
+  );
 }
 
 function validatedVideoMetadata(payload) {
@@ -257,12 +273,6 @@ async function appendMaintenanceEvidence(token, file) {
 
 async function uploadChunk(ctx, kind) {
   const token = parseUploadToken(ctx.payload.uploadToken, kind);
-  const existingRows = await readTable(kind === 'ticket' ? 'EvidenciasBoleta' : 'Mantenimiento imagenes', { force: true });
-  const existing = kind === 'ticket'
-    ? existingTicketEvidence(existingRows, token.evidenceId, token.boletaUid)
-    : existingMaintenanceEvidence(existingRows, token.imageId, token.deviceId);
-  if (existing) return { complete: true, evidence: existing, nextOffset: token.size };
-
   const offset = Number(ctx.payload.offset);
   if (!Number.isInteger(offset) || offset < 0 || offset >= token.size) throw badRequest('La posición del bloque del video no es válida.');
   const normalized = clean(ctx.payload.base64).replace(/\s+/g, '');
@@ -291,6 +301,8 @@ async function uploadChunk(ctx, kind) {
     return { complete: false, nextOffset };
   }
   if (!response.ok) {
+    const existing = await findExistingEvidence(token, kind);
+    if (existing) return { complete: true, evidence: existing, nextOffset: token.size };
     const message = await response.text().catch(() => '');
     throw new Error(`Google Drive no pudo recibir un bloque del video (${response.status}). ${message.slice(0, 300)}`.trim());
   }
