@@ -131,7 +131,7 @@ export async function streamProtectedMedia(req, res, next) {
     }
 
     const stream = Readable.fromWeb(upstream.body);
-    req.once('close', () => abortController?.abort());
+    res.once('close', () => abortController?.abort());
     stream.on('error', (error) => {
       if (!res.headersSent) next(error);
       else res.destroy(error);
