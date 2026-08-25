@@ -15,7 +15,7 @@ async function requestProtectedSource(imageId, sessionToken, force = false) {
     { imageId, FotoDispositivoID: imageId },
     sessionToken,
   ).then((media) => {
-    const source = pick(media, ['dataUrl', 'DataURL', 'url']);
+    const source = pick(media, ['streamUrl', 'dataUrl', 'DataURL', 'url']);
     if (!source) throw new Error('La evidencia no devolvió contenido.');
     protectedMediaCache.set(imageId, source);
     return source;
