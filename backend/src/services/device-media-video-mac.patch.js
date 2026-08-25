@@ -5,6 +5,7 @@ import { maintenanceDynamicQuestionHandlers } from '../modules/maintenance-quest
 import { maintenanceScalableImageHandlers } from '../modules/maintenance-scalable-images.module.js';
 import { ensureSheetColumns } from './sheet-columns.service.js';
 import {
+  EVIDENCE_VIDEO_INLINE_MAX_BYTES,
   normalizeMacAddress,
   validateEvidenceMediaPayload,
 } from './evidence-media-policy.service.js';
@@ -88,6 +89,13 @@ function mediaPayload(payload = {}, metadata) {
   };
 }
 
+function validateInlineMedia(payload, options = {}) {
+  return validateEvidenceMediaPayload(payload, {
+    ...options,
+    maxVideoBytes: EVIDENCE_VIDEO_INLINE_MAX_BYTES,
+  });
+}
+
 async function persistTicketEvidenceMetadata(result, metadata, actor) {
   const id = clean(pick(result, ['EvidenciaID', 'evidenciaId', 'id']));
   if (!id) return result;
@@ -123,7 +131,7 @@ if (!ticketMultiHandlers[INSTALL_FLAG]) {
 
   const originalEvidenceUpload = ticketMultiHandlers.evidenceUpload;
   ticketMultiHandlers.evidenceUpload = async (ctx) => {
-    const metadata = validateEvidenceMediaPayload(ctx.payload, { allowDocuments: true });
+    const metadata = validateInlineMedia(ctx.payload, { allowDocuments: true });
     const result = await originalEvidenceUpload({ ...ctx, payload: mediaPayload(ctx.payload, metadata) });
     return persistTicketEvidenceMetadata(result, metadata, ctx.user?.UsuarioID);
   };
@@ -139,7 +147,7 @@ if (!maintenanceDynamicQuestionHandlers[INSTALL_FLAG]) {
 
   const originalImageUpload = maintenanceDynamicQuestionHandlers.imageUpload;
   maintenanceDynamicQuestionHandlers.imageUpload = async (ctx) => {
-    const metadata = validateEvidenceMediaPayload(ctx.payload, { allowDocuments: false });
+    const metadata = validateInlineMedia(ctx.payload, { allowDocuments: false });
     const result = await originalImageUpload({ ...ctx, payload: mediaPayload(ctx.payload, metadata) });
     return persistMaintenanceEvidenceMetadata(result, metadata, ctx.user?.UsuarioID);
   };
@@ -153,7 +161,7 @@ if (!maintenanceScalableImageHandlers[INSTALL_FLAG]) {
     const source = Array.isArray(ctx.payload?.images) ? ctx.payload.images : [];
     const metadataByKey = new Map();
     const images = source.map((item, index) => {
-      const metadata = validateEvidenceMediaPayload(item, { allowDocuments: false, index });
+      const metadata = validateInlineMedia(item, { allowDocuments: false, index });
       const key = clean(pick(item, ['localId', 'imageId', 'FotoDispositivoID'], String(index)));
       metadataByKey.set(key, metadata);
       return mediaPayload(item, metadata);
@@ -190,6 +198,7 @@ if (!maintenanceScalableImageHandlers[INSTALL_FLAG]) {
 
 export const DEVICE_MEDIA_VIDEO_MAC_POLICY = Object.freeze({
   videoMaxSeconds: 90,
+  videoInlineMaxBytes: EVIDENCE_VIDEO_INLINE_MAX_BYTES,
   ticketVideos: true,
   maintenanceVideos: true,
   macAddressField: 'DireccionMAC',

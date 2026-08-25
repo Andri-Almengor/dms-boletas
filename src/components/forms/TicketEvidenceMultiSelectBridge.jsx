@@ -1,6 +1,7 @@
 import React, { useEffect, useRef } from 'react';
 import { useLocation } from 'react-router-dom';
 import { useAuth } from '../../AuthContext';
+import { shouldUseLargeEvidenceUpload, uploadLargeTicketEvidence } from '../../services/largeEvidenceUpload';
 import { MODULE_ROUTES, requestAvailable } from '../../services/moduleApi';
 import { prepareEvidenceFiles } from '../../utils/evidenceMedia';
 
@@ -229,19 +230,29 @@ export default function TicketEvidenceMultiSelectBridge() {
         for (let index = 0; index < items.length; index += 1) {
           const prepared = items[index];
           const file = prepared.file;
+          const uploadItem = {
+            ...prepared,
+            name: evidenceName(prepared, index, items.length, baseName),
+            note,
+          };
           button.innerHTML = `<span class="material-symbols-outlined" aria-hidden="true">progress_activity</span><span>Cargando ${index + 1} de ${items.length}...</span>`;
           renderSelection(form, `Cargando ${index + 1} de ${items.length}...`, 'progress');
-          await requestAvailable(MODULE_ROUTES.tickets.evidenceUpload, {
-            boletaUid,
-            nombre: evidenceName(prepared, index, items.length, baseName),
-            nota: note,
-            fileName: file.name,
-            mimeType: prepared.mimeType,
-            mediaType: prepared.mediaType,
-            durationSeconds: Number(prepared.durationSeconds || 0),
-            size: Number(prepared.size || file.size || 0),
-            base64: await fileToBase64(file),
-          }, sessionToken);
+
+          if (shouldUseLargeEvidenceUpload(uploadItem)) {
+            await uploadLargeTicketEvidence({ boletaUid, item: uploadItem, sessionToken });
+          } else {
+            await requestAvailable(MODULE_ROUTES.tickets.evidenceUpload, {
+              boletaUid,
+              nombre: uploadItem.name,
+              nota: note,
+              fileName: file.name,
+              mimeType: prepared.mimeType,
+              mediaType: prepared.mediaType,
+              durationSeconds: Number(prepared.durationSeconds || 0),
+              size: Number(prepared.size || file.size || 0),
+              base64: await fileToBase64(file),
+            }, sessionToken);
+          }
           uploadedCount = index + 1;
         }
 

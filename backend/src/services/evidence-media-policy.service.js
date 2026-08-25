@@ -2,7 +2,8 @@ import { badRequest } from '../core/errors.js';
 
 export const EVIDENCE_VIDEO_MAX_SECONDS = 90;
 export const EVIDENCE_IMAGE_MAX_BYTES = 15 * 1024 * 1024;
-export const EVIDENCE_VIDEO_MAX_BYTES = 30 * 1024 * 1024;
+export const EVIDENCE_VIDEO_INLINE_MAX_BYTES = 30 * 1024 * 1024;
+export const EVIDENCE_VIDEO_MAX_BYTES = 300 * 1024 * 1024;
 export const EVIDENCE_DOCUMENT_MAX_BYTES = 15 * 1024 * 1024;
 
 const VIDEO_MIME_TYPES = new Set(['video/mp4', 'video/webm', 'video/quicktime', 'video/x-m4v']);
@@ -48,6 +49,10 @@ function estimatedBytes(payload = {}) {
   return Math.max(0, Math.floor((base64.length * 3) / 4) - padding);
 }
 
+function bytesToMb(bytes) {
+  return Math.max(1, Math.round(Number(bytes || 0) / (1024 * 1024)));
+}
+
 export function evidenceMediaType(payload = {}) {
   const mimeType = inferredMimeType(payload);
   if (mimeType.startsWith('video/') || VIDEO_MIME_TYPES.has(mimeType)) return 'VIDEO';
@@ -56,20 +61,25 @@ export function evidenceMediaType(payload = {}) {
   return 'OTRO';
 }
 
-export function validateEvidenceMediaPayload(payload = {}, { allowDocuments = false, index = 0 } = {}) {
+export function validateEvidenceMediaPayload(payload = {}, {
+  allowDocuments = false,
+  index = 0,
+  requireData = true,
+  maxVideoBytes = EVIDENCE_VIDEO_MAX_BYTES,
+} = {}) {
   const fileName = clean(payload.fileName || payload.NombreArchivo || payload.Nombre, `evidencia-${index + 1}`);
   const mimeType = inferredMimeType(payload);
   const mediaType = evidenceMediaType({ ...payload, mimeType });
   const size = estimatedBytes(payload);
   const durationSeconds = Number(payload.durationSeconds || payload.DuracionSegundos || 0);
 
-  if (!clean(payload.base64)) throw badRequest(`La evidencia ${fileName} no contiene datos para cargar.`);
+  if (requireData && !clean(payload.base64)) throw badRequest(`La evidencia ${fileName} no contiene datos para cargar.`);
 
   if (mediaType === 'VIDEO') {
     if (!VIDEO_MIME_TYPES.has(mimeType)) {
       throw badRequest(`El video ${fileName} no tiene un formato compatible. Use MP4, MOV o WebM.`);
     }
-    if (size > EVIDENCE_VIDEO_MAX_BYTES) throw badRequest(`El video ${fileName} supera el límite de 30 MB.`);
+    if (size > maxVideoBytes) throw badRequest(`El video ${fileName} supera el límite de ${bytesToMb(maxVideoBytes)} MB para esta carga.`);
     if (!Number.isFinite(durationSeconds) || durationSeconds <= 0) {
       throw badRequest(`No se pudo validar la duración del video ${fileName}. Selecciónelo nuevamente desde la aplicación.`);
     }
