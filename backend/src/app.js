@@ -11,6 +11,7 @@ import './services/ticket-delete-audit.patch.js';
 import './services/maintenance-ticket-work-time.patch.js';
 import './services/maintenance-finalization-resume.patch.js';
 import './services/device-media-video-mac.patch.js';
+import './services/protected-media-stream.patch.js';
 import './services/customer-case-evidence-recovery.patch.js';
 import './services/customer-case-test-mode.patch.js';
 import './services/customer-case-real-ticket-sequence.patch.js';
@@ -28,6 +29,7 @@ import './services/integration-gateway-answer-format.patch.js';
 import './services/integration-gateway-natural-language.patch.js';
 import './services/integration-gateway-advanced-actions.patch.js';
 import { runWithSheetsRouteReadCache } from './services/sheets-route-read-cache.patch.js';
+import { streamProtectedMedia } from './services/protected-media-stream.service.js';
 import { env } from './config/env.js';
 import { dispatchAction } from './core/action-router.js';
 import { AppError } from './core/errors.js';
@@ -101,6 +103,8 @@ app.get('/api/health', (_req, res) => {
   res.setHeader('Cache-Control', 'no-store');
   res.json({ ok: true, service: 'dms-boletas-backend', time: new Date().toISOString() });
 });
+
+app.get('/api/media/stream', streamProtectedMedia);
 
 app.post('/api/action', actionEnvelopeMiddleware, actionRateLimitMiddleware, async (req, res, next) => {
   try {
