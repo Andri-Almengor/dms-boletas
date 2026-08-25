@@ -1,6 +1,6 @@
 export const EVIDENCE_VIDEO_MAX_SECONDS = 90;
 export const EVIDENCE_IMAGE_MAX_BYTES = 15 * 1024 * 1024;
-export const EVIDENCE_VIDEO_MAX_BYTES = 30 * 1024 * 1024;
+export const EVIDENCE_VIDEO_MAX_BYTES = 300 * 1024 * 1024;
 export const EVIDENCE_DOCUMENT_MAX_BYTES = 15 * 1024 * 1024;
 
 const VIDEO_EXTENSIONS = new Set(['mp4', 'mov', 'm4v', 'webm']);
@@ -99,7 +99,7 @@ export async function validateEvidenceFile(file, { allowDocuments = false } = {}
 
   if (mediaType === 'video') {
     if (size > EVIDENCE_VIDEO_MAX_BYTES) {
-      throw new Error(`El video ${name} supera el límite de 30 MB.`);
+      throw new Error(`El video ${name} supera el límite de 300 MB.`);
     }
     const durationSeconds = await readVideoDuration(file);
     if (durationSeconds > EVIDENCE_VIDEO_MAX_SECONDS + 0.25) {
