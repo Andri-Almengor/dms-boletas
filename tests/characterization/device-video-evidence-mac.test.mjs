@@ -105,6 +105,7 @@ test('videos de boletas y mantenimientos conservan el flujo hacia correo', () =>
 test('Apps Script adjunta lo que cabe y concede acceso directo a evidencias grandes', () => {
   const reportScript = source('apps-script/boletas-report/Code.gs');
 
+  assert.doesNotThrow(() => new Function(reportScript));
   assert.match(reportScript, /MAX_EMAIL_BYTES = 18 \* 1024 \* 1024/);
   assert.match(reportScript, /grantDriveAccess: !data\.testMode/);
   assert.match(reportScript, /function grantEvidenceViewAccess_/);
