@@ -35,7 +35,7 @@ export default function MediaPreview({ boletaUid, evidenceId, fileId, kind = 'ev
         fileId,
         kind,
       }, sessionToken);
-      const resolved = data?.dataUrl || data?.DataURL || data?.url || '';
+      const resolved = data?.streamUrl || data?.dataUrl || data?.DataURL || data?.url || '';
       if (!resolved) throw new Error('El backend no devolvió el contenido del archivo.');
       setSource(resolved);
     } catch (requestError) {
