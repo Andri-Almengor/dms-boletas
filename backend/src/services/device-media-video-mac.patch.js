@@ -189,7 +189,7 @@ if (!maintenanceScalableImageHandlers[INSTALL_FLAG]) {
 }
 
 export const DEVICE_MEDIA_VIDEO_MAC_POLICY = Object.freeze({
-  videoMaxSeconds: 20,
+  videoMaxSeconds: 90,
   ticketVideos: true,
   maintenanceVideos: true,
   macAddressField: 'DireccionMAC',
