@@ -1,7 +1,11 @@
 import { fileToBase64 } from '../utils/fileEncoding';
-import { MODULE_ROUTES, requestAvailable } from './moduleApi';
+import { requestAvailable } from './moduleApi';
 
 export const LARGE_EVIDENCE_THRESHOLD_BYTES = 30 * 1024 * 1024;
+const TICKET_LARGE_INIT_ROUTES = ['boletas.evidence.large.init', 'tickets.evidence.large.init'];
+const TICKET_LARGE_CHUNK_ROUTES = ['boletas.evidence.large.chunk', 'tickets.evidence.large.chunk'];
+const MAINTENANCE_LARGE_INIT_ROUTES = ['maintenance.images.large.init', 'mantenimientos.imagenes.grande.iniciar'];
+const MAINTENANCE_LARGE_CHUNK_ROUTES = ['maintenance.images.large.chunk', 'mantenimientos.imagenes.grande.bloque'];
 
 function requestOptions(signal) {
   return signal ? { signal } : {};
@@ -62,8 +66,8 @@ async function uploadByChunks({ initRoutes, chunkRoutes, initPayload, file, sess
 
 export function uploadLargeTicketEvidence({ boletaUid, evidenceId, item, sessionToken, signal, onProgress }) {
   return uploadByChunks({
-    initRoutes: MODULE_ROUTES.tickets.largeEvidenceInit,
-    chunkRoutes: MODULE_ROUTES.tickets.largeEvidenceChunk,
+    initRoutes: TICKET_LARGE_INIT_ROUTES,
+    chunkRoutes: TICKET_LARGE_CHUNK_ROUTES,
     file: item.file,
     sessionToken,
     signal,
@@ -85,8 +89,8 @@ export function uploadLargeTicketEvidence({ boletaUid, evidenceId, item, session
 
 export function uploadLargeMaintenanceEvidence({ maintenanceId, deviceId, imageId, item, sessionToken, signal, onProgress }) {
   return uploadByChunks({
-    initRoutes: MODULE_ROUTES.maintenance.largeImageInit,
-    chunkRoutes: MODULE_ROUTES.maintenance.largeImageChunk,
+    initRoutes: MAINTENANCE_LARGE_INIT_ROUTES,
+    chunkRoutes: MAINTENANCE_LARGE_CHUNK_ROUTES,
     file: item.file,
     sessionToken,
     signal,
