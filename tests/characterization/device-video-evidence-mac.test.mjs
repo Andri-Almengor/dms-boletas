@@ -7,17 +7,17 @@ import path from 'node:path';
 const ROOT = fileURLToPath(new URL('../../', import.meta.url));
 const source = (relativePath) => readFileSync(path.join(ROOT, relativePath), 'utf8');
 
-test('la política común limita los videos a 20 segundos y 15 MB', () => {
+test('la política común permite videos de hasta 90 segundos y 17 MB', () => {
   const frontend = source('src/utils/evidenceMedia.js');
   const backend = source('backend/src/services/evidence-media-policy.service.js');
 
-  assert.match(frontend, /EVIDENCE_VIDEO_MAX_SECONDS = 20/);
-  assert.match(frontend, /EVIDENCE_VIDEO_MAX_BYTES = 15 \* 1024 \* 1024/);
+  assert.match(frontend, /EVIDENCE_VIDEO_MAX_SECONDS = 90/);
+  assert.match(frontend, /EVIDENCE_VIDEO_MAX_BYTES = 17 \* 1024 \* 1024/);
   assert.match(frontend, /readVideoDuration/);
   assert.match(frontend, /video\/quicktime/);
   assert.match(frontend, /video\/webm/);
-  assert.match(backend, /EVIDENCE_VIDEO_MAX_SECONDS = 20/);
-  assert.match(backend, /EVIDENCE_VIDEO_MAX_BYTES = 15 \* 1024 \* 1024/);
+  assert.match(backend, /EVIDENCE_VIDEO_MAX_SECONDS = 90/);
+  assert.match(backend, /EVIDENCE_VIDEO_MAX_BYTES = 17 \* 1024 \* 1024/);
   assert.match(backend, /durationSeconds > EVIDENCE_VIDEO_MAX_SECONDS/);
   assert.match(backend, /Use MP4, MOV o WebM/);
 });
@@ -32,7 +32,8 @@ test('boletas permiten grabar, seleccionar, validar y reproducir videos', () => 
 
   assert.match(form, /prepareEvidenceFiles\(files, \{ allowDocuments: true \}\)/);
   assert.match(uploader, /Grabar video/);
-  assert.match(uploader, /Máximo 20 segundos/);
+  assert.match(uploader, /Máximo 1 min 30 s/);
+  assert.match(uploader, /pesar hasta 17 MB/);
   assert.match(uploader, /<video/);
   assert.match(detail, /videoInputRef/);
   assert.match(detail, /durationSeconds/);
@@ -61,9 +62,12 @@ test('mantenimientos aceptan videos en editor, carga rápida y lotes', () => {
   assert.match(editor, /Grabar video/);
   assert.match(editor, /PendingEvidencePreview/);
   assert.match(uploader, /prepareEvidenceFiles\(selected, \{ allowDocuments: false \}\)/);
+  assert.match(uploader, /1 minuto y 30 segundos/);
+  assert.match(uploader, /17 MB/);
   assert.match(uploader, /Video ·/);
   assert.match(viewer, /kind === 'video'/);
   assert.match(viewer, /Cargando video/);
+  assert.match(batches, /MAX_RAW_BYTES_PER_REQUEST = 10 \* 1024 \* 1024/);
   assert.match(batches, /mediaType: image\.mediaType/);
   assert.match(batches, /durationSeconds: Number\(image\.durationSeconds/);
   assert.match(batches, /size: Number\(image\.size/);
@@ -74,13 +78,27 @@ test('el backend valida videos y guarda sus metadatos sin cambiar las rutas exis
   const patch = source('backend/src/services/device-media-video-mac.patch.js');
 
   assert.match(app, /device-media-video-mac\.patch\.js/);
+  assert.match(app, /express\.json\(\{ limit: '25mb' \}\)/);
   assert.match(patch, /validateEvidenceMediaPayload/);
   assert.match(patch, /ticketMultiHandlers\.evidenceUpload/);
   assert.match(patch, /maintenanceDynamicQuestionHandlers\.imageUpload/);
   assert.match(patch, /maintenanceScalableImageHandlers\.uploadBatch/);
+  assert.match(patch, /videoMaxSeconds: 90/);
   assert.match(patch, /TipoMedio/);
   assert.match(patch, /DuracionSegundos/);
   assert.match(patch, /TamanoBytes/);
+});
+
+test('videos de boletas y mantenimientos conservan el flujo hacia adjuntos directos del correo', () => {
+  const appsScriptTicket = source('backend/src/services/apps-script-ticket.service.js');
+  const maintenanceTickets = source('backend/src/services/maintenance-fast-ticket-generation.service.js');
+  const delivery = source('backend/src/services/ticket-delivery.service.js');
+
+  assert.match(appsScriptTicket, /evidences: bundle\.evidences/);
+  assert.match(delivery, /generateTicketWithAppsScript/);
+  assert.match(maintenanceTickets, /ArchivoID: clean\(image\.DriveFileID\)/);
+  assert.match(maintenanceTickets, /MimeType: clean\(image\.MimeType/);
+  assert.match(maintenanceTickets, /ticketDeliveryHandlers\.finalize/);
 });
 
 test('las presentaciones incrustan imágenes y conservan videos como enlaces separados', () => {
