@@ -3,6 +3,7 @@ import Icon from '../common/Icon';
 import MaintenanceQuickDeviceCreator from './MaintenanceQuickDeviceCreator';
 import { fileToBase64 } from '../../pages/maintenance/maintenanceFormData';
 import { MODULE_ROUTES, pick, requestAvailable } from '../../services/moduleApi';
+import { shouldUseLargeEvidenceUpload, uploadLargeMaintenanceEvidence } from '../../services/largeEvidenceUpload';
 import {
   createEvidencePreviewUrl,
   prepareEvidenceFiles,
@@ -81,23 +82,35 @@ function DeviceEvidenceUploader({ device, maintenanceId, sessionToken, onClose, 
     setError('');
     try {
       for (const evidence of evidences) {
-        await requestAvailable(
-          MODULE_ROUTES.maintenance.imageUpload,
-          {
+        if (shouldUseLargeEvidenceUpload(evidence)) {
+          await uploadLargeMaintenanceEvidence({
             maintenanceId,
             deviceId,
-            DispositivoMantenimientoRef: deviceId,
-            Tipo: evidence.type,
-            Nota: evidence.note,
-            fileName: evidence.file.name,
-            mimeType: evidence.mimeType,
-            mediaType: evidence.mediaType,
-            durationSeconds: Number(evidence.durationSeconds || 0),
-            size: Number(evidence.size || evidence.file.size || 0),
-            base64: await fileToBase64(evidence.file),
-          },
-          sessionToken,
-        );
+            imageId: evidence.localId,
+            item: evidence,
+            sessionToken,
+          });
+        } else {
+          await requestAvailable(
+            MODULE_ROUTES.maintenance.imageUpload,
+            {
+              maintenanceId,
+              deviceId,
+              imageId: evidence.localId,
+              FotoDispositivoID: evidence.localId,
+              DispositivoMantenimientoRef: deviceId,
+              Tipo: evidence.type,
+              Nota: evidence.note,
+              fileName: evidence.file.name,
+              mimeType: evidence.mimeType,
+              mediaType: evidence.mediaType,
+              durationSeconds: Number(evidence.durationSeconds || 0),
+              size: Number(evidence.size || evidence.file.size || 0),
+              base64: await fileToBase64(evidence.file),
+            },
+            sessionToken,
+          );
+        }
         releaseEvidencePreviewUrl(evidence.previewUrl);
         setEvidences((current) => current.filter((item) => item.localId !== evidence.localId));
       }
@@ -142,7 +155,7 @@ function DeviceEvidenceUploader({ device, maintenanceId, sessionToken, onClose, 
           </label>
         </div>
 
-        <div className="info-box"><Icon name="info" /><p>Los videos deben durar máximo 1 minuto y 30 segundos y pesar hasta 30 MB.</p></div>
+        <div className="info-box"><Icon name="info" /><p>Los videos deben durar máximo 1 minuto y 30 segundos y pesar hasta 300 MB. Los mayores de 30 MB se cargan por partes y requieren conexión a internet.</p></div>
 
         <div className="maintenance-evidence-pending-grid">
           {evidences.map((evidence) => (
