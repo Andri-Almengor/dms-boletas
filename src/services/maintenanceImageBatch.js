@@ -1,5 +1,6 @@
 import { apiRequest } from '../api';
 import { fileToBase64, mapFilesSequentially } from '../utils/fileEncoding';
+import { shouldUseLargeEvidenceUpload, uploadLargeMaintenanceEvidence } from './largeEvidenceUpload';
 import { MODULE_ROUTES, pick, requestAvailable } from './moduleApi';
 import { maintenanceImageSyncBase, withSyncBase } from './maintenanceSyncBase';
 import { isAbortError, isNetworkError } from './requestErrors';
@@ -159,6 +160,28 @@ async function uploadFallback({
   return { uploaded, failed };
 }
 
+async function uploadLargeVideos({ maintenanceId, deviceId, images, sessionToken, signal }) {
+  const uploaded = [];
+  const failed = [];
+  for (const image of images) {
+    try {
+      const result = await uploadLargeMaintenanceEvidence({
+        maintenanceId,
+        deviceId,
+        imageId: image.localId,
+        item: image,
+        sessionToken,
+        signal,
+      });
+      uploaded.push({ ...uploadedView(result, maintenanceId), clientKey: image.localId });
+    } catch (error) {
+      if (isAbortError(error)) throw error;
+      failed.push({ clientKey: image.localId, fileName: image.file?.name, message: error.message });
+    }
+  }
+  return { uploaded, failed };
+}
+
 export async function uploadMaintenanceImagesInBatches({
   maintenanceId,
   deviceId,
@@ -168,7 +191,16 @@ export async function uploadMaintenanceImagesInBatches({
 }) {
   const uploaded = [];
   const failed = [];
-  const chunks = chunkByWeight(images);
+  const largeVideos = images.filter(shouldUseLargeEvidenceUpload);
+  const regularImages = images.filter((image) => !shouldUseLargeEvidenceUpload(image));
+
+  if (largeVideos.length) {
+    const large = await uploadLargeVideos({ maintenanceId, deviceId, images: largeVideos, sessionToken, signal });
+    uploaded.push(...large.uploaded);
+    failed.push(...large.failed);
+  }
+
+  const chunks = chunkByWeight(regularImages);
   let useFallbackForRemaining = uploadBatchAvailable === false || browserIsOffline();
 
   for (const chunk of chunks) {
