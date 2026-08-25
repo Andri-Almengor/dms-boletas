@@ -104,7 +104,7 @@ test('el servidor conserva compresión, Helmet, CSP activa y límites de payload
     'app.use(helmet({',
     'contentSecurityPolicy: {',
     'objectSrc: ["\'none\'"]',
-    "app.use(express.json({ limit: '25mb' }));",
+    "app.use(express.json({ limit: '50mb' }));",
     'app.use(compression({ threshold: 1_024 }));',
   ]);
   assert.equal(contents.includes('contentSecurityPolicy: false'), false, 'CSP no debe volver a deshabilitarse');

@@ -1,6 +1,6 @@
-export const EVIDENCE_VIDEO_MAX_SECONDS = 20;
+export const EVIDENCE_VIDEO_MAX_SECONDS = 90;
 export const EVIDENCE_IMAGE_MAX_BYTES = 15 * 1024 * 1024;
-export const EVIDENCE_VIDEO_MAX_BYTES = 15 * 1024 * 1024;
+export const EVIDENCE_VIDEO_MAX_BYTES = 30 * 1024 * 1024;
 export const EVIDENCE_DOCUMENT_MAX_BYTES = 15 * 1024 * 1024;
 
 const VIDEO_EXTENSIONS = new Set(['mp4', 'mov', 'm4v', 'webm']);
@@ -79,7 +79,9 @@ export function readVideoDuration(file, timeoutMs = 12_000) {
     video.onloadedmetadata = () => {
       const duration = Number(video.duration || 0);
       if (!Number.isFinite(duration) || duration <= 0) {
-        finish(() => reject(new Error('No se pudo determinar la duración del video.')));
+        finish(() => {
+          reject(new Error('No se pudo determinar la duración del video.'));
+        });
         return;
       }
       finish(() => resolve(Math.round(duration * 100) / 100));
@@ -97,7 +99,7 @@ export async function validateEvidenceFile(file, { allowDocuments = false } = {}
 
   if (mediaType === 'video') {
     if (size > EVIDENCE_VIDEO_MAX_BYTES) {
-      throw new Error(`El video ${name} supera el límite de 15 MB.`);
+      throw new Error(`El video ${name} supera el límite de 30 MB.`);
     }
     const durationSeconds = await readVideoDuration(file);
     if (durationSeconds > EVIDENCE_VIDEO_MAX_SECONDS + 0.25) {
@@ -121,8 +123,8 @@ export async function validateEvidenceFile(file, { allowDocuments = false } = {}
   }
 
   throw new Error(allowDocuments
-    ? `El archivo ${name} no es compatible. Use una imagen, un video MP4/MOV/WebM de hasta 20 segundos, PDF o Word.`
-    : `El archivo ${name} no es compatible. Use una imagen o un video MP4/MOV/WebM de hasta 20 segundos.`);
+    ? `El archivo ${name} no es compatible. Use una imagen, un video MP4/MOV/WebM de hasta 1 minuto y 30 segundos, PDF o Word.`
+    : `El archivo ${name} no es compatible. Use una imagen o un video MP4/MOV/WebM de hasta 1 minuto y 30 segundos.`);
 }
 
 export async function prepareEvidenceFiles(files = [], options = {}) {

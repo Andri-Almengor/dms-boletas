@@ -92,8 +92,8 @@ app.use(cors({
     : env.frontendOrigin.split(',').map((value) => value.trim()).filter(Boolean),
   credentials: false,
 }));
-app.use(express.json({ limit: '25mb' }));
-app.use(express.text({ type: ['text/plain', 'application/javascript'], limit: '25mb' }));
+app.use(express.json({ limit: '50mb' }));
+app.use(express.text({ type: ['text/plain', 'application/javascript'], limit: '50mb' }));
 
 app.use('/api/integration-gateway', integrationGatewayRouter);
 

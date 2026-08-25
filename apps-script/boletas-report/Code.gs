@@ -263,6 +263,7 @@ function appendAnnexes_(body, signatureBlob, signatureInserted, evidences) {
     }
   });
 }
+
 function sendReportEmail_(data) {
   const to = uniqueEmails_(data.recipients.to || []);
   const cc = uniqueEmails_(data.recipients.cc || []).filter(function (email) { return to.indexOf(email) === -1; });
@@ -272,7 +273,11 @@ function sendReportEmail_(data) {
   }
 
   const ticket = data.ticket;
-  const evidenceParts = buildEvidenceEmailParts_(data.evidences, data.pdfBlob.getBytes().length);
+  const recipients = uniqueEmails_(to.concat(cc));
+  const evidenceParts = buildEvidenceEmailParts_(data.evidences, data.pdfBlob.getBytes().length, {
+    recipients: recipients,
+    grantDriveAccess: !data.testMode,
+  });
   const assignedNames = data.assigned.map(function (item) { return clean_(item.Nombre || item.NombreCompleto || item.NombreUsuario); }).filter(Boolean).join(', ');
   const creatorText = data.creator
     ? `${escapeHtml_(data.creator.Nombre || data.creator.NombreUsuario || '')}${data.creator.Correo ? ` · ${escapeHtml_(data.creator.Correo)}` : ''}`
@@ -306,23 +311,30 @@ function sendReportEmail_(data) {
     cc: cc,
     attachmentCount: 1 + evidenceParts.attachments.length,
     inlineImageCount: Object.keys(evidenceParts.inlineImages).length,
+    driveAccessCount: evidenceParts.rows.filter(function (item) { return item.driveAccessGranted; }).length,
     remainingDailyQuota: MailApp.getRemainingDailyQuota(),
   };
 }
 
-function buildEvidenceEmailParts_(evidences, startingBytes) {
+function buildEvidenceEmailParts_(evidences, startingBytes, options) {
   const attachments = [];
   const inlineImages = {};
   const rows = [];
+  const recipients = uniqueEmails_((options && options.recipients) || []);
+  const grantDriveAccess = Boolean(options && options.grantDriveAccess);
   let bytes = Number(startingBytes || 0);
 
   evidences.forEach(function (evidence, index) {
     const name = clean_(evidence.Nombre || evidence.NombreArchivo, `Evidencia ${index + 1}`);
     const note = clean_(evidence.Nota);
     const url = clean_(evidence.ArchivoURL);
-    const blob = getDriveBlob_(evidence.ArchivoID || evidence.ArchivoFileID || evidence.DriveFileID || evidence.ArchivoURL);
+    const fileValue = evidence.ArchivoID || evidence.ArchivoFileID || evidence.DriveFileID || evidence.ArchivoURL;
+    const fileId = extractFileId_(fileValue);
+    const blob = getDriveBlob_(fileValue);
     let attached = false;
     let cid = '';
+    let driveAccessGranted = false;
+    let driveAccessError = '';
 
     if (blob) {
       const namedBlob = blob.copyBlob().setName(clean_(evidence.NombreArchivo || blob.getName(), name));
@@ -341,10 +353,44 @@ function buildEvidenceEmailParts_(evidences, startingBytes) {
       }
     }
 
-    rows.push({ name: name, note: note, url: url, attached: attached, cid: cid });
+    if (!attached && grantDriveAccess && fileId && recipients.length) {
+      const access = grantEvidenceViewAccess_(fileId, recipients);
+      driveAccessGranted = access.ok;
+      driveAccessError = access.error;
+    }
+
+    rows.push({
+      name: name,
+      note: note,
+      url: url,
+      attached: attached,
+      cid: cid,
+      driveAccessGranted: driveAccessGranted,
+      driveAccessError: driveAccessError,
+    });
   });
 
   return { attachments: attachments, inlineImages: inlineImages, rows: rows };
+}
+
+function grantEvidenceViewAccess_(fileId, recipients) {
+  const failures = [];
+  try {
+    const file = DriveApp.getFileById(fileId);
+    recipients.forEach(function (email) {
+      try {
+        file.addViewer(email);
+      } catch (error) {
+        failures.push(`${email}: ${String(error && error.message ? error.message : error)}`);
+      }
+    });
+  } catch (error) {
+    failures.push(String(error && error.message ? error.message : error));
+  }
+  return {
+    ok: failures.length === 0,
+    error: failures.join(' | '),
+  };
 }
 
 function buildEmailHtml_(data) {
@@ -372,11 +418,16 @@ function buildEmailHtml_(data) {
 
   const evidenceHtml = data.evidenceRows.length
     ? data.evidenceRows.map(function (item, index) {
-      return `<div style="margin:16px 0;padding:14px;border:1px solid #dfe3e8;border-radius:8px"><strong>${index + 1}. ${escapeHtml_(item.name)}</strong>${item.note ? `<p>${nl2br_(item.note)}</p>` : ''}${item.cid ? `<img src="cid:${item.cid}" alt="${escapeHtml_(item.name)}" style="display:block;max-width:100%;height:auto;margin-top:10px;border-radius:6px">` : ''}<p style="margin-bottom:0">${item.url ? `<a href="${escapeHtml_(item.url)}">Abrir en Drive</a>` : 'Sin enlace'}${item.attached ? ' · Adjunto al correo' : ''}</p></div>`;
+      const deliveryLabel = item.attached
+        ? ' · Adjunto al correo'
+        : item.driveAccessGranted
+          ? ' · Acceso concedido automáticamente'
+          : '';
+      return `<div style="margin:16px 0;padding:14px;border:1px solid #dfe3e8;border-radius:8px"><strong>${index + 1}. ${escapeHtml_(item.name)}</strong>${item.note ? `<p>${nl2br_(item.note)}</p>` : ''}${item.cid ? `<img src="cid:${item.cid}" alt="${escapeHtml_(item.name)}" style="display:block;max-width:100%;height:auto;margin-top:10px;border-radius:6px">` : ''}<p style="margin-bottom:0">${item.url ? `<a href="${escapeHtml_(item.url)}">Abrir evidencia</a>` : 'Sin enlace'}${deliveryLabel}</p></div>`;
     }).join('')
     : '<p>Sin evidencias asociadas.</p>';
 
-  return `<div style="font-family:Arial,sans-serif;color:#111827;max-width:890px;margin:auto;border:1px solid #dfe3e8"><div style="background:#272727;color:#fff;padding:18px 16px"><h1 style="margin:0;font-size:25px">Reporte Técnico DMS</h1><p style="margin:10px 0 0">Boleta #${escapeHtml_(ticket.BoletaID || ticket.BoletaUID)}</p></div><div style="padding:26px 16px"><p>Estimado/a,</p><p>Adjunto encontrará el reporte técnico correspondiente a la gestión realizada.</p>${data.testMode ? '<p style="padding:10px;background:#fff7ed;border:1px solid #fdba74"><strong>Modo de prueba:</strong> no se modificó el estado de la boleta.</p>' : ''}<table style="width:100%;border-collapse:collapse;margin-top:18px">${rows}</table><p style="margin-top:20px"><a href="${escapeHtml_(data.pdfUrl)}">Abrir PDF</a> · <a href="${escapeHtml_(data.documentUrl)}">Abrir documento</a> · <a href="${escapeHtml_(data.folderUrl)}">Abrir carpeta</a></p><h2 style="margin-top:28px">Evidencias fotográficas</h2>${evidenceHtml}</div></div>`;
+  return `<div style="font-family:Arial,sans-serif;color:#111827;max-width:890px;margin:auto;border:1px solid #dfe3e8"><div style="background:#272727;color:#fff;padding:18px 16px"><h1 style="margin:0;font-size:25px">Reporte Técnico DMS</h1><p style="margin:10px 0 0">Boleta #${escapeHtml_(ticket.BoletaID || ticket.BoletaUID)}</p></div><div style="padding:26px 16px"><p>Estimado/a,</p><p>Adjunto encontrará el reporte técnico correspondiente a la gestión realizada. Las evidencias que excedan el tamaño seguro de adjunto se entregan mediante un enlace de Drive con acceso concedido automáticamente a los destinatarios.</p>${data.testMode ? '<p style="padding:10px;background:#fff7ed;border:1px solid #fdba74"><strong>Modo de prueba:</strong> no se modificó el estado de la boleta.</p>' : ''}<table style="width:100%;border-collapse:collapse;margin-top:18px">${rows}</table><p style="margin-top:20px"><a href="${escapeHtml_(data.pdfUrl)}">Abrir PDF</a> · <a href="${escapeHtml_(data.documentUrl)}">Abrir documento</a> · <a href="${escapeHtml_(data.folderUrl)}">Abrir carpeta</a></p><h2 style="margin-top:28px">Evidencias fotográficas</h2>${evidenceHtml}</div></div>`;
 }
 
 function getDriveBlob_(value) {

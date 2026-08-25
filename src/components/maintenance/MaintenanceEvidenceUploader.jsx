@@ -142,7 +142,7 @@ function DeviceEvidenceUploader({ device, maintenanceId, sessionToken, onClose, 
           </label>
         </div>
 
-        <div className="info-box"><Icon name="info" /><p>Los videos deben durar máximo 20 segundos y pesar hasta 15 MB.</p></div>
+        <div className="info-box"><Icon name="info" /><p>Los videos deben durar máximo 1 minuto y 30 segundos y pesar hasta 30 MB.</p></div>
 
         <div className="maintenance-evidence-pending-grid">
           {evidences.map((evidence) => (
