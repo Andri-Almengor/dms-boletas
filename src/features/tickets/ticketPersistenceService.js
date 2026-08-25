@@ -1,4 +1,5 @@
 import { MODULE_ROUTES, pick, requestAvailable } from '../../services/moduleApi';
+import { shouldUseLargeEvidenceUpload, uploadLargeTicketEvidence } from '../../services/largeEvidenceUpload';
 import { fileToBase64 } from '../../utils/fileEncoding';
 import { createLocalId } from '../../utils/localId';
 import { buildTicketPayload, ticketRecordData } from './ticketFormDomain';
@@ -30,6 +31,18 @@ export async function uploadTicketAssets({ uid, form, evidences, sessionToken, s
   const uploaded = [];
   for (const item of evidences) {
     const evidenceId = String(item.localId || createLocalId('evidencia'));
+    if (shouldUseLargeEvidenceUpload(item)) {
+      const result = await uploadLargeTicketEvidence({
+        boletaUid: uid,
+        evidenceId,
+        item,
+        sessionToken,
+        signal,
+      });
+      uploaded.push({ evidenceId, result });
+      continue;
+    }
+
     let base64 = await fileToBase64(item.file, { signal });
     try {
       const result = await requestAvailable(MODULE_ROUTES.tickets.evidenceUpload, {
