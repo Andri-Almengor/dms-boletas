@@ -1,5 +1,6 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
+import { execFileSync } from 'node:child_process';
 import { readFileSync } from 'node:fs';
 import { fileURLToPath } from 'node:url';
 import path from 'node:path';
@@ -7,22 +8,28 @@ import path from 'node:path';
 const ROOT = fileURLToPath(new URL('../../', import.meta.url));
 const source = (relativePath) => readFileSync(path.join(ROOT, relativePath), 'utf8');
 
-test('la política común permite videos de hasta 90 segundos y 30 MB', () => {
+function syntaxCheck(relativePath) {
+  execFileSync(process.execPath, ['--check', path.join(ROOT, relativePath)], { stdio: 'pipe' });
+}
+
+test('la política común permite videos de hasta 90 segundos y 300 MB', () => {
   const frontend = source('src/utils/evidenceMedia.js');
   const backend = source('backend/src/services/evidence-media-policy.service.js');
 
   assert.match(frontend, /EVIDENCE_VIDEO_MAX_SECONDS = 90/);
-  assert.match(frontend, /EVIDENCE_VIDEO_MAX_BYTES = 30 \* 1024 \* 1024/);
+  assert.match(frontend, /EVIDENCE_VIDEO_MAX_BYTES = 300 \* 1024 \* 1024/);
   assert.match(frontend, /readVideoDuration/);
   assert.match(frontend, /video\/quicktime/);
   assert.match(frontend, /video\/webm/);
   assert.match(backend, /EVIDENCE_VIDEO_MAX_SECONDS = 90/);
-  assert.match(backend, /EVIDENCE_VIDEO_MAX_BYTES = 30 \* 1024 \* 1024/);
+  assert.match(backend, /EVIDENCE_VIDEO_INLINE_MAX_BYTES = 30 \* 1024 \* 1024/);
+  assert.match(backend, /EVIDENCE_VIDEO_MAX_BYTES = 300 \* 1024 \* 1024/);
+  assert.match(backend, /maxVideoBytes = EVIDENCE_VIDEO_MAX_BYTES/);
   assert.match(backend, /durationSeconds > EVIDENCE_VIDEO_MAX_SECONDS/);
   assert.match(backend, /Use MP4, MOV o WebM/);
 });
 
-test('boletas permiten grabar, seleccionar, validar y reproducir videos', () => {
+test('boletas permiten grabar, seleccionar, validar y reproducir videos de hasta 300 MB', () => {
   const form = source('src/pages/tickets/TicketFormPage.jsx');
   const uploader = source('src/components/forms/EvidenceUploader.jsx');
   const detail = source('src/pages/tickets/TicketDetailPage.jsx');
@@ -33,26 +40,34 @@ test('boletas permiten grabar, seleccionar, validar y reproducir videos', () => 
   assert.match(form, /prepareEvidenceFiles\(files, \{ allowDocuments: true \}\)/);
   assert.match(uploader, /Grabar video/);
   assert.match(uploader, /Máximo 1 min 30 s/);
-  assert.match(uploader, /pesar hasta 30 MB/);
+  assert.match(uploader, /pesar hasta 300 MB/);
+  assert.match(uploader, /mayores de 30 MB se cargan por partes/);
   assert.match(uploader, /<video/);
   assert.match(detail, /videoInputRef/);
   assert.match(detail, /durationSeconds/);
   assert.match(detail, /Grabar video/);
   assert.match(detail, /Tomar foto/);
   assert.match(detail, /Seleccionar archivo/);
+  assert.match(detail, /shouldUseLargeEvidenceUpload\(evidenceForm\)/);
+  assert.match(detail, /uploadLargeTicketEvidence/);
+  assert.match(detail, /hasta 300 MB/);
   assert.match(multiSelect, /Seleccionar varios archivos/);
   assert.match(multiSelect, /prepareEvidenceFiles\(files, \{ allowDocuments: true \}\)/);
+  assert.match(multiSelect, /shouldUseLargeEvidenceUpload\(uploadItem\)/);
+  assert.match(multiSelect, /uploadLargeTicketEvidence/);
   assert.match(multiSelect, /mediaType: prepared\.mediaType/);
   assert.match(multiSelect, /durationSeconds: Number\(prepared\.durationSeconds/);
   assert.doesNotMatch(multiSelect, /actionButtons\[1\]/);
   assert.doesNotMatch(multiSelect, /dmsOriginalLabel/);
   assert.match(preview, /resolvedKind === 'video'/);
   assert.match(preview, /<video src=\{source\} controls/);
+  assert.match(persistence, /shouldUseLargeEvidenceUpload\(item\)/);
+  assert.match(persistence, /uploadLargeTicketEvidence/);
   assert.match(persistence, /mediaType: item\.mediaType/);
   assert.match(persistence, /durationSeconds: Number\(item\.durationSeconds/);
 });
 
-test('mantenimientos aceptan videos en editor, carga rápida y lotes', () => {
+test('mantenimientos aceptan videos grandes en editor, carga rápida y lotes', () => {
   const editor = source('src/components/maintenance/MaintenanceDeviceEditor.jsx');
   const uploader = source('src/components/maintenance/MaintenanceEvidenceUploader.jsx');
   const viewer = source('src/components/maintenance/MaintenanceEvidenceImage.jsx');
@@ -63,24 +78,60 @@ test('mantenimientos aceptan videos en editor, carga rápida y lotes', () => {
   assert.match(editor, /PendingEvidencePreview/);
   assert.match(uploader, /prepareEvidenceFiles\(selected, \{ allowDocuments: false \}\)/);
   assert.match(uploader, /1 minuto y 30 segundos/);
-  assert.match(uploader, /30 MB/);
+  assert.match(uploader, /300 MB/);
+  assert.match(uploader, /shouldUseLargeEvidenceUpload\(evidence\)/);
+  assert.match(uploader, /uploadLargeMaintenanceEvidence/);
   assert.match(uploader, /Video ·/);
   assert.match(viewer, /kind === 'video'/);
   assert.match(viewer, /Cargando video/);
   assert.match(batches, /MAX_RAW_BYTES_PER_REQUEST = 10 \* 1024 \* 1024/);
+  assert.match(batches, /largeVideos = images\.filter\(shouldUseLargeEvidenceUpload\)/);
+  assert.match(batches, /uploadLargeMaintenanceEvidence/);
+  assert.match(batches, /regularImages = images\.filter/);
   assert.match(batches, /mediaType: image\.mediaType/);
   assert.match(batches, /durationSeconds: Number\(image\.durationSeconds/);
   assert.match(batches, /size: Number\(image\.size/);
 });
 
-test('el backend valida videos y admite el Base64 de un archivo de 30 MB', () => {
+test('los videos de 30 a 300 MB usan carga reanudable en bloques de 8 MB', () => {
+  const frontend = source('src/services/largeEvidenceUpload.js');
+  const backend = source('backend/src/services/large-evidence-upload.service.js');
+  const router = source('backend/src/core/action-router.js');
+  const google = source('backend/src/infra/google.js');
+
+  assert.doesNotThrow(() => syntaxCheck('backend/src/services/large-evidence-upload.service.js'));
+  assert.match(frontend, /LARGE_EVIDENCE_THRESHOLD_BYTES = 30 \* 1024 \* 1024/);
+  assert.match(frontend, /file\.slice\(offset, end/);
+  assert.match(frontend, /fileToBase64\(chunk/);
+  assert.match(frontend, /videos mayores de 30 MB necesitan conexión a internet/i);
+  assert.match(backend, /LARGE_VIDEO_THRESHOLD_BYTES = 30 \* 1024 \* 1024/);
+  assert.match(backend, /LARGE_VIDEO_MAX_BYTES = 300 \* 1024 \* 1024/);
+  assert.match(backend, /LARGE_VIDEO_CHUNK_BYTES = 8 \* 1024 \* 1024/);
+  assert.match(backend, /uploadType=resumable/);
+  assert.match(backend, /Content-Range/);
+  assert.match(backend, /response\.status === 308/);
+  assert.match(backend, /requireData: false/);
+  assert.match(backend, /appendRow\('EvidenciasBoleta'/);
+  assert.match(backend, /appendRow\('Mantenimiento imagenes'/);
+  assert.match(google, /export const googleAuth = auth/);
+  assert.match(router, /boletas\.evidence\.large\.init/);
+  assert.match(router, /boletas\.evidence\.large\.chunk/);
+  assert.match(router, /maintenance\.images\.large\.init/);
+  assert.match(router, /maintenance\.images\.large\.chunk/);
+  assert.match(router, /largeEvidenceUploadHandlers\.ticketInit, \['BOLETAS_EVIDENCIAS','BOLETAS_EDITAR'\]/);
+  assert.match(router, /largeEvidenceUploadHandlers\.maintenanceInit, maintenanceEditPermissions/);
+});
+
+test('el flujo Base64 normal permanece limitado a 30 MB y el servidor no acepta cuerpos gigantes', () => {
   const app = source('backend/src/app.js');
   const patch = source('backend/src/services/device-media-video-mac.patch.js');
 
   assert.match(app, /device-media-video-mac\.patch\.js/);
   assert.match(app, /express\.json\(\{ limit: '50mb' \}\)/);
   assert.match(app, /express\.text\(\{ type: \['text\/plain', 'application\/javascript'\], limit: '50mb' \}\)/);
-  assert.match(patch, /validateEvidenceMediaPayload/);
+  assert.doesNotMatch(app, /limit: '3\d\dmb'/);
+  assert.match(patch, /EVIDENCE_VIDEO_INLINE_MAX_BYTES/);
+  assert.match(patch, /maxVideoBytes: EVIDENCE_VIDEO_INLINE_MAX_BYTES/);
   assert.match(patch, /ticketMultiHandlers\.evidenceUpload/);
   assert.match(patch, /maintenanceDynamicQuestionHandlers\.imageUpload/);
   assert.match(patch, /maintenanceScalableImageHandlers\.uploadBatch/);
