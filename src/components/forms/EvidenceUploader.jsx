@@ -29,14 +29,14 @@ function EvidenceUploader({ items, onAdd, onUpdate, onRemove, disabled }) {
         </label>
         <label className="ticket-camera-button ticket-video-button">
           <input type="file" accept="video/mp4,video/webm,video/quicktime,video/*" capture="environment" onChange={onAdd} disabled={disabled} />
-          <Icon name="videocam" /><strong>Grabar video</strong><span>Máximo 20 segundos</span>
+          <Icon name="videocam" /><strong>Grabar video</strong><span>Máximo 1 min 30 s</span>
         </label>
         <label className="ticket-file-button">
           <input type="file" accept="image/*,video/mp4,video/webm,video/quicktime,.mov,.mp4,.webm,.pdf,.doc,.docx" multiple onChange={onAdd} disabled={disabled} />
           <Icon name="perm_media" /><strong>Elegir varios archivos</strong><span>Fotos, videos, PDF o Word</span>
         </label>
       </div>
-      <div className="info-box"><Icon name="info" /><p>Los videos deben durar máximo 20 segundos y pesar hasta 15 MB. Sin internet, las evidencias quedan protegidas en este dispositivo y se enviarán al guardar y sincronizar la boleta.</p></div>
+      <div className="info-box"><Icon name="info" /><p>Los videos deben durar máximo 1 minuto y 30 segundos y pesar hasta 17 MB. Sin internet, las evidencias quedan protegidas en este dispositivo y se enviarán al guardar y sincronizar la boleta.</p></div>
       <div className="ticket-evidence-grid">
         {items.map((item, index) => (
           <article className="evidence-edit-card" key={item.localId || `${item.name}-${index}`}>
