@@ -79,7 +79,9 @@ export function readVideoDuration(file, timeoutMs = 12_000) {
     video.onloadedmetadata = () => {
       const duration = Number(video.duration || 0);
       if (!Number.isFinite(duration) || duration <= 0) {
-        finish(() => reject(new Error('No se pudo determinar la duración del video.'));
+        finish(() => {
+          reject(new Error('No se pudo determinar la duración del video.'));
+        });
         return;
       }
       finish(() => resolve(Math.round(duration * 100) / 100));
