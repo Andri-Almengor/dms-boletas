@@ -17,6 +17,8 @@ const auth = new google.auth.JWT({
   ],
 });
 
+export const googleAuth = auth;
+
 class ApiGate {
   constructor({ maxConcurrent, minIntervalMs }) {
     this.maxConcurrent = Math.max(1, Number(maxConcurrent || 1));
