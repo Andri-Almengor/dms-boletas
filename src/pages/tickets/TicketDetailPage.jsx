@@ -7,6 +7,7 @@ import MediaPreview from '../../components/tickets/MediaPreview';
 import SignaturePad from '../../components/tickets/SignaturePad';
 import { TicketStatusChip } from '../../components/tickets/TicketCard';
 import { MODULE_ROUTES, pick, requestAvailable } from '../../services/moduleApi';
+import { shouldUseLargeEvidenceUpload, uploadLargeTicketEvidence } from '../../services/largeEvidenceUpload';
 import { prepareEvidenceFiles } from '../../utils/evidenceMedia';
 import { normalizeMacAddress } from '../../utils/macAddress';
 import { formatDate, formatTime, normalizeTicketStatus } from '../../utils/tickets';
@@ -175,17 +176,21 @@ export default function TicketDetailPage() {
     setError('');
     setNotice('');
     try {
-      await requestAvailable(MODULE_ROUTES.tickets.evidenceUpload, {
-        boletaUid,
-        nombre: evidenceForm.name || evidenceForm.file.name,
-        nota: evidenceForm.note,
-        fileName: evidenceForm.file.name,
-        mimeType: evidenceForm.mimeType,
-        mediaType: evidenceForm.mediaType,
-        durationSeconds: Number(evidenceForm.durationSeconds || 0),
-        size: Number(evidenceForm.size || evidenceForm.file.size || 0),
-        base64: await fileToBase64(evidenceForm.file),
-      }, sessionToken);
+      if (shouldUseLargeEvidenceUpload(evidenceForm)) {
+        await uploadLargeTicketEvidence({ boletaUid, item: evidenceForm, sessionToken });
+      } else {
+        await requestAvailable(MODULE_ROUTES.tickets.evidenceUpload, {
+          boletaUid,
+          nombre: evidenceForm.name || evidenceForm.file.name,
+          nota: evidenceForm.note,
+          fileName: evidenceForm.file.name,
+          mimeType: evidenceForm.mimeType,
+          mediaType: evidenceForm.mediaType,
+          durationSeconds: Number(evidenceForm.durationSeconds || 0),
+          size: Number(evidenceForm.size || evidenceForm.file.size || 0),
+          base64: await fileToBase64(evidenceForm.file),
+        }, sessionToken);
+      }
       clearEvidenceForm();
       setNotice('Evidencia agregada correctamente. Si la boleta ya estaba finalizada, use “Reenviar a chats” para publicar el reporte actualizado.');
       await loadTicket();
@@ -314,7 +319,7 @@ export default function TicketDetailPage() {
             <button className="button button--secondary" type="button" onClick={() => fileInputRef.current?.click()} disabled={processing}><Icon name="upload_file" /> Seleccionar archivo</button>
             <input key={`file-${evidenceInputVersion}`} ref={fileInputRef} className="ticket-detail-hidden-input" type="file" accept="image/*,video/mp4,video/webm,video/quicktime,.mov,.mp4,.webm,.pdf,.doc,.docx" onChange={(event) => selectEvidenceFile(event.target.files?.[0], 'file')} />
           </div>
-          <div className="info-box"><Icon name="info" /><p>Los videos deben durar máximo 20 segundos y pesar hasta 15 MB.</p></div>
+          <div className="info-box"><Icon name="info" /><p>Los videos deben durar máximo 1 minuto y 30 segundos y pesar hasta 300 MB. Los videos mayores de 30 MB se cargan por partes y requieren conexión a internet.</p></div>
           {evidenceForm.file && <div className="ticket-detail-selected-file"><Icon name={evidenceForm.mediaType === 'video' ? 'videocam' : 'check_circle'} /><span>{evidenceForm.file.name}{evidenceForm.mediaType === 'video' ? ` · ${Math.ceil(evidenceForm.durationSeconds)} s` : ''}</span></div>}
           <input className="form-control" value={evidenceForm.name} onChange={(event) => setEvidenceForm((current) => ({ ...current, name: event.target.value }))} placeholder="Nombre de la evidencia" />
           <input className="form-control" value={evidenceForm.note} onChange={(event) => setEvidenceForm((current) => ({ ...current, note: event.target.value }))} placeholder="Nota opcional" />
