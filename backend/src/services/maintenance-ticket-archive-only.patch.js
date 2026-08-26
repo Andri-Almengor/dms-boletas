@@ -34,6 +34,26 @@ function reportForTicket(reports, ticket) {
   )) || null;
 }
 
+function emailDeliveryState(report = {}) {
+  const email = report.email || {};
+  const sent = email.sent === true;
+  const skipped = email.skipped === true;
+  const error = !sent && !skipped
+    ? clean(email.error || 'Apps Script no confirmó el envío del correo.')
+    : '';
+  const recipients = [
+    ...(Array.isArray(report.recipients?.to) ? report.recipients.to : []),
+    ...(Array.isArray(report.recipients?.cc) ? report.recipients.cc : []),
+  ];
+  return {
+    sent,
+    skipped,
+    error,
+    state: sent ? 'ENVIADO' : skipped ? 'OMITIDO' : 'ERROR',
+    destination: [...new Set(recipients.map(clean).filter(Boolean))].join(', '),
+  };
+}
+
 async function runOnce(key, operation) {
   if (running.has(key)) return running.get(key);
   const promise = Promise.resolve().then(operation).finally(() => running.delete(key));
@@ -95,8 +115,13 @@ if (!ticketDeliveryHandlers[INSTALL_FLAG]) {
         (visit) => clean(visit.BoletaUID) === clean(requestedTicket.BoletaUID),
       ) || currentGroup.root;
 
-      if (currentGroup.visits.every((visit) => finalized(visit.Estado))
-        && currentGroup.visits.every((visit) => clean(visit.PDFURL || visit.PDF_Url || visit.PDFUrl))) {
+      const reportsReady = currentGroup.visits.every((visit) => finalized(visit.Estado))
+        && currentGroup.visits.every((visit) => clean(visit.PDFURL || visit.PDF_Url || visit.PDFUrl));
+      const emailAlreadySent = currentGroup.visits.every(
+        (visit) => clean(visit.EstadoNotificacion).toUpperCase() === 'ENVIADO',
+      );
+
+      if (reportsReady && emailAlreadySent) {
         const archived = await archiveExistingTicket(requestedCurrent);
         const pdfUrl = clean(requestedCurrent.PDFURL || requestedCurrent.PDF_Url || requestedCurrent.PDFUrl);
         return {
@@ -109,23 +134,26 @@ if (!ticketDeliveryHandlers[INSTALL_FLAG]) {
           delivery: {
             report: { pdfUrl },
             notifications: [],
-            notificationState: 'OMITIDO',
+            notificationState: 'ENVIADO',
             errors: [],
             maintenanceArchiveOnly: true,
           },
         };
       }
 
-      // Para boletas automáticas de mantenimiento Apps Script solo genera el
-      // expediente PDF. No prepara correo, encuesta, solicitud de firma ni Chat.
+      // Para boletas automáticas de mantenimiento Apps Script genera el PDF y
+      // envía el correo, pero sigue omitiendo encuesta, solicitud de firma y
+      // Chat individual. Si una boleta histórica quedó con correo OMITIDO,
+      // volver a finalizarla entra aquí y recupera el envío pendiente.
       const report = await generateTicketWithAppsScript({
         ticketId: currentGroup.rootId,
         testMode: false,
-        sendEmail: false,
+        sendEmail: true,
         survey: null,
         signatureRequest: null,
         deliveryType: 'MAINTENANCE_ARCHIVE',
       });
+      const emailDelivery = emailDeliveryState(report);
 
       const timestamp = nowIso();
       const actor = ctx.user?.UsuarioID || 'SISTEMA';
@@ -135,8 +163,8 @@ if (!ticketDeliveryHandlers[INSTALL_FLAG]) {
         await updateRow('Boletas', visit.BoletaUID, {
           Estado: 'FINALIZADA',
           FinalizadaEn: timestamp,
-          EstadoNotificacion: 'OMITIDO',
-          UltimoErrorNotificacion: '',
+          EstadoNotificacion: emailDelivery.state,
+          UltimoErrorNotificacion: emailDelivery.error,
           DocumentoURL: ownReport.documentUrl || report.documentUrl || '',
           PDFURL: ownReport.pdfUrl || report.pdfUrl || '',
           CarpetaURL: ownReport.folderUrl || report.folderUrl || '',
@@ -166,13 +194,26 @@ if (!ticketDeliveryHandlers[INSTALL_FLAG]) {
       await audit(ctx, 'FINALIZAR_BOLETA_MANTENIMIENTO_ARCHIVO', 'Boletas', updatedGroup.rootId, null, {
         MantenimientoID: maintenanceId,
         CantidadBoletas: updatedGroup.visits.length,
-        CorreoEnviado: false,
+        CorreoEnviado: emailDelivery.sent,
+        CorreoDestino: emailDelivery.destination,
+        EstadoCorreo: emailDelivery.state,
+        ErrorCorreo: emailDelivery.error,
         ChatEnviado: false,
         EncuestaCreada: false,
         FirmaSolicitada: false,
         CarpetaBoletas: requestedArchive?.boletasFolderUrl || '',
       }).catch(() => {});
 
+      const emailNotification = {
+        entityId: updatedGroup.rootId,
+        channel: 'CORREO_APPS_SCRIPT',
+        destination: emailDelivery.destination || 'Sin destinatarios válidos',
+        type: 'FINALIZACION_MANTENIMIENTO',
+        ok: emailDelivery.sent,
+        skipped: emailDelivery.skipped,
+        result: report.email || {},
+        error: emailDelivery.error,
+      };
       const summary = {
         report: {
           documentId: requestedReport.documentId || report.documentId || '',
@@ -185,9 +226,9 @@ if (!ticketDeliveryHandlers[INSTALL_FLAG]) {
           evidenceCount: report.evidences?.length || 0,
           visitCount: updatedGroup.visits.length,
         },
-        notifications: [],
-        notificationState: 'OMITIDO',
-        errors: [],
+        notifications: [emailNotification],
+        notificationState: emailDelivery.state,
+        errors: emailDelivery.error ? [`CORREO_APPS_SCRIPT: ${emailDelivery.error}`] : [],
         maintenanceArchiveOnly: true,
       };
 
