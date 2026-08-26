@@ -43,20 +43,33 @@ test('cada dispositivo conserva un log técnico completo y las evidencias se seg
   ]);
 });
 
-test('las boletas de mantenimiento generan PDF sin correo encuesta firma pendiente ni Chat individual', () => {
+test('las boletas de mantenimiento generan PDF y correo sin encuesta firma pendiente ni Chat individual', () => {
   const archive = source('backend/src/services/maintenance-ticket-archive-only.patch.js');
   includesAll(archive, [
     "deliveryType: 'MAINTENANCE_ARCHIVE'",
-    'sendEmail: false',
+    'sendEmail: true',
     'survey: null',
     'signatureRequest: null',
-    "EstadoNotificacion: 'OMITIDO'",
+    'emailDeliveryState(report)',
+    'EstadoNotificacion: emailDelivery.state',
+    'CorreoEnviado: emailDelivery.sent',
+    "channel: 'CORREO_APPS_SCRIPT'",
     'archiveMaintenanceTicketPdf',
     'return originalFinalize(ctx)',
     'ChatEnviado: false',
-    'CorreoEnviado: false',
   ]);
   assert.doesNotMatch(archive, /sendChatMessage\(/);
+});
+
+test('una boleta histórica con correo omitido puede recuperar el envío al finalizar de nuevo', () => {
+  const archive = source('backend/src/services/maintenance-ticket-archive-only.patch.js');
+  includesAll(archive, [
+    'const reportsReady = currentGroup.visits.every',
+    'const emailAlreadySent = currentGroup.visits.every',
+    "clean(visit.EstadoNotificacion).toUpperCase() === 'ENVIADO'",
+    'if (reportsReady && emailAlreadySent)',
+    'volver a finalizarla entra aquí y recupera el envío pendiente',
+  ]);
 });
 
 test('todos los PDF se copian de forma idempotente a la carpeta Boletas', () => {
