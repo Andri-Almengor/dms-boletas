@@ -117,6 +117,10 @@ if (!maintenanceAutomationHandlers[INSTALL_FLAG]) {
 // Se instala antes del worker escalonado para que cada item use este handler.
 await import('./maintenance-ticket-archive-only.patch.js');
 
+// Después del handler de mantenimiento se instala la recuperación de correo
+// exclusivamente para boletas normales. Así mantenimiento conserva sendEmail=false.
+await import('./normal-ticket-email-recovery.patch.js');
+
 // El camino optimizado se instala primero para conservar compatibilidad con
 // mantenimientos pequeños y modo prueba. La capa escalonada se carga al final
 // y toma únicamente la finalización real de producción.
