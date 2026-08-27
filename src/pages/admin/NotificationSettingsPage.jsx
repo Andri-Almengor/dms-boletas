@@ -308,7 +308,7 @@ export default function NotificationSettingsPage() {
                 spellCheck="false"
                 disabled={savingChat}
               />
-              <small>El webhook almacenado nunca se muestra completo. Pegue uno nuevo únicamente para configurarlo o reemplazarlo.</small>
+              <small>Por seguridad, el webhook guardado nunca se muestra completo. Pegue uno nuevo únicamente para configurarlo o reemplazarlo.</small>
             </label>
 
             <div className="notification-chat-actions">
