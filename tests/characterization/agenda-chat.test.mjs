@@ -50,7 +50,7 @@ assert.match(agendaModuleSource, /Google Chat no pudo recibir la notificación/)
 
 assert.match(configSource, /AGENDA_CHAT_SECTION/);
 assert.match(configSource, /handleAgendaChatSection/);
-assert.match(configSource, /operation === 'TEST'/);
+assert.match(configSource, /\['TEST', 'PROBAR', 'PRUEBA'\]\.includes\(operation\)/);
 assert.match(configSource, /testAgendaChatNotification/);
 assert.match(configSource, /USUARIOS_GESTIONAR/);
 assert.match(configSource, /ACTUALIZAR_CHAT_AGENDA/);
