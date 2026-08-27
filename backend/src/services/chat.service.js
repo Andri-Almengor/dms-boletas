@@ -5,10 +5,26 @@ const CLIENT_TICKET_HEADINGS = [
   '✅ REPORTE DE SEGUIMIENTO FINALIZADO',
   '🔁 REPORTE DE SEGUIMIENTO ACTUALIZADO',
 ];
+const RETRYABLE_CHAT_STATUSES = new Set([429, 500, 502, 503, 504]);
+
+function clean(value, maxLength = 3900) {
+  return String(value ?? '').trim().slice(0, maxLength);
+}
+
+export function normalizeWebhook(value) {
+  let text = String(value ?? '').trim();
+  if (
+    text.length >= 2
+    && ((text.startsWith('"') && text.endsWith('"')) || (text.startsWith("'") && text.endsWith("'")))
+  ) {
+    text = text.slice(1, -1).trim();
+  }
+  return text.replace(/&amp;/gi, '&').trim();
+}
 
 export function isValidWebhook(value) {
   try {
-    const url = new URL(String(value || '').trim());
+    const url = new URL(normalizeWebhook(value));
     return url.protocol === 'https:'
       && url.hostname === 'chat.googleapis.com'
       && url.pathname.includes('/messages')
@@ -17,10 +33,6 @@ export function isValidWebhook(value) {
   } catch {
     return false;
   }
-}
-
-function clean(value, maxLength = 3900) {
-  return String(value ?? '').trim().slice(0, maxLength);
 }
 
 function isClientTicketMessage(value) {
@@ -81,48 +93,80 @@ async function prepareChatText(value) {
 }
 
 export function redactWebhook(value) {
-  if (!isValidWebhook(value)) return '';
-  const url = new URL(value);
+  const normalized = normalizeWebhook(value);
+  if (!isValidWebhook(normalized)) return '';
+  const url = new URL(normalized);
   return `${url.origin}${url.pathname}`;
 }
 
+function sleep(milliseconds) {
+  return new Promise((resolve) => setTimeout(resolve, milliseconds));
+}
+
+function retryableChatError(error) {
+  const providerStatus = Number(error?.details?.status || 0);
+  if (providerStatus) return RETRYABLE_CHAT_STATUSES.has(providerStatus);
+  if (error?.code === 'CHAT_TIMEOUT') return true;
+  if (error?.code === 'CHAT_SEND_FAILED') return false;
+  return true;
+}
+
 export async function sendChatMessage(webhook, text, options = {}) {
-  if (!isValidWebhook(webhook)) {
+  const normalizedWebhook = normalizeWebhook(webhook);
+  if (!isValidWebhook(normalizedWebhook)) {
     throw new AppError('CHAT_NOT_CONFIGURED', 'El webhook de Google Chat no está configurado o no es válido.', 503);
   }
 
   // Gemini se ejecuta antes del temporizador propio de Google Chat. Así un resumen
   // lento no consume el tiempo reservado para publicar el mensaje.
   const preparedText = await prepareChatText(text);
-  const timeoutMs = Number(options.timeoutMs || process.env.NOTIFICATION_TIMEOUT_MS || 15000);
-  const controller = new AbortController();
-  const timer = setTimeout(() => controller.abort(), timeoutMs);
+  const timeoutMs = Math.max(3000, Number(options.timeoutMs || process.env.NOTIFICATION_TIMEOUT_MS || 15000));
+  const attempts = Math.max(1, Math.min(3, Number(options.attempts || 2)));
+  let lastError = null;
 
-  try {
-    const response = await fetch(webhook, {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json; charset=UTF-8' },
-      body: JSON.stringify({ text: preparedText }),
-      signal: controller.signal,
-    });
-    const responseText = await response.text();
-    if (!response.ok) {
-      throw new AppError(
-        'CHAT_SEND_FAILED',
-        `Google Chat rechazó el mensaje con estado ${response.status}.`,
-        502,
-        { status: response.status, response: responseText.slice(0, 500) },
-      );
+  for (let attempt = 0; attempt < attempts; attempt += 1) {
+    const controller = new AbortController();
+    const timer = setTimeout(() => controller.abort(), timeoutMs);
+
+    try {
+      const response = await fetch(normalizedWebhook, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json; charset=UTF-8' },
+        body: JSON.stringify({ text: preparedText }),
+        signal: controller.signal,
+      });
+      const responseText = await response.text();
+      if (!response.ok) {
+        const error = new AppError(
+          'CHAT_SEND_FAILED',
+          `Google Chat rechazó el mensaje con estado ${response.status}.`,
+          502,
+          { status: response.status, response: responseText.slice(0, 500) },
+        );
+        if (attempt < attempts - 1 && RETRYABLE_CHAT_STATUSES.has(response.status)) {
+          lastError = error;
+          await sleep(500 * (attempt + 1));
+          continue;
+        }
+        throw error;
+      }
+      let data = responseText;
+      try { data = responseText ? JSON.parse(responseText) : {}; } catch { /* Conserva el texto original. */ }
+      return { sent: true, status: response.status, response: data, attempts: attempt + 1 };
+    } catch (error) {
+      const normalizedError = error?.name === 'AbortError'
+        ? new AppError('CHAT_TIMEOUT', 'Google Chat tardó demasiado en responder.', 504)
+        : error;
+      lastError = normalizedError;
+      if (attempt < attempts - 1 && retryableChatError(normalizedError)) {
+        await sleep(500 * (attempt + 1));
+        continue;
+      }
+      throw normalizedError;
+    } finally {
+      clearTimeout(timer);
     }
-    let data = responseText;
-    try { data = responseText ? JSON.parse(responseText) : {}; } catch { /* Conserva el texto original. */ }
-    return { sent: true, status: response.status, response: data };
-  } catch (error) {
-    if (error?.name === 'AbortError') {
-      throw new AppError('CHAT_TIMEOUT', 'Google Chat tardó demasiado en responder.', 504);
-    }
-    throw error;
-  } finally {
-    clearTimeout(timer);
   }
+
+  throw lastError || new AppError('CHAT_SEND_FAILED', 'No se pudo enviar el mensaje a Google Chat.', 502);
 }
