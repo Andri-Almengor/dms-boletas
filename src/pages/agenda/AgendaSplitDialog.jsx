@@ -45,11 +45,11 @@ export default function AgendaSplitDialog({ item, sessionToken, onClose, onSaved
     setBusy(true);
     setMessage('');
     try {
-      // Se crean primero las agendas de las personas que salen de la agenda original.
-      // La primera persona conserva el ID original; así evitamos dejar una agenda cancelada
-      // visible junto a las nuevas y mantenemos el cambio lo más rápido posible.
+      // La primera persona conserva el ID original. Para las demás se crean
+      // agendas independientes con la misma fecha/horario y referencia al origen.
       const first = rows[0];
       const additions = rows.slice(1).map((row) => ({
+        agendaOrigenId: item.AgendaID,
         fecha: item.Fecha,
         horaInicio: item.HoraInicio,
         horaFin: item.HoraFin,
