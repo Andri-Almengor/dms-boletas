@@ -4,3 +4,4 @@ import '../maintenance-device-inventory.css';
 import '../integration-gateway.css';
 import '../integration-network-discovery.css';
 import '../user-password-reset.css';
+import '../notification-settings.css';
