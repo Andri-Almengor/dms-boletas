@@ -2,6 +2,7 @@ import { ensureSheetTables } from './sheet-schema.service.js';
 
 export const AGENDA_HEADERS = Object.freeze([
   'AgendaID',
+  'AgendaOrigenID',
   'Fecha',
   'HoraInicio',
   'HoraFin',
@@ -11,6 +12,7 @@ export const AGENDA_HEADERS = Object.freeze([
   'BoletaUID',
   'RecordatorioEnviado',
   'RecordatorioEnviadoEn',
+  'RecordatorioDia',
   'CreadoPor',
   'FechaCreacion',
   'ActualizadoPor',
