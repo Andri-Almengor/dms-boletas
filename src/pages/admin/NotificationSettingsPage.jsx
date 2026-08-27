@@ -77,6 +77,14 @@ function countEmails(value) {
     .filter(Boolean).length;
 }
 
+function chatFailureMessage(test = {}) {
+  const status = Number(test.status || 0);
+  const statusText = status ? ` (HTTP ${status})` : '';
+  const provider = String(test.providerResponse || '').trim();
+  const providerText = provider ? ` Respuesta de Google: ${provider.slice(0, 220)}` : '';
+  return `${test.error || 'Google Chat no recibió el mensaje de prueba.'}${statusText}.${providerText}`.replace(/\.\./g, '.');
+}
+
 function StatusPill({ active, activeLabel = 'Configurado', inactiveLabel = 'Desactivado' }) {
   return <span className={`notification-status-pill${active ? ' is-active' : ''}`}>
     <span />
@@ -99,6 +107,7 @@ export default function NotificationSettingsPage() {
   const [loading, setLoading] = useState(true);
   const [savingEmails, setSavingEmails] = useState(false);
   const [savingChat, setSavingChat] = useState(false);
+  const [testingChat, setTestingChat] = useState(false);
   const [error, setError] = useState('');
   const [notice, setNotice] = useState('');
 
@@ -135,6 +144,15 @@ export default function NotificationSettingsPage() {
     clearMessages();
   }
 
+  async function requestChatTest(candidateWebhook = '') {
+    const response = await apiRequest('config.get', {
+      section: 'AGENDA_CHAT',
+      operation: 'TEST',
+      settings: candidateWebhook ? { webhook: candidateWebhook } : {},
+    }, sessionToken);
+    return response?.test || {};
+  }
+
   async function saveEmails(event) {
     event.preventDefault();
     if (savingEmails) return;
@@ -167,7 +185,7 @@ export default function NotificationSettingsPage() {
 
   async function saveWebhook(event) {
     event.preventDefault();
-    if (savingChat) return;
+    if (savingChat || testingChat) return;
     const value = webhook.trim();
     if (!value) {
       setError('Pegue el webhook de Google Chat que desea usar para la Agenda.');
@@ -183,17 +201,46 @@ export default function NotificationSettingsPage() {
         settings: { webhook: value },
       }, sessionToken);
       setChatSettings(response?.settings || EMPTY_CHAT_SETTINGS);
-      setWebhook('');
-      setNotice('Google Chat de Agenda configurado correctamente. Las próximas agendas se enviarán también al chat.');
+
+      const test = await requestChatTest(value);
+      if (test.sent) {
+        setWebhook('');
+        setNotice(`Google Chat de Agenda configurado y probado correctamente${test.status ? ` (HTTP ${test.status})` : ''}. Debe haber recibido un mensaje de prueba en el espacio.`);
+      } else {
+        setError(`El webhook quedó guardado, pero la prueba falló. ${chatFailureMessage(test)}`);
+      }
     } catch (requestError) {
-      setError(requestError?.message || 'No se pudo guardar el webhook de Agenda.');
+      setError(requestError?.message || 'No se pudo guardar o probar el webhook de Agenda.');
     } finally {
       setSavingChat(false);
     }
   }
 
+  async function testChat() {
+    if (savingChat || testingChat) return;
+    if (!chatSettings.configured && !webhook.trim()) {
+      setError('Configure o pegue un webhook antes de realizar la prueba.');
+      return;
+    }
+
+    setTestingChat(true);
+    clearMessages();
+    try {
+      const test = await requestChatTest(webhook.trim());
+      if (test.sent) {
+        setNotice(`Mensaje de prueba enviado correctamente a Google Chat${test.status ? ` (HTTP ${test.status})` : ''}.`);
+      } else {
+        setError(chatFailureMessage(test));
+      }
+    } catch (requestError) {
+      setError(requestError?.message || 'No se pudo probar el envío a Google Chat.');
+    } finally {
+      setTestingChat(false);
+    }
+  }
+
   async function disableChat() {
-    if (savingChat || !chatSettings.configured) return;
+    if (savingChat || testingChat || !chatSettings.configured) return;
     if (!window.confirm('¿Desea desactivar el envío de Agenda a Google Chat? Los correos seguirán funcionando normalmente.')) return;
 
     setSavingChat(true);
@@ -303,27 +350,30 @@ export default function NotificationSettingsPage() {
                 type="url"
                 value={webhook}
                 onChange={(event) => { setWebhook(event.target.value); clearMessages(); }}
-                placeholder="https://chat.googleapis.com/v1/spaces/..."
+                placeholder="https://chat.googleapis.com/v1/spaces/.../messages?key=...&token=..."
                 autoComplete="off"
                 spellCheck="false"
-                disabled={savingChat}
+                disabled={savingChat || testingChat}
               />
-              <small>Por seguridad, el webhook guardado nunca se muestra completo. Pegue uno nuevo únicamente para configurarlo o reemplazarlo.</small>
+              <small>Use el webhook creado dentro del espacio de Google Chat; el enlace normal para abrir una sala (`chat.google.com/...`) no sirve para enviar mensajes. Por seguridad, el webhook guardado nunca se muestra completo.</small>
             </label>
 
             <div className="notification-chat-actions">
-              {chatSettings.configured && <button type="button" className="button button--secondary" onClick={disableChat} disabled={savingChat}>
+              {chatSettings.configured && <button type="button" className="button button--secondary" onClick={disableChat} disabled={savingChat || testingChat}>
                 <Icon name="notifications_off" /> Desactivar
               </button>}
-              <button type="submit" className="button button--primary" disabled={savingChat || !webhook.trim()}>
-                <Icon name={savingChat ? 'progress_activity' : 'save'} /> {savingChat ? 'Guardando...' : chatSettings.configured ? 'Reemplazar webhook' : 'Guardar webhook'}
+              <button type="button" className="button button--secondary" onClick={testChat} disabled={savingChat || testingChat || (!chatSettings.configured && !webhook.trim())}>
+                <Icon name={testingChat ? 'progress_activity' : 'send'} /> {testingChat ? 'Probando...' : 'Probar envío'}
+              </button>
+              <button type="submit" className="button button--primary" disabled={savingChat || testingChat || !webhook.trim()}>
+                <Icon name={savingChat ? 'progress_activity' : 'save'} /> {savingChat ? 'Guardando y probando...' : chatSettings.configured ? 'Reemplazar webhook' : 'Guardar webhook'}
               </button>
             </div>
           </form>
 
           <div className="notification-behavior-note">
             <Icon name="info" />
-            <div><strong>Envío independiente</strong><p>Si Google Chat falla, la agenda permanece guardada y el correo continúa funcionando normalmente.</p></div>
+            <div><strong>Prueba real del canal</strong><p>Al guardar un webhook se envía una prueba automáticamente. También puede usar “Probar envío” cuando quiera. Si Google Chat falla, verá el código HTTP sin afectar las agendas ni los correos.</p></div>
           </div>
         </aside>
       </div>}
