@@ -103,7 +103,19 @@ export async function updateAgendaChatSettings(payload = {}) {
 }
 
 export async function sendAgendaChatNotification({ views = [], mode = 'CREATED', appUrl = '' } = {}) {
-  const webhook = await getWebhook().catch(() => '');
+  let webhook = '';
+  try {
+    webhook = await getWebhook();
+  } catch (error) {
+    console.warn(`[agenda-chat] No se pudo leer la configuración: ${error?.message || error}`);
+    return {
+      configured: false,
+      sent: false,
+      error: error?.message || 'No se pudo consultar la configuración del chat de Agenda.',
+      code: error?.code || 'AGENDA_CHAT_CONFIG_READ_FAILED',
+    };
+  }
+
   if (!webhook || !isValidWebhook(webhook)) {
     return { configured: false, sent: false, skipped: true };
   }
