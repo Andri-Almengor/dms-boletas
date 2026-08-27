@@ -24,7 +24,8 @@ assert.match(chatSource, /url\.searchParams\.has\('token'\)/);
 assert.match(chatSource, /CHAT_SEND_FAILED/);
 assert.match(chatSource, /status: response\.status/);
 assert.match(chatSource, /response: responseText\.slice\(0, 500\)/);
-assert.match(chatSource, /transientStatus/);
+assert.match(chatSource, /RETRYABLE_CHAT_STATUSES/);
+assert.match(chatSource, /retryableChatError/);
 assert.match(chatSource, /attempts/);
 
 assert.match(agendaChatSource, /AGENDA_CHAT_WEBHOOK/);
