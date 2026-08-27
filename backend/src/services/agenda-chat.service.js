@@ -109,7 +109,7 @@ export async function sendAgendaChatNotification({ views = [], mode = 'CREATED',
   } catch (error) {
     console.warn(`[agenda-chat] No se pudo leer la configuración: ${error?.message || error}`);
     return {
-      configured: false,
+      configured: true,
       sent: false,
       error: error?.message || 'No se pudo consultar la configuración del chat de Agenda.',
       code: error?.code || 'AGENDA_CHAT_CONFIG_READ_FAILED',
