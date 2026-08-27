@@ -13,7 +13,8 @@ const page = fs.readFileSync(path.join(root, 'src/pages/agenda/AgendaPage.jsx'),
 assert.match(indexCss, /agenda-calendar-desktop\.css/);
 assert.match(css, /\.page\.agenda-page\s*\{/);
 assert.match(css, /width:\s*min\(100%,\s*1780px\)/);
-assert.match(css, /grid-template-columns:\s*repeat\(7,minmax\(0,1fr\)\)|agenda-calendar-day/);
+assert.match(css, /agenda-calendar__weekdays/);
+assert.match(css, /agenda-calendar-day/);
 assert.match(css, /agenda-event-card--compact/);
 assert.match(css, /grid-template-areas/);
 assert.match(css, /agenda-event-card__people/);
