@@ -59,7 +59,7 @@ assert.match(configSource, /SENSITIVE_KEY = \/\(WEBHOOK\|SECRET\|PASSWORD\|TOKEN
 assert.match(settingsPageSource, /section: 'AGENDA_CHAT'/);
 assert.match(settingsPageSource, /operation: 'TEST'/);
 assert.match(settingsPageSource, /Probar envío/);
-assert.match(settingsPageSource, /formatChatFailure/);
+assert.match(settingsPageSource, /chatFailureMessage/);
 assert.match(settingsPageSource, /redactedWebhook/);
 assert.match(settingsPageSource, /Por seguridad, el webhook guardado nunca se muestra completo/);
 assert.match(settingsPageSource, /settings: \{ webhook: '' \}/);
