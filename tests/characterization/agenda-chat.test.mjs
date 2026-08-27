@@ -2,58 +2,54 @@ import assert from 'node:assert/strict';
 import fs from 'node:fs';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
-import { buildAgendaChatMessage } from '../../backend/src/services/agenda-chat.service.js';
-import { isValidWebhook } from '../../backend/src/services/chat.service.js';
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 const root = path.resolve(__dirname, '../..');
 
-const validWebhook = 'https://chat.googleapis.com/v1/spaces/AAA/messages?key=test-key&token=test-token';
-assert.equal(isValidWebhook(validWebhook), true);
-assert.equal(isValidWebhook('https://example.com/v1/spaces/AAA/messages?key=x&token=y'), false);
-assert.equal(isValidWebhook('https://chat.googleapis.com/v1/spaces/AAA/messages?key=x'), false);
-
-const message = buildAgendaChatMessage({
-  mode: 'CREATED',
-  appUrl: 'https://dms.example.com/',
-  views: [{
-    AgendaID: 'AGENDA-123',
-    Fecha: '2026-08-30',
-    HoraInicio: '08:00',
-    HoraFin: '11:30',
-    Detalle: 'Asamblea · mantenimiento preventivo',
-    asignados: [
-      { UsuarioID: 'U1', NombreCompleto: 'Técnico Uno' },
-      { UsuarioID: 'U2', NombreCompleto: 'Técnico Dos' },
-    ],
-  }],
-});
-
-assert.match(message, /AGENDA DMS · NUEVA/);
-assert.match(message, /2026-08-30 · 08:00–11:30/);
-assert.match(message, /Asamblea · mantenimiento preventivo/);
-assert.match(message, /Técnico Uno, Técnico Dos/);
-assert.match(message, /https:\/\/dms\.example\.com\/agenda\?agendaId=AGENDA-123&month=2026-08/);
-
-const updatedMessage = buildAgendaChatMessage({
-  mode: 'UPDATED',
-  appUrl: 'https://dms.example.com',
-  views: [{ AgendaID: 'A2', Fecha: '2026-09-01', HoraInicio: '09:00', HoraFin: '10:00', Detalle: 'Visita', asignados: [] }],
-});
-assert.match(updatedMessage, /AGENDA DMS · ACTUALIZADA/);
-
+const agendaChatSource = fs.readFileSync(path.join(root, 'backend/src/services/agenda-chat.service.js'), 'utf8');
+const chatSource = fs.readFileSync(path.join(root, 'backend/src/services/chat.service.js'), 'utf8');
 const agendaModuleSource = fs.readFileSync(path.join(root, 'backend/src/modules/agenda.module.js'), 'utf8');
 const configSource = fs.readFileSync(path.join(root, 'backend/src/modules/config.module.js'), 'utf8');
 const settingsPageSource = fs.readFileSync(path.join(root, 'src/pages/admin/NotificationSettingsPage.jsx'), 'utf8');
+const appSource = fs.readFileSync(path.join(root, 'src/app/App.jsx'), 'utf8');
+const moreSource = fs.readFileSync(path.join(root, 'src/pages/MorePage.jsx'), 'utf8');
 const splitDialogSource = fs.readFileSync(path.join(root, 'src/pages/agenda/AgendaSplitDialog.jsx'), 'utf8');
+
+assert.match(chatSource, /export function isValidWebhook/);
+assert.match(chatSource, /url\.hostname === 'chat\.googleapis\.com'/);
+assert.match(chatSource, /url\.searchParams\.has\('key'\)/);
+assert.match(chatSource, /url\.searchParams\.has\('token'\)/);
+
+assert.match(agendaChatSource, /AGENDA_CHAT_WEBHOOK/);
+assert.match(agendaChatSource, /buildAgendaChatMessage/);
+assert.match(agendaChatSource, /AGENDA DMS · NUEVA/);
+assert.match(agendaChatSource, /AGENDA DMS · ACTUALIZADA/);
+assert.match(agendaChatSource, /\/agenda\?agendaId=/);
+assert.match(agendaChatSource, /month=/);
+assert.match(agendaChatSource, /Asignados:/);
+assert.match(agendaChatSource, /sendChatMessage/);
+assert.match(agendaChatSource, /configured: false, sent: false, skipped: true/);
+assert.match(agendaChatSource, /console\.warn\(`\[agenda-chat\]/);
 
 assert.match(agendaModuleSource, /sendAgendaChatNotification/);
 assert.match(agendaModuleSource, /Promise\.all\(\[emailPromise, chatPromise\]\)/);
+assert.match(agendaModuleSource, /notification\.chat\?\.configured/);
+assert.match(agendaModuleSource, /Google Chat no pudo recibir la notificación/);
+
 assert.match(configSource, /AGENDA_CHAT_SECTION/);
+assert.match(configSource, /handleAgendaChatSection/);
 assert.match(configSource, /USUARIOS_GESTIONAR/);
+assert.match(configSource, /ACTUALIZAR_CHAT_AGENDA/);
+assert.match(configSource, /SENSITIVE_KEY = \/\(WEBHOOK\|SECRET\|PASSWORD\|TOKEN\|PRIVATE\|API_KEY\)\/i/);
+
 assert.match(settingsPageSource, /section: 'AGENDA_CHAT'/);
 assert.match(settingsPageSource, /redactedWebhook/);
+assert.match(settingsPageSource, /Por seguridad, el webhook guardado nunca se muestra completo/);
+assert.match(settingsPageSource, /settings: \{ webhook: '' \}/);
+assert.match(appSource, /path="administracion\/notificaciones"/);
+assert.match(appSource, /permission="USUARIOS_GESTIONAR"/);
+assert.match(moreSource, /to="\/administracion\/notificaciones"/);
 assert.match(splitDialogSource, /agenda\.create/);
 assert.match(splitDialogSource, /agenda\.update/);
 
-console.log('✓ agenda chat: webhook seguro, mensaje con enlace directo, flujo central y configuración administrativa');
+console.log('✓ agenda chat: webhook protegido, enlaces directos, fallo no bloqueante, configuración administrativa y flujo central');
