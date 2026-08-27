@@ -69,6 +69,7 @@ export default function AppShell() {
       <div className="side-drawer__profile"><div className="avatar avatar--large">{initials(user?.NombreCompleto)}</div><div><strong>{user?.NombreCompleto}</strong><span>{isAdmin ? 'Administrador' : 'Técnico'}</span></div></div>
       <nav className="side-drawer__nav">
         <NavLink to="/" end><Icon name="home" /> Inicio</NavLink>
+        <NavLink to="/agenda"><Icon name="calendar_month" /> Agenda</NavLink>
         <NavLink to="/asistente"><Icon name="smart_toy" /> Asistente DMS</NavLink>
         {canViewTickets && <NavLink to="/boletas/pendientes"><Icon name="pending_actions" /> Boletas pendientes</NavLink>}
         {canCreateTickets && <NavLink to="/boletas/nueva"><Icon name="add_circle" /> Crear boleta</NavLink>}
