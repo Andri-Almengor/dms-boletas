@@ -2,6 +2,7 @@ import './agenda-operativa.test.mjs';
 import './agenda-chat.test.mjs';
 import './notification-settings-ui.test.mjs';
 import './agenda-calendar-desktop-ui.test.mjs';
+import './agenda-editor-mobile-ui.test.mjs';
 import './app-recovery.test.mjs';
 import './assistant-gateway-snapshot-render.test.mjs';
 import './assistant-history-retention.test.mjs';
