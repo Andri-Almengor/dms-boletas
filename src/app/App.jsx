@@ -49,6 +49,7 @@ const IntegrationsPage = lazyPage(() => import('../pages/admin/IntegrationsPage'
 const LegacyTicketsImportPage = lazyPage(() => import('../pages/admin/LegacyTicketsImportPage'), routeStyles.admin, routeStyles.legacy);
 const MaintenanceQuestionsPage = lazyPage(() => import('../pages/admin/MaintenanceQuestionsPage'), routeStyles.admin, routeStyles.maintenance);
 const MetricsPage = lazyPage(() => import('../pages/admin/MetricsPage'), routeStyles.metrics);
+const NotificationSettingsPage = lazyPage(() => import('../pages/admin/NotificationSettingsPage'), routeStyles.admin);
 const AssistantPage = lazyPage(() => import('../pages/assistant/AssistantPage'), routeStyles.assistant);
 const CustomerCasesPage = lazyPage(() => import('../pages/cases/CustomerCasesPage'));
 const CustomerCaseDetailPage = lazyPage(() => import('../pages/cases/CustomerCaseDetailPage'));
@@ -183,6 +184,7 @@ export default function App() {
           <Route path="metricas" element={<PermissionRoute permission="USUARIOS_GESTIONAR"><MetricsPage /></PermissionRoute>} />
           <Route path="dashboard" element={<Navigate to="/metricas" replace />} />
           <Route path="integraciones" element={<PermissionRoute permission="USUARIOS_GESTIONAR"><IntegrationsPage /></PermissionRoute>} />
+          <Route path="administracion/notificaciones" element={<PermissionRoute permission="USUARIOS_GESTIONAR"><NotificationSettingsPage /></PermissionRoute>} />
           <Route path="administracion/importar-boletas" element={<PermissionRoute permission="USUARIOS_GESTIONAR"><LegacyTicketsImportPage /></PermissionRoute>} />
           <Route path="encuestas" element={<PermissionRoute permission="USUARIOS_GESTIONAR"><SurveysAdminPage /></PermissionRoute>} />
           <Route path="encuestas/:encuestaId" element={<PermissionRoute permission="USUARIOS_GESTIONAR"><SurveyDetailPage /></PermissionRoute>} />
