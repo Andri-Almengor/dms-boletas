@@ -4,7 +4,12 @@ import {
   readTable,
   updateRows,
 } from '../infra/sheets.repository.js';
-import { isValidWebhook, redactWebhook, sendChatMessage } from './chat.service.js';
+import {
+  isValidWebhook,
+  normalizeWebhook,
+  redactWebhook,
+  sendChatMessage,
+} from './chat.service.js';
 
 const CONFIG_KEY = 'AGENDA_CHAT_WEBHOOK';
 const MAX_MESSAGE_LENGTH = 3600;
@@ -43,6 +48,25 @@ function agendaBlock(agenda = {}, appUrl = '') {
   ].filter(Boolean).join('\n');
 }
 
+function providerDiagnostics(error = {}) {
+  return {
+    status: Number(error?.details?.status || error?.status || 0),
+    providerResponse: clean(error?.details?.response, 500),
+  };
+}
+
+function deliveryError(error, fallback) {
+  const diagnostics = providerDiagnostics(error);
+  return {
+    configured: true,
+    sent: false,
+    error: error?.message || fallback,
+    code: error?.code || '',
+    status: diagnostics.status,
+    providerResponse: diagnostics.providerResponse,
+  };
+}
+
 export function buildAgendaChatMessage({ views = [], mode = 'CREATED', appUrl = '' } = {}) {
   const agendas = Array.isArray(views) ? views : [];
   const updated = clean(mode, 30).toUpperCase() === 'UPDATED';
@@ -70,7 +94,7 @@ export function buildAgendaChatMessage({ views = [], mode = 'CREATED', appUrl = 
 
 async function getWebhook() {
   const rows = await readTable('Configuracion');
-  return clean(rowsMap(rows).get(CONFIG_KEY), 20000);
+  return normalizeWebhook(rowsMap(rows).get(CONFIG_KEY));
 }
 
 export async function getAgendaChatSettings() {
@@ -82,9 +106,9 @@ export async function getAgendaChatSettings() {
 }
 
 export async function updateAgendaChatSettings(payload = {}) {
-  const webhook = clean(payload.webhook ?? payload.url ?? payload.chatWebhook, 20000);
+  const webhook = normalizeWebhook(payload.webhook ?? payload.url ?? payload.chatWebhook);
   if (webhook && !isValidWebhook(webhook)) {
-    throw badRequest('El webhook de Agenda debe ser una URL válida de Google Chat.');
+    throw badRequest('El webhook de Agenda debe ser una URL válida de Google Chat. Use el webhook del espacio, no el enlace normal para abrir el chat.');
   }
 
   const rows = await readTable('Configuracion', { force: true });
@@ -102,6 +126,46 @@ export async function updateAgendaChatSettings(payload = {}) {
   };
 }
 
+export async function testAgendaChatNotification(payload = {}) {
+  let webhook = normalizeWebhook(payload.webhook ?? payload.url ?? payload.chatWebhook);
+  if (!webhook) webhook = await getWebhook();
+  if (!webhook || !isValidWebhook(webhook)) {
+    return {
+      configured: false,
+      sent: false,
+      skipped: true,
+      code: 'CHAT_NOT_CONFIGURED',
+      error: 'No hay un webhook válido de Google Chat configurado para Agenda.',
+      status: 0,
+    };
+  }
+
+  const now = new Intl.DateTimeFormat('es-CR', {
+    timeZone: 'America/Costa_Rica',
+    dateStyle: 'medium',
+    timeStyle: 'short',
+  }).format(new Date());
+  const text = [
+    '✅ DMS BOLETAS · PRUEBA DE CHAT DE AGENDA',
+    '',
+    'El webhook de Google Chat está recibiendo mensajes correctamente.',
+    `Prueba realizada: ${now}`,
+  ].join('\n');
+
+  try {
+    const result = await sendChatMessage(webhook, text, { attempts: 2 });
+    return {
+      configured: true,
+      sent: true,
+      status: Number(result?.status || 0),
+      attempts: Number(result?.attempts || 1),
+    };
+  } catch (error) {
+    console.warn(`[agenda-chat] Falló la prueba del webhook: ${error?.message || error}`);
+    return deliveryError(error, 'Google Chat no pudo recibir el mensaje de prueba.');
+  }
+}
+
 export async function sendAgendaChatNotification({ views = [], mode = 'CREATED', appUrl = '' } = {}) {
   let webhook = '';
   try {
@@ -113,6 +177,7 @@ export async function sendAgendaChatNotification({ views = [], mode = 'CREATED',
       sent: false,
       error: error?.message || 'No se pudo consultar la configuración del chat de Agenda.',
       code: error?.code || 'AGENDA_CHAT_CONFIG_READ_FAILED',
+      status: Number(error?.status || 0),
     };
   }
 
@@ -122,20 +187,16 @@ export async function sendAgendaChatNotification({ views = [], mode = 'CREATED',
 
   const text = buildAgendaChatMessage({ views, mode, appUrl });
   try {
-    const result = await sendChatMessage(webhook, text);
+    const result = await sendChatMessage(webhook, text, { attempts: 2 });
     return {
       configured: true,
       sent: Boolean(result?.sent),
-      status: result?.status || 0,
+      status: Number(result?.status || 0),
+      attempts: Number(result?.attempts || 1),
     };
   } catch (error) {
     console.warn(`[agenda-chat] No se pudo enviar la notificación: ${error?.message || error}`);
-    return {
-      configured: true,
-      sent: false,
-      error: error?.message || 'No se pudo enviar la agenda a Google Chat.',
-      code: error?.code || '',
-    };
+    return deliveryError(error, 'No se pudo enviar la agenda a Google Chat.');
   }
 }
 
