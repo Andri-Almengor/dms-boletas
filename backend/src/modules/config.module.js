@@ -2,6 +2,7 @@ import { forbidden } from '../core/errors.js';
 import { readTable } from '../infra/sheets.repository.js';
 import {
   getAgendaChatSettings,
+  testAgendaChatNotification,
   updateAgendaChatSettings,
 } from '../services/agenda-chat.service.js';
 import {
@@ -66,6 +67,30 @@ async function handleAgendaChatSection(ctx, payload) {
       after,
     ).catch(() => {});
     return { section: AGENDA_CHAT_SECTION, settings: after, updated: true };
+  }
+
+  if (['TEST', 'PROBAR', 'PRUEBA'].includes(operation)) {
+    const candidate = payload.settings || payload.config || {};
+    const test = await testAgendaChatNotification(candidate);
+    await audit(
+      ctx,
+      'PROBAR_CHAT_AGENDA',
+      'Configuracion',
+      AGENDA_CHAT_SECTION,
+      null,
+      {
+        configured: test.configured,
+        sent: test.sent,
+        status: test.status || 0,
+        code: test.code || '',
+      },
+    ).catch(() => {});
+    return {
+      section: AGENDA_CHAT_SECTION,
+      settings: await getAgendaChatSettings(),
+      test,
+      tested: true,
+    };
   }
 
   return {
