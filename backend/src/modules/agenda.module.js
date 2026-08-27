@@ -110,6 +110,20 @@ function visibleAgendaIdsForUser(assignments, userId) {
     .filter(Boolean));
 }
 
+function reminderSent(value) {
+  return ['true', '1', 'si', 'sí', 'yes', 'enviado'].includes(String(value ?? '').trim().toLowerCase());
+}
+
+function reminderBelongsToAgendaDay(row = {}) {
+  if (!reminderSent(row.RecordatorioEnviado)) return false;
+  const agendaDay = agendaDate(row.Fecha);
+  const explicitDay = agendaDate(row.RecordatorioDia);
+  const sentAtDay = agendaDate(row.RecordatorioEnviadoEn);
+  if (explicitDay) return explicitDay === agendaDay;
+  if (sentAtDay) return sentAtDay === agendaDay;
+  return true;
+}
+
 function filterViews(views, payload = {}, ctx = {}) {
   let result = [...views];
   const from = clean(payload.from || payload.desde || payload.fechaInicio);
@@ -254,10 +268,12 @@ async function create(ctx) {
     const agendaId = uuid();
     agendaRows.push({
       AgendaID: agendaId,
+      AgendaOrigenID: clean(input.agendaOrigenId || input.AgendaOrigenID),
       ...values,
       BoletaUID: '',
       RecordatorioEnviado: false,
       RecordatorioEnviadoEn: '',
+      RecordatorioDia: '',
       CreadoPor: ctx.user.UsuarioID,
       FechaCreacion: timestamp,
       ActualizadoPor: ctx.user.UsuarioID,
@@ -323,13 +339,16 @@ async function update(ctx) {
   if (newUserIds.some((id) => !userById.has(id))) throw badRequest('La agenda contiene usuarios inactivos o inexistentes.');
 
   const values = normalizeAgendaInput(ctx.payload, before);
+  const oldDate = agendaDate(before.Fecha);
+  const dateChanged = values.Fecha !== oldDate;
   const assignmentChanged = oldUserIds.length !== newUserIds.length
     || oldUserIds.some((id) => !newUserIds.includes(id));
-  const contentChanged = values.Fecha !== agendaDate(before.Fecha)
+  const contentChanged = dateChanged
     || values.Detalle !== clean(before.Detalle)
     || values.HoraInicio !== clean(before.HoraInicio, '07:00')
     || values.HoraFin !== clean(before.HoraFin, '17:00');
-  const resetLink = assignmentChanged || values.Fecha !== agendaDate(before.Fecha) || values.Detalle !== clean(before.Detalle);
+  const resetLink = assignmentChanged || dateChanged || values.Detalle !== clean(before.Detalle);
+  const reminderAlreadyConsumedForThisDay = !dateChanged && reminderBelongsToAgendaDay(before);
   const timestamp = nowIso();
 
   const patch = {
@@ -337,9 +356,16 @@ async function update(ctx) {
     ActualizadoPor: ctx.user.UsuarioID,
     FechaActualizacion: timestamp,
   };
-  if (contentChanged || assignmentChanged) {
+
+  if ((contentChanged || assignmentChanged) && !reminderAlreadyConsumedForThisDay) {
     patch.RecordatorioEnviado = false;
     patch.RecordatorioEnviadoEn = '';
+    patch.RecordatorioDia = '';
+  }
+  if (dateChanged) {
+    patch.RecordatorioEnviado = false;
+    patch.RecordatorioEnviadoEn = '';
+    patch.RecordatorioDia = '';
   }
   if (resetLink || !values.RequiereBoleta) patch.BoletaUID = '';
 
@@ -384,12 +410,14 @@ async function update(ctx) {
     agenda: view,
     removedUserIds: removed,
     addedUserIds: added,
+    reminderPreservedForSameDay: reminderAlreadyConsumedForThisDay,
     notification,
   });
 
   return {
     item: view,
     notification,
+    reminderPreservedForSameDay: reminderAlreadyConsumedForThisDay,
     message: notification.sent
       ? 'Agenda actualizada y notificada correctamente.'
       : 'Agenda actualizada correctamente. Revise la advertencia del correo.',
