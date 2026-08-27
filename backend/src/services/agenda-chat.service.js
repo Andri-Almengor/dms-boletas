@@ -69,8 +69,12 @@ function deliveryError(error, fallback) {
 
 export function buildAgendaChatMessage({ views = [], mode = 'CREATED', appUrl = '' } = {}) {
   const agendas = Array.isArray(views) ? views : [];
-  const updated = clean(mode, 30).toUpperCase() === 'UPDATED';
-  const heading = updated ? '🔁 AGENDA DMS · ACTUALIZADA' : '✅ AGENDA DMS · NUEVA';
+  const normalizedMode = clean(mode, 30).toUpperCase();
+  const heading = normalizedMode === 'UPDATED'
+    ? '🔁 AGENDA DMS · ACTUALIZADA'
+    : normalizedMode === 'RESENT'
+      ? '📨 AGENDA DMS · REENVIADA'
+      : '✅ AGENDA DMS · NUEVA';
   if (!agendas.length) return heading;
 
   const lines = [heading, ''];
