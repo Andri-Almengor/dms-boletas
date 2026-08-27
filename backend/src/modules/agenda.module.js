@@ -9,6 +9,7 @@ import {
 } from '../infra/sheets.repository.js';
 import { env } from '../config/env.js';
 import { audit } from '../services/audit.service.js';
+import { sendAgendaChatNotification } from '../services/agenda-chat.service.js';
 import {
   agendaDate,
   agendaRequiresTicket,
@@ -185,20 +186,53 @@ function buildDeliveries(views, users, mode = 'CREATED', removedByAgenda = new M
 
 async function notifyAgenda(views, users, mode, removedByAgenda = new Map()) {
   const deliveries = buildDeliveries(views, users, mode, removedByAgenda);
-  try {
-    const data = await sendAppsScriptAction('agenda.notification.send', {
-      dataSpreadsheetId: env.sheetId,
-      appUrl: env.appPublicUrl,
-      mode,
-      deliveries,
-    }, {
-      idempotencyKey: `agenda:${mode.toLowerCase()}:${views.map((item) => item.AgendaID).join(',')}:${Date.now()}`,
-      attempts: 3,
-    });
-    return { sent: Boolean(data?.sent), deliveries: deliveries.length, ...data };
-  } catch (error) {
-    return { sent: false, deliveries: deliveries.length, error: error.message, code: error.code || '' };
+  const emailPromise = (async () => {
+    try {
+      const data = await sendAppsScriptAction('agenda.notification.send', {
+        dataSpreadsheetId: env.sheetId,
+        appUrl: env.appPublicUrl,
+        mode,
+        deliveries,
+      }, {
+        idempotencyKey: `agenda:${mode.toLowerCase()}:${views.map((item) => item.AgendaID).join(',')}:${Date.now()}`,
+        attempts: 3,
+      });
+      return { sent: Boolean(data?.sent), deliveries: deliveries.length, ...data };
+    } catch (error) {
+      return { sent: false, deliveries: deliveries.length, error: error.message, code: error.code || '' };
+    }
+  })();
+
+  const chatPromise = sendAgendaChatNotification({
+    views,
+    mode,
+    appUrl: env.appPublicUrl,
+  });
+
+  const [email, chat] = await Promise.all([emailPromise, chatPromise]);
+  return { ...email, email, chat };
+}
+
+function createMessage(views, notification) {
+  const count = views.length;
+  const base = `${count} agenda${count === 1 ? '' : 's'} creada${count === 1 ? '' : 's'} correctamente.`;
+  if (!notification.sent) return `${base} Revise la advertencia del correo.`;
+  if (notification.chat?.configured && !notification.chat?.sent) {
+    return `${base} El correo fue enviado, pero Google Chat no pudo recibir la notificación.`;
   }
+  if (notification.chat?.sent) {
+    return `${count} agenda${count === 1 ? '' : 's'} creada${count === 1 ? '' : 's'} y notificada${count === 1 ? '' : 's'} por correo y Google Chat.`;
+  }
+  return `${count} agenda${count === 1 ? '' : 's'} creada${count === 1 ? '' : 's'} y notificada${count === 1 ? '' : 's'} correctamente.`;
+}
+
+function updateMessage(notification) {
+  if (!notification.sent) return 'Agenda actualizada correctamente. Revise la advertencia del correo.';
+  if (notification.chat?.configured && !notification.chat?.sent) {
+    return 'Agenda actualizada y correo enviado. Google Chat no pudo recibir la notificación.';
+  }
+  if (notification.chat?.sent) return 'Agenda actualizada y notificada por correo y Google Chat.';
+  return 'Agenda actualizada y notificada correctamente.';
 }
 
 async function list(ctx) {
@@ -310,9 +344,7 @@ async function create(ctx) {
     items: views,
     total: views.length,
     notification,
-    message: notification.sent
-      ? `${views.length} agenda${views.length === 1 ? '' : 's'} creada${views.length === 1 ? '' : 's'} y notificada${views.length === 1 ? '' : 's'} correctamente.`
-      : `${views.length} agenda${views.length === 1 ? '' : 's'} creada${views.length === 1 ? '' : 's'} correctamente. Revise la advertencia del correo.`,
+    message: createMessage(views, notification),
   };
 }
 
@@ -418,9 +450,7 @@ async function update(ctx) {
     item: view,
     notification,
     reminderPreservedForSameDay: reminderAlreadyConsumedForThisDay,
-    message: notification.sent
-      ? 'Agenda actualizada y notificada correctamente.'
-      : 'Agenda actualizada correctamente. Revise la advertencia del correo.',
+    message: updateMessage(notification),
   };
 }
 
