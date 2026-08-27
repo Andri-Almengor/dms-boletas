@@ -16,7 +16,9 @@ import {
   statusMeta,
   tomorrowCostaRicaDate,
 } from '../../features/agenda/agendaDomain';
+import AgendaSplitDialog from './AgendaSplitDialog';
 import '../../styles/agenda.css';
+import '../../styles/agenda-split.css';
 
 const WEEKDAYS = ['Lun', 'Mar', 'Mié', 'Jue', 'Vie', 'Sáb', 'Dom'];
 const EMPTY_DRAFT = Object.freeze({ fecha: '', horaInicio: '07:00', horaFin: '17:00', detalle: '', usuarioIds: [] });
@@ -34,7 +36,13 @@ function formatDateLong(dateKey) {
   const match = String(dateKey || '').match(/^(\d{4})-(\d{2})-(\d{2})$/);
   if (!match) return dateKey || '—';
   const date = new Date(Date.UTC(Number(match[1]), Number(match[2]) - 1, Number(match[3])));
-  return new Intl.DateTimeFormat('es-CR', { weekday: 'long', day: 'numeric', month: 'long', year: 'numeric', timeZone: 'UTC' }).format(date);
+  return new Intl.DateTimeFormat('es-CR', {
+    weekday: 'long',
+    day: 'numeric',
+    month: 'long',
+    year: 'numeric',
+    timeZone: 'UTC',
+  }).format(date);
 }
 
 function dayNumber(dateKey) {
@@ -62,9 +70,11 @@ function AgendaCard({ item, onOpen, compact = false }) {
   </button>;
 }
 
-function AgendaDetail({ item, isAdmin, onClose, onEdit }) {
+function AgendaDetail({ item, isAdmin, onClose, onEdit, onSplit }) {
   if (!item) return null;
   const meta = statusMeta(item.status);
+  const canSplit = isAdmin && item.Estado !== 'CANCELADA' && (item.asignados || []).length > 1;
+
   return <div className="agenda-modal-backdrop" role="presentation" onMouseDown={(event) => { if (event.target === event.currentTarget) onClose(); }}>
     <section className="agenda-detail-sheet" role="dialog" aria-modal="true" aria-label="Detalle de agenda">
       <header className="agenda-sheet-header">
@@ -83,7 +93,10 @@ function AgendaDetail({ item, isAdmin, onClose, onEdit }) {
       <section className="agenda-detail-block">
         <span>Personas asignadas</span>
         <div className="agenda-person-list">
-          {(item.asignados || []).map((user) => <div key={user.UsuarioID} className="agenda-person-chip"><b>{initials(user)}</b><span><strong>{personName(user)}</strong>{user.Correo && <small>{user.Correo}</small>}</span></div>)}
+          {(item.asignados || []).map((user) => <div key={user.UsuarioID} className="agenda-person-chip">
+            <b>{initials(user)}</b>
+            <span><strong>{personName(user)}</strong>{user.Correo && <small>{user.Correo}</small>}</span>
+          </div>)}
         </div>
       </section>
 
@@ -91,12 +104,17 @@ function AgendaDetail({ item, isAdmin, onClose, onEdit }) {
         <Icon name={meta.icon} />
         <div>
           <strong>{meta.label}</strong>
-          {item.boleta ? <span>{item.boleta.BoletaNumero ? `Boleta #${item.boleta.BoletaNumero}` : 'Boleta relacionada'}{item.boleta.Titulo ? ` · ${item.boleta.Titulo}` : ''}</span> : <span>{item.RequiereBoleta ? 'Esta visita requiere una boleta.' : 'Esta agenda está excluida del control de boleta.'}</span>}
+          {item.boleta
+            ? <span>{item.boleta.BoletaNumero ? `Boleta #${item.boleta.BoletaNumero}` : 'Boleta relacionada'}{item.boleta.Titulo ? ` · ${item.boleta.Titulo}` : ''}</span>
+            : <span>{item.RequiereBoleta ? 'Esta visita requiere una boleta.' : 'Esta agenda está excluida del control de boleta.'}</span>}
         </div>
         {item.boleta?.BoletaUID && <Link className="button button--secondary button--compact" to={`/boletas/${encodeURIComponent(item.boleta.BoletaUID)}`}><Icon name="open_in_new" /> Ver boleta</Link>}
       </section>
 
-      {isAdmin && <div className="agenda-sheet-actions"><button type="button" className="button button--primary" onClick={() => onEdit(item)}><Icon name="edit_calendar" /> Modificar agenda</button></div>}
+      {isAdmin && <div className="agenda-sheet-actions">
+        {canSplit && <button type="button" className="button button--secondary" onClick={() => onSplit(item)}><Icon name="call_split" /> Separar por persona</button>}
+        <button type="button" className="button button--primary" onClick={() => onEdit(item)}><Icon name="edit_calendar" /> Modificar agenda</button>
+      </div>}
     </section>
   </div>;
 }
@@ -190,8 +208,7 @@ function AgendaEditor({ users, editItem, onClose, onSaved, sessionToken }) {
       if (error) { setMessage(error); return; }
     } else if (!queue.length) {
       const error = validateDraft();
-      if (!error) setMessage('Agregue esta agenda a la lista antes de enviarla.');
-      else setMessage(error);
+      setMessage(error || 'Agregue esta agenda a la lista antes de enviarla.');
       return;
     }
 
@@ -234,18 +251,28 @@ function AgendaEditor({ users, editItem, onClose, onSaved, sessionToken }) {
 
         {draft.detalle.trim() && <div className={`agenda-rule-note${requiresTicket ? '' : ' is-exempt'}`}><Icon name={requiresTicket ? 'assignment' : 'remove_done'} /><span>{requiresTicket ? 'Esta visita requerirá una boleta.' : 'Por el detalle indicado (Oficina/RN), esta agenda no requerirá boleta ni recordatorio.'}</span></div>}
 
-        <section className="agenda-editor-section"><div className="agenda-editor-section__title"><div><span className="eyebrow">Asignación</span><h3>Personas que asistirán</h3></div><span>{draft.usuarioIds.length} seleccionada{draft.usuarioIds.length === 1 ? '' : 's'}</span></div><UserSelector users={users} selected={draft.usuarioIds} onChange={(value) => updateField('usuarioIds', value)} /></section>
+        <section className="agenda-editor-section">
+          <div className="agenda-editor-section__title"><div><span className="eyebrow">Asignación</span><h3>Personas que asistirán</h3></div><span>{draft.usuarioIds.length} seleccionada{draft.usuarioIds.length === 1 ? '' : 's'}</span></div>
+          <UserSelector users={users} selected={draft.usuarioIds} onChange={(value) => updateField('usuarioIds', value)} />
+        </section>
 
         {!editing && <section className="agenda-editor-section agenda-queue-section">
           <div className="agenda-editor-section__title"><div><span className="eyebrow">Antes de enviar</span><h3>Agendas preparadas</h3></div><span>{queue.length}</span></div>
+          <div className="agenda-notice"><Icon name="groups" /><span>Puede agregar varias agendas con la misma fecha. Esto permite programar distintos grupos o personas para diferentes lugares durante el mismo día.</span></div>
           <button type="button" className="button button--secondary agenda-stage-button" onClick={stageAgenda}><Icon name={queueEditIndex >= 0 ? 'save' : 'playlist_add'} />{queueEditIndex >= 0 ? 'Guardar cambios en la lista' : 'Agregar a la lista'}</button>
-          {queue.length > 0 ? <div className="agenda-queue-list">{queue.map((item, index) => <article key={`${item.fecha}-${index}`} className="agenda-queue-card"><div><strong>{formatDateLong(item.fecha)}</strong><span>{item.horaInicio} – {item.horaFin}</span><p>{item.detalle}</p><small>{item.usuarioIds.map((id) => shortPersonName(users.find((user) => String(user.UsuarioID) === id) || {})).join(', ')}</small></div><div><button type="button" className="icon-button" onClick={() => editQueued(index)} aria-label="Editar"><Icon name="edit" /></button><button type="button" className="icon-button icon-button--danger" onClick={() => setQueue((current) => current.filter((_, currentIndex) => currentIndex !== index))} aria-label="Quitar"><Icon name="delete" /></button></div></article>)}</div> : <div className="agenda-empty-inline">Todavía no hay agendas en la lista de envío.</div>}
+          {queue.length > 0 ? <div className="agenda-queue-list">{queue.map((item, index) => <article key={`${item.fecha}-${index}`} className="agenda-queue-card">
+            <div><strong>{formatDateLong(item.fecha)}</strong><span>{item.horaInicio} – {item.horaFin}</span><p>{item.detalle}</p><small>{item.usuarioIds.map((id) => shortPersonName(users.find((user) => String(user.UsuarioID) === id) || {})).join(', ')}</small></div>
+            <div><button type="button" className="icon-button" onClick={() => editQueued(index)} aria-label="Editar"><Icon name="edit" /></button><button type="button" className="icon-button icon-button--danger" onClick={() => setQueue((current) => current.filter((_, currentIndex) => currentIndex !== index))} aria-label="Quitar"><Icon name="delete" /></button></div>
+          </article>)}</div> : <div className="agenda-empty-inline">Todavía no hay agendas en la lista de envío.</div>}
         </section>}
 
         {message && <div className="agenda-editor-message"><Icon name="error" /><span>{message}</span></div>}
       </div>
 
-      <footer className="agenda-editor__footer"><button type="button" className="button button--secondary" onClick={onClose} disabled={busy}>Cancelar</button><button type="button" className="button button--primary" onClick={save} disabled={busy || (!editing && !queue.length)}><Icon name={busy ? 'progress_activity' : editing ? 'save' : 'send'} />{busy ? (editing ? 'Actualizando...' : 'Creando y enviando...') : editing ? 'Guardar cambios' : `Crear y enviar (${queue.length})`}</button></footer>
+      <footer className="agenda-editor__footer">
+        <button type="button" className="button button--secondary" onClick={onClose} disabled={busy}>Cancelar</button>
+        <button type="button" className="button button--primary" onClick={save} disabled={busy || (!editing && !queue.length)}><Icon name={busy ? 'progress_activity' : editing ? 'save' : 'send'} />{busy ? (editing ? 'Actualizando...' : 'Creando y enviando...') : editing ? 'Guardar cambios' : `Crear y enviar (${queue.length})`}</button>
+      </footer>
 
       {busy && <div className="agenda-processing" role="status"><span><Icon name="progress_activity" /></span><strong>{editing ? 'Actualizando agenda y notificando...' : 'Creando agendas y enviando correos...'}</strong><small>No cierre esta pantalla mientras se completa el envío.</small></div>}
     </section>
@@ -256,8 +283,9 @@ export default function AgendaPage() {
   const { sessionToken, hasPermission } = useAuth();
   const [searchParams, setSearchParams] = useSearchParams();
   const isAdmin = hasPermission('USUARIOS_GESTIONAR');
-  const requestedMonth = searchParams.get('month');
-  const [month, setMonth] = useState(() => /^\d{4}-\d{2}$/.test(requestedMonth || '') ? requestedMonth : monthKey());
+  const requestedAgendaId = searchParams.get('agendaId') || '';
+  const requestedMonth = searchParams.get('month') || '';
+  const [month, setMonth] = useState(() => /^\d{4}-\d{2}$/.test(requestedMonth) ? requestedMonth : monthKey());
   const [items, setItems] = useState([]);
   const [users, setUsers] = useState([]);
   const [loading, setLoading] = useState(true);
@@ -266,6 +294,7 @@ export default function AgendaPage() {
   const [search, setSearch] = useState('');
   const [selected, setSelected] = useState(null);
   const [editor, setEditor] = useState(null);
+  const [splitItem, setSplitItem] = useState(null);
   const today = costaRicaDateKey();
   const days = useMemo(() => calendarDays(month), [month]);
   const range = useMemo(() => calendarMonthRange(month), [month]);
@@ -290,28 +319,23 @@ export default function AgendaPage() {
   useEffect(() => { load(); }, [load]);
 
   useEffect(() => {
-    const agendaId = searchParams.get('agendaId');
-    if (!agendaId) return undefined;
-    const loadedItem = items.find((row) => String(row.AgendaID) === agendaId);
-    if (loadedItem) {
-      setSelected(loadedItem);
-      return undefined;
-    }
-    if (String(selected?.AgendaID || '') === agendaId) return undefined;
+    if (!requestedAgendaId) return;
+    const item = items.find((row) => String(row.AgendaID) === requestedAgendaId);
+    if (item) setSelected(item);
+  }, [items, requestedAgendaId]);
 
-    let active = true;
-    apiRequest('agenda.get', { agendaId }, sessionToken)
+  useEffect(() => {
+    if (!requestedAgendaId || selected || loading) return;
+    apiRequest('agenda.get', { agendaId: requestedAgendaId }, sessionToken)
       .then((data) => {
-        if (!active || !data?.item) return;
-        setSelected(data.item);
-        const itemMonth = String(data.item.Fecha || '').slice(0, 7);
-        if (/^\d{4}-\d{2}$/.test(itemMonth)) setMonth(itemMonth);
+        const item = data?.item;
+        if (!item) return;
+        const itemMonth = String(item.Fecha || '').slice(0, 7);
+        if (/^\d{4}-\d{2}$/.test(itemMonth) && itemMonth !== month) setMonth(itemMonth);
+        setSelected(item);
       })
-      .catch((requestError) => {
-        if (active) setError(requestError?.message || 'No se pudo abrir la agenda solicitada.');
-      });
-    return () => { active = false; };
-  }, [items, searchParams, selected?.AgendaID, sessionToken]);
+      .catch(() => {});
+  }, [loading, month, requestedAgendaId, selected, sessionToken]);
 
   const filtered = useMemo(() => {
     const query = normalizeAgendaText(search);
@@ -319,7 +343,7 @@ export default function AgendaPage() {
     return items.filter((item) => normalizeAgendaText(`${item.Detalle} ${(item.asignados || []).map(personName).join(' ')}`).includes(query));
   }, [items, search]);
   const grouped = useMemo(() => groupAgendasByDate(filtered), [filtered]);
-  const visibleMobileDates = useMemo(() => [...grouped.keys()].filter((date) => date.slice(0, 7) === month).sort(), [grouped, month]);
+  const visibleMobileDates = useMemo(() => [...grouped.keys()].sort(), [grouped]);
 
   function openAgenda(item) {
     setSelected(item);
@@ -333,7 +357,6 @@ export default function AgendaPage() {
     setSelected(null);
     const next = new URLSearchParams(searchParams);
     next.delete('agendaId');
-    next.delete('month');
     setSearchParams(next, { replace: true });
   }
 
@@ -359,7 +382,12 @@ export default function AgendaPage() {
     {error && <div className="state-card state-card--error"><Icon name="error" /><span>{error}</span><button type="button" className="button button--secondary button--compact" onClick={load}>Reintentar</button></div>}
 
     <section className="agenda-toolbar">
-      <div className="agenda-month-navigation"><button type="button" className="icon-button" onClick={() => setMonth((current) => shiftMonth(current, -1))} aria-label="Mes anterior"><Icon name="chevron_left" /></button><h2>{monthLabel(month)}</h2><button type="button" className="icon-button" onClick={() => setMonth((current) => shiftMonth(current, 1))} aria-label="Mes siguiente"><Icon name="chevron_right" /></button><button type="button" className="button button--secondary button--compact" onClick={goToday}>Hoy</button></div>
+      <div className="agenda-month-navigation">
+        <button type="button" className="icon-button" onClick={() => setMonth((current) => shiftMonth(current, -1))} aria-label="Mes anterior"><Icon name="chevron_left" /></button>
+        <h2>{monthLabel(month)}</h2>
+        <button type="button" className="icon-button" onClick={() => setMonth((current) => shiftMonth(current, 1))} aria-label="Mes siguiente"><Icon name="chevron_right" /></button>
+        <button type="button" className="button button--secondary button--compact" onClick={goToday}>Hoy</button>
+      </div>
       <label className="agenda-search-field agenda-search-field--main"><Icon name="search" /><input value={search} onChange={(event) => setSearch(event.target.value)} placeholder="Buscar por detalle o persona" /></label>
     </section>
 
@@ -377,11 +405,21 @@ export default function AgendaPage() {
       </section>
 
       <section className="agenda-mobile-list" aria-label="Agenda por días">
-        {visibleMobileDates.length ? visibleMobileDates.map((date) => <article key={date} className="agenda-mobile-day"><header><div><strong>{formatDateLong(date)}</strong>{date === today && <span>Hoy</span>}</div><b>{grouped.get(date).length}</b></header><div>{grouped.get(date).map((item) => <AgendaCard key={item.AgendaID} item={item} onOpen={openAgenda} />)}</div></article>) : <div className="agenda-empty-state"><Icon name="event_available" /><strong>No hay agendas en este período</strong><span>{search ? 'Cambie la búsqueda para ver otros resultados.' : 'Las visitas programadas aparecerán aquí.'}</span></div>}
+        {visibleMobileDates.length ? visibleMobileDates.map((date) => <article key={date} className="agenda-mobile-day">
+          <header><div><strong>{formatDateLong(date)}</strong>{date === today && <span>Hoy</span>}</div><b>{grouped.get(date).length}</b></header>
+          <div>{grouped.get(date).map((item) => <AgendaCard key={item.AgendaID} item={item} onOpen={openAgenda} />)}</div>
+        </article>) : <div className="agenda-empty-state"><Icon name="event_available" /><strong>No hay agendas en este período</strong><span>{search ? 'Cambie la búsqueda para ver otros resultados.' : 'Las visitas programadas aparecerán aquí.'}</span></div>}
       </section>
     </>}
 
-    <AgendaDetail item={selected} isAdmin={isAdmin} onClose={closeAgenda} onEdit={(item) => { closeAgenda(); setEditor({ mode: 'edit', item }); }} />
+    <AgendaDetail
+      item={selected}
+      isAdmin={isAdmin}
+      onClose={closeAgenda}
+      onEdit={(item) => { closeAgenda(); setEditor({ mode: 'edit', item }); }}
+      onSplit={(item) => { closeAgenda(); setSplitItem(item); }}
+    />
     {editor && <AgendaEditor users={users} editItem={editor.mode === 'edit' ? editor.item : null} onClose={() => setEditor(null)} onSaved={saved} sessionToken={sessionToken} />}
+    {splitItem && <AgendaSplitDialog item={splitItem} sessionToken={sessionToken} onClose={() => setSplitItem(null)} onSaved={saved} />}
   </div>;
 }
