@@ -42,6 +42,7 @@ const ChangePasswordPage = lazyPage(() => import('../pages/ChangePasswordPage'),
 const HomePage = lazyPage(() => import('../pages/HomePage'), routeStyles.home);
 const LoginPage = lazyPage(() => import('../pages/LoginPage'), routeStyles.login);
 const MorePage = lazyPage(() => import('../pages/MorePage'), routeStyles.more, routeStyles.offline);
+const AgendaPage = lazyPage(() => import('../pages/agenda/AgendaPage'));
 const CatalogsPage = lazyPage(() => import('../pages/admin/CatalogsPage'), routeStyles.admin);
 const ClientsPage = lazyPage(() => import('../pages/admin/ClientsPage'), routeStyles.admin, routeStyles.clients);
 const IntegrationsPage = lazyPage(() => import('../pages/admin/IntegrationsPage'), routeStyles.admin);
@@ -155,6 +156,7 @@ export default function App() {
         <Route path="/" element={<ProtectedRoute><AppShell /></ProtectedRoute>}>
           <Route index element={<HomePage />} />
           <Route path="asistente" element={<AssistantPage />} />
+          <Route path="agenda" element={<AgendaPage />} />
           <Route path="boletas/pendientes" element={<PermissionRoute permission="BOLETAS_VER"><TicketListPage status="PENDIENTE" /></PermissionRoute>} />
           <Route path="boletas/finalizadas" element={<PermissionRoute permission="BOLETAS_VER"><TicketListPage status="FINALIZADA" /></PermissionRoute>} />
           <Route path="boletas/nueva" element={<PermissionRoute permission="BOLETAS_CREAR"><TicketFormPage mode="create" /></PermissionRoute>} />
