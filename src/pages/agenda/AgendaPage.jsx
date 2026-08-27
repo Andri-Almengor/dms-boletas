@@ -16,6 +16,8 @@ import {
   statusMeta,
   tomorrowCostaRicaDate,
 } from '../../features/agenda/agendaDomain';
+import AgendaCalendarSummary from './AgendaCalendarSummary';
+import AgendaDayDialog from './AgendaDayDialog';
 import AgendaSplitDialog from './AgendaSplitDialog';
 import '../../styles/agenda.css';
 import '../../styles/agenda-split.css';
@@ -284,6 +286,7 @@ export default function AgendaPage() {
   const [searchParams, setSearchParams] = useSearchParams();
   const isAdmin = hasPermission('USUARIOS_GESTIONAR');
   const requestedAgendaId = searchParams.get('agendaId') || '';
+  const requestedDay = searchParams.get('day') || '';
   const requestedMonth = searchParams.get('month') || '';
   const [month, setMonth] = useState(() => /^\d{4}-\d{2}$/.test(requestedMonth) ? requestedMonth : monthKey());
   const [items, setItems] = useState([]);
@@ -343,11 +346,14 @@ export default function AgendaPage() {
     return items.filter((item) => normalizeAgendaText(`${item.Detalle} ${(item.asignados || []).map(personName).join(' ')}`).includes(query));
   }, [items, search]);
   const grouped = useMemo(() => groupAgendasByDate(filtered), [filtered]);
+  const allGrouped = useMemo(() => groupAgendasByDate(items), [items]);
+  const dayDialogItems = useMemo(() => requestedDay ? (allGrouped.get(requestedDay) || []) : [], [allGrouped, requestedDay]);
   const visibleMobileDates = useMemo(() => [...grouped.keys()].sort(), [grouped]);
 
   function openAgenda(item) {
     setSelected(item);
     const next = new URLSearchParams(searchParams);
+    next.delete('day');
     next.set('agendaId', item.AgendaID);
     next.set('month', String(item.Fecha || '').slice(0, 7));
     setSearchParams(next, { replace: true });
@@ -357,6 +363,20 @@ export default function AgendaPage() {
     setSelected(null);
     const next = new URLSearchParams(searchParams);
     next.delete('agendaId');
+    setSearchParams(next, { replace: true });
+  }
+
+  function openDay(date) {
+    const next = new URLSearchParams(searchParams);
+    next.delete('agendaId');
+    next.set('day', date);
+    next.set('month', String(date || '').slice(0, 7));
+    setSearchParams(next, { replace: true });
+  }
+
+  function closeDay() {
+    const next = new URLSearchParams(searchParams);
+    next.delete('day');
     setSearchParams(next, { replace: true });
   }
 
@@ -391,6 +411,8 @@ export default function AgendaPage() {
       <label className="agenda-search-field agenda-search-field--main"><Icon name="search" /><input value={search} onChange={(event) => setSearch(event.target.value)} placeholder="Buscar por detalle o persona" /></label>
     </section>
 
+    {!loading && <AgendaCalendarSummary items={filtered} month={month} searching={Boolean(search.trim())} />}
+
     {loading ? <div className="state-card state-card--loading"><Icon name="progress_activity" /><span>Cargando agenda...</span></div> : <>
       <section className="agenda-calendar" aria-label={`Calendario de ${monthLabel(month)}`}>
         <div className="agenda-calendar__weekdays">{WEEKDAYS.map((day) => <strong key={day}>{day}</strong>)}</div>
@@ -399,7 +421,7 @@ export default function AgendaPage() {
           const outside = date.slice(0, 7) !== month;
           return <article key={date} className={`agenda-calendar-day${outside ? ' is-outside' : ''}${date === today ? ' is-today' : ''}`}>
             <header><span>{dayNumber(date)}</span>{date === today && <em>Hoy</em>}</header>
-            <div>{rows.slice(0, 4).map((item) => <AgendaCard key={item.AgendaID} item={item} onOpen={openAgenda} compact />)}{rows.length > 4 && <button type="button" className="agenda-more-events" onClick={() => openAgenda(rows[4])}>+{rows.length - 4} más</button>}</div>
+            <div>{rows.slice(0, 4).map((item) => <AgendaCard key={item.AgendaID} item={item} onOpen={openAgenda} compact />)}{rows.length > 4 && <button type="button" className="agenda-more-events" onClick={() => openDay(date)}>Ver las {rows.length} agendas · +{rows.length - 4} más</button>}</div>
           </article>;
         })}</div>
       </section>
@@ -412,6 +434,7 @@ export default function AgendaPage() {
       </section>
     </>}
 
+    <AgendaDayDialog date={requestedDay} items={dayDialogItems} onClose={closeDay} onOpen={openAgenda} />
     <AgendaDetail
       item={selected}
       isAdmin={isAdmin}
