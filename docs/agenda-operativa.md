@@ -10,12 +10,17 @@ La Agenda DMS queda integrada a la aplicación existente. No utiliza la hoja ind
 - Los demás usuarios únicamente reciben las agendas donde están asignados.
 - El calendario relaciona cada visita con una boleta usando fecha + persona asignada y una asociación uno-a-uno.
 - `Oficina`, `office` y `RN` como palabras completas no requieren boleta.
+- Se permiten varias agendas para la misma fecha, incluso con horarios iguales, para representar grupos distintos.
 
 ## Tablas creadas automáticamente
 
 ### Agendas
 
-`AgendaID, Fecha, HoraInicio, HoraFin, Detalle, Estado, RequiereBoleta, BoletaUID, RecordatorioEnviado, RecordatorioEnviadoEn, CreadoPor, FechaCreacion, ActualizadoPor, FechaActualizacion`
+`AgendaID, AgendaOrigenID, Fecha, HoraInicio, HoraFin, Detalle, Estado, RequiereBoleta, BoletaUID, RecordatorioEnviado, RecordatorioEnviadoEn, RecordatorioDia, CreadoPor, FechaCreacion, ActualizadoPor, FechaActualizacion`
+
+`AgendaOrigenID` permite conservar trazabilidad cuando una agenda grupal se divide rápidamente en varias visitas.
+
+`RecordatorioEnviado`, `RecordatorioEnviadoEn` y `RecordatorioDia` protegen el aviso de boleta faltante para que una misma agenda no vuelva a habilitar un segundo aviso por una corrección realizada ese mismo día.
 
 ### AgendaAsignados
 
@@ -38,7 +43,19 @@ El payload incluye:
 - `mode`: `CREATED` o `UPDATED`.
 - `deliveries`: correos y agendas que corresponden a cada persona.
 
-El Apps Script conserva el control de las 5:00 p. m. en `America/Costa_Rica`, revisa las agendas del día y utiliza los destinatarios configurados más las personas asignadas.
+El Apps Script conserva el control de las 5:00 p. m. en `America/Costa_Rica` y debe revisar únicamente las agendas cuya `Fecha` sea el día actual.
+
+### Regla del recordatorio de boleta faltante
+
+Para cada agenda que requiere boleta:
+
+1. Sólo se evalúa el mismo día de la agenda.
+2. Si la agenda ya tiene boleta, no se envía aviso.
+3. Si el detalle corresponde a Oficina/RN, no se envía aviso.
+4. Si falta la boleta, se envía un único aviso ese día.
+5. Después del envío se registra `RecordatorioEnviado=true`, `RecordatorioEnviadoEn` y, cuando esté disponible, `RecordatorioDia=YYYY-MM-DD`.
+6. Una modificación posterior de detalle/personas durante ese mismo día no limpia ese control; por tanto no habilita un segundo aviso.
+7. Si el administrador cambia la agenda a otra fecha, sí se reinicia el control para la nueva fecha.
 
 ## Variables que deben existir en Render/backend
 
@@ -58,9 +75,34 @@ No se requiere una variable adicional para Agenda.
 3. Define horario, detalle y una o varias personas.
 4. Agrega la visita a la lista temporal.
 5. Puede preparar, editar o quitar varias visitas antes del envío.
-6. `Crear y enviar (N)` guarda todas las agendas y asignaciones.
-7. Apps Script notifica por correo a cada persona asignada.
-8. La interfaz se recarga y muestra inmediatamente las visitas creadas.
+6. Puede repetir la misma fecha tantas veces como necesite para distintos grupos/personas.
+7. `Crear y enviar (N)` guarda todas las agendas y asignaciones.
+8. Apps Script notifica por correo a cada persona asignada.
+9. La interfaz se recarga y muestra inmediatamente las visitas creadas.
+
+Ejemplo válido para un mismo día:
+
+- Agenda A: Andrick + Raúl → Asamblea.
+- Agenda B: Dixon → Banco Central.
+- Agenda C: Francisco + Yasdani → BCR.
+
+Las tres son agendas independientes aunque compartan fecha y horario.
+
+## Separación rápida cuando cambia el destino
+
+Si una agenda originalmente tenía varias personas y después cada una debe ir a un lugar diferente:
+
+1. El administrador abre la agenda.
+2. Presiona `Separar por persona`.
+3. La pantalla conserva automáticamente la misma fecha y horario.
+4. Se muestra una fila por cada persona asignada.
+5. Sólo se cambia el nuevo lugar/detalle de cada persona.
+6. La primera persona conserva el `AgendaID` original.
+7. Para las demás se crean nuevas agendas con `AgendaOrigenID` apuntando a la agenda original.
+8. Cada nueva agenda tiene control de boleta independiente.
+9. Las personas reciben la nueva programación.
+
+Esto evita tener que borrar la agenda y volver a crear manualmente tres o más visitas.
 
 ## Flujo de actualización
 
@@ -70,6 +112,8 @@ Al modificar fecha, horario, detalle o personas:
 - las asignaciones removidas quedan desactivadas con `FechaDesasignacion`;
 - las nuevas asignaciones se agregan;
 - si cambia fecha, detalle o asignación se limpia la relación automática anterior con la boleta;
+- si ya se envió el recordatorio de ese mismo día, una corrección no habilita un segundo recordatorio;
+- si cambia la fecha, el control del recordatorio sí se reinicia para la nueva fecha;
 - las personas afectadas reciben la notificación de actualización.
 
 ## Asociación con boletas
@@ -113,18 +157,22 @@ Un técnico no puede utilizar el Asistente para consultar la agenda de otros usu
 
 1. Entrar como administrador y abrir `/agenda`.
 2. Confirmar que aparecen todos los usuarios activos al crear una agenda.
-3. Crear dos agendas para mañana en un único envío.
+3. Crear tres agendas con la misma fecha para tres grupos distintos en un único envío.
 4. Confirmar los correos de creación.
-5. Modificar una de las agendas y cambiar una persona asignada.
-6. Confirmar el correo de actualización para personas actuales y removidas.
-7. Crear `Oficina` y `RN`; confirmar `No requiere boleta`.
-8. Crear dos visitas para la misma persona y fecha; crear sólo una boleta; confirmar `1 completa + 1 pendiente`.
-9. Abrir la visita completa y comprobar el enlace `Ver boleta`.
-10. Preguntar al Asistente por persona, período y palabra clave.
-11. Después de las 17:00, validar en un entorno de prueba el correo de boleta faltante.
+5. Crear una agenda con tres personas y luego usar `Separar por persona`; asignar tres destinos distintos.
+6. Confirmar que quedan tres agendas independientes y que cada una controla su propia boleta.
+7. Modificar una de las agendas y cambiar una persona asignada.
+8. Confirmar el correo de actualización para personas actuales y removidas.
+9. Crear `Oficina` y `RN`; confirmar `No requiere boleta`.
+10. Crear dos visitas para la misma persona y fecha; crear sólo una boleta; confirmar `1 completa + 1 pendiente`.
+11. Abrir la visita completa y comprobar el enlace `Ver boleta`.
+12. Preguntar al Asistente por persona, período y palabra clave.
+13. Después de las 17:00, validar el correo de boleta faltante.
+14. Ejecutar nuevamente el proceso del recordatorio ese mismo día y confirmar que no sale un segundo correo para la misma agenda.
+15. Editar esa agenda después del aviso y volver a ejecutar el proceso; confirmar que tampoco sale un segundo aviso ese día.
 
 ## Prueba automatizada
 
-`tests/characterization/agenda-operativa.test.mjs` valida las exclusiones, la cuadrícula mensual, el vínculo uno-a-uno y los contratos principales de rutas/Asistente.
+`tests/characterization/agenda-operativa.test.mjs` valida las exclusiones, la cuadrícula mensual, el vínculo uno-a-uno, la separación rápida, la protección del recordatorio diario y los contratos principales de rutas/Asistente.
 
 Se incluye desde `tests/characterization/all.test.mjs` para formar parte de `npm run test:characterization`.
