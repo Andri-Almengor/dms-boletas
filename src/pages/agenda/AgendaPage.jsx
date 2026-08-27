@@ -190,11 +190,8 @@ function AgendaEditor({ users, editItem, onClose, onSaved, sessionToken }) {
       if (error) { setMessage(error); return; }
     } else if (!queue.length) {
       const error = validateDraft();
-      if (!error) {
-        setMessage('Agregue esta agenda a la lista antes de enviarla.');
-      } else {
-        setMessage(error);
-      }
+      if (!error) setMessage('Agregue esta agenda a la lista antes de enviarla.');
+      else setMessage(error);
       return;
     }
 
@@ -259,7 +256,8 @@ export default function AgendaPage() {
   const { sessionToken, hasPermission } = useAuth();
   const [searchParams, setSearchParams] = useSearchParams();
   const isAdmin = hasPermission('USUARIOS_GESTIONAR');
-  const [month, setMonth] = useState(() => monthKey());
+  const requestedMonth = searchParams.get('month');
+  const [month, setMonth] = useState(() => /^\d{4}-\d{2}$/.test(requestedMonth || '') ? requestedMonth : monthKey());
   const [items, setItems] = useState([]);
   const [users, setUsers] = useState([]);
   const [loading, setLoading] = useState(true);
@@ -293,10 +291,27 @@ export default function AgendaPage() {
 
   useEffect(() => {
     const agendaId = searchParams.get('agendaId');
-    if (!agendaId || !items.length) return;
-    const item = items.find((row) => String(row.AgendaID) === agendaId);
-    if (item) setSelected(item);
-  }, [items, searchParams]);
+    if (!agendaId) return undefined;
+    const loadedItem = items.find((row) => String(row.AgendaID) === agendaId);
+    if (loadedItem) {
+      setSelected(loadedItem);
+      return undefined;
+    }
+    if (String(selected?.AgendaID || '') === agendaId) return undefined;
+
+    let active = true;
+    apiRequest('agenda.get', { agendaId }, sessionToken)
+      .then((data) => {
+        if (!active || !data?.item) return;
+        setSelected(data.item);
+        const itemMonth = String(data.item.Fecha || '').slice(0, 7);
+        if (/^\d{4}-\d{2}$/.test(itemMonth)) setMonth(itemMonth);
+      })
+      .catch((requestError) => {
+        if (active) setError(requestError?.message || 'No se pudo abrir la agenda solicitada.');
+      });
+    return () => { active = false; };
+  }, [items, searchParams, selected?.AgendaID, sessionToken]);
 
   const filtered = useMemo(() => {
     const query = normalizeAgendaText(search);
@@ -304,12 +319,13 @@ export default function AgendaPage() {
     return items.filter((item) => normalizeAgendaText(`${item.Detalle} ${(item.asignados || []).map(personName).join(' ')}`).includes(query));
   }, [items, search]);
   const grouped = useMemo(() => groupAgendasByDate(filtered), [filtered]);
-  const visibleMobileDates = useMemo(() => [...grouped.keys()].sort(), [grouped]);
+  const visibleMobileDates = useMemo(() => [...grouped.keys()].filter((date) => date.slice(0, 7) === month).sort(), [grouped, month]);
 
   function openAgenda(item) {
     setSelected(item);
     const next = new URLSearchParams(searchParams);
     next.set('agendaId', item.AgendaID);
+    next.set('month', String(item.Fecha || '').slice(0, 7));
     setSearchParams(next, { replace: true });
   }
 
@@ -317,6 +333,7 @@ export default function AgendaPage() {
     setSelected(null);
     const next = new URLSearchParams(searchParams);
     next.delete('agendaId');
+    next.delete('month');
     setSearchParams(next, { replace: true });
   }
 
