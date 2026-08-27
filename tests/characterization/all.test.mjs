@@ -1,4 +1,5 @@
 import './agenda-operativa.test.mjs';
+import './agenda-chat.test.mjs';
 import './app-recovery.test.mjs';
 import './assistant-gateway-snapshot-render.test.mjs';
 import './assistant-history-retention.test.mjs';

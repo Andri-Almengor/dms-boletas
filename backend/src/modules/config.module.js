@@ -1,6 +1,10 @@
 import { forbidden } from '../core/errors.js';
 import { readTable } from '../infra/sheets.repository.js';
 import {
+  getAgendaChatSettings,
+  updateAgendaChatSettings,
+} from '../services/agenda-chat.service.js';
+import {
   getNotificationEmailSettings,
   notificationEmailSettingsForClient,
   updateNotificationEmailSettings,
@@ -17,6 +21,7 @@ const SENSITIVE_KEY = /(WEBHOOK|SECRET|PASSWORD|TOKEN|PRIVATE|API_KEY)/i;
 const ADMIN_ONLY_KEY = /^BACKUP_/i;
 const SENSITIVE_VALUE = /chat\.googleapis\.com|-----BEGIN [A-Z ]*PRIVATE KEY-----/i;
 const NOTIFICATION_SECTION = 'NOTIFICATION_EMAILS';
+const AGENDA_CHAT_SECTION = 'AGENDA_CHAT';
 const BACKUP_SECTION = 'BACKUPS';
 
 function clean(value, maxLength = 200) {
@@ -35,8 +40,39 @@ function requestedNotificationSection(payload = {}) {
   return requestedSection(payload) === NOTIFICATION_SECTION;
 }
 
+function requestedAgendaChatSection(payload = {}) {
+  return requestedSection(payload) === AGENDA_CHAT_SECTION;
+}
+
 function requestedBackupSection(payload = {}) {
   return requestedSection(payload) === BACKUP_SECTION;
+}
+
+async function handleAgendaChatSection(ctx, payload) {
+  if (!canManageAdminSettings(ctx)) {
+    throw forbidden('Solo un administrador puede consultar o modificar el chat de Agenda.');
+  }
+
+  const operation = clean(payload.operation || payload.operacion || 'GET', 20).toUpperCase();
+  if (['UPDATE', 'SAVE', 'GUARDAR'].includes(operation)) {
+    const before = await getAgendaChatSettings();
+    const after = await updateAgendaChatSettings(payload.settings || payload.config || {});
+    await audit(
+      ctx,
+      'ACTUALIZAR_CHAT_AGENDA',
+      'Configuracion',
+      AGENDA_CHAT_SECTION,
+      before,
+      after,
+    ).catch(() => {});
+    return { section: AGENDA_CHAT_SECTION, settings: after, updated: true };
+  }
+
+  return {
+    section: AGENDA_CHAT_SECTION,
+    settings: await getAgendaChatSettings(),
+    updated: false,
+  };
 }
 
 async function handleBackupSection(ctx, payload) {
@@ -110,6 +146,7 @@ export async function getConfig() {
 export async function getClientConfig(ctx = {}) {
   const payload = ctx?.payload || {};
   if (requestedBackupSection(payload)) return handleBackupSection(ctx, payload);
+  if (requestedAgendaChatSection(payload)) return handleAgendaChatSection(ctx, payload);
 
   if (requestedNotificationSection(payload)) {
     if (!canManageAdminSettings(ctx)) {

@@ -6,7 +6,7 @@ const CLIENT_TICKET_HEADINGS = [
   '🔁 REPORTE DE SEGUIMIENTO ACTUALIZADO',
 ];
 
-function isValidWebhook(value) {
+export function isValidWebhook(value) {
   try {
     const url = new URL(String(value || '').trim());
     return url.protocol === 'https:'
