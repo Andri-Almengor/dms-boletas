@@ -22,7 +22,9 @@ function agendaIntent(question) {
   if (/\bagendas?\b/.test(text) || /\bprogramacion(?:es)?\b/.test(text)) return true;
   if (/\bdonde\s+(?:fue|fui|estuvo|estuve|anduvo)\b/.test(text)) return true;
   if (/\bdetalle\b/.test(text) && /\bpalabra\b/.test(text)) return true;
-  return /\bvisitas?\b/.test(text) && /\bmes(?:es)?\b/.test(text) && /\bultimo|ultimos|ultima|ultimas\b/.test(text);
+  return /\bvisitas?\b/.test(text)
+    && /\bmes(?:es)?\b/.test(text)
+    && /\b(?:ultimo|ultimos|ultima|ultimas)\b/.test(text);
 }
 
 const NUMBER_WORDS = Object.freeze({
@@ -104,8 +106,42 @@ function extractKeyword(question) {
   const text = normalizeAgendaText(raw);
   const match = text.match(/\bpalabra(?:\s+clave)?\s+([a-z0-9][a-z0-9_-]{1,60})\b/);
   if (match) return match[1];
-  const detail = text.match(/\bdetalle\b.{0,40}\b(?:contenga|contengan|con)\s+([a-z0-9][a-z0-9_-]{1,60})\b/);
+  const detail = text.match(/\bdetalle\b.{0,45}\b(?:contenga|contengan|con|palabra)\s+(?:la\s+palabra\s+)?([a-z0-9][a-z0-9_-]{1,60})\b/);
   return detail ? detail[1] : '';
+}
+
+function editDistance(left, right) {
+  const a = String(left || '');
+  const b = String(right || '');
+  const row = Array.from({ length: b.length + 1 }, (_, index) => index);
+  for (let i = 1; i <= a.length; i += 1) {
+    let previous = row[0];
+    row[0] = i;
+    for (let j = 1; j <= b.length; j += 1) {
+      const saved = row[j];
+      row[j] = Math.min(
+        row[j] + 1,
+        row[j - 1] + 1,
+        previous + (a[i - 1] === b[j - 1] ? 0 : 1),
+      );
+      previous = saved;
+    }
+  }
+  return row[b.length];
+}
+
+function detailMatchesKeyword(detail, keyword) {
+  const haystack = normalizeAgendaText(detail);
+  const needle = normalizeAgendaText(keyword);
+  if (!needle) return true;
+  if (haystack.includes(needle)) return true;
+  if (needle.includes(' ')) return false;
+  const tolerance = needle.length >= 9 ? 2 : needle.length >= 6 ? 1 : 0;
+  if (!tolerance) return false;
+  return haystack.split(' ').some((token) => (
+    Math.abs(token.length - needle.length) <= tolerance
+    && editDistance(token, needle) <= tolerance
+  ));
 }
 
 function activeUser(user = {}) {
@@ -170,7 +206,7 @@ function agendaSources(items) {
       type: 'agenda',
       id: item.AgendaID,
       label: `${item.Fecha} · ${item.Detalle.slice(0, 70)}`,
-      url: `/agenda?agendaId=${encodeURIComponent(item.AgendaID)}`,
+      url: `/agenda?month=${encodeURIComponent(item.Fecha.slice(0, 7))}&agendaId=${encodeURIComponent(item.AgendaID)}`,
     });
     if (item.boleta?.BoletaUID && sources.length < 10) {
       sources.push({
@@ -191,6 +227,19 @@ async function answerAgendaQuestion(ctx, question) {
   const period = requestedPeriod(question);
   const keyword = extractKeyword(question);
   const user = requestedUser(ctx, users, question);
+  const normalizedQuestion = normalizeAgendaText(question);
+  const personSpecific = /\bdonde\s+(?:fue|estuvo|anduvo)\b/.test(normalizedQuestion);
+
+  if (admin(ctx) && personSpecific && !user) {
+    return {
+      type: 'clarification',
+      answer: 'No pude identificar con seguridad a la persona. Indique el nombre del usuario que desea consultar.',
+      resumeQuestion: question,
+      options: users.slice(0, 20).map((item) => ({ type: 'user', value: item.UsuarioID, label: displayName(item) })),
+      suggestions: ['Dime mis agendas del último mes'],
+      context: { ...(ctx.payload?.context || {}), lastIntent: 'agenda_user_clarification' },
+    };
+  }
 
   let views = buildAgendaViews({
     agendas: tables.Agendas || [],
@@ -207,10 +256,7 @@ async function answerAgendaQuestion(ctx, question) {
     views = views.filter((item) => item.asignados.some((assigned) => clean(assigned.UsuarioID) === clean(user.UsuarioID)));
   }
 
-  if (keyword) {
-    const normalizedKeyword = normalizeAgendaText(keyword);
-    views = views.filter((item) => normalizeAgendaText(item.Detalle).includes(normalizedKeyword));
-  }
+  if (keyword) views = views.filter((item) => detailMatchesKeyword(item.Detalle, keyword));
 
   views.sort((left, right) => right.Fecha.localeCompare(left.Fecha) || right.HoraInicio.localeCompare(left.HoraInicio));
 
