@@ -85,16 +85,27 @@ assert.equal(views.filter((item) => item.status === 'PENDIENTE').length, 1);
 
 const routerSource = fs.readFileSync(path.join(root, 'backend/src/core/action-router.js'), 'utf8');
 const agendaModuleSource = fs.readFileSync(path.join(root, 'backend/src/modules/agenda.module.js'), 'utf8');
+const agendaSchemaSource = fs.readFileSync(path.join(root, 'backend/src/services/agenda-schema.service.js'), 'utf8');
 const assistantSource = fs.readFileSync(path.join(root, 'backend/src/modules/assistant-agenda.module.js'), 'utf8');
 const appSource = fs.readFileSync(path.join(root, 'src/app/App.jsx'), 'utf8');
+const agendaPageSource = fs.readFileSync(path.join(root, 'src/pages/agenda/AgendaPage.jsx'), 'utf8');
+const splitDialogSource = fs.readFileSync(path.join(root, 'src/pages/agenda/AgendaSplitDialog.jsx'), 'utf8');
 
 assert.match(routerSource, /agenda\.list/);
 assert.match(routerSource, /agenda\.create/);
 assert.match(routerSource, /agenda\.update/);
 assert.match(agendaModuleSource, /agenda\.notification\.send/);
 assert.match(agendaModuleSource, /USUARIOS_GESTIONAR/);
+assert.match(agendaModuleSource, /reminderAlreadyConsumedForThisDay/);
+assert.match(agendaModuleSource, /RecordatorioDia/);
+assert.match(agendaSchemaSource, /RecordatorioDia/);
 assert.match(assistantSource, /assistantDynamicMaintenanceQuestionHandlers/);
 assert.match(assistantSource, /agendaResults/);
 assert.match(appSource, /path="agenda"/);
+assert.match(agendaPageSource, /Separar por persona/);
+assert.match(agendaPageSource, /Puede agregar varias agendas con la misma fecha/);
+assert.match(splitDialogSource, /agenda\.create/);
+assert.match(splitDialogSource, /agenda\.update/);
+assert.match(splitDialogSource, /agendaOrigenId/);
 
-console.log('✓ agenda operativa: exclusiones, calendario, vínculo 1:1, rutas y asistente');
+console.log('✓ agenda operativa: exclusiones, calendario, vínculo 1:1, separación rápida, recordatorio diario, rutas y asistente');
