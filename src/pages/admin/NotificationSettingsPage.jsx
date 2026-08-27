@@ -1,26 +1,121 @@
-import React, { useCallback, useEffect, useState } from 'react';
+import React, { useCallback, useEffect, useMemo, useState } from 'react';
 import { Link } from 'react-router-dom';
 import { apiRequest } from '../../api';
 import { useAuth } from '../../AuthContext';
 import Icon from '../../components/common/Icon';
 
-const EMPTY_SETTINGS = Object.freeze({ configured: false, redactedWebhook: '' });
+const EMPTY_CHAT_SETTINGS = Object.freeze({ configured: false, redactedWebhook: '' });
+const EMPTY_EMAIL_SETTINGS = Object.freeze({
+  caseCreatedTo: [],
+  caseCreatedCc: [],
+  caseAssignedCc: [],
+  ticketDefaultCc: [],
+  testRecipients: [],
+  testCc: [],
+});
+
+const EMAIL_FIELDS = Object.freeze([
+  {
+    key: 'caseCreatedTo',
+    icon: 'outgoing_mail',
+    label: 'Destinatarios principales',
+    description: 'Personas que reciben los avisos principales de casos y notificaciones administrativas.',
+    placeholder: 'persona1@empresa.com\npersona2@empresa.com',
+    required: true,
+  },
+  {
+    key: 'caseCreatedCc',
+    icon: 'group_add',
+    label: 'Copias de casos nuevos',
+    description: 'Direcciones que reciben copia cuando se registra un nuevo caso de cliente.',
+    placeholder: 'supervisor@empresa.com',
+  },
+  {
+    key: 'caseAssignedCc',
+    icon: 'assignment_ind',
+    label: 'Copias al asignar casos',
+    description: 'Direcciones que reciben copia cuando un caso se asigna o cambia de responsable.',
+    placeholder: 'coordinacion@empresa.com',
+  },
+  {
+    key: 'ticketDefaultCc',
+    icon: 'description',
+    label: 'Copias de boletas',
+    description: 'Copias predeterminadas utilizadas por las notificaciones de boletas.',
+    placeholder: 'boletas@empresa.com',
+  },
+  {
+    key: 'testRecipients',
+    icon: 'science',
+    label: 'Destinatarios de prueba',
+    description: 'Correos utilizados por los envíos de prueba y validaciones de notificaciones.',
+    placeholder: 'pruebas@empresa.com',
+    required: true,
+  },
+  {
+    key: 'testCc',
+    icon: 'forward_to_inbox',
+    label: 'Copias de prueba',
+    description: 'Copias opcionales para los envíos realizados en modo de prueba.',
+    placeholder: 'soporte@empresa.com',
+  },
+]);
+
+function emailsToText(value) {
+  if (Array.isArray(value)) return value.join('\n');
+  return String(value || '').trim();
+}
+
+function emailSettingsToForm(settings = EMPTY_EMAIL_SETTINGS) {
+  return Object.fromEntries(Object.keys(EMPTY_EMAIL_SETTINGS).map((key) => [key, emailsToText(settings?.[key])]));
+}
+
+function countEmails(value) {
+  return String(value || '')
+    .split(/[;,\n\r]+/)
+    .map((item) => item.trim())
+    .filter(Boolean).length;
+}
+
+function StatusPill({ active, activeLabel = 'Configurado', inactiveLabel = 'Desactivado' }) {
+  return <span className={`notification-status-pill${active ? ' is-active' : ''}`}>
+    <span />
+    {active ? activeLabel : inactiveLabel}
+  </span>;
+}
+
+function LoadingState() {
+  return <div className="notification-settings-loading" role="status">
+    <span><Icon name="progress_activity" /></span>
+    <div><strong>Cargando notificaciones</strong><small>Consultando destinatarios, copias y canales configurados.</small></div>
+  </div>;
+}
 
 export default function NotificationSettingsPage() {
   const { sessionToken } = useAuth();
-  const [settings, setSettings] = useState(EMPTY_SETTINGS);
+  const [chatSettings, setChatSettings] = useState(EMPTY_CHAT_SETTINGS);
+  const [emailForm, setEmailForm] = useState(() => emailSettingsToForm());
   const [webhook, setWebhook] = useState('');
   const [loading, setLoading] = useState(true);
-  const [saving, setSaving] = useState(false);
+  const [savingEmails, setSavingEmails] = useState(false);
+  const [savingChat, setSavingChat] = useState(false);
   const [error, setError] = useState('');
   const [notice, setNotice] = useState('');
+
+  const totalEmails = useMemo(() => (
+    Object.values(emailForm).reduce((total, value) => total + countEmails(value), 0)
+  ), [emailForm]);
 
   const load = useCallback(async () => {
     setLoading(true);
     setError('');
     try {
-      const response = await apiRequest('config.get', { section: 'AGENDA_CHAT' }, sessionToken);
-      setSettings(response?.settings || EMPTY_SETTINGS);
+      const [emailResponse, chatResponse] = await Promise.all([
+        apiRequest('config.get', { section: 'NOTIFICATION_EMAILS' }, sessionToken),
+        apiRequest('config.get', { section: 'AGENDA_CHAT' }, sessionToken),
+      ]);
+      setEmailForm(emailSettingsToForm(emailResponse?.settings || EMPTY_EMAIL_SETTINGS));
+      setChatSettings(chatResponse?.settings || EMPTY_CHAT_SETTINGS);
     } catch (requestError) {
       setError(requestError?.message || 'No se pudo cargar la configuración de notificaciones.');
     } finally {
@@ -30,122 +125,208 @@ export default function NotificationSettingsPage() {
 
   useEffect(() => { load(); }, [load]);
 
+  function clearMessages() {
+    setError('');
+    setNotice('');
+  }
+
+  function updateEmailField(key, value) {
+    setEmailForm((current) => ({ ...current, [key]: value }));
+    clearMessages();
+  }
+
+  async function saveEmails(event) {
+    event.preventDefault();
+    if (savingEmails) return;
+
+    if (!emailForm.caseCreatedTo.trim()) {
+      setError('Debe configurar al menos un destinatario principal.');
+      return;
+    }
+    if (!emailForm.testRecipients.trim()) {
+      setError('Debe configurar al menos un destinatario para pruebas.');
+      return;
+    }
+
+    setSavingEmails(true);
+    clearMessages();
+    try {
+      const response = await apiRequest('config.get', {
+        section: 'NOTIFICATION_EMAILS',
+        operation: 'UPDATE',
+        settings: emailForm,
+      }, sessionToken);
+      setEmailForm(emailSettingsToForm(response?.settings || EMPTY_EMAIL_SETTINGS));
+      setNotice('Destinatarios y copias actualizados correctamente.');
+    } catch (requestError) {
+      setError(requestError?.message || 'No se pudieron guardar los destinatarios y copias.');
+    } finally {
+      setSavingEmails(false);
+    }
+  }
+
   async function saveWebhook(event) {
     event.preventDefault();
-    if (saving) return;
+    if (savingChat) return;
     const value = webhook.trim();
     if (!value) {
       setError('Pegue el webhook de Google Chat que desea usar para la Agenda.');
       return;
     }
 
-    setSaving(true);
-    setError('');
-    setNotice('');
+    setSavingChat(true);
+    clearMessages();
     try {
       const response = await apiRequest('config.get', {
         section: 'AGENDA_CHAT',
         operation: 'UPDATE',
         settings: { webhook: value },
       }, sessionToken);
-      setSettings(response?.settings || EMPTY_SETTINGS);
+      setChatSettings(response?.settings || EMPTY_CHAT_SETTINGS);
       setWebhook('');
-      setNotice('El chat de Agenda quedó configurado correctamente. Las próximas agendas se enviarán también a Google Chat.');
+      setNotice('Google Chat de Agenda configurado correctamente. Las próximas agendas se enviarán también al chat.');
     } catch (requestError) {
       setError(requestError?.message || 'No se pudo guardar el webhook de Agenda.');
     } finally {
-      setSaving(false);
+      setSavingChat(false);
     }
   }
 
   async function disableChat() {
-    if (saving || !settings.configured) return;
+    if (savingChat || !chatSettings.configured) return;
     if (!window.confirm('¿Desea desactivar el envío de Agenda a Google Chat? Los correos seguirán funcionando normalmente.')) return;
 
-    setSaving(true);
-    setError('');
-    setNotice('');
+    setSavingChat(true);
+    clearMessages();
     try {
       const response = await apiRequest('config.get', {
         section: 'AGENDA_CHAT',
         operation: 'UPDATE',
         settings: { webhook: '' },
       }, sessionToken);
-      setSettings(response?.settings || EMPTY_SETTINGS);
+      setChatSettings(response?.settings || EMPTY_CHAT_SETTINGS);
       setWebhook('');
-      setNotice('El chat de Agenda quedó desactivado. El envío de correos no fue modificado.');
+      setNotice('Google Chat de Agenda quedó desactivado. Los correos continúan funcionando.');
     } catch (requestError) {
       setError(requestError?.message || 'No se pudo desactivar el chat de Agenda.');
     } finally {
-      setSaving(false);
+      setSavingChat(false);
     }
   }
 
-  return <div className="page">
-    <header className="page-header">
-      <div>
-        <span className="eyebrow">Administración</span>
-        <h1>Notificaciones</h1>
-        <p>Configure los canales utilizados por los módulos operativos de DMS.</p>
-      </div>
-      <Link to="/mas" className="button button--secondary"><Icon name="arrow_back" /> Volver</Link>
-    </header>
-
-    {notice && <div className="state-card state-card--success"><Icon name="check_circle" /><span>{notice}</span></div>}
-    {error && <div className="state-card state-card--error"><Icon name="error" /><span>{error}</span><button type="button" className="button button--secondary button--compact" onClick={load}>Reintentar</button></div>}
-
-    {loading ? <div className="state-card state-card--loading"><Icon name="progress_activity" /><span>Cargando configuración...</span></div> : <section className="content-card">
-      <div className="section-heading">
-        <div>
-          <span className="eyebrow">Agenda DMS</span>
-          <h2>Google Chat de Agenda</h2>
-          <p>Las agendas nuevas y las modificaciones se enviarán a este chat además del correo habitual.</p>
+  return <div className="page notification-settings-page">
+    <div className="notification-settings-shell">
+      <header className="notification-settings-hero">
+        <div className="notification-settings-hero__copy">
+          <Link to="/mas" className="notification-back-link"><Icon name="arrow_back" /> Volver a Más</Link>
+          <span className="eyebrow">Administración</span>
+          <h1>Notificaciones</h1>
+          <p>Administre en un solo lugar los destinatarios, las copias de correo y el Google Chat utilizado por Agenda DMS.</p>
         </div>
-        <span className={`status-chip ${settings.configured ? 'status-chip--active' : 'status-chip--pending'}`}>
-          {settings.configured ? 'Configurado' : 'Desactivado'}
-        </span>
-      </div>
-
-      {settings.configured && <div className="state-card">
-        <Icon name="forum" />
-        <div>
-          <strong>Webhook activo</strong>
-          <span>{settings.redactedWebhook || 'Google Chat configurado'}</span>
+        <div className="notification-channel-summary" aria-label="Resumen de canales">
+          <div className="notification-summary-card">
+            <span className="notification-summary-card__icon"><Icon name="mail" /></span>
+            <div><small>Correo</small><strong>{totalEmails} dirección{totalEmails === 1 ? '' : 'es'}</strong></div>
+            <StatusPill active activeLabel="Activo" />
+          </div>
+          <div className="notification-summary-card">
+            <span className="notification-summary-card__icon"><Icon name="forum" /></span>
+            <div><small>Agenda Chat</small><strong>{chatSettings.configured ? 'Webhook listo' : 'Sin configurar'}</strong></div>
+            <StatusPill active={chatSettings.configured} />
+          </div>
         </div>
+      </header>
+
+      {notice && <div className="notification-feedback is-success"><Icon name="check_circle" /><span>{notice}</span><button type="button" onClick={() => setNotice('')} aria-label="Cerrar mensaje"><Icon name="close" /></button></div>}
+      {error && <div className="notification-feedback is-error"><Icon name="error" /><span>{error}</span><button type="button" onClick={() => setError('')} aria-label="Cerrar mensaje"><Icon name="close" /></button></div>}
+
+      {loading ? <LoadingState /> : <div className="notification-settings-layout">
+        <form className="notification-panel notification-panel--email" onSubmit={saveEmails}>
+          <header className="notification-panel__header">
+            <div className="notification-panel__title">
+              <span className="notification-panel__icon"><Icon name="alternate_email" /></span>
+              <div><span className="eyebrow">Correo electrónico</span><h2>Destinatarios y copias</h2><p>Puede escribir un correo por línea o separarlos por coma o punto y coma.</p></div>
+            </div>
+            <StatusPill active activeLabel="Configurado" />
+          </header>
+
+          <div className="notification-email-grid">
+            {EMAIL_FIELDS.map((field) => <label className="notification-field-card" key={field.key}>
+              <span className="notification-field-card__heading">
+                <span><Icon name={field.icon} /></span>
+                <span><strong>{field.label}{field.required ? ' *' : ''}</strong><small>{field.description}</small></span>
+              </span>
+              <textarea
+                rows="4"
+                value={emailForm[field.key] || ''}
+                onChange={(event) => updateEmailField(field.key, event.target.value)}
+                placeholder={field.placeholder}
+                disabled={savingEmails}
+                spellCheck="false"
+              />
+              <span className="notification-field-card__count">{countEmails(emailForm[field.key])} correo{countEmails(emailForm[field.key]) === 1 ? '' : 's'}</span>
+            </label>)}
+          </div>
+
+          <footer className="notification-panel__actions">
+            <span><Icon name="shield" /> Los cambios se guardan en la configuración actual de DMS.</span>
+            <button type="submit" className="button button--primary" disabled={savingEmails}>
+              <Icon name={savingEmails ? 'progress_activity' : 'save'} /> {savingEmails ? 'Guardando correos...' : 'Guardar destinatarios y copias'}
+            </button>
+          </footer>
+        </form>
+
+        <aside className="notification-panel notification-panel--chat">
+          <header className="notification-panel__header">
+            <div className="notification-panel__title">
+              <span className="notification-panel__icon"><Icon name="forum" /></span>
+              <div><span className="eyebrow">Agenda DMS</span><h2>Google Chat</h2><p>Reciba en el chat las agendas nuevas, modificaciones y redistribuciones.</p></div>
+            </div>
+            <StatusPill active={chatSettings.configured} />
+          </header>
+
+          <div className={`notification-chat-state${chatSettings.configured ? ' is-active' : ''}`}>
+            <span><Icon name={chatSettings.configured ? 'check_circle' : 'notifications_off'} /></span>
+            <div>
+              <small>Estado actual</small>
+              <strong>{chatSettings.configured ? 'Chat de Agenda activo' : 'Chat de Agenda desactivado'}</strong>
+              <p>{chatSettings.configured
+                ? (chatSettings.redactedWebhook || 'Webhook de Google Chat configurado')
+                : 'Configure un webhook para comenzar a enviar las agendas al chat.'}</p>
+            </div>
+          </div>
+
+          <form onSubmit={saveWebhook} className="notification-chat-form">
+            <label>
+              <span>{chatSettings.configured ? 'Reemplazar webhook' : 'Webhook de Google Chat'}</span>
+              <input
+                type="url"
+                value={webhook}
+                onChange={(event) => { setWebhook(event.target.value); clearMessages(); }}
+                placeholder="https://chat.googleapis.com/v1/spaces/..."
+                autoComplete="off"
+                spellCheck="false"
+                disabled={savingChat}
+              />
+              <small>El webhook almacenado nunca se muestra completo. Pegue uno nuevo únicamente para configurarlo o reemplazarlo.</small>
+            </label>
+
+            <div className="notification-chat-actions">
+              {chatSettings.configured && <button type="button" className="button button--secondary" onClick={disableChat} disabled={savingChat}>
+                <Icon name="notifications_off" /> Desactivar
+              </button>}
+              <button type="submit" className="button button--primary" disabled={savingChat || !webhook.trim()}>
+                <Icon name={savingChat ? 'progress_activity' : 'save'} /> {savingChat ? 'Guardando...' : chatSettings.configured ? 'Reemplazar webhook' : 'Guardar webhook'}
+              </button>
+            </div>
+          </form>
+
+          <div className="notification-behavior-note">
+            <Icon name="info" />
+            <div><strong>Envío independiente</strong><p>Si Google Chat falla, la agenda permanece guardada y el correo continúa funcionando normalmente.</p></div>
+          </div>
+        </aside>
       </div>}
-
-      <form onSubmit={saveWebhook} className="form-stack">
-        <label className="field">
-          <span>{settings.configured ? 'Reemplazar webhook' : 'Webhook de Google Chat'}</span>
-          <input
-            type="url"
-            value={webhook}
-            onChange={(event) => { setWebhook(event.target.value); setError(''); setNotice(''); }}
-            placeholder="https://chat.googleapis.com/v1/spaces/.../messages?key=...&token=..."
-            autoComplete="off"
-            spellCheck="false"
-            disabled={saving}
-          />
-          <small>Por seguridad, el webhook guardado nunca se muestra completo. Pegue uno nuevo para configurarlo o reemplazarlo.</small>
-        </label>
-
-        <div className="form-actions">
-          {settings.configured && <button type="button" className="button button--secondary" onClick={disableChat} disabled={saving}>
-            <Icon name="notifications_off" /> Desactivar chat
-          </button>}
-          <button type="submit" className="button button--primary" disabled={saving || !webhook.trim()}>
-            <Icon name={saving ? 'progress_activity' : 'save'} /> {saving ? 'Guardando...' : settings.configured ? 'Reemplazar webhook' : 'Guardar webhook'}
-          </button>
-        </div>
-      </form>
-
-      <div className="state-card">
-        <Icon name="info" />
-        <div>
-          <strong>Comportamiento del envío</strong>
-          <span>Crear, modificar y separar agendas utiliza el mismo flujo de notificación. Si Google Chat falla, la agenda permanece guardada y el correo continúa funcionando de forma independiente.</span>
-        </div>
-      </div>
-    </section>}
+    </div>
   </div>;
 }
