@@ -18,6 +18,7 @@ import {
 } from '../../features/agenda/agendaDomain';
 import AgendaCalendarSummary from './AgendaCalendarSummary';
 import AgendaDayDialog from './AgendaDayDialog';
+import AgendaResendActions from './AgendaResendActions';
 import AgendaSplitDialog from './AgendaSplitDialog';
 import '../../styles/agenda.css';
 import '../../styles/agenda-split.css';
@@ -112,6 +113,8 @@ function AgendaDetail({ item, isAdmin, onClose, onEdit, onSplit }) {
         </div>
         {item.boleta?.BoletaUID && <Link className="button button--secondary button--compact" to={`/boletas/${encodeURIComponent(item.boleta.BoletaUID)}`}><Icon name="open_in_new" /> Ver boleta</Link>}
       </section>
+
+      {isAdmin && <AgendaResendActions item={item} />}
 
       {isAdmin && <div className="agenda-sheet-actions">
         {canSplit && <button type="button" className="button button--secondary" onClick={() => onSplit(item)}><Icon name="call_split" /> Separar por persona</button>}
