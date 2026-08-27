@@ -21,14 +21,17 @@ assert.match(chatSource, /export function isValidWebhook/);
 assert.match(chatSource, /url\.hostname === 'chat\.googleapis\.com'/);
 assert.match(chatSource, /url\.searchParams\.has\('key'\)/);
 assert.match(chatSource, /url\.searchParams\.has\('token'\)/);
-assert.match(chatSource, /RETRYABLE_CHAT_STATUSES/);
-assert.match(chatSource, /attempts = Math\.max/);
-assert.match(chatSource, /CHAT_TIMEOUT/);
+assert.match(chatSource, /CHAT_SEND_FAILED/);
+assert.match(chatSource, /status: response\.status/);
+assert.match(chatSource, /response: responseText\.slice\(0, 500\)/);
+assert.match(chatSource, /transientStatus/);
+assert.match(chatSource, /attempts/);
 
 assert.match(agendaChatSource, /AGENDA_CHAT_WEBHOOK/);
 assert.match(agendaChatSource, /buildAgendaChatMessage/);
 assert.match(agendaChatSource, /AGENDA DMS · NUEVA/);
 assert.match(agendaChatSource, /AGENDA DMS · ACTUALIZADA/);
+assert.match(agendaChatSource, /AGENDA DMS · REENVIADA/);
 assert.match(agendaChatSource, /\/agenda\?agendaId=/);
 assert.match(agendaChatSource, /month=/);
 assert.match(agendaChatSource, /Asignados:/);
@@ -46,21 +49,18 @@ assert.match(agendaModuleSource, /Google Chat no pudo recibir la notificación/)
 
 assert.match(configSource, /AGENDA_CHAT_SECTION/);
 assert.match(configSource, /handleAgendaChatSection/);
+assert.match(configSource, /operation === 'TEST'/);
+assert.match(configSource, /testAgendaChatNotification/);
 assert.match(configSource, /USUARIOS_GESTIONAR/);
 assert.match(configSource, /ACTUALIZAR_CHAT_AGENDA/);
-assert.match(configSource, /PROBAR_CHAT_AGENDA/);
-assert.match(configSource, /\['TEST', 'PROBAR', 'PRUEBA'\]/);
-assert.match(configSource, /testAgendaChatNotification/);
 assert.match(configSource, /SENSITIVE_KEY = \/\(WEBHOOK\|SECRET\|PASSWORD\|TOKEN\|PRIVATE\|API_KEY\)\/i/);
 
 assert.match(settingsPageSource, /section: 'AGENDA_CHAT'/);
 assert.match(settingsPageSource, /operation: 'TEST'/);
 assert.match(settingsPageSource, /Probar envío/);
-assert.match(settingsPageSource, /Guardando y probando/);
-assert.match(settingsPageSource, /HTTP/);
+assert.match(settingsPageSource, /formatChatFailure/);
 assert.match(settingsPageSource, /redactedWebhook/);
 assert.match(settingsPageSource, /Por seguridad, el webhook guardado nunca se muestra completo/);
-assert.match(settingsPageSource, /chat\.google\.com/);
 assert.match(settingsPageSource, /settings: \{ webhook: '' \}/);
 assert.match(appSource, /path="administracion\/notificaciones"/);
 assert.match(appSource, /permission="USUARIOS_GESTIONAR"/);
@@ -68,4 +68,4 @@ assert.match(moreSource, /to="\/administracion\/notificaciones"/);
 assert.match(splitDialogSource, /agenda\.create/);
 assert.match(splitDialogSource, /agenda\.update/);
 
-console.log('✓ agenda chat: webhook protegido, prueba real, diagnóstico HTTP, retry, enlaces directos y flujo central');
+console.log('✓ agenda chat: webhook probado, diagnóstico HTTP, retry transitorio, seguridad, reenvío y flujo central');
