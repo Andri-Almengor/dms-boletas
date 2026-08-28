@@ -101,7 +101,7 @@ async function queueFinalization(maintenanceId, { retry = false } = {}) {
     maintenanceId,
     operationId: operation.id,
     status: operation.status,
-    message: 'La finalización quedó guardada y se ejecutará después de sincronizar todos los cambios.',
+    message: 'La finalización quedó guardada y se enviará al servidor después de sincronizar todos los cambios. El servidor aplicará el horario de las 5:00 p. m.',
   };
 }
 
@@ -129,6 +129,27 @@ export async function requestMaintenanceFinalization({
     if (!isNetworkError(error)) throw error;
     return queueFinalization(id, { retry });
   }
+}
+
+export async function cancelScheduledMaintenanceFinalization({
+  maintenanceId,
+  sessionToken = '',
+} = {}) {
+  const id = clean(maintenanceId);
+  if (!id) throw new Error('No se indicó el mantenimiento cuya finalización se debe cancelar.');
+  if (typeof navigator !== 'undefined' && navigator.onLine === false) {
+    throw new Error('Debe tener conexión para cancelar una finalización programada.');
+  }
+  const queueState = await getEntityQueueState(id).catch(() => ({ operations: [] }));
+  const pendingFinalize = (queueState.operations || []).some((operation) => operation.kind === 'maintenanceFinalize');
+  if (pendingFinalize) {
+    throw new Error('La solicitud todavía está pendiente de sincronización. Espere a que se sincronice antes de cancelarla.');
+  }
+  return requestAvailable(
+    MODULE_ROUTES.maintenance.finalize,
+    maintenanceFinalizationPayload(id, { cancel: true }),
+    sessionToken,
+  );
 }
 
 export async function fetchMaintenanceFinalizationStatus(maintenanceId, sessionToken = '') {
