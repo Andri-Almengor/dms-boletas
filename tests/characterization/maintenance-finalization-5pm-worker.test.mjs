@@ -33,6 +33,24 @@ test('el backend persiste PROGRAMADO y no entra al worker antes de las 17:00', (
   assert.match(scheduler, /Puede cerrar la aplicación/);
 });
 
+test('la capa de las 17:00 se instala antes de que action-router capture los handlers', () => {
+  const app = source('backend/src/app.js');
+  const scheduleImport = app.indexOf("import './services/maintenance-finalization-schedule.patch.js'");
+  const routerImport = app.indexOf("import { dispatchAction } from './core/action-router.js'");
+  assert.ok(scheduleImport >= 0);
+  assert.ok(routerImport > scheduleImport);
+});
+
+test('mientras está PROGRAMADO el servidor bloquea cambios de datos dispositivos y evidencias', () => {
+  const scheduler = source('backend/src/services/maintenance-finalization-schedule.patch.js');
+  const guard = source('backend/src/services/maintenance-finalization-edit-guard.service.js');
+  assert.match(scheduler, /installEditGuard\(maintenanceProgressChatHandlers/);
+  assert.match(scheduler, /installEditGuard\(maintenanceScalableImageHandlers/);
+  assert.match(guard, /MAINTENANCE_FINALIZATION_SCHEDULED_LOCKED/);
+  assert.match(guard, /EstadoFinalizacion/);
+  assert.match(guard, /PROGRAMADO/);
+});
+
 test('el wake-up usa un contexto interno y retoma PROGRAMADO o EN_PROCESO sin sesión del navegador', () => {
   const scheduler = source('backend/src/services/maintenance-finalization-schedule.patch.js');
   assert.match(scheduler, /UsuarioID: 'SISTEMA_1700'/);
@@ -70,5 +88,6 @@ test('la interfaz distingue finalización programada y permite cancelarla antes 
   assert.match(domain, /scheduled = state === 'PROGRAMADO'/);
   assert.match(center, /Cancelar finalización programada/);
   assert.match(center, /Puede cerrar el navegador o apagar este equipo/);
+  assert.match(center, /window\.setInterval\(refreshStatus, 5_000\)/);
   assert.match(service, /cancelScheduledMaintenanceFinalization/);
 });
