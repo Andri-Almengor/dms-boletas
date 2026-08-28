@@ -2,6 +2,7 @@ import React, { useCallback, useEffect, useMemo, useState } from 'react';
 import { Link } from 'react-router-dom';
 import { apiRequest } from '../../api';
 import { useAuth } from '../../AuthContext';
+import AgendaTicketExceptionsSettings from '../../components/admin/AgendaTicketExceptionsSettings';
 import Icon from '../../components/common/Icon';
 
 const EMPTY_CHAT_SETTINGS = Object.freeze({ configured: false, redactedWebhook: '' });
@@ -268,7 +269,7 @@ export default function NotificationSettingsPage() {
           <Link to="/mas" className="notification-back-link"><Icon name="arrow_back" /> Volver a Más</Link>
           <span className="eyebrow">Administración</span>
           <h1>Notificaciones</h1>
-          <p>Administre en un solo lugar los destinatarios, las copias de correo y el Google Chat utilizado por Agenda DMS.</p>
+          <p>Administre en un solo lugar los destinatarios, las copias de correo, el Google Chat y las excepciones de boleta utilizadas por Agenda DMS.</p>
         </div>
         <div className="notification-channel-summary" aria-label="Resumen de canales">
           <div className="notification-summary-card">
@@ -376,6 +377,12 @@ export default function NotificationSettingsPage() {
             <div><strong>Prueba real del canal</strong><p>Al guardar un webhook se envía una prueba automáticamente. También puede usar “Probar envío” cuando quiera. Si Google Chat falla, verá el código HTTP sin afectar las agendas ni los correos.</p></div>
           </div>
         </aside>
+
+        <AgendaTicketExceptionsSettings
+          sessionToken={sessionToken}
+          onNotice={(message) => { setError(''); setNotice(message); }}
+          onError={(message) => { setNotice(''); setError(message); }}
+        />
       </div>}
     </div>
   </div>;
