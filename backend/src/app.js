@@ -10,6 +10,7 @@ import './services/maintenance-device-delete-permissions.patch.js';
 import './services/ticket-delete-audit.patch.js';
 import './services/maintenance-ticket-work-time.patch.js';
 import './services/maintenance-finalization-resume.patch.js';
+import './services/maintenance-finalization-schedule.patch.js';
 import './services/device-media-video-mac.patch.js';
 import './services/protected-media-stream.patch.js';
 import './services/customer-case-evidence-recovery.patch.js';
@@ -38,6 +39,7 @@ import {
   isPasswordVaultRoute,
 } from './modules/password-vault.module.js';
 import { integrationGatewayRouter } from './routes/integration-gateway.routes.js';
+import { maintenanceFinalizationWorkerRouter } from './routes/maintenance-finalization-worker.routes.js';
 import { runWithActionConcurrency } from './services/action-concurrency.service.js';
 import { runWithActionSingleFlight } from './services/action-single-flight.service.js';
 import {
@@ -98,6 +100,7 @@ app.use(express.json({ limit: '50mb' }));
 app.use(express.text({ type: ['text/plain', 'application/javascript'], limit: '50mb' }));
 
 app.use('/api/integration-gateway', integrationGatewayRouter);
+app.use('/api/maintenance-finalization', maintenanceFinalizationWorkerRouter);
 
 app.get('/api/health', (_req, res) => {
   res.setHeader('Cache-Control', 'no-store');

@@ -23,6 +23,11 @@
   border-color: #dc2626;
 }
 
+.maintenance-finalization-center.is-scheduled {
+  border-color: #d59b27;
+  background: color-mix(in srgb, var(--surface, #fff) 94%, #f59e0b 6%);
+}
+
 .maintenance-finalization-center__heading {
   display: flex;
   gap: 0.75rem;
@@ -40,6 +45,12 @@
   line-height: 1.35;
 }
 
+.maintenance-finalization-center__scheduled-time {
+  margin-top: 0.25rem;
+  color: var(--text-color, #111827) !important;
+  font-weight: 700;
+}
+
 .maintenance-finalization-center__icon {
   display: grid;
   place-items: center;
@@ -48,6 +59,11 @@
   height: 2.25rem;
   border-radius: 999px;
   background: rgba(183, 19, 26, 0.1);
+}
+
+.maintenance-finalization-center.is-scheduled .maintenance-finalization-center__icon {
+  background: rgba(245, 158, 11, 0.16);
+  color: #9a6400;
 }
 
 .maintenance-finalization-center__progress,
@@ -96,6 +112,12 @@
   font: inherit;
   font-weight: 700;
   cursor: pointer;
+}
+
+.maintenance-finalization-center__actions button.maintenance-finalization-center__cancel {
+  border: 1px solid var(--border-color, #d6dae1);
+  background: var(--surface, #fff);
+  color: var(--text-color, #111827);
 }
 
 .maintenance-finalization-center__actions button:disabled {
@@ -180,6 +202,26 @@
 
 @keyframes maintenance-finalization-spin {
   to { transform: rotate(360deg); }
+}
+
+[data-theme='dark'] .maintenance-finalization-center.is-scheduled {
+  border-color: #8e681f;
+  background: #2b2416;
+}
+
+[data-theme='dark'] .maintenance-finalization-center.is-scheduled .maintenance-finalization-center__icon {
+  background: rgba(245, 158, 11, 0.18);
+  color: #f5c767;
+}
+
+[data-theme='dark'] .maintenance-finalization-center__actions button.maintenance-finalization-center__cancel {
+  border-color: #5f5a4e;
+  background: #24221e;
+  color: #f5f3ed;
+}
+
+[data-theme='dark'] .maintenance-finalization-center__scheduled-time {
+  color: #f5f3ed !important;
 }
 
 [data-theme='dark'] .maintenance-finalization-blocking__card {
