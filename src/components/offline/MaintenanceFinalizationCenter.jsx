@@ -142,8 +142,11 @@ export default function MaintenanceFinalizationCenter() {
   useEffect(() => {
     if (!maintenanceId || !online || !view.active || view.completed) return undefined;
     refreshStatus();
-    const intervalMs = view.scheduled ? 30_000 : 5_000;
-    const intervalId = window.setInterval(refreshStatus, intervalMs);
+    if (view.scheduled) {
+      const scheduledIntervalId = window.setInterval(refreshStatus, 30_000);
+      return () => window.clearInterval(scheduledIntervalId);
+    }
+    const intervalId = window.setInterval(refreshStatus, 5_000);
     return () => window.clearInterval(intervalId);
   }, [maintenanceId, online, refreshStatus, view.active, view.completed, view.scheduled]);
 
