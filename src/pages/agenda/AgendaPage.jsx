@@ -8,6 +8,7 @@ import {
   calendarDays,
   calendarMonthRange,
   costaRicaDateKey,
+  DEFAULT_AGENDA_TICKET_EXCEPTIONS,
   groupAgendasByDate,
   monthKey,
   monthLabel,
@@ -157,7 +158,7 @@ function UserSelector({ users, selected, onChange }) {
   </div>;
 }
 
-function AgendaEditor({ users, editItem, onClose, onSaved, sessionToken }) {
+function AgendaEditor({ users, editItem, onClose, onSaved, sessionToken, ticketExceptions }) {
   const editing = Boolean(editItem?.AgendaID);
   const [draft, setDraft] = useState(() => editing ? {
     fecha: editItem.Fecha,
@@ -170,7 +171,7 @@ function AgendaEditor({ users, editItem, onClose, onSaved, sessionToken }) {
   const [queueEditIndex, setQueueEditIndex] = useState(-1);
   const [busy, setBusy] = useState(false);
   const [message, setMessage] = useState('');
-  const requiresTicket = agendaRequiresTicket(draft.detalle);
+  const requiresTicket = agendaRequiresTicket(draft.detalle, ticketExceptions);
 
   function updateField(field, value) {
     setDraft((current) => ({ ...current, [field]: value }));
@@ -254,7 +255,7 @@ function AgendaEditor({ users, editItem, onClose, onSaved, sessionToken }) {
           <label className="agenda-form-grid__detail"><span>Detalle de la visita *</span><textarea value={draft.detalle} onChange={(event) => updateField('detalle', event.target.value)} maxLength="3000" rows="4" placeholder="Ej. Asamblea · mantenimiento preventivo de cámaras" /></label>
         </div>
 
-        {draft.detalle.trim() && <div className={`agenda-rule-note${requiresTicket ? '' : ' is-exempt'}`}><Icon name={requiresTicket ? 'assignment' : 'remove_done'} /><span>{requiresTicket ? 'Esta visita requerirá una boleta.' : 'Por el detalle indicado (Oficina/RN), esta agenda no requerirá boleta ni recordatorio.'}</span></div>}
+        {draft.detalle.trim() && <div className={`agenda-rule-note${requiresTicket ? '' : ' is-exempt'}`}><Icon name={requiresTicket ? 'assignment' : 'remove_done'} /><span>{requiresTicket ? 'Esta visita requerirá una boleta.' : 'El detalle coincide con una excepción configurada: no requerirá boleta ni recordatorio de faltante.'}</span></div>}
 
         <section className="agenda-editor-section">
           <div className="agenda-editor-section__title"><div><span className="eyebrow">Asignación</span><h3>Personas que asistirán</h3></div><span>{draft.usuarioIds.length} seleccionada{draft.usuarioIds.length === 1 ? '' : 's'}</span></div>
@@ -294,6 +295,7 @@ export default function AgendaPage() {
   const [month, setMonth] = useState(() => /^\d{4}-\d{2}$/.test(requestedMonth) ? requestedMonth : monthKey());
   const [items, setItems] = useState([]);
   const [users, setUsers] = useState([]);
+  const [ticketExceptions, setTicketExceptions] = useState(() => [...DEFAULT_AGENDA_TICKET_EXCEPTIONS]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState('');
   const [notice, setNotice] = useState('');
@@ -311,10 +313,17 @@ export default function AgendaPage() {
     setError('');
     try {
       const requests = [apiRequest('agenda.list', { from: range.from, to: range.to }, sessionToken)];
-      if (isAdmin) requests.push(apiRequest('users.assignment.list', { pageSize: 1000 }, sessionToken));
-      const [agendaData, userData] = await Promise.all(requests);
+      if (isAdmin) {
+        requests.push(apiRequest('users.assignment.list', { pageSize: 1000 }, sessionToken));
+        requests.push(apiRequest('config.get', { section: 'AGENDA_TICKET_EXCEPTIONS' }, sessionToken));
+      }
+      const [agendaData, userData, exceptionData] = await Promise.all(requests);
       setItems(Array.isArray(agendaData?.items) ? agendaData.items : []);
-      if (isAdmin) setUsers(Array.isArray(userData?.items) ? userData.items : []);
+      if (isAdmin) {
+        setUsers(Array.isArray(userData?.items) ? userData.items : []);
+        const configured = exceptionData?.settings?.exceptions;
+        setTicketExceptions(Array.isArray(configured) && configured.length ? configured : [...DEFAULT_AGENDA_TICKET_EXCEPTIONS]);
+      }
     } catch (requestError) {
       setError(requestError?.message || 'No se pudo cargar la agenda.');
     } finally {
@@ -445,7 +454,7 @@ export default function AgendaPage() {
       onEdit={(item) => { closeAgenda(); setEditor({ mode: 'edit', item }); }}
       onSplit={(item) => { closeAgenda(); setSplitItem(item); }}
     />
-    {editor && <AgendaEditor users={users} editItem={editor.mode === 'edit' ? editor.item : null} onClose={() => setEditor(null)} onSaved={saved} sessionToken={sessionToken} />}
+    {editor && <AgendaEditor users={users} editItem={editor.mode === 'edit' ? editor.item : null} onClose={() => setEditor(null)} onSaved={saved} sessionToken={sessionToken} ticketExceptions={ticketExceptions} />}
     {splitItem && <AgendaSplitDialog item={splitItem} sessionToken={sessionToken} onClose={() => setSplitItem(null)} onSaved={saved} />}
   </div>;
 }
