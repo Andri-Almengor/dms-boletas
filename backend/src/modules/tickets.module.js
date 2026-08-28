@@ -14,6 +14,10 @@ import { badRequest, notFound } from '../core/errors.js';
 import { asArray, asBool, nowIso, pick, uuid } from '../core/utils.js';
 import { getConfig } from './config.module.js';
 import { audit } from '../services/audit.service.js';
+import {
+  isMaintenanceGeneratedTicketUid,
+  nextMaintenanceTicketNumber,
+} from '../services/maintenance-ticket-number.service.js';
 
 const autosaveWriteTimes = new Map();
 const AUTOSAVE_MIN_INTERVAL_MS = 6000;
@@ -240,7 +244,9 @@ export const ticketHandlers = {
 
     const row = {
       BoletaUID: requestedId || uuid(),
-      BoletaID: nextTicketNumber(rows),
+      BoletaID: isMaintenanceGeneratedTicketUid(requestedId)
+        ? nextMaintenanceTicketNumber(rows)
+        : nextTicketNumber(rows),
       Version: 1,
       ...ticketPayload(ctx.payload),
       CreadoPor: ctx.user.UsuarioID,
