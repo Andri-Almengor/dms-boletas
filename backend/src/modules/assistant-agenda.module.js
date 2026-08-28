@@ -5,6 +5,7 @@ import {
   normalizeAgendaText,
 } from '../services/agenda-domain.service.js';
 import { ensureAgendaSchema } from '../services/agenda-schema.service.js';
+import { getAgendaTicketExceptions } from '../services/agenda-ticket-exceptions.service.js';
 import { assistantDynamicMaintenanceQuestionHandlers } from './assistant-dynamic-maintenance-questions.module.js';
 
 function clean(value, fallback = '') {
@@ -222,7 +223,10 @@ function agendaSources(items) {
 
 async function answerAgendaQuestion(ctx, question) {
   await ensureAgendaSchema();
-  const tables = await readTables(['Agendas', 'AgendaAsignados', 'Usuarios', 'Boletas', 'BoletaAsignados']);
+  const [tables, ticketExceptions] = await Promise.all([
+    readTables(['Agendas', 'AgendaAsignados', 'Usuarios', 'Boletas', 'BoletaAsignados']),
+    getAgendaTicketExceptions(),
+  ]);
   const users = (tables.Usuarios || []).filter(activeUser);
   const period = requestedPeriod(question);
   const keyword = extractKeyword(question);
@@ -247,6 +251,7 @@ async function answerAgendaQuestion(ctx, question) {
     users,
     tickets: tables.Boletas || [],
     ticketAssignments: tables.BoletaAsignados || [],
+    ticketExceptions,
   }).filter((item) => item.Fecha >= period.from && item.Fecha <= period.to);
 
   if (!admin(ctx)) {
