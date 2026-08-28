@@ -35,11 +35,13 @@ test('las excepciones configurables aceptan palabras y frases completas con lím
 
 test('la configuración se persiste en Configuracion y solo un administrador puede modificarla', () => {
   const service = source('backend/src/services/agenda-ticket-exceptions.service.js');
+  const domain = source('backend/src/services/agenda-domain.service.js');
   const config = source('backend/src/modules/config.module.js');
 
   assert.match(service, /AGENDA_BOLETA_EXCEPCIONES/);
   assert.match(service, /JSON\.stringify/);
-  assert.match(service, /Zona Franca La Lima/);
+  assert.match(service, /DEFAULT_AGENDA_TICKET_EXCEPTIONS/);
+  assert.match(domain, /Zona Franca La Lima/);
   assert.match(config, /AGENDA_TICKET_EXCEPTIONS/);
   assert.match(config, /USUARIOS_GESTIONAR/);
   assert.match(config, /ACTUALIZAR_EXCEPCIONES_BOLETA_AGENDA/);
