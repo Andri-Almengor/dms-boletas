@@ -244,9 +244,7 @@ export const ticketHandlers = {
 
     const row = {
       BoletaUID: requestedId || uuid(),
-      BoletaID: isMaintenanceGeneratedTicketUid(requestedId)
-        ? nextMaintenanceTicketNumber(rows)
-        : nextTicketNumber(rows),
+      BoletaID: nextTicketNumber(rows),
       Version: 1,
       ...ticketPayload(ctx.payload),
       CreadoPor: ctx.user.UsuarioID,
@@ -256,6 +254,9 @@ export const ticketHandlers = {
       EstadoNotificacion: 'PENDIENTE',
       UltimoErrorNotificacion: '',
     };
+    if (isMaintenanceGeneratedTicketUid(requestedId)) {
+      row.BoletaID = nextMaintenanceTicketNumber(rows);
+    }
     if (!row.ClienteID || !row.Titulo) throw badRequest('Título y cliente son obligatorios.');
     await appendRow('Boletas', row);
     await replaceAssigned(row.BoletaUID, asArray(ctx.payload.AsignadoA || ctx.payload.asignados), ctx);
