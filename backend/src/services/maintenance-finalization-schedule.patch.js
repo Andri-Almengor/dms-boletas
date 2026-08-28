@@ -7,7 +7,10 @@ import {
 import { findById, readTable, updateRow } from '../infra/sheets.repository.js';
 import { maintenanceAutomationHandlers } from '../modules/maintenance-automation.module.js';
 import { maintenanceProgressChatHandlers } from '../modules/maintenance-progress-chat.module.js';
+import { maintenanceScalableImageHandlers } from '../modules/maintenance-scalable-images.module.js';
 import { audit } from './audit.service.js';
+import { assertMaintenanceNotScheduledForEditing } from './maintenance-finalization-edit-guard.service.js';
+import { largeEvidenceUploadHandlers } from './large-evidence-upload.service.js';
 import { ensureSheetColumns } from './sheet-columns.service.js';
 
 // Garantiza que esta capa envuelva la finalización escalonada y no al revés.
@@ -15,7 +18,17 @@ await import('./maintenance-finalization-resume.patch.js');
 
 const INSTALL_FLAG = Symbol.for('dms.maintenanceFinalization5pmSchedule');
 const GET_FLAG = Symbol.for('dms.maintenanceFinalization5pmSchedule.get');
+const EDIT_GUARD_FLAG = Symbol.for('dms.maintenanceFinalization5pmSchedule.editGuard');
 const SCHEDULE_COLUMNS = [
+  'EstadoFinalizacion',
+  'PasoFinalizacion',
+  'FinalizacionSolicitudID',
+  'FinalizacionSolicitadaEn',
+  'FinalizacionSolicitadaPor',
+  'FinalizacionProgreso',
+  'FinalizacionMensaje',
+  'FinalizacionActualizadaEn',
+  'UltimoErrorFinalizacion',
   'FinalizacionProgramadaPara',
   'FinalizacionProgramadaEn',
   'FinalizacionCanceladaEn',
@@ -206,6 +219,35 @@ function nextScheduledAt(rows, now = new Date()) {
     .filter((item) => Number.isFinite(item.time) && item.time > nowMs)
     .sort((a, b) => a.time - b.time)[0]?.value || '';
 }
+
+function installEditGuard(target, keys) {
+  if (!target || target[EDIT_GUARD_FLAG]) return;
+  for (const key of keys) {
+    const previous = target[key];
+    if (typeof previous !== 'function') continue;
+    target[key] = async (ctx) => {
+      await assertMaintenanceNotScheduledForEditing(ctx.route, ctx.payload);
+      return previous(ctx);
+    };
+  }
+  target[EDIT_GUARD_FLAG] = true;
+}
+
+// Estos wrappers se instalan antes de que action-router capture los handlers.
+// El bloqueo es de servidor, por lo que también protege clientes viejos o peticiones manuales.
+installEditGuard(maintenanceProgressChatHandlers, [
+  'update',
+  'locationsUpdate',
+  'deviceCreate',
+  'deviceUpdate',
+  'deviceAutosave',
+  'deviceDelete',
+  'imageUpload',
+  'imageUpdate',
+  'imageDelete',
+]);
+installEditGuard(maintenanceScalableImageHandlers, ['uploadBatch', 'updateBatch']);
+installEditGuard(largeEvidenceUploadHandlers, ['maintenanceInit', 'maintenanceChunk']);
 
 let wakePromise = null;
 let baseProgressFinalize = null;
