@@ -1,5 +1,6 @@
 import React, { useEffect, useId, useMemo, useRef, useState } from 'react';
 import { useAuth } from '../../AuthContext';
+import { sortOptionsNaturally } from '../../utils/naturalSort';
 import Icon from '../common/Icon';
 
 function normalizeSearch(value) {
@@ -47,14 +48,18 @@ export default function DependentSelect({
   const showAddButton = Boolean(onAdd) && (canAdd || canAddFromOperation);
   const normalizedLabel = normalizeSearch(label);
   const useSearchable = searchable ?? normalizedLabel === 'cliente';
-  const selectedOption = options.find((option) => String(option.value) === String(value || ''))
+  const displayedOptions = useMemo(
+    () => normalizedLabel === 'modelo' ? sortOptionsNaturally(options) : options,
+    [normalizedLabel, options],
+  );
+  const selectedOption = displayedOptions.find((option) => String(option.value) === String(value || ''))
     || (value && selectedLabel ? { value: String(value), label: String(selectedLabel) } : null);
 
   const filteredOptions = useMemo(() => {
     const term = normalizeSearch(query);
-    if (!term || term === normalizeSearch(selectedOption?.label)) return options;
-    return options.filter((option) => normalizeSearch(option.label).includes(term));
-  }, [options, query, selectedOption]);
+    if (!term || term === normalizeSearch(selectedOption?.label)) return displayedOptions;
+    return displayedOptions.filter((option) => normalizeSearch(option.label).includes(term));
+  }, [displayedOptions, query, selectedOption]);
 
   useEffect(() => {
     if (!open) setQuery(selectedOption?.label || '');
@@ -209,7 +214,7 @@ export default function DependentSelect({
         <div className="select-shell">
           <select id={fieldId} name={name} className="form-control" value={value} onChange={onChange} disabled={disabled || loading} required={required}>
             <option value="">{loading ? 'Cargando...' : placeholder}</option>
-            {options.map((option) => <option key={option.value} value={option.value}>{option.label}</option>)}
+            {displayedOptions.map((option) => <option key={option.value} value={option.value}>{option.label}</option>)}
           </select>
           <Icon name="expand_more" />
         </div>
