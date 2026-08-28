@@ -1,5 +1,13 @@
 const COSTA_RICA_TIME_ZONE = 'America/Costa_Rica';
 
+export const DEFAULT_AGENDA_TICKET_EXCEPTIONS = Object.freeze([
+  'Oficina',
+  'Oficinas',
+  'Office',
+  'RN',
+  'Zona Franca La Lima',
+]);
+
 export function normalizeAgendaText(value) {
   return String(value ?? '')
     .trim()
@@ -11,10 +19,27 @@ export function normalizeAgendaText(value) {
     .trim();
 }
 
-export function agendaRequiresTicket(detail) {
+function normalizedExceptions(exceptions = DEFAULT_AGENDA_TICKET_EXCEPTIONS) {
+  const source = Array.isArray(exceptions) ? exceptions : [exceptions];
+  const used = new Set();
+  return source
+    .map((item) => normalizeAgendaText(item))
+    .filter((item) => {
+      if (!item || used.has(item)) return false;
+      used.add(item);
+      return true;
+    });
+}
+
+export function agendaRequiresTicket(detail, exceptions = DEFAULT_AGENDA_TICKET_EXCEPTIONS) {
   const text = normalizeAgendaText(detail);
   if (!text) return true;
-  return !(/\boficina(?:s)?\b/.test(text) || /\boffice\b/.test(text) || /\brn\b/.test(text));
+  return !normalizedExceptions(exceptions).some((exception) => (
+    text === exception
+    || text.startsWith(`${exception} `)
+    || text.endsWith(` ${exception}`)
+    || text.includes(` ${exception} `)
+  ));
 }
 
 export function costaRicaDateKey(value = new Date()) {
