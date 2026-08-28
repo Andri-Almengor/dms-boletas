@@ -2,6 +2,7 @@ export const MAINTENANCE_FINALIZATION_PRIORITY = 90;
 
 export const MAINTENANCE_FINALIZATION_PHASES = Object.freeze([
   { id: 'ESPERANDO_SINCRONIZACION', label: 'Esperando sincronización', progress: 10 },
+  { id: 'ESPERANDO_1700', label: 'Programado para las 5:00 p. m.', progress: 0 },
   { id: 'VALIDANDO', label: 'Validando mantenimiento', progress: 25 },
   { id: 'GENERANDO_BOLETAS', label: 'Generando boletas automáticas', progress: 50 },
   { id: 'ENTREGANDO', label: 'Organizando evidencias y enviando', progress: 75 },
@@ -28,13 +29,14 @@ export function maintenanceFinalizationRequestId(maintenanceId) {
   return `finalize-${clean(maintenanceId)}`;
 }
 
-export function maintenanceFinalizationPayload(maintenanceId, { retry = false } = {}) {
+export function maintenanceFinalizationPayload(maintenanceId, { retry = false, cancel = false } = {}) {
   const id = clean(maintenanceId);
   return {
     maintenanceId: id,
     MantenimientoID: id,
     finalizationRequestId: maintenanceFinalizationRequestId(id),
     retryFinalization: Boolean(retry),
+    cancelScheduledFinalization: Boolean(cancel),
     requestedAt: new Date().toISOString(),
   };
 }
@@ -71,14 +73,17 @@ export function maintenanceFinalizationView(row = {}, operation = null) {
     // quedar recuperables aunque EstadoFinalizacion haya quedado EN_PROCESO.
     state = 'ERROR';
     phaseId = 'VALIDANDO';
+  } else if (state === 'PROGRAMADO') {
+    phaseId = 'ESPERANDO_1700';
   }
 
   const phase = finalizationPhase(phaseId || (state === 'COMPLETADO' ? 'COMPLETADO' : 'ESPERANDO_SINCRONIZACION'));
   const error = legacySignatureFailure
     ? 'Este mantenimiento quedó detenido por la política anterior de firma. Ahora puede reintentarse y finalizarse sin firma.'
     : storedError;
+  const scheduled = state === 'PROGRAMADO';
   const active = Boolean(operation)
-    || ['PENDIENTE_SINCRONIZACION', 'EN_PROCESO', 'ERROR', 'BLOQUEADO'].includes(state);
+    || ['PROGRAMADO', 'PENDIENTE_SINCRONIZACION', 'EN_PROCESO', 'ERROR', 'BLOQUEADO'].includes(state);
 
   return {
     active,
@@ -87,7 +92,10 @@ export function maintenanceFinalizationView(row = {}, operation = null) {
     label: phase.label,
     progress: phase.progress,
     error,
+    scheduled,
+    scheduledAt: clean(row.FinalizacionProgramadaPara),
     canRetry: state === 'ERROR' || operationStatus === 'ERROR' || legacySignatureFailure,
+    canCancelSchedule: scheduled && !operation,
     blocked: state === 'BLOQUEADO' || operationStatus === 'CONFLICT',
     completed: state === 'COMPLETADO',
     legacySignatureFailure,
