@@ -46,11 +46,19 @@ test('solo el UID determinista de boletas generadas por mantenimiento activa la 
   assert.equal(isMaintenanceGeneratedTicketUid('123456789abc-1234567890abcdef1234'), false);
 });
 
-test('la creación de boletas mantiene números normales y usa Mxx solo para mantenimientos', () => {
+test('la creación conserva el consecutivo normal y lo sustituye por Mxx solo antes de guardar mantenimiento', () => {
   const contents = source('backend/src/modules/tickets.module.js');
 
-  assert.match(contents, /isMaintenanceGeneratedTicketUid\(requestedId\)/);
-  assert.match(contents, /\? nextMaintenanceTicketNumber\(rows\)/);
-  assert.match(contents, /: nextTicketNumber\(rows\)/);
+  assert.match(contents, /BoletaID:\s*nextTicketNumber\(rows\)/);
+  assert.match(contents, /if \(isMaintenanceGeneratedTicketUid\(requestedId\)\)/);
+  assert.match(contents, /row\.BoletaID = nextMaintenanceTicketNumber\(rows\)/);
   assert.match(contents, /readTable\('Boletas', \{ force: true \}\)/);
+
+  const dedupIndex = contents.indexOf('const existing = rows.find');
+  const normalNumberIndex = contents.indexOf('BoletaID: nextTicketNumber(rows)');
+  const maintenanceOverrideIndex = contents.indexOf('row.BoletaID = nextMaintenanceTicketNumber(rows)');
+  const appendIndex = contents.indexOf("appendRow('Boletas', row)");
+  assert.ok(dedupIndex >= 0 && dedupIndex < normalNumberIndex);
+  assert.ok(normalNumberIndex < maintenanceOverrideIndex);
+  assert.ok(maintenanceOverrideIndex < appendIndex);
 });
