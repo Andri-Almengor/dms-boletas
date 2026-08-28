@@ -1,5 +1,6 @@
 import React, { useEffect, useState } from 'react';
 import Icon from '../common/Icon';
+import SignaturePad from '../tickets/SignaturePad';
 import { requestAvailable } from '../../services/moduleApi';
 
 const SIGNATURE_LINK_ROUTES = [
@@ -9,6 +10,10 @@ const SIGNATURE_LINK_ROUTES = [
 const SIGNATURE_TEST_LINK_ROUTES = [
   'maintenance.signature.test.link',
   'mantenimientos.firma.prueba.enlace',
+];
+const SIGNATURE_SUBMIT_ROUTES = [
+  'maintenance.signature.public.submit',
+  'mantenimientos.firma.publica.guardar',
 ];
 
 export default function MaintenanceSignatureCard({
@@ -21,6 +26,8 @@ export default function MaintenanceSignatureCard({
   const [info, setInfo] = useState(null);
   const [loading, setLoading] = useState(true);
   const [testing, setTesting] = useState(false);
+  const [savingDirect, setSavingDirect] = useState(false);
+  const [signatureDraft, setSignatureDraft] = useState('');
   const [error, setError] = useState('');
   const [notice, setNotice] = useState('');
 
@@ -105,6 +112,47 @@ export default function MaintenanceSignatureCard({
     }
   }
 
+  async function saveDirectSignature() {
+    if (savingDirect || disabled) return;
+    if (!request?.token) {
+      setError('No hay una solicitud de firma activa para este mantenimiento. Actualice la pantalla e inténtelo nuevamente.');
+      return;
+    }
+    if (!signatureDraft?.startsWith('data:image/')) {
+      setError('Dibuje la firma o cargue una imagen antes de guardarla.');
+      return;
+    }
+
+    const base64 = String(signatureDraft).split(',')[1] || '';
+    if (!base64) {
+      setError('No se pudo preparar la firma seleccionada.');
+      return;
+    }
+
+    setSavingDirect(true);
+    setError('');
+    setNotice('');
+    try {
+      const result = await requestAvailable(
+        SIGNATURE_SUBMIT_ROUTES,
+        {
+          token: request.token,
+          base64,
+          mimeType: 'image/png',
+        },
+        sessionToken,
+      );
+      setSignatureDraft('');
+      await load();
+      setNotice(result?.message || 'La firma general fue guardada correctamente y se aplicará a las boletas del mantenimiento.');
+      onStatusChange?.(true);
+    } catch (saveError) {
+      setError(saveError.message || 'No se pudo guardar la firma del mantenimiento.');
+    } finally {
+      setSavingDirect(false);
+    }
+  }
+
   async function openTestLink() {
     const testWindow = window.open('about:blank', '_blank');
     setTesting(true);
@@ -148,7 +196,7 @@ export default function MaintenanceSignatureCard({
           <strong>{signed ? 'Firma general del cliente registrada' : 'Firma general del mantenimiento'}</strong>
           <span>{signed
             ? 'Esta firma se copiará automáticamente a todas las boletas generadas desde este mantenimiento.'
-            : 'El cliente firma una sola vez el mantenimiento completo. No se firma cada dispositivo por separado.'}</span>
+            : 'Puede compartir el enlace con el cliente o registrar aquí una firma dibujada o una imagen existente. Se usa una sola firma para todo el mantenimiento.'}</span>
         </div>
       </div>
 
@@ -162,22 +210,45 @@ export default function MaintenanceSignatureCard({
             onFocus={(event) => event.target.select()}
           />
           <div className="ticket-public-signature-card__actions">
-            <button className="button button--secondary button--compact" type="button" onClick={copyLink} disabled={disabled}>
+            <button className="button button--secondary button--compact" type="button" onClick={copyLink} disabled={disabled || savingDirect}>
               <Icon name="content_copy" /> Copiar enlace
             </button>
-            <button className="button button--primary button--compact" type="button" onClick={shareLink} disabled={disabled}>
+            <button className="button button--primary button--compact" type="button" onClick={shareLink} disabled={disabled || savingDirect}>
               <Icon name="share" /> Compartir con cliente
             </button>
             <a className="button button--ghost button--compact" href={url} target="_blank" rel="noreferrer">
               <Icon name="open_in_new" /> Abrir enlace real
             </a>
           </div>
+
+          <div className="maintenance-direct-signature">
+            <div className="maintenance-direct-signature__heading">
+              <Icon name="add_photo_alternate" />
+              <div>
+                <strong>Registrar firma desde este dispositivo</strong>
+                <span>Dibuje la firma o use “Cargar imagen” para seleccionar una foto, captura o archivo de la firma del cliente.</span>
+              </div>
+            </div>
+            <SignaturePad value={signatureDraft} onChange={setSignatureDraft} />
+            <div className="ticket-public-signature-card__actions">
+              <button
+                className="button button--primary button--compact"
+                type="button"
+                onClick={saveDirectSignature}
+                disabled={disabled || savingDirect || !signatureDraft}
+              >
+                <Icon name={savingDirect ? 'progress_activity' : 'verified'} />
+                {savingDirect ? 'Guardando firma...' : 'Usar esta firma'}
+              </button>
+            </div>
+            <small className="field-hint">Al guardar, esta imagen se convierte en la firma general del mantenimiento y se sincroniza con las boletas automáticas relacionadas, igual que una firma realizada desde el enlace.</small>
+          </div>
         </>
       )}
 
       {isAdmin && (
         <div className="ticket-public-signature-card__actions">
-          <button className="button button--secondary button--compact" type="button" onClick={openTestLink} disabled={disabled || testing}>
+          <button className="button button--secondary button--compact" type="button" onClick={openTestLink} disabled={disabled || testing || savingDirect}>
             <Icon name={testing ? 'progress_activity' : 'science'} />
             {testing ? 'Preparando prueba...' : 'Probar firma sin guardar'}
           </button>
