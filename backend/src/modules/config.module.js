@@ -6,6 +6,10 @@ import {
   updateAgendaChatSettings,
 } from '../services/agenda-chat.service.js';
 import {
+  getAgendaTicketExceptionSettings,
+  updateAgendaTicketExceptionSettings,
+} from '../services/agenda-ticket-exceptions.service.js';
+import {
   getNotificationEmailSettings,
   notificationEmailSettingsForClient,
   updateNotificationEmailSettings,
@@ -23,6 +27,7 @@ const ADMIN_ONLY_KEY = /^BACKUP_/i;
 const SENSITIVE_VALUE = /chat\.googleapis\.com|-----BEGIN [A-Z ]*PRIVATE KEY-----/i;
 const NOTIFICATION_SECTION = 'NOTIFICATION_EMAILS';
 const AGENDA_CHAT_SECTION = 'AGENDA_CHAT';
+const AGENDA_TICKET_EXCEPTIONS_SECTION = 'AGENDA_TICKET_EXCEPTIONS';
 const BACKUP_SECTION = 'BACKUPS';
 
 function clean(value, maxLength = 200) {
@@ -43,6 +48,10 @@ function requestedNotificationSection(payload = {}) {
 
 function requestedAgendaChatSection(payload = {}) {
   return requestedSection(payload) === AGENDA_CHAT_SECTION;
+}
+
+function requestedAgendaTicketExceptionsSection(payload = {}) {
+  return requestedSection(payload) === AGENDA_TICKET_EXCEPTIONS_SECTION;
 }
 
 function requestedBackupSection(payload = {}) {
@@ -96,6 +105,33 @@ async function handleAgendaChatSection(ctx, payload) {
   return {
     section: AGENDA_CHAT_SECTION,
     settings: await getAgendaChatSettings(),
+    updated: false,
+  };
+}
+
+async function handleAgendaTicketExceptionsSection(ctx, payload) {
+  if (!canManageAdminSettings(ctx)) {
+    throw forbidden('Solo un administrador puede consultar o modificar las excepciones de boleta de Agenda.');
+  }
+
+  const operation = clean(payload.operation || payload.operacion || 'GET', 20).toUpperCase();
+  if (['UPDATE', 'SAVE', 'GUARDAR'].includes(operation)) {
+    const before = await getAgendaTicketExceptionSettings();
+    const after = await updateAgendaTicketExceptionSettings(payload.settings || payload.config || {});
+    await audit(
+      ctx,
+      'ACTUALIZAR_EXCEPCIONES_BOLETA_AGENDA',
+      'Configuracion',
+      AGENDA_TICKET_EXCEPTIONS_SECTION,
+      before,
+      after,
+    ).catch(() => {});
+    return { section: AGENDA_TICKET_EXCEPTIONS_SECTION, settings: after, updated: true };
+  }
+
+  return {
+    section: AGENDA_TICKET_EXCEPTIONS_SECTION,
+    settings: await getAgendaTicketExceptionSettings(),
     updated: false,
   };
 }
@@ -172,6 +208,7 @@ export async function getClientConfig(ctx = {}) {
   const payload = ctx?.payload || {};
   if (requestedBackupSection(payload)) return handleBackupSection(ctx, payload);
   if (requestedAgendaChatSection(payload)) return handleAgendaChatSection(ctx, payload);
+  if (requestedAgendaTicketExceptionsSection(payload)) return handleAgendaTicketExceptionsSection(ctx, payload);
 
   if (requestedNotificationSection(payload)) {
     if (!canManageAdminSettings(ctx)) {
