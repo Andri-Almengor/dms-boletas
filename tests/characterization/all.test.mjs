@@ -1,6 +1,7 @@
 import './agenda-operativa.test.mjs';
 import './agenda-chat.test.mjs';
 import './agenda-resend.test.mjs';
+import './agenda-ticket-exceptions-config.test.mjs';
 import './notification-settings-ui.test.mjs';
 import './agenda-calendar-desktop-ui.test.mjs';
 import './agenda-editor-mobile-ui.test.mjs';
