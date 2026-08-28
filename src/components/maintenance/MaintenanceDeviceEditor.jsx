@@ -14,7 +14,7 @@ import {
   prepareEvidenceFiles,
   releaseEvidencePreviewUrl,
 } from '../../utils/evidenceMedia';
-import { macAddressError, normalizeMacAddress } from '../../utils/macAddress';
+import { formatMacAddressInput, macAddressError, normalizeMacAddress } from '../../utils/macAddress';
 import {
   AUTOMATIC_PENDING_STATE,
   MANUAL_PENDING_STATE,
@@ -317,7 +317,7 @@ export default function MaintenanceDeviceEditor({
           {missingEquipmentLocation && <div className="info-box maintenance-device-fields-grid__full"><Icon name="location_on" /><p>Seleccione una ubicación del equipo. Este dropdown es el que define la agrupación del dispositivo.</p></div>}
           <Field label="Nombre del dispositivo" value={device.nombre} onChange={(event) => patch({ nombre: event.target.value })} disabled={locked} autoComplete="off" />
           <Field label="Serie" value={device.serie} onChange={(event) => patch({ serie: event.target.value })} disabled={locked} autoComplete="off" />
-          <Field label="Dirección MAC" value={device.macAddress || ''} onChange={(event) => patch({ macAddress: event.target.value })} onBlur={() => patch({ macAddress: normalizeMacAddress(device.macAddress) })} disabled={locked} placeholder="AA:BB:CC:DD:EE:FF" autoComplete="off" />
+          <Field label="Dirección MAC" value={device.macAddress || ''} onChange={(event) => patch({ macAddress: formatMacAddressInput(event.target.value) })} onBlur={() => patch({ macAddress: normalizeMacAddress(device.macAddress) })} disabled={locked} placeholder="AA:BB:CC:DD:EE:FF" autoComplete="off" />
           {invalidMac && <div className="alert alert--error maintenance-device-fields-grid__full"><Icon name="error" /><span>{invalidMac}</span></div>}
         </div>
       </section>
