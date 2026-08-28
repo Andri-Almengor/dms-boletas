@@ -10,6 +10,7 @@ import './services/maintenance-device-delete-permissions.patch.js';
 import './services/ticket-delete-audit.patch.js';
 import './services/maintenance-ticket-work-time.patch.js';
 import './services/maintenance-finalization-resume.patch.js';
+import './services/maintenance-finalization-schedule.patch.js';
 import './services/device-media-video-mac.patch.js';
 import './services/protected-media-stream.patch.js';
 import './services/customer-case-evidence-recovery.patch.js';
