@@ -1,15 +1,26 @@
+function compactMacAddress(value = '') {
+  return String(value || '')
+    .replace(/[^a-fA-F0-9]/g, '')
+    .toUpperCase();
+}
+
+export function formatMacAddressInput(value = '') {
+  const compact = compactMacAddress(value).slice(0, 12);
+  if (!compact) return '';
+  return compact.match(/.{1,2}/g)?.join(':') || '';
+}
+
 export function normalizeMacAddress(value = '') {
   const raw = String(value || '').trim();
   if (!raw) return '';
-  const compact = raw.replace(/[^a-fA-F0-9]/g, '').toUpperCase();
-  if (compact.length !== 12 || !/^[A-F0-9]{12}$/.test(compact)) return raw.toUpperCase();
-  return compact.match(/.{2}/g).join(':');
+  return formatMacAddressInput(raw);
 }
 
 export function isValidMacAddress(value = '') {
   const raw = String(value || '').trim();
   if (!raw) return true;
-  return /^[A-F0-9]{2}(?::[A-F0-9]{2}){5}$/.test(normalizeMacAddress(raw));
+  const compact = compactMacAddress(raw);
+  return compact.length === 12 && /^[A-F0-9]{12}$/.test(compact);
 }
 
 export function macAddressError(value = '') {
