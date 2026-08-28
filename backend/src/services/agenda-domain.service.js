@@ -3,6 +3,14 @@ function clean(value, fallback = '') {
   return text || fallback;
 }
 
+export const DEFAULT_AGENDA_TICKET_EXCEPTIONS = Object.freeze([
+  'Oficina',
+  'Oficinas',
+  'Office',
+  'RN',
+  'Zona Franca La Lima',
+]);
+
 export function normalizeAgendaText(value) {
   return clean(value)
     .normalize('NFD')
@@ -13,18 +21,38 @@ export function normalizeAgendaText(value) {
     .trim();
 }
 
+export function normalizeAgendaTicketExceptions(exceptions = DEFAULT_AGENDA_TICKET_EXCEPTIONS) {
+  const source = Array.isArray(exceptions) ? exceptions : [exceptions];
+  const used = new Set();
+  return source
+    .map((item) => normalizeAgendaText(item))
+    .filter((item) => {
+      if (!item || used.has(item)) return false;
+      used.add(item);
+      return true;
+    });
+}
+
+export function agendaMatchesTicketException(detail, exceptions = DEFAULT_AGENDA_TICKET_EXCEPTIONS) {
+  const text = normalizeAgendaText(detail);
+  if (!text) return false;
+  return normalizeAgendaTicketExceptions(exceptions).some((exception) => (
+    text === exception
+    || text.startsWith(`${exception} `)
+    || text.endsWith(` ${exception}`)
+    || text.includes(` ${exception} `)
+  ));
+}
+
 function enabled(value, fallback = true) {
   const text = normalizeAgendaText(value);
   if (!text) return fallback;
   return !['false', '0', 'no', 'inactivo', 'cancelada', 'cancelado'].includes(text);
 }
 
-export function agendaRequiresTicket(detail) {
-  const text = normalizeAgendaText(detail);
-  if (!text) return true;
-  if (/\boficina(?:s)?\b/.test(text) || /\boffice\b/.test(text)) return false;
-  if (/\brn\b/.test(text)) return false;
-  return true;
+export function agendaRequiresTicket(detail, exceptions = DEFAULT_AGENDA_TICKET_EXCEPTIONS) {
+  if (!normalizeAgendaText(detail)) return true;
+  return !agendaMatchesTicketException(detail, exceptions);
 }
 
 export function agendaDate(value) {
@@ -77,6 +105,7 @@ export function resolveAgendaTicketMatches({
   agendaAssignments = [],
   tickets = [],
   ticketAssignments = [],
+  ticketExceptions = DEFAULT_AGENDA_TICKET_EXCEPTIONS,
 } = {}) {
   const agendaUsers = new Map();
   for (const row of agendaAssignments.filter(activeAgendaAssignment)) {
@@ -131,7 +160,7 @@ export function resolveAgendaTicketMatches({
   for (const agenda of ordered) {
     const agendaId = clean(agenda.AgendaID);
     if (!agendaId || matches.has(agendaId)) continue;
-    if (!agendaRequiresTicket(agenda.Detalle)) continue;
+    if (!agendaRequiresTicket(agenda.Detalle, ticketExceptions)) continue;
     if (normalizeAgendaText(agenda.Estado) === 'cancelada') continue;
 
     const assigned = agendaUsers.get(agendaId) || new Set();
@@ -158,10 +187,10 @@ export function resolveAgendaTicketMatches({
   return matches;
 }
 
-export function agendaStatus(agenda, ticket, today = costaRicaDate()) {
+export function agendaStatus(agenda, ticket, today = costaRicaDate(), ticketExceptions = DEFAULT_AGENDA_TICKET_EXCEPTIONS) {
   const state = normalizeAgendaText(agenda.Estado);
   if (state === 'cancelada') return 'CANCELADA';
-  if (!agendaRequiresTicket(agenda.Detalle)) return 'NO_REQUIERE';
+  if (!agendaRequiresTicket(agenda.Detalle, ticketExceptions)) return 'NO_REQUIERE';
   if (ticket) return 'COMPLETA';
   return agendaDate(agenda.Fecha) > today ? 'FUTURA' : 'PENDIENTE';
 }
@@ -173,6 +202,7 @@ export function buildAgendaViews({
   tickets = [],
   ticketAssignments = [],
   today = costaRicaDate(),
+  ticketExceptions = DEFAULT_AGENDA_TICKET_EXCEPTIONS,
 } = {}) {
   const userById = new Map(users.map((user) => [clean(user.UsuarioID), user]));
   const assignmentMap = new Map();
@@ -191,7 +221,7 @@ export function buildAgendaViews({
     }
   }
 
-  const matches = resolveAgendaTicketMatches({ agendas, agendaAssignments, tickets, ticketAssignments });
+  const matches = resolveAgendaTicketMatches({ agendas, agendaAssignments, tickets, ticketAssignments, ticketExceptions });
   return agendas.map((agenda) => {
     const ticket = matches.get(clean(agenda.AgendaID)) || null;
     return {
@@ -201,14 +231,14 @@ export function buildAgendaViews({
       HoraFin: clean(agenda.HoraFin, '17:00'),
       Detalle: clean(agenda.Detalle),
       Estado: clean(agenda.Estado, 'ACTIVA').toUpperCase(),
-      RequiereBoleta: agendaRequiresTicket(agenda.Detalle),
+      RequiereBoleta: agendaRequiresTicket(agenda.Detalle, ticketExceptions),
       RecordatorioEnviado: enabled(agenda.RecordatorioEnviado, false),
       RecordatorioEnviadoEn: clean(agenda.RecordatorioEnviadoEn),
       CreadoPor: clean(agenda.CreadoPor),
       FechaCreacion: clean(agenda.FechaCreacion),
       FechaActualizacion: clean(agenda.FechaActualizacion),
       asignados: assignmentMap.get(clean(agenda.AgendaID)) || [],
-      status: agendaStatus(agenda, ticket, today),
+      status: agendaStatus(agenda, ticket, today, ticketExceptions),
       boleta: ticket ? {
         BoletaUID: clean(ticket.BoletaUID),
         BoletaNumero: clean(ticket.BoletaNumero),
