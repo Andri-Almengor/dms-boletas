@@ -17,6 +17,7 @@ import {
   normalizeAgendaText,
 } from '../services/agenda-domain.service.js';
 import { ensureAgendaSchema } from '../services/agenda-schema.service.js';
+import { getAgendaTicketExceptions } from '../services/agenda-ticket-exceptions.service.js';
 import { sendAppsScriptAction } from '../services/apps-script-action.service.js';
 
 const MAX_BATCH = 50;
@@ -65,7 +66,7 @@ function userDisplay(user = {}) {
   return clean(user.NombreCompleto || user.Nombre || user.NombreUsuario || user.Correo, 'Usuario');
 }
 
-function normalizeAgendaInput(input = {}, fallback = {}) {
+function normalizeAgendaInput(input = {}, fallback = {}, ticketExceptions = []) {
   const detail = clean(input.detalle ?? input.Detalle ?? fallback.Detalle).slice(0, MAX_DETAIL);
   if (!detail) throw badRequest('El detalle de la agenda es obligatorio.');
 
@@ -83,13 +84,17 @@ function normalizeAgendaInput(input = {}, fallback = {}) {
     HoraFin: horaFin,
     Detalle: detail,
     Estado: estado,
-    RequiereBoleta: agendaRequiresTicket(detail),
+    RequiereBoleta: agendaRequiresTicket(detail, ticketExceptions),
   };
 }
 
 async function agendaTables() {
   await ensureAgendaSchema();
-  return readTables(['Agendas', 'AgendaAsignados', 'Usuarios', 'Boletas', 'BoletaAsignados']);
+  const [tables, ticketExceptions] = await Promise.all([
+    readTables(['Agendas', 'AgendaAsignados', 'Usuarios', 'Boletas', 'BoletaAsignados']),
+    getAgendaTicketExceptions(),
+  ]);
+  return { tables, ticketExceptions };
 }
 
 function activeAssignment(row = {}) {
@@ -236,7 +241,7 @@ function updateMessage(notification) {
 }
 
 async function list(ctx) {
-  const tables = await agendaTables();
+  const { tables, ticketExceptions } = await agendaTables();
   let agendas = tables.Agendas || [];
 
   if (!isAdmin(ctx)) {
@@ -250,6 +255,7 @@ async function list(ctx) {
     users: tables.Usuarios || [],
     tickets: tables.Boletas || [],
     ticketAssignments: tables.BoletaAsignados || [],
+    ticketExceptions,
   });
   const items = filterViews(views, ctx.payload || {}, ctx);
   return { items, total: items.length };
@@ -258,7 +264,7 @@ async function list(ctx) {
 async function get(ctx) {
   const agendaId = clean(ctx.payload?.agendaId || ctx.payload?.AgendaID || ctx.payload?.id);
   if (!agendaId) throw badRequest('Debe indicar la agenda.');
-  const tables = await agendaTables();
+  const { tables, ticketExceptions } = await agendaTables();
   const agenda = (tables.Agendas || []).find((row) => clean(row.AgendaID) === agendaId);
   if (!agenda) throw notFound('No se encontró la agenda solicitada.');
 
@@ -273,6 +279,7 @@ async function get(ctx) {
     users: tables.Usuarios || [],
     tickets: tables.Boletas || [],
     ticketAssignments: tables.BoletaAsignados || [],
+    ticketExceptions,
   })[0];
   return { item };
 }
@@ -285,7 +292,10 @@ async function create(ctx) {
   if (!requested.length) throw badRequest('Debe agregar al menos una agenda.');
   if (requested.length > MAX_BATCH) throw badRequest(`Puede crear un máximo de ${MAX_BATCH} agendas por envío.`);
 
-  const tables = await readTables(['Usuarios']);
+  const [tables, ticketExceptions] = await Promise.all([
+    readTables(['Usuarios']),
+    getAgendaTicketExceptions(),
+  ]);
   const users = (tables.Usuarios || []).filter(activeUser);
   const userById = new Map(users.map((user) => [clean(user.UsuarioID), user]));
   const timestamp = nowIso();
@@ -293,7 +303,7 @@ async function create(ctx) {
   const assignmentRows = [];
 
   requested.forEach((input, index) => {
-    const values = normalizeAgendaInput(input);
+    const values = normalizeAgendaInput(input, {}, ticketExceptions);
     const userIds = normalizeUserIds(input.usuarioIds || input.UsuarioIDs || input.asignados || []);
     if (!userIds.length) throw badRequest(`La agenda #${index + 1} debe tener al menos una persona asignada.`);
     const invalidUsers = userIds.filter((id) => !userById.has(id));
@@ -332,6 +342,7 @@ async function create(ctx) {
     users,
     tickets: [],
     ticketAssignments: [],
+    ticketExceptions,
   });
   const notification = await notifyAgenda(views, users, 'CREATED');
 
@@ -356,7 +367,10 @@ async function update(ctx) {
   if (!agendaId) throw badRequest('Debe indicar la agenda.');
 
   const before = await findById('Agendas', agendaId);
-  const tables = await readTables(['AgendaAsignados', 'Usuarios', 'Boletas', 'BoletaAsignados']);
+  const [tables, ticketExceptions] = await Promise.all([
+    readTables(['AgendaAsignados', 'Usuarios', 'Boletas', 'BoletaAsignados']),
+    getAgendaTicketExceptions(),
+  ]);
   const users = (tables.Usuarios || []).filter(activeUser);
   const userById = new Map(users.map((user) => [clean(user.UsuarioID), user]));
   const activeRows = (tables.AgendaAsignados || []).filter((row) => activeAssignment(row) && clean(row.AgendaID) === agendaId);
@@ -370,7 +384,7 @@ async function update(ctx) {
   if (!newUserIds.length) throw badRequest('La agenda debe tener al menos una persona asignada.');
   if (newUserIds.some((id) => !userById.has(id))) throw badRequest('La agenda contiene usuarios inactivos o inexistentes.');
 
-  const values = normalizeAgendaInput(ctx.payload, before);
+  const values = normalizeAgendaInput(ctx.payload, before, ticketExceptions);
   const oldDate = agendaDate(before.Fecha);
   const dateChanged = values.Fecha !== oldDate;
   const assignmentChanged = oldUserIds.length !== newUserIds.length
@@ -434,6 +448,7 @@ async function update(ctx) {
     users,
     tickets: tables.Boletas || [],
     ticketAssignments: tables.BoletaAsignados || [],
+    ticketExceptions,
   })[0];
   const removedMap = new Map([[agendaId, removed]]);
   const notification = await notifyAgenda([view], users, 'UPDATED', removedMap);
