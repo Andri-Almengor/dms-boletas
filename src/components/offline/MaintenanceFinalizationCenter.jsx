@@ -5,7 +5,10 @@ import { useAuth } from '../../AuthContext';
 import Icon from '../common/Icon';
 import { getEntityQueueState, listQueuedOperations } from '../../services/offlineStore';
 import { MODULE_ROUTES, pick, requestAvailable } from '../../services/moduleApi';
-import { requestMaintenanceFinalization } from '../../services/maintenanceFinalization';
+import {
+  cancelScheduledMaintenanceFinalization,
+  requestMaintenanceFinalization,
+} from '../../services/maintenanceFinalization';
 import { maintenanceFinalizationView } from '../../services/maintenanceFinalizationDomain';
 import './MaintenanceFinalizationCenter.css';
 
@@ -29,6 +32,20 @@ function mergeStatus(current, data) {
   return { ...(current || {}), ...maintenance };
 }
 
+function formattedSchedule(value) {
+  const date = new Date(value || 0);
+  if (Number.isNaN(date.getTime())) return 'hoy a las 5:00 p. m.';
+  return new Intl.DateTimeFormat('es-CR', {
+    timeZone: 'America/Costa_Rica',
+    weekday: 'long',
+    day: 'numeric',
+    month: 'long',
+    hour: 'numeric',
+    minute: '2-digit',
+    hour12: true,
+  }).format(date);
+}
+
 export default function MaintenanceFinalizationCenter() {
   const { pathname } = useLocation();
   const { sessionToken, hasPermission } = useAuth();
@@ -41,6 +58,7 @@ export default function MaintenanceFinalizationCenter() {
   const [allFinalizations, setAllFinalizations] = useState([]);
   const [working, setWorking] = useState(false);
   const [workingRetry, setWorkingRetry] = useState(false);
+  const [canceling, setCanceling] = useState(false);
   const [message, setMessage] = useState('');
   const [footerTarget, setFooterTarget] = useState(null);
 
@@ -124,9 +142,10 @@ export default function MaintenanceFinalizationCenter() {
   useEffect(() => {
     if (!maintenanceId || !online || !view.active || view.completed) return undefined;
     refreshStatus();
-    const intervalId = window.setInterval(refreshStatus, 5_000);
+    const intervalMs = view.scheduled ? 30_000 : 5_000;
+    const intervalId = window.setInterval(refreshStatus, intervalMs);
     return () => window.clearInterval(intervalId);
-  }, [maintenanceId, online, refreshStatus, view.active, view.completed]);
+  }, [maintenanceId, online, refreshStatus, view.active, view.completed, view.scheduled]);
 
   const status = clean(pick(row, ['Estado'], '')).toUpperCase();
   const devices = Number(pick(row, ['DispositivosRegistrados', 'FinalizacionTotalDispositivos'], 0) || 0);
@@ -148,8 +167,8 @@ export default function MaintenanceFinalizationCenter() {
     const prompt = retry
       ? '¿Reanudar la finalización desde la unidad que falló? Todo lo ya completado se conservará.'
       : deferredNeeded
-        ? '¿Guardar la finalización para ejecutarla después de sincronizar todos los cambios? Si no existe firma, las boletas y PDF se generarán sin firma.'
-        : '¿Iniciar la finalización escalonada? Si no existe firma, las boletas y PDF se generarán sin firma. El proceso guardará el avance automáticamente y puede tardar según el tamaño del mantenimiento.';
+        ? '¿Guardar la finalización para ejecutarla después de sincronizar todos los cambios? Si se sincroniza antes de las 5:00 p. m., quedará programada para esa hora.'
+        : '¿Solicitar la finalización? Antes de las 5:00 p. m. quedará programada y se procesará automáticamente a esa hora. Después de las 5:00 p. m. comenzará de inmediato. Puede cerrar la aplicación.';
     if (!window.confirm(prompt)) return;
     setWorkingRetry(retry);
     setWorking(true);
@@ -158,15 +177,35 @@ export default function MaintenanceFinalizationCenter() {
       const result = await requestMaintenanceFinalization({ maintenanceId, sessionToken, retry });
       setMessage(result?.message || (result?.offlineQueued
         ? 'La finalización quedó pendiente de sincronización.'
-        : 'La finalización escalonada fue iniciada.'));
+        : result?.scheduled
+          ? 'La finalización quedó programada para las 5:00 p. m.'
+          : 'La finalización escalonada fue iniciada.'));
       if (result?.mantenimiento) setRow((current) => mergeStatus(current, result));
       await refreshStatus();
     } catch (error) {
-      setMessage(error?.message || 'No se pudo iniciar la finalización.');
+      setMessage(error?.message || 'No se pudo solicitar la finalización.');
       await refreshStatus();
     } finally {
       setWorking(false);
       setWorkingRetry(false);
+    }
+  }
+
+  async function cancelSchedule() {
+    if (!maintenanceId || canceling || !view.canCancelSchedule) return;
+    if (!window.confirm('¿Cancelar la finalización programada? El mantenimiento volverá a quedar pendiente y no se procesará automáticamente a las 5:00 p. m.')) return;
+    setCanceling(true);
+    setMessage('');
+    try {
+      const result = await cancelScheduledMaintenanceFinalization({ maintenanceId, sessionToken });
+      if (result?.mantenimiento) setRow((current) => mergeStatus(current, result));
+      setMessage(result?.message || 'La finalización programada fue cancelada.');
+      await refreshFull();
+    } catch (error) {
+      setMessage(error?.message || 'No se pudo cancelar la finalización programada.');
+      await refreshStatus();
+    } finally {
+      setCanceling(false);
     }
   }
 
@@ -181,7 +220,7 @@ export default function MaintenanceFinalizationCenter() {
       >
         <Icon name={retryFromError ? 'refresh' : deferredNeeded ? 'schedule_send' : 'task_alt'} />
         {working
-          ? retryFromError ? 'Reanudando...' : 'Iniciando...'
+          ? retryFromError ? 'Reanudando...' : 'Programando...'
           : retryFromError ? 'Reintentar finalización'
             : deferredNeeded ? 'Finalizar al sincronizar' : 'Finalizar mantenimiento'}
       </button>,
@@ -204,25 +243,32 @@ export default function MaintenanceFinalizationCenter() {
   const evidenceTotal = Number(pick(row, ['FinalizacionTotalEvidencias'], 0) || 0);
   const evidenceDone = Number(pick(row, ['FinalizacionEvidenciasProcesadas'], 0) || 0);
   const storedMessage = clean(pick(row, ['FinalizacionMensaje'], ''));
-  const statusMessage = view.error || storedMessage || message || (view.active
-    ? 'La finalización continúa en segundo plano y guarda cada paso confirmado.'
-    : '');
+  const statusMessage = view.error || storedMessage || message || (view.scheduled
+    ? `Se procesará automáticamente ${formattedSchedule(view.scheduledAt)}. Puede cerrar la aplicación.`
+    : view.active
+      ? 'La finalización continúa en segundo plano y guarda cada paso confirmado.'
+      : '');
 
   return (
     <>
       {footerButton}
-      <aside className={`maintenance-finalization-center${view.canRetry ? ' has-error' : ''}`} role="status" aria-live="polite">
+      <aside className={`maintenance-finalization-center${view.canRetry ? ' has-error' : ''}${view.scheduled ? ' is-scheduled' : ''}`} role="status" aria-live="polite">
         <div className="maintenance-finalization-center__heading">
           <span className="maintenance-finalization-center__icon">
-            <Icon name={view.canRetry ? 'error' : view.completed ? 'task_alt' : 'pending_actions'} />
+            <Icon name={view.canRetry ? 'error' : view.completed ? 'task_alt' : view.scheduled ? 'schedule' : 'pending_actions'} />
           </span>
           <div>
-            <strong>{view.completed ? 'Mantenimiento finalizado' : working ? 'Iniciando finalización' : view.label}</strong>
+            <strong>{view.completed ? 'Mantenimiento finalizado' : working ? 'Procesando solicitud' : view.label}</strong>
             {statusMessage && <small>{statusMessage}</small>}
+            {view.scheduled && view.scheduledAt && (
+              <small className="maintenance-finalization-center__scheduled-time">
+                Hora programada: {formattedSchedule(view.scheduledAt)} · Costa Rica
+              </small>
+            )}
           </div>
         </div>
 
-        {(working || view.active) && !view.completed && (
+        {(working || (view.active && !view.scheduled)) && !view.completed && (
           <>
             <div className="maintenance-finalization-center__progress" aria-label={`${displayProgress}% completado`}>
               <span style={{ width: `${displayProgress}%` }} />
@@ -237,12 +283,20 @@ export default function MaintenanceFinalizationCenter() {
         )}
 
         <div className="maintenance-finalization-center__actions">
+          {view.canCancelSchedule && (
+            <button type="button" className="maintenance-finalization-center__cancel" onClick={cancelSchedule} disabled={canceling || !online}>
+              <Icon name="event_busy" />{canceling ? 'Cancelando...' : 'Cancelar finalización programada'}
+            </button>
+          )}
           {view.canRetry && (
             <button type="button" onClick={() => finalize({ retry: true })} disabled={working || view.blocked}>
               <Icon name="refresh" />{workingRetry ? 'Reanudando...' : 'Reintentar desde el último paso'}
             </button>
           )}
-          {view.active && !view.canRetry && !view.completed && (
+          {view.scheduled && (
+            <span>Puede cerrar el navegador o apagar este equipo. El servidor continuará mediante el worker programado.</span>
+          )}
+          {view.active && !view.scheduled && !view.canRetry && !view.completed && (
             <span>Puede continuar utilizando la aplicación. Si Render se reinicia, el avance persistido se reutilizará.</span>
           )}
           {!maintenanceId && allFinalizations.length > 0 && (
