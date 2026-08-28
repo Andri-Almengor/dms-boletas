@@ -37,3 +37,5 @@ services:
         sync: false
       - key: GOOGLE_CHAT_WEBHOOK
         sync: false
+      - key: MAINTENANCE_FINALIZATION_WAKE_SECRET
+        sync: false
