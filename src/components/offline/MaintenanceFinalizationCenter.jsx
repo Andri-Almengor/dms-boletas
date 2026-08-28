@@ -164,14 +164,15 @@ export default function MaintenanceFinalizationCenter() {
     && (!view.active || view.canRetry)
     && !view.blocked,
   );
+  const optionalSignatureNotice = 'Si no existe firma, las boletas y PDF se generarán sin firma.';
 
   async function finalize({ retry = false } = {}) {
     if (!maintenanceId || working) return;
     const prompt = retry
       ? '¿Reanudar la finalización desde la unidad que falló? Todo lo ya completado se conservará.'
       : deferredNeeded
-        ? '¿Guardar la finalización para ejecutarla después de sincronizar todos los cambios? Si se sincroniza antes de las 5:00 p. m., quedará programada para esa hora.'
-        : '¿Solicitar la finalización? Antes de las 5:00 p. m. quedará programada y se procesará automáticamente a esa hora. Después de las 5:00 p. m. comenzará de inmediato. Puede cerrar la aplicación.';
+        ? `¿Guardar la finalización para ejecutarla después de sincronizar todos los cambios? Si se sincroniza antes de las 5:00 p. m., quedará programada para esa hora. ${optionalSignatureNotice}`
+        : `¿Solicitar la finalización? Antes de las 5:00 p. m. quedará programada y se procesará automáticamente a esa hora. Después de las 5:00 p. m. comenzará de inmediato. Puede cerrar la aplicación. ${optionalSignatureNotice}`;
     if (!window.confirm(prompt)) return;
     setWorkingRetry(retry);
     setWorking(true);
