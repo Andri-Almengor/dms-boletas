@@ -80,6 +80,20 @@ test('Apps Script despierta Render a las 17:00 y programa reintentos si todavía
   assert.match(script, /\/api\/maintenance-finalization\/wake/);
 });
 
+test('Apps Script libera DELIVERY heredadas y limita la idempotencia antes de despertar Render', () => {
+  const script = source('scripts/google-apps-script/maintenance-finalization-5pm-worker.gs');
+  assert.match(script, /DMS_IDEMPOTENCY_MAX_PROPERTIES = 80/);
+  assert.match(script, /'DELIVERY_'/);
+  assert.match(script, /dmsPruneIdempotencyProperties_/);
+  assert.match(script, /dmsCleanupQuotaBeforeWake_\(\)/);
+  assert.match(script, /dmsCleanupPropertyQuotaNow/);
+  assert.match(script, /everyHours\(1\)/);
+  assert.match(script, /properties\.deleteProperty\(key\)/);
+  assert.match(script, /REPORT_WEBHOOK_SECRET/);
+  assert.match(script, /TEMPLATE_BOLETA_ID/);
+  assert.match(script, /BOLETAS_FOLDER_ID/);
+});
+
 test('la interfaz distingue finalización programada y permite cancelarla antes de iniciar', () => {
   const domain = source('src/services/maintenanceFinalizationDomain.js');
   const center = source('src/components/offline/MaintenanceFinalizationCenter.jsx');
