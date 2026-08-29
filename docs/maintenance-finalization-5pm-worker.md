@@ -46,6 +46,13 @@ installDmsMaintenanceFinalizationTrigger();
 
 Autorizar `UrlFetchApp` y la creación de triggers cuando Google lo solicite.
 
+La instalación crea dos salvaguardas:
+
+- el trigger diario de finalización alrededor de las 17:00 Costa Rica;
+- una limpieza horaria de las propiedades de idempotencia del Apps Script de reportes.
+
+La limpieza conserva como máximo 80 entradas recientes y únicamente administra claves con los prefijos `DELIVERY_`, `INVITATION_`, `MAINTENANCE_PRESENTATION_` y `CUSTOMER_CASE_*`. No elimina `REPORT_WEBHOOK_SECRET`, IDs de carpetas, plantillas ni los secretos del worker.
+
 El trigger usa `America/Costa_Rica`. Google puede ejecutar un trigger diario unos minutos antes o después del minuto solicitado. Si se ejecuta antes de las 17:00, el backend responde con `nextDueAt` y el script crea automáticamente un trigger de una sola ejecución después de la hora exacta.
 
 ## 4. Probar sin finalizar nada
@@ -70,6 +77,26 @@ Un resultado correcto puede ser similar a:
 
 La prueba únicamente despierta y consulta el worker. No fuerza mantenimientos que todavía no hayan llegado a su hora programada.
 
+## Recuperar el error de cuota de Script Properties
+
+Si la aplicación muestra:
+
+```text
+You have exceeded the property storage quota. Please remove some properties and try again.
+```
+
+la instalación ya acumuló demasiadas respuestas idempotentes de versiones anteriores. No es necesario borrar secretos ni configuración manualmente.
+
+Después de actualizar `maintenance-finalization-5pm-worker.gs`, ejecutar una vez:
+
+```javascript
+dmsCleanupPropertyQuotaNow();
+```
+
+La función elimina únicamente las propiedades idempotentes administradas por DMS y devuelve un resumen con `deleted`, `legacyDeleted`, `expiredDeleted` y `retained`.
+
+Una vez completada la limpieza, en DMS Boletas usar **Reintentar desde el último paso**. El backend conserva el job y el progreso persistido, por lo que no hay que devolver el mantenimiento a Pendiente ni recrearlo.
+
 ## Endpoint
 
 ```text
@@ -86,6 +113,7 @@ El endpoint no acepta sesiones de usuario como sustituto del secreto. El worker 
 
 ## Recuperación
 
+- Antes de cada wake-up, Apps Script libera propiedades idempotentes heredadas o expiradas para evitar que la generación de boletas falle por cuota.
 - Si quedan mantenimientos `EN_PROCESO`, cada wake-up intenta reanudar los jobs persistentes existentes.
 - El Apps Script mantiene una ventana de ejecución acotada y, si `pending > 0`, crea otro trigger aproximadamente cinco minutos después.
 - Los errores definitivos quedan en `ERROR` y no se reintentan infinitamente; se conserva el botón manual **Reintentar finalización** de la aplicación.
