@@ -3,7 +3,7 @@ import { apiRequest } from '../../api';
 import { useAuth } from '../../AuthContext';
 import Icon from '../common/Icon';
 import { fetchActivityReport } from '../../services/activityReportApi';
-import { exportActivityReport, formatDuration } from '../../services/activityReportExport';
+import { exportActivityReport, formatDuration } from '../../services/activityReportExportNatural';
 import '../../styles/activity-reports.css';
 
 const SECTIONS = [
