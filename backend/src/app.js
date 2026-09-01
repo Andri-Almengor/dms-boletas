@@ -31,6 +31,7 @@ import './services/integration-gateway-natural-language.patch.js';
 import './services/integration-gateway-advanced-actions.patch.js';
 import { runWithSheetsRouteReadCache } from './services/sheets-route-read-cache.patch.js';
 import { streamProtectedMedia } from './services/protected-media-stream.service.js';
+import { recordApiActivityFromToken } from './services/activity-log.service.js';
 import { env } from './config/env.js';
 import { dispatchAction } from './core/action-router.js';
 import { AppError } from './core/errors.js';
@@ -40,6 +41,7 @@ import {
 } from './modules/password-vault.module.js';
 import { integrationGatewayRouter } from './routes/integration-gateway.routes.js';
 import { maintenanceFinalizationWorkerRouter } from './routes/maintenance-finalization-worker.routes.js';
+import { activityReportRouter } from './routes/activity-report.routes.js';
 import { runWithActionConcurrency } from './services/action-concurrency.service.js';
 import { runWithActionSingleFlight } from './services/action-single-flight.service.js';
 import {
@@ -101,6 +103,7 @@ app.use(express.text({ type: ['text/plain', 'application/javascript'], limit: '5
 
 app.use('/api/integration-gateway', integrationGatewayRouter);
 app.use('/api/maintenance-finalization', maintenanceFinalizationWorkerRouter);
+app.use('/api/activity', activityReportRouter);
 
 app.get('/api/health', (_req, res) => {
   res.setHeader('Cache-Control', 'no-store');
@@ -110,11 +113,14 @@ app.get('/api/health', (_req, res) => {
 app.get('/api/media/stream', streamProtectedMedia);
 
 app.post('/api/action', actionEnvelopeMiddleware, actionRateLimitMiddleware, async (req, res, next) => {
+  let envelope = null;
+  let sessionToken = '';
+  const startedAt = Date.now();
   try {
     res.setHeader('Cache-Control', 'no-store');
-    const envelope = req.actionEnvelope;
+    envelope = req.actionEnvelope;
     const requestOrigin = req.get('origin') || `${req.protocol}://${req.get('host')}`;
-    const sessionToken = envelope.sessionToken || req.headers.authorization?.replace(/^Bearer\s+/i, '') || '';
+    sessionToken = envelope.sessionToken || req.headers.authorization?.replace(/^Bearer\s+/i, '') || '';
     const action = isPasswordVaultRoute(envelope.route)
       ? dispatchPasswordVaultAction
       : dispatchAction;
@@ -133,8 +139,32 @@ app.post('/api/action', actionEnvelopeMiddleware, actionRateLimitMiddleware, asy
       payload: envelope.payload,
       sessionToken,
     }, execute);
+
+    void recordApiActivityFromToken({
+      sessionToken,
+      route: envelope.route,
+      payload: envelope.payload,
+      data,
+      startedAt,
+      endedAt: Date.now(),
+      ip: req.ip,
+      userAgent: req.get('user-agent') || '',
+    });
+
     res.json({ ok: true, data });
   } catch (error) {
+    if (envelope?.route && sessionToken) {
+      void recordApiActivityFromToken({
+        sessionToken,
+        route: envelope.route,
+        payload: envelope.payload,
+        error,
+        startedAt,
+        endedAt: Date.now(),
+        ip: req.ip,
+        userAgent: req.get('user-agent') || '',
+      });
+    }
     next(error);
   }
 });

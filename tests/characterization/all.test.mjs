@@ -1,3 +1,4 @@
+import './activity-reports.test.mjs';
 import './agenda-operativa.test.mjs';
 import './agenda-chat.test.mjs';
 import './agenda-resend.test.mjs';
