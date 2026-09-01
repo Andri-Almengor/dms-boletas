@@ -20,6 +20,7 @@ const DMS_IDEMPOTENCY_MAX_PROPERTIES = 80;
 const DMS_IDEMPOTENCY_PREFIXES = Object.freeze([
   'INVITATION_',
   'MAINTENANCE_PRESENTATION_',
+  'AGENDA_NOTIFICATION_',
   'CUSTOMER_CASE_CREATED_',
   'CUSTOMER_CASE_ASSIGNED_',
   'CUSTOMER_CASE_EVIDENCE_',
@@ -166,7 +167,7 @@ function dmsCleanupQuotaBeforeWake_() {
 }
 
 function callDmsFinalizationWorker_() {
-  // Libera primero las DELIVERY_* heredadas para que el Apps Script de reportes
+  // Libera primero las propiedades heredadas para que el Apps Script de reportes
   // tenga espacio antes de que Render empiece a solicitar boletas y PDFs.
   dmsCleanupQuotaBeforeWake_();
 
