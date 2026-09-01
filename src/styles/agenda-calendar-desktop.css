@@ -54,10 +54,16 @@
     box-shadow: 0 10px 34px color-mix(in srgb, var(--text) 7%, transparent);
   }
 
+  /*
+   * El calendario ya usa overflow:hidden para respetar el borde redondeado.
+   * Un header sticky dentro de ese mismo contenedor toma el top global como
+   * desplazamiento interno y termina montándose sobre la primera semana.
+   * Se mantiene el encabezado dentro del flujo normal del calendario.
+   */
   .agenda-calendar__weekdays {
-    position: sticky;
-    top: var(--top-bar-height);
-    z-index: 7;
+    position: relative;
+    top: auto;
+    z-index: 2;
     background: color-mix(in srgb, var(--surface-low) 96%, transparent);
     backdrop-filter: blur(10px);
   }
