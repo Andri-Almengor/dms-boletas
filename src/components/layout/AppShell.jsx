@@ -5,6 +5,7 @@ import useOfflineMode from '../../hooks/useOfflineMode';
 import Icon from '../common/Icon';
 
 const OfflineSyncManager = lazy(() => import('../offline/OfflineSyncRuntime'));
+const ActivityTelemetryBridge = lazy(() => import('../system/ActivityTelemetryBridge'));
 
 function initials(name = '') {
   const parts = String(name).trim().split(/\s+/).filter(Boolean);
@@ -58,6 +59,7 @@ export default function AppShell() {
   async function handleLogout() { await logout(); navigate('/login', { replace: true }); }
 
   return <div className={`app-shell${isWorkflowForm ? ' app-shell--form' : ''}${isAssistantPage ? ' app-shell--assistant' : ''}`}>
+    <Suspense fallback={null}><ActivityTelemetryBridge /></Suspense>
     {!isWorkflowForm && !isAssistantPage && <header className="top-bar"><button type="button" className="icon-button" onClick={() => setDrawerOpen(true)} aria-label="Abrir menú" aria-expanded={drawerOpen}><Icon name="menu" /></button><NavLink to="/" className="top-bar__brand">DMS Boletas</NavLink><NavLink to="/mas" className="avatar avatar--small" aria-label="Abrir perfil">{initials(user?.NombreCompleto)}</NavLink></header>}
     {isAssistantPage && <header className="assistant-route-bar">
       <div className="assistant-route-bar__identity"><span className="assistant-route-bar__bot"><Icon name="smart_toy" filled /></span><div><strong>DMS Assistant</strong><span><i />En línea</span></div></div>
