@@ -9,7 +9,10 @@ import {
   cancelScheduledMaintenanceFinalization,
   requestMaintenanceFinalization,
 } from '../../services/maintenanceFinalization';
-import { maintenanceFinalizationView } from '../../services/maintenanceFinalizationDomain';
+import {
+  MAINTENANCE_FINALIZATION_MODES,
+  maintenanceFinalizationView,
+} from '../../services/maintenanceFinalizationDomain';
 import './MaintenanceFinalizationCenter.css';
 
 function currentMaintenanceId(pathname) {
@@ -46,6 +49,20 @@ function formattedSchedule(value) {
   }).format(date);
 }
 
+function costaRicaHour() {
+  const parts = new Intl.DateTimeFormat('en-US', {
+    timeZone: 'America/Costa_Rica',
+    hour: '2-digit',
+    hourCycle: 'h23',
+  }).formatToParts(new Date());
+  const hour = Number(parts.find((part) => part.type === 'hour')?.value || 0);
+  return Number.isFinite(hour) ? hour : 0;
+}
+
+function canScheduleForFiveToday() {
+  return costaRicaHour() < 17;
+}
+
 export default function MaintenanceFinalizationCenter() {
   const { pathname } = useLocation();
   const { sessionToken, hasPermission } = useAuth();
@@ -61,6 +78,7 @@ export default function MaintenanceFinalizationCenter() {
   const [canceling, setCanceling] = useState(false);
   const [message, setMessage] = useState('');
   const [footerTarget, setFooterTarget] = useState(null);
+  const [choiceOpen, setChoiceOpen] = useState(false);
 
   const refreshQueue = useCallback(async () => {
     const operations = await listQueuedOperations().catch(() => []);
@@ -124,6 +142,10 @@ export default function MaintenanceFinalizationCenter() {
   }, [refreshFull, refreshQueue]);
 
   useEffect(() => {
+    setChoiceOpen(false);
+  }, [maintenanceId, pathname]);
+
+  useEffect(() => {
     if (!detailRoute) {
       setFooterTarget(null);
       return undefined;
@@ -166,19 +188,41 @@ export default function MaintenanceFinalizationCenter() {
   );
   const optionalSignatureNotice = 'Si no existe firma, las boletas y PDF se generarán sin firma.';
 
-  async function finalize({ retry = false } = {}) {
+  async function finalize({ retry = false, mode = MAINTENANCE_FINALIZATION_MODES.AUTO } = {}) {
     if (!maintenanceId || working) return;
+
+    if (!retry && mode === MAINTENANCE_FINALIZATION_MODES.AUTO && canScheduleForFiveToday()) {
+      setMessage('');
+      setChoiceOpen(true);
+      return;
+    }
+
+    const normalizedMode = retry
+      ? MAINTENANCE_FINALIZATION_MODES.NOW
+      : mode === MAINTENANCE_FINALIZATION_MODES.AUTO
+        ? MAINTENANCE_FINALIZATION_MODES.NOW
+        : mode;
     const prompt = retry
       ? '¿Reanudar la finalización desde la unidad que falló? Todo lo ya completado se conservará.'
-      : deferredNeeded
-        ? `¿Guardar la finalización para ejecutarla después de sincronizar todos los cambios? Si se sincroniza antes de las 5:00 p. m., quedará programada para esa hora. ${optionalSignatureNotice}`
-        : `¿Solicitar la finalización? Antes de las 5:00 p. m. quedará programada y se procesará automáticamente a esa hora. Después de las 5:00 p. m. comenzará de inmediato. Puede cerrar la aplicación. ${optionalSignatureNotice}`;
+      : normalizedMode === MAINTENANCE_FINALIZATION_MODES.NOW
+        ? deferredNeeded
+          ? `¿Finalizar en cuanto termine la sincronización? El servidor iniciará el proceso sin esperar a las 5:00 p. m. ${optionalSignatureNotice}`
+          : `¿Finalizar este mantenimiento ahora? El procesamiento escalonado comenzará inmediatamente y puede cerrar la aplicación. ${optionalSignatureNotice}`
+        : deferredNeeded
+          ? `¿Programar la finalización para las 5:00 p. m.? Primero se sincronizarán los cambios pendientes. Si la sincronización termina después de las 5:00 p. m., el procesamiento comenzará en cuanto sea posible. ${optionalSignatureNotice}`
+          : `¿Programar la finalización para hoy a las 5:00 p. m. hora Costa Rica? Hasta esa hora el mantenimiento quedará bloqueado y podrá cancelar la programación. ${optionalSignatureNotice}`;
     if (!window.confirm(prompt)) return;
+    setChoiceOpen(false);
     setWorkingRetry(retry);
     setWorking(true);
     setMessage('');
     try {
-      const result = await requestMaintenanceFinalization({ maintenanceId, sessionToken, retry });
+      const result = await requestMaintenanceFinalization({
+        maintenanceId,
+        sessionToken,
+        retry,
+        mode: normalizedMode,
+      });
       setMessage(result?.message || (result?.offlineQueued
         ? 'La finalización quedó pendiente de sincronización.'
         : result?.scheduled
@@ -224,7 +268,7 @@ export default function MaintenanceFinalizationCenter() {
       >
         <Icon name={retryFromError ? 'refresh' : deferredNeeded ? 'schedule_send' : 'task_alt'} />
         {working
-          ? retryFromError ? 'Reanudando...' : 'Programando...'
+          ? retryFromError ? 'Reanudando...' : 'Solicitando...'
           : retryFromError ? 'Reintentar finalización'
             : deferredNeeded ? 'Finalizar al sincronizar' : 'Finalizar mantenimiento'}
       </button>,
@@ -233,7 +277,8 @@ export default function MaintenanceFinalizationCenter() {
     : null;
 
   const showStatus = Boolean(
-    (!maintenanceId && allFinalizations.length)
+    choiceOpen
+    || (!maintenanceId && allFinalizations.length)
     || (maintenanceId && (working || view.active || message)),
   );
   if (!showStatus) return <>{footerButton}</>;
@@ -256,57 +301,93 @@ export default function MaintenanceFinalizationCenter() {
   return (
     <>
       {footerButton}
-      <aside className={`maintenance-finalization-center${view.canRetry ? ' has-error' : ''}${view.scheduled ? ' is-scheduled' : ''}`} role="status" aria-live="polite">
-        <div className="maintenance-finalization-center__heading">
-          <span className="maintenance-finalization-center__icon">
-            <Icon name={view.canRetry ? 'error' : view.completed ? 'task_alt' : view.scheduled ? 'schedule' : 'pending_actions'} />
-          </span>
-          <div>
-            <strong>{view.completed ? 'Mantenimiento finalizado' : working ? 'Procesando solicitud' : view.label}</strong>
-            {statusMessage && <small>{statusMessage}</small>}
-            {view.scheduled && view.scheduledAt && (
-              <small className="maintenance-finalization-center__scheduled-time">
-                Hora programada: {formattedSchedule(view.scheduledAt)} · Costa Rica
-              </small>
-            )}
-          </div>
-        </div>
-
-        {(working || (view.active && !view.scheduled)) && !view.completed && (
+      <aside className={`maintenance-finalization-center${view.canRetry ? ' has-error' : ''}${view.scheduled ? ' is-scheduled' : ''}${choiceOpen ? ' is-choice' : ''}`} role="status" aria-live="polite">
+        {choiceOpen ? (
           <>
-            <div className="maintenance-finalization-center__progress" aria-label={`${displayProgress}% completado`}>
-              <span style={{ width: `${displayProgress}%` }} />
+            <div className="maintenance-finalization-center__heading">
+              <span className="maintenance-finalization-center__icon"><Icon name="schedule" /></span>
+              <div>
+                <strong>¿Cuándo desea finalizar el mantenimiento?</strong>
+                <small>Puede iniciar el procesamiento ahora o dejarlo programado para hoy a las 5:00 p. m. hora Costa Rica.</small>
+                {deferredNeeded && (
+                  <small>Hay cambios pendientes de sincronización; la opción elegida se conservará en la cola.</small>
+                )}
+              </div>
             </div>
             <div className="maintenance-finalization-center__actions">
-              <span>{displayProgress}%</span>
-              {ticketTotal > 0 && <span>Boletas {ticketDone}/{ticketTotal}</span>}
-              {deviceTotal > 0 && <span>Dispositivos {deviceDone}/{deviceTotal}</span>}
-              {evidenceTotal > 0 && <span>Evidencias {evidenceDone}/{evidenceTotal}</span>}
+              <button
+                type="button"
+                onClick={() => finalize({ mode: MAINTENANCE_FINALIZATION_MODES.NOW })}
+                disabled={working}
+              >
+                <Icon name="play_arrow" />Finalizar ahora
+              </button>
+              <button
+                type="button"
+                onClick={() => finalize({ mode: MAINTENANCE_FINALIZATION_MODES.FIVE_PM })}
+                disabled={working}
+              >
+                <Icon name="schedule" />Programar para las 5:00 p. m.
+              </button>
+              <button type="button" onClick={() => setChoiceOpen(false)} disabled={working}>
+                <Icon name="close" />Cancelar
+              </button>
+            </div>
+          </>
+        ) : (
+          <>
+            <div className="maintenance-finalization-center__heading">
+              <span className="maintenance-finalization-center__icon">
+                <Icon name={view.canRetry ? 'error' : view.completed ? 'task_alt' : view.scheduled ? 'schedule' : 'pending_actions'} />
+              </span>
+              <div>
+                <strong>{view.completed ? 'Mantenimiento finalizado' : working ? 'Procesando solicitud' : view.label}</strong>
+                {statusMessage && <small>{statusMessage}</small>}
+                {view.scheduled && view.scheduledAt && (
+                  <small className="maintenance-finalization-center__scheduled-time">
+                    Hora programada: {formattedSchedule(view.scheduledAt)} · Costa Rica
+                  </small>
+                )}
+              </div>
+            </div>
+
+            {(working || (view.active && !view.scheduled)) && !view.completed && (
+              <>
+                <div className="maintenance-finalization-center__progress" aria-label={`${displayProgress}% completado`}>
+                  <span style={{ width: `${displayProgress}%` }} />
+                </div>
+                <div className="maintenance-finalization-center__actions">
+                  <span>{displayProgress}%</span>
+                  {ticketTotal > 0 && <span>Boletas {ticketDone}/{ticketTotal}</span>}
+                  {deviceTotal > 0 && <span>Dispositivos {deviceDone}/{deviceTotal}</span>}
+                  {evidenceTotal > 0 && <span>Evidencias {evidenceDone}/{evidenceTotal}</span>}
+                </div>
+              </>
+            )}
+
+            <div className="maintenance-finalization-center__actions">
+              {view.canCancelSchedule && (
+                <button type="button" className="maintenance-finalization-center__cancel" onClick={cancelSchedule} disabled={canceling || !online}>
+                  <Icon name="event_busy" />{canceling ? 'Cancelando...' : 'Cancelar finalización programada'}
+                </button>
+              )}
+              {view.canRetry && (
+                <button type="button" onClick={() => finalize({ retry: true, mode: MAINTENANCE_FINALIZATION_MODES.NOW })} disabled={working || view.blocked}>
+                  <Icon name="refresh" />{workingRetry ? 'Reanudando...' : 'Reintentar desde el último paso'}
+                </button>
+              )}
+              {view.scheduled && (
+                <span>Puede cerrar el navegador o apagar este equipo. El servidor continuará mediante el worker programado.</span>
+              )}
+              {view.active && !view.scheduled && !view.canRetry && !view.completed && (
+                <span>Puede continuar utilizando la aplicación. Si Render se reinicia, el avance persistido se reutilizará.</span>
+              )}
+              {!maintenanceId && allFinalizations.length > 0 && (
+                <span>{allFinalizations.length} finalización{allFinalizations.length === 1 ? '' : 'es'} pendiente{allFinalizations.length === 1 ? '' : 's'}.</span>
+              )}
             </div>
           </>
         )}
-
-        <div className="maintenance-finalization-center__actions">
-          {view.canCancelSchedule && (
-            <button type="button" className="maintenance-finalization-center__cancel" onClick={cancelSchedule} disabled={canceling || !online}>
-              <Icon name="event_busy" />{canceling ? 'Cancelando...' : 'Cancelar finalización programada'}
-            </button>
-          )}
-          {view.canRetry && (
-            <button type="button" onClick={() => finalize({ retry: true })} disabled={working || view.blocked}>
-              <Icon name="refresh" />{workingRetry ? 'Reanudando...' : 'Reintentar desde el último paso'}
-            </button>
-          )}
-          {view.scheduled && (
-            <span>Puede cerrar el navegador o apagar este equipo. El servidor continuará mediante el worker programado.</span>
-          )}
-          {view.active && !view.scheduled && !view.canRetry && !view.completed && (
-            <span>Puede continuar utilizando la aplicación. Si Render se reinicia, el avance persistido se reutilizará.</span>
-          )}
-          {!maintenanceId && allFinalizations.length > 0 && (
-            <span>{allFinalizations.length} finalización{allFinalizations.length === 1 ? '' : 'es'} pendiente{allFinalizations.length === 1 ? '' : 's'}.</span>
-          )}
-        </div>
       </aside>
     </>
   );
