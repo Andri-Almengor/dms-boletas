@@ -33,6 +33,13 @@ test('el backend persiste PROGRAMADO y no entra al worker antes de las 17:00', (
   assert.match(scheduler, /Puede cerrar la aplicación/);
 });
 
+test('el backend conserva una vía autorizada para finalizar inmediatamente antes de las 17:00', () => {
+  const scheduler = source('backend/src/services/maintenance-finalization-schedule.patch.js');
+  assert.match(scheduler, /forceScheduledFinalization/);
+  assert.match(scheduler, /forceRequested\(ctx\)/);
+  assert.match(scheduler, /return baseFinalize\(ctx\)/);
+});
+
 test('la capa de las 17:00 se instala antes de que action-router capture los handlers', () => {
   const app = source('backend/src/app.js');
   const scheduleImport = app.indexOf("import './services/maintenance-finalization-schedule.patch.js'");
@@ -80,10 +87,11 @@ test('Apps Script despierta Render a las 17:00 y programa reintentos si todavía
   assert.match(script, /\/api\/maintenance-finalization\/wake/);
 });
 
-test('Apps Script libera DELIVERY heredadas y limita la idempotencia antes de despertar Render', () => {
+test('Apps Script libera idempotencia heredada incluida Agenda y limita el crecimiento antes de despertar Render', () => {
   const script = source('scripts/google-apps-script/maintenance-finalization-5pm-worker.gs');
   assert.match(script, /DMS_IDEMPOTENCY_MAX_PROPERTIES = 80/);
   assert.match(script, /'DELIVERY_'/);
+  assert.match(script, /'AGENDA_NOTIFICATION_'/);
   assert.match(script, /dmsPruneIdempotencyProperties_/);
   assert.match(script, /dmsCleanupQuotaBeforeWake_\(\)/);
   assert.match(script, /dmsCleanupPropertyQuotaNow/);
@@ -92,6 +100,20 @@ test('Apps Script libera DELIVERY heredadas y limita la idempotencia antes de de
   assert.match(script, /REPORT_WEBHOOK_SECRET/);
   assert.match(script, /TEMPLATE_BOLETA_ID/);
   assert.match(script, /BOLETAS_FOLDER_ID/);
+});
+
+test('la interfaz permite escoger finalizar ahora o programar para las 5 antes de iniciar', () => {
+  const domain = source('src/services/maintenanceFinalizationDomain.js');
+  const center = source('src/components/offline/MaintenanceFinalizationCenter.jsx');
+  const service = source('src/services/maintenanceFinalization.js');
+  assert.match(domain, /NOW: 'NOW'/);
+  assert.match(domain, /FIVE_PM: 'FIVE_PM'/);
+  assert.match(domain, /forceScheduledFinalization: normalizedMode === MAINTENANCE_FINALIZATION_MODES\.NOW/);
+  assert.match(center, /Finalizar ahora/);
+  assert.match(center, /Programar para las 5:00 p\. m\./);
+  assert.match(center, /canScheduleForFiveToday/);
+  assert.match(service, /mode = MAINTENANCE_FINALIZATION_MODES\.AUTO/);
+  assert.match(service, /queueFinalization\(id, \{ retry, mode \}\)/);
 });
 
 test('la interfaz distingue finalización programada y permite cancelarla antes de iniciar', () => {
