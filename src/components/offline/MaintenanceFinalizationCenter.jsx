@@ -190,7 +190,18 @@ export default function MaintenanceFinalizationCenter() {
 
   async function finalize({ retry = false, mode = MAINTENANCE_FINALIZATION_MODES.AUTO } = {}) {
     if (!maintenanceId || working) return;
-    const normalizedMode = retry ? MAINTENANCE_FINALIZATION_MODES.NOW : mode;
+
+    if (!retry && mode === MAINTENANCE_FINALIZATION_MODES.AUTO && canScheduleForFiveToday()) {
+      setMessage('');
+      setChoiceOpen(true);
+      return;
+    }
+
+    const normalizedMode = retry
+      ? MAINTENANCE_FINALIZATION_MODES.NOW
+      : mode === MAINTENANCE_FINALIZATION_MODES.AUTO
+        ? MAINTENANCE_FINALIZATION_MODES.NOW
+        : mode;
     const prompt = retry
       ? '¿Reanudar la finalización desde la unidad que falló? Todo lo ya completado se conservará.'
       : normalizedMode === MAINTENANCE_FINALIZATION_MODES.NOW
@@ -228,16 +239,6 @@ export default function MaintenanceFinalizationCenter() {
     }
   }
 
-  function requestFinalizationChoice() {
-    if (!canRequest || working) return;
-    if (!canScheduleForFiveToday()) {
-      finalize({ mode: MAINTENANCE_FINALIZATION_MODES.NOW });
-      return;
-    }
-    setMessage('');
-    setChoiceOpen(true);
-  }
-
   async function cancelSchedule() {
     if (!maintenanceId || canceling || !view.canCancelSchedule) return;
     if (!window.confirm('¿Cancelar la finalización programada? El mantenimiento volverá a quedar pendiente y no se procesará automáticamente a las 5:00 p. m.')) return;
@@ -262,9 +263,7 @@ export default function MaintenanceFinalizationCenter() {
       <button
         className="button button--primary maintenance-finalize-footer-button"
         type="button"
-        onClick={() => (retryFromError
-          ? finalize({ retry: true, mode: MAINTENANCE_FINALIZATION_MODES.NOW })
-          : requestFinalizationChoice())}
+        onClick={() => finalize({ retry: retryFromError })}
         disabled={working}
       >
         <Icon name={retryFromError ? 'refresh' : deferredNeeded ? 'schedule_send' : 'task_alt'} />
