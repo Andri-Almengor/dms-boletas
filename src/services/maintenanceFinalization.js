@@ -9,6 +9,7 @@ import {
 } from './offlineStore';
 import { MODULE_ROUTES, normalizeItems, requestAvailable } from './moduleApi';
 import {
+  MAINTENANCE_FINALIZATION_MODES,
   MAINTENANCE_FINALIZATION_PRIORITY,
   maintenanceFinalizationDedupeKey,
   maintenanceFinalizationPayload,
@@ -71,13 +72,22 @@ async function markCachedFinalization(maintenanceId, requestId) {
   ).catch(() => 0);
 }
 
-async function queueFinalization(maintenanceId, { retry = false } = {}) {
-  const payload = maintenanceFinalizationPayload(maintenanceId, { retry });
+async function queueFinalization(
+  maintenanceId,
+  { retry = false, mode = MAINTENANCE_FINALIZATION_MODES.AUTO } = {},
+) {
+  const payload = maintenanceFinalizationPayload(maintenanceId, { retry, mode });
+  const immediate = payload.finalizationMode === MAINTENANCE_FINALIZATION_MODES.NOW;
+  const scheduled = payload.finalizationMode === MAINTENANCE_FINALIZATION_MODES.FIVE_PM;
   const operation = await enqueueOperation({
     routes: MODULE_ROUTES.maintenance.finalize,
     payload,
     entityId: maintenanceId,
-    description: 'Finalizar mantenimiento cuando termine la sincronización',
+    description: immediate
+      ? 'Finalizar mantenimiento apenas termine la sincronización'
+      : scheduled
+        ? 'Programar mantenimiento para las 5:00 p. m. después de sincronizar'
+        : 'Finalizar mantenimiento cuando termine la sincronización',
     dedupeKey: maintenanceFinalizationDedupeKey(maintenanceId),
     kind: 'maintenanceFinalize',
     dependsOnLocalIds: isOfflineLocalId(maintenanceId) ? [maintenanceId] : [],
@@ -87,7 +97,12 @@ async function queueFinalization(maintenanceId, { retry = false } = {}) {
 
   if (typeof window !== 'undefined') {
     window.dispatchEvent(new CustomEvent('dms-maintenance-finalization-queued', {
-      detail: { maintenanceId, operationId: operation.id, retry },
+      detail: {
+        maintenanceId,
+        operationId: operation.id,
+        retry,
+        mode: payload.finalizationMode,
+      },
     }));
     if (navigator.onLine !== false) {
       window.dispatchEvent(new CustomEvent('dms-offline-sync-request'));
@@ -101,7 +116,12 @@ async function queueFinalization(maintenanceId, { retry = false } = {}) {
     maintenanceId,
     operationId: operation.id,
     status: operation.status,
-    message: 'La finalización quedó guardada y se enviará al servidor después de sincronizar todos los cambios. El servidor aplicará el horario de las 5:00 p. m.',
+    finalizationMode: payload.finalizationMode,
+    message: immediate
+      ? 'La finalización quedó guardada y comenzará inmediatamente después de sincronizar los cambios pendientes.'
+      : scheduled
+        ? 'La solicitud quedó guardada. Después de sincronizar, el servidor la programará para las 5:00 p. m. si esa hora todavía no ha llegado.'
+        : 'La finalización quedó guardada y se enviará al servidor después de sincronizar todos los cambios.',
   };
 }
 
@@ -109,6 +129,7 @@ export async function requestMaintenanceFinalization({
   maintenanceId,
   sessionToken = '',
   retry = false,
+  mode = MAINTENANCE_FINALIZATION_MODES.AUTO,
 } = {}) {
   const id = clean(maintenanceId);
   if (!id) throw new Error('No se indicó el mantenimiento que se debe finalizar.');
@@ -119,15 +140,15 @@ export async function requestMaintenanceFinalization({
   const browserOffline = typeof navigator !== 'undefined' && navigator.onLine === false;
 
   if (browserOffline || blockers.length || existingFinalize) {
-    return queueFinalization(id, { retry });
+    return queueFinalization(id, { retry, mode });
   }
 
-  const payload = maintenanceFinalizationPayload(id, { retry });
+  const payload = maintenanceFinalizationPayload(id, { retry, mode });
   try {
     return await requestAvailable(MODULE_ROUTES.maintenance.finalize, payload, sessionToken);
   } catch (error) {
     if (!isNetworkError(error)) throw error;
-    return queueFinalization(id, { retry });
+    return queueFinalization(id, { retry, mode });
   }
 }
 
