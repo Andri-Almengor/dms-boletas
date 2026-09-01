@@ -88,8 +88,16 @@ assert.match(exporter, /\.doc/);
 assert.match(exporter, /Actividad/);
 assert.match(exporter, /Tiempo por pestaña/);
 assert.match(exporter, /Agenda/);
+assert.match(exporter, /DMS_REPORT_THEME/);
+assert.match(exporter, /Resumen ejecutivo/);
+assert.match(exporter, /TableHeader/);
+assert.match(exporter, /HighPriority/);
+assert.match(exporter, /pdfHeaderBand/);
+assert.match(exporter, /Página/);
+assert.match(exporter, /row-alt/);
+assert.match(exporter, /high-priority/);
 
 assert.doesNotMatch(backendPackage, /pdfkit|exceljs|xlsx|docx/i, 'El reporte no debe agregar dependencias pesadas al backend.');
 assert.doesNotMatch(frontendPackage, /jspdf|exceljs|xlsx|docx/i, 'El reporte no debe agregar dependencias pesadas al frontend.');
 
-console.log('✓ reportes de actividad: captura global, tiempo por pestaña, filtros, agenda y exportación PDF/Excel/Word');
+console.log('✓ reportes de actividad: captura global, filtros, agenda y exportaciones PDF/Excel/Word con formato legible');
