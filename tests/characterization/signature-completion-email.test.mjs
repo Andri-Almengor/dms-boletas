@@ -38,14 +38,36 @@ test('el mantenimiento notifica responsables solo para una firma real y nueva', 
   assert.match(module, /Las firmas de prueba no notifican responsables/);
 });
 
-test('el correo de firma es liviano y no adjunta evidencias ni PDFs', () => {
+test('el correo de firma usa Apps Script con idempotencia y conserva SMTP solo como compatibilidad', () => {
   const notification = source('backend/src/services/signature-completion-notification.service.js');
-  const sendStart = notification.indexOf('async function sendSignatureCompletedEmail');
-  const ticketStart = notification.indexOf('export async function notifyTicketSignatureCompleted');
-  const sendSource = notification.slice(sendStart, ticketStart);
+
+  assert.match(notification, /import \{ sendAppsScriptAction \} from '\.\/apps-script-action\.service\.js'/);
+  assert.match(notification, /sendAppsScriptAction\(\s*'signature\.completed\.send'/);
+  assert.match(notification, /idempotencyKey: signatureIdempotencyKey/);
+  assert.match(notification, /attempts: 2/);
+  assert.match(notification, /allowSmtpCompatibilityFallback/);
+  assert.match(notification, /transport\.sendMail\(/);
+  assert.match(notification, /SMTP no está configurado/);
+});
+
+test('el aviso lleva directamente a la boleta o mantenimiento firmado', () => {
+  const notification = source('backend/src/services/signature-completion-notification.service.js');
+
+  assert.match(notification, /subjectType === 'maintenance' \? 'mantenimientos' : 'boletas'/);
+  assert.match(notification, /encodeURIComponent\(id\)/);
+  assert.match(notification, /Ver boleta firmada/);
+  assert.match(notification, /Ver mantenimiento firmado/);
+  assert.match(notification, /subjectId: rootId/);
+  assert.match(notification, /subjectId: maintenance\?\.MantenimientoID/);
+});
+
+test('el correo de firma sigue siendo liviano y no adjunta evidencias ni PDFs', () => {
+  const notification = source('backend/src/services/signature-completion-notification.service.js');
+  const sendStart = notification.indexOf('async function sendThroughSmtp');
+  const publicStart = notification.indexOf('export async function notifyTicketSignatureCompleted');
+  const sendSource = notification.slice(sendStart, publicStart);
 
   assert.match(sendSource, /transport\.sendMail\(/);
   assert.doesNotMatch(sendSource, /attachments\s*:/);
   assert.match(sendSource, /El cliente completó y guardó correctamente la firma/);
-  assert.match(sendSource, /SMTP no configurado/);
 });
