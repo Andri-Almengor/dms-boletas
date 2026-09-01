@@ -10,8 +10,21 @@ export const MAINTENANCE_FINALIZATION_PHASES = Object.freeze([
   { id: 'COMPLETADO', label: 'Mantenimiento finalizado', progress: 100 },
 ]);
 
+export const MAINTENANCE_FINALIZATION_MODES = Object.freeze({
+  AUTO: 'AUTO',
+  NOW: 'NOW',
+  FIVE_PM: 'FIVE_PM',
+});
+
 function clean(value) {
   return String(value ?? '').trim();
+}
+
+function normalizeFinalizationMode(value) {
+  const mode = clean(value).toUpperCase();
+  if (mode === MAINTENANCE_FINALIZATION_MODES.NOW) return MAINTENANCE_FINALIZATION_MODES.NOW;
+  if (mode === MAINTENANCE_FINALIZATION_MODES.FIVE_PM) return MAINTENANCE_FINALIZATION_MODES.FIVE_PM;
+  return MAINTENANCE_FINALIZATION_MODES.AUTO;
 }
 
 function legacySignatureError(value) {
@@ -29,14 +42,24 @@ export function maintenanceFinalizationRequestId(maintenanceId) {
   return `finalize-${clean(maintenanceId)}`;
 }
 
-export function maintenanceFinalizationPayload(maintenanceId, { retry = false, cancel = false } = {}) {
+export function maintenanceFinalizationPayload(
+  maintenanceId,
+  { retry = false, cancel = false, mode = MAINTENANCE_FINALIZATION_MODES.AUTO } = {},
+) {
   const id = clean(maintenanceId);
+  const normalizedMode = retry
+    ? MAINTENANCE_FINALIZATION_MODES.NOW
+    : normalizeFinalizationMode(mode);
   return {
     maintenanceId: id,
     MantenimientoID: id,
     finalizationRequestId: maintenanceFinalizationRequestId(id),
     retryFinalization: Boolean(retry),
     cancelScheduledFinalization: Boolean(cancel),
+    // El backend ya utiliza esta bandera para saltarse la espera de las 17:00.
+    // Se expone únicamente desde el mismo flujo autorizado de finalización.
+    forceScheduledFinalization: normalizedMode === MAINTENANCE_FINALIZATION_MODES.NOW,
+    finalizationMode: normalizedMode,
     requestedAt: new Date().toISOString(),
   };
 }
