@@ -18,6 +18,7 @@ import {
   tomorrowCostaRicaDate,
 } from '../../features/agenda/agendaDomain';
 import AgendaCalendarSummary from './AgendaCalendarSummary';
+import AgendaClientAssignment from './AgendaClientAssignment';
 import AgendaDayDialog from './AgendaDayDialog';
 import AgendaResendActions from './AgendaResendActions';
 import AgendaSplitDialog from './AgendaSplitDialog';
@@ -25,7 +26,7 @@ import '../../styles/agenda.css';
 import '../../styles/agenda-split.css';
 
 const WEEKDAYS = ['Lun', 'Mar', 'Mié', 'Jue', 'Vie', 'Sáb', 'Dom'];
-const EMPTY_DRAFT = Object.freeze({ fecha: '', horaInicio: '07:00', horaFin: '17:00', detalle: '', clienteId: '', clienteNombre: '', usuarioIds: [] });
+const EMPTY_DRAFT = Object.freeze({ fecha: '', horaInicio: '07:00', horaFin: '17:00', detalle: '', usuarioIds: [] });
 
 function personName(user = {}) {
   return String(user.NombreCompleto || user.Nombre || user.NombreUsuario || user.Correo || 'Usuario').trim();
@@ -34,14 +35,6 @@ function personName(user = {}) {
 function shortPersonName(user = {}) {
   const parts = personName(user).split(/\s+/).filter(Boolean);
   return parts.length > 1 ? `${parts[0]} ${parts[1]}` : parts[0] || 'Usuario';
-}
-
-function clientId(client = {}) {
-  return String(client.ClienteID || client.ID || client.id || '').trim();
-}
-
-function clientName(client = {}) {
-  return String(client.Nombre || client.Clientes || client.Cliente || client.RazonSocial || 'Cliente').trim();
 }
 
 function formatDateLong(dateKey) {
@@ -83,7 +76,7 @@ function AgendaCard({ item, onOpen, compact = false }) {
   </button>;
 }
 
-function AgendaDetail({ item, isAdmin, onClose, onEdit, onSplit }) {
+function AgendaDetail({ item, isAdmin, onClose, onEdit, onSplit, onSaved }) {
   if (!item) return null;
   const meta = statusMeta(item.status);
   const canSplit = isAdmin && item.Estado !== 'CANCELADA' && (item.asignados || []).length > 1;
@@ -103,10 +96,10 @@ function AgendaDetail({ item, isAdmin, onClose, onEdit, onSplit }) {
         <p>{item.Detalle}</p>
       </section>
 
-      <section className="agenda-detail-block">
+      {!isAdmin && <section className="agenda-detail-block">
         <span>Cliente relacionado</span>
         <p>{item.ClienteNombre || 'Sin cliente asignado'}</p>
-      </section>
+      </section>}
 
       <section className="agenda-detail-block">
         <span>Personas asignadas</span>
@@ -129,7 +122,10 @@ function AgendaDetail({ item, isAdmin, onClose, onEdit, onSplit }) {
         {item.boleta?.BoletaUID && <Link className="button button--secondary button--compact" to={`/boletas/${encodeURIComponent(item.boleta.BoletaUID)}`}><Icon name="open_in_new" /> Ver boleta</Link>}
       </section>
 
-      {isAdmin && <AgendaResendActions item={item} />}
+      {isAdmin && <>
+        <AgendaClientAssignment item={item} onSaved={onSaved} />
+        <AgendaResendActions item={item} />
+      </>}
 
       {isAdmin && <div className="agenda-sheet-actions">
         {canSplit && <button type="button" className="button button--secondary" onClick={() => onSplit(item)}><Icon name="call_split" /> Separar por persona</button>}
@@ -172,15 +168,13 @@ function UserSelector({ users, selected, onChange }) {
   </div>;
 }
 
-function AgendaEditor({ users, clients, editItem, onClose, onSaved, sessionToken, ticketExceptions }) {
+function AgendaEditor({ users, editItem, onClose, onSaved, sessionToken, ticketExceptions }) {
   const editing = Boolean(editItem?.AgendaID);
   const [draft, setDraft] = useState(() => editing ? {
     fecha: editItem.Fecha,
     horaInicio: editItem.HoraInicio || '07:00',
     horaFin: editItem.HoraFin || '17:00',
     detalle: editItem.Detalle || '',
-    clienteId: editItem.ClienteID || '',
-    clienteNombre: editItem.ClienteNombre || '',
     usuarioIds: (editItem.asignados || []).map((user) => String(user.UsuarioID)),
   } : { ...EMPTY_DRAFT, fecha: tomorrowCostaRicaDate() });
   const [queue, setQueue] = useState([]);
@@ -188,20 +182,9 @@ function AgendaEditor({ users, clients, editItem, onClose, onSaved, sessionToken
   const [busy, setBusy] = useState(false);
   const [message, setMessage] = useState('');
   const requiresTicket = agendaRequiresTicket(draft.detalle, ticketExceptions);
-  const sortedClients = useMemo(() => [...clients].sort((left, right) => clientName(left).localeCompare(clientName(right), 'es')), [clients]);
 
   function updateField(field, value) {
     setDraft((current) => ({ ...current, [field]: value }));
-    setMessage('');
-  }
-
-  function updateClient(value) {
-    const selectedClient = clients.find((client) => clientId(client) === String(value));
-    setDraft((current) => ({
-      ...current,
-      clienteId: String(value || ''),
-      clienteNombre: selectedClient ? clientName(selectedClient) : '',
-    }));
     setMessage('');
   }
 
@@ -255,8 +238,6 @@ function AgendaEditor({ users, clients, editItem, onClose, onSaved, sessionToken
           horaInicio: draft.horaInicio,
           horaFin: draft.horaFin,
           detalle: draft.detalle.trim(),
-          clienteId: draft.clienteId,
-          clienteNombre: draft.clienteNombre,
           usuarioIds: draft.usuarioIds,
         }, sessionToken)
         : await apiRequest('agenda.create', { agendas: queue }, sessionToken);
@@ -282,17 +263,9 @@ function AgendaEditor({ users, clients, editItem, onClose, onSaved, sessionToken
           <label><span>Hora de inicio</span><input type="time" value={draft.horaInicio} onChange={(event) => updateField('horaInicio', event.target.value)} /></label>
           <label><span>Hora de fin</span><input type="time" value={draft.horaFin} onChange={(event) => updateField('horaFin', event.target.value)} /></label>
           <label className="agenda-form-grid__detail"><span>Detalle de la visita *</span><textarea value={draft.detalle} onChange={(event) => updateField('detalle', event.target.value)} maxLength="3000" rows="4" placeholder="Ej. Asamblea · mantenimiento preventivo de cámaras" /></label>
-          <label className="agenda-form-grid__detail">
-            <span>Cliente relacionado</span>
-            <select value={draft.clienteId} onChange={(event) => updateClient(event.target.value)}>
-              <option value="">Sin cliente asignado</option>
-              {sortedClients.map((client) => <option key={clientId(client)} value={clientId(client)}>{clientName(client)}</option>)}
-            </select>
-            <small>Al asignarlo, una boleta del mismo día y técnico solo completará esta agenda cuando tenga el mismo cliente.</small>
-          </label>
         </div>
 
-        {draft.detalle.trim() && <div className={`agenda-rule-note${requiresTicket ? '' : ' is-exempt'}`}><Icon name={requiresTicket ? 'assignment' : 'remove_done'} /><span>{requiresTicket ? (draft.clienteId ? `Esta visita requerirá una boleta del cliente ${draft.clienteNombre}.` : 'Esta visita requerirá una boleta. Asigne un cliente para que la relación sea exacta.') : 'El detalle coincide con una excepción configurada: no requerirá boleta ni recordatorio de faltante.'}</span></div>}
+        {draft.detalle.trim() && <div className={`agenda-rule-note${requiresTicket ? '' : ' is-exempt'}`}><Icon name={requiresTicket ? 'assignment' : 'remove_done'} /><span>{requiresTicket ? 'Esta visita requerirá una boleta.' : 'El detalle coincide con una excepción configurada: no requerirá boleta ni recordatorio de faltante.'}</span></div>}
 
         <section className="agenda-editor-section">
           <div className="agenda-editor-section__title"><div><span className="eyebrow">Asignación</span><h3>Personas que asistirán</h3></div><span>{draft.usuarioIds.length} seleccionada{draft.usuarioIds.length === 1 ? '' : 's'}</span></div>
@@ -304,7 +277,7 @@ function AgendaEditor({ users, clients, editItem, onClose, onSaved, sessionToken
           <div className="agenda-notice"><Icon name="groups" /><span>Puede agregar varias agendas con la misma fecha. Esto permite programar distintos grupos o personas para diferentes lugares durante el mismo día.</span></div>
           <button type="button" className="button button--secondary agenda-stage-button" onClick={stageAgenda}><Icon name={queueEditIndex >= 0 ? 'save' : 'playlist_add'} />{queueEditIndex >= 0 ? 'Guardar cambios en la lista' : 'Agregar a la lista'}</button>
           {queue.length > 0 ? <div className="agenda-queue-list">{queue.map((item, index) => <article key={`${item.fecha}-${index}`} className="agenda-queue-card">
-            <div><strong>{formatDateLong(item.fecha)}</strong><span>{item.horaInicio} – {item.horaFin}</span><p>{item.detalle}</p>{item.clienteNombre && <small>Cliente: {item.clienteNombre}</small>}<small>{item.usuarioIds.map((id) => shortPersonName(users.find((user) => String(user.UsuarioID) === id) || {})).join(', ')}</small></div>
+            <div><strong>{formatDateLong(item.fecha)}</strong><span>{item.horaInicio} – {item.horaFin}</span><p>{item.detalle}</p><small>{item.usuarioIds.map((id) => shortPersonName(users.find((user) => String(user.UsuarioID) === id) || {})).join(', ')}</small></div>
             <div><button type="button" className="icon-button" onClick={() => editQueued(index)} aria-label="Editar"><Icon name="edit" /></button><button type="button" className="icon-button icon-button--danger" onClick={() => setQueue((current) => current.filter((_, currentIndex) => currentIndex !== index))} aria-label="Quitar"><Icon name="delete" /></button></div>
           </article>)}</div> : <div className="agenda-empty-inline">Todavía no hay agendas en la lista de envío.</div>}
         </section>}
@@ -332,7 +305,6 @@ export default function AgendaPage() {
   const [month, setMonth] = useState(() => /^\d{4}-\d{2}$/.test(requestedMonth) ? requestedMonth : monthKey());
   const [items, setItems] = useState([]);
   const [users, setUsers] = useState([]);
-  const [clients, setClients] = useState([]);
   const [ticketExceptions, setTicketExceptions] = useState(() => [...DEFAULT_AGENDA_TICKET_EXCEPTIONS]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState('');
@@ -354,13 +326,11 @@ export default function AgendaPage() {
       if (isAdmin) {
         requests.push(apiRequest('users.assignment.list', { pageSize: 1000 }, sessionToken));
         requests.push(apiRequest('config.get', { section: 'AGENDA_TICKET_EXCEPTIONS' }, sessionToken));
-        requests.push(apiRequest('clients.list', { page: 1, pageSize: 1000, activo: true }, sessionToken));
       }
-      const [agendaData, userData, exceptionData, clientData] = await Promise.all(requests);
+      const [agendaData, userData, exceptionData] = await Promise.all(requests);
       setItems(Array.isArray(agendaData?.items) ? agendaData.items : []);
       if (isAdmin) {
         setUsers(Array.isArray(userData?.items) ? userData.items : []);
-        setClients(Array.isArray(clientData?.items) ? clientData.items : Array.isArray(clientData) ? clientData : []);
         const configured = exceptionData?.settings?.exceptions;
         setTicketExceptions(Array.isArray(configured) && configured.length ? configured : [...DEFAULT_AGENDA_TICKET_EXCEPTIONS]);
       }
@@ -446,7 +416,7 @@ export default function AgendaPage() {
 
   return <div className="page agenda-page">
     <header className="agenda-hero">
-      <div><span className="eyebrow">Programación operativa</span><h1>Agenda DMS</h1><p>{isAdmin ? 'Programe visitas, asigne cliente y personas, y controle si cada visita generó su boleta.' : 'Consulte sus visitas programadas y el estado de la boleta asociada a cada una.'}</p></div>
+      <div><span className="eyebrow">Programación operativa</span><h1>Agenda DMS</h1><p>{isAdmin ? 'Programe visitas, asigne una o varias personas y controle si cada visita generó su boleta.' : 'Consulte sus visitas programadas y el estado de la boleta asociada a cada una.'}</p></div>
       {isAdmin && <button type="button" className="button button--primary" onClick={() => setEditor({ mode: 'create' })}><Icon name="add_task" /> Nueva agenda</button>}
     </header>
 
@@ -491,10 +461,11 @@ export default function AgendaPage() {
       item={selected}
       isAdmin={isAdmin}
       onClose={closeAgenda}
+      onSaved={saved}
       onEdit={(item) => { closeAgenda(); setEditor({ mode: 'edit', item }); }}
       onSplit={(item) => { closeAgenda(); setSplitItem(item); }}
     />
-    {editor && <AgendaEditor users={users} clients={clients} editItem={editor.mode === 'edit' ? editor.item : null} onClose={() => setEditor(null)} onSaved={saved} sessionToken={sessionToken} ticketExceptions={ticketExceptions} />}
+    {editor && <AgendaEditor users={users} editItem={editor.mode === 'edit' ? editor.item : null} onClose={() => setEditor(null)} onSaved={saved} sessionToken={sessionToken} ticketExceptions={ticketExceptions} />}
     {splitItem && <AgendaSplitDialog item={splitItem} sessionToken={sessionToken} onClose={() => setSplitItem(null)} onSaved={saved} />}
   </div>;
 }

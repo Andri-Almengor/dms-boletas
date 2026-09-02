@@ -394,6 +394,9 @@ async function update(ctx) {
   const agendaId = clean(ctx.payload?.agendaId || ctx.payload?.AgendaID || ctx.payload?.id);
   if (!agendaId) throw badRequest('Debe indicar la agenda.');
 
+  const clientOnly = ['true', '1', 'si', 'sí', 'yes'].includes(normalizeAgendaText(
+    ctx.payload?.soloCliente ?? ctx.payload?.clientOnly ?? ctx.payload?.onlyClient,
+  ));
   const before = await findById('Agendas', agendaId);
   const [tables, ticketExceptions] = await Promise.all([
     readTables(['AgendaAsignados', 'Usuarios', 'Clientes', 'Boletas', 'BoletaAsignados']),
@@ -483,12 +486,15 @@ async function update(ctx) {
     ticketExceptions,
   })[0];
   const removedMap = new Map([[agendaId, removed]]);
-  const notification = await notifyAgenda([view], users, 'UPDATED', removedMap);
+  const notification = clientOnly
+    ? { sent: true, skipped: true, reason: 'CLIENT_ONLY_UPDATE' }
+    : await notifyAgenda([view], users, 'UPDATED', removedMap);
 
   await audit(ctx, 'EDITAR_AGENDA', 'Agendas', agendaId, before, {
     agenda: view,
     removedUserIds: removed,
     addedUserIds: added,
+    clientOnly,
     reminderPreservedForSameDay: reminderAlreadyConsumedForThisDay,
     notification,
   });
@@ -496,8 +502,11 @@ async function update(ctx) {
   return {
     item: view,
     notification,
+    clientOnly,
     reminderPreservedForSameDay: reminderAlreadyConsumedForThisDay,
-    message: updateMessage(notification),
+    message: clientOnly
+      ? (view.ClienteID ? `Cliente ${view.ClienteNombre} asignado a la agenda.` : 'Cliente relacionado eliminado de la agenda.')
+      : updateMessage(notification),
   };
 }
 
