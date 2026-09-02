@@ -233,3 +233,20 @@
     min-height:48px;
   }
 }
+
+@media(max-width:430px){
+  .agenda-resend-panel,
+  .agenda-client-panel{
+    margin:0 12px 14px;
+    padding:12px;
+  }
+
+  .agenda-resend-panel__actions,
+  .agenda-detail-sheet .agenda-sheet-actions{
+    grid-template-columns:1fr;
+  }
+
+  .agenda-resend-panel__test-button{
+    grid-column:auto;
+  }
+}
