@@ -18,6 +18,7 @@ const telemetry = read('src/components/system/ActivityTelemetryBridge.jsx');
 const metrics = read('src/pages/admin/MetricsPage.jsx');
 const dashboard = read('src/components/metrics/ActivityReportsDashboard.jsx');
 const exporter = read('src/services/activityReportExport.js');
+const naturalExporter = read('src/services/activityReportExportNatural.js');
 const backendPackage = read('backend/package.json');
 const frontendPackage = read('package.json');
 
@@ -57,15 +58,25 @@ assert.match(reportModule, /timeFrom/);
 assert.match(reportModule, /timeTo/);
 assert.match(reportModule, /pageSummary/);
 assert.match(reportModule, /entitySummary/);
-assert.match(reportModule, /telemetryStartedAt/);
+assert.match(reportModule, /activityText/);
+assert.match(reportModule, /Agregó una evidencia a la boleta/);
+assert.match(reportModule, /Agregó una evidencia a un dispositivo del mantenimiento/);
+assert.match(reportModule, /Cambió a la pestaña/);
+assert.match(reportModule, /Entró a Inicio/);
+assert.match(reportModule, /measurement:\s*'VISIBLE_APP_TIME'/);
+assert.match(reportModule, /aunque la persona no esté haciendo clic o escribiendo constantemente/);
 assert.match(reportModule, /no puede reconstruir tiempo de permanencia retroactivamente/);
 
 assert.match(shell, /ActivityTelemetryBridge/);
 assert.match(telemetry, /PAGE_VIEW/);
 assert.match(telemetry, /PAGE_TIME/);
 assert.match(telemetry, /UI_TAB/);
-assert.match(telemetry, /5 \* 60 \* 1000/);
+assert.match(telemetry, /VISIBLE_APP_TIME/);
+assert.match(telemetry, /visibleMsRef/);
+assert.match(telemetry, /if \(visibleRef\.current\) visibleMsRef\.current \+= elapsed/);
+assert.doesNotMatch(telemetry, /IDLE_AFTER_MS/);
 assert.match(telemetry, /document\.visibilityState/);
+assert.match(telemetry, /dms:activity-flush/);
 assert.match(telemetry, /keepalive/);
 
 assert.match(metrics, /ActivityReportsDashboard/);
@@ -74,13 +85,26 @@ assert.match(dashboard, /Fecha desde/);
 assert.match(dashboard, /Hora desde/);
 assert.match(dashboard, /Personas/);
 assert.match(dashboard, /Secciones del app/);
+assert.match(dashboard, /const ALL_APP = 'ALL'/);
+assert.match(dashboard, /sections:\s*\[ALL_APP\]/);
 assert.match(dashboard, /Toda la app/);
+assert.match(dashboard, /toggleSection/);
+assert.match(dashboard, /window\.dispatchEvent\(new Event\(ACTIVITY_FLUSH_EVENT\)\)/);
+assert.match(dashboard, /Qué hizo la persona/);
+assert.match(dashboard, /row\.activityText \|\| row\.action/);
 assert.match(dashboard, /Actividad del app/);
 assert.match(dashboard, /Agenda/);
 assert.match(dashboard, /PDF/);
 assert.match(dashboard, /EXCEL/);
 assert.match(dashboard, /WORD/);
 assert.match(dashboard, /slice\(0, 250\)/);
+
+assert.match(naturalExporter, /type === 'PAGE_TIME'/);
+assert.match(naturalExporter, /PAGE_VIEW/);
+assert.match(naturalExporter, /UI_TAB/);
+assert.match(naturalExporter, /clean\(row\.activityText\)/);
+assert.doesNotMatch(naturalExporter, /const readGroups = new Map/);
+assert.match(naturalExporter, /cada entrada a pantalla, cambio de pestaña, consulta y acción funcional registrada/);
 
 assert.match(exporter, /application\/pdf/);
 assert.match(exporter, /\.xls/);
@@ -100,4 +124,4 @@ assert.match(exporter, /high-priority/);
 assert.doesNotMatch(backendPackage, /pdfkit|exceljs|xlsx|docx/i, 'El reporte no debe agregar dependencias pesadas al backend.');
 assert.doesNotMatch(frontendPackage, /jspdf|exceljs|xlsx|docx/i, 'El reporte no debe agregar dependencias pesadas al frontend.');
 
-console.log('✓ reportes de actividad: captura global, filtros, agenda y exportaciones PDF/Excel/Word con formato legible');
+console.log('✓ reportes de actividad: recorrido completo, permanencia visible real, Toda la app y exportaciones legibles');
