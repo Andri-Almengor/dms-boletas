@@ -47,11 +47,11 @@ export default function AgendaResendActions({ item }) {
 
   const diagnostics = feedback?.details;
 
-  return <section className="agenda-resend-panel" aria-label="Reenviar notificación de agenda">
+  return <section className="agenda-resend-panel" aria-label="Acciones de notificación de agenda">
     <div className="agenda-resend-panel__copy">
-      <span className="eyebrow">Notificación manual</span>
-      <strong>Reenviar y probar correos</strong>
-      <small>Puede reenviar la agenda o ejecutar el correo real de boleta pendiente en modo de prueba, sin modificar el estado.</small>
+      <span className="eyebrow">Notificaciones y pruebas</span>
+      <strong>Acciones manuales</strong>
+      <small>Reenvíe la agenda por correo o Chat, o pruebe el correo real de boleta pendiente sin modificar el estado.</small>
     </div>
 
     <div className="agenda-resend-panel__actions">
