@@ -91,6 +91,7 @@ function overlapScore(agenda, ticket) {
   if (!source.size) return 0;
   const target = tokenSet([
     ticket.Titulo,
+    ticket.Cliente,
     ticket.RazonVisita,
     ticket.TrabajoRealizado,
     ticket.Pendientes,
@@ -98,6 +99,40 @@ function overlapScore(agenda, ticket) {
   let score = 0;
   source.forEach((token) => { if (target.has(token)) score += 1; });
   return score;
+}
+
+function ticketClientId(ticket = {}) {
+  return clean(ticket.ClienteID || ticket.ClienteId || ticket.clienteId);
+}
+
+function ticketClientName(ticket = {}) {
+  return clean(ticket.Cliente || ticket.ClienteNombre || ticket.NombreCliente);
+}
+
+/**
+ * Determina si una boleta pertenece a una agenda sin alterar el flujo de boletas.
+ * Cuando la agenda tiene cliente, el cliente es la identidad principal del vínculo.
+ * Para agendas antiguas sin cliente se conserva una compatibilidad por texto, pero
+ * nunca se considera suficiente compartir solamente fecha y técnico.
+ */
+export function agendaTicketMatchScore(agenda = {}, ticket = {}) {
+  const agendaClientId = clean(agenda.ClienteID);
+  const agendaClientName = normalizeAgendaText(agenda.ClienteNombre);
+  const boletaClientId = ticketClientId(ticket);
+  const boletaClientName = normalizeAgendaText(ticketClientName(ticket));
+  const textScore = overlapScore(agenda, ticket);
+
+  if (agendaClientId) {
+    if (boletaClientId) return agendaClientId === boletaClientId ? 1000 + textScore : 0;
+    if (agendaClientName && boletaClientName) return agendaClientName === boletaClientName ? 700 + textScore : 0;
+    return 0;
+  }
+
+  if (agendaClientName) {
+    return agendaClientName === boletaClientName ? 700 + textScore : 0;
+  }
+
+  return textScore;
 }
 
 export function resolveAgendaTicketMatches({
@@ -169,18 +204,21 @@ export function resolveAgendaTicketMatches({
       .filter((ticket) => !reserved.has(clean(ticket.BoletaUID)))
       .filter((ticket) => {
         const users = ticketUsers.get(clean(ticket.BoletaUID)) || new Set();
-        if ([...assigned].some((userId) => users.has(userId))) return true;
-        return assigned.has(clean(ticket.CreadoPor));
+        return [...assigned].some((userId) => users.has(userId))
+          || assigned.has(clean(ticket.CreadoPor));
       })
+      .map((ticket) => ({ ticket, score: agendaTicketMatchScore(agenda, ticket) }))
+      .filter((candidate) => candidate.score > 0)
       .sort((left, right) => (
-        overlapScore(agenda, right) - overlapScore(agenda, left)
-        || clean(left.FechaCreacion).localeCompare(clean(right.FechaCreacion))
-        || clean(left.BoletaUID).localeCompare(clean(right.BoletaUID))
+        right.score - left.score
+        || clean(left.ticket.FechaCreacion).localeCompare(clean(right.ticket.FechaCreacion))
+        || clean(left.ticket.BoletaUID).localeCompare(clean(right.ticket.BoletaUID))
       ));
 
     if (candidates[0]) {
-      const ticketId = clean(candidates[0].BoletaUID);
-      matches.set(agendaId, candidates[0]);
+      const selected = candidates[0].ticket;
+      const ticketId = clean(selected.BoletaUID);
+      matches.set(agendaId, selected);
       reserved.add(ticketId);
     }
   }
@@ -230,6 +268,8 @@ export function buildAgendaViews({
       HoraInicio: clean(agenda.HoraInicio, '07:00'),
       HoraFin: clean(agenda.HoraFin, '17:00'),
       Detalle: clean(agenda.Detalle),
+      ClienteID: clean(agenda.ClienteID),
+      ClienteNombre: clean(agenda.ClienteNombre),
       Estado: clean(agenda.Estado, 'ACTIVA').toUpperCase(),
       RequiereBoleta: agendaRequiresTicket(agenda.Detalle, ticketExceptions),
       RecordatorioEnviado: enabled(agenda.RecordatorioEnviado, false),
@@ -241,8 +281,10 @@ export function buildAgendaViews({
       status: agendaStatus(agenda, ticket, today, ticketExceptions),
       boleta: ticket ? {
         BoletaUID: clean(ticket.BoletaUID),
-        BoletaNumero: clean(ticket.BoletaNumero),
+        BoletaNumero: clean(ticket.BoletaNumero || ticket.BoletaID),
         Titulo: clean(ticket.Titulo),
+        ClienteID: ticketClientId(ticket),
+        Cliente: ticketClientName(ticket),
         Estado: clean(ticket.Estado),
         Fecha: agendaDate(ticket.Fecha),
       } : null,
