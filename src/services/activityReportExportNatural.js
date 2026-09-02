@@ -79,8 +79,10 @@ function friendlyId(value) {
 }
 
 function actionKind(row = {}) {
+  const type = clean(row.type).toUpperCase();
   const text = `${row.action || ''} ${row.actionRoute || ''}`.toUpperCase();
-  if (['PAGE_TIME', 'PAGE_VIEW', 'UI_TAB'].includes(clean(row.type).toUpperCase())) return 'NAVIGATION';
+  if (type === 'PAGE_TIME') return 'TIME';
+  if (['PAGE_VIEW', 'UI_TAB', 'APP_VISIBILITY'].includes(type)) return 'NAVIGATION';
   if (/LISTAR|CONSULTAR|\.LIST|\.GET|VER_|ABRIR/.test(text)) return 'READ';
   if (/CREAR|CREATE|AGREGAR|ADD|SUBIR|UPLOAD|NUEV/.test(text)) return 'CREATE';
   if (/EDITAR|UPDATE|ACTUALIZAR|AUTOSAVE|GUARDAR|MODIFICAR/.test(text)) return 'UPDATE';
@@ -164,26 +166,28 @@ function naturalResult(row = {}) {
 
 function humanizeRow(row = {}) {
   const kind = actionKind(row);
-  if (kind === 'NAVIGATION') return null;
+  if (kind === 'TIME') return null;
   const section = humanSection(row.section);
   const entity = entityName(row);
   const id = friendlyId(row.entityId);
   const idText = id ? ` ${id}` : '';
   const agendaItems = agendaItemsFromDetail(row.detail);
   const agendaCreate = kind === 'CREATE' && (section === 'Agenda' || entity === 'agenda');
-  let description;
-  let groupable = false;
-  let key = `${kind}|${row.userId}|${section}|${entity}|${id}`;
+  let description = '';
 
-  if (agendaCreate && agendaItems.length) {
+  if (kind === 'NAVIGATION') {
+    description = clean(row.activityText)
+      || (clean(row.type).toUpperCase() === 'UI_TAB' && row.view
+        ? `Cambió a la pestaña “${row.view}” en ${section}.`
+        : `Entró a ${section}.`);
+  } else if (agendaCreate && agendaItems.length) {
     description = agendaSummary(agendaItems, row.detail);
-    key = `CREATE_AGENDA|${row.userId}|${agendaItems.map((item) => `${item.Fecha || item.fecha}|${item.Detalle || item.detalle}`).join(';')}`;
+  } else if (clean(row.activityText)) {
+    description = clean(row.activityText);
   } else if (kind === 'READ') {
     description = section === 'Agenda'
       ? 'Consultó o actualizó la vista de la agenda.'
       : `Consultó información de ${section.toLowerCase()}.`;
-    groupable = true;
-    key = `READ|${row.userId}|${section}|${entity}`;
   } else if (kind === 'CREATE') description = `Creó ${entity}${idText}.`;
   else if (kind === 'UPDATE') description = `Actualizó ${entity}${idText}.`;
   else if (kind === 'DELETE') description = `Eliminó ${entity}${idText}.`;
@@ -198,8 +202,7 @@ function humanizeRow(row = {}) {
   }
 
   return {
-    key,
-    groupable,
+    key: `${kind}|${row.activityId || row.startedAt}|${row.userId}`,
     kind,
     userId: clean(row.userId),
     userName: clean(row.userName, 'Usuario'),
@@ -215,47 +218,24 @@ function humanizeRow(row = {}) {
 }
 
 function humanActivityEntries(report = {}) {
-  const source = (report.timeline || [])
+  return (report.timeline || [])
     .map(humanizeRow)
     .filter(Boolean)
     .sort((a, b) => clean(a.startedAt).localeCompare(clean(b.startedAt)));
-  const entries = [];
-  const readGroups = new Map();
-
-  for (const entry of source) {
-    if (entry.groupable) {
-      const group = readGroups.get(entry.key) || { ...entry, count: 0, firstAt: entry.startedAt, lastAt: entry.startedAt };
-      group.count += 1;
-      group.lastAt = entry.startedAt;
-      readGroups.set(entry.key, group);
-      continue;
-    }
-
-    const previous = entries[entries.length - 1];
-    const previousMs = previous?.startedAt ? new Date(previous.startedAt).getTime() : NaN;
-    const currentMs = entry.startedAt ? new Date(entry.startedAt).getTime() : NaN;
-    const closeInTime = Number.isFinite(previousMs) && Number.isFinite(currentMs) && Math.abs(currentMs - previousMs) <= 90_000;
-    if (previous && previous.key === entry.key && closeInTime) continue;
-    entries.push(entry);
-  }
-
-  for (const group of readGroups.values()) {
-    group.description = group.count > 1
-      ? `${group.description.replace(/\.$/, '')} ${group.count} veces durante el periodo.`
-      : group.description;
-    entries.push(group);
-  }
-  return entries.sort((a, b) => clean(a.startedAt).localeCompare(clean(b.startedAt)));
 }
 
 function humanTimeRows(report = {}) {
   return (report.pageSummary || [])
     .filter((row) => Number(row.durationSeconds || 0) > 0)
-    .map((row) => ({
-      ...row,
-      sectionLabel: humanSection(row.section),
-      sentence: `${clean(row.userName, 'Usuario')} utilizó ${humanSection(row.section)} durante ${formatDuration(row.durationSeconds)}.`,
-    }))
+    .map((row) => {
+      const sectionLabel = humanSection(row.section);
+      const place = clean(row.view) ? `${sectionLabel} · ${clean(row.view)}` : sectionLabel;
+      return {
+        ...row,
+        sectionLabel,
+        sentence: `${clean(row.userName, 'Usuario')} permaneció ${formatDuration(row.durationSeconds)} en ${place}.`,
+      };
+    })
     .sort((a, b) => Number(b.durationSeconds || 0) - Number(a.durationSeconds || 0));
 }
 
@@ -264,17 +244,19 @@ function narrative(report, entries) {
   const users = (report.selectedUsers || []).map((user) => clean(user.name)).filter(Boolean);
   const subject = users.length === 1 ? users[0] : (users.length ? `${users.length} personas` : 'El personal seleccionado');
   const paragraphs = [];
-  paragraphs.push(`${subject} registró ${formatDuration(summary.pageTimeSeconds || 0)} de actividad visible en la aplicación durante el periodo seleccionado.`);
+  paragraphs.push(`${subject} registró ${formatDuration(summary.pageTimeSeconds || 0)} de permanencia visible en la aplicación durante el periodo seleccionado.`);
 
   const topTimes = humanTimeRows(report).slice(0, 3);
   if (topTimes.length) {
     paragraphs.push(`El tiempo de uso se concentró principalmente en ${naturalJoin(topTimes.map((row) => `${row.sectionLabel} (${formatDuration(row.durationSeconds)})`))}.`);
   }
 
-  const important = entries.filter((entry) => entry.kind !== 'READ');
+  const operational = entries.filter((entry) => !['READ', 'NAVIGATION'].includes(entry.kind));
   const reads = entries.filter((entry) => entry.kind === 'READ');
-  if (important.length) paragraphs.push(`Se identificaron ${important.length} acciones operativas relevantes, como creaciones, modificaciones, eliminaciones o finalizaciones.`);
+  const navigation = entries.filter((entry) => entry.kind === 'NAVIGATION');
+  if (operational.length) paragraphs.push(`Se registraron ${operational.length} acciones operativas, incluyendo creaciones, modificaciones, evidencias, eliminaciones, finalizaciones u otras operaciones.`);
   else if (reads.length) paragraphs.push('Durante el periodo se registraron principalmente consultas de información; no se detectaron cambios operativos relevantes.');
+  if (navigation.length) paragraphs.push(`También se registraron ${navigation.length} entradas a pantallas o cambios de pestaña para reconstruir el recorrido realizado dentro de la aplicación.`);
 
   if ((report.agenda || []).length) paragraphs.push(`La agenda contiene ${(report.agenda || []).length} compromiso(s) para las personas seleccionadas dentro del rango consultado.`);
   return paragraphs;
@@ -319,10 +301,10 @@ function naturalizedReport(report) {
       source: 'Resumen legible',
       type: 'HUMAN_ACTIVITY',
     })),
-    pageSummary: (report.pageSummary || []).map((row) => ({ ...row, section: humanSection(row.section), route: '', view: humanSection(row.section) })),
+    pageSummary: (report.pageSummary || []).map((row) => ({ ...row, section: humanSection(row.section), route: '', view: clean(row.view) || humanSection(row.section) })),
     coverage: {
       ...report.coverage,
-      note: 'El reporte resume la actividad en lenguaje natural. Los eventos técnicos repetitivos se agrupan para facilitar la lectura sin alterar la información registrada por el sistema.',
+      note: 'El reporte conserva cada evento funcional registrado —incluidas entradas a pantallas, cambios de pestaña, consultas, evidencias y modificaciones—. Únicamente los latidos técnicos de permanencia se consolidan en la sección de tiempo de uso.',
     },
   };
 }
@@ -380,24 +362,25 @@ function pdfBlocks(report) {
   const filters = filterDescription(report);
   const summary = report.summary || {};
   const entries = humanActivityEntries(report);
+  const operationalEntries = entries.filter((entry) => !['READ', 'NAVIGATION'].includes(entry.kind));
   const blocks = [
     { type: 'meta', text: `Personas: ${filters.users}` },
     { type: 'meta', text: `Periodo: ${filters.dates} · ${filters.hours}` },
     { type: 'meta', text: `Secciones: ${filters.sections}` },
-    { type: 'summary', text: `Tiempo activo: ${formatDuration(summary.pageTimeSeconds || 0)} · Acciones relevantes: ${entries.filter((entry) => entry.kind !== 'READ').length} · Boletas: ${summary.ticketsTouched || 0}` },
+    { type: 'summary', text: `Tiempo en la app: ${formatDuration(summary.pageTimeSeconds || 0)} · Acciones operativas: ${operationalEntries.length} · Boletas: ${summary.ticketsTouched || 0}` },
     { type: 'summary', text: `Mantenimientos: ${summary.maintenancesTouched || 0} · Dispositivos: ${summary.devicesTouched || 0} · Agendas: ${summary.agendaItems || 0}` },
     { type: 'section', text: 'RESUMEN DEL PERIODO' },
     ...narrative(report, entries).map((text) => ({ type: 'body', text })),
-    { type: 'note', text: 'Para facilitar la lectura, el reporte agrupa consultas y eventos técnicos repetitivos. Las creaciones, modificaciones, eliminaciones y finalizaciones se mantienen como acciones individuales.' },
+    { type: 'note', text: 'El reporte conserva cada entrada a pantalla, cambio de pestaña, consulta y acción funcional registrada. Los eventos PAGE_TIME de un minuto se consolidan únicamente en Tiempo de uso para evitar repetir cientos de líneas técnicas.' },
     { type: 'section', text: 'TIEMPO DE USO' },
   ];
 
   const times = humanTimeRows(report);
   if (times.length) times.forEach((row) => blocks.push({ type: 'time', text: row.sentence }));
-  else blocks.push({ type: 'empty', text: 'No se registró tiempo activo para el periodo seleccionado.' });
+  else blocks.push({ type: 'empty', text: 'No se registró tiempo visible para el periodo seleccionado.' });
 
   blocks.push({ type: 'section', text: 'ACTIVIDAD REALIZADA' });
-  if (!entries.length) blocks.push({ type: 'empty', text: 'No se registraron acciones operativas para los filtros seleccionados.' });
+  if (!entries.length) blocks.push({ type: 'empty', text: 'No se registraron acciones o recorridos para los filtros seleccionados.' });
   else entries.forEach((entry) => {
     blocks.push({
       type: entry.priority === 'ALTA' ? 'activityHigh' : 'activity',
