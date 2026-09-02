@@ -47,6 +47,7 @@ export default function AgendaSplitDialog({ item, sessionToken, onClose, onSaved
     try {
       // La primera persona conserva el ID original. Para las demás se crean
       // agendas independientes con la misma fecha/horario y referencia al origen.
+      // El cliente relacionado se conserva para no perder el vínculo con boletas.
       const first = rows[0];
       const additions = rows.slice(1).map((row) => ({
         agendaOrigenId: item.AgendaID,
@@ -54,6 +55,8 @@ export default function AgendaSplitDialog({ item, sessionToken, onClose, onSaved
         horaInicio: item.HoraInicio,
         horaFin: item.HoraFin,
         detalle: clean(row.detalle),
+        clienteId: clean(item.ClienteID),
+        clienteNombre: clean(item.ClienteNombre),
         usuarioIds: [String(row.user.UsuarioID)],
       }));
 
@@ -68,6 +71,8 @@ export default function AgendaSplitDialog({ item, sessionToken, onClose, onSaved
         horaInicio: item.HoraInicio,
         horaFin: item.HoraFin,
         detalle: clean(first.detalle),
+        clienteId: clean(item.ClienteID),
+        clienteNombre: clean(item.ClienteNombre),
         usuarioIds: [String(first.user.UsuarioID)],
       }, sessionToken);
 
@@ -91,7 +96,7 @@ export default function AgendaSplitDialog({ item, sessionToken, onClose, onSaved
         <div>
           <span className="eyebrow">Cambio rápido de destino</span>
           <h2>Separar agenda por persona</h2>
-          <p>{dateLabel} · {item.HoraInicio} – {item.HoraFin}</p>
+          <p>{dateLabel} · {item.HoraInicio} – {item.HoraFin}{item.ClienteNombre ? ` · ${item.ClienteNombre}` : ''}</p>
         </div>
         <button type="button" className="icon-button" onClick={onClose} disabled={busy} aria-label="Cerrar"><Icon name="close" /></button>
       </header>
@@ -99,7 +104,7 @@ export default function AgendaSplitDialog({ item, sessionToken, onClose, onSaved
       <div className="agenda-editor__body">
         <div className="agenda-notice">
           <Icon name="call_split" />
-          <span>Cada persona quedará con una agenda independiente para el mismo día. Cambie únicamente el destino o detalle que corresponda y confirme.</span>
+          <span>Cada persona quedará con una agenda independiente para el mismo día. Cambie únicamente el destino o detalle que corresponda y confirme. El cliente relacionado se conserva.</span>
         </div>
 
         <div className="agenda-split-list">
@@ -126,7 +131,7 @@ export default function AgendaSplitDialog({ item, sessionToken, onClose, onSaved
         </button>
       </footer>
 
-      {busy && <div className="agenda-processing" role="status"><span><Icon name="progress_activity" /></span><strong>Redistribuyendo las visitas...</strong><small>Se mantienen la fecha y el horario; cada persona recibirá su nueva programación.</small></div>}
+      {busy && <div className="agenda-processing" role="status"><span><Icon name="progress_activity" /></span><strong>Redistribuyendo las visitas...</strong><small>Se mantienen la fecha, horario y cliente; cada persona recibirá su nueva programación.</small></div>}
     </section>
   </div>;
 }

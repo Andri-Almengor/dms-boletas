@@ -7,6 +7,8 @@ export const AGENDA_HEADERS = Object.freeze([
   'HoraInicio',
   'HoraFin',
   'Detalle',
+  'ClienteID',
+  'ClienteNombre',
   'Estado',
   'RequiereBoleta',
   'BoletaUID',

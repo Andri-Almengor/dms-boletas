@@ -66,7 +66,30 @@ function userDisplay(user = {}) {
   return clean(user.NombreCompleto || user.Nombre || user.NombreUsuario || user.Correo, 'Usuario');
 }
 
-function normalizeAgendaInput(input = {}, fallback = {}, ticketExceptions = []) {
+function clientId(client = {}) {
+  return clean(client.ClienteID || client.ID || client.id);
+}
+
+function clientDisplay(client = {}) {
+  return clean(client.Nombre || client.Clientes || client.Cliente || client.RazonSocial, 'Cliente');
+}
+
+function hasOwn(object, key) {
+  return Object.prototype.hasOwnProperty.call(object || {}, key);
+}
+
+function normalizeAgendaClient(input = {}, fallback = {}, clientById = new Map()) {
+  const hasClientPayload = hasOwn(input, 'clienteId') || hasOwn(input, 'ClienteID');
+  const requestedId = hasClientPayload
+    ? clean(input.clienteId ?? input.ClienteID)
+    : clean(fallback.ClienteID);
+  if (!requestedId) return { ClienteID: '', ClienteNombre: '' };
+  const client = clientById.get(requestedId);
+  if (!client) throw badRequest('El cliente seleccionado para la agenda no existe.');
+  return { ClienteID: requestedId, ClienteNombre: clientDisplay(client) };
+}
+
+function normalizeAgendaInput(input = {}, fallback = {}, ticketExceptions = [], clientById = new Map()) {
   const detail = clean(input.detalle ?? input.Detalle ?? fallback.Detalle).slice(0, MAX_DETAIL);
   if (!detail) throw badRequest('El detalle de la agenda es obligatorio.');
 
@@ -83,6 +106,7 @@ function normalizeAgendaInput(input = {}, fallback = {}, ticketExceptions = []) 
     HoraInicio: horaInicio,
     HoraFin: horaFin,
     Detalle: detail,
+    ...normalizeAgendaClient(input, fallback, clientById),
     Estado: estado,
     RequiereBoleta: agendaRequiresTicket(detail, ticketExceptions),
   };
@@ -145,6 +169,7 @@ function filterViews(views, payload = {}, ctx = {}) {
   if (search) {
     result = result.filter((item) => normalizeAgendaText([
       item.Detalle,
+      item.ClienteNombre,
       item.Fecha,
       ...item.asignados.map((user) => `${user.NombreCompleto} ${user.NombreUsuario} ${user.Correo}`),
     ].join(' ')).includes(search));
@@ -175,6 +200,8 @@ function buildDeliveries(views, users, mode = 'CREATED', removedByAgenda = new M
       horaInicio: agenda.HoraInicio,
       horaFin: agenda.HoraFin,
       detalle: agenda.Detalle,
+      clienteId: agenda.ClienteID,
+      clienteNombre: agenda.ClienteNombre,
       assigned,
     });
   }
@@ -293,17 +320,18 @@ async function create(ctx) {
   if (requested.length > MAX_BATCH) throw badRequest(`Puede crear un máximo de ${MAX_BATCH} agendas por envío.`);
 
   const [tables, ticketExceptions] = await Promise.all([
-    readTables(['Usuarios']),
+    readTables(['Usuarios', 'Clientes']),
     getAgendaTicketExceptions(),
   ]);
   const users = (tables.Usuarios || []).filter(activeUser);
   const userById = new Map(users.map((user) => [clean(user.UsuarioID), user]));
+  const clientById = new Map((tables.Clientes || []).map((client) => [clientId(client), client]).filter(([id]) => Boolean(id)));
   const timestamp = nowIso();
   const agendaRows = [];
   const assignmentRows = [];
 
   requested.forEach((input, index) => {
-    const values = normalizeAgendaInput(input, {}, ticketExceptions);
+    const values = normalizeAgendaInput(input, {}, ticketExceptions, clientById);
     const userIds = normalizeUserIds(input.usuarioIds || input.UsuarioIDs || input.asignados || []);
     if (!userIds.length) throw badRequest(`La agenda #${index + 1} debe tener al menos una persona asignada.`);
     const invalidUsers = userIds.filter((id) => !userById.has(id));
@@ -368,11 +396,12 @@ async function update(ctx) {
 
   const before = await findById('Agendas', agendaId);
   const [tables, ticketExceptions] = await Promise.all([
-    readTables(['AgendaAsignados', 'Usuarios', 'Boletas', 'BoletaAsignados']),
+    readTables(['AgendaAsignados', 'Usuarios', 'Clientes', 'Boletas', 'BoletaAsignados']),
     getAgendaTicketExceptions(),
   ]);
   const users = (tables.Usuarios || []).filter(activeUser);
   const userById = new Map(users.map((user) => [clean(user.UsuarioID), user]));
+  const clientById = new Map((tables.Clientes || []).map((client) => [clientId(client), client]).filter(([id]) => Boolean(id)));
   const activeRows = (tables.AgendaAsignados || []).filter((row) => activeAssignment(row) && clean(row.AgendaID) === agendaId);
   const oldUserIds = [...new Set(activeRows.map((row) => clean(row.UsuarioID)).filter(Boolean))];
   const hasAssignmentPayload = Array.isArray(ctx.payload?.usuarioIds)
@@ -384,16 +413,19 @@ async function update(ctx) {
   if (!newUserIds.length) throw badRequest('La agenda debe tener al menos una persona asignada.');
   if (newUserIds.some((id) => !userById.has(id))) throw badRequest('La agenda contiene usuarios inactivos o inexistentes.');
 
-  const values = normalizeAgendaInput(ctx.payload, before, ticketExceptions);
+  const values = normalizeAgendaInput(ctx.payload, before, ticketExceptions, clientById);
   const oldDate = agendaDate(before.Fecha);
   const dateChanged = values.Fecha !== oldDate;
+  const clientChanged = clean(values.ClienteID) !== clean(before.ClienteID)
+    || clean(values.ClienteNombre) !== clean(before.ClienteNombre);
   const assignmentChanged = oldUserIds.length !== newUserIds.length
     || oldUserIds.some((id) => !newUserIds.includes(id));
   const contentChanged = dateChanged
+    || clientChanged
     || values.Detalle !== clean(before.Detalle)
     || values.HoraInicio !== clean(before.HoraInicio, '07:00')
     || values.HoraFin !== clean(before.HoraFin, '17:00');
-  const resetLink = assignmentChanged || dateChanged || values.Detalle !== clean(before.Detalle);
+  const resetLink = assignmentChanged || dateChanged || clientChanged || values.Detalle !== clean(before.Detalle);
   const reminderAlreadyConsumedForThisDay = !dateChanged && reminderBelongsToAgendaDay(before);
   const timestamp = nowIso();
 
