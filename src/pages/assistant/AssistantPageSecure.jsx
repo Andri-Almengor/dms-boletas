@@ -3,7 +3,6 @@ import { Link, useSearchParams } from 'react-router-dom';
 import { apiRequest } from '../../api';
 import { useAuth } from '../../AuthContext';
 import Icon from '../../components/common/Icon';
-import GatewaySnapshotCard from '../../components/assistant/GatewaySnapshotCard';
 import '../../styles/assistant-sensitive.css';
 
 const STARTER_QUESTIONS = [
@@ -426,7 +425,6 @@ function AssistantMessage({ message, onSuggestion, onOption }) {
 
         <AssistantStats stats={message.stats} />
         {message.tables?.map((table) => <AssistantDataTable key={table.id} table={table} />)}
-        {message.snapshot && <GatewaySnapshotCard snapshot={message.snapshot} />}
 
         {message.sources?.length > 0 && (
           <div className="assistant-sources">
@@ -521,7 +519,6 @@ export default function AssistantPageSecure() {
         resumeQuestion: response.resumeQuestion || question,
         tables: presentation.tables,
         stats: presentation.stats,
-        snapshot: response.facts?.gatewaySnapshot || null,
         sensitive: Boolean(response.sensitive),
       };
       setMessages((current) => [...current, assistantMessage]);
