@@ -171,6 +171,18 @@
   overflow-wrap:anywhere;
 }
 
+.agenda-detail-sheet .agenda-sheet-actions{
+  display:grid;
+  grid-template-columns:repeat(2,minmax(0,1fr));
+  gap:9px;
+}
+
+.agenda-detail-sheet .agenda-sheet-actions .button{
+  width:100%;
+  min-width:0;
+  justify-content:center;
+}
+
 @keyframes agenda-resend-spin{
   to{transform:rotate(360deg)}
 }
@@ -206,7 +218,8 @@
 }
 
 @media(max-width:560px){
-  .agenda-resend-panel__actions{
+  .agenda-resend-panel__actions,
+  .agenda-detail-sheet .agenda-sheet-actions{
     grid-template-columns:1fr;
   }
 
@@ -215,7 +228,8 @@
   }
 
   .agenda-resend-panel__actions .button,
-  .agenda-client-panel__save{
+  .agenda-client-panel__save,
+  .agenda-detail-sheet .agenda-sheet-actions .button{
     min-height:48px;
   }
 }
