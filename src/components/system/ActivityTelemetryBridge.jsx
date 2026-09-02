@@ -3,9 +3,10 @@ import { useLocation } from 'react-router-dom';
 import { useAuth } from '../../AuthContext';
 import { sendActivityEvent } from '../../services/activityReportApi';
 
-const IDLE_AFTER_MS = 5 * 60 * 1000;
-const TICK_MS = 10 * 1000;
+const TICK_MS = 5 * 1000;
 const FLUSH_MS = 60 * 1000;
+const PAGE_VIEW_DELAY_MS = 250;
+const ACTIVITY_FLUSH_EVENT = 'dms:activity-flush';
 
 function sectionForPath(value = '') {
   const path = String(value || '').toLowerCase();
@@ -53,6 +54,27 @@ function activeTabLabel() {
   return '';
 }
 
+function pageLabel(pathname = '', section = '') {
+  const path = String(pathname || '').toLowerCase();
+  if (!path || path === '/') return 'Inicio';
+  if (/\/boletas\/(nueva|nuevo)/.test(path)) return 'Crear boleta';
+  if (/\/mantenimientos\/(nuevo|nueva)/.test(path)) return 'Crear mantenimiento';
+  if (path.includes('/agenda')) return 'Agenda';
+  if (path.includes('/boletas')) return 'Boletas';
+  if (path.includes('/mantenimientos')) return 'Mantenimientos';
+  if (path.includes('/casos')) return 'Casos';
+  if (path.includes('/clientes')) return 'Clientes';
+  if (path.includes('/credenciales')) return 'Credenciales';
+  if (path.includes('/usuarios')) return 'Usuarios';
+  if (path.includes('/conocimiento')) return 'Base de conocimientos';
+  if (path.includes('/asistente')) return 'Asistente';
+  if (path.includes('/metricas') || path.includes('/dashboard')) return 'Métricas';
+  if (path.includes('/encuestas')) return 'Encuestas';
+  if (path.includes('/integraciones')) return 'Integraciones';
+  if (path.includes('/administracion')) return 'Administración';
+  return section || 'Otra sección';
+}
+
 export default function ActivityTelemetryBridge() {
   const { sessionToken } = useAuth();
   const location = useLocation();
@@ -63,13 +85,16 @@ export default function ActivityTelemetryBridge() {
   const lastTickRef = useRef(Date.now());
   const lastFlushRef = useRef(Date.now());
   const lastInteractionRef = useRef(Date.now());
-  const activeMsRef = useRef(0);
+  const visibleRef = useRef(typeof document === 'undefined' ? true : document.visibilityState === 'visible');
+  const visibleMsRef = useRef(0);
+  const interactionCountRef = useRef(0);
 
   useEffect(() => {
     if (!sessionToken) return undefined;
 
     function markInteraction() {
       lastInteractionRef.current = Date.now();
+      interactionCountRef.current += 1;
     }
 
     const events = ['pointerdown', 'keydown', 'touchstart', 'wheel'];
@@ -81,72 +106,93 @@ export default function ActivityTelemetryBridge() {
     if (!sessionToken) return undefined;
 
     const route = `${location.pathname}${location.search || ''}`;
+    const startedAt = Date.now();
     routeRef.current = route;
     sectionRef.current = sectionForPath(location.pathname);
     viewRef.current = '';
-    segmentStartedRef.current = Date.now();
-    lastTickRef.current = Date.now();
-    lastFlushRef.current = Date.now();
-    activeMsRef.current = 0;
-
-    const detectTimer = window.setTimeout(() => {
-      viewRef.current = activeTabLabel();
-    }, 250);
-
-    void sendActivityEvent(sessionToken, {
-      type: 'PAGE_VIEW',
-      section: sectionRef.current,
-      route,
-      view: viewRef.current,
-      startedAt: new Date().toISOString(),
-      endedAt: new Date().toISOString(),
-      durationSeconds: 0,
-      detail: { title: document.title },
-    }).catch(() => {});
+    segmentStartedRef.current = startedAt;
+    lastTickRef.current = startedAt;
+    lastFlushRef.current = startedAt;
+    visibleRef.current = document.visibilityState === 'visible';
+    visibleMsRef.current = 0;
+    interactionCountRef.current = 0;
 
     function accumulate(now = Date.now()) {
       const elapsed = Math.max(0, now - lastTickRef.current);
       lastTickRef.current = now;
-      const visible = document.visibilityState === 'visible';
-      const active = now - lastInteractionRef.current <= IDLE_AFTER_MS;
-      if (visible && active) activeMsRef.current += elapsed;
+      if (visibleRef.current) visibleMsRef.current += elapsed;
+      visibleRef.current = document.visibilityState === 'visible';
     }
 
     function flush(keepalive = false, force = false) {
       const now = Date.now();
       accumulate(now);
-      const durationMs = activeMsRef.current;
+      const durationMs = visibleMsRef.current;
       if (!force && durationMs < 1_000) return;
       if (durationMs < 250) return;
 
-      const startedAt = new Date(segmentStartedRef.current).toISOString();
-      const endedAt = new Date(now).toISOString();
       const payload = {
         type: 'PAGE_TIME',
         section: sectionRef.current,
         route: routeRef.current,
         view: viewRef.current,
-        startedAt,
-        endedAt,
+        startedAt: new Date(segmentStartedRef.current).toISOString(),
+        endedAt: new Date(now).toISOString(),
         durationSeconds: Math.round(durationMs / 100) / 10,
+        action: 'PERMANENCIA VISIBLE EN APP',
         detail: {
-          visible: document.visibilityState === 'visible',
-          idleLimitMinutes: IDLE_AFTER_MS / 60000,
+          measurement: 'VISIBLE_APP_TIME',
+          visibleAtFlush: document.visibilityState === 'visible',
+          interactionCount: interactionCountRef.current,
+          lastInteractionAt: new Date(lastInteractionRef.current).toISOString(),
         },
       };
-      activeMsRef.current = 0;
+      visibleMsRef.current = 0;
+      interactionCountRef.current = 0;
       segmentStartedRef.current = now;
       lastFlushRef.current = now;
       void sendActivityEvent(sessionToken, payload, { keepalive }).catch(() => {});
     }
 
+    const detectTimer = window.setTimeout(() => {
+      viewRef.current = activeTabLabel();
+      const eventStartedAt = new Date(startedAt).toISOString();
+      const endedAt = new Date().toISOString();
+      void sendActivityEvent(sessionToken, {
+        type: 'PAGE_VIEW',
+        section: sectionRef.current,
+        route,
+        view: viewRef.current,
+        startedAt: eventStartedAt,
+        endedAt,
+        durationSeconds: 0,
+        action: 'ENTRAR A SECCIÓN',
+        detail: {
+          title: document.title,
+          page: pageLabel(location.pathname, sectionRef.current),
+        },
+      }).catch(() => {});
+    }, PAGE_VIEW_DELAY_MS);
+
     function handleVisibility() {
-      accumulate(Date.now());
-      if (document.visibilityState === 'hidden') flush(true, true);
+      const now = Date.now();
+      accumulate(now);
+      if (document.visibilityState === 'hidden') {
+        flush(true, true);
+        return;
+      }
+      segmentStartedRef.current = now;
+      lastTickRef.current = now;
+      lastFlushRef.current = now;
+      visibleRef.current = true;
     }
 
     function handlePageHide() {
       flush(true, true);
+    }
+
+    function handleExternalFlush() {
+      flush(false, true);
     }
 
     function handleTabClick(event) {
@@ -154,19 +200,24 @@ export default function ActivityTelemetryBridge() {
       if (!target) return;
       const label = tabLabel(target);
       if (!label || label === viewRef.current) return;
+      const previousView = viewRef.current;
       flush(false, true);
       viewRef.current = label;
       segmentStartedRef.current = Date.now();
+      lastTickRef.current = Date.now();
+      lastInteractionRef.current = Date.now();
+      interactionCountRef.current += 1;
+      const now = new Date().toISOString();
       void sendActivityEvent(sessionToken, {
         type: 'UI_TAB',
         section: sectionRef.current,
         route: routeRef.current,
         view: label,
-        startedAt: new Date().toISOString(),
-        endedAt: new Date().toISOString(),
+        startedAt: now,
+        endedAt: now,
         durationSeconds: 0,
         action: 'CAMBIAR PESTAÑA',
-        detail: { tab: label },
+        detail: { from: previousView, to: label },
       }).catch(() => {});
     }
 
@@ -178,6 +229,7 @@ export default function ActivityTelemetryBridge() {
 
     document.addEventListener('visibilitychange', handleVisibility);
     window.addEventListener('pagehide', handlePageHide);
+    window.addEventListener(ACTIVITY_FLUSH_EVENT, handleExternalFlush);
     document.addEventListener('click', handleTabClick, true);
 
     return () => {
@@ -185,6 +237,7 @@ export default function ActivityTelemetryBridge() {
       window.clearInterval(timer);
       document.removeEventListener('visibilitychange', handleVisibility);
       window.removeEventListener('pagehide', handlePageHide);
+      window.removeEventListener(ACTIVITY_FLUSH_EVENT, handleExternalFlush);
       document.removeEventListener('click', handleTabClick, true);
       flush(true, true);
     };
