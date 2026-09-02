@@ -156,14 +156,15 @@ export default function ActivityTelemetryBridge() {
 
     const detectTimer = window.setTimeout(() => {
       viewRef.current = activeTabLabel();
-      const now = new Date().toISOString();
+      const eventStartedAt = new Date(startedAt).toISOString();
+      const endedAt = new Date().toISOString();
       void sendActivityEvent(sessionToken, {
         type: 'PAGE_VIEW',
         section: sectionRef.current,
         route,
         view: viewRef.current,
-        startedAt: now,
-        endedAt: now,
+        startedAt: eventStartedAt,
+        endedAt,
         durationSeconds: 0,
         action: 'ENTRAR A SECCIÓN',
         detail: {
@@ -174,8 +175,16 @@ export default function ActivityTelemetryBridge() {
     }, PAGE_VIEW_DELAY_MS);
 
     function handleVisibility() {
-      accumulate(Date.now());
-      if (document.visibilityState === 'hidden') flush(true, true);
+      const now = Date.now();
+      accumulate(now);
+      if (document.visibilityState === 'hidden') {
+        flush(true, true);
+        return;
+      }
+      segmentStartedRef.current = now;
+      lastTickRef.current = now;
+      lastFlushRef.current = now;
+      visibleRef.current = true;
     }
 
     function handlePageHide() {
