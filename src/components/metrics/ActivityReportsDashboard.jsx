@@ -6,6 +6,8 @@ import { fetchActivityReport } from '../../services/activityReportApi';
 import { exportActivityReport, formatDuration } from '../../services/activityReportExportNatural';
 import '../../styles/activity-reports.css';
 
+const ALL_APP = 'ALL';
+const ACTIVITY_FLUSH_EVENT = 'dms:activity-flush';
 const SECTIONS = [
   ['AGENDA', 'Agenda'],
   ['BOLETAS', 'Boletas'],
@@ -25,6 +27,7 @@ const SECTIONS = [
   ['INICIO', 'Inicio'],
   ['OTROS', 'Otros'],
 ];
+const SECTION_VALUES = SECTIONS.map(([value]) => value);
 
 function clean(value) { return String(value ?? '').trim(); }
 function personName(user = {}) { return clean(user.NombreCompleto || user.Nombre || user.NombreUsuario || user.Correo || 'Usuario'); }
@@ -41,6 +44,14 @@ function asUsers(response) {
   return [];
 }
 function toggleValue(values, value) { return values.includes(value) ? values.filter((item) => item !== value) : [...values, value]; }
+function allAppSelected(sections = []) { return !sections.length || sections.includes(ALL_APP); }
+function sectionIsSelected(sections = [], value) { return allAppSelected(sections) || sections.includes(value); }
+function toggleSection(sections = [], value) {
+  if (allAppSelected(sections)) return SECTION_VALUES.filter((section) => section !== value);
+  const next = toggleValue(sections, value).filter((section) => section !== ALL_APP);
+  return SECTION_VALUES.every((section) => next.includes(section)) ? [ALL_APP] : next;
+}
+function sleep(ms) { return new Promise((resolve) => window.setTimeout(resolve, ms)); }
 
 function SummaryCard({ icon, label, value, detail }) {
   return <article className="activity-summary-card"><span><Icon name={icon} /></span><div><small>{label}</small><strong>{value}</strong>{detail && <em>{detail}</em>}</div></article>;
@@ -49,6 +60,7 @@ function SummaryCard({ icon, label, value, detail }) {
 function ReportFilters({ users, filters, setFilters, onRun, busy, format, setFormat, onExport, canExport }) {
   const selectedSet = useMemo(() => new Set(filters.userIds), [filters.userIds]);
   const allSelected = users.length > 0 && users.every((user) => selectedSet.has(clean(user.UsuarioID)));
+  const isAllApp = allAppSelected(filters.sections);
   return <section className="activity-report-filters">
     <div className="activity-filter-heading"><div><span className="eyebrow">Constructor de reporte</span><h2>Filtros</h2><p>Combine personas, fechas, horas, secciones y contenido. El archivo exportado conserva todos los registros encontrados.</p></div><Icon name="tune" /></div>
 
@@ -67,22 +79,26 @@ function ReportFilters({ users, filters, setFilters, onRun, busy, format, setFor
     </div>
 
     <div className="activity-filter-block">
-      <div className="activity-filter-block__title"><div><strong>Personas</strong><small>Puede seleccionar una, varias o todas.</small></div><button type="button" className="button button--secondary button--compact" onClick={() => setFilters((current) => ({ ...current, userIds: allSelected ? [] : users.map((user) => clean(user.UsuarioID)) }))}>{allSelected ? 'Quitar todos' : 'Seleccionar todos'}</button></div>
+      <div className="activity-filter-block__title"><div><strong>Personas</strong><small>Puede seleccionar una, varias o todas. Sin selección explícita se incluyen todos los usuarios activos.</small></div><button type="button" className="button button--secondary button--compact" onClick={() => setFilters((current) => ({ ...current, userIds: allSelected ? [] : users.map((user) => clean(user.UsuarioID)) }))}>{allSelected ? 'Usar todos automáticamente' : 'Seleccionar todos'}</button></div>
       <div className="activity-user-grid">{users.map((user) => {
         const id = clean(user.UsuarioID);
         const checked = selectedSet.has(id);
         return <button type="button" key={id} className={`activity-user-option${checked ? ' is-selected' : ''}`} onClick={() => setFilters((current) => ({ ...current, userIds: toggleValue(current.userIds, id) }))}><Icon name={checked ? 'check_circle' : 'radio_button_unchecked'} /><span><strong>{personName(user)}</strong><small>{clean(user.Correo)}</small></span></button>;
       })}</div>
-      {!filters.userIds.length && <div className="activity-filter-hint"><Icon name="info" />Sin selección explícita: el reporte incluirá todos los usuarios activos.</div>}
+      {!filters.userIds.length && <div className="activity-filter-hint"><Icon name="info" />Todos los usuarios activos están incluidos.</div>}
     </div>
 
     <div className="activity-filter-block">
-      <div className="activity-filter-block__title"><div><strong>Secciones del app</strong><small>Vacío significa toda la aplicación.</small></div><button type="button" className="button button--secondary button--compact" onClick={() => setFilters((current) => ({ ...current, sections: [] }))}>Toda la app</button></div>
-      <div className="activity-section-grid">{SECTIONS.map(([value, label]) => <button type="button" key={value} className={filters.sections.includes(value) ? 'is-selected' : ''} onClick={() => setFilters((current) => ({ ...current, sections: toggleValue(current.sections, value) }))}><Icon name={filters.sections.includes(value) ? 'check' : 'add'} />{label}</button>)}</div>
+      <div className="activity-filter-block__title"><div><strong>Secciones del app</strong><small>“Toda la app” incluye Inicio y todas las secciones actuales o futuras.</small></div><button type="button" className={`button button--secondary button--compact${isAllApp ? ' is-selected' : ''}`} onClick={() => setFilters((current) => ({ ...current, sections: [ALL_APP] }))}><Icon name={isAllApp ? 'check_circle' : 'apps'} />Toda la app</button></div>
+      <div className="activity-section-grid">{SECTIONS.map(([value, label]) => {
+        const checked = sectionIsSelected(filters.sections, value);
+        return <button type="button" key={value} className={checked ? 'is-selected' : ''} onClick={() => setFilters((current) => ({ ...current, sections: toggleSection(current.sections, value) }))}><Icon name={checked ? 'check' : 'add'} />{label}</button>;
+      })}</div>
+      {isAllApp && <div className="activity-filter-hint"><Icon name="check_circle" />El reporte se generará sobre toda la aplicación.</div>}
     </div>
 
     <div className="activity-filter-options">
-      <label><input type="checkbox" checked={filters.contentTypes.includes('ACTIVITY')} onChange={() => setFilters((current) => ({ ...current, contentTypes: toggleValue(current.contentTypes, 'ACTIVITY') }))} /><span><strong>Actividad del app</strong><small>Páginas, pestañas, consultas, cambios y acciones.</small></span></label>
+      <label><input type="checkbox" checked={filters.contentTypes.includes('ACTIVITY')} onChange={() => setFilters((current) => ({ ...current, contentTypes: toggleValue(current.contentTypes, 'ACTIVITY') }))} /><span><strong>Actividad del app</strong><small>Entradas a pantallas, pestañas, consultas, evidencias, cambios y acciones.</small></span></label>
       <label><input type="checkbox" checked={filters.contentTypes.includes('AGENDA')} onChange={() => setFilters((current) => ({ ...current, contentTypes: toggleValue(current.contentTypes, 'AGENDA') }))} /><span><strong>Agenda</strong><small>Dónde debía ir la persona y en qué horario.</small></span></label>
       <label><input type="checkbox" checked={filters.includeReads} onChange={(event) => setFilters((current) => ({ ...current, includeReads: event.target.checked }))} /><span><strong>Incluir consultas</strong><small>Incluye abrir/listar datos, no solo modificaciones.</small></span></label>
       <label><input type="checkbox" checked={filters.includeHistoricalAudit} onChange={(event) => setFilters((current) => ({ ...current, includeHistoricalAudit: event.target.checked }))} /><span><strong>Usar auditoría histórica</strong><small>Recupera actividad previa al nuevo rastreo cuando exista.</small></span></label>
@@ -100,7 +116,7 @@ export default function ActivityReportsDashboard() {
   const { sessionToken } = useAuth();
   const [users, setUsers] = useState([]);
   const [filters, setFilters] = useState({
-    userIds: [], sections: [], contentTypes: ['ACTIVITY', 'AGENDA'],
+    userIds: [], sections: [ALL_APP], contentTypes: ['ACTIVITY', 'AGENDA'],
     dateFrom: dateKey(), dateTo: dateKey(), timeFrom: '', timeTo: '',
     includeReads: true, includeHistoricalAudit: true,
   });
@@ -118,12 +134,18 @@ export default function ActivityReportsDashboard() {
     return () => { active = false; };
   }, [sessionToken]);
 
+  useEffect(() => {
+    setReport(null);
+  }, [filters]);
+
   async function runReport() {
     if (!filters.contentTypes.length) { setMessage('Seleccione Actividad del app, Agenda o ambos.'); return null; }
     if (filters.dateFrom && filters.dateTo && filters.dateFrom > filters.dateTo) { setMessage('La fecha desde no puede ser posterior a la fecha hasta.'); return null; }
     if (filters.timeFrom && filters.timeTo && filters.timeFrom > filters.timeTo) { setMessage('La hora desde no puede ser posterior a la hora hasta.'); return null; }
     setBusy(true); setMessage('');
     try {
+      window.dispatchEvent(new Event(ACTIVITY_FLUSH_EVENT));
+      await sleep(300);
       const data = await fetchActivityReport(sessionToken, filters);
       setReport(data);
       return data;
@@ -140,31 +162,33 @@ export default function ActivityReportsDashboard() {
     exportActivityReport(data, format);
   }
 
-  const previewRows = (report?.timeline || []).slice(0, 250);
+  const activityRows = (report?.timeline || []).filter((row) => row.type !== 'PAGE_TIME');
+  const previewRows = activityRows.slice(0, 250);
   return <div className="activity-reports-dashboard">
     <ReportFilters users={users} filters={filters} setFilters={setFilters} onRun={runReport} busy={busy} format={format} setFormat={setFormat} onExport={exportReport} canExport={Boolean(report)} />
     {message && <div className="activity-report-message is-error"><Icon name="error" />{message}</div>}
 
     {report && <>
       <section className="activity-report-summary">
-        <SummaryCard icon="touch_app" label="Acciones" value={report.summary.actions} detail={`${report.summary.highPriorityActions} de alta importancia`} />
-        <SummaryCard icon="schedule" label="Tiempo activo" value={formatDuration(report.summary.pageTimeSeconds)} detail="pestañas visibles y activas" />
+        <SummaryCard icon="touch_app" label="Eventos registrados" value={report.summary.actions} detail={`${report.summary.operationalActions ?? report.summary.actions} acciones · ${report.summary.navigationEvents ?? 0} entradas/pestañas`} />
+        <SummaryCard icon="schedule" label="Tiempo en la app" value={formatDuration(report.summary.pageTimeSeconds)} detail="tiempo visible, incluso sin clics" />
         <SummaryCard icon="receipt_long" label="Boletas" value={report.summary.ticketsTouched} detail="creadas, consultadas o modificadas" />
         <SummaryCard icon="engineering" label="Mantenimientos" value={report.summary.maintenancesTouched} detail={`${report.summary.devicesTouched} dispositivos tocados`} />
         <SummaryCard icon="calendar_month" label="Agenda" value={report.summary.agendaItems} detail="visitas dentro del periodo" />
       </section>
 
-      <div className="activity-coverage-note"><Icon name="verified_user" /><div><strong>Cobertura del reporte</strong><span>{report.coverage.note}</span>{report.coverage.telemetryStartedAt && <small>Telemetría exacta desde: {new Date(report.coverage.telemetryStartedAt).toLocaleString('es-CR')}</small>}</div></div>
+      <div className="activity-coverage-note"><Icon name="verified_user" /><div><strong>Cobertura del reporte</strong><span>{report.coverage.note}</span>{report.coverage.telemetryStartedAt && <small>Telemetría disponible desde: {new Date(report.coverage.telemetryStartedAt).toLocaleString('es-CR')}</small>}</div></div>
 
       <section className="activity-report-section">
-        <header><div><span className="eyebrow">Uso del sistema</span><h3>Tiempo por pestaña y vista</h3></div><strong>{formatDuration(report.summary.pageTimeSeconds)}</strong></header>
+        <header><div><span className="eyebrow">Uso del sistema</span><h3>Tiempo por pantalla y pestaña</h3><p>Cuenta todo el tiempo que la aplicación permaneció visible, aunque no hubiera interacción constante.</p></div><strong>{formatDuration(report.summary.pageTimeSeconds)}</strong></header>
         <div className="activity-page-time-list">{(report.pageSummary || []).slice(0, 100).map((row, index) => <div key={`${row.userId}-${row.section}-${row.route}-${row.view}-${index}`}><span><strong>{row.view || row.route || 'Vista general'}</strong><small>{row.userName} · {row.section}</small></span><b>{formatDuration(row.durationSeconds)}</b></div>)}</div>
         {!report.pageSummary?.length && <p className="activity-empty">No hay tiempo de permanencia registrado para estos filtros.</p>}
       </section>
 
       <section className="activity-report-section">
-        <header><div><span className="eyebrow">Trazabilidad</span><h3>Actividad completa</h3><p>La previsualización muestra hasta 250 filas; el archivo exportado incluye todas.</p></div><strong>{report.timeline.length} registros</strong></header>
-        <div className="activity-table-wrap"><table className="activity-table"><thead><tr><th>Fecha / hora</th><th>Persona</th><th>Sección / vista</th><th>Acción</th><th>Objeto</th><th>Resultado</th></tr></thead><tbody>{previewRows.map((row, index) => <tr key={`${row.activityId}-${index}`} className={row.priority === 'ALTA' ? 'is-high-priority' : ''}><td>{row.dateTimeLabel}</td><td>{row.userName}</td><td><strong>{row.section}</strong>{row.view && <small>{row.view}</small>}</td><td><strong>{row.action}</strong><small>{row.actionRoute || row.source}</small></td><td>{row.entity || '—'}{row.entityId && <small>{row.entityId}</small>}</td><td><span className={`activity-result is-${String(row.result).toLowerCase()}`}>{row.result}</span></td></tr>)}</tbody></table></div>
+        <header><div><span className="eyebrow">Trazabilidad</span><h3>Qué hizo la persona</h3><p>Incluye entradas a secciones, cambios de pestaña, consultas, evidencias, boletas, mantenimientos y demás acciones. Los latidos de tiempo se consolidan arriba para no llenar la tabla.</p></div><strong>{activityRows.length} eventos</strong></header>
+        <div className="activity-table-wrap"><table className="activity-table"><thead><tr><th>Fecha / hora</th><th>Persona</th><th>Sección / vista</th><th>Qué hizo</th><th>Objeto</th><th>Resultado</th></tr></thead><tbody>{previewRows.map((row, index) => <tr key={`${row.activityId}-${index}`} className={row.priority === 'ALTA' ? 'is-high-priority' : ''}><td>{row.dateTimeLabel}</td><td>{row.userName}</td><td><strong>{row.section}</strong>{row.view && <small>{row.view}</small>}</td><td><strong>{row.activityText || row.action}</strong><small>{row.actionRoute || row.uiRoute || row.source}</small></td><td>{row.entity || 'Interfaz'}{row.entityId && <small>{row.entityId}</small>}</td><td><span className={`activity-result is-${String(row.result).toLowerCase()}`}>{row.result}</span></td></tr>)}</tbody></table></div>
+        {activityRows.length > 250 && <p className="activity-filter-hint"><Icon name="info" />La previsualización muestra 250 eventos. El archivo exportado incluye todos los eventos encontrados.</p>}
         {!previewRows.length && <p className="activity-empty">No se encontró actividad para los filtros seleccionados.</p>}
       </section>
 
