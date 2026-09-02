@@ -24,11 +24,6 @@ import './services/knowledge-long-content.patch.js';
 import './services/password-vault-assistant.patch.js';
 import './services/password-vault-system-assistant.patch.js';
 import './services/assistant-maintenance-keyword.patch.js';
-import './services/integration-gateway-assistant.patch.js';
-import './services/integration-gateway-credential-assistant.patch.js';
-import './services/integration-gateway-answer-format.patch.js';
-import './services/integration-gateway-natural-language.patch.js';
-import './services/integration-gateway-advanced-actions.patch.js';
 import { runWithSheetsRouteReadCache } from './services/sheets-route-read-cache.patch.js';
 import { streamProtectedMedia } from './services/protected-media-stream.service.js';
 import { recordApiActivityFromToken } from './services/activity-log.service.js';
@@ -39,7 +34,6 @@ import {
   dispatchPasswordVaultAction,
   isPasswordVaultRoute,
 } from './modules/password-vault.module.js';
-import { integrationGatewayRouter } from './routes/integration-gateway.routes.js';
 import { maintenanceFinalizationWorkerRouter } from './routes/maintenance-finalization-worker.routes.js';
 import { activityReportRouter } from './routes/activity-report.routes.js';
 import { runWithActionConcurrency } from './services/action-concurrency.service.js';
@@ -101,7 +95,6 @@ app.use(cors({
 app.use(express.json({ limit: '50mb' }));
 app.use(express.text({ type: ['text/plain', 'application/javascript'], limit: '50mb' }));
 
-app.use('/api/integration-gateway', integrationGatewayRouter);
 app.use('/api/maintenance-finalization', maintenanceFinalizationWorkerRouter);
 app.use('/api/activity', activityReportRouter);
 
