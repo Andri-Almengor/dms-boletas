@@ -45,7 +45,6 @@ const MorePage = lazyPage(() => import('../pages/MorePage'), routeStyles.more, r
 const AgendaPage = lazyPage(() => import('../pages/agenda/AgendaPage'));
 const CatalogsPage = lazyPage(() => import('../pages/admin/CatalogsPage'), routeStyles.admin);
 const ClientsPage = lazyPage(() => import('../pages/admin/ClientsPage'), routeStyles.admin, routeStyles.clients);
-const IntegrationsPage = lazyPage(() => import('../pages/admin/IntegrationsPage'), routeStyles.admin);
 const LegacyTicketsImportPage = lazyPage(() => import('../pages/admin/LegacyTicketsImportPage'), routeStyles.admin, routeStyles.legacy);
 const MaintenanceQuestionsPage = lazyPage(() => import('../pages/admin/MaintenanceQuestionsPage'), routeStyles.admin, routeStyles.maintenance);
 const MetricsPage = lazyPage(() => import('../pages/admin/MetricsPage'), routeStyles.metrics);
@@ -159,7 +158,7 @@ export default function App() {
           <Route path="asistente" element={<AssistantPage />} />
           <Route path="agenda" element={<AgendaPage />} />
           <Route path="boletas/pendientes" element={<PermissionRoute permission="BOLETAS_VER"><TicketListPage status="PENDIENTE" /></PermissionRoute>} />
-          <Route path="boletas/finalizadas" element={<PermissionRoute permission="BOLETAS_VER"><TicketListPage status="FINALIZADA" /></PermissionRoute>} />
+          <Route path="boletas/finalizadas" element={<PermissionRoute permission="BOLETAS_VER"><TicketListPage status="FINALIZADA"></TicketListPage></PermissionRoute>} />
           <Route path="boletas/nueva" element={<PermissionRoute permission="BOLETAS_CREAR"><TicketFormPage mode="create" /></PermissionRoute>} />
           <Route path="boletas/:boletaUid" element={<PermissionRoute permission="BOLETAS_VER"><TicketDetailWithQuickEdit /></PermissionRoute>} />
           <Route path="boletas/:boletaUid/nueva-visita" element={<PermissionRoute permission="BOLETAS_CREAR"><TicketRelatedVisitPage /></PermissionRoute>} />
@@ -183,7 +182,6 @@ export default function App() {
           <Route path="categorias" element={<Navigate to="/catalogos" replace />} />
           <Route path="metricas" element={<PermissionRoute permission="USUARIOS_GESTIONAR"><MetricsPage /></PermissionRoute>} />
           <Route path="dashboard" element={<Navigate to="/metricas" replace />} />
-          <Route path="integraciones" element={<PermissionRoute permission="USUARIOS_GESTIONAR"><IntegrationsPage /></PermissionRoute>} />
           <Route path="administracion/notificaciones" element={<PermissionRoute permission="USUARIOS_GESTIONAR"><NotificationSettingsPage /></PermissionRoute>} />
           <Route path="administracion/importar-boletas" element={<PermissionRoute permission="USUARIOS_GESTIONAR"><LegacyTicketsImportPage /></PermissionRoute>} />
           <Route path="encuestas" element={<PermissionRoute permission="USUARIOS_GESTIONAR"><SurveysAdminPage /></PermissionRoute>} />
