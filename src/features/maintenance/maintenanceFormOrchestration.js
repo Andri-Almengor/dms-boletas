@@ -6,6 +6,28 @@ function readValue(object, keys, fallback = '') {
   return fallback;
 }
 
+export const MAINTENANCE_OPERATIONAL_CREATE_ROUTES = Object.freeze({
+  location: Object.freeze([
+    'clients.operational.locations.create',
+    'clientLocations.operational.create',
+    'clientes.ubicaciones.operational.create',
+    'ubicacionesCliente.operational.create',
+  ]),
+  equipment: Object.freeze([
+    'clients.operational.equipmentLocations.create',
+    'equipmentLocations.operational.create',
+    'clientes.ubicacionesEquipo.operational.create',
+    'ubicacionesEquipo.operational.create',
+  ]),
+});
+
+export function maintenanceQuickCreateRoutes(type, adminRoutes = [], useAdminRoutes = false) {
+  const fallback = Array.isArray(adminRoutes) ? adminRoutes : [adminRoutes].filter(Boolean);
+  if (useAdminRoutes) return [...fallback];
+  const operational = MAINTENANCE_OPERATIONAL_CREATE_ROUTES[type] || [];
+  return [...new Set([...operational, ...fallback])];
+}
+
 export function maintenanceDeviceId(device = {}) {
   return String(readValue(device, [
     'id',
