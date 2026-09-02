@@ -215,7 +215,6 @@ export default function MorePage() {
             {canViewPasswordVault && <MenuRow to="/credenciales" icon="shield_lock" label="Contraseñas de clientes" note="Credenciales cifradas, organizadas por cliente y categoría" />}
             {isAdmin && <MenuRow to="/metricas" icon="monitoring" label="Métricas operativas" note="Dashboards de boletas y mantenimientos" />}
             {isAdmin && <MenuRow to="/administracion/notificaciones" icon="notifications_active" label="Notificaciones" note="Destinatarios, copias y Google Chat de Agenda" />}
-            {isAdmin && <MenuRow to="/integraciones" icon="hub" label="Gateways de integración" note="Conexión segura con redes y dispositivos locales" />}
             {isAdmin && <MenuRow to="/administracion/importar-boletas" icon="upload_file" label="Importar boletas anteriores" note="Migrar el historial XLSX de la aplicación anterior" />}
             {hasPermission('CLIENTES_VER') && <MenuRow to="/clientes" icon="groups" label="Clientes" note="Clientes, ubicaciones y contactos" />}
             {isAdmin && <MenuRow to="/encuestas" icon="rate_review" label="Encuestas de servicio" note="Preguntas, calificaciones y boletas relacionadas" />}
