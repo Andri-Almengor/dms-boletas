@@ -12,7 +12,6 @@ export const TABLES = Object.freeze({
   MaintenanceFinalizationJobs: { id: 'JobID' }, MaintenanceFinalizationItems: { id: 'ItemID' },
   KnowledgeCategories: { id: 'CategoriaConocimientoID' }, KnowledgeArticles: { id: 'TutorialID' }, KnowledgeAttachments: { id: 'AdjuntoID' }, KnowledgeArticleCategories: { id: 'RelacionArticuloCategoriaID' }, KnowledgeArticleContent: { id: 'ContenidoParteID' },
   EncuestaPreguntas: { id: 'PreguntaID' }, Encuestas: { id: 'EncuestaID' }, EncuestaRespuestas: { id: 'RespuestaEncuestaID' },
-  IntegracionGateways: { id: 'GatewayID' }, IntegracionDispositivos: { id: 'DispositivoIntegracionID' }, IntegracionComandos: { id: 'ComandoID' }, IntegracionGatewaySecrets: { id: 'GatewayID' },
   Notificaciones: { id: 'NotificacionID' }, Auditoria: { id: 'AuditoriaID' }, ActividadApp: { id: 'ActividadID' }, Archivos: { id: 'ArchivoIDInterno' },
 });
 
