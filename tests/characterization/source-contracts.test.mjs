@@ -19,14 +19,19 @@ function includesAll(contents, fragments) {
 
 test('App conserva carga diferida, recuperación global y offline opcional', () => {
   const contents = source('src/app/App.jsx');
+  const loaders = source('src/app/routeLoaders.js');
   includesAll(contents, [
     "const FormRecoveryManager = lazy(() => import('../components/offline/FormRecoveryManager'))",
     'function FormRecoveryRuntime()',
     'function OptionalOfflineRuntime()',
     '<FormRecoveryRuntime />',
     '<OptionalOfflineRuntime />',
-    'const TicketFormPage = lazyPage',
-    'const MaintenanceFormPage = lazyPage',
+    'const TicketFormPage = lazy(loadTicketFormPage)',
+    'const MaintenanceFormPage = lazy(loadMaintenanceFormPage)',
+  ]);
+  includesAll(loaders, [
+    "export const loadTicketFormPage = loadWithAssets(() => import('../pages/tickets/TicketFormPage')",
+    "export const loadMaintenanceFormPage = loadWithAssets(() => import('../pages/maintenance/MaintenanceFormPage')",
   ]);
 });
 
@@ -68,6 +73,7 @@ test('la capa HTTP mantiene deduplicación, caché corta, reintentos y cancelaci
     'const TRANSIENT_RETRY_DELAYS_MS = [700, 1500, 2800];',
     'const pendingReads = new Map();',
     'if (!signal && pendingReads.has(key)) return pendingReads.get(key);',
+    'pendingReads.set(key, sharedNetworkRequest);',
     'signal,',
     'await wait(TRANSIENT_RETRY_DELAYS_MS[attempt], signal);',
   ]);

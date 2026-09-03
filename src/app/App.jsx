@@ -5,29 +5,44 @@ import Icon from '../components/common/Icon';
 import useOfflineMode from '../hooks/useOfflineMode';
 import PermissionRoute from '../routes/PermissionRoute';
 import ProtectedRoute from '../routes/ProtectedRoute';
-
-const routeStyles = {
-  home: () => import('../styles/routes/home.js'),
-  login: () => import('../styles/routes/login.js'),
-  tickets: () => import('../styles/routes/tickets.js'),
-  maintenance: () => import('../styles/routes/maintenance.js'),
-  knowledge: () => import('../styles/routes/knowledge.js'),
-  assistant: () => import('../styles/routes/assistant.js'),
-  clients: () => import('../styles/routes/clients.js'),
-  admin: () => import('../styles/routes/admin.js'),
-  metrics: () => import('../styles/routes/metrics.js'),
-  surveys: () => import('../styles/routes/surveys.js'),
-  more: () => import('../styles/routes/more.js'),
-  offline: () => import('../styles/routes/offline.js'),
-  legacy: () => import('../styles/routes/legacy.js'),
-};
-
-function lazyPage(loadPage, ...loadAssets) {
-  return lazy(async () => {
-    const [page] = await Promise.all([loadPage(), ...loadAssets.map((load) => load())]);
-    return page;
-  });
-}
+import {
+  loadAgendaPage,
+  loadAssistantPage,
+  loadCatalogsPage,
+  loadChangePasswordPage,
+  loadClientsPage,
+  loadCustomerCaseDetailPage,
+  loadCustomerCasesPage,
+  loadHomePage,
+  loadKnowledgeCategoriesPage,
+  loadKnowledgeDetailPage,
+  loadKnowledgeEditorPage,
+  loadKnowledgeListPage,
+  loadLegacyTicketsImportPage,
+  loadLoginPage,
+  loadMaintenanceDetailPage,
+  loadMaintenanceFormPage,
+  loadMaintenanceListPage,
+  loadMaintenanceQuestionsPage,
+  loadMetricsPage,
+  loadMorePage,
+  loadNotificationSettingsPage,
+  loadOfflineContentPage,
+  loadPasswordVaultPage,
+  loadPublicCustomerCasePage,
+  loadPublicSignaturePage,
+  loadPublicSurveyPage,
+  loadSurveyDetailPage,
+  loadSurveysAdminPage,
+  loadTicketDetailWithQuickEdit,
+  loadTicketFormPage,
+  loadTicketListPage,
+  loadTicketQuickEditPage,
+  loadTicketRelatedVisitPage,
+  loadUserDetailPage,
+  loadUserFormPage,
+  loadUsersPage,
+} from './routeLoaders';
 
 const FormRecoveryManager = lazy(() => import('../components/offline/FormRecoveryManager'));
 const MaintenanceFinalizationCenter = lazy(() => import('../components/offline/MaintenanceFinalizationCenter'));
@@ -38,42 +53,42 @@ const TicketEvidenceMultiSelectBridge = lazy(() => import('../components/forms/T
 const ActionProcessingBridge = lazy(() => import('../components/feedback/ActionProcessingBridge'));
 const OperationalDeleteBridge = lazy(() => import('../components/operational/OperationalDeleteBridge'));
 
-const ChangePasswordPage = lazyPage(() => import('../pages/ChangePasswordPage'), routeStyles.admin);
-const HomePage = lazyPage(() => import('../pages/HomePage'), routeStyles.home);
-const LoginPage = lazyPage(() => import('../pages/LoginPage'), routeStyles.login);
-const MorePage = lazyPage(() => import('../pages/MorePage'), routeStyles.more, routeStyles.offline);
-const AgendaPage = lazyPage(() => import('../pages/agenda/AgendaPage'));
-const CatalogsPage = lazyPage(() => import('../pages/admin/CatalogsPage'), routeStyles.admin);
-const ClientsPage = lazyPage(() => import('../pages/admin/ClientsPage'), routeStyles.admin, routeStyles.clients);
-const LegacyTicketsImportPage = lazyPage(() => import('../pages/admin/LegacyTicketsImportPage'), routeStyles.admin, routeStyles.legacy);
-const MaintenanceQuestionsPage = lazyPage(() => import('../pages/admin/MaintenanceQuestionsPage'), routeStyles.admin, routeStyles.maintenance);
-const MetricsPage = lazyPage(() => import('../pages/admin/MetricsPage'), routeStyles.metrics);
-const NotificationSettingsPage = lazyPage(() => import('../pages/admin/NotificationSettingsPage'), routeStyles.admin);
-const AssistantPage = lazyPage(() => import('../pages/assistant/AssistantPage'), routeStyles.assistant);
-const CustomerCasesPage = lazyPage(() => import('../pages/cases/CustomerCasesPage'));
-const CustomerCaseDetailPage = lazyPage(() => import('../pages/cases/CustomerCaseDetailPage'));
-const PublicCustomerCasePage = lazyPage(() => import('../pages/cases/PublicCustomerCasePage'));
-const KnowledgeCategoriesPage = lazyPage(() => import('../pages/knowledge/KnowledgeCategoriesPage'), routeStyles.knowledge, routeStyles.admin);
-const KnowledgeDetailPage = lazyPage(() => import('../pages/knowledge/KnowledgeDetailPage'), routeStyles.knowledge);
-const KnowledgeEditorPage = lazyPage(() => import('../pages/knowledge/KnowledgeEditorPage'), routeStyles.knowledge);
-const KnowledgeListPage = lazyPage(() => import('../pages/knowledge/KnowledgeListPage'), routeStyles.knowledge);
-const MaintenanceDetailPage = lazyPage(() => import('../pages/maintenance/MaintenanceDetailPage'), routeStyles.maintenance);
-const MaintenanceFormPage = lazyPage(() => import('../pages/maintenance/MaintenanceFormPage'), routeStyles.maintenance);
-const MaintenanceListPage = lazyPage(() => import('../pages/maintenance/MaintenanceListPage'), routeStyles.maintenance);
-const OfflineContentPage = lazyPage(() => import('../pages/offline/OfflineContentPage'), routeStyles.offline);
-const PasswordVaultPage = lazyPage(() => import('../pages/security/PasswordVaultPage'));
-const PublicSurveyPage = lazyPage(() => import('../pages/surveys/PublicSurveyPage'), routeStyles.surveys);
-const SurveyDetailPage = lazyPage(() => import('../pages/surveys/SurveyDetailPage'), routeStyles.surveys, routeStyles.admin);
-const SurveysAdminPage = lazyPage(() => import('../pages/surveys/SurveysAdminPage'), routeStyles.surveys, routeStyles.admin);
-const PublicSignaturePage = lazyPage(() => import('../pages/tickets/PublicSignaturePage'), routeStyles.tickets);
-const TicketDetailWithQuickEdit = lazyPage(() => import('../pages/tickets/TicketDetailWithQuickEdit'), routeStyles.tickets);
-const TicketFormPage = lazyPage(() => import('../pages/tickets/TicketFormPage'), routeStyles.tickets);
-const TicketListPage = lazyPage(() => import('../pages/tickets/TicketListPage'), routeStyles.tickets);
-const TicketQuickEditPage = lazyPage(() => import('../pages/tickets/TicketQuickEditPage'), routeStyles.tickets);
-const TicketRelatedVisitPage = lazyPage(() => import('../pages/tickets/TicketRelatedVisitPage'), routeStyles.tickets);
-const UserDetailPage = lazyPage(() => import('../pages/users/UserDetailPage'), routeStyles.admin);
-const UserFormPage = lazyPage(() => import('../pages/users/UserFormPage'), routeStyles.admin);
-const UsersPage = lazyPage(() => import('../pages/users/UsersPage'), routeStyles.admin);
+const ChangePasswordPage = lazy(loadChangePasswordPage);
+const HomePage = lazy(loadHomePage);
+const LoginPage = lazy(loadLoginPage);
+const MorePage = lazy(loadMorePage);
+const AgendaPage = lazy(loadAgendaPage);
+const CatalogsPage = lazy(loadCatalogsPage);
+const ClientsPage = lazy(loadClientsPage);
+const LegacyTicketsImportPage = lazy(loadLegacyTicketsImportPage);
+const MaintenanceQuestionsPage = lazy(loadMaintenanceQuestionsPage);
+const MetricsPage = lazy(loadMetricsPage);
+const NotificationSettingsPage = lazy(loadNotificationSettingsPage);
+const AssistantPage = lazy(loadAssistantPage);
+const CustomerCasesPage = lazy(loadCustomerCasesPage);
+const CustomerCaseDetailPage = lazy(loadCustomerCaseDetailPage);
+const PublicCustomerCasePage = lazy(loadPublicCustomerCasePage);
+const KnowledgeCategoriesPage = lazy(loadKnowledgeCategoriesPage);
+const KnowledgeDetailPage = lazy(loadKnowledgeDetailPage);
+const KnowledgeEditorPage = lazy(loadKnowledgeEditorPage);
+const KnowledgeListPage = lazy(loadKnowledgeListPage);
+const MaintenanceDetailPage = lazy(loadMaintenanceDetailPage);
+const MaintenanceFormPage = lazy(loadMaintenanceFormPage);
+const MaintenanceListPage = lazy(loadMaintenanceListPage);
+const OfflineContentPage = lazy(loadOfflineContentPage);
+const PasswordVaultPage = lazy(loadPasswordVaultPage);
+const PublicSurveyPage = lazy(loadPublicSurveyPage);
+const SurveyDetailPage = lazy(loadSurveyDetailPage);
+const SurveysAdminPage = lazy(loadSurveysAdminPage);
+const PublicSignaturePage = lazy(loadPublicSignaturePage);
+const TicketDetailWithQuickEdit = lazy(loadTicketDetailWithQuickEdit);
+const TicketFormPage = lazy(loadTicketFormPage);
+const TicketListPage = lazy(loadTicketListPage);
+const TicketQuickEditPage = lazy(loadTicketQuickEditPage);
+const TicketRelatedVisitPage = lazy(loadTicketRelatedVisitPage);
+const UserDetailPage = lazy(loadUserDetailPage);
+const UserFormPage = lazy(loadUserFormPage);
+const UsersPage = lazy(loadUsersPage);
 
 const MAINTENANCE_VIEW = ['MANTENIMIENTOS_VER','MANTENIMIENTOS_CREAR','MANTENIMIENTOS_EDITAR','MANTENIMIENTOS_GESTIONAR','BOLETAS_VER','USUARIOS_GESTIONAR'];
 const MAINTENANCE_CREATE = ['MANTENIMIENTOS_CREAR','MANTENIMIENTOS_GESTIONAR','BOLETAS_CREAR','USUARIOS_GESTIONAR'];
