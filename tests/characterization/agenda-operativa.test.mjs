@@ -84,7 +84,9 @@ const views = buildAgendaViews({
 assert.equal(views.filter((item) => item.status === 'COMPLETA').length, 1);
 assert.equal(views.filter((item) => item.status === 'PENDIENTE').length, 1);
 
-// Cuando la Agenda tiene cliente, el ClienteID debe gobernar el vínculo.
+// Cuando la Agenda tiene cliente, el ClienteID debe gobernar el vínculo heredado.
+// El flujo nuevo guarda además Agenda.BoletaUID de forma explícita al crear la
+// boleta desde el detalle, por lo que esta heurística queda como compatibilidad.
 const clientAgendas = [
   { AgendaID: 'AC1', Fecha: '2026-09-02', Detalle: 'Mantenimiento preventivo', ClienteID: 'C1', ClienteNombre: 'Cliente Uno', Estado: 'ACTIVA' },
   { AgendaID: 'AC2', Fecha: '2026-09-02', Detalle: 'Mantenimiento preventivo', ClienteID: 'C2', ClienteNombre: 'Cliente Dos', Estado: 'ACTIVA' },
@@ -107,8 +109,6 @@ assert.equal(clientMatches.get('AC2')?.BoletaUID, 'BC2', 'La boleta debe complet
 assert.ok(agendaTicketMatchScore(clientAgendas[1], clientTickets[0]) >= 1000);
 assert.equal(agendaTicketMatchScore(clientAgendas[0], clientTickets[0]), 0);
 
-// Compatibilidad histórica: una agenda sin cliente exige coincidencia textual;
-// compartir solamente fecha y técnico nunca debe ser suficiente.
 const legacyMatches = resolveAgendaTicketMatches({
   agendas: [{ AgendaID: 'LEG1', Fecha: '2026-09-02', Detalle: 'Visita a Cirtec', Estado: 'ACTIVA' }],
   agendaAssignments: [{ AgendaID: 'LEG1', UsuarioID: 'U1', Activo: true }],
@@ -119,14 +119,20 @@ assert.equal(legacyMatches.size, 0, 'Una agenda histórica sin cliente no debe e
 
 const routerSource = fs.readFileSync(path.join(root, 'backend/src/core/action-router.js'), 'utf8');
 const agendaModuleSource = fs.readFileSync(path.join(root, 'backend/src/modules/agenda.module.js'), 'utf8');
+const agendaTicketServiceSource = fs.readFileSync(path.join(root, 'backend/src/services/agenda-ticket.service.js'), 'utf8');
+const ticketMultiSource = fs.readFileSync(path.join(root, 'backend/src/modules/ticket-multi.module.js'), 'utf8');
 const agendaSchemaSource = fs.readFileSync(path.join(root, 'backend/src/services/agenda-schema.service.js'), 'utf8');
 const assistantSource = fs.readFileSync(path.join(root, 'backend/src/modules/assistant-agenda.module.js'), 'utf8');
 const appSource = fs.readFileSync(path.join(root, 'src/app/App.jsx'), 'utf8');
 const agendaPageSource = fs.readFileSync(path.join(root, 'src/pages/agenda/AgendaPage.jsx'), 'utf8');
 const clientAssignmentSource = fs.readFileSync(path.join(root, 'src/pages/agenda/AgendaClientAssignment.jsx'), 'utf8');
+const ticketFormSource = fs.readFileSync(path.join(root, 'src/pages/tickets/TicketFormPage.jsx'), 'utf8');
+const agendaTicketContextSource = fs.readFileSync(path.join(root, 'src/features/agenda/useAgendaTicketContext.js'), 'utf8');
+const ticketPersistenceSource = fs.readFileSync(path.join(root, 'src/features/tickets/ticketPersistenceService.js'), 'utf8');
 const resendSource = fs.readFileSync(path.join(root, 'src/pages/agenda/AgendaResendActions.jsx'), 'utf8');
 const resendCssSource = fs.readFileSync(path.join(root, 'src/styles/agenda-resend.css'), 'utf8');
 const splitDialogSource = fs.readFileSync(path.join(root, 'src/pages/agenda/AgendaSplitDialog.jsx'), 'utf8');
+const appsScriptPatchSource = fs.readFileSync(path.join(root, 'apps-script/patches/agenda-ticket-finalization-reminders-v7.9.patch'), 'utf8');
 
 assert.match(routerSource, /agenda\.list/);
 assert.match(routerSource, /agenda\.create/);
@@ -135,10 +141,6 @@ assert.match(agendaModuleSource, /agenda\.notification\.send/);
 assert.match(agendaModuleSource, /USUARIOS_GESTIONAR/);
 assert.match(agendaModuleSource, /reminderAlreadyConsumedForThisDay/);
 assert.match(agendaModuleSource, /RecordatorioDia/);
-assert.match(agendaModuleSource, /readTables\(\['Usuarios', 'Clientes'\]\)/);
-assert.match(agendaModuleSource, /clientChanged/);
-assert.match(agendaModuleSource, /soloCliente/);
-assert.match(agendaModuleSource, /CLIENT_ONLY_UPDATE/);
 assert.match(agendaSchemaSource, /RecordatorioDia/);
 assert.match(agendaSchemaSource, /'ClienteID'/);
 assert.match(agendaSchemaSource, /'ClienteNombre'/);
@@ -151,11 +153,46 @@ assert.match(agendaPageSource, /AgendaClientAssignment/);
 assert.doesNotMatch(agendaPageSource, /clients\.list/);
 assert.doesNotMatch(agendaPageSource, /sortedClients/);
 assert.doesNotMatch(agendaPageSource, /updateClient/);
-assert.match(clientAssignmentSource, /DependentSelect/);
-assert.match(clientAssignmentSource, /clients\.list/);
-assert.match(clientAssignmentSource, /searchable/);
-assert.match(clientAssignmentSource, /Escriba el nombre o una parte del nombre/);
-assert.match(clientAssignmentSource, /soloCliente: true/);
+
+// Invariante nueva: el detalle no administra el cliente. Abre el formulario
+// real de boletas y mantiene la identidad de la agenda en el query string.
+assert.match(clientAssignmentSource, /Crear boleta/);
+assert.match(clientAssignmentSource, /\/boletas\/nueva\?agendaId=/);
+assert.match(clientAssignmentSource, /Técnicos que quedarán asignados/);
+assert.doesNotMatch(clientAssignmentSource, /DependentSelect/);
+assert.doesNotMatch(clientAssignmentSource, /clients\.list/);
+assert.doesNotMatch(clientAssignmentSource, /soloCliente/);
+
+// El mismo TicketFormPage se reutiliza: no existe un segundo formulario de
+// agenda. El borrador recibe una clave aislada y los técnicos quedan bloqueados
+// a la asignación de AgendaAsignados.
+assert.match(ticketFormSource, /useAgendaTicketContext/);
+assert.match(ticketFormSource, /agenda-\$\{agendaId\}/);
+assert.match(ticketFormSource, /disabled=\{saving \|\| Boolean\(agenda\?\.AgendaID\)\}/);
+assert.match(agendaTicketContextSource, /apiRequest\('agenda\.get'/);
+assert.match(agendaTicketContextSource, /AgendaID/);
+assert.match(agendaTicketContextSource, /asignados/);
+assert.match(ticketPersistenceSource, /workflowAction/);
+
+// El endpoint histórico boletas.create se conserva. Solo cuando llega AgendaID
+// se prepara el contexto y luego se vincula la boleta recién creada.
+assert.match(ticketMultiSource, /prepareAgendaTicketCreation/);
+assert.match(ticketMultiSource, /completeAgendaTicketCreation/);
+assert.match(agendaTicketServiceSource, /USUARIOS_GESTIONAR/);
+assert.match(agendaTicketServiceSource, /AgendaAsignados/);
+assert.match(agendaTicketServiceSource, /BoletaUID/);
+assert.match(agendaTicketServiceSource, /TICKET_CREATED_PENDING/);
+assert.match(agendaTicketServiceSource, /agenda:ticket-created:/);
+
+// El Apps Script suministrado por operación se mantiene como fuente del correo
+// de agenda. El parche V7.9 conserva el trigger de las 17:00 y cambia la regla
+// de cumplimiento para exigir Estado FINALIZADA.
+assert.match(appsScriptPatchSource, /TICKET_CREATED_PENDING/);
+assert.match(appsScriptPatchSource, /Boleta no finalizada/);
+assert.match(appsScriptPatchSource, /no fue finalizada antes de las 5:00 p\. m\./);
+assert.match(appsScriptPatchSource, /normalizeAgendaText_\(matched\.Estado\) === 'finalizada'/);
+assert.match(appsScriptPatchSource, /ticketsById = indexBy_\(allValidTickets/);
+
 assert.match(resendSource, /Notificaciones y pruebas/);
 assert.match(resendCssSource, /agenda-client-panel/);
 assert.match(resendCssSource, /grid-template-columns:repeat\(3,minmax\(0,1fr\)\)/);
@@ -166,4 +203,4 @@ assert.match(splitDialogSource, /agendaOrigenId/);
 assert.match(splitDialogSource, /clienteId/);
 assert.match(splitDialogSource, /ClienteNombre/);
 
-console.log('✓ agenda operativa: cliente asignable solo desde detalle, búsqueda parcial, vínculo por cliente 1:1, separación rápida y recordatorio diario');
+console.log('✓ agenda operativa: creación de boleta desde detalle, técnicos heredados, vínculo explícito y recordatorio de finalización a las 17:00');
