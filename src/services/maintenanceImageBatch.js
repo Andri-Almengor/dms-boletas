@@ -1,5 +1,7 @@
 import { apiRequest } from '../api';
+import { mapWithConcurrency } from '../utils/asyncPool';
 import { fileToBase64, mapFilesSequentially } from '../utils/fileEncoding';
+import { binaryUploadRequest, canUseBinaryUpload, isBinaryUploadUnavailable } from './binaryUploadApi';
 import { shouldUseLargeEvidenceUpload, uploadLargeMaintenanceEvidence } from './largeEvidenceUpload';
 import { MODULE_ROUTES, pick, requestAvailable } from './moduleApi';
 import { maintenanceImageSyncBase, withSyncBase } from './maintenanceSyncBase';
@@ -10,6 +12,7 @@ const IMAGE_UPDATE_BATCH_ROUTES = ['maintenance.images.updateBatch', 'mantenimie
 const MAX_FILES_PER_REQUEST = 10;
 const MAX_RAW_BYTES_PER_REQUEST = 10 * 1024 * 1024;
 const MAX_METADATA_UPDATES_PER_REQUEST = 80;
+const EVIDENCE_UPLOAD_CONCURRENCY = 3;
 
 let uploadBatchAvailable = null;
 let updateBatchAvailable = null;
@@ -96,6 +99,23 @@ function imagePayload(image, base64) {
   };
 }
 
+function binaryImagePayload(image, maintenanceId, deviceId) {
+  return {
+    maintenanceId,
+    deviceId,
+    imageId: image.localId,
+    FotoDispositivoID: image.localId,
+    DispositivoMantenimientoRef: deviceId,
+    Tipo: image.type,
+    Nota: image.note,
+    fileName: image.file.name,
+    mimeType: image.mimeType || image.file.type || 'image/jpeg',
+    mediaType: image.mediaType || 'image',
+    durationSeconds: Number(image.durationSeconds || 0),
+    size: Number(image.size || image.file.size || 0),
+  };
+}
+
 function imageMetadataPayload(image, maintenanceId, deviceId) {
   return withSyncBase({
     maintenanceId,
@@ -160,23 +180,112 @@ async function uploadFallback({
   return { uploaded, failed };
 }
 
+async function uploadBinaryImage({ maintenanceId, deviceId, image, sessionToken, signal }) {
+  const result = await binaryUploadRequest(
+    MODULE_ROUTES.maintenance.imageUpload[0],
+    binaryImagePayload(image, maintenanceId, deviceId),
+    image.file,
+    sessionToken,
+    requestOptions(signal),
+  );
+  return { ...uploadedView(result, maintenanceId), clientKey: image.localId };
+}
+
+async function uploadBinaryImages({ maintenanceId, deviceId, images, sessionToken, signal }) {
+  if (!images.length || browserIsOffline() || !canUseBinaryUpload()) {
+    return { handled: false, uploaded: [], failed: [] };
+  }
+
+  const uploaded = [];
+  const failed = [];
+  const [probe, ...remaining] = images;
+
+  try {
+    uploaded.push(await uploadBinaryImage({ maintenanceId, deviceId, image: probe, sessionToken, signal }));
+  } catch (error) {
+    if (isAbortError(error)) throw error;
+    if (isBinaryUploadUnavailable(error)) return { handled: false, uploaded: [], failed: [] };
+    failed.push({ clientKey: probe.localId, fileName: probe.file?.name, message: error.message });
+  }
+
+  const results = await mapWithConcurrency(
+    remaining,
+    EVIDENCE_UPLOAD_CONCURRENCY,
+    async (image) => {
+      try {
+        return {
+          ok: true,
+          row: await uploadBinaryImage({ maintenanceId, deviceId, image, sessionToken, signal }),
+        };
+      } catch (error) {
+        if (isAbortError(error)) throw error;
+        return {
+          ok: false,
+          failure: { clientKey: image.localId, fileName: image.file?.name, message: error.message },
+        };
+      }
+    },
+    { signal },
+  );
+
+  for (const result of results) {
+    if (result?.ok) uploaded.push(result.row);
+    else if (result?.failure) failed.push(result.failure);
+  }
+  return { handled: true, uploaded, failed };
+}
+
+async function uploadLargeVideo({ maintenanceId, deviceId, image, sessionToken, signal }) {
+  try {
+    const result = await uploadLargeMaintenanceEvidence({
+      maintenanceId,
+      deviceId,
+      imageId: image.localId,
+      item: image,
+      sessionToken,
+      signal,
+    });
+    return { ok: true, row: { ...uploadedView(result, maintenanceId), clientKey: image.localId } };
+  } catch (error) {
+    if (isAbortError(error)) throw error;
+    return {
+      ok: false,
+      failure: { clientKey: image.localId, fileName: image.file?.name, message: error.message },
+    };
+  }
+}
+
 async function uploadLargeVideos({ maintenanceId, deviceId, images, sessionToken, signal }) {
   const uploaded = [];
   const failed = [];
-  for (const image of images) {
-    try {
-      const result = await uploadLargeMaintenanceEvidence({
-        maintenanceId,
-        deviceId,
-        imageId: image.localId,
-        item: image,
-        sessionToken,
-        signal,
-      });
-      uploaded.push({ ...uploadedView(result, maintenanceId), clientKey: image.localId });
-    } catch (error) {
-      if (isAbortError(error)) throw error;
-      failed.push({ clientKey: image.localId, fileName: image.file?.name, message: error.message });
+  if (!images.length) return { uploaded, failed };
+
+  // El primer video confirma si el canal binario funciona. Si el backend viejo
+  // obliga a usar Base64, los videos restantes continúan secuencialmente para
+  // no multiplicar memoria en el navegador.
+  const first = await uploadLargeVideo({ maintenanceId, deviceId, image: images[0], sessionToken, signal });
+  if (first.ok) uploaded.push(first.row);
+  else failed.push(first.failure);
+
+  const remaining = images.slice(1);
+  if (!remaining.length) return { uploaded, failed };
+
+  if (canUseBinaryUpload()) {
+    const results = await mapWithConcurrency(
+      remaining,
+      EVIDENCE_UPLOAD_CONCURRENCY,
+      (image) => uploadLargeVideo({ maintenanceId, deviceId, image, sessionToken, signal }),
+      { signal },
+    );
+    for (const result of results) {
+      if (result?.ok) uploaded.push(result.row);
+      else if (result?.failure) failed.push(result.failure);
+    }
+  } else {
+    for (const image of remaining) {
+      const result = await uploadLargeVideo({ maintenanceId, deviceId, image, sessionToken, signal });
+      if (result.ok) uploaded.push(result.row);
+      else failed.push(result.failure);
     }
   }
   return { uploaded, failed };
@@ -198,6 +307,21 @@ export async function uploadMaintenanceImagesInBatches({
     const large = await uploadLargeVideos({ maintenanceId, deviceId, images: largeVideos, sessionToken, signal });
     uploaded.push(...large.uploaded);
     failed.push(...large.failed);
+  }
+
+  if (regularImages.length) {
+    const binary = await uploadBinaryImages({
+      maintenanceId,
+      deviceId,
+      images: regularImages,
+      sessionToken,
+      signal,
+    });
+    if (binary.handled) {
+      uploaded.push(...binary.uploaded);
+      failed.push(...binary.failed);
+      return { uploaded, failed, total: images.length };
+    }
   }
 
   const chunks = chunkByWeight(regularImages);

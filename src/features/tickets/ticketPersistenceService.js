@@ -1,11 +1,69 @@
 import { MODULE_ROUTES, pick, requestAvailable } from '../../services/moduleApi';
+import { binaryUploadRequest, canUseBinaryUpload, isBinaryUploadUnavailable } from '../../services/binaryUploadApi';
 import { shouldUseLargeEvidenceUpload, uploadLargeTicketEvidence } from '../../services/largeEvidenceUpload';
+import { mapWithConcurrency } from '../../utils/asyncPool';
 import { fileToBase64 } from '../../utils/fileEncoding';
 import { createLocalId } from '../../utils/localId';
 import { buildTicketPayload, ticketRecordData } from './ticketFormDomain';
 
+const EVIDENCE_UPLOAD_CONCURRENCY = 3;
+
 function requestOptions(signal) {
   return signal ? { signal } : {};
+}
+
+function evidencePayload(uid, evidenceId, item) {
+  return {
+    boletaUid: uid,
+    evidenciaId: evidenceId,
+    EvidenciaID: evidenceId,
+    nombre: item.name || item.file.name,
+    nota: item.note,
+    fileName: item.file.name,
+    mimeType: item.mimeType,
+    mediaType: item.mediaType,
+    durationSeconds: Number(item.durationSeconds || 0),
+    size: Number(item.size || item.file.size || 0),
+  };
+}
+
+async function uploadRegularEvidence({ uid, evidenceId, item, sessionToken, signal, binary }) {
+  const payload = evidencePayload(uid, evidenceId, item);
+  if (binary) {
+    return binaryUploadRequest(
+      MODULE_ROUTES.tickets.evidenceUpload[0],
+      payload,
+      item.file,
+      sessionToken,
+      requestOptions(signal),
+    );
+  }
+
+  let base64 = await fileToBase64(item.file, { signal });
+  try {
+    return await requestAvailable(
+      MODULE_ROUTES.tickets.evidenceUpload,
+      { ...payload, base64 },
+      sessionToken,
+      requestOptions(signal),
+    );
+  } finally {
+    base64 = '';
+  }
+}
+
+async function uploadEvidenceEntry({ uid, entry, sessionToken, signal, binary }) {
+  const { item, evidenceId } = entry;
+  const result = shouldUseLargeEvidenceUpload(item)
+    ? await uploadLargeTicketEvidence({
+      boletaUid: uid,
+      evidenceId,
+      item,
+      sessionToken,
+      signal,
+    })
+    : await uploadRegularEvidence({ uid, evidenceId, item, sessionToken, signal, binary });
+  return { evidenceId, result };
 }
 
 export async function autosaveTicket({ form, boletaUid, sessionToken, signal }) {
@@ -28,42 +86,49 @@ export async function uploadTicketAssets({ uid, form, evidences, sessionToken, s
     }, sessionToken, options);
   }
 
-  const uploaded = [];
-  for (const item of evidences) {
-    const evidenceId = String(item.localId || createLocalId('evidencia'));
-    if (shouldUseLargeEvidenceUpload(item)) {
-      const result = await uploadLargeTicketEvidence({
-        boletaUid: uid,
-        evidenceId,
-        item,
-        sessionToken,
-        signal,
-      });
-      uploaded.push({ evidenceId, result });
-      continue;
-    }
+  const entries = evidences.map((item) => ({
+    item,
+    evidenceId: String(item.localId || createLocalId('evidencia')),
+  }));
+  if (!entries.length) return [];
 
-    let base64 = await fileToBase64(item.file, { signal });
-    try {
-      const result = await requestAvailable(MODULE_ROUTES.tickets.evidenceUpload, {
-        boletaUid: uid,
-        evidenciaId: evidenceId,
-        EvidenciaID: evidenceId,
-        nombre: item.name || item.file.name,
-        nota: item.note,
-        fileName: item.file.name,
-        mimeType: item.mimeType,
-        mediaType: item.mediaType,
-        durationSeconds: Number(item.durationSeconds || 0),
-        size: Number(item.size || item.file.size || 0),
-        base64,
-      }, sessionToken, options);
-      uploaded.push({ evidenceId, result });
-    } finally {
-      base64 = '';
+  const binaryCandidate = canUseBinaryUpload();
+  let binaryConfirmed = false;
+  const uploadedById = new Map();
+
+  // Confirma el endpoint con una única evidencia normal antes de paralelizar.
+  // Si el backend todavía no soporta binario, se conserva el flujo Base64
+  // secuencial para no multiplicar memoria ni cambiar compatibilidad offline.
+  if (binaryCandidate) {
+    const probe = entries.find((entry) => !shouldUseLargeEvidenceUpload(entry.item));
+    if (probe) {
+      try {
+        const uploaded = await uploadEvidenceEntry({ uid, entry: probe, sessionToken, signal, binary: true });
+        uploadedById.set(probe.evidenceId, uploaded);
+        binaryConfirmed = true;
+      } catch (error) {
+        if (!isBinaryUploadUnavailable(error)) throw error;
+      }
     }
   }
-  return uploaded;
+
+  const pending = entries.filter((entry) => !uploadedById.has(entry.evidenceId));
+  if (binaryConfirmed) {
+    const results = await mapWithConcurrency(
+      pending,
+      EVIDENCE_UPLOAD_CONCURRENCY,
+      (entry) => uploadEvidenceEntry({ uid, entry, sessionToken, signal, binary: true }),
+      { signal },
+    );
+    results.forEach((result) => uploadedById.set(result.evidenceId, result));
+  } else {
+    for (const entry of pending) {
+      const result = await uploadEvidenceEntry({ uid, entry, sessionToken, signal, binary: false });
+      uploadedById.set(result.evidenceId, result);
+    }
+  }
+
+  return entries.map((entry) => uploadedById.get(entry.evidenceId));
 }
 
 export async function saveTicketBase({

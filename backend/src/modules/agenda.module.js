@@ -16,6 +16,7 @@ import {
   buildAgendaViews,
   normalizeAgendaText,
 } from '../services/agenda-domain.service.js';
+import { enqueueAgendaNotification } from '../services/agenda-notification-queue.service.js';
 import { ensureAgendaSchema } from '../services/agenda-schema.service.js';
 import { getAgendaTicketExceptions } from '../services/agenda-ticket-exceptions.service.js';
 import { sendAppsScriptAction } from '../services/apps-script-action.service.js';
@@ -245,9 +246,51 @@ async function notifyAgenda(views, users, mode, removedByAgenda = new Map()) {
   return { ...email, email, chat };
 }
 
+function notificationQueueKey(views, mode) {
+  const version = views.map((item) => clean(item.FechaActualizacion || item.FechaCreacion || item.Fecha)).join(',');
+  return `agenda-notification:${clean(mode).toLowerCase()}:${views.map((item) => clean(item.AgendaID)).join(',')}:${version}`;
+}
+
+function queueAgendaNotification(views, users, mode, removedByAgenda = new Map()) {
+  const agendaIds = views.map((item) => clean(item.AgendaID)).filter(Boolean);
+  const queued = enqueueAgendaNotification({
+    key: notificationQueueKey(views, mode),
+    agendaIds,
+    task: async () => {
+      const result = await notifyAgenda(views, users, mode, removedByAgenda);
+      if (!result.sent) {
+        console.warn(`[agenda-notifications] El correo no confirmó envío para ${agendaIds.join(',')}: ${result.error || result.code || 'sin detalle'}`);
+      }
+      if (result.chat?.configured && !result.chat?.sent) {
+        console.warn(`[agenda-notifications] Google Chat no confirmó envío para ${agendaIds.join(',')}: ${result.chat.error || result.chat.code || 'sin detalle'}`);
+      }
+      return result;
+    },
+  });
+
+  if (!queued.accepted) {
+    return {
+      sent: false,
+      queued: false,
+      pending: false,
+      error: 'La agenda se guardó, pero la cola de notificaciones está ocupada. Puede reenviarla desde el detalle.',
+      code: 'AGENDA_NOTIFICATION_QUEUE_FULL',
+    };
+  }
+
+  return {
+    sent: null,
+    queued: true,
+    pending: true,
+    deduplicated: Boolean(queued.deduplicated),
+    queueDepth: Number(queued.snapshot?.queued || 0),
+  };
+}
+
 function createMessage(views, notification) {
   const count = views.length;
   const base = `${count} agenda${count === 1 ? '' : 's'} creada${count === 1 ? '' : 's'} correctamente.`;
+  if (notification.queued) return `${base} Las notificaciones se están enviando en segundo plano.`;
   if (!notification.sent) return `${base} Revise la advertencia del correo.`;
   if (notification.chat?.configured && !notification.chat?.sent) {
     return `${base} El correo fue enviado, pero Google Chat no pudo recibir la notificación.`;
@@ -259,6 +302,7 @@ function createMessage(views, notification) {
 }
 
 function updateMessage(notification) {
+  if (notification.queued) return 'Agenda actualizada correctamente. Las notificaciones se están enviando en segundo plano.';
   if (!notification.sent) return 'Agenda actualizada correctamente. Revise la advertencia del correo.';
   if (notification.chat?.configured && !notification.chat?.sent) {
     return 'Agenda actualizada y correo enviado. Google Chat no pudo recibir la notificación.';
@@ -372,7 +416,7 @@ async function create(ctx) {
     ticketAssignments: [],
     ticketExceptions,
   });
-  const notification = await notifyAgenda(views, users, 'CREATED');
+  const notification = queueAgendaNotification(views, users, 'CREATED');
 
   await audit(ctx, 'CREAR_AGENDAS', 'Agendas', agendaRows.map((row) => row.AgendaID).join(','), null, {
     agendas: views,
@@ -488,7 +532,7 @@ async function update(ctx) {
   const removedMap = new Map([[agendaId, removed]]);
   const notification = clientOnly
     ? { sent: true, skipped: true, reason: 'CLIENT_ONLY_UPDATE' }
-    : await notifyAgenda([view], users, 'UPDATED', removedMap);
+    : queueAgendaNotification([view], users, 'UPDATED', removedMap);
 
   await audit(ctx, 'EDITAR_AGENDA', 'Agendas', agendaId, before, {
     agenda: view,
