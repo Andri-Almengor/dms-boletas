@@ -77,24 +77,25 @@ export function createBackgroundTaskQueue({
     const normalizedKey = String(key || '').trim();
     if (normalizedKey && keys.has(normalizedKey)) {
       deduplicated += 1;
-      return { queued: true, deduplicated: true, ...snapshot() };
+      return { accepted: true, deduplicated: true, snapshot: snapshot() };
     }
     if (queue.length >= limit) {
       rejected += 1;
-      return { queued: false, reason: 'QUEUE_FULL', ...snapshot() };
+      return { accepted: false, reason: 'QUEUE_FULL', snapshot: snapshot() };
     }
 
     if (normalizedKey) keys.add(normalizedKey);
     queue.push({ task, key: normalizedKey, meta, onResult, onFailure });
     maximumQueued = Math.max(maximumQueued, queue.length);
     queueMicrotask(drain);
-    return { queued: true, deduplicated: false, ...snapshot() };
+    return { accepted: true, deduplicated: false, snapshot: snapshot() };
   }
 
   async function waitForIdle(timeoutMs = 10_000) {
     if (!active && !queue.length) return true;
     return new Promise((resolve) => {
       let settled = false;
+      let timer = null;
       const finish = (value) => {
         if (settled) return;
         settled = true;
@@ -104,7 +105,7 @@ export function createBackgroundTaskQueue({
       };
       const onIdle = () => finish(true);
       idleWaiters.add(onIdle);
-      const timer = timeoutMs > 0
+      timer = timeoutMs > 0
         ? setTimeout(() => finish(false), timeoutMs)
         : null;
       timer?.unref?.();
