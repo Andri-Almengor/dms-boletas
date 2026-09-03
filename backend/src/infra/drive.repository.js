@@ -81,6 +81,15 @@ export async function uploadBuffer({ buffer, mimeType = 'application/octet-strea
 }
 
 export async function uploadBase64({ base64, mimeType = 'application/octet-stream', fileName, folderId }) {
+  if (Buffer.isBuffer(base64) || ArrayBuffer.isView(base64)) {
+    return uploadBuffer({
+      buffer: Buffer.from(base64),
+      mimeType,
+      fileName,
+      folderId,
+    });
+  }
+
   const normalized = String(base64 || '').replace(/[\r\n\s]/g, '');
   if (!normalized) throw new Error('El archivo no contiene datos Base64.');
   return uploadBuffer({
