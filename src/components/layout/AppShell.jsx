@@ -3,7 +3,7 @@ import { NavLink, Outlet, useLocation, useNavigate } from 'react-router-dom';
 import { useAuth } from '../../AuthContext';
 import { preloadRouteModule, preloadRouteModules } from '../../app/routeLoaders';
 import useOfflineMode from '../../hooks/useOfflineMode';
-import { preloadNavigationData } from '../../services/navigationPreload';
+import { preloadNavigationData, preloadNavigationDataBatch } from '../../services/navigationPreload';
 import Icon from '../common/Icon';
 
 const OfflineSyncManager = lazy(() => import('../offline/OfflineSyncRuntime'));
@@ -31,6 +31,8 @@ export default function AppShell() {
   const canViewClients = hasPermission('CLIENTES_VER');
   const canViewCatalogs = hasPermission('CATALOGOS_VER') || hasPermission('CATALOGOS_GESTIONAR') || isAdmin;
   const canCreateTickets = hasPermission('BOLETAS_CREAR');
+  const ticketListAdmin = hasPermission('BOLETAS_ELIMINAR') || isAdmin;
+  const canManageKnowledge = hasPermission('CONOCIMIENTO_GESTIONAR') || isAdmin;
   const canViewMaintenance = hasPermission('MANTENIMIENTOS_VER') || hasPermission('MANTENIMIENTOS_CREAR') || hasPermission('MANTENIMIENTOS_EDITAR') || hasPermission('MANTENIMIENTOS_GESTIONAR') || canViewTickets;
   const isAssistantPage = location.pathname === '/asistente';
   const isWorkflowForm = location.pathname === '/boletas/nueva'
@@ -44,13 +46,19 @@ export default function AppShell() {
   const assistantReturnUrl = assistantFrom.startsWith('/') ? assistantFrom : '/';
   const showAssistantFab = !isAssistantPage && location.pathname !== '/cambiar-contrasena';
 
-  function warmRoute(to) {
-    preloadRouteModule(to).catch(() => {});
-    preloadNavigationData(to, {
+  function preloadContext() {
+    return {
       sessionToken,
       userId: user?.UsuarioID || user?.id || '',
       isAdmin,
-    }).catch(() => {});
+      ticketListAdmin,
+      canManageKnowledge,
+    };
+  }
+
+  function warmRoute(to) {
+    preloadRouteModule(to).catch(() => {});
+    preloadNavigationData(to, preloadContext()).catch(() => {});
   }
 
   function intentProps(to) {
@@ -78,14 +86,23 @@ export default function AppShell() {
     const likelyRoutes = ['/agenda', '/conocimiento', '/mas'];
     if (canViewTickets) likelyRoutes.push('/boletas/pendientes', '/boletas/finalizadas');
     if (canViewMaintenance) likelyRoutes.push('/mantenimientos');
-    const warm = () => preloadRouteModules(likelyRoutes).catch(() => {});
+    if (canViewClients) likelyRoutes.push('/clientes');
+
+    // PR #284 precargaba únicamente los chunks JS/CSS durante el tiempo ocioso.
+    // En móvil el evento touch ocurre demasiado tarde para ocultar una lectura
+    // fría de Sheets. Aquí calentamos también los payloads reales de las vistas,
+    // con concurrencia limitada y respetando saveData/offline.
+    const warm = () => {
+      preloadRouteModules(likelyRoutes).catch(() => {});
+      preloadNavigationDataBatch(likelyRoutes, preloadContext()).catch(() => {});
+    };
     if (typeof window.requestIdleCallback === 'function') {
-      const id = window.requestIdleCallback(warm, { timeout: 2_000 });
+      const id = window.requestIdleCallback(warm, { timeout: 1_200 });
       return () => window.cancelIdleCallback?.(id);
     }
-    const id = window.setTimeout(warm, 700);
+    const id = window.setTimeout(warm, 450);
     return () => window.clearTimeout(id);
-  }, [sessionToken, canViewTickets, canViewMaintenance]);
+  }, [sessionToken, user?.UsuarioID, user?.id, isAdmin, ticketListAdmin, canManageKnowledge, canViewTickets, canViewMaintenance, canViewClients]);
   async function handleLogout() { await logout(); navigate('/login', { replace: true }); }
 
   return <div className={`app-shell${isWorkflowForm ? ' app-shell--form' : ''}${isAssistantPage ? ' app-shell--assistant' : ''}`}>
