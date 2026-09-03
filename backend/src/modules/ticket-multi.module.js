@@ -3,6 +3,10 @@ import { nowIso, pick } from '../core/utils.js';
 import { readTables, updateRow, updateRows } from '../infra/sheets.repository.js';
 import { audit } from '../services/audit.service.js';
 import {
+  completeAgendaTicketCreation,
+  prepareAgendaTicketCreation,
+} from '../services/agenda-ticket.service.js';
+import {
   applySignatureToVisitGroup,
   ensureVisitGroupForTicket,
   groupSummary,
@@ -180,18 +184,20 @@ async function getEnriched(ctx) {
 
 async function createTicket(ctx) {
   const normalizedPayload = await normalizeCatalogPayload(ctx.payload);
-  const normalizedContext = { ...ctx, payload: normalizedPayload };
-  const parentTicketId = clean(pick(normalizedPayload, ['parentTicketId', 'boletaRelacionadaUid', 'BoletaRelacionadaUID']));
+  const agendaContext = await prepareAgendaTicketCreation(ctx, normalizedPayload);
+  const normalizedContext = { ...ctx, payload: agendaContext.payload };
+  const parentTicketId = clean(pick(agendaContext.payload, ['parentTicketId', 'boletaRelacionadaUid', 'BoletaRelacionadaUID']));
   if (!parentTicketId) {
     const created = await baseTicketHandlers.create(normalizedContext);
-    return enrichWithVisitGroup(created, ctx.user.UsuarioID);
+    const enriched = await enrichWithVisitGroup(created, ctx.user.UsuarioID);
+    return completeAgendaTicketCreation(normalizedContext, agendaContext, enriched);
   }
 
   const relation = await prepareRelatedVisit(parentTicketId, ctx.user.UsuarioID);
   const parentBundle = await baseTicketHandlers.get({ ...ctx, payload: { boletaUid: parentTicketId } });
   const createContext = {
     ...ctx,
-    payload: inheritedPayload(parentBundle, normalizedPayload, relation),
+    payload: inheritedPayload(parentBundle, agendaContext.payload, relation),
   };
   const created = await baseTicketHandlers.create(createContext);
   const createdTicket = created.boleta || created;
