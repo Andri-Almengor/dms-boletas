@@ -92,27 +92,28 @@ export async function uploadTicketAssets({ uid, form, evidences, sessionToken, s
   }));
   if (!entries.length) return [];
 
-  let binary = canUseBinaryUpload();
+  const binaryCandidate = canUseBinaryUpload();
+  let binaryConfirmed = false;
   const uploadedById = new Map();
 
   // Confirma el endpoint con una única evidencia normal antes de paralelizar.
   // Si el backend todavía no soporta binario, se conserva el flujo Base64
   // secuencial para no multiplicar memoria ni cambiar compatibilidad offline.
-  if (binary) {
+  if (binaryCandidate) {
     const probe = entries.find((entry) => !shouldUseLargeEvidenceUpload(entry.item));
     if (probe) {
       try {
         const uploaded = await uploadEvidenceEntry({ uid, entry: probe, sessionToken, signal, binary: true });
         uploadedById.set(probe.evidenceId, uploaded);
+        binaryConfirmed = true;
       } catch (error) {
         if (!isBinaryUploadUnavailable(error)) throw error;
-        binary = false;
       }
     }
   }
 
   const pending = entries.filter((entry) => !uploadedById.has(entry.evidenceId));
-  if (binary) {
+  if (binaryConfirmed) {
     const results = await mapWithConcurrency(
       pending,
       EVIDENCE_UPLOAD_CONCURRENCY,
