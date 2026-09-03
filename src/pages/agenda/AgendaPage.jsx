@@ -241,7 +241,7 @@ function AgendaEditor({ users, editItem, onClose, onSaved, sessionToken, ticketE
           usuarioIds: draft.usuarioIds,
         }, sessionToken)
         : await apiRequest('agenda.create', { agendas: queue }, sessionToken);
-      await onSaved(response);
+      onSaved(response);
       onClose();
     } catch (error) {
       setMessage(error?.message || 'No se pudo guardar la agenda.');
@@ -287,10 +287,10 @@ function AgendaEditor({ users, editItem, onClose, onSaved, sessionToken, ticketE
 
       <footer className="agenda-editor__footer">
         <button type="button" className="button button--secondary" onClick={onClose} disabled={busy}>Cancelar</button>
-        <button type="button" className="button button--primary" onClick={save} disabled={busy || (!editing && !queue.length)}><Icon name={busy ? 'progress_activity' : editing ? 'save' : 'send'} />{busy ? (editing ? 'Actualizando...' : 'Creando y enviando...') : editing ? 'Guardar cambios' : `Crear y enviar (${queue.length})`}</button>
+        <button type="button" className="button button--primary" onClick={save} disabled={busy || (!editing && !queue.length)}><Icon name={busy ? 'progress_activity' : editing ? 'save' : 'send'} />{busy ? (editing ? 'Actualizando...' : 'Guardando...') : editing ? 'Guardar cambios' : `Crear (${queue.length})`}</button>
       </footer>
 
-      {busy && <div className="agenda-processing" role="status"><span><Icon name="progress_activity" /></span><strong>{editing ? 'Actualizando agenda y notificando...' : 'Creando agendas y enviando correos...'}</strong><small>No cierre esta pantalla mientras se completa el envío.</small></div>}
+      {busy && <div className="agenda-processing" role="status"><span><Icon name="progress_activity" /></span><strong>{editing ? 'Guardando cambios de agenda...' : 'Guardando agendas...'}</strong><small>Las notificaciones se enviarán automáticamente después del guardado.</small></div>}
     </section>
   </div>;
 }
@@ -317,9 +317,9 @@ export default function AgendaPage() {
   const days = useMemo(() => calendarDays(month), [month]);
   const range = useMemo(() => calendarMonthRange(month), [month]);
 
-  const load = useCallback(async () => {
+  const load = useCallback(async ({ silent = false } = {}) => {
     if (!range.from || !range.to) return;
-    setLoading(true);
+    if (!silent) setLoading(true);
     setError('');
     try {
       const requests = [apiRequest('agenda.list', { from: range.from, to: range.to }, sessionToken)];
@@ -337,7 +337,7 @@ export default function AgendaPage() {
     } catch (requestError) {
       setError(requestError?.message || 'No se pudo cargar la agenda.');
     } finally {
-      setLoading(false);
+      if (!silent) setLoading(false);
     }
   }, [isAdmin, range.from, range.to, sessionToken]);
 
@@ -402,12 +402,37 @@ export default function AgendaPage() {
     setSearchParams(next, { replace: true });
   }
 
-  async function saved(response) {
+  function saved(response) {
     const warning = response?.notification?.sent === false && response?.notification?.error
       ? `La agenda se guardó, pero el correo reportó: ${response.notification.error}`
       : response?.message || 'Agenda guardada correctamente.';
     setNotice(warning);
-    await load();
+
+    const responseItems = Array.isArray(response?.items)
+      ? response.items
+      : response?.item
+        ? [response.item]
+        : [];
+    if (responseItems.length) {
+      setItems((current) => {
+        const merged = new Map(current.map((item) => [String(item.AgendaID), item]));
+        responseItems.forEach((item) => {
+          const id = String(item?.AgendaID || '');
+          if (!id) return;
+          if (item.Fecha >= range.from && item.Fecha <= range.to) merged.set(id, item);
+          else merged.delete(id);
+        });
+        return [...merged.values()].sort((left, right) => (
+          String(left.Fecha || '').localeCompare(String(right.Fecha || ''))
+          || String(left.HoraInicio || '').localeCompare(String(right.HoraInicio || ''))
+          || String(left.Detalle || '').localeCompare(String(right.Detalle || ''), 'es')
+        ));
+      });
+    }
+
+    // Confirma en segundo plano contra Sheets sin mantener abierto el modal ni
+    // reemplazar el calendario por una pantalla de carga completa.
+    void load({ silent: true });
   }
 
   function goToday() {
@@ -421,7 +446,7 @@ export default function AgendaPage() {
     </header>
 
     {notice && <div className="agenda-notice"><Icon name="info" /><span>{notice}</span><button type="button" className="icon-button" onClick={() => setNotice('')} aria-label="Cerrar"><Icon name="close" /></button></div>}
-    {error && <div className="state-card state-card--error"><Icon name="error" /><span>{error}</span><button type="button" className="button button--secondary button--compact" onClick={load}>Reintentar</button></div>}
+    {error && <div className="state-card state-card--error"><Icon name="error" /><span>{error}</span><button type="button" className="button button--secondary button--compact" onClick={() => load()}>Reintentar</button></div>}
 
     <section className="agenda-toolbar">
       <div className="agenda-month-navigation">
