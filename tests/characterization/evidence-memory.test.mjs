@@ -8,7 +8,7 @@ import { mapFilesSequentially } from '../../src/utils/fileEncoding.js';
 const ROOT = fileURLToPath(new URL('../../', import.meta.url));
 const source = (relativePath) => readFileSync(path.join(ROOT, relativePath), 'utf8');
 
-test('la preparación de archivos mantiene una sola conversión activa', async () => {
+test('la preparación Base64 de fallback mantiene una sola conversión activa', async () => {
   let active = 0;
   let maximum = 0;
   const order = [];
@@ -35,12 +35,16 @@ test('la codificación admite cancelación y limpia listeners del FileReader', (
   assert.match(encoding, /mapFilesSequentially/);
 });
 
-test('mantenimiento conserva límites y evita conversiones paralelas o duplicadas', () => {
+test('mantenimiento conserva límites, usa binario acotado y mantiene fallback de memoria segura', () => {
   const batch = source('src/services/maintenanceImageBatch.js');
 
   assert.match(batch, /MAX_FILES_PER_REQUEST = 10/);
   assert.match(batch, /MAX_RAW_BYTES_PER_REQUEST = 10 \* 1024 \* 1024/);
   assert.match(batch, /MAX_METADATA_UPDATES_PER_REQUEST = 80/);
+  assert.match(batch, /EVIDENCE_UPLOAD_CONCURRENCY = 3/);
+  assert.match(batch, /uploadBinaryImages/);
+  assert.match(batch, /mapWithConcurrency/);
+  assert.match(batch, /isBinaryUploadUnavailable/);
   assert.match(batch, /prepareUploadChunk/);
   assert.match(batch, /mapFilesSequentially/);
   assert.match(batch, /preparedImages/);
@@ -60,14 +64,17 @@ test('el fallback individual reutiliza el Base64 preparado y conserva la cola of
   assert.match(batch, /useFallbackForRemaining = true/);
 });
 
-test('las evidencias de boleta usan IDs idempotentes y carga secuencial', () => {
+test('las evidencias de boleta conservan IDs idempotentes, binario acotado y fallback secuencial', () => {
   const tickets = source('src/features/tickets/ticketPersistenceService.js');
-  assert.match(tickets, /for \(const item of evidences\)/);
+  assert.match(tickets, /EVIDENCE_UPLOAD_CONCURRENCY = 3/);
   assert.match(tickets, /createLocalId\('evidencia'\)/);
   assert.match(tickets, /evidenciaId: evidenceId/);
   assert.match(tickets, /EvidenciaID: evidenceId/);
+  assert.match(tickets, /binaryConfirmed/);
+  assert.match(tickets, /mapWithConcurrency/);
   assert.match(tickets, /fileToBase64\(item\.file, \{ signal \}\)/);
   assert.match(tickets, /base64 = ''/);
+  assert.match(tickets, /for \(const entry of pending\)/);
   assert.doesNotMatch(tickets, /Promise\.all\(evidences/);
 });
 
