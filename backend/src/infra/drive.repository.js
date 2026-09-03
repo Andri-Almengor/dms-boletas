@@ -43,6 +43,14 @@ async function withDriveUploadRetry(operation) {
   throw lastError;
 }
 
+function bufferView(value) {
+  if (Buffer.isBuffer(value)) return value;
+  if (ArrayBuffer.isView(value)) {
+    return Buffer.from(value.buffer, value.byteOffset, value.byteLength);
+  }
+  return Buffer.from(value || '');
+}
+
 export function extractDriveFileId(value) {
   const text = String(value || '').trim();
   if (!text) return '';
@@ -59,7 +67,7 @@ export function extractDriveFileId(value) {
 }
 
 export async function uploadBuffer({ buffer, mimeType = 'application/octet-stream', fileName, folderId }) {
-  const content = Buffer.isBuffer(buffer) ? buffer : Buffer.from(buffer || '');
+  const content = bufferView(buffer);
   if (!content.length) throw new Error('El archivo no contiene datos.');
 
   return withDriveUploadRetry(async () => {
@@ -69,9 +77,9 @@ export async function uploadBuffer({ buffer, mimeType = 'application/octet-strea
         mimeType,
         parents: folderId ? [folderId] : undefined,
       },
-      // Se crea un stream nuevo en cada intento; un stream consumido no puede
-      // reutilizarse después de una respuesta transitoria de Google Drive.
-      media: { mimeType, body: Readable.from(Buffer.from(content)) },
+      // Cada reintento recibe un stream nuevo, pero todos apuntan al mismo Buffer
+      // inmutable. Evita duplicar en RAM el archivo completo para cada intento.
+      media: { mimeType, body: Readable.from([content]) },
       fields: 'id,name,mimeType,size,webViewLink,webContentLink,thumbnailLink',
       supportsAllDrives: true,
     });
@@ -83,7 +91,7 @@ export async function uploadBuffer({ buffer, mimeType = 'application/octet-strea
 export async function uploadBase64({ base64, mimeType = 'application/octet-stream', fileName, folderId }) {
   if (Buffer.isBuffer(base64) || ArrayBuffer.isView(base64)) {
     return uploadBuffer({
-      buffer: Buffer.from(base64),
+      buffer: bufferView(base64),
       mimeType,
       fileName,
       folderId,
