@@ -11,6 +11,7 @@ import './assistant-history-retention.test.mjs';
 import './assistant-password-vault-sheets-cache.test.mjs';
 import './backend-batching.test.mjs';
 import './backend-utils.test.mjs';
+import './binary-evidence-upload.test.mjs';
 import './catalog-resources.test.mjs';
 import './client-relations.test.mjs';
 import './costa-rica-date.test.mjs';
