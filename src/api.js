@@ -20,6 +20,17 @@ const READ_STALE_MS = 5 * 60_000;
 const MAX_RECENT_READS = 120;
 const TRANSIENT_BACKEND_STATUSES = new Set([502, 503, 504]);
 const TRANSIENT_RETRY_DELAYS_MS = [700, 1500, 2800];
+const PERFORMANCE_CACHE_ROUTE_PATTERNS = [
+  /^(boletas|tickets)\.list$/,
+  /^(maintenance|mantenimientos)\.list$/,
+  /^(agenda|agendas)\.list$/,
+  /^(clients|clientes)\.list$/,
+  /^(clientlocations|ubicacionescliente|equipmentlocations|ubicacionesequipo|contacts|contactoscliente)\..*list$/,
+  /^(catalog\.)?(categories|devicetypes|manufacturers|models|failuretypes|devicemanufacturers)\.list$/,
+  /^(categorias|tiposdispositivo|fabricantes|modelos|tiposfalla|tipodispositivofabricantes)\.list$/,
+  /^(knowledge|baseconocimientos|conocimiento|tutorials)\.list$/,
+  /^(knowledge\.categories|baseconocimientos\.categorias|categoriasconocimiento)\.list$/,
+];
 const pendingReads = new Map();
 const recentReads = new Map();
 let writeEpoch = 0;
@@ -47,9 +58,8 @@ function isReadRoute(route) {
 
 function isPerformanceCacheableRead(route, sessionToken) {
   if (!sessionToken) return false;
-  const value = String(route || '').toLowerCase();
-  if (value === 'auth.me' || value === 'assistant.chat' || value === 'asistente.chat') return false;
-  return isReadRoute(route);
+  const value = String(route || '').trim().toLowerCase();
+  return PERFORMANCE_CACHE_ROUTE_PATTERNS.some((pattern) => pattern.test(value));
 }
 
 function preparePayload(route, payload) {
@@ -349,10 +359,11 @@ export async function apiRequest(route, payload = {}, sessionToken = '', options
 
   const requestEpoch = writeEpoch;
   const request = executeRead(route, payload, sessionToken, key, requestEpoch, signal);
-  const resolved = preferPersistentCacheWhenSlow(route, payload, sessionToken, request, signal);
-  if (signal) return resolved;
+  if (signal) return preferPersistentCacheWhenSlow(route, payload, sessionToken, request, signal);
 
-  const sharedRequest = resolved.finally(() => pendingReads.delete(key));
-  pendingReads.set(key, sharedRequest);
-  return sharedRequest;
+  // Mantener en pendingReads la petición de red real evita que una respuesta
+  // persistida que gane la carrera abra un segundo fetch mientras la revalidación continúa.
+  const sharedNetworkRequest = request.finally(() => pendingReads.delete(key));
+  pendingReads.set(key, sharedNetworkRequest);
+  return preferPersistentCacheWhenSlow(route, payload, sessionToken, sharedNetworkRequest, signal);
 }
