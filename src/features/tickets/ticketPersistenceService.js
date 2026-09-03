@@ -73,10 +73,16 @@ export async function saveTicketBase({
   evidences,
   sessionToken,
   signal,
+  actionType = '',
 }) {
+  const payload = buildTicketPayload(form, boletaUid);
+  if (!editing && (form.agendaId || form.AgendaID)) {
+    payload.workflowAction = String(actionType || 'save').trim().toLowerCase();
+  }
+
   const result = await requestAvailable(
     editing ? MODULE_ROUTES.tickets.update : MODULE_ROUTES.tickets.create,
-    buildTicketPayload(form, boletaUid),
+    payload,
     sessionToken,
     requestOptions(signal),
   );

@@ -93,6 +93,7 @@ export default function useTicketPersistence({
         form,
         evidences,
         sessionToken,
+        actionType: type,
       });
       await runTicketPostSaveAction({ type, uid, form, sessionToken });
       releaseLocalFiles(evidences);

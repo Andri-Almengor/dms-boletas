@@ -127,8 +127,9 @@ export function groupAgendasByDate(items = []) {
 
 export function statusMeta(status) {
   const key = String(status || '').toUpperCase();
-  if (key === 'COMPLETA') return { label: 'Boleta realizada', icon: 'task_alt', tone: 'success' };
-  if (key === 'PENDIENTE') return { label: 'Boleta pendiente', icon: 'warning', tone: 'danger' };
+  if (key === 'COMPLETA') return { label: 'Boleta finalizada', icon: 'task_alt', tone: 'success' };
+  if (key === 'BOLETA_PENDIENTE') return { label: 'Boleta creada · pendiente de finalizar', icon: 'pending_actions', tone: 'danger' };
+  if (key === 'PENDIENTE') return { label: 'Boleta pendiente de crear', icon: 'warning', tone: 'danger' };
   if (key === 'NO_REQUIERE') return { label: 'No requiere boleta', icon: 'remove_done', tone: 'neutral' };
   if (key === 'CANCELADA') return { label: 'Cancelada', icon: 'event_busy', tone: 'muted' };
   return { label: 'Programada', icon: 'schedule', tone: 'info' };
