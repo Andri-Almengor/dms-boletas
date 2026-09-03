@@ -1,5 +1,5 @@
 import React, { useCallback, useEffect, useState } from 'react';
-import { Navigate, useNavigate, useParams } from 'react-router-dom';
+import { Navigate, useNavigate, useParams, useSearchParams } from 'react-router-dom';
 import { useAuth } from '../../AuthContext';
 import Icon from '../../components/common/Icon';
 import AutosaveIndicator from '../../components/feedback/AutosaveIndicator';
@@ -11,6 +11,7 @@ import InlineCreateModal from '../../components/forms/InlineCreateModal';
 import TechnicianMultiSelect from '../../components/forms/TechnicianMultiSelect';
 import SignaturePad from '../../components/tickets/SignaturePad';
 import TechnicalWritingAssistant from '../../components/tickets/TechnicalWritingAssistant';
+import useAgendaTicketContext from '../../features/agenda/useAgendaTicketContext';
 import {
   buildTicketFormOptions,
   buildTicketTechnicians,
@@ -53,9 +54,11 @@ const PROCESSING_COPY = Object.freeze({
 
 export default function TicketFormPage({ mode = 'create' }) {
   const { boletaUid } = useParams();
+  const [searchParams] = useSearchParams();
   const { sessionToken, user, hasPermission } = useAuth();
   const navigate = useNavigate();
   const editing = mode === 'edit';
+  const agendaId = editing ? '' : String(searchParams.get('agendaId') || '').trim();
   const allowed = editing ? hasPermission('BOLETAS_EDITAR') : hasPermission('BOLETAS_CREAR');
   const manageCatalogs = hasPermission('CATALOGOS_GESTIONAR') || hasPermission('BOLETAS_CREAR') || hasPermission('BOLETAS_EDITAR');
   const createOperational = hasPermission('CLIENTES_DATOS_OPERATIVOS_CREAR') || hasPermission('CLIENTES_EDITAR');
@@ -66,6 +69,13 @@ export default function TicketFormPage({ mode = 'create' }) {
   });
   const [evidences, setEvidences] = useState([]);
   const [error, setError] = useState('');
+
+  const { agenda, loading: agendaLoading } = useAgendaTicketContext({
+    agendaId,
+    sessionToken,
+    setForm,
+    onError: setError,
+  });
 
   const {
     catalogs,
@@ -93,9 +103,17 @@ export default function TicketFormPage({ mode = 'create' }) {
 
   const restore = useCallback((draftData) => {
     if (draftData.form) {
+      const agendaAssigned = agenda?.AgendaID
+        ? (agenda.asignados || []).map((item) => String(item.UsuarioID || '')).filter(Boolean)
+        : [];
       setForm((current) => ({
         ...current,
         ...draftData.form,
+        ...(agenda?.AgendaID ? {
+          agendaId: String(agenda.AgendaID),
+          AgendaID: String(agenda.AgendaID),
+          asignados: agendaAssigned.length ? agendaAssigned : draftData.form.asignados,
+        } : {}),
         nombreDispositivo: draftData.form.nombreDispositivo
           || draftData.form.descripcion
           || draftData.form.descripcionEquipo
@@ -103,11 +121,11 @@ export default function TicketFormPage({ mode = 'create' }) {
       }));
     }
     if (Number.isInteger(draftData.step)) setStep(draftData.step);
-  }, []);
+  }, [agenda]);
 
   const draft = useTicketDraft({
-    keySuffix: editing ? boletaUid : 'new',
-    enabled: !loading,
+    keySuffix: editing ? boletaUid : agendaId ? `agenda-${agendaId}` : 'new',
+    enabled: !loading && !agendaLoading,
     value: { form, step },
     onRestore: restore,
   });
@@ -131,7 +149,7 @@ export default function TicketFormPage({ mode = 'create' }) {
 
   const { action, saving, activeAction, serverStatus } = useTicketPersistence({
     editing,
-    loading,
+    loading: loading || agendaLoading,
     boletaUid,
     form,
     evidences,
@@ -206,8 +224,13 @@ export default function TicketFormPage({ mode = 'create' }) {
     window.scrollTo({ top: 0, behavior: 'smooth' });
   }
 
+  const cancelTarget = agendaId ? '/agenda' : '/boletas/pendientes';
+
   if (!allowed) return <Navigate to="/boletas/pendientes" replace />;
-  if (loading) {
+  if (!editing && agenda?.boleta?.BoletaUID) {
+    return <Navigate to={`/boletas/${encodeURIComponent(agenda.boleta.BoletaUID)}`} replace />;
+  }
+  if (loading || agendaLoading) {
     return <div className="page"><div className="state-card state-card--loading"><Icon name="progress_activity" /> Cargando formulario...</div></div>;
   }
 
@@ -223,12 +246,21 @@ export default function TicketFormPage({ mode = 'create' }) {
       <ProcessingOverlay open={saving} title={processingCopy.title} message={processingCopy.message} />
 
       <div className="page-header ticket-form-header">
-        <button className="icon-button" type="button" onClick={() => navigate(editing ? `/boletas/${encodeURIComponent(boletaUid)}` : '/boletas/pendientes')}>
+        <button className="icon-button" type="button" onClick={() => navigate(editing ? `/boletas/${encodeURIComponent(boletaUid)}` : cancelTarget)}>
           <Icon name="close" />
         </button>
         <div><span className="eyebrow">Flujo de trabajo</span><h1>{editing ? 'Editar Boleta' : 'Crear Boleta'}</h1></div>
         <AutosaveIndicator status={autosaveStatus} />
       </div>
+
+      {agenda?.AgendaID && <div className="info-box">
+        <Icon name="event_available" />
+        <p>
+          <strong>Boleta creada desde la agenda.</strong><br />
+          {agenda.Detalle || 'Visita programada'} · {agenda.Fecha || 'Sin fecha'} · {agenda.HoraInicio || '07:00'}–{agenda.HoraFin || '17:00'}.
+          Los técnicos de la agenda se conservarán como asignados de esta boleta.
+        </p>
+      </div>}
 
       <section className="ticket-progress">
         <div><strong>Paso {step + 1} de {TICKET_FORM_STEPS.length}</strong><span>{progress}% completado</span></div>
@@ -290,7 +322,10 @@ export default function TicketFormPage({ mode = 'create' }) {
             <FormField label="Recomendaciones" multiline name="recomendaciones" value={form.recomendaciones} onChange={update} />
           </>}
 
-          {step === 4 && <TechnicianMultiSelect users={technicians} selectedIds={form.asignados} onChange={(asignados) => setForm((current) => ({ ...current, asignados }))} disabled={saving} />}
+          {step === 4 && <>
+            {agenda?.AgendaID && <div className="info-box"><Icon name="lock" /><p>Los técnicos de esta boleta provienen de la agenda y se mantienen vinculados a esa visita.</p></div>}
+            <TechnicianMultiSelect users={technicians} selectedIds={form.asignados} onChange={(asignados) => setForm((current) => ({ ...current, asignados }))} disabled={saving || Boolean(agenda?.AgendaID)} />
+          </>}
           {step === 5 && <EvidenceUploader items={evidences} onAdd={addFiles} onUpdate={(index, patch) => setEvidences((rows) => rows.map((row, itemIndex) => itemIndex === index ? { ...row, ...patch } : row))} onRemove={(index) => setEvidences((rows) => rows.filter((_, itemIndex) => itemIndex !== index))} disabled={saving} />}
           {step === 6 && <>
             <SignaturePad value={form.firma} onChange={(firma) => setForm((current) => ({ ...current, firma }))} />
@@ -329,7 +364,7 @@ export default function TicketFormPage({ mode = 'create' }) {
       </section>
 
       <div className="ticket-form-actions">
-        <button className="button button--secondary" type="button" onClick={() => step ? setStep((value) => value - 1) : navigate('/boletas/pendientes')} disabled={saving}>
+        <button className="button button--secondary" type="button" onClick={() => step ? setStep((value) => value - 1) : navigate(cancelTarget)} disabled={saving}>
           <Icon name={step ? 'chevron_left' : 'close'} /> {step ? 'Anterior' : 'Cancelar'}
         </button>
         {step < TICKET_FORM_STEPS.length - 1
