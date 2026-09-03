@@ -9,9 +9,14 @@ import { googleSheetsGateSnapshot } from './infra/google.js';
 import { auditQueueSnapshot, flushAuditQueue } from './services/audit.service.js';
 import { actionConcurrencySnapshot } from './services/action-concurrency.service.js';
 import {
+  agendaNotificationQueueSnapshot,
+  drainAgendaNotificationQueue,
+} from './services/agenda-notification-queue.service.js';
+import {
   startMaintenanceProgressScheduler,
   stopMaintenanceProgressScheduler,
 } from './services/maintenance-progress-chat.service.js';
+import { uploadPressureSnapshot } from './services/upload-pressure.service.js';
 import {
   startWeeklyBackupScheduler,
   stopWeeklyBackupScheduler,
@@ -42,6 +47,8 @@ function sendHealth(req, res) {
     body.sheets = googleSheetsGateSnapshot();
     body.audit = auditQueueSnapshot();
     body.security = securityRateLimitSnapshot();
+    body.uploads = uploadPressureSnapshot();
+    body.agendaNotifications = agendaNotificationQueueSnapshot();
   }
 
   res.statusCode = 200;
@@ -135,6 +142,11 @@ function shutdown(signal) {
   stopWeeklyBackupScheduler();
 
   server.close(async () => {
+    const queueWaitMs = Math.max(1_000, Math.min(10_000, env.shutdownGraceMs - 1_000));
+    const notificationsDrained = await drainAgendaNotificationQueue(queueWaitMs).catch(() => false);
+    if (!notificationsDrained) {
+      console.warn('El cierre continuó con notificaciones de Agenda todavía pendientes; podrán reenviarse desde el detalle.');
+    }
     await flushAuditQueue().catch(() => {});
     process.exit(0);
   });
