@@ -53,16 +53,21 @@ test('la caché persistente de rendimiento reutiliza IndexedDB y se invalida tra
   assert.match(api, /readPerformanceResponse/);
   assert.match(api, /waitForPerformanceGrace/);
   assert.match(api, /invalidatePerformanceResponses\(sessionToken\)/);
+  assert.match(api, /pendingReads\.set\(key, sharedNetworkRequest\)/);
   assert.match(api, /dms-performance-cache-used/);
   assert.match(api, /dms-performance-cache-updated/);
 });
 
-test('datos de autenticación y chat no se guardan en la caché persistente de rendimiento', () => {
+test('la caché persistente solo admite listas operativas y excluye superficies sensibles', () => {
   const api = source('src/api.js');
-  assert.match(api, /value === 'auth\.me'/);
-  assert.match(api, /value === 'assistant\.chat'/);
-  assert.match(api, /value === 'asistente\.chat'/);
-  assert.match(api, /return false/);
+  assert.match(api, /PERFORMANCE_CACHE_ROUTE_PATTERNS/);
+  assert.match(api, /\^\(boletas\|tickets\).*list/);
+  assert.match(api, /\^\(maintenance\|mantenimientos\).*list/);
+  assert.match(api, /\^\(agenda\|agendas\).*list/);
+  assert.doesNotMatch(api, /passwordVault/);
+  assert.doesNotMatch(api, /credentials\.reveal/);
+  assert.doesNotMatch(api, /auth\.me.*PERFORMANCE_CACHE_ROUTE_PATTERNS/);
+  assert.doesNotMatch(api, /assistant\.chat.*PERFORMANCE_CACHE_ROUTE_PATTERNS/);
 });
 
 test('las optimizaciones no agregan rutas backend ni cambian action-router', () => {
