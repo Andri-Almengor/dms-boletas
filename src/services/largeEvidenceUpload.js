@@ -1,4 +1,5 @@
 import { fileToBase64 } from '../utils/fileEncoding';
+import { binaryUploadRequest, canUseBinaryUpload, isBinaryUploadUnavailable } from './binaryUploadApi';
 import { requestAvailable } from './moduleApi';
 
 export const LARGE_EVIDENCE_THRESHOLD_BYTES = 30 * 1024 * 1024;
@@ -23,6 +24,35 @@ export function shouldUseLargeEvidenceUpload(item = {}) {
   return mediaType === 'video' && size > LARGE_EVIDENCE_THRESHOLD_BYTES;
 }
 
+async function uploadChunkWithFallback({ chunkRoutes, uploadToken, offset, chunk, sessionToken, signal, useBinary }) {
+  if (useBinary) {
+    try {
+      const result = await binaryUploadRequest(
+        chunkRoutes[0],
+        { uploadToken, offset },
+        chunk,
+        sessionToken,
+        requestOptions(signal),
+      );
+      return { result, useBinary: true };
+    } catch (error) {
+      if (!isBinaryUploadUnavailable(error)) throw error;
+    }
+  }
+
+  let base64 = await fileToBase64(chunk, { signal });
+  try {
+    const result = await requestAvailable(chunkRoutes, {
+      uploadToken,
+      offset,
+      base64,
+    }, sessionToken, requestOptions(signal));
+    return { result, useBinary: false };
+  } finally {
+    base64 = '';
+  }
+}
+
 async function uploadByChunks({ initRoutes, chunkRoutes, initPayload, file, sessionToken, signal, onProgress }) {
   assertOnline();
   const init = await requestAvailable(initRoutes, initPayload, sessionToken, requestOptions(signal));
@@ -33,6 +63,7 @@ async function uploadByChunks({ initRoutes, chunkRoutes, initPayload, file, sess
   if (!uploadToken) throw new Error('El servidor no devolvió una sesión para cargar el video.');
 
   let offset = 0;
+  let useBinary = canUseBinaryUpload();
   while (offset < file.size) {
     if (signal?.aborted) {
       const error = new Error('La carga del video fue cancelada.');
@@ -42,23 +73,24 @@ async function uploadByChunks({ initRoutes, chunkRoutes, initPayload, file, sess
     assertOnline();
     const end = Math.min(file.size, offset + chunkBytes);
     const chunk = file.slice(offset, end, file.type || initPayload.mimeType || 'application/octet-stream');
-    let base64 = await fileToBase64(chunk, { signal });
-    try {
-      const result = await requestAvailable(chunkRoutes, {
-        uploadToken,
-        offset,
-        base64,
-      }, sessionToken, requestOptions(signal));
-      if (result?.complete) {
-        onProgress?.(100);
-        return result.evidence || result;
-      }
-      const nextOffset = Number(result?.nextOffset);
-      offset = Number.isFinite(nextOffset) && nextOffset > offset ? nextOffset : end;
-      onProgress?.(Math.min(99, Math.round((offset / file.size) * 100)));
-    } finally {
-      base64 = '';
+    const uploadedChunk = await uploadChunkWithFallback({
+      chunkRoutes,
+      uploadToken,
+      offset,
+      chunk,
+      sessionToken,
+      signal,
+      useBinary,
+    });
+    useBinary = uploadedChunk.useBinary;
+    const result = uploadedChunk.result;
+    if (result?.complete) {
+      onProgress?.(100);
+      return result.evidence || result;
     }
+    const nextOffset = Number(result?.nextOffset);
+    offset = Number.isFinite(nextOffset) && nextOffset > offset ? nextOffset : end;
+    onProgress?.(Math.min(99, Math.round((offset / file.size) * 100)));
   }
 
   throw new Error('La carga del video terminó sin confirmación de Google Drive.');
