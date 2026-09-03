@@ -50,7 +50,7 @@ async function decodeWithImageBitmap(file) {
 }
 
 function decodeWithImageElement(file) {
-  if (typeof globalThis.Image !== 'function' || typeof URL?.createObjectURL !== 'function') return Promise.resolve(null);
+  if (typeof globalThis.Image !== 'function' || typeof URL.createObjectURL !== 'function') return Promise.resolve(null);
   return new Promise((resolve) => {
     const url = URL.createObjectURL(file);
     const image = new globalThis.Image();
@@ -111,7 +111,7 @@ function compressedFile(blob, original) {
  * - Lado mayor máximo: 2560 px.
  * - PNG conserva su formato y transparencia.
  * - GIF/HEIC/HEIF y archivos pequeños se mantienen intactos.
- * - Si el resultado no pesa menos, se conserva el original.
+ * - Si el navegador cambia el formato, o el resultado no pesa menos, se conserva el original.
  */
 export async function compressEvidenceImage(file) {
   if (!canUseCanvasCompression(file)) return file;
@@ -130,7 +130,9 @@ export async function compressEvidenceImage(file) {
     context.drawImage(decoded.source, 0, 0, dimensions.width, dimensions.height);
     const outputMimeType = normalizedMimeType(file) === 'image/jpg' ? 'image/jpeg' : normalizedMimeType(file);
     const blob = await canvasToBlob(canvas, outputMimeType);
-    if (!blob?.size || blob.size >= Number(file.size || 0)) return file;
+    const encodedMimeType = String(blob?.type || '').trim().toLowerCase();
+    if (!blob?.size || (encodedMimeType && encodedMimeType !== outputMimeType)) return file;
+    if (blob.size >= Number(file.size || 0)) return file;
 
     return compressedFile(blob, file);
   } catch {
