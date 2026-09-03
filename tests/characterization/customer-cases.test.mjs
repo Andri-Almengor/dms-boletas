@@ -152,12 +152,14 @@ test('la interfaz incluye formulario, dashboard, detalle y enlace en clientes', 
   assert.match(more, /Casos de clientes/);
 });
 
-test('las cargas a Drive reintentan errores temporales con un stream nuevo', () => {
+test('las cargas a Drive reintentan errores temporales con un stream nuevo sin duplicar el Buffer', () => {
   const drive = source('backend/src/infra/drive.repository.js');
   assert.match(drive, /DRIVE_UPLOAD_RETRY_DELAYS_MS/);
   assert.match(drive, /408, 409, 429, 500, 502, 503, 504/);
   assert.match(drive, /withDriveUploadRetry/);
-  assert.match(drive, /Readable\.from\(Buffer\.from\(content\)\)/);
+  assert.match(drive, /Readable\.from\(\[content\]\)/);
+  assert.doesNotMatch(drive, /Readable\.from\(Buffer\.from\(content\)\)/);
+  assert.match(drive, /Buffer\.from\(value\.buffer, value\.byteOffset, value\.byteLength\)/);
   assert.match(drive, /Google Drive no devolvió el identificador/);
 });
 
