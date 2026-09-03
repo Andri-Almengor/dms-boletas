@@ -7,8 +7,9 @@ import { agendaRequiresTicket, normalizeAgendaText } from './agenda-domain.servi
 import { getAgendaTicketExceptions } from './agenda-ticket-exceptions.service.js';
 import { sendAppsScriptAction } from './apps-script-action.service.js';
 
-function clean(value) {
-  return String(value ?? '').trim();
+function clean(value, fallback = '') {
+  const text = String(value ?? '').trim();
+  return text || fallback;
 }
 
 function isAdmin(ctx = {}) {
@@ -22,11 +23,12 @@ function activeAssignment(row = {}) {
 
 function validTicket(ticket = {}) {
   return Boolean(clean(ticket.BoletaUID))
-    && !['true', '1', 'si', 'sí'].includes(normalizeAgendaText(ticket.Anulada));
+    && !['true', '1', 'si', 'sí'].includes(normalizeAgendaText(ticket.Anulada))
+    && normalizeAgendaText(ticket.Estado) !== 'anulada';
 }
 
 function userName(user = {}) {
-  return clean(user.NombreCompleto || user.Nombre || user.NombreUsuario || user.Correo || 'Técnico');
+  return clean(user.NombreCompleto || user.Nombre || user.NombreUsuario || user.Correo, 'Técnico');
 }
 
 function ticketNumber(ticket = {}) {
@@ -47,6 +49,9 @@ export async function prepareAgendaTicketCreation(ctx, payload = {}) {
   const agendaId = agendaIdFromPayload(payload);
   if (!agendaId) return { payload, agenda: null, assignedIds: [], users: [] };
   if (!isAdmin(ctx)) throw forbidden('Solo un administrador puede crear una boleta desde la agenda.');
+  if (clean(payload.parentTicketId || payload.boletaRelacionadaUid || payload.BoletaRelacionadaUID)) {
+    throw badRequest('Una boleta creada desde la agenda debe ser una visita principal, no una visita relacionada.');
+  }
 
   const [agenda, tables, ticketExceptions] = await Promise.all([
     findById('Agendas', agendaId),
