@@ -1,133 +1,55 @@
-import React, { useCallback, useEffect, useMemo, useState } from 'react';
-import { apiRequest } from '../../api';
-import { useAuth } from '../../AuthContext';
+import React from 'react';
+import { Link } from 'react-router-dom';
 import Icon from '../../components/common/Icon';
-import DependentSelect from '../../components/forms/DependentSelect';
 import '../../styles/agenda-resend.css';
-
-const CLIENT_PAGE_SIZE = 80;
 
 function clean(value) {
   return String(value ?? '').trim();
 }
 
-function clientId(client = {}) {
-  return clean(client.ClienteID || client.ID || client.id);
+function personName(user = {}) {
+  return clean(user.NombreCompleto || user.Nombre || user.NombreUsuario || user.Correo || 'Usuario');
 }
 
-function clientName(client = {}) {
-  return clean(client.Nombre || client.Clientes || client.Cliente || client.RazonSocial || 'Cliente');
-}
+/**
+ * Conserva el punto de extensión que antes se utilizaba para seleccionar el
+ * cliente de una agenda. El cliente ahora se selecciona dentro del formulario
+ * real de la boleta y el backend vincula esa boleta con la agenda al guardarla.
+ *
+ * Se mantiene este componente/archivo para no duplicar estructura dentro de
+ * AgendaPage y para que el cambio sea compatible con el layout existente.
+ */
+export default function AgendaClientAssignment({ item }) {
+  if (!item?.AgendaID) return null;
+  if (!item.RequiereBoleta || String(item.Estado || '').toUpperCase() === 'CANCELADA') return null;
+  if (item.boleta?.BoletaUID) return null;
 
-function clientRows(data) {
-  if (Array.isArray(data)) return data;
-  if (Array.isArray(data?.items)) return data.items;
-  if (Array.isArray(data?.rows)) return data.rows;
-  return [];
-}
+  const assignedNames = (item.asignados || []).map(personName).filter(Boolean);
+  const target = `/boletas/nueva?agendaId=${encodeURIComponent(item.AgendaID)}`;
 
-function mergeClients(current, incoming) {
-  const merged = new Map();
-  [...current, ...incoming].forEach((client) => {
-    const id = clientId(client);
-    if (id) merged.set(id, client);
-  });
-  return [...merged.values()];
-}
-
-export default function AgendaClientAssignment({ item, onSaved }) {
-  const { sessionToken } = useAuth();
-  const [clients, setClients] = useState([]);
-  const [selectedId, setSelectedId] = useState(clean(item?.ClienteID));
-  const [loading, setLoading] = useState(false);
-  const [saving, setSaving] = useState(false);
-  const [feedback, setFeedback] = useState('');
-
-  const currentId = clean(item?.ClienteID);
-  const currentName = clean(item?.ClienteNombre);
-
-  const searchClients = useCallback(async (query = '') => {
-    setLoading(true);
-    try {
-      const response = await apiRequest('clients.list', {
-        page: 1,
-        pageSize: CLIENT_PAGE_SIZE,
-        activo: true,
-        q: clean(query),
-      }, sessionToken);
-      const rows = clientRows(response);
-      setClients((current) => mergeClients(current, rows));
-      return rows;
-    } finally {
-      setLoading(false);
-    }
-  }, [sessionToken]);
-
-  useEffect(() => {
-    setSelectedId(currentId);
-    setFeedback('');
-    setClients([]);
-    searchClients('').catch(() => {});
-  }, [currentId, item?.AgendaID, searchClients]);
-
-  const options = useMemo(() => clients
-    .map((client) => ({ value: clientId(client), label: clientName(client) }))
-    .filter((option) => option.value)
-    .sort((left, right) => left.label.localeCompare(right.label, 'es', { sensitivity: 'base' })), [clients]);
-
-  const selectedLabel = options.find((option) => option.value === selectedId)?.label
-    || (selectedId === currentId ? currentName : '');
-  const changed = selectedId !== currentId;
-
-  async function save() {
-    if (!item?.AgendaID || saving || !changed) return;
-    setSaving(true);
-    setFeedback('');
-    try {
-      const response = await apiRequest('agenda.update', {
-        agendaId: item.AgendaID,
-        clienteId: selectedId,
-        soloCliente: true,
-      }, sessionToken);
-      setFeedback(response?.message || 'Cliente relacionado actualizado correctamente.');
-      await onSaved?.(response);
-    } catch (error) {
-      setFeedback(error?.message || 'No se pudo actualizar el cliente relacionado.');
-    } finally {
-      setSaving(false);
-    }
-  }
-
-  return <section className="agenda-client-panel" aria-label="Asignar cliente a la agenda">
+  return <section className="agenda-client-panel" aria-label="Crear boleta para esta agenda">
     <div className="agenda-client-panel__heading">
-      <span className="eyebrow">Cliente de la visita</span>
-      <strong>{currentName || 'Sin cliente relacionado'}</strong>
-      <small>Se usa únicamente para reconocer qué boleta corresponde a esta agenda. No cambia la forma de crear boletas.</small>
+      <span className="eyebrow">Boleta de la agenda</span>
+      <strong>Crear la boleta para esta visita</strong>
+      <small>
+        Se abrirá el mismo formulario completo de creación de boletas. La fecha, el horario y las personas asignadas
+        a esta agenda se cargarán automáticamente; el cliente y el resto de la información se completan dentro de la boleta.
+      </small>
+    </div>
+
+    <div className="agenda-client-panel__feedback">
+      <Icon name="groups" />
+      <span>
+        Técnicos que quedarán asignados: {assignedNames.length ? assignedNames.join(', ') : 'sin personas asignadas'}.
+      </span>
     </div>
 
     <div className="agenda-client-panel__controls">
-      <DependentSelect
-        label="Asignar cliente"
-        name="agendaClienteId"
-        value={selectedId}
-        selectedLabel={selectedLabel}
-        options={options}
-        searchable
-        loading={loading && !options.length}
-        searchPlaceholder="Escriba el nombre o una parte del nombre..."
-        onSearch={searchClients}
-        searchDelay={250}
-        onChange={(event) => {
-          setSelectedId(clean(event.target.value));
-          setFeedback('');
-        }}
-      />
-      <button type="button" className="button button--primary agenda-client-panel__save" onClick={save} disabled={saving || !changed}>
-        <Icon name={saving ? 'progress_activity' : 'save'} />
-        {saving ? 'Guardando...' : selectedId ? 'Guardar cliente' : 'Quitar cliente'}
-      </button>
+      <span />
+      <Link className="button button--primary agenda-client-panel__save" to={target}>
+        <Icon name="add_task" />
+        Crear boleta
+      </Link>
     </div>
-
-    {feedback && <div className="agenda-client-panel__feedback" role="status"><Icon name="info" /><span>{feedback}</span></div>}
   </section>;
 }
