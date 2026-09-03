@@ -1,0 +1,266 @@
+*** Code.gs	2026-09-02 AGENDA V7.8
+--- Code.gs	2026-09-03 AGENDA V7.9
+***************
+*** 14 ****
+! const APPS_SCRIPT_VERSION = '2026-09-02-AGENDA-V7.8-CLIENT-TICKET-LINK';
+--- 14 ----
+! const APPS_SCRIPT_VERSION = '2026-09-03-AGENDA-V7.9-TICKET-CREATION-FINALIZATION';
+***************
+*** 7920,7925 ****
+  function sendAgendaDeliveryEmail_(email, name, agendas, mode, appUrl) {
+    if (MailApp.getRemainingDailyQuota() < 1) {
+      throw new Error('La cuota diaria de correo de Apps Script se agotó.');
+    }
+--- 7920,7932 ----
+  function sendAgendaDeliveryEmail_(email, name, agendas, mode, appUrl) {
+    if (MailApp.getRemainingDailyQuota() < 1) {
+      throw new Error('La cuota diaria de correo de Apps Script se agotó.');
+    }
++
++   if (clean_(mode).toUpperCase() === 'TICKET_CREATED_PENDING') {
++     return sendAgendaTicketCreatedPendingEmail_(
++       email,
++       name,
++       agendas,
++       appUrl,
++     );
++   }
+***************
+*** 8080,8080 ****
+--- 8088,8193 ----
++
++ /**
++  * Avisa al técnico que el administrador ya creó la boleta de su agenda y que
++  * quedó en Pendientes. El backend envía una entrega individual por técnico,
++  * reutilizando agenda.notification.send y su llave de idempotencia.
++  */
++ function sendAgendaTicketCreatedPendingEmail_(email, name, agendas, appUrl) {
++   const agenda = agendas[0] || {};
++   const number = clean_(agenda.boletaNumero || agenda.boletaUid, 'sin número');
++   const client = clean_(agenda.clienteNombre, 'cliente sin especificar');
++   const detail = clean_(agenda.detalle, 'visita programada');
++   const ticketUrl = appUrl && clean_(agenda.boletaUid)
++     ? `${appUrl.replace(/\/+$/, '')}/boletas/${encodeURIComponent(clean_(agenda.boletaUid))}`
++     : '';
++   const subject = `DMS Boletas - Boleta #${number} creada y pendiente - ${client}`;
++   const plain = [
++     `Hola ${clean_(name, 'Técnico')},`,
++     '',
++     `La boleta #${number} correspondiente a su agenda para la visita al cliente ${client} ya fue creada y se encuentra en Pendientes.`,
++     `Visita: ${detail}`,
++     `Fecha: ${formatAgendaDate_(agenda.fecha)}`,
++     `Horario: ${clean_(agenda.horaInicio, '07:00')} - ${clean_(agenda.horaFin, '17:00')}`,
++     '',
++     'Complete la información del trabajo y finalice la boleta antes de las 5:00 p. m.',
++     ticketUrl ? `Abrir boleta: ${ticketUrl}` : null,
++     '',
++     'Este aviso fue generado automáticamente por DMS Boletas.',
++   ].filter(function (line) {
++     return line !== null;
++   }).join('\n');
++
++   const openButton = ticketUrl
++     ? buttonHtml_(ticketUrl, `Abrir boleta #${number}`, BRAND_RED)
++     : '';
++
++   const htmlBody = [
++     '<!doctype html><html><body style="margin:0;padding:0;background:',
++     BRAND_BACKGROUND,
++     ';font-family:Arial,sans-serif;color:',
++     BRAND_TEXT,
++     ';">',
++     '<div style="max-width:650px;margin:0 auto;padding:28px 16px;">',
++     '<div style="background:',
++     BRAND_RED,
++     ';color:#fff;padding:20px 22px;border-radius:18px 18px 0 0;">',
++     '<div style="font-size:12px;font-weight:700;letter-spacing:.08em;text-transform:uppercase;">DMS Boletas</div>',
++     '<h1 style="margin:5px 0 0;font-size:24px;">Boleta de agenda creada</h1>',
++     '</div>',
++     '<div style="padding:22px;background:#fff;border:1px solid ',
++     BRAND_BORDER,
++     ';border-top:0;border-radius:0 0 18px 18px;">',
++     '<p style="margin-top:0;">Hola <strong>',
++     escapeHtml_(clean_(name, 'Técnico')),
++     '</strong>,</p>',
++     '<p style="font-size:17px;line-height:1.55;">La <strong>boleta #',
++     escapeHtml_(number),
++     '</strong> de su agenda ya fue creada y quedó en <strong>Pendientes</strong>.</p>',
++     '<div style="margin:18px 0;padding:14px;border-radius:14px;background:#fff3dc;">',
++     '<div><strong>Cliente:</strong> ',
++     escapeHtml_(client),
++     '</div>',
++     '<div style="margin-top:6px;"><strong>Visita:</strong> ',
++     nl2br_(detail),
++     '</div>',
++     '<div style="margin-top:6px;"><strong>Fecha:</strong> ',
++     escapeHtml_(formatAgendaDate_(agenda.fecha)),
++     '</div>',
++     '<div style="margin-top:6px;"><strong>Horario:</strong> ',
++     escapeHtml_(clean_(agenda.horaInicio, '07:00')),
++     ' - ',
++     escapeHtml_(clean_(agenda.horaFin, '17:00')),
++     '</div>',
++     '</div>',
++     '<p><strong>Debe completar y finalizar esta boleta antes de las 5:00 p. m.</strong></p>',
++     openButton,
++     '<p style="margin:20px 0 0;font-size:12px;color:',
++     BRAND_MUTED,
++     ';">Si la boleta continúa sin finalizar después de las 5:00 p. m., DMS Boletas enviará el recordatorio automático.</p>',
++     '</div></div></body></html>',
++   ].join('');
++
++   sendDmsEmail_({
++     to: email,
++     subject: subject,
++     body: plain,
++     htmlBody: htmlBody,
++     name: 'DMS Boletas',
++   });
++
++   return {
++     sent: true,
++     to: [email],
++     subject: subject,
++     ticketUid: clean_(agenda.boletaUid),
++     ticketNumber: number,
++     remainingDailyQuota: MailApp.getRemainingDailyQuota(),
++   };
++ }
+***************
+*** 8238,8244 ****
+-   const validTickets = ticketTable.rows.filter(function (ticket) {
+-     const dateKey = agendaDateKey_(ticket.Fecha);
+-     return Boolean(dueDates[dateKey])
+-       && !agendaTruthy_(ticket.Anulada);
+-   });
+-
+-   const ticketsById = indexBy_(validTickets, 'BoletaUID');
+--- 8351,8362 ----
++   const allValidTickets = ticketTable.rows.filter(function (ticket) {
++     return !agendaTruthy_(ticket.Anulada);
++   });
++   const validTickets = allValidTickets.filter(function (ticket) {
++     const dateKey = agendaDateKey_(ticket.Fecha);
++     return Boolean(dueDates[dateKey]);
++   });
++
++   // Un vínculo explícito Agenda.BoletaUID prevalece aunque el administrador
++   // haya ajustado la fecha de la boleta dentro del formulario completo.
++   const ticketsById = indexBy_(allValidTickets, 'BoletaUID');
+***************
+*** 8339,8352 ****
+-     if (matched) {
+-       const matchedId = clean_(matched.BoletaUID);
+-       if (matchedId && clean_(agenda.BoletaUID) !== matchedId) {
+-         writeAgendaCell_(
+-           agendaTable.sheet,
+-           agendaTable.headers,
+-           agenda.__rowNumber,
+-           'BoletaUID',
+-           matchedId,
+-         );
+-       }
+-       linked += 1;
+-       return;
+-     }
+--- 8457,8476 ----
++     if (matched) {
++       const matchedId = clean_(matched.BoletaUID);
++       if (matchedId && clean_(agenda.BoletaUID) !== matchedId) {
++         writeAgendaCell_(
++           agendaTable.sheet,
++           agendaTable.headers,
++           agenda.__rowNumber,
++           'BoletaUID',
++           matchedId,
++         );
++       }
++       linked += 1;
++
++       // La agenda solamente queda cumplida cuando SU boleta está FINALIZADA.
++       if (normalizeAgendaText_(matched.Estado) === 'finalizada') {
++         return;
++       }
++     }
+***************
+*** 8379,8384 ****
+      try {
+        sendMissingAgendaTicketEmail_(
+          agenda,
+          assignedUsers,
+          configTable.rows,
+        );
+--- 8503,8513 ----
+      try {
+        sendMissingAgendaTicketEmail_(
+          agenda,
+          assignedUsers,
+          configTable.rows,
++         matched
++           ? {
++             ticket: matched,
++           }
++           : {},
+        );
+***************
+*** 8462,8479 ****
+    const detail = clean_(agenda.Detalle, 'visita programada');
+-   const clientName = clean_(agenda.ClienteNombre);
++   const ticket = settings.ticket || null;
++   const hasLinkedTicket = Boolean(ticket && clean_(ticket.BoletaUID));
++   const number = hasLinkedTicket
++     ? clean_(ticket.BoletaID || ticket.BoletaNumero || ticket.BoletaUID)
++     : '';
++   const clientName = clean_(
++     hasLinkedTicket ? ticket.Cliente : agenda.ClienteNombre,
++   );
+    const assignedNames = assignedUsers
+--- 8589,8612 ----
+    const dateLabel = formatAgendaDate_(agenda.Fecha);
+-   const subject = testMode
+-     ? `[PRUEBA] DMS Boletas - Recordatorio de boleta pendiente - ${detail}`
+-     : `DMS Boletas - Recordatorio de boleta pendiente - ${detail}`;
++   const subjectBase = hasLinkedTicket
++     ? `DMS Boletas - Boleta #${number} no finalizada - ${clientName || detail}`
++     : `DMS Boletas - Recordatorio de boleta pendiente - ${detail}`;
++   const subject = testMode ? `[PRUEBA] ${subjectBase}` : subjectBase;
+    const plain = [
+-     testMode ? 'PRUEBA · Recordatorio de boleta pendiente' : 'Recordatorio de boleta pendiente',
++     testMode
++       ? 'PRUEBA · Recordatorio de boleta pendiente'
++       : hasLinkedTicket
++         ? `Boleta #${number} no finalizada`
++         : 'Recordatorio de boleta pendiente',
+      '',
+      testMode
+        ? 'Este correo es una prueba administrativa. No modifica la agenda ni marca el recordatorio como enviado.'
+        : '',
+      testMode ? '' : null,
+-     `Recordar que no se realizó una boleta de la visita a: ${detail}.`,
++     hasLinkedTicket
++       ? `La boleta #${number}, correspondiente a la visita al cliente ${clientName || 'sin especificar'}, no fue finalizada antes de las 5:00 p. m.`
++       : `Recordar que no se realizó una boleta de la visita a: ${detail}.`,
++     hasLinkedTicket ? `Visita: ${detail}` : null,
+      clientName ? `Cliente relacionado: ${clientName}` : null,
+***************
+*** 8503,8518 ****
+-     '<h1 style="margin:5px 0 0;font-size:24px;">',
+-     testMode ? 'Prueba · Boleta pendiente' : 'Boleta pendiente',
++     '<h1 style="margin:5px 0 0;font-size:24px;">',
++     testMode
++       ? 'Prueba · Boleta pendiente'
++       : hasLinkedTicket
++         ? 'Boleta no finalizada'
++         : 'Boleta pendiente',
+      '</h1>',
+@@
+-     '<strong>Recordar que no se realizó una boleta de la visita a:</strong><br>',
+-     nl2br_(detail),
++     hasLinkedTicket
++       ? '<strong>La boleta #' + escapeHtml_(number) + ' no fue finalizada antes de las 5:00 p. m.</strong><br>'
++       : '<strong>Recordar que no se realizó una boleta de la visita a:</strong><br>',
++     hasLinkedTicket
++       ? 'Visita: ' + nl2br_(detail)
++       : nl2br_(detail),
+      '</p>',
+*** End Patch
