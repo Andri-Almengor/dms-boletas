@@ -71,6 +71,23 @@ test('las evidencias de boleta usan IDs idempotentes y carga secuencial', () => 
   assert.doesNotMatch(tickets, /Promise\.all\(evidences/);
 });
 
+test('las imágenes se comprimen de forma conservadora antes de entrar al flujo existente', () => {
+  const compression = source('src/utils/imageCompression.js');
+  const evidence = source('src/utils/evidenceMedia.js');
+
+  assert.match(compression, /EVIDENCE_IMAGE_COMPRESSION_QUALITY = 0\.92/);
+  assert.match(compression, /EVIDENCE_IMAGE_MAX_DIMENSION = 2560/);
+  assert.match(compression, /EVIDENCE_IMAGE_COMPRESSION_MIN_BYTES = 512 \* 1024/);
+  assert.match(compression, /blob\.size >= Number\(file\.size/);
+  assert.match(compression, /'gif', 'heic', 'heif', 'svg'/);
+  assert.match(compression, /mimeType === 'image\/png' \? undefined : EVIDENCE_IMAGE_COMPRESSION_QUALITY/);
+  assert.match(evidence, /import \{ compressEvidenceImage \} from '\.\/imageCompression'/);
+  assert.match(evidence, /originalMetadata\.mediaType === 'image'/);
+  assert.match(evidence, /await compressEvidenceImage\(originalFile\)/);
+  assert.match(evidence, /originalSize: originalMetadata\.size/);
+  assert.match(evidence, /optimized,/);
+});
+
 test('la liberación local es compartida e idempotente por archivo', () => {
   const lifecycle = source('src/utils/localFileLifecycle.js');
   const uploader = source('src/components/forms/EvidenceUploader.jsx');
