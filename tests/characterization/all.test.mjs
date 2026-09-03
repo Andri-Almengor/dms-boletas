@@ -74,4 +74,5 @@ import './ticket-detail-evidence-ui.test.mjs';
 import './ticket-form-domain.test.mjs';
 import './ticket-form-services.test.mjs';
 import './ticket-signature-public-url.test.mjs';
+import './upload-pressure-agenda-latency.test.mjs';
 import './ux-performance-feedback.test.mjs';
