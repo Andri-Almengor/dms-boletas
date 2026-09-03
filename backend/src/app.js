@@ -36,6 +36,7 @@ import {
 } from './modules/password-vault.module.js';
 import { maintenanceFinalizationWorkerRouter } from './routes/maintenance-finalization-worker.routes.js';
 import { activityReportRouter } from './routes/activity-report.routes.js';
+import { binaryUploadRouter } from './routes/binary-upload.routes.js';
 import { runWithActionConcurrency } from './services/action-concurrency.service.js';
 import { runWithActionSingleFlight } from './services/action-single-flight.service.js';
 import {
@@ -97,6 +98,7 @@ app.use(express.text({ type: ['text/plain', 'application/javascript'], limit: '5
 
 app.use('/api/maintenance-finalization', maintenanceFinalizationWorkerRouter);
 app.use('/api/activity', activityReportRouter);
+app.use('/api/upload/binary', binaryUploadRouter);
 
 app.get('/api/health', (_req, res) => {
   res.setHeader('Cache-Control', 'no-store');
