@@ -271,14 +271,21 @@ async function appendMaintenanceEvidence(token, file) {
   };
 }
 
+function chunkBuffer(value) {
+  if (Buffer.isBuffer(value)) return value;
+  if (ArrayBuffer.isView(value)) return Buffer.from(value.buffer, value.byteOffset, value.byteLength);
+  const normalized = clean(value).replace(/\s+/g, '');
+  if (!normalized) return Buffer.alloc(0);
+  return Buffer.from(normalized, 'base64');
+}
+
 async function uploadChunk(ctx, kind) {
   const token = parseUploadToken(ctx.payload.uploadToken, kind);
   const offset = Number(ctx.payload.offset);
   if (!Number.isInteger(offset) || offset < 0 || offset >= token.size) throw badRequest('La posición del bloque del video no es válida.');
-  const normalized = clean(ctx.payload.base64).replace(/\s+/g, '');
-  if (!normalized) throw badRequest('El bloque del video no contiene datos.');
-  const buffer = Buffer.from(normalized, 'base64');
-  if (!buffer.length || buffer.length > LARGE_VIDEO_CHUNK_BYTES) throw badRequest('El bloque del video supera el tamaño permitido.');
+  const buffer = chunkBuffer(ctx.payload.base64);
+  if (!buffer.length) throw badRequest('El bloque del video no contiene datos.');
+  if (buffer.length > LARGE_VIDEO_CHUNK_BYTES) throw badRequest('El bloque del video supera el tamaño permitido.');
   const end = offset + buffer.length - 1;
   if (end >= token.size) throw badRequest('El bloque del video excede el tamaño total declarado.');
 
