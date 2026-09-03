@@ -1,5 +1,11 @@
 import { isOfflineModeEnabled } from './services/offlineMode';
 import {
+  cachePerformanceResponse,
+  invalidatePerformanceResponses,
+  readPerformanceResponse,
+  waitForPerformanceGrace,
+} from './services/performanceReadCache';
+import {
   createAbortError,
   isAbortError,
   isNetworkError,
@@ -37,6 +43,13 @@ function isReadRoute(route) {
     || value.endsWith('.list')
     || value.endsWith('.get')
     || value.endsWith('.config');
+}
+
+function isPerformanceCacheableRead(route, sessionToken) {
+  if (!sessionToken) return false;
+  const value = String(route || '').toLowerCase();
+  if (value === 'auth.me' || value === 'assistant.chat' || value === 'asistente.chat') return false;
+  return isReadRoute(route);
 }
 
 function preparePayload(route, payload) {
@@ -243,6 +256,22 @@ function notifyDegradedMode(route, error) {
   }
 }
 
+function notifyPerformanceCacheUsed(route) {
+  try {
+    globalThis.dispatchEvent?.(new CustomEvent('dms-performance-cache-used', { detail: { route } }));
+  } catch {
+    // La señal visual es complementaria.
+  }
+}
+
+function notifyPerformanceRevalidated(route, data) {
+  try {
+    globalThis.dispatchEvent?.(new CustomEvent('dms-performance-cache-updated', { detail: { route, data } }));
+  } catch {
+    // La actualización de caché nunca debe afectar la lectura principal.
+  }
+}
+
 async function executeRead(route, payload, sessionToken, key, requestEpoch, signal) {
   try {
     const data = await performRequestWithRetry(route, payload, sessionToken, { signal });
@@ -256,6 +285,10 @@ async function executeRead(route, payload, sessionToken, key, requestEpoch, sign
         lastAccess: savedAt,
       });
       pruneRecentReads(savedAt);
+      if (isPerformanceCacheableRead(route, sessionToken)) {
+        cachePerformanceResponse(route, payload, sessionToken, data).catch(() => {});
+        notifyPerformanceRevalidated(route, data);
+      }
     }
     return data;
   } catch (error) {
@@ -270,6 +303,23 @@ async function executeRead(route, payload, sessionToken, key, requestEpoch, sign
   }
 }
 
+async function preferPersistentCacheWhenSlow(route, payload, sessionToken, request, signal) {
+  if (!isPerformanceCacheableRead(route, sessionToken)) return request;
+
+  const cachedAfterGrace = Promise.all([
+    readPerformanceResponse(route, payload, sessionToken).catch(() => null),
+    waitForPerformanceGrace(signal),
+  ]).then(([data]) => ({ source: 'cache', data }));
+
+  const network = request.then((data) => ({ source: 'network', data }));
+  const winner = await Promise.race([network, cachedAfterGrace]);
+  if (winner.source === 'network') return winner.data;
+  throwIfAborted(signal);
+  if (winner.data === null) return request;
+  notifyPerformanceCacheUsed(route);
+  return winner.data;
+}
+
 export async function apiRequest(route, payload = {}, sessionToken = '', options = {}) {
   const signal = options?.signal;
   throwIfAborted(signal);
@@ -278,6 +328,7 @@ export async function apiRequest(route, payload = {}, sessionToken = '', options
     writeEpoch += 1;
     invalidateRelatedReads(route);
     const data = await performRequestWithRetry(route, payload, sessionToken, { signal });
+    invalidatePerformanceResponses(sessionToken);
     notifyWriteComplete(route, payload, data);
     return data;
   }
@@ -298,9 +349,10 @@ export async function apiRequest(route, payload = {}, sessionToken = '', options
 
   const requestEpoch = writeEpoch;
   const request = executeRead(route, payload, sessionToken, key, requestEpoch, signal);
-  if (signal) return request;
+  const resolved = preferPersistentCacheWhenSlow(route, payload, sessionToken, request, signal);
+  if (signal) return resolved;
 
-  const sharedRequest = request.finally(() => pendingReads.delete(key));
+  const sharedRequest = resolved.finally(() => pendingReads.delete(key));
   pendingReads.set(key, sharedRequest);
   return sharedRequest;
 }
