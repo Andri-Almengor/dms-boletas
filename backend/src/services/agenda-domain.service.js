@@ -162,7 +162,8 @@ export function resolveAgendaTicketMatches({
 
   const validTickets = tickets.filter((ticket) => {
     const annulled = normalizeAgendaText(ticket.Anulada);
-    return !['true', '1', 'si'].includes(annulled);
+    return !['true', '1', 'si'].includes(annulled)
+      && normalizeAgendaText(ticket.Estado) !== 'anulada';
   });
   const ticketById = new Map(validTickets.map((ticket) => [clean(ticket.BoletaUID), ticket]));
   const ticketsByDate = new Map();
@@ -229,7 +230,11 @@ export function agendaStatus(agenda, ticket, today = costaRicaDate(), ticketExce
   const state = normalizeAgendaText(agenda.Estado);
   if (state === 'cancelada') return 'CANCELADA';
   if (!agendaRequiresTicket(agenda.Detalle, ticketExceptions)) return 'NO_REQUIERE';
-  if (ticket) return 'COMPLETA';
+  if (ticket) {
+    return normalizeAgendaText(ticket.Estado) === 'finalizada'
+      ? 'COMPLETA'
+      : 'BOLETA_PENDIENTE';
+  }
   return agendaDate(agenda.Fecha) > today ? 'FUTURA' : 'PENDIENTE';
 }
 
