@@ -21,13 +21,6 @@ const ALLOWED_BINARY_ROUTES = new Set([
   'mantenimientos.imagenes.grande.bloque',
 ]);
 
-const BASE64_ONLY_ROUTES = new Set([
-  'boletas.evidence.large.chunk',
-  'tickets.evidence.large.chunk',
-  'maintenance.images.large.chunk',
-  'mantenimientos.imagenes.grande.bloque',
-]);
-
 function clean(value) {
   return String(value ?? '').trim();
 }
@@ -74,13 +67,12 @@ function prepareBinaryEnvelope(req, _res, next) {
   }
 }
 
-function payloadWithBinary(route, metadata, buffer) {
+function payloadWithBinary(metadata, buffer) {
   return {
     ...metadata,
-    // Las cargas normales pueden reutilizar uploadBase64(), que acepta Buffer.
-    // Los bloques reanudables mantienen temporalmente su contrato Base64 interno;
-    // la conversión ocurre en el servidor y ya no viaja por la red.
-    base64: BASE64_ONLY_ROUTES.has(route) ? buffer.toString('base64') : buffer,
+    // El nombre histórico `base64` se conserva únicamente como contrato entre
+    // handlers. El valor puede ser Buffer y no vuelve a codificarse en Base64.
+    base64: buffer,
   };
 }
 
@@ -110,7 +102,7 @@ binaryUploadRouter.post(
     try {
       res.setHeader('Cache-Control', 'no-store');
       const requestOrigin = req.get('origin') || `${req.protocol}://${req.get('host')}`;
-      const payload = payloadWithBinary(route, metadata, buffer);
+      const payload = payloadWithBinary(metadata, buffer);
       const execute = () => runWithSheetsRouteReadCache(route, () => (
         runWithActionConcurrency(route, () => dispatchAction({
           route,
