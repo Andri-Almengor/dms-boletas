@@ -19,25 +19,34 @@ test('las rutas lazy reutilizan un manifiesto precargable', () => {
   assert.match(loaders, /warmedLoads/);
 });
 
-test('la navegación precarga módulos por intención y en tiempo ocioso', () => {
+test('la navegación precarga módulos y datos por intención y en tiempo ocioso', () => {
   const shell = source('src/components/layout/AppShell.jsx');
   assert.match(shell, /preloadRouteModule/);
   assert.match(shell, /preloadRouteModules/);
   assert.match(shell, /preloadNavigationData/);
+  assert.match(shell, /preloadNavigationDataBatch/);
   assert.match(shell, /onPointerEnter/);
   assert.match(shell, /onFocus/);
   assert.match(shell, /onTouchStart/);
   assert.match(shell, /requestIdleCallback/);
   assert.match(shell, /navigator\.connection\?\.saveData/);
+  assert.match(shell, /likelyRoutes\.push\('\/clientes'\)/);
 });
 
-test('la precarga de datos reutiliza las mismas rutas y payloads de listas', () => {
+test('la precarga de datos reutiliza los mismos payloads de las vistas frecuentes', () => {
   const preload = source('src/services/navigationPreload.js');
   assert.match(preload, /MODULE_ROUTES\.tickets\.list/);
   assert.match(preload, /MODULE_ROUTES\.maintenance\.list/);
   assert.match(preload, /MODULE_ROUTES\.clients\.list/);
+  assert.match(preload, /MODULE_ROUTES\.knowledge\.list/);
+  assert.match(preload, /agenda\.list/);
+  assert.match(preload, /calendarMonthRange\(monthKey\(\)\)/);
   assert.match(preload, /maintenanceListPayload/);
   assert.match(preload, /pageSize:\s*TICKET_PAGE_SIZE/);
+  assert.match(preload, /pageSize:\s*KNOWLEDGE_PAGE_SIZE/);
+  assert.match(preload, /export async function preloadNavigationDataBatch/);
+  assert.match(preload, /IDLE_DATA_CONCURRENCY = 2/);
+  assert.match(preload, /ticketListAdmin/);
   assert.match(preload, /navigator\.connection\?\.saveData/);
   assert.doesNotMatch(preload, /fetch\(/);
 });
@@ -70,9 +79,34 @@ test('la caché persistente solo admite listas operativas y excluye superficies 
   assert.doesNotMatch(api, /assistant\.chat.*PERFORMANCE_CACHE_ROUTE_PATTERNS/);
 });
 
-test('las optimizaciones no agregan rutas backend ni cambian action-router', () => {
+test('el backend calienta tablas operativas después de autenticación en un arranque frío', () => {
+  const server = source('backend/src/server.js');
+  assert.match(server, /STARTUP_CRITICAL_TABLES/);
+  assert.match(server, /STARTUP_OPERATIONAL_TABLES/);
+  for (const table of [
+    'Configuracion',
+    'Boletas',
+    'BoletaAsignados',
+    'Agendas',
+    'AgendaAsignados',
+    'Mantenimiento',
+    'Evidencia_Mantenimientos',
+    'KnowledgeArticles',
+    'KnowledgeCategories',
+  ]) {
+    assert.match(server, new RegExp(`'${table}'`), `Debe precargar ${table}.`);
+  }
+  assert.match(server, /await readTables\(STARTUP_CRITICAL_TABLES\)/);
+  assert.match(server, /await readTables\(STARTUP_OPERATIONAL_TABLES\)/);
+  assert.match(server, /}, 25\)\.unref/);
+  assert.doesNotMatch(server, /}, 750\)\.unref/);
+});
+
+test('las optimizaciones no agregan endpoints ni cambian la matriz de permisos', () => {
   const preload = source('src/services/navigationPreload.js');
   const cache = source('src/services/performanceReadCache.js');
+  const router = source('backend/src/core/action-router.js');
   assert.doesNotMatch(preload, /home\.summary|dashboard\.summary|performance\.summary/);
   assert.doesNotMatch(cache, /home\.summary|dashboard\.summary|performance\.summary/);
+  assert.match(router, /PermissionRoute|permission|USUARIOS_GESTIONAR/i);
 });
