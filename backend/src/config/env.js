@@ -87,17 +87,28 @@ export const env = Object.freeze({
   auditBatchSize: optionalNumber('AUDIT_BATCH_SIZE', 100, 1),
   auditMaxBufferedRows: optionalNumber('AUDIT_MAX_BUFFERED_ROWS', 2_000, 100),
 
+  // Protección HTTP y de memoria. La barrera de carga binaria se evalúa antes
+  // de que Express materialice el cuerpo completo, para evitar picos de RAM.
   httpMaxConcurrentRequests: optionalNumber('HTTP_MAX_CONCURRENT_REQUESTS', 40, 1),
   httpMaxConcurrentLargeRequests: optionalNumber('HTTP_MAX_CONCURRENT_LARGE_REQUESTS', 2, 1),
   httpQueueLimit: optionalNumber('HTTP_QUEUE_LIMIT', 100, 0),
   httpQueueTimeoutMs: optionalNumber('HTTP_QUEUE_TIMEOUT_MS', 15000, 1000),
   httpLargeRequestBytes: optionalNumber('HTTP_LARGE_REQUEST_BYTES', 1000000, 1024),
+  uploadMemorySoftLimitMb: optionalNumber('UPLOAD_MEMORY_SOFT_LIMIT_MB', 384, 128),
+  uploadMemoryReserveMb: optionalNumber('UPLOAD_MEMORY_RESERVE_MB', 48, 16),
+  uploadMaxInFlightMb: optionalNumber('UPLOAD_MAX_IN_FLIGHT_MB', 64, 16),
+  uploadBinaryMaxRequestMb: optionalNumber('UPLOAD_BINARY_MAX_REQUEST_MB', 32, 8),
   heavyActionMaxConcurrent: optionalNumber('HEAVY_ACTION_MAX_CONCURRENT', 1, 1),
   writeActionMaxConcurrent: optionalNumber('WRITE_ACTION_MAX_CONCURRENT', 2, 1),
   serverKeepAliveTimeoutMs: optionalNumber('SERVER_KEEP_ALIVE_TIMEOUT_MS', 65000, 1000),
   serverHeadersTimeoutMs: optionalNumber('SERVER_HEADERS_TIMEOUT_MS', 66000, 2000),
   serverRequestTimeoutMs: optionalNumber('SERVER_REQUEST_TIMEOUT_MS', 360000, 10000),
   shutdownGraceMs: optionalNumber('SHUTDOWN_GRACE_MS', 15000, 1000),
+
+  // Las notificaciones automáticas de Agenda se procesan después de persistir
+  // la agenda, sin mantener bloqueado el navegador por Apps Script/Google Chat.
+  agendaNotificationMaxConcurrent: optionalNumber('AGENDA_NOTIFICATION_MAX_CONCURRENT', 1, 1),
+  agendaNotificationQueueLimit: optionalNumber('AGENDA_NOTIFICATION_QUEUE_LIMIT', 100, 1),
 
   // Protección HTTP. Los valores predeterminados dejan margen para el uso
   // normal de técnicos y limitan abuso automatizado de rutas públicas.
