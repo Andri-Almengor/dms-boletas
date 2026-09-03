@@ -79,8 +79,7 @@ test('mantenimientos aceptan videos grandes en editor, carga rápida y lotes', (
   assert.match(uploader, /prepareEvidenceFiles\(selected, \{ allowDocuments: false \}\)/);
   assert.match(uploader, /1 minuto y 30 segundos/);
   assert.match(uploader, /300 MB/);
-  assert.match(uploader, /shouldUseLargeEvidenceUpload\(evidence\)/);
-  assert.match(uploader, /uploadLargeMaintenanceEvidence/);
+  assert.match(uploader, /uploadMaintenanceImagesInBatches/);
   assert.match(uploader, /Video ·/);
   assert.match(viewer, /kind === 'video'/);
   assert.match(viewer, /Cargando video/);
@@ -102,6 +101,7 @@ test('los videos de 30 a 300 MB usan carga reanudable en bloques de 8 MB', () =>
   assert.doesNotThrow(() => syntaxCheck('backend/src/services/large-evidence-upload.service.js'));
   assert.match(frontend, /LARGE_EVIDENCE_THRESHOLD_BYTES = 30 \* 1024 \* 1024/);
   assert.match(frontend, /file\.slice\(offset, end/);
+  assert.match(frontend, /binaryUploadRequest/);
   assert.match(frontend, /fileToBase64\(chunk/);
   assert.match(frontend, /videos mayores de 30 MB necesitan conexión a internet/i);
   assert.match(backend, /LARGE_VIDEO_THRESHOLD_BYTES = 30 \* 1024 \* 1024/);
