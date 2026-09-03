@@ -1,266 +1,375 @@
-*** Code.gs	2026-09-02 AGENDA V7.8
---- Code.gs	2026-09-03 AGENDA V7.9
-***************
-*** 14 ****
-! const APPS_SCRIPT_VERSION = '2026-09-02-AGENDA-V7.8-CLIENT-TICKET-LINK';
---- 14 ----
-! const APPS_SCRIPT_VERSION = '2026-09-03-AGENDA-V7.9-TICKET-CREATION-FINALIZATION';
-***************
-*** 7920,7925 ****
-  function sendAgendaDeliveryEmail_(email, name, agendas, mode, appUrl) {
-    if (MailApp.getRemainingDailyQuota() < 1) {
-      throw new Error('La cuota diaria de correo de Apps Script se agotó.');
-    }
---- 7920,7932 ----
-  function sendAgendaDeliveryEmail_(email, name, agendas, mode, appUrl) {
-    if (MailApp.getRemainingDailyQuota() < 1) {
-      throw new Error('La cuota diaria de correo de Apps Script se agotó.');
-    }
+--- Code.gs (2026-09-02-AGENDA-V7.8-CLIENT-TICKET-LINK)
++++ Code.gs (2026-09-03-AGENDA-V7.9-TICKET-CREATION-FINALIZATION)
+@@ -10,9 +10,9 @@
+ const BRAND_BORDER = '#ead5d7';
+ const BRAND_BACKGROUND = '#fffafa';
+ const DMS_EMAIL_FROM_ALIAS = 'reportes@solutionsdms.com';
+ const DMS_EMAIL_FROM_NAME = 'DMS Boletas';
+-const APPS_SCRIPT_VERSION = '2026-09-02-AGENDA-V7.8-CLIENT-TICKET-LINK';
++const APPS_SCRIPT_VERSION = '2026-09-03-AGENDA-V7.9-TICKET-CREATION-FINALIZATION';
+ const MAINTENANCE_ARCHIVE_DELIVERY_TYPE = 'MAINTENANCE_ARCHIVE';
+ 
+ /*
+  * V6.1 integra el modo de archivo usado por la finalización escalonada:
+@@ -7921,8 +7921,17 @@
+   if (MailApp.getRemainingDailyQuota() < 1) {
+     throw new Error('La cuota diaria de correo de Apps Script se agotó.');
+   }
+ 
++  if (clean_(mode).toUpperCase() === 'TICKET_CREATED_PENDING') {
++    return sendAgendaTicketCreatedPendingEmail_(
++      email,
++      name,
++      agendas,
++      appUrl,
++    );
++  }
 +
-+   if (clean_(mode).toUpperCase() === 'TICKET_CREATED_PENDING') {
-+     return sendAgendaTicketCreatedPendingEmail_(
-+       email,
-+       name,
-+       agendas,
-+       appUrl,
-+     );
-+   }
-***************
-*** 8080,8080 ****
---- 8088,8193 ----
+   const created = mode !== 'UPDATED';
+   const active = agendas.filter(function (agenda) {
+     return agenda.assigned !== false;
+   });
+@@ -8054,8 +8063,131 @@
+     name: 'DMS Boletas',
+   });
+ }
+ 
 +
-+ /**
-+  * Avisa al técnico que el administrador ya creó la boleta de su agenda y que
-+  * quedó en Pendientes. El backend envía una entrega individual por técnico,
-+  * reutilizando agenda.notification.send y su llave de idempotencia.
-+  */
-+ function sendAgendaTicketCreatedPendingEmail_(email, name, agendas, appUrl) {
-+   const agenda = agendas[0] || {};
-+   const number = clean_(agenda.boletaNumero || agenda.boletaUid, 'sin número');
-+   const client = clean_(agenda.clienteNombre, 'cliente sin especificar');
-+   const detail = clean_(agenda.detalle, 'visita programada');
-+   const ticketUrl = appUrl && clean_(agenda.boletaUid)
-+     ? `${appUrl.replace(/\/+$/, '')}/boletas/${encodeURIComponent(clean_(agenda.boletaUid))}`
-+     : '';
-+   const subject = `DMS Boletas - Boleta #${number} creada y pendiente - ${client}`;
-+   const plain = [
-+     `Hola ${clean_(name, 'Técnico')},`,
-+     '',
-+     `La boleta #${number} correspondiente a su agenda para la visita al cliente ${client} ya fue creada y se encuentra en Pendientes.`,
-+     `Visita: ${detail}`,
-+     `Fecha: ${formatAgendaDate_(agenda.fecha)}`,
-+     `Horario: ${clean_(agenda.horaInicio, '07:00')} - ${clean_(agenda.horaFin, '17:00')}`,
-+     '',
-+     'Complete la información del trabajo y finalice la boleta antes de las 5:00 p. m.',
-+     ticketUrl ? `Abrir boleta: ${ticketUrl}` : null,
-+     '',
-+     'Este aviso fue generado automáticamente por DMS Boletas.',
-+   ].filter(function (line) {
-+     return line !== null;
-+   }).join('\n');
++/**
++ * Informa a un técnico que la boleta correspondiente a su agenda ya fue creada
++ * por un administrador y quedó en Pendientes.
++ */
++function sendAgendaTicketCreatedPendingEmail_(
++  email,
++  name,
++  agendas,
++  appUrl,
++) {
++  const agenda = (Array.isArray(agendas) && agendas[0]) || {};
++  const ticketUid = clean_(agenda.boletaUid);
++  const ticketNumber = clean_(
++    agenda.boletaNumero || ticketUid,
++    'sin número',
++  );
++  const clientName = clean_(
++    agenda.clienteNombre,
++    'cliente sin especificar',
++  );
++  const detail = clean_(
++    agenda.detalle,
++    'visita programada',
++  );
++  const ticketUrl = appUrl && ticketUid
++    ? `${appUrl.replace(/\/+$/, '')}/boletas/${encodeURIComponent(ticketUid)}`
++    : '';
 +
-+   const openButton = ticketUrl
-+     ? buttonHtml_(ticketUrl, `Abrir boleta #${number}`, BRAND_RED)
-+     : '';
++  const subject = [
++    'DMS Boletas',
++    `Boleta #${ticketNumber} creada y pendiente`,
++    clientName,
++  ].filter(Boolean).join(' - ');
 +
-+   const htmlBody = [
-+     '<!doctype html><html><body style="margin:0;padding:0;background:',
-+     BRAND_BACKGROUND,
-+     ';font-family:Arial,sans-serif;color:',
-+     BRAND_TEXT,
-+     ';">',
-+     '<div style="max-width:650px;margin:0 auto;padding:28px 16px;">',
-+     '<div style="background:',
-+     BRAND_RED,
-+     ';color:#fff;padding:20px 22px;border-radius:18px 18px 0 0;">',
-+     '<div style="font-size:12px;font-weight:700;letter-spacing:.08em;text-transform:uppercase;">DMS Boletas</div>',
-+     '<h1 style="margin:5px 0 0;font-size:24px;">Boleta de agenda creada</h1>',
-+     '</div>',
-+     '<div style="padding:22px;background:#fff;border:1px solid ',
-+     BRAND_BORDER,
-+     ';border-top:0;border-radius:0 0 18px 18px;">',
-+     '<p style="margin-top:0;">Hola <strong>',
-+     escapeHtml_(clean_(name, 'Técnico')),
-+     '</strong>,</p>',
-+     '<p style="font-size:17px;line-height:1.55;">La <strong>boleta #',
-+     escapeHtml_(number),
-+     '</strong> de su agenda ya fue creada y quedó en <strong>Pendientes</strong>.</p>',
-+     '<div style="margin:18px 0;padding:14px;border-radius:14px;background:#fff3dc;">',
-+     '<div><strong>Cliente:</strong> ',
-+     escapeHtml_(client),
-+     '</div>',
-+     '<div style="margin-top:6px;"><strong>Visita:</strong> ',
-+     nl2br_(detail),
-+     '</div>',
-+     '<div style="margin-top:6px;"><strong>Fecha:</strong> ',
-+     escapeHtml_(formatAgendaDate_(agenda.fecha)),
-+     '</div>',
-+     '<div style="margin-top:6px;"><strong>Horario:</strong> ',
-+     escapeHtml_(clean_(agenda.horaInicio, '07:00')),
-+     ' - ',
-+     escapeHtml_(clean_(agenda.horaFin, '17:00')),
-+     '</div>',
-+     '</div>',
-+     '<p><strong>Debe completar y finalizar esta boleta antes de las 5:00 p. m.</strong></p>',
-+     openButton,
-+     '<p style="margin:20px 0 0;font-size:12px;color:',
-+     BRAND_MUTED,
-+     ';">Si la boleta continúa sin finalizar después de las 5:00 p. m., DMS Boletas enviará el recordatorio automático.</p>',
-+     '</div></div></body></html>',
-+   ].join('');
++  const plain = [
++    `Hola ${clean_(name, 'Técnico')},`,
++    '',
++    `La boleta #${ticketNumber} correspondiente a su agenda para la visita al cliente ${clientName} ya fue creada y se encuentra en Pendientes.`,
++    `Visita: ${detail}`,
++    `Fecha: ${formatAgendaDate_(agenda.fecha)}`,
++    `Horario: ${clean_(agenda.horaInicio, '07:00')} - ${clean_(agenda.horaFin, '17:00')}`,
++    '',
++    'Complete la información del trabajo y finalice la boleta antes de las 5:00 p. m.',
++    ticketUrl ? `Abrir boleta: ${ticketUrl}` : null,
++    '',
++    'Este aviso fue generado automáticamente por DMS Boletas.',
++  ].filter(function (line) {
++    return line !== null;
++  }).join('\n');
 +
-+   sendDmsEmail_({
-+     to: email,
-+     subject: subject,
-+     body: plain,
-+     htmlBody: htmlBody,
-+     name: 'DMS Boletas',
-+   });
++  const openButton = ticketUrl
++    ? buttonHtml_(
++      ticketUrl,
++      `Abrir boleta #${ticketNumber}`,
++      BRAND_RED,
++    )
++    : '';
 +
-+   return {
-+     sent: true,
-+     to: [email],
-+     subject: subject,
-+     ticketUid: clean_(agenda.boletaUid),
-+     ticketNumber: number,
-+     remainingDailyQuota: MailApp.getRemainingDailyQuota(),
-+   };
-+ }
-***************
-*** 8238,8244 ****
--   const validTickets = ticketTable.rows.filter(function (ticket) {
--     const dateKey = agendaDateKey_(ticket.Fecha);
--     return Boolean(dueDates[dateKey])
--       && !agendaTruthy_(ticket.Anulada);
--   });
--
--   const ticketsById = indexBy_(validTickets, 'BoletaUID');
---- 8351,8362 ----
-+   const allValidTickets = ticketTable.rows.filter(function (ticket) {
-+     return !agendaTruthy_(ticket.Anulada);
-+   });
-+   const validTickets = allValidTickets.filter(function (ticket) {
-+     const dateKey = agendaDateKey_(ticket.Fecha);
-+     return Boolean(dueDates[dateKey]);
-+   });
++  const htmlBody = [
++    '<!doctype html><html><body style="margin:0;padding:0;background:',
++    BRAND_BACKGROUND,
++    ';font-family:Arial,sans-serif;color:',
++    BRAND_TEXT,
++    ';">',
++    '<div style="max-width:650px;margin:0 auto;padding:28px 16px;">',
++    '<div style="background:',
++    BRAND_RED,
++    ';color:#fff;padding:20px 22px;border-radius:18px 18px 0 0;">',
++    '<div style="font-size:12px;font-weight:700;letter-spacing:.08em;text-transform:uppercase;">DMS Boletas</div>',
++    '<h1 style="margin:5px 0 0;font-size:24px;">Boleta de agenda creada</h1>',
++    '</div>',
++    '<div style="padding:22px;background:#fff;border:1px solid ',
++    BRAND_BORDER,
++    ';border-top:0;border-radius:0 0 18px 18px;">',
++    '<p style="margin-top:0;">Hola <strong>',
++    escapeHtml_(clean_(name, 'Técnico')),
++    '</strong>,</p>',
++    '<p style="font-size:17px;line-height:1.55;">La <strong>boleta #',
++    escapeHtml_(ticketNumber),
++    '</strong> de su agenda ya fue creada y quedó en <strong>Pendientes</strong>.</p>',
++    '<div style="margin:18px 0;padding:14px;border-radius:14px;background:#fff3dc;">',
++    '<div><strong>Cliente:</strong> ',
++    escapeHtml_(clientName),
++    '</div>',
++    '<div style="margin-top:6px;"><strong>Visita:</strong> ',
++    nl2br_(detail),
++    '</div>',
++    '<div style="margin-top:6px;"><strong>Fecha:</strong> ',
++    escapeHtml_(formatAgendaDate_(agenda.fecha)),
++    '</div>',
++    '<div style="margin-top:6px;"><strong>Horario:</strong> ',
++    escapeHtml_(clean_(agenda.horaInicio, '07:00')),
++    ' - ',
++    escapeHtml_(clean_(agenda.horaFin, '17:00')),
++    '</div>',
++    '</div>',
++    '<p><strong>Debe completar y finalizar esta boleta antes de las 5:00 p. m.</strong></p>',
++    openButton,
++    '<p style="margin:20px 0 0;font-size:12px;color:',
++    BRAND_MUTED,
++    ';">Si la boleta continúa sin finalizar después de las 5:00 p. m., DMS Boletas enviará el recordatorio automático.</p>',
++    '</div></div></body></html>',
++  ].join('');
 +
-+   // Un vínculo explícito Agenda.BoletaUID prevalece aunque el administrador
-+   // haya ajustado la fecha de la boleta dentro del formulario completo.
-+   const ticketsById = indexBy_(allValidTickets, 'BoletaUID');
-***************
-*** 8339,8352 ****
--     if (matched) {
--       const matchedId = clean_(matched.BoletaUID);
--       if (matchedId && clean_(agenda.BoletaUID) !== matchedId) {
--         writeAgendaCell_(
--           agendaTable.sheet,
--           agendaTable.headers,
--           agenda.__rowNumber,
--           'BoletaUID',
--           matchedId,
--         );
--       }
--       linked += 1;
--       return;
--     }
---- 8457,8476 ----
-+     if (matched) {
-+       const matchedId = clean_(matched.BoletaUID);
-+       if (matchedId && clean_(agenda.BoletaUID) !== matchedId) {
-+         writeAgendaCell_(
-+           agendaTable.sheet,
-+           agendaTable.headers,
-+           agenda.__rowNumber,
-+           'BoletaUID',
-+           matchedId,
-+         );
-+       }
-+       linked += 1;
++  sendDmsEmail_({
++    to: email,
++    subject: subject,
++    body: plain,
++    htmlBody: htmlBody,
++    name: 'DMS Boletas',
++  });
 +
-+       // La agenda solamente queda cumplida cuando SU boleta está FINALIZADA.
-+       if (normalizeAgendaText_(matched.Estado) === 'finalizada') {
-+         return;
-+       }
-+     }
-***************
-*** 8379,8384 ****
-      try {
-        sendMissingAgendaTicketEmail_(
-          agenda,
-          assignedUsers,
-          configTable.rows,
-        );
---- 8503,8513 ----
-      try {
-        sendMissingAgendaTicketEmail_(
-          agenda,
-          assignedUsers,
-          configTable.rows,
-+         matched
-+           ? {
-+             ticket: matched,
-+           }
-+           : {},
-        );
-***************
-*** 8462,8479 ****
-    const detail = clean_(agenda.Detalle, 'visita programada');
--   const clientName = clean_(agenda.ClienteNombre);
-+   const ticket = settings.ticket || null;
-+   const hasLinkedTicket = Boolean(ticket && clean_(ticket.BoletaUID));
-+   const number = hasLinkedTicket
-+     ? clean_(ticket.BoletaID || ticket.BoletaNumero || ticket.BoletaUID)
-+     : '';
-+   const clientName = clean_(
-+     hasLinkedTicket ? ticket.Cliente : agenda.ClienteNombre,
-+   );
-    const assignedNames = assignedUsers
---- 8589,8612 ----
-    const dateLabel = formatAgendaDate_(agenda.Fecha);
--   const subject = testMode
--     ? `[PRUEBA] DMS Boletas - Recordatorio de boleta pendiente - ${detail}`
--     : `DMS Boletas - Recordatorio de boleta pendiente - ${detail}`;
-+   const subjectBase = hasLinkedTicket
-+     ? `DMS Boletas - Boleta #${number} no finalizada - ${clientName || detail}`
-+     : `DMS Boletas - Recordatorio de boleta pendiente - ${detail}`;
-+   const subject = testMode ? `[PRUEBA] ${subjectBase}` : subjectBase;
-    const plain = [
--     testMode ? 'PRUEBA · Recordatorio de boleta pendiente' : 'Recordatorio de boleta pendiente',
-+     testMode
-+       ? 'PRUEBA · Recordatorio de boleta pendiente'
-+       : hasLinkedTicket
-+         ? `Boleta #${number} no finalizada`
-+         : 'Recordatorio de boleta pendiente',
-      '',
-      testMode
-        ? 'Este correo es una prueba administrativa. No modifica la agenda ni marca el recordatorio como enviado.'
-        : '',
-      testMode ? '' : null,
--     `Recordar que no se realizó una boleta de la visita a: ${detail}.`,
-+     hasLinkedTicket
-+       ? `La boleta #${number}, correspondiente a la visita al cliente ${clientName || 'sin especificar'}, no fue finalizada antes de las 5:00 p. m.`
-+       : `Recordar que no se realizó una boleta de la visita a: ${detail}.`,
-+     hasLinkedTicket ? `Visita: ${detail}` : null,
-      clientName ? `Cliente relacionado: ${clientName}` : null,
-***************
-*** 8503,8518 ****
--     '<h1 style="margin:5px 0 0;font-size:24px;">',
--     testMode ? 'Prueba · Boleta pendiente' : 'Boleta pendiente',
-+     '<h1 style="margin:5px 0 0;font-size:24px;">',
-+     testMode
-+       ? 'Prueba · Boleta pendiente'
-+       : hasLinkedTicket
-+         ? 'Boleta no finalizada'
-+         : 'Boleta pendiente',
-      '</h1>',
-@@
--     '<strong>Recordar que no se realizó una boleta de la visita a:</strong><br>',
--     nl2br_(detail),
-+     hasLinkedTicket
-+       ? '<strong>La boleta #' + escapeHtml_(number) + ' no fue finalizada antes de las 5:00 p. m.</strong><br>'
-+       : '<strong>Recordar que no se realizó una boleta de la visita a:</strong><br>',
-+     hasLinkedTicket
-+       ? 'Visita: ' + nl2br_(detail)
-+       : nl2br_(detail),
-      '</p>',
-*** End Patch
++  return {
++    sent: true,
++    to: [email],
++    subject: subject,
++    ticketUid: ticketUid,
++    ticketNumber: ticketNumber,
++    remainingDailyQuota: MailApp.getRemainingDailyQuota(),
++  };
++}
++
+ /**
+  * Se ejecuta automáticamente cada 5 minutos. Antes de las 5:00 p. m. no hace
+  * nada. A partir de esa hora revisa las visitas del día y vincula una boleta
+  * disponible por visita. Una misma boleta nunca satisface dos agendas.
+@@ -8232,15 +8364,24 @@
+   agendas.forEach(function (agenda) {
+     const key = agendaDateKey_(agenda.Fecha);
+     if (key) dueDates[key] = true;
+   });
+ 
+-  const validTickets = ticketTable.rows.filter(function (ticket) {
++  const allValidTickets = ticketTable.rows.filter(function (ticket) {
++    return !agendaTruthy_(ticket.Anulada)
++      && normalizeAgendaText_(ticket.Estado) !== 'anulada';
++  });
++  const validTickets = allValidTickets.filter(function (ticket) {
+     const dateKey = agendaDateKey_(ticket.Fecha);
+-    return Boolean(dueDates[dateKey])
+-      && !agendaTruthy_(ticket.Anulada);
++    return Boolean(dueDates[dateKey]);
+   });
+ 
+-  const ticketsById = indexBy_(validTickets, 'BoletaUID');
++  /*
++   * V7.9: cuando Agenda.BoletaUID existe, esa relación explícita prevalece
++   * incluso si el administrador ajustó la fecha dentro del formulario completo.
++   * El filtro por fecha se conserva únicamente para el vínculo heredado.
++   */
++  const ticketsById = indexBy_(allValidTickets, 'BoletaUID');
+   const reservedTicketIds = {};
+   const matches = {};
+ 
+   agendas.forEach(function (agenda) {
+     const existingId = clean_(agenda.BoletaUID);
+@@ -8337,9 +8478,17 @@
+           matchedId,
+         );
+       }
+       linked += 1;
+-      return;
++
++      /*
++       * V7.9: tener una boleta creada ya no completa la agenda. La visita se
++       * considera cumplida únicamente cuando esa boleta está FINALIZADA.
++       */
++      if (normalizeAgendaText_(matched.Estado) === 'finalizada') {
++        return;
++      }
+     }
+ 
+     if (!agendaRequiresTicket_(agenda.Detalle, ticketExceptions)) {
+       if (String(agenda.RequiereBoleta) !== 'false') {
+         writeAgendaCell_(
+@@ -8377,8 +8526,13 @@
+       sendMissingAgendaTicketEmail_(
+         agenda,
+         assignedUsers,
+         configTable.rows,
++        matched
++          ? {
++            ticket: matched,
++          }
++          : {},
+       );
+ 
+       writeAgendaCell_(
+         agendaTable.sheet,
+         agendaTable.headers,
+@@ -8445,16 +8599,27 @@
+ ) {
+   const settings = options || {};
+   const testMode = settings.testMode === true;
++  const ticket = settings.ticket || null;
++  const hasLinkedTicket = Boolean(
++    ticket && clean_(ticket.BoletaUID),
++  );
++  const ticketNumber = hasLinkedTicket
++    ? clean_(
++      ticket.BoletaID
++        || ticket.BoletaNumero
++        || ticket.BoletaUID,
++    )
++    : '';
++
+   const config = {};
+   configRows.forEach(function (row) {
+     const key = clean_(row.Clave);
+     if (key) {
+       config[key] = row.Valor;
+     }
+@@ -8487,10 +8652,14 @@
+       'La cuota diaria de correo de Apps Script no alcanza para enviar el recordatorio.',
+     );
+   }
+ 
+   const detail = clean_(agenda.Detalle, 'visita programada');
+-  const clientName = clean_(agenda.ClienteNombre);
++  const clientName = clean_(
++    hasLinkedTicket
++      ? ticket.Cliente
++      : agenda.ClienteNombre,
++  );
+   const assignedNames = assignedUsers
+     .map(function (user) {
+       return clean_(
+         user.NombreCompleto
+           || user.Nombre
+@@ -8501,22 +8670,38 @@
+     })
+     .filter(Boolean);
+ 
+   const dateLabel = formatAgendaDate_(agenda.Fecha);
+-  const subject = testMode
+-    ? `[PRUEBA] DMS Boletas - Recordatorio de boleta pendiente - ${detail}`
+-    : `DMS Boletas - Recordatorio de boleta pendiente - ${detail}`;
++  const subjectBase = hasLinkedTicket
++    ? `DMS Boletas - Boleta #${ticketNumber} no finalizada - ${clientName || detail}`
++    : `DMS Boletas - Recordatorio de boleta pendiente - ${detail}`;
++  const subject = testMode
++    ? `[PRUEBA] ${subjectBase}`
++    : subjectBase;
++
+   const plain = [
+-    testMode ? 'PRUEBA · Recordatorio de boleta pendiente' : 'Recordatorio de boleta pendiente',
++    testMode
++      ? 'PRUEBA · Recordatorio de boleta pendiente'
++      : hasLinkedTicket
++        ? `Boleta #${ticketNumber} no finalizada`
++        : 'Recordatorio de boleta pendiente',
+     '',
+     testMode
+       ? 'Este correo es una prueba administrativa. No modifica la agenda ni marca el recordatorio como enviado.'
+       : '',
+     testMode ? '' : null,
+-    `Recordar que no se realizó una boleta de la visita a: ${detail}.`,
++    hasLinkedTicket
++      ? `La boleta #${ticketNumber}, correspondiente a la visita al cliente ${clientName || 'sin especificar'}, no fue finalizada antes de las 5:00 p. m.`
++      : `Recordar que no se realizó una boleta de la visita a: ${detail}.`,
++    hasLinkedTicket ? `Visita: ${detail}` : null,
+     clientName ? `Cliente relacionado: ${clientName}` : null,
+     `Fecha de la visita: ${dateLabel}`,
+     `Personas asignadas: ${assignedNames.join(', ') || 'Sin asignados'}`,
+     '',
+     testMode
+@@ -8535,8 +8720,20 @@
+     ].join('')
+     : '';
+ 
++  const mainMessage = hasLinkedTicket
++    ? [
++      '<strong>La boleta #',
++      escapeHtml_(ticketNumber),
++      ' no fue finalizada antes de las 5:00 p. m.</strong><br>',
++      'Visita: ',
++      nl2br_(detail),
++    ].join('')
++    : [
++      '<strong>Recordar que no se realizó una boleta de la visita a:</strong><br>',
++      nl2br_(detail),
++    ].join('');
++
+   const htmlBody = [
+     '<!doctype html><html><body style="margin:0;padding:0;background:',
+     BRAND_BACKGROUND,
+     ';font-family:Arial,sans-serif;color:',
+     BRAND_TEXT,
+@@ -8547,18 +8744,20 @@
+     ';color:#fff;padding:20px 22px;border-radius:18px 18px 0 0;">',
+     '<div style="font-size:12px;font-weight:700;letter-spacing:.08em;text-transform:uppercase;">DMS Boletas</div>',
+     '<h1 style="margin:5px 0 0;font-size:24px;">',
+-    testMode ? 'Prueba · Boleta pendiente' : 'Boleta pendiente',
++    testMode
++      ? 'Prueba · Boleta pendiente'
++      : hasLinkedTicket
++        ? 'Boleta no finalizada'
++        : 'Boleta pendiente',
+     '</h1>',
+     '</div>',
+     '<div style="padding:22px;background:#fff;border:1px solid ',
+     BRAND_BORDER,
+     ';border-top:0;border-radius:0 0 18px 18px;">',
+     testNotice,
+     '<p style="margin-top:0;font-size:17px;line-height:1.55;">',
+-    '<strong>Recordar que no se realizó una boleta de la visita a:</strong><br>',
+-    nl2br_(detail),
++    mainMessage,
+     '</p>',
+     '<div style="margin:18px 0;padding:14px;border-radius:14px;background:#fff3dc;">',
+     clientName
+       ? '<div><strong>Cliente:</strong> ' + escapeHtml_(clientName) + '</div>'
+       : '',
+@@ -8573,9 +8772,13 @@
+     '<p style="margin-bottom:0;font-size:12px;color:',
+     BRAND_MUTED,
+     ';">',
+     testMode
+       ? 'Prueba manual de Agenda DMS. El proceso automático real conserva su horario y sus reglas.'
+-      : 'Aviso automático generado a partir de la Agenda DMS después de las 5:00 p. m.',
++      : hasLinkedTicket
++        ? 'Aviso automático generado porque la boleta vinculada a la Agenda continúa sin finalizar después de las 5:00 p. m.'
++        : 'Aviso automático generado a partir de la Agenda DMS después de las 5:00 p. m.',
+     '</p>',
+     '</div></div></body></html>',
+   ].join('');
+ 
+@@ -8594,8 +8797,10 @@
+     assignedEmails: uniqueEmails_(assignedEmails),
+     assignedNames: assignedNames,
+     subject: subject,
+     sender: DMS_EMAIL_FROM_ALIAS,
++    ticketUid: hasLinkedTicket ? clean_(ticket.BoletaUID) : '',
++    ticketNumber: ticketNumber,
+     remainingDailyQuota: MailApp.getRemainingDailyQuota(),
+   };
+ }
+ 
