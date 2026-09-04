@@ -32,7 +32,10 @@ function normalized(value) {
 
 function matchesActive(row, expected) {
   if (expected === undefined) return true;
-  const active = row?.Activo ?? (String(row?.Estado || 'ACTIVO').toUpperCase() !== 'INACTIVO');
+  const rawActive = row?.Activo;
+  const active = rawActive === undefined || rawActive === null || rawActive === ''
+    ? (String(row?.Estado || 'ACTIVO').toUpperCase() !== 'INACTIVO')
+    : rawActive;
   return String(active).toLowerCase() === String(expected).toLowerCase()
     && String(row?.Estado || 'ACTIVO').toUpperCase() !== 'INACTIVO';
 }

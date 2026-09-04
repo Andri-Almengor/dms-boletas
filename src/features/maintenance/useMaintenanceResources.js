@@ -26,7 +26,6 @@ async function loadClientPage({ sessionToken, signal, query = '', page = 1 }) {
     payload: {
       page,
       pageSize: CLIENT_PAGE_SIZE,
-      activo: true,
       ...(normalizedQuery ? { q: normalizedQuery } : {}),
     },
     sessionToken,

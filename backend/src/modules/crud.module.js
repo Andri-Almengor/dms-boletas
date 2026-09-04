@@ -69,6 +69,14 @@ function sanitizeClientRow(row, ctx) {
   return { ...safe, ChatConfigurado: configured };
 }
 
+function listFilterPayload(definitionKey, payload, includeInactive) {
+  if (definitionKey !== 'clients' || includeInactive) return payload;
+  // Clientes ya se filtra con isActiveRecord(). Evitar una segunda comparación
+  // estricta de Activo permite conservar registros históricos con Activo vacío.
+  const { activo: _activo, Activo: _Activo, ...rest } = payload || {};
+  return rest;
+}
+
 async function ensureModelRelationship(ctx, mapped, currentModelId = '') {
   const typeId = String(mapped.TipoDispositivoID || '').trim();
   const manufacturerId = String(mapped.FabricanteID || '').trim();
@@ -128,7 +136,7 @@ export const CRUD_DEFINITIONS = Object.freeze({
   clients: {
     table: 'Clientes',
     id: 'ClienteID',
-    search: ['Nombre','RazonSocial','CorreoGeneral','Telefono'],
+    search: ['Nombre','Clientes','RazonSocial','CorreoGeneral','Telefono'],
     map: (p) => ({
       Nombre: pick(p,['Nombre','Clientes','Cliente','name']),
       RazonSocial: pick(p,['RazonSocial','Nombre','Clientes','name']),
@@ -213,7 +221,7 @@ export function crudHandlers(definitionKey) {
         if (typeId) rows = rows.filter((row) => String(row.TipoDispositivoID) === String(typeId));
         if (manufacturerId) rows = rows.filter((row) => String(row.FabricanteID) === String(manufacturerId));
       }
-      const result = filterRows(rows, payload, def.search);
+      const result = filterRows(rows, listFilterPayload(definitionKey, payload, includeInactive), def.search);
       if (definitionKey === 'clients') result.items = result.items.map((row) => sanitizeClientRow(row, ctx));
       return result;
     },
