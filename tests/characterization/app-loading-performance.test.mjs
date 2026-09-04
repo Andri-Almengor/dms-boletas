@@ -96,17 +96,22 @@ test('los catálogos completos pueden resolver filtros y páginas menores sin ot
   assert.match(resource, /waitForSharedCatalog/);
 });
 
-test('mantenimiento abre rápido y completa la lista de clientes solo al usar el selector', () => {
+test('mantenimiento abre rápido y busca clientes remotos sin descargar todo el catálogo', () => {
   const resources = source('src/features/maintenance/useMaintenanceResources.js');
+  const general = source('src/components/maintenance/MaintenanceGeneralStep.jsx');
   assert.match(resources, /CLIENT_PAGE_SIZE = 80/);
+  assert.match(resources, /CLIENT_SEARCH_PAGE_SIZE = 1000/);
   assert.match(resources, /function loadClientPage/);
-  assert.match(resources, /page = 1/);
+  assert.match(resources, /pageSize = CLIENT_PAGE_SIZE/);
   assert.match(resources, /q: normalizedQuery/);
   assert.match(resources, /const searchClients = useCallback/);
-  assert.match(resources, /const totalPages = Math.max/);
-  assert.match(resources, /for \(let page = 2; page <= totalPages; page \+= 1\)/);
-  assert.match(resources, /if \(!normalizedQuery\) allClientsLoadedRef\.current = true/);
+  assert.match(resources, /if \(!normalizedQuery\) return \[\]/);
+  assert.match(resources, /pageSize: CLIENT_SEARCH_PAGE_SIZE/);
+  assert.doesNotMatch(resources, /const totalPages = Math.max/);
+  assert.doesNotMatch(resources, /for \(let page = 2/);
   assert.doesNotMatch(resources, /force:\s*true/);
+  assert.match(general, /searchPlaceholder="Buscar cliente por nombre\.\.\."/);
+  assert.match(general, /searchMinLength=\{1\}/);
 });
 
 test('editores y filtros reutilizan la caché de catálogos compartida', () => {
