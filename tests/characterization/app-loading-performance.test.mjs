@@ -96,13 +96,16 @@ test('los catálogos completos pueden resolver filtros y páginas menores sin ot
   assert.match(resource, /waitForSharedCatalog/);
 });
 
-test('mantenimiento no descarga todos los clientes antes de mostrar el formulario', () => {
+test('mantenimiento abre rápido y completa la lista de clientes solo al usar el selector', () => {
   const resources = source('src/features/maintenance/useMaintenanceResources.js');
   assert.match(resources, /CLIENT_PAGE_SIZE = 80/);
   assert.match(resources, /function loadClientPage/);
+  assert.match(resources, /page = 1/);
   assert.match(resources, /q: normalizedQuery/);
-  assert.doesNotMatch(resources, /totalPages/);
-  assert.doesNotMatch(resources, /for \(let page = 2/);
+  assert.match(resources, /const searchClients = useCallback/);
+  assert.match(resources, /const totalPages = Math.max/);
+  assert.match(resources, /for \(let page = 2; page <= totalPages; page \+= 1\)/);
+  assert.match(resources, /if \(!normalizedQuery\) allClientsLoadedRef\.current = true/);
   assert.doesNotMatch(resources, /force:\s*true/);
 });
 
