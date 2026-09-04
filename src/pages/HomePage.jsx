@@ -10,6 +10,17 @@ function firstName(name = '') {
   return String(name).trim().split(/\s+/)[0] || 'Usuario';
 }
 
+function responseTotal(data) {
+  const total = Number(data?.total);
+  return Number.isFinite(total) && total >= 0 ? total : normalizeItems(data).length;
+}
+
+function hasStatusCounts(data) {
+  return Boolean(data?.statusCounts)
+    && typeof data.statusCounts === 'object'
+    && !Array.isArray(data.statusCounts);
+}
+
 function responseStatusCount(data, aliases = []) {
   const counts = data?.statusCounts || {};
   for (const alias of aliases) {
@@ -17,6 +28,31 @@ function responseStatusCount(data, aliases = []) {
     if (Number.isFinite(value) && value >= 0) return value;
   }
   return 0;
+}
+
+async function loadTicketStatusFallback(routes, sessionToken) {
+  const countPayload = { page: 1, pageSize: 1 };
+  const [pendingData, finalizedData, finishedData] = await Promise.all([
+    requestAvailable(routes, {
+      ...countPayload,
+      status: 'PENDIENTE',
+      estado: 'PENDIENTE',
+    }, sessionToken),
+    requestAvailable(routes, {
+      ...countPayload,
+      status: 'FINALIZADA',
+      estado: 'FINALIZADA',
+    }, sessionToken),
+    requestAvailable(routes, {
+      ...countPayload,
+      status: 'FINALIZADO',
+      estado: 'FINALIZADO',
+    }, sessionToken),
+  ]);
+  return {
+    pending: responseTotal(pendingData),
+    finished: responseTotal(finalizedData) + responseTotal(finishedData),
+  };
 }
 
 function scheduleAfterPaint(callback) {
@@ -55,21 +91,32 @@ export default function HomePage() {
     setLoading(true);
     setFinishedLoading(true);
     setError('');
+    const ticketListRoutes = MODULE_ROUTES.tickets.list;
 
-    requestAvailable(MODULE_ROUTES.tickets.list, {
+    requestAvailable(ticketListRoutes, {
       page: 1,
       pageSize: 3,
       sortBy: 'Fecha',
       sortDir: 'desc',
       includeStatusCounts: true,
     }, sessionToken)
-      .then((data) => {
+      .then(async (data) => {
         if (!active) return;
-        setCounts({
-          pending: responseStatusCount(data, ['PENDIENTE']),
-          finished: responseStatusCount(data, ['FINALIZADA', 'FINALIZADO']),
-        });
         setTickets(sortTicketsNewestFirst(normalizeItems(data)).slice(0, 3));
+
+        if (hasStatusCounts(data)) {
+          setCounts({
+            pending: responseStatusCount(data, ['PENDIENTE']),
+            finished: responseStatusCount(data, ['FINALIZADA', 'FINALIZADO']),
+          });
+          return;
+        }
+
+        // Compatibilidad durante despliegues mixtos o respuestas cacheadas de una
+        // versión anterior: si el resumen no existe, recupera los totales con las
+        // mismas consultas pequeñas que usaba Inicio antes de la optimización.
+        const fallbackCounts = await loadTicketStatusFallback(ticketListRoutes, sessionToken);
+        if (active) setCounts(fallbackCounts);
       })
       .catch((loadError) => {
         if (!active) return;
