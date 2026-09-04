@@ -31,6 +31,10 @@ export default function AppShell() {
   const canViewClients = hasPermission('CLIENTES_VER');
   const canViewCatalogs = hasPermission('CATALOGOS_VER') || hasPermission('CATALOGOS_GESTIONAR') || isAdmin;
   const canCreateTickets = hasPermission('BOLETAS_CREAR');
+  const canCreateMaintenance = hasPermission('MANTENIMIENTOS_CREAR')
+    || hasPermission('MANTENIMIENTOS_GESTIONAR')
+    || isAdmin
+    || canCreateTickets;
   const ticketListAdmin = hasPermission('BOLETAS_ELIMINAR') || isAdmin;
   const canManageKnowledge = hasPermission('CONOCIMIENTO_GESTIONAR') || isAdmin;
   const canViewMaintenance = hasPermission('MANTENIMIENTOS_VER') || hasPermission('MANTENIMIENTOS_CREAR') || hasPermission('MANTENIMIENTOS_EDITAR') || hasPermission('MANTENIMIENTOS_GESTIONAR') || canViewTickets;
@@ -83,15 +87,17 @@ export default function AppShell() {
   }, [drawerOpen]);
   useEffect(() => {
     if (!sessionToken || typeof window === 'undefined' || navigator.connection?.saveData) return undefined;
-    const likelyRoutes = ['/agenda', '/conocimiento', '/mas'];
+    const likelyRoutes = ['/agenda'];
     if (canViewTickets) likelyRoutes.push('/boletas/pendientes', '/boletas/finalizadas');
+    if (canCreateTickets) likelyRoutes.push('/boletas/nueva');
     if (canViewMaintenance) likelyRoutes.push('/mantenimientos');
+    if (canCreateMaintenance) likelyRoutes.push('/mantenimientos/nuevo');
     if (canViewClients) likelyRoutes.push('/clientes');
+    likelyRoutes.push('/conocimiento', '/mas');
 
-    // PR #284 precargaba únicamente los chunks JS/CSS durante el tiempo ocioso.
-    // En móvil el evento touch ocurre demasiado tarde para ocultar una lectura
-    // fría de Sheets. Aquí calentamos también los payloads reales de las vistas,
-    // con concurrencia limitada y respetando saveData/offline.
+    // Además de los chunks JS/CSS, se calientan los payloads reales de las
+    // pantallas y los catálogos de los flujos de creación. Así el primer toque
+    // en móvil no tiene que iniciar desde cero varias lecturas de Sheets.
     const warm = () => {
       preloadRouteModules(likelyRoutes).catch(() => {});
       preloadNavigationDataBatch(likelyRoutes, preloadContext()).catch(() => {});
@@ -102,7 +108,7 @@ export default function AppShell() {
     }
     const id = window.setTimeout(warm, 450);
     return () => window.clearTimeout(id);
-  }, [sessionToken, user?.UsuarioID, user?.id, isAdmin, ticketListAdmin, canManageKnowledge, canViewTickets, canViewMaintenance, canViewClients]);
+  }, [sessionToken, user?.UsuarioID, user?.id, isAdmin, ticketListAdmin, canManageKnowledge, canViewTickets, canCreateTickets, canViewMaintenance, canCreateMaintenance, canViewClients]);
   async function handleLogout() { await logout(); navigate('/login', { replace: true }); }
 
   return <div className={`app-shell${isWorkflowForm ? ' app-shell--form' : ''}${isAssistantPage ? ' app-shell--assistant' : ''}`}>
