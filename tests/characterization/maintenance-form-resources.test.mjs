@@ -70,22 +70,27 @@ test('filtra equipos localmente por sede', () => {
   assert.deepEqual(filterMaintenanceEquipment(rows, ''), []);
 });
 
-test('la carga usa relaciones agrupadas, todos los clientes frescos por páginas y cancelación', () => {
+test('la carga usa relaciones agrupadas, una primera página de clientes, búsqueda remota y cancelación', () => {
   const resources = source('src/features/maintenance/useMaintenanceResources.js');
+  assert.ok(resources.includes("import { loadCatalogResource } from '../../services/catalogResource';"));
   assert.ok(resources.includes("import { fetchClientRelations } from '../../services/clientRelations';"));
   assert.ok(resources.includes('const CLIENT_PAGE_SIZE = 80;'));
-  assert.ok(resources.includes('async function loadAllActiveClients'));
-  assert.ok(resources.includes('const totalPages = Math.max(1, Math.ceil(total / CLIENT_PAGE_SIZE));'));
-  assert.ok(resources.includes('for (let page = 2; page <= totalPages; page += 1)'));
-  assert.ok(resources.includes('force: true'));
+  assert.ok(resources.includes('const CLIENT_CACHE_TTL_MS = 60_000;'));
+  assert.ok(resources.includes('async function loadClientPage'));
+  assert.ok(resources.includes('page: 1'));
+  assert.ok(resources.includes('pageSize: CLIENT_PAGE_SIZE'));
+  assert.ok(resources.includes('...(normalizedQuery ? { q: normalizedQuery } : {})'));
   assert.ok(resources.includes('searchClients'));
   assert.ok(resources.includes('query,'));
-  assert.ok(resources.includes('loadAllActiveClients({'));
+  assert.ok(resources.includes('mergeCatalogItems('));
   assert.ok(resources.includes('const controller = new AbortController();'));
   assert.ok(resources.includes('signal: controller.signal'));
   assert.ok(resources.includes('return () => controller.abort();'));
   assert.ok(resources.includes('filterMaintenanceEquipment(allEquipment, locationId)'));
-  assert.equal(resources.includes('pageSize: 1000, activo: true },\n        sessionToken'), false);
+  assert.equal(resources.includes('async function loadAllActiveClients'), false);
+  assert.equal(resources.includes('const totalPages = Math.max(1, Math.ceil(total / CLIENT_PAGE_SIZE));'), false);
+  assert.equal(resources.includes('for (let page = 2; page <= totalPages; page += 1)'), false);
+  assert.equal(resources.includes('force: true'), false);
   assert.equal(resources.includes('equipmentLocationsList'), false);
   assert.equal(resources.includes('locationsList'), false);
 });

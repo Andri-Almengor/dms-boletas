@@ -17,10 +17,11 @@ import {
 } from './maintenanceFormDomain';
 
 const CLIENT_PAGE_SIZE = 80;
+const CLIENT_CACHE_TTL_MS = 60_000;
 
-async function loadAllActiveClients({ sessionToken, signal, query = '' }) {
+async function loadClientPage({ sessionToken, signal, query = '' }) {
   const normalizedQuery = String(query || '').trim();
-  const firstPage = await loadCatalogResource({
+  const result = await loadCatalogResource({
     routes: MODULE_ROUTES.clients.list,
     payload: {
       page: 1,
@@ -30,38 +31,9 @@ async function loadAllActiveClients({ sessionToken, signal, query = '' }) {
     },
     sessionToken,
     signal,
-    // Los clientes pueden crearse desde otra pantalla o sesión. El formulario de
-    // mantenimiento debe consultar el catálogo actual y no conservar hasta 5 min
-    // una primera página que ya quedó desactualizada.
-    force: true,
+    ttlMs: CLIENT_CACHE_TTL_MS,
   });
-
-  let collected = firstPage.items.map(maintenanceClientView);
-  const total = Math.max(collected.length, Number(firstPage.total || 0));
-  const totalPages = Math.max(1, Math.ceil(total / CLIENT_PAGE_SIZE));
-
-  for (let page = 2; page <= totalPages; page += 1) {
-    if (signal?.aborted) break;
-    const nextPage = await loadCatalogResource({
-      routes: MODULE_ROUTES.clients.list,
-      payload: {
-        page,
-        pageSize: CLIENT_PAGE_SIZE,
-        activo: true,
-        ...(normalizedQuery ? { q: normalizedQuery } : {}),
-      },
-      sessionToken,
-      signal,
-      force: true,
-    });
-    collected = mergeCatalogItems(
-      collected,
-      nextPage.items.map(maintenanceClientView),
-      (item, index, source) => item.id || `${source}-${index}`,
-    );
-  }
-
-  return collected;
+  return result.items.map(maintenanceClientView);
 }
 
 function initialEquipmentFromDevices(devices, form) {
@@ -101,7 +73,7 @@ export default function useMaintenanceResources({
     const controller = new AbortController();
     clientSearchControllerRef.current = controller;
     try {
-      const incoming = await loadAllActiveClients({
+      const incoming = await loadClientPage({
         sessionToken,
         signal: controller.signal,
         query,
@@ -124,7 +96,7 @@ export default function useMaintenanceResources({
     setLoading(true);
 
     Promise.all([
-      loadAllActiveClients({
+      loadClientPage({
         sessionToken,
         signal: controller.signal,
       }),

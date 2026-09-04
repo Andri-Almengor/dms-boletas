@@ -9,7 +9,8 @@ import {
   createEmptyChecklist,
 } from '../../config/maintenanceCategories';
 import { maintenanceCountKeyForDeviceType } from '../../config/dynamicMaintenanceTypes';
-import { MODULE_ROUTES, normalizeItems, pick, requestAvailable, toBoolean, toOption } from '../../services/moduleApi';
+import { loadCatalogResource } from '../../services/catalogResource';
+import { MODULE_ROUTES, pick, requestAvailable, toBoolean, toOption } from '../../services/moduleApi';
 
 function Field({ label, multiline = false, ...props }) {
   return <label className="field-group"><span className="field-label">{label}</span>{multiline ? <textarea className="form-control ticket-textarea" rows="4" {...props} /> : <input className="form-control" {...props} />}</label>;
@@ -75,7 +76,7 @@ export default function MaintenanceDeviceCatalogFields({ device, onChange, disab
 
   function patch(values) { onChange({ ...device, ...values }); }
 
-  async function loadCatalogs() {
+  async function loadCatalogs({ force = false } = {}) {
     setLoading(true);
     setError('');
     const jobs = [
@@ -84,11 +85,17 @@ export default function MaintenanceDeviceCatalogFields({ device, onChange, disab
       ['models', MODULE_ROUTES.models.list],
       ['relations', MODULE_ROUTES.deviceManufacturers.list],
     ];
-    const results = await Promise.allSettled(jobs.map(([, routes]) => requestAvailable(routes, { page: 1, pageSize: 1000, activo: true }, sessionToken)));
+    const payload = { page: 1, pageSize: 1000, activo: true };
+    const results = await Promise.allSettled(jobs.map(([, routes]) => loadCatalogResource({
+      routes,
+      payload,
+      sessionToken,
+      force,
+    })));
     const next = {};
     const failures = [];
     results.forEach((result, index) => {
-      if (result.status === 'fulfilled') next[jobs[index][0]] = normalizeItems(result.value);
+      if (result.status === 'fulfilled') next[jobs[index][0]] = result.value.items;
       else failures.push(result.reason?.message);
     });
     setCatalogs((current) => ({ ...current, ...next }));
@@ -271,7 +278,7 @@ export default function MaintenanceDeviceCatalogFields({ device, onChange, disab
         result = await requestAvailable(MODULE_ROUTES.models.create, { tipoDispositivoId: device.tipoDispositivoId, fabricanteId: device.fabricanteId, nombre: values.nombre, descripcion: values.descripcion, imagenReferenciaURL: values.imagenReferenciaURL, activo: true }, sessionToken);
         patch({ modeloId: String(pick(result, ['ModeloID', 'ID', 'id'])), modelo: pick(result, ['Nombre'], values.nombre) });
       }
-      await loadCatalogs();
+      await loadCatalogs({ force: true });
       setModal(null);
     } catch (saveError) {
       setModalError(saveError.message);

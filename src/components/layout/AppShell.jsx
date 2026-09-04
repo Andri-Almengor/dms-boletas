@@ -3,7 +3,7 @@ import { NavLink, Outlet, useLocation, useNavigate } from 'react-router-dom';
 import { useAuth } from '../../AuthContext';
 import { preloadRouteModule, preloadRouteModules } from '../../app/routeLoaders';
 import useOfflineMode from '../../hooks/useOfflineMode';
-import { preloadNavigationData } from '../../services/navigationPreload';
+import { preloadNavigationData, preloadNavigationDataBatch } from '../../services/navigationPreload';
 import Icon from '../common/Icon';
 
 const OfflineSyncManager = lazy(() => import('../offline/OfflineSyncRuntime'));
@@ -31,6 +31,12 @@ export default function AppShell() {
   const canViewClients = hasPermission('CLIENTES_VER');
   const canViewCatalogs = hasPermission('CATALOGOS_VER') || hasPermission('CATALOGOS_GESTIONAR') || isAdmin;
   const canCreateTickets = hasPermission('BOLETAS_CREAR');
+  const canCreateMaintenance = hasPermission('MANTENIMIENTOS_CREAR')
+    || hasPermission('MANTENIMIENTOS_GESTIONAR')
+    || isAdmin
+    || canCreateTickets;
+  const ticketListAdmin = hasPermission('BOLETAS_ELIMINAR') || isAdmin;
+  const canManageKnowledge = hasPermission('CONOCIMIENTO_GESTIONAR') || isAdmin;
   const canViewMaintenance = hasPermission('MANTENIMIENTOS_VER') || hasPermission('MANTENIMIENTOS_CREAR') || hasPermission('MANTENIMIENTOS_EDITAR') || hasPermission('MANTENIMIENTOS_GESTIONAR') || canViewTickets;
   const isAssistantPage = location.pathname === '/asistente';
   const isWorkflowForm = location.pathname === '/boletas/nueva'
@@ -44,13 +50,19 @@ export default function AppShell() {
   const assistantReturnUrl = assistantFrom.startsWith('/') ? assistantFrom : '/';
   const showAssistantFab = !isAssistantPage && location.pathname !== '/cambiar-contrasena';
 
-  function warmRoute(to) {
-    preloadRouteModule(to).catch(() => {});
-    preloadNavigationData(to, {
+  function preloadContext() {
+    return {
       sessionToken,
       userId: user?.UsuarioID || user?.id || '',
       isAdmin,
-    }).catch(() => {});
+      ticketListAdmin,
+      canManageKnowledge,
+    };
+  }
+
+  function warmRoute(to) {
+    preloadRouteModule(to).catch(() => {});
+    preloadNavigationData(to, preloadContext()).catch(() => {});
   }
 
   function intentProps(to) {
@@ -75,17 +87,28 @@ export default function AppShell() {
   }, [drawerOpen]);
   useEffect(() => {
     if (!sessionToken || typeof window === 'undefined' || navigator.connection?.saveData) return undefined;
-    const likelyRoutes = ['/agenda', '/conocimiento', '/mas'];
+    const likelyRoutes = ['/agenda'];
     if (canViewTickets) likelyRoutes.push('/boletas/pendientes', '/boletas/finalizadas');
+    if (canCreateTickets) likelyRoutes.push('/boletas/nueva');
     if (canViewMaintenance) likelyRoutes.push('/mantenimientos');
-    const warm = () => preloadRouteModules(likelyRoutes).catch(() => {});
+    if (canCreateMaintenance) likelyRoutes.push('/mantenimientos/nuevo');
+    if (canViewClients) likelyRoutes.push('/clientes');
+    likelyRoutes.push('/conocimiento', '/mas');
+
+    // Además de los chunks JS/CSS, se calientan los payloads reales de las
+    // pantallas y los catálogos de los flujos de creación. Así el primer toque
+    // en móvil no tiene que iniciar desde cero varias lecturas de Sheets.
+    const warm = () => {
+      preloadRouteModules(likelyRoutes).catch(() => {});
+      preloadNavigationDataBatch(likelyRoutes, preloadContext()).catch(() => {});
+    };
     if (typeof window.requestIdleCallback === 'function') {
-      const id = window.requestIdleCallback(warm, { timeout: 2_000 });
+      const id = window.requestIdleCallback(warm, { timeout: 1_200 });
       return () => window.cancelIdleCallback?.(id);
     }
-    const id = window.setTimeout(warm, 700);
+    const id = window.setTimeout(warm, 450);
     return () => window.clearTimeout(id);
-  }, [sessionToken, canViewTickets, canViewMaintenance]);
+  }, [sessionToken, user?.UsuarioID, user?.id, isAdmin, ticketListAdmin, canManageKnowledge, canViewTickets, canCreateTickets, canViewMaintenance, canCreateMaintenance, canViewClients]);
   async function handleLogout() { await logout(); navigate('/login', { replace: true }); }
 
   return <div className={`app-shell${isWorkflowForm ? ' app-shell--form' : ''}${isAssistantPage ? ' app-shell--assistant' : ''}`}>
