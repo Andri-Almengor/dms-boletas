@@ -113,12 +113,16 @@ test('editores y filtros reutilizan la caché de catálogos compartida', () => {
 });
 
 test('las evidencias protegidas se solicitan solo cerca del viewport', () => {
-  const media = source('src/components/tickets/MediaPreview.jsx');
+  const ticketMedia = source('src/components/tickets/MediaPreview.jsx');
+  const maintenanceMedia = source('src/components/maintenance/MaintenanceEvidenceImage.jsx');
   const hook = source('src/hooks/useNearViewport.js');
-  assert.match(media, /useNearViewport/);
-  assert.match(media, /needsProtectedMedia/);
-  assert.match(media, /if \(nearViewport\) loadProtectedMedia\(\)/);
-  assert.match(media, /needsProtectedMedia && !nearViewport/);
+  assert.match(ticketMedia, /useNearViewport/);
+  assert.match(ticketMedia, /needsProtectedMedia/);
+  assert.match(ticketMedia, /if \(nearViewport\) loadProtectedMedia\(\)/);
+  assert.match(ticketMedia, /needsProtectedMedia && !nearViewport/);
+  assert.match(maintenanceMedia, /useNearViewport/);
+  assert.match(maintenanceMedia, /needsProtectedOnMount/);
+  assert.match(maintenanceMedia, /needsProtectedOnMount && nearViewport/);
   assert.match(hook, /IntersectionObserver/);
   assert.match(hook, /700px 0px/);
   assert.match(hook, /observer\.disconnect\(\)/);
