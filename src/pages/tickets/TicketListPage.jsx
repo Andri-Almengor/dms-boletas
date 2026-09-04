@@ -5,6 +5,7 @@ import Icon from '../../components/common/Icon';
 import FilterDrawer from '../../components/forms/FilterDrawer';
 import TicketCard from '../../components/tickets/TicketCard';
 import usePaginatedResource from '../../hooks/usePaginatedResource';
+import { loadCatalogResource } from '../../services/catalogResource';
 import { MODULE_ROUTES, normalizeItems, pick, requestAvailable } from '../../services/moduleApi';
 import { getTicketId, groupTicketsByDate, normalizeTicketStatus } from '../../utils/tickets';
 
@@ -66,11 +67,16 @@ export default function TicketListPage({ status }) {
       ['models', MODULE_ROUTES.models.list, { page: 1, pageSize: 500, activo: true }],
     ];
     if (isAdmin) jobs.push(['users', ['users.assignment.list', ...MODULE_ROUTES.users.list], { page: 1, pageSize: 250 }]);
-    Promise.allSettled(jobs.map(([, routes, payload]) => requestAvailable(routes, payload, sessionToken, { signal: controller.signal })))
+    Promise.allSettled(jobs.map(([, routes, payload]) => loadCatalogResource({
+      routes,
+      payload,
+      sessionToken,
+      signal: controller.signal,
+    })))
       .then((results) => {
         if (controller.signal.aborted) return;
         const next = {};
-        results.forEach((result, index) => { if (result.status === 'fulfilled') next[jobs[index][0]] = normalizeItems(result.value); });
+        results.forEach((result, index) => { if (result.status === 'fulfilled') next[jobs[index][0]] = result.value.items; });
         setCatalogs((current) => ({ ...current, ...next }));
         setCatalogsLoaded(true);
       })
