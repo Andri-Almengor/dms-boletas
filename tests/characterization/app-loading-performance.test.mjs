@@ -66,6 +66,8 @@ test('Inicio obtiene actividad y conteos con una sola lista por dominio', () => 
   assert.match(ticketVisibility, /countStatuses\(rows\)/);
   assert.match(maintenanceProgress, /countStatuses\(activeRows\)/);
   assert.match(maintenanceProgress, /Promise\.all/);
+  assert.match(maintenanceProgress, /function canReadGlobalStatusCounts/);
+  assert.match(maintenanceProgress, /ctx\.permissions\?\.includes\('USUARIOS_GESTIONAR'\)/);
   assert.match(statusCounts, /export function countStatuses/);
 });
 
