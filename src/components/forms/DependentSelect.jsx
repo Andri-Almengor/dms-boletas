@@ -47,7 +47,7 @@ export default function DependentSelect({
   );
   const showAddButton = Boolean(onAdd) && (canAdd || canAddFromOperation);
   const normalizedLabel = normalizeSearch(label);
-  const useSearchable = searchable ?? normalizedLabel === 'cliente';
+  const useSearchable = searchable ?? normalizedLabel.startsWith('cliente');
   const displayedOptions = useMemo(
     () => normalizedLabel === 'modelo' ? sortOptionsNaturally(options) : options,
     [normalizedLabel, options],
