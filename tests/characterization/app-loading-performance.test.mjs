@@ -128,6 +128,17 @@ test('las evidencias protegidas se solicitan solo cerca del viewport', () => {
   assert.match(hook, /observer\.disconnect\(\)/);
 });
 
+test('el enlace público de firma se prepara solo al acercarse a su sección', () => {
+  const detail = source('src/pages/tickets/TicketDetailWithQuickEdit.jsx');
+  assert.match(detail, /useNearViewport/);
+  assert.match(detail, /LazyTicketPublicSignatureCard/);
+  assert.match(detail, /if \(nearViewport\) onRequest\(\)/);
+  assert.match(detail, /signatureRequestedRef/);
+  assert.match(detail, /signatureRequestSequenceRef/);
+  assert.match(detail, /if \(signatureRequestedRef\.current\) loadSignatureInfo\(true\)/);
+  assert.doesNotMatch(detail, /\n\s*load\(\);\n\s*window\.addEventListener\('dms-offline-sync-complete'/);
+});
+
 test('la caché persistente de rendimiento reutiliza IndexedDB y se invalida tras escrituras', () => {
   const cache = source('src/services/performanceReadCache.js');
   const api = source('src/api.js');
