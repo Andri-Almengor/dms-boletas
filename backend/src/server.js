@@ -45,15 +45,18 @@ const STARTUP_CRITICAL_TABLES = Object.freeze([
 // recién iniciada. Antes solo se calentaban autenticación y catálogos; la primera
 // apertura de Boletas/Agenda/Mantenimientos todavía tenía que traer A:ZZ desde
 // Google Sheets. La descarga offline ocultaba el problema porque hacía esas
-// mismas lecturas previamente.
+// mismas lecturas previamente. EvidenciasBoleta y Mantenimiento imagenes contienen
+// solo metadatos de Sheets aquí; los archivos binarios de Drive no se descargan.
 const STARTUP_OPERATIONAL_TABLES = Object.freeze([
   'Configuracion',
   'Boletas',
   'BoletaAsignados',
+  'EvidenciasBoleta',
   'Agendas',
   'AgendaAsignados',
   'Mantenimiento',
   'Evidencia_Mantenimientos',
+  'Mantenimiento imagenes',
   'KnowledgeArticles',
   'KnowledgeAttachments',
   'KnowledgeCategories',
