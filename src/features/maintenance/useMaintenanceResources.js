@@ -19,12 +19,12 @@ import {
 const CLIENT_PAGE_SIZE = 80;
 const CLIENT_CACHE_TTL_MS = 60_000;
 
-async function loadClientPage({ sessionToken, signal, query = '' }) {
+async function loadClientPage({ sessionToken, signal, query = '', page = 1 }) {
   const normalizedQuery = String(query || '').trim();
   const result = await loadCatalogResource({
     routes: MODULE_ROUTES.clients.list,
     payload: {
-      page: 1,
+      page,
       pageSize: CLIENT_PAGE_SIZE,
       activo: true,
       ...(normalizedQuery ? { q: normalizedQuery } : {}),
@@ -33,7 +33,12 @@ async function loadClientPage({ sessionToken, signal, query = '' }) {
     signal,
     ttlMs: CLIENT_CACHE_TTL_MS,
   });
-  return result.items.map(maintenanceClientView);
+  return {
+    items: result.items.map(maintenanceClientView),
+    total: Number(result.total || result.items.length || 0),
+    page: Number(result.page || page),
+    pageSize: Number(result.pageSize || CLIENT_PAGE_SIZE),
+  };
 }
 
 function initialEquipmentFromDevices(devices, form) {
@@ -67,38 +72,82 @@ export default function useMaintenanceResources({
   const [allEquipment, setAllEquipment] = useState([]);
   const [loading, setLoading] = useState(true);
   const clientSearchControllerRef = useRef(null);
+  const clientsRef = useRef([]);
+  const allClientsLoadedRef = useRef(false);
+
+  const mergeClients = useCallback((incoming, { replace = false } = {}) => {
+    setClients((current) => {
+      const next = replace
+        ? incoming
+        : mergeCatalogItems(
+          current,
+          incoming,
+          (item, index, source) => item.id || `${source}-${index}`,
+        );
+      clientsRef.current = next;
+      return next;
+    });
+  }, []);
 
   const searchClients = useCallback(async (query = '') => {
+    const normalizedQuery = String(query || '').trim();
+    if (!normalizedQuery && allClientsLoadedRef.current) return clientsRef.current;
+
     clientSearchControllerRef.current?.abort();
     const controller = new AbortController();
     clientSearchControllerRef.current = controller;
     try {
-      const incoming = await loadClientPage({
+      const firstPage = await loadClientPage({
         sessionToken,
         signal: controller.signal,
-        query,
+        query: normalizedQuery,
+        page: 1,
       });
       if (controller.signal.aborted) return [];
-      setClients((current) => mergeCatalogItems(
-        current,
-        incoming,
-        (item, index, source) => item.id || `${source}-${index}`,
-      ));
-      return incoming;
+      mergeClients(firstPage.items);
+
+      const totalPages = Math.max(
+        1,
+        Math.ceil(firstPage.total / Math.max(1, firstPage.pageSize || CLIENT_PAGE_SIZE)),
+      );
+      let combined = [...firstPage.items];
+
+      // La primera página mantiene rápido el formulario. Las páginas restantes
+      // se solicitan únicamente cuando el usuario abre o busca en el selector.
+      for (let page = 2; page <= totalPages; page += 1) {
+        const pageResult = await loadClientPage({
+          sessionToken,
+          signal: controller.signal,
+          query: normalizedQuery,
+          page,
+        });
+        if (controller.signal.aborted) return [];
+        mergeClients(pageResult.items);
+        combined = mergeCatalogItems(
+          combined,
+          pageResult.items,
+          (item, index, source) => item.id || `${source}-${index}`,
+        );
+      }
+
+      if (!normalizedQuery) allClientsLoadedRef.current = true;
+      return combined;
     } catch (error) {
       if (!isAbortError(error)) setError(error.message);
       return [];
     }
-  }, [sessionToken, setError]);
+  }, [mergeClients, sessionToken, setError]);
 
   useEffect(() => {
     const controller = new AbortController();
     setLoading(true);
+    allClientsLoadedRef.current = false;
 
     Promise.all([
       loadClientPage({
         sessionToken,
         signal: controller.signal,
+        page: 1,
       }),
       loadCatalogResource({
         routes: ['users.assignment.list', 'users.list'],
@@ -114,9 +163,9 @@ export default function useMaintenanceResources({
           { signal: controller.signal },
         )
         : Promise.resolve(null),
-    ]).then(([clientItems, userData, maintenanceData]) => {
+    ]).then(([clientPage, userData, maintenanceData]) => {
       if (controller.signal.aborted) return;
-      setClients(clientItems);
+      mergeClients(clientPage.items, { replace: true });
       setUsers(activeMaintenanceUsers(userData.items));
 
       if (maintenanceData) {
@@ -149,7 +198,7 @@ export default function useMaintenanceResources({
     });
 
     return () => controller.abort();
-  }, [editing, maintenanceId, onInitialState, sessionToken, setDevices, setError, setForm]);
+  }, [editing, maintenanceId, mergeClients, onInitialState, sessionToken, setDevices, setError, setForm]);
 
   useEffect(() => () => clientSearchControllerRef.current?.abort(), []);
 
