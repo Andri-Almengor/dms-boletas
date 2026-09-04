@@ -53,6 +53,22 @@ test('la precarga de datos reutiliza los mismos payloads de las vistas frecuente
   assert.doesNotMatch(preload, /fetch\(/);
 });
 
+test('Inicio obtiene actividad y conteos con una sola lista por dominio', () => {
+  const home = source('src/pages/HomePage.jsx');
+  const ticketVisibility = source('backend/src/services/ticket-visibility.patch.js');
+  const maintenanceProgress = source('backend/src/modules/maintenance-progress-chat.module.js');
+  const statusCounts = source('backend/src/core/status-counts.js');
+
+  assert.equal((home.match(/MODULE_ROUTES\.tickets\.list/g) || []).length, 1);
+  assert.equal((home.match(/MODULE_ROUTES\.maintenance\.list/g) || []).length, 1);
+  assert.equal((home.match(/includeStatusCounts:\s*true/g) || []).length, 2);
+  assert.match(home, /responseStatusCount/);
+  assert.match(ticketVisibility, /countStatuses\(rows\)/);
+  assert.match(maintenanceProgress, /countStatuses\(activeRows\)/);
+  assert.match(maintenanceProgress, /Promise\.all/);
+  assert.match(statusCounts, /export function countStatuses/);
+});
+
 test('los formularios precargan catálogos compartidos sin habilitar el modo offline', () => {
   const preload = source('src/services/navigationPreload.js');
   assert.match(preload, /loadCatalogResource/);
