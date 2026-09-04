@@ -112,6 +112,18 @@ test('editores y filtros reutilizan la caché de catálogos compartida', () => {
   assert.match(ticketList, /loadCatalogResource/);
 });
 
+test('las evidencias protegidas se solicitan solo cerca del viewport', () => {
+  const media = source('src/components/tickets/MediaPreview.jsx');
+  const hook = source('src/hooks/useNearViewport.js');
+  assert.match(media, /useNearViewport/);
+  assert.match(media, /needsProtectedMedia/);
+  assert.match(media, /if \(nearViewport\) loadProtectedMedia\(\)/);
+  assert.match(media, /needsProtectedMedia && !nearViewport/);
+  assert.match(hook, /IntersectionObserver/);
+  assert.match(hook, /700px 0px/);
+  assert.match(hook, /observer\.disconnect\(\)/);
+});
+
 test('la caché persistente de rendimiento reutiliza IndexedDB y se invalida tras escrituras', () => {
   const cache = source('src/services/performanceReadCache.js');
   const api = source('src/api.js');
