@@ -8,6 +8,8 @@ import { stableCatalogPayload } from '../utils/catalogCollection';
 
 const DEFAULT_CATALOG_TTL_MS = 5 * 60_000;
 const catalogCache = new Map();
+const catalogInflight = new Map();
+let catalogCacheEpoch = 0;
 
 function abortError() {
   const error = new Error('La solicitud fue cancelada.');
@@ -107,11 +109,39 @@ function deriveFromCachedMaster({ routes, payload, sessionToken, ttlMs }) {
   return normalizedCatalogResponse(filterOfflineCatalog(candidate.value, payload), payload);
 }
 
+function waitForSharedCatalog(promise, signal) {
+  if (!signal) return promise;
+  if (signal.aborted) return Promise.reject(abortError());
+  return new Promise((resolve, reject) => {
+    let settled = false;
+    function cleanup() { signal.removeEventListener('abort', onAbort); }
+    function onAbort() {
+      if (settled) return;
+      settled = true;
+      cleanup();
+      reject(abortError());
+    }
+    signal.addEventListener('abort', onAbort, { once: true });
+    promise.then((value) => {
+      if (settled) return;
+      settled = true;
+      cleanup();
+      resolve(value);
+    }, (error) => {
+      if (settled) return;
+      settled = true;
+      cleanup();
+      reject(error);
+    });
+  });
+}
+
 export function catalogRequestKey({ routes, payload = {}, sessionToken = '' }) {
   return `${String(sessionToken || '')}::${routeKey(routes)}::${stableCatalogPayload(payload)}`;
 }
 
 export function clearCatalogResourceCache(predicate = null) {
+  catalogCacheEpoch += 1;
   if (typeof predicate !== 'function') {
     catalogCache.clear();
     return;
@@ -119,6 +149,28 @@ export function clearCatalogResourceCache(predicate = null) {
   for (const [key, entry] of catalogCache.entries()) {
     if (predicate(entry, key)) catalogCache.delete(key);
   }
+}
+
+async function fetchCatalogValue({ routes, payload, sessionToken, signal, requestEpoch }) {
+  const options = signal ? { signal } : {};
+  let response;
+  try {
+    response = await requestAvailable(routes, payload, sessionToken, options);
+  } catch (error) {
+    const browserOffline = typeof navigator !== 'undefined' && navigator.onLine === false;
+    if (!browserOffline && !isNetworkError(error)) throw error;
+    const master = await requestAvailable(
+      routes,
+      OFFLINE_CATALOG_PAYLOAD,
+      sessionToken,
+      options,
+    );
+    response = filterOfflineCatalog(master, payload);
+  }
+  if (signal?.aborted) throw abortError();
+
+  const value = normalizedCatalogResponse(response, payload);
+  return { value, requestEpoch };
 }
 
 export async function loadCatalogResource({
@@ -147,26 +199,40 @@ export async function loadCatalogResource({
       });
       return derived;
     }
+
+    const shared = catalogInflight.get(key);
+    if (shared) return waitForSharedCatalog(shared, signal);
   }
 
-  const options = signal ? { signal } : {};
-  let response;
-  try {
-    response = await requestAvailable(routes, payload, sessionToken, options);
-  } catch (error) {
-    const browserOffline = typeof navigator !== 'undefined' && navigator.onLine === false;
-    if (!browserOffline && !isNetworkError(error)) throw error;
-    const master = await requestAvailable(
-      routes,
-      OFFLINE_CATALOG_PAYLOAD,
-      sessionToken,
-      options,
-    );
-    response = filterOfflineCatalog(master, payload);
-  }
-  if (signal?.aborted) throw abortError();
+  const requestEpoch = catalogCacheEpoch;
+  const operation = fetchCatalogValue({
+    routes,
+    payload,
+    sessionToken,
+    // Las lecturas compartidas continúan aunque una pantalla se desmonte. Así
+    // la precarga y el formulario pueden usar la misma petición sin que el
+    // AbortController de uno cancele el trabajo útil para el otro.
+    signal: force ? signal : undefined,
+    requestEpoch,
+  }).then(({ value, requestEpoch: completedEpoch }) => {
+    if (completedEpoch === catalogCacheEpoch) {
+      catalogCache.set(key, {
+        at: Date.now(),
+        value,
+        routes,
+        payload,
+        sessionToken,
+        derived: false,
+      });
+    }
+    return value;
+  });
 
-  const value = normalizedCatalogResponse(response, payload);
-  catalogCache.set(key, { at: Date.now(), value, routes, payload, sessionToken, derived: false });
-  return value;
+  if (force) return operation;
+
+  const sharedOperation = operation.finally(() => {
+    if (catalogInflight.get(key) === sharedOperation) catalogInflight.delete(key);
+  });
+  catalogInflight.set(key, sharedOperation);
+  return waitForSharedCatalog(sharedOperation, signal);
 }
