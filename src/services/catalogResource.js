@@ -69,6 +69,44 @@ function normalizedCatalogResponse(response, payload = {}) {
   };
 }
 
+function hasCatalogFilters(payload = {}) {
+  return Boolean(
+    String(payload.search || payload.q || '').trim()
+    || String(payload.tipoDispositivoId || payload.TipoDispositivoID || '').trim()
+    || String(payload.fabricanteId || payload.FabricanteID || '').trim()
+    || String(payload.clienteId || payload.ClienteID || '').trim()
+    || String(payload.ubicacionId || payload.UbicacionID || '').trim(),
+  );
+}
+
+function isCompleteMasterEntry(entry) {
+  if (!entry?.value) return false;
+  const payload = entry.payload || {};
+  if (Number(payload.page || 1) !== 1 || hasCatalogFilters(payload)) return false;
+  const pageSize = Number(entry.value.pageSize || payload.pageSize || 0);
+  const total = Number(entry.value.total || entry.value.items?.length || 0);
+  return pageSize > 0 && total <= pageSize;
+}
+
+function deriveFromCachedMaster({ routes, payload, sessionToken, ttlMs }) {
+  const requestedRouteKey = routeKey(routes);
+  const now = Date.now();
+  let candidate = null;
+
+  for (const entry of catalogCache.values()) {
+    if (entry.sessionToken !== sessionToken) continue;
+    if (routeKey(entry.routes) !== requestedRouteKey) continue;
+    if (now - entry.at >= ttlMs) continue;
+    if (!isCompleteMasterEntry(entry)) continue;
+    if (payload.activo !== undefined && entry.payload?.activo !== undefined
+      && String(payload.activo).toLowerCase() !== String(entry.payload.activo).toLowerCase()) continue;
+    if (!candidate || Number(entry.value.pageSize || 0) > Number(candidate.value.pageSize || 0)) candidate = entry;
+  }
+
+  if (!candidate) return null;
+  return normalizedCatalogResponse(filterOfflineCatalog(candidate.value, payload), payload);
+}
+
 export function catalogRequestKey({ routes, payload = {}, sessionToken = '' }) {
   return `${String(sessionToken || '')}::${routeKey(routes)}::${stableCatalogPayload(payload)}`;
 }
@@ -96,6 +134,21 @@ export async function loadCatalogResource({
   const cached = catalogCache.get(key);
   if (!force && cached && Date.now() - cached.at < ttlMs) return cached.value;
 
+  if (!force) {
+    const derived = deriveFromCachedMaster({ routes, payload, sessionToken, ttlMs });
+    if (derived) {
+      catalogCache.set(key, {
+        at: Date.now(),
+        value: derived,
+        routes,
+        payload,
+        sessionToken,
+        derived: true,
+      });
+      return derived;
+    }
+  }
+
   const options = signal ? { signal } : {};
   let response;
   try {
@@ -114,6 +167,6 @@ export async function loadCatalogResource({
   if (signal?.aborted) throw abortError();
 
   const value = normalizedCatalogResponse(response, payload);
-  catalogCache.set(key, { at: Date.now(), value, routes, payload });
+  catalogCache.set(key, { at: Date.now(), value, routes, payload, sessionToken, derived: false });
   return value;
 }
