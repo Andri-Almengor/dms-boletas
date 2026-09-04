@@ -10,9 +10,13 @@ function firstName(name = '') {
   return String(name).trim().split(/\s+/)[0] || 'Usuario';
 }
 
-function responseTotal(data) {
-  const total = Number(data?.total);
-  return Number.isFinite(total) && total >= 0 ? total : normalizeItems(data).length;
+function responseStatusCount(data, aliases = []) {
+  const counts = data?.statusCounts || {};
+  for (const alias of aliases) {
+    const value = Number(counts[String(alias || '').toUpperCase()]);
+    if (Number.isFinite(value) && value >= 0) return value;
+  }
+  return 0;
 }
 
 function scheduleAfterPaint(callback) {
@@ -49,58 +53,38 @@ export default function HomePage() {
     }
 
     setLoading(true);
+    setFinishedLoading(true);
     setError('');
-    const countPayload = { page: 1, pageSize: 1 };
 
-    Promise.all([
-      requestAvailable(MODULE_ROUTES.tickets.list, {
-        ...countPayload,
-        status: 'PENDIENTE',
-        estado: 'PENDIENTE',
-      }, sessionToken),
-      requestAvailable(MODULE_ROUTES.tickets.list, {
-        page: 1,
-        pageSize: 3,
-        sortBy: 'Fecha',
-        sortDir: 'desc',
-      }, sessionToken),
-    ])
-      .then(([pendingData, recentData]) => {
+    requestAvailable(MODULE_ROUTES.tickets.list, {
+      page: 1,
+      pageSize: 3,
+      sortBy: 'Fecha',
+      sortDir: 'desc',
+      includeStatusCounts: true,
+    }, sessionToken)
+      .then((data) => {
         if (!active) return;
-        setCounts((current) => ({ ...current, pending: responseTotal(pendingData) }));
-        setTickets(sortTicketsNewestFirst(normalizeItems(recentData)).slice(0, 3));
+        setCounts({
+          pending: responseStatusCount(data, ['PENDIENTE']),
+          finished: responseStatusCount(data, ['FINALIZADA', 'FINALIZADO']),
+        });
+        setTickets(sortTicketsNewestFirst(normalizeItems(data)).slice(0, 3));
       })
       .catch((loadError) => {
         if (!active) return;
         setTickets([]);
-        setCounts((current) => ({ ...current, pending: 0 }));
+        setCounts({ pending: 0, finished: 0 });
         setError(loadError.message);
       })
       .finally(() => {
-        if (active) setLoading(false);
+        if (!active) return;
+        setLoading(false);
+        setFinishedLoading(false);
       });
-
-    setFinishedLoading(true);
-    const cancelDeferred = scheduleAfterPaint(() => {
-      requestAvailable(MODULE_ROUTES.tickets.list, {
-        ...countPayload,
-        status: 'FINALIZADA',
-        estado: 'FINALIZADA',
-      }, sessionToken)
-        .then((finishedData) => {
-          if (active) setCounts((current) => ({ ...current, finished: responseTotal(finishedData) }));
-        })
-        .catch(() => {
-          if (active) setCounts((current) => ({ ...current, finished: 0 }));
-        })
-        .finally(() => {
-          if (active) setFinishedLoading(false);
-        });
-    });
 
     return () => {
       active = false;
-      cancelDeferred();
     };
   }, [sessionToken, canViewTickets]);
 
@@ -115,25 +99,18 @@ export default function HomePage() {
 
     setMaintenanceLoading(true);
     setMaintenanceError('');
-    const countPayload = { page: 1, pageSize: 1, activo: true };
     const cancelDeferred = scheduleAfterPaint(() => {
-      Promise.all([
-        requestAvailable(MODULE_ROUTES.maintenance.list, {
-          ...countPayload,
-          status: 'PENDIENTE',
-          estado: 'PENDIENTE',
-        }, sessionToken),
-        requestAvailable(MODULE_ROUTES.maintenance.list, {
-          ...countPayload,
-          status: 'FINALIZADO',
-          estado: 'FINALIZADO',
-        }, sessionToken),
-      ])
-        .then(([pendingData, finishedData]) => {
+      requestAvailable(MODULE_ROUTES.maintenance.list, {
+        page: 1,
+        pageSize: 1,
+        activo: true,
+        includeStatusCounts: true,
+      }, sessionToken)
+        .then((data) => {
           if (!active) return;
           setMaintenanceCounts({
-            pending: responseTotal(pendingData),
-            finished: responseTotal(finishedData),
+            pending: responseStatusCount(data, ['PENDIENTE']),
+            finished: responseStatusCount(data, ['FINALIZADO', 'FINALIZADA']),
           });
         })
         .catch((loadError) => {
