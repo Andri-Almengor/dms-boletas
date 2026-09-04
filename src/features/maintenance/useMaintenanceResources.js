@@ -17,15 +17,16 @@ import {
 } from './maintenanceFormDomain';
 
 const CLIENT_PAGE_SIZE = 80;
+const CLIENT_SEARCH_PAGE_SIZE = 1000;
 const CLIENT_CACHE_TTL_MS = 60_000;
 
-async function loadClientPage({ sessionToken, signal, query = '', page = 1 }) {
+async function loadClientPage({ sessionToken, signal, query = '', page = 1, pageSize = CLIENT_PAGE_SIZE }) {
   const normalizedQuery = String(query || '').trim();
   const result = await loadCatalogResource({
     routes: MODULE_ROUTES.clients.list,
     payload: {
       page,
-      pageSize: CLIENT_PAGE_SIZE,
+      pageSize,
       ...(normalizedQuery ? { q: normalizedQuery } : {}),
     },
     sessionToken,
@@ -36,7 +37,7 @@ async function loadClientPage({ sessionToken, signal, query = '', page = 1 }) {
     items: result.items.map(maintenanceClientView),
     total: Number(result.total || result.items.length || 0),
     page: Number(result.page || page),
-    pageSize: Number(result.pageSize || CLIENT_PAGE_SIZE),
+    pageSize: Number(result.pageSize || pageSize),
   };
 }
 
@@ -71,66 +72,37 @@ export default function useMaintenanceResources({
   const [allEquipment, setAllEquipment] = useState([]);
   const [loading, setLoading] = useState(true);
   const clientSearchControllerRef = useRef(null);
-  const clientsRef = useRef([]);
-  const allClientsLoadedRef = useRef(false);
 
   const mergeClients = useCallback((incoming, { replace = false } = {}) => {
-    setClients((current) => {
-      const next = replace
+    setClients((current) => (
+      replace
         ? incoming
         : mergeCatalogItems(
           current,
           incoming,
           (item, index, source) => item.id || `${source}-${index}`,
-        );
-      clientsRef.current = next;
-      return next;
-    });
+        )
+    ));
   }, []);
 
   const searchClients = useCallback(async (query = '') => {
     const normalizedQuery = String(query || '').trim();
-    if (!normalizedQuery && allClientsLoadedRef.current) return clientsRef.current;
+    if (!normalizedQuery) return [];
 
     clientSearchControllerRef.current?.abort();
     const controller = new AbortController();
     clientSearchControllerRef.current = controller;
     try {
-      const firstPage = await loadClientPage({
+      const result = await loadClientPage({
         sessionToken,
         signal: controller.signal,
         query: normalizedQuery,
         page: 1,
+        pageSize: CLIENT_SEARCH_PAGE_SIZE,
       });
       if (controller.signal.aborted) return [];
-      mergeClients(firstPage.items);
-
-      const totalPages = Math.max(
-        1,
-        Math.ceil(firstPage.total / Math.max(1, firstPage.pageSize || CLIENT_PAGE_SIZE)),
-      );
-      let combined = [...firstPage.items];
-
-      // La primera página mantiene rápido el formulario. Las páginas restantes
-      // se solicitan únicamente cuando el usuario abre o busca en el selector.
-      for (let page = 2; page <= totalPages; page += 1) {
-        const pageResult = await loadClientPage({
-          sessionToken,
-          signal: controller.signal,
-          query: normalizedQuery,
-          page,
-        });
-        if (controller.signal.aborted) return [];
-        mergeClients(pageResult.items);
-        combined = mergeCatalogItems(
-          combined,
-          pageResult.items,
-          (item, index, source) => item.id || `${source}-${index}`,
-        );
-      }
-
-      if (!normalizedQuery) allClientsLoadedRef.current = true;
-      return combined;
+      mergeClients(result.items);
+      return result.items;
     } catch (error) {
       if (!isAbortError(error)) setError(error.message);
       return [];
@@ -140,7 +112,6 @@ export default function useMaintenanceResources({
   useEffect(() => {
     const controller = new AbortController();
     setLoading(true);
-    allClientsLoadedRef.current = false;
 
     Promise.all([
       loadClientPage({
@@ -173,9 +144,6 @@ export default function useMaintenanceResources({
         setForm(mappedForm);
         setDevices(mappedDevices);
 
-        // La ubicación seleccionada y las ubicaciones usadas por los dispositivos
-        // se muestran inmediatamente. La relación completa del cliente continúa
-        // cargándose en segundo plano y reemplaza estos datos provisionales.
         setLocations(mappedForm.ubicacionId ? [{
           id: String(mappedForm.ubicacionId),
           name: String(mappedForm.ubicacion || 'Ubicación seleccionada'),
