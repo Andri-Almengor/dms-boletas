@@ -96,6 +96,7 @@ test('mantenimiento abre con una página pequeña y busca clientes por nombre en
   assert.equal(resources.includes('equipmentLocationsList'), false);
   assert.equal(resources.includes('locationsList'), false);
 
+  assert.ok(general.includes('searchable'));
   assert.ok(general.includes('searchPlaceholder="Buscar cliente por nombre..."'));
   assert.ok(general.includes('searchMinLength={1}'));
   assert.ok(general.includes('searchDelay={250}'));
