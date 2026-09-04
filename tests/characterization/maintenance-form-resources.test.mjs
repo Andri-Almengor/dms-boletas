@@ -80,6 +80,7 @@ test('la carga inicial sigue siendo rápida y el selector completa todas las pá
   assert.ok(resources.includes('page = 1'));
   assert.ok(resources.includes('pageSize: CLIENT_PAGE_SIZE'));
   assert.ok(resources.includes('...(normalizedQuery ? { q: normalizedQuery } : {})'));
+  assert.equal(resources.includes('activo: true'), false);
   assert.ok(resources.includes('searchClients'));
   assert.ok(resources.includes('allClientsLoadedRef'));
   assert.ok(resources.includes('const totalPages = Math.max('));
@@ -94,6 +95,18 @@ test('la carga inicial sigue siendo rápida y el selector completa todas las pá
   assert.equal(resources.includes('force: true'), false);
   assert.equal(resources.includes('equipmentLocationsList'), false);
   assert.equal(resources.includes('locationsList'), false);
+});
+
+test('clientes históricos siguen siendo buscables aunque usen Clientes y Activo vacío', () => {
+  const crud = source('backend/src/modules/crud.module.js');
+  const catalog = source('src/services/catalogResource.js');
+
+  assert.ok(crud.includes("search: ['Nombre','Clientes','RazonSocial','CorreoGeneral','Telefono']"));
+  assert.ok(crud.includes('function listFilterPayload'));
+  assert.ok(crud.includes("definitionKey !== 'clients' || includeInactive"));
+  assert.ok(crud.includes('const { activo: _activo, Activo: _Activo, ...rest } = payload || {};'));
+  assert.ok(catalog.includes("rawActive === undefined || rawActive === null || rawActive === ''"));
+  assert.ok(catalog.includes("String(row?.Estado || 'ACTIVO').toUpperCase() !== 'INACTIVO'"));
 });
 
 test('el hook principal delega recursos y la creación rápida evita mutaciones directas', () => {
