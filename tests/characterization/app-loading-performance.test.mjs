@@ -19,7 +19,7 @@ test('las rutas lazy reutilizan un manifiesto precargable', () => {
   assert.match(loaders, /warmedLoads/);
 });
 
-test('la navegación precarga módulos y datos por intención y en tiempo ocioso', () => {
+test('la navegación precarga módulos, listas y flujos de creación en tiempo ocioso', () => {
   const shell = source('src/components/layout/AppShell.jsx');
   assert.match(shell, /preloadRouteModule/);
   assert.match(shell, /preloadRouteModules/);
@@ -31,6 +31,8 @@ test('la navegación precarga módulos y datos por intención y en tiempo ocioso
   assert.match(shell, /requestIdleCallback/);
   assert.match(shell, /navigator\.connection\?\.saveData/);
   assert.match(shell, /likelyRoutes\.push\('\/clientes'\)/);
+  assert.match(shell, /likelyRoutes\.push\('\/boletas\/nueva'\)/);
+  assert.match(shell, /likelyRoutes\.push\('\/mantenimientos\/nuevo'\)/);
 });
 
 test('la precarga de datos reutiliza los mismos payloads de las vistas frecuentes', () => {
@@ -49,6 +51,47 @@ test('la precarga de datos reutiliza los mismos payloads de las vistas frecuente
   assert.match(preload, /ticketListAdmin/);
   assert.match(preload, /navigator\.connection\?\.saveData/);
   assert.doesNotMatch(preload, /fetch\(/);
+});
+
+test('los formularios precargan catálogos compartidos sin habilitar el modo offline', () => {
+  const preload = source('src/services/navigationPreload.js');
+  assert.match(preload, /loadCatalogResource/);
+  assert.match(preload, /function ticketFormPreload/);
+  assert.match(preload, /function maintenanceFormPreload/);
+  assert.match(preload, /FORM_CLIENT_PAGE_SIZE = 80/);
+  assert.match(preload, /MODULE_ROUTES\.failureTypes\.list/);
+  assert.match(preload, /MODULE_ROUTES\.deviceManufacturers\.list/);
+  assert.match(preload, /MODULE_ROUTES\.models\.list/);
+  assert.match(preload, /maintenance\.config/);
+  assert.match(preload, /path === '\/boletas\/nueva'/);
+  assert.match(preload, /path === '\/mantenimientos\/nuevo'/);
+});
+
+test('los catálogos completos pueden resolver filtros y páginas menores sin otra lectura', () => {
+  const resource = source('src/services/catalogResource.js');
+  assert.match(resource, /function isCompleteMasterEntry/);
+  assert.match(resource, /function deriveFromCachedMaster/);
+  assert.match(resource, /filterOfflineCatalog\(candidate\.value, payload\)/);
+  assert.match(resource, /sessionToken/);
+  assert.match(resource, /derived: true/);
+});
+
+test('mantenimiento no descarga todos los clientes antes de mostrar el formulario', () => {
+  const resources = source('src/features/maintenance/useMaintenanceResources.js');
+  assert.match(resources, /CLIENT_PAGE_SIZE = 80/);
+  assert.match(resources, /function loadClientPage/);
+  assert.match(resources, /q: normalizedQuery/);
+  assert.doesNotMatch(resources, /totalPages/);
+  assert.doesNotMatch(resources, /for \(let page = 2/);
+  assert.doesNotMatch(resources, /force:\s*true/);
+});
+
+test('editores y filtros reutilizan la caché de catálogos compartida', () => {
+  const deviceFields = source('src/components/maintenance/MaintenanceDeviceCatalogFields.jsx');
+  const ticketList = source('src/pages/tickets/TicketListPage.jsx');
+  assert.match(deviceFields, /loadCatalogResource/);
+  assert.match(deviceFields, /loadCatalogs\(\{ force: true \}\)/);
+  assert.match(ticketList, /loadCatalogResource/);
 });
 
 test('la caché persistente de rendimiento reutiliza IndexedDB y se invalida tras escrituras', () => {
