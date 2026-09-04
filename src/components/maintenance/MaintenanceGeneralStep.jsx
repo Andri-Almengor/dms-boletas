@@ -28,6 +28,7 @@ export default function MaintenanceGeneralStep({ form, setForm, clients, locatio
       value={form.clienteId}
       selectedLabel={form.cliente}
       options={clientOptions}
+      searchable
       onSearch={onSearchClients}
       searchPlaceholder="Buscar cliente por nombre..."
       searchMinLength={1}
