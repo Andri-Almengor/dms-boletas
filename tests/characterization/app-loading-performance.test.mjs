@@ -74,6 +74,8 @@ test('los catálogos completos pueden resolver filtros y páginas menores sin ot
   assert.match(resource, /filterOfflineCatalog\(candidate\.value, payload\)/);
   assert.match(resource, /sessionToken/);
   assert.match(resource, /derived: true/);
+  assert.match(resource, /catalogInflight/);
+  assert.match(resource, /waitForSharedCatalog/);
 });
 
 test('mantenimiento no descarga todos los clientes antes de mostrar el formulario', () => {
@@ -122,7 +124,7 @@ test('la caché persistente solo admite listas operativas y excluye superficies 
   assert.doesNotMatch(api, /assistant\.chat.*PERFORMANCE_CACHE_ROUTE_PATTERNS/);
 });
 
-test('el backend calienta tablas operativas después de autenticación en un arranque frío', () => {
+test('el backend calienta tablas operativas y metadatos de detalle después de autenticación', () => {
   const server = source('backend/src/server.js');
   assert.match(server, /STARTUP_CRITICAL_TABLES/);
   assert.match(server, /STARTUP_OPERATIONAL_TABLES/);
@@ -130,10 +132,12 @@ test('el backend calienta tablas operativas después de autenticación en un arr
     'Configuracion',
     'Boletas',
     'BoletaAsignados',
+    'EvidenciasBoleta',
     'Agendas',
     'AgendaAsignados',
     'Mantenimiento',
     'Evidencia_Mantenimientos',
+    'Mantenimiento imagenes',
     'KnowledgeArticles',
     'KnowledgeCategories',
   ]) {
