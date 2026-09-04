@@ -70,31 +70,37 @@ test('filtra equipos localmente por sede', () => {
   assert.deepEqual(filterMaintenanceEquipment(rows, ''), []);
 });
 
-test('la carga inicial sigue siendo rápida y el selector completa todas las páginas bajo demanda', () => {
+test('mantenimiento abre con una página pequeña y busca clientes por nombre en toda la base', () => {
   const resources = source('src/features/maintenance/useMaintenanceResources.js');
+  const general = source('src/components/maintenance/MaintenanceGeneralStep.jsx');
+
   assert.ok(resources.includes("import { loadCatalogResource } from '../../services/catalogResource';"));
   assert.ok(resources.includes("import { fetchClientRelations } from '../../services/clientRelations';"));
   assert.ok(resources.includes('const CLIENT_PAGE_SIZE = 80;'));
+  assert.ok(resources.includes('const CLIENT_SEARCH_PAGE_SIZE = 1000;'));
   assert.ok(resources.includes('const CLIENT_CACHE_TTL_MS = 60_000;'));
-  assert.ok(resources.includes('async function loadClientPage'));
-  assert.ok(resources.includes('page = 1'));
-  assert.ok(resources.includes('pageSize: CLIENT_PAGE_SIZE'));
+  assert.ok(resources.includes('pageSize = CLIENT_PAGE_SIZE'));
   assert.ok(resources.includes('...(normalizedQuery ? { q: normalizedQuery } : {})'));
   assert.equal(resources.includes('activo: true'), false);
-  assert.ok(resources.includes('searchClients'));
-  assert.ok(resources.includes('allClientsLoadedRef'));
-  assert.ok(resources.includes('const totalPages = Math.max('));
-  assert.ok(resources.includes('for (let page = 2; page <= totalPages; page += 1)'));
-  assert.ok(resources.includes('mergeClients(pageResult.items)'));
-  assert.ok(resources.includes('if (!normalizedQuery) allClientsLoadedRef.current = true;'));
+  assert.ok(resources.includes('const searchClients = useCallback'));
+  assert.ok(resources.includes('if (!normalizedQuery) return [];'));
+  assert.ok(resources.includes('pageSize: CLIENT_SEARCH_PAGE_SIZE'));
+  assert.ok(resources.includes('mergeClients(result.items)'));
+  assert.equal(resources.includes('const totalPages = Math.max('), false);
+  assert.equal(resources.includes('for (let page = 2; page <= totalPages; page += 1)'), false);
   assert.ok(resources.includes('const controller = new AbortController();'));
   assert.ok(resources.includes('signal: controller.signal'));
   assert.ok(resources.includes('return () => controller.abort();'));
   assert.ok(resources.includes('filterMaintenanceEquipment(allEquipment, locationId)'));
-  assert.equal(resources.includes('async function loadAllActiveClients'), false);
   assert.equal(resources.includes('force: true'), false);
   assert.equal(resources.includes('equipmentLocationsList'), false);
   assert.equal(resources.includes('locationsList'), false);
+
+  assert.ok(general.includes('searchPlaceholder="Buscar cliente por nombre..."'));
+  assert.ok(general.includes('searchMinLength={1}'));
+  assert.ok(general.includes('searchDelay={250}'));
+  assert.ok(general.includes('onSearch={onSearchClients}'));
+  assert.ok(general.includes('selectedLabel={form.cliente}'));
 });
 
 test('clientes históricos siguen siendo buscables aunque usen Clientes y Activo vacío', () => {

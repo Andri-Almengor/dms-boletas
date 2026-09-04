@@ -22,7 +22,20 @@ export default function MaintenanceGeneralStep({ form, setForm, clients, locatio
   }
   return <div className="stack-form">
     <Field label="Título del mantenimiento *" name="titulo" value={form.titulo} onChange={update} disabled={disabled} />
-    <DependentSelect label="Cliente *" name="clienteId" value={form.clienteId} selectedLabel={form.cliente} options={clientOptions} onSearch={onSearchClients} onChange={chooseClient} disabled={disabled} />
+    <DependentSelect
+      label="Cliente *"
+      name="clienteId"
+      value={form.clienteId}
+      selectedLabel={form.cliente}
+      options={clientOptions}
+      onSearch={onSearchClients}
+      searchPlaceholder="Buscar cliente por nombre..."
+      searchMinLength={1}
+      searchDelay={250}
+      onChange={chooseClient}
+      disabled={disabled}
+      required
+    />
     <DependentSelect label="Ubicación del cliente" value={form.ubicacionId} options={locationOptions} onChange={chooseLocation} disabled={disabled || !form.clienteId} canAdd={!disabled && canCreateLocation && Boolean(form.clienteId)} onAdd={onAddLocation} />
     <div className="ticket-form-grid"><Field label="Fecha *" type="date" name="fecha" value={form.fecha} onChange={update} disabled={disabled} /><Field label="Fecha de finalización" type="date" name="fechaFinalizacion" value={form.fechaFinalizacion} onChange={update} disabled={disabled} /></div>
     <div className="field-group"><span className="field-label">Responsables *</span><TechnicianMultiSelect users={technicians} selectedIds={form.responsables} onChange={(responsables) => setForm((current) => ({ ...current, responsables }))} disabled={disabled} /></div>
