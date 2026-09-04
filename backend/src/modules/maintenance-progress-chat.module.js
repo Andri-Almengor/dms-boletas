@@ -16,8 +16,14 @@ function maintenanceFromResult(result = {}) {
   return result?.mantenimiento || result?.maintenance || result || {};
 }
 
+function canReadGlobalStatusCounts(ctx) {
+  return ctx.permissions?.includes('USUARIOS_GESTIONAR');
+}
+
 async function list(ctx) {
-  if (!ctx.payload?.includeStatusCounts) return baseMaintenanceHandlers.list(ctx);
+  if (!ctx.payload?.includeStatusCounts || !canReadGlobalStatusCounts(ctx)) {
+    return baseMaintenanceHandlers.list(ctx);
+  }
 
   const [result, rows] = await Promise.all([
     baseMaintenanceHandlers.list(ctx),
