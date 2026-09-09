@@ -17,28 +17,51 @@ import {
 } from './maintenanceFormDomain';
 
 const CLIENT_PAGE_SIZE = 80;
-const CLIENT_SEARCH_PAGE_SIZE = 1000;
-const CLIENT_CACHE_TTL_MS = 60_000;
 
-async function loadClientPage({ sessionToken, signal, query = '', page = 1, pageSize = CLIENT_PAGE_SIZE }) {
+async function loadAllActiveClients({ sessionToken, signal, query = '' }) {
   const normalizedQuery = String(query || '').trim();
-  const result = await loadCatalogResource({
+  const firstPage = await loadCatalogResource({
     routes: MODULE_ROUTES.clients.list,
     payload: {
-      page,
-      pageSize,
+      page: 1,
+      pageSize: CLIENT_PAGE_SIZE,
+      activo: true,
       ...(normalizedQuery ? { q: normalizedQuery } : {}),
     },
     sessionToken,
     signal,
-    ttlMs: CLIENT_CACHE_TTL_MS,
+    // Los clientes pueden crearse desde otra pantalla o sesión. El formulario de
+    // mantenimiento debe consultar el catálogo actual y no conservar hasta 5 min
+    // una primera página que ya quedó desactualizada.
+    force: true,
   });
-  return {
-    items: result.items.map(maintenanceClientView),
-    total: Number(result.total || result.items.length || 0),
-    page: Number(result.page || page),
-    pageSize: Number(result.pageSize || pageSize),
-  };
+
+  let collected = firstPage.items.map(maintenanceClientView);
+  const total = Math.max(collected.length, Number(firstPage.total || 0));
+  const totalPages = Math.max(1, Math.ceil(total / CLIENT_PAGE_SIZE));
+
+  for (let page = 2; page <= totalPages; page += 1) {
+    if (signal?.aborted) break;
+    const nextPage = await loadCatalogResource({
+      routes: MODULE_ROUTES.clients.list,
+      payload: {
+        page,
+        pageSize: CLIENT_PAGE_SIZE,
+        activo: true,
+        ...(normalizedQuery ? { q: normalizedQuery } : {}),
+      },
+      sessionToken,
+      signal,
+      force: true,
+    });
+    collected = mergeCatalogItems(
+      collected,
+      nextPage.items.map(maintenanceClientView),
+      (item, index, source) => item.id || `${source}-${index}`,
+    );
+  }
+
+  return collected;
 }
 
 function initialEquipmentFromDevices(devices, form) {
@@ -73,51 +96,37 @@ export default function useMaintenanceResources({
   const [loading, setLoading] = useState(true);
   const clientSearchControllerRef = useRef(null);
 
-  const mergeClients = useCallback((incoming, { replace = false } = {}) => {
-    setClients((current) => (
-      replace
-        ? incoming
-        : mergeCatalogItems(
-          current,
-          incoming,
-          (item, index, source) => item.id || `${source}-${index}`,
-        )
-    ));
-  }, []);
-
   const searchClients = useCallback(async (query = '') => {
-    const normalizedQuery = String(query || '').trim();
-    if (!normalizedQuery) return [];
-
     clientSearchControllerRef.current?.abort();
     const controller = new AbortController();
     clientSearchControllerRef.current = controller;
     try {
-      const result = await loadClientPage({
+      const incoming = await loadAllActiveClients({
         sessionToken,
         signal: controller.signal,
-        query: normalizedQuery,
-        page: 1,
-        pageSize: CLIENT_SEARCH_PAGE_SIZE,
+        query,
       });
       if (controller.signal.aborted) return [];
-      mergeClients(result.items);
-      return result.items;
+      setClients((current) => mergeCatalogItems(
+        current,
+        incoming,
+        (item, index, source) => item.id || `${source}-${index}`,
+      ));
+      return incoming;
     } catch (error) {
       if (!isAbortError(error)) setError(error.message);
       return [];
     }
-  }, [mergeClients, sessionToken, setError]);
+  }, [sessionToken, setError]);
 
   useEffect(() => {
     const controller = new AbortController();
     setLoading(true);
 
     Promise.all([
-      loadClientPage({
+      loadAllActiveClients({
         sessionToken,
         signal: controller.signal,
-        page: 1,
       }),
       loadCatalogResource({
         routes: ['users.assignment.list', 'users.list'],
@@ -133,9 +142,9 @@ export default function useMaintenanceResources({
           { signal: controller.signal },
         )
         : Promise.resolve(null),
-    ]).then(([clientPage, userData, maintenanceData]) => {
+    ]).then(([clientItems, userData, maintenanceData]) => {
       if (controller.signal.aborted) return;
-      mergeClients(clientPage.items, { replace: true });
+      setClients(clientItems);
       setUsers(activeMaintenanceUsers(userData.items));
 
       if (maintenanceData) {
@@ -144,6 +153,9 @@ export default function useMaintenanceResources({
         setForm(mappedForm);
         setDevices(mappedDevices);
 
+        // La ubicación seleccionada y las ubicaciones usadas por los dispositivos
+        // se muestran inmediatamente. La relación completa del cliente continúa
+        // cargándose en segundo plano y reemplaza estos datos provisionales.
         setLocations(mappedForm.ubicacionId ? [{
           id: String(mappedForm.ubicacionId),
           name: String(mappedForm.ubicacion || 'Ubicación seleccionada'),
@@ -165,7 +177,7 @@ export default function useMaintenanceResources({
     });
 
     return () => controller.abort();
-  }, [editing, maintenanceId, mergeClients, onInitialState, sessionToken, setDevices, setError, setForm]);
+  }, [editing, maintenanceId, onInitialState, sessionToken, setDevices, setError, setForm]);
 
   useEffect(() => () => clientSearchControllerRef.current?.abort(), []);
 
