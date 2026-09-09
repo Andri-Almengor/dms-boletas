@@ -1,0 +1,38 @@
+name: Temporary refresh nodemailer lock
+
+on:
+  push:
+    branches:
+      - revert/loading-evidence-stability
+    paths:
+      - .github/workflows/temp-refresh-nodemailer-lock.yml
+
+permissions:
+  contents: write
+
+jobs:
+  refresh-lock:
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: revert/loading-evidence-stability
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 20
+          cache: npm
+          cache-dependency-path: backend/package-lock.json
+      - name: Refresh backend lockfile with safe Nodemailer
+        run: npm install --package-lock-only --prefix backend --save-exact nodemailer@9.1.1
+      - name: Commit generated lockfile
+        shell: bash
+        run: |
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          if git diff --quiet -- backend/package.json backend/package-lock.json; then
+            echo "No dependency changes required."
+            exit 0
+          fi
+          git add backend/package.json backend/package-lock.json
+          git commit -m "Actualizar Nodemailer a 9.1.1"
+          git push origin HEAD:revert/loading-evidence-stability
