@@ -121,5 +121,5 @@ test('la aplicación activa CSP, validación, rate limit y errores sin filtrar d
   assert.match(packageJson, /"react-router-dom": "6\.30\.4"/);
   assert.match(packageJson, /"audit:security"/);
   assert.match(packageJson, /"report:final"/);
-  assert.match(backendPackage, /"nodemailer": "9\.0\.3"/);
+  assert.match(backendPackage, /"nodemailer": "9\.1\.1"/);
 });
