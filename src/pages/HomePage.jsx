@@ -15,46 +15,6 @@ function responseTotal(data) {
   return Number.isFinite(total) && total >= 0 ? total : normalizeItems(data).length;
 }
 
-function hasStatusCounts(data) {
-  return Boolean(data?.statusCounts)
-    && typeof data.statusCounts === 'object'
-    && !Array.isArray(data.statusCounts);
-}
-
-function responseStatusCount(data, aliases = []) {
-  const counts = data?.statusCounts || {};
-  for (const alias of aliases) {
-    const value = Number(counts[String(alias || '').toUpperCase()]);
-    if (Number.isFinite(value) && value >= 0) return value;
-  }
-  return 0;
-}
-
-async function loadTicketStatusFallback(routes, sessionToken) {
-  const countPayload = { page: 1, pageSize: 1 };
-  const [pendingData, finalizedData, finishedData] = await Promise.all([
-    requestAvailable(routes, {
-      ...countPayload,
-      status: 'PENDIENTE',
-      estado: 'PENDIENTE',
-    }, sessionToken),
-    requestAvailable(routes, {
-      ...countPayload,
-      status: 'FINALIZADA',
-      estado: 'FINALIZADA',
-    }, sessionToken),
-    requestAvailable(routes, {
-      ...countPayload,
-      status: 'FINALIZADO',
-      estado: 'FINALIZADO',
-    }, sessionToken),
-  ]);
-  return {
-    pending: responseTotal(pendingData),
-    finished: responseTotal(finalizedData) + responseTotal(finishedData),
-  };
-}
-
 function scheduleAfterPaint(callback) {
   if (typeof window.requestIdleCallback === 'function') {
     const id = window.requestIdleCallback(callback, { timeout: 1_200 });
@@ -89,49 +49,58 @@ export default function HomePage() {
     }
 
     setLoading(true);
-    setFinishedLoading(true);
     setError('');
-    const ticketListRoutes = MODULE_ROUTES.tickets.list;
+    const countPayload = { page: 1, pageSize: 1 };
 
-    requestAvailable(ticketListRoutes, {
-      page: 1,
-      pageSize: 3,
-      sortBy: 'Fecha',
-      sortDir: 'desc',
-      includeStatusCounts: true,
-    }, sessionToken)
-      .then(async (data) => {
+    Promise.all([
+      requestAvailable(MODULE_ROUTES.tickets.list, {
+        ...countPayload,
+        status: 'PENDIENTE',
+        estado: 'PENDIENTE',
+      }, sessionToken),
+      requestAvailable(MODULE_ROUTES.tickets.list, {
+        page: 1,
+        pageSize: 3,
+        sortBy: 'Fecha',
+        sortDir: 'desc',
+      }, sessionToken),
+    ])
+      .then(([pendingData, recentData]) => {
         if (!active) return;
-        setTickets(sortTicketsNewestFirst(normalizeItems(data)).slice(0, 3));
-
-        if (hasStatusCounts(data)) {
-          setCounts({
-            pending: responseStatusCount(data, ['PENDIENTE']),
-            finished: responseStatusCount(data, ['FINALIZADA', 'FINALIZADO']),
-          });
-          return;
-        }
-
-        // Compatibilidad durante despliegues mixtos o respuestas cacheadas de una
-        // versión anterior: si el resumen no existe, recupera los totales con las
-        // mismas consultas pequeñas que usaba Inicio antes de la optimización.
-        const fallbackCounts = await loadTicketStatusFallback(ticketListRoutes, sessionToken);
-        if (active) setCounts(fallbackCounts);
+        setCounts((current) => ({ ...current, pending: responseTotal(pendingData) }));
+        setTickets(sortTicketsNewestFirst(normalizeItems(recentData)).slice(0, 3));
       })
       .catch((loadError) => {
         if (!active) return;
         setTickets([]);
-        setCounts({ pending: 0, finished: 0 });
+        setCounts((current) => ({ ...current, pending: 0 }));
         setError(loadError.message);
       })
       .finally(() => {
-        if (!active) return;
-        setLoading(false);
-        setFinishedLoading(false);
+        if (active) setLoading(false);
       });
+
+    setFinishedLoading(true);
+    const cancelDeferred = scheduleAfterPaint(() => {
+      requestAvailable(MODULE_ROUTES.tickets.list, {
+        ...countPayload,
+        status: 'FINALIZADA',
+        estado: 'FINALIZADA',
+      }, sessionToken)
+        .then((finishedData) => {
+          if (active) setCounts((current) => ({ ...current, finished: responseTotal(finishedData) }));
+        })
+        .catch(() => {
+          if (active) setCounts((current) => ({ ...current, finished: 0 }));
+        })
+        .finally(() => {
+          if (active) setFinishedLoading(false);
+        });
+    });
 
     return () => {
       active = false;
+      cancelDeferred();
     };
   }, [sessionToken, canViewTickets]);
 
@@ -146,18 +115,25 @@ export default function HomePage() {
 
     setMaintenanceLoading(true);
     setMaintenanceError('');
+    const countPayload = { page: 1, pageSize: 1, activo: true };
     const cancelDeferred = scheduleAfterPaint(() => {
-      requestAvailable(MODULE_ROUTES.maintenance.list, {
-        page: 1,
-        pageSize: 1,
-        activo: true,
-        includeStatusCounts: true,
-      }, sessionToken)
-        .then((data) => {
+      Promise.all([
+        requestAvailable(MODULE_ROUTES.maintenance.list, {
+          ...countPayload,
+          status: 'PENDIENTE',
+          estado: 'PENDIENTE',
+        }, sessionToken),
+        requestAvailable(MODULE_ROUTES.maintenance.list, {
+          ...countPayload,
+          status: 'FINALIZADO',
+          estado: 'FINALIZADO',
+        }, sessionToken),
+      ])
+        .then(([pendingData, finishedData]) => {
           if (!active) return;
           setMaintenanceCounts({
-            pending: responseStatusCount(data, ['PENDIENTE']),
-            finished: responseStatusCount(data, ['FINALIZADO', 'FINALIZADA']),
+            pending: responseTotal(pendingData),
+            finished: responseTotal(finishedData),
           });
         })
         .catch((loadError) => {
