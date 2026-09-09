@@ -1,6 +1,5 @@
 import { ticketHandlers } from '../modules/tickets.module.js';
 import { ticketDeliveryHandlers } from '../modules/ticket-delivery.module.js';
-import { countStatuses } from '../core/status-counts.js';
 import { filterRows, readTable } from '../infra/sheets.repository.js';
 import { assertTicketPayloadAccess, canViewAllTickets } from './ticket-access.service.js';
 
@@ -32,8 +31,6 @@ ticketHandlers.list = async (ctx) => {
     rows = rows.filter((row) => assignedIds.has(String(row.BoletaUID)));
   }
 
-  const statusCounts = payload.includeStatusCounts ? countStatuses(rows) : null;
-
   if (payload.status || payload.estado) {
     rows = rows.filter((row) => String(row.Estado || '').toUpperCase() === String(payload.status || payload.estado).toUpperCase());
   }
@@ -45,8 +42,7 @@ ticketHandlers.list = async (ctx) => {
   if (payload.fabricanteId) rows = rows.filter((row) => equals(row, 'FabricanteID', payload.fabricanteId));
   if (payload.modeloId) rows = rows.filter((row) => equals(row, 'ModeloID', payload.modeloId));
 
-  const response = filterRows(rows, payload, ['Titulo', 'Cliente', 'Ubicacion', 'Categoria', 'TipoDispositivo', 'Modelo', 'BoletaID']);
-  return statusCounts ? { ...response, statusCounts } : response;
+  return filterRows(rows, payload, ['Titulo', 'Cliente', 'Ubicacion', 'Categoria', 'TipoDispositivo', 'Modelo', 'BoletaID']);
 };
 
 for (const key of [
