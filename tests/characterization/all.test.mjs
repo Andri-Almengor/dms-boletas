@@ -33,6 +33,7 @@ import './maintenance-device-created-feedback.test.mjs';
 import './maintenance-device-draft.test.mjs';
 import './maintenance-device-lifecycle.test.mjs';
 import './maintenance-device-persistence.test.mjs';
+import './maintenance-evidence-lightbox-aspect.test.mjs';
 import './maintenance-finalization-performance.test.mjs';
 import './maintenance-staged-finalization.test.mjs';
 import './maintenance-finalization-5pm-worker.test.mjs';
