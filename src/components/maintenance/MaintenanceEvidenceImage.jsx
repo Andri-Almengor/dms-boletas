@@ -35,8 +35,11 @@ export default function MaintenanceEvidenceImage({ image, sessionToken, alt = 'E
     ? 'video'
     : evidenceMediaKind({ mimeType: pick(image, ['MimeType']), name: pick(image, ['Nombre', 'NombreArchivo'], alt) });
   const attemptedRef = useRef(false);
+  const fullImageRequestRef = useRef(0);
   const [source, setSource] = useState(kind === 'video' ? '' : initialSource);
+  const [fullSource, setFullSource] = useState('');
   const [loadingFallback, setLoadingFallback] = useState(false);
+  const [loadingFullSource, setLoadingFullSource] = useState(false);
   const [failed, setFailed] = useState(false);
   const [open, setOpen] = useState(false);
 
@@ -61,10 +64,46 @@ export default function MaintenanceEvidenceImage({ image, sessionToken, alt = 'E
     }
   }
 
+  async function openFullImage() {
+    if (!source && !imageId) return;
+
+    setOpen(true);
+    setFullSource('');
+
+    if (!imageId) {
+      setFullSource(source);
+      return;
+    }
+
+    const requestVersion = fullImageRequestRef.current + 1;
+    fullImageRequestRef.current = requestVersion;
+    setLoadingFullSource(true);
+    try {
+      const protectedSource = await requestProtectedSource(imageId, sessionToken);
+      if (fullImageRequestRef.current === requestVersion) {
+        setFullSource(protectedSource || source);
+      }
+    } catch {
+      if (fullImageRequestRef.current === requestVersion) setFullSource(source);
+    } finally {
+      if (fullImageRequestRef.current === requestVersion) setLoadingFullSource(false);
+    }
+  }
+
+  function closeFullImage() {
+    fullImageRequestRef.current += 1;
+    setOpen(false);
+    setFullSource('');
+    setLoadingFullSource(false);
+  }
+
   useEffect(() => {
+    fullImageRequestRef.current += 1;
     attemptedRef.current = false;
     setFailed(false);
     setOpen(false);
+    setFullSource('');
+    setLoadingFullSource(false);
     setSource(kind === 'video' ? '' : initialSource);
     if (imageId && (kind === 'video' || !initialSource)) loadProtectedMedia();
     // Solo debe ejecutarse al cambiar de evidencia.
@@ -91,7 +130,7 @@ export default function MaintenanceEvidenceImage({ image, sessionToken, alt = 'E
 
   return (
     <>
-      <button type="button" className="maintenance-evidence-image" onClick={() => source && setOpen(true)} aria-label="Abrir evidencia en tamaño completo">
+      <button type="button" className="maintenance-evidence-image" onClick={openFullImage} aria-label="Abrir evidencia en tamaño completo">
         {source ? (
           <img
             src={source}
@@ -113,10 +152,14 @@ export default function MaintenanceEvidenceImage({ image, sessionToken, alt = 'E
         <span className="maintenance-evidence-image__zoom"><Icon name="zoom_in" /></span>
       </button>
 
-      {open && source && (
+      {open && (
         <div className="maintenance-lightbox" role="dialog" aria-modal="true" aria-label="Vista completa de evidencia">
-          <button className="maintenance-lightbox__close" type="button" onClick={() => setOpen(false)} aria-label="Cerrar imagen"><Icon name="close" /></button>
-          <img src={source} alt={alt} referrerPolicy="no-referrer" />
+          <button className="maintenance-lightbox__close" type="button" onClick={closeFullImage} aria-label="Cerrar imagen"><Icon name="close" /></button>
+          {fullSource ? (
+            <img src={fullSource} alt={alt} referrerPolicy="no-referrer" />
+          ) : (
+            <span className="maintenance-lightbox__loading"><Icon name="progress_activity" /> {loadingFullSource ? 'Cargando imagen original...' : 'Preparando imagen original...'}</span>
+          )}
         </div>
       )}
     </>
