@@ -1,10 +1,9 @@
-import React, { useCallback, useEffect, useRef, useState } from 'react';
+import React, { useEffect, useRef, useState } from 'react';
 import { createPortal } from 'react-dom';
 import { useNavigate, useParams } from 'react-router-dom';
 import { useAuth } from '../../AuthContext';
 import Icon from '../../components/common/Icon';
 import TicketVisitGroupPanel from '../../components/tickets/TicketVisitGroupPanel';
-import useNearViewport from '../../hooks/useNearViewport';
 import { requestAvailable } from '../../services/moduleApi';
 import TicketDetailPage from './TicketDetailPage';
 
@@ -95,24 +94,8 @@ function TicketPublicSignatureCard({ info, loading, error }) {
   );
 }
 
-function LazyTicketPublicSignatureCard({ info, loading, error, onRequest }) {
-  const { ref, nearViewport } = useNearViewport();
-
-  useEffect(() => {
-    if (nearViewport) onRequest();
-  }, [nearViewport, onRequest]);
-
-  return (
-    <div ref={ref} className="ticket-public-signature-lazy" style={{ minHeight: 1 }}>
-      {nearViewport && <TicketPublicSignatureCard info={info} loading={loading} error={error} />}
-    </div>
-  );
-}
-
 export default function TicketDetailWithQuickEdit() {
   const hostRef = useRef(null);
-  const signatureRequestedRef = useRef(false);
-  const signatureRequestSequenceRef = useRef(0);
   const navigate = useNavigate();
   const { boletaUid } = useParams();
   const { hasPermission, sessionToken } = useAuth();
@@ -120,42 +103,26 @@ export default function TicketDetailWithQuickEdit() {
   const canCreate = hasPermission('BOLETAS_CREAR');
   const [signaturePortal, setSignaturePortal] = useState(null);
   const [signatureInfo, setSignatureInfo] = useState(null);
-  const [signatureLoading, setSignatureLoading] = useState(false);
+  const [signatureLoading, setSignatureLoading] = useState(true);
   const [signatureError, setSignatureError] = useState('');
 
-  const loadSignatureInfo = useCallback((force = false) => {
-    if (!boletaUid || !sessionToken || (signatureRequestedRef.current && !force)) return;
-    signatureRequestedRef.current = true;
-    const sequence = ++signatureRequestSequenceRef.current;
-    setSignatureLoading(true);
-    setSignatureError('');
-    requestAvailable(SIGNATURE_LINK_ROUTES, { boletaUid, id: boletaUid }, sessionToken)
-      .then((data) => {
-        if (sequence === signatureRequestSequenceRef.current) setSignatureInfo(data);
-      })
-      .catch((error) => {
-        if (sequence === signatureRequestSequenceRef.current) setSignatureError(error.message);
-      })
-      .finally(() => {
-        if (sequence === signatureRequestSequenceRef.current) setSignatureLoading(false);
-      });
-  }, [boletaUid, sessionToken]);
-
   useEffect(() => {
-    signatureRequestedRef.current = false;
-    signatureRequestSequenceRef.current += 1;
-    setSignatureInfo(null);
-    setSignatureLoading(false);
-    setSignatureError('');
-  }, [boletaUid, sessionToken]);
-
-  useEffect(() => {
-    const reloadRequestedSignature = () => {
-      if (signatureRequestedRef.current) loadSignatureInfo(true);
+    let active = true;
+    const load = () => {
+      setSignatureLoading(true);
+      setSignatureError('');
+      requestAvailable(SIGNATURE_LINK_ROUTES, { boletaUid, id: boletaUid }, sessionToken)
+        .then((data) => { if (active) setSignatureInfo(data); })
+        .catch((error) => { if (active) setSignatureError(error.message); })
+        .finally(() => { if (active) setSignatureLoading(false); });
     };
-    window.addEventListener('dms-offline-sync-complete', reloadRequestedSignature);
-    return () => window.removeEventListener('dms-offline-sync-complete', reloadRequestedSignature);
-  }, [loadSignatureInfo]);
+    load();
+    window.addEventListener('dms-offline-sync-complete', load);
+    return () => {
+      active = false;
+      window.removeEventListener('dms-offline-sync-complete', load);
+    };
+  }, [boletaUid, sessionToken]);
 
   useEffect(() => {
     const host = hostRef.current;
@@ -218,12 +185,7 @@ export default function TicketDetailWithQuickEdit() {
       <TicketVisitGroupPanel boletaUid={boletaUid} sessionToken={sessionToken} canCreate={canCreate} canEdit={canEdit} />
       <TicketDetailPage />
       {signaturePortal && createPortal(
-        <LazyTicketPublicSignatureCard
-          info={signatureInfo}
-          loading={signatureLoading}
-          error={signatureError}
-          onRequest={loadSignatureInfo}
-        />,
+        <TicketPublicSignatureCard info={signatureInfo} loading={signatureLoading} error={signatureError} />,
         signaturePortal,
       )}
     </div>

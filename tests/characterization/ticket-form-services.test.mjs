@@ -99,10 +99,7 @@ test('la persistencia conserva autosave, archivos y acciones finales', () => {
   assert.match(service, /MODULE_ROUTES\.tickets\.autosave/);
   assert.match(service, /MODULE_ROUTES\.tickets\.signatureUpload/);
   assert.match(service, /MODULE_ROUTES\.tickets\.evidenceUpload/);
-  assert.match(service, /EVIDENCE_UPLOAD_CONCURRENCY = 3/);
-  assert.match(service, /binaryConfirmed/);
-  assert.match(service, /mapWithConcurrency/);
-  assert.match(service, /for \(const entry of pending\)/);
+  assert.match(service, /for \(const item of evidences\)/);
   assert.match(service, /fileToBase64/);
   assert.match(service, /MODULE_ROUTES\.tickets\.finalize/);
   assert.match(service, /MODULE_ROUTES\.tickets\.testFinalize/);

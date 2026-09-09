@@ -1,5 +1,3 @@
-import { compressEvidenceImage } from './imageCompression';
-
 export const EVIDENCE_VIDEO_MAX_SECONDS = 90;
 export const EVIDENCE_IMAGE_MAX_BYTES = 15 * 1024 * 1024;
 export const EVIDENCE_VIDEO_MAX_BYTES = 300 * 1024 * 1024;
@@ -131,21 +129,9 @@ export async function validateEvidenceFile(file, { allowDocuments = false } = {}
 
 export async function prepareEvidenceFiles(files = [], options = {}) {
   const prepared = [];
-  for (const originalFile of files) {
-    const originalMetadata = await validateEvidenceFile(originalFile, options);
-    const file = originalMetadata.mediaType === 'image'
-      ? await compressEvidenceImage(originalFile)
-      : originalFile;
-    const optimized = file !== originalFile;
-    prepared.push({
-      file,
-      mimeType: inferEvidenceMimeType(file),
-      mediaType: originalMetadata.mediaType,
-      durationSeconds: originalMetadata.durationSeconds,
-      size: Number(file?.size || originalMetadata.size || 0),
-      originalSize: originalMetadata.size,
-      optimized,
-    });
+  for (const file of files) {
+    const metadata = await validateEvidenceFile(file, options);
+    prepared.push({ file, ...metadata });
   }
   return prepared;
 }

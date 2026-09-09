@@ -16,52 +16,10 @@ import {
   startMaintenanceProgressScheduler,
   stopMaintenanceProgressScheduler,
 } from './services/maintenance-progress-chat.service.js';
-import { uploadPressureSnapshot } from './services/upload-pressure.service.js';
 import {
   startWeeklyBackupScheduler,
   stopWeeklyBackupScheduler,
 } from './services/weekly-backup.service.js';
-
-const STARTUP_CRITICAL_TABLES = Object.freeze([
-  'Sesiones',
-  'Usuarios',
-  'Roles',
-  'Permisos',
-  'RolPermisos',
-  'UsuarioPermisos',
-  'Clientes',
-  'ClienteUbicaciones',
-  'ClienteUbicacionesEquipo',
-  'ClienteContactos',
-  'Categorias',
-  'TiposDispositivo',
-  'Fabricantes',
-  'Modelos',
-  'TiposFalla',
-  'TipoDispositivoFabricantes',
-]);
-
-// Estas son las hojas que explican la mayor parte del retraso de una instancia
-// recién iniciada. Antes solo se calentaban autenticación y catálogos; la primera
-// apertura de Boletas/Agenda/Mantenimientos todavía tenía que traer A:ZZ desde
-// Google Sheets. La descarga offline ocultaba el problema porque hacía esas
-// mismas lecturas previamente. EvidenciasBoleta y Mantenimiento imagenes contienen
-// solo metadatos de Sheets aquí; los archivos binarios de Drive no se descargan.
-const STARTUP_OPERATIONAL_TABLES = Object.freeze([
-  'Configuracion',
-  'Boletas',
-  'BoletaAsignados',
-  'EvidenciasBoleta',
-  'Agendas',
-  'AgendaAsignados',
-  'Mantenimiento',
-  'Evidencia_Mantenimientos',
-  'Mantenimiento imagenes',
-  'KnowledgeArticles',
-  'KnowledgeAttachments',
-  'KnowledgeCategories',
-  'KnowledgeArticleCategories',
-]);
 
 function mb(value) {
   return Math.round((Number(value || 0) / 1024 / 1024) * 10) / 10;
@@ -88,7 +46,6 @@ function sendHealth(req, res) {
     body.sheets = googleSheetsGateSnapshot();
     body.audit = auditQueueSnapshot();
     body.security = securityRateLimitSnapshot();
-    body.uploads = uploadPressureSnapshot();
     body.agendaNotifications = agendaNotificationQueueSnapshot();
   }
 
@@ -129,22 +86,6 @@ function requestHandler(req, res) {
   });
 }
 
-async function warmStartupSheetCaches() {
-  try {
-    await readTables(STARTUP_CRITICAL_TABLES);
-    console.log('Caché crítica de Sheets precargada correctamente.');
-  } catch (error) {
-    console.warn(`No se pudo precargar la caché crítica de Sheets: ${error.message}`);
-  }
-
-  try {
-    await readTables(STARTUP_OPERATIONAL_TABLES);
-    console.log('Caché operativa de Sheets precargada correctamente.');
-  } catch (error) {
-    console.warn(`No se pudo precargar la caché operativa de Sheets: ${error.message}`);
-  }
-}
-
 const server = http.createServer(requestHandler);
 server.keepAliveTimeout = env.serverKeepAliveTimeoutMs;
 server.headersTimeout = Math.max(env.serverHeadersTimeoutMs, server.keepAliveTimeout + 1000);
@@ -161,13 +102,33 @@ server.listen(env.port, '0.0.0.0', () => {
   startMaintenanceProgressScheduler();
   startWeeklyBackupScheduler();
 
-  // Empieza apenas el proceso queda escuchando. No bloquea /api/health ni el
-  // arranque de Render. Si una petición llega mientras se está calentando una
-  // hoja, sheets.repository comparte el mismo inflightRead en lugar de leerla
-  // dos veces. Primero se resuelve autenticación y luego los datos operativos.
+  // Una sola lectura batch prepara autenticación, permisos y catálogos antes
+  // de que varios técnicos abran la aplicación al mismo tiempo después de un
+  // reinicio de Render. No bloquea el arranque ni el health check.
   setTimeout(() => {
-    warmStartupSheetCaches().catch(() => {});
-  }, 25).unref?.();
+    readTables([
+      'Sesiones',
+      'Usuarios',
+      'Roles',
+      'Permisos',
+      'RolPermisos',
+      'UsuarioPermisos',
+      'Clientes',
+      'ClienteUbicaciones',
+      'ClienteUbicacionesEquipo',
+      'ClienteContactos',
+      'Categorias',
+      'TiposDispositivo',
+      'Fabricantes',
+      'Modelos',
+      'TiposFalla',
+      'TipoDispositivoFabricantes',
+    ]).then(() => {
+      console.log('Caché crítica de Sheets precargada correctamente.');
+    }).catch((error) => {
+      console.warn(`No se pudo precargar la caché de Sheets: ${error.message}`);
+    });
+  }, 750).unref?.();
 });
 
 let shuttingDown = false;

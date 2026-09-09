@@ -7,13 +7,11 @@ import path from 'node:path';
 const ROOT = fileURLToPath(new URL('../../', import.meta.url));
 const source = (relativePath) => readFileSync(path.join(ROOT, relativePath), 'utf8');
 
-test('las fotos intentan primero el thumbnail y los videos usan fallback protegido deduplicado cerca del viewport', () => {
+test('las fotos intentan primero el thumbnail y los videos usan el fallback protegido deduplicado', () => {
   const contents = source('src/components/maintenance/MaintenanceEvidenceImage.jsx');
   assert.match(contents, /const initialSource = pick\(image, \['PreviewURL', 'previewUrl', 'DriveURL', 'url'\]\)/);
   assert.match(contents, /const \[source, setSource\] = useState\(kind === 'video' \? '' : initialSource\)/);
-  assert.match(contents, /const needsProtectedOnMount = Boolean\(imageId && \(kind === 'video' \|\| !initialSource\)\)/);
-  assert.match(contents, /useNearViewport/);
-  assert.match(contents, /if \(needsProtectedOnMount && nearViewport\) loadProtectedMedia\(\)/);
+  assert.match(contents, /if \(imageId && \(kind === 'video' \|\| !initialSource\)\) loadProtectedMedia\(\)/);
   assert.match(contents, /onError=\{\(\) => \{/);
   assert.match(contents, /protectedMediaCache/);
   assert.match(contents, /protectedMediaRequests/);

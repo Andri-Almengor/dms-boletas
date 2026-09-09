@@ -1,5 +1,4 @@
 import React, { useEffect, useRef, useState } from 'react';
-import useNearViewport from '../../hooks/useNearViewport';
 import Icon from '../common/Icon';
 import { MODULE_ROUTES, pick, requestAvailable } from '../../services/moduleApi';
 import { evidenceMediaKind } from '../../utils/evidenceMedia';
@@ -35,8 +34,6 @@ export default function MaintenanceEvidenceImage({ image, sessionToken, alt = 'E
   const kind = mediaType === 'video' || mediaType === 'video'.toUpperCase()
     ? 'video'
     : evidenceMediaKind({ mimeType: pick(image, ['MimeType']), name: pick(image, ['Nombre', 'NombreArchivo'], alt) });
-  const needsProtectedOnMount = Boolean(imageId && (kind === 'video' || !initialSource));
-  const { ref: viewportRef, nearViewport } = useNearViewport({ disabled: !needsProtectedOnMount });
   const attemptedRef = useRef(false);
   const [source, setSource] = useState(kind === 'video' ? '' : initialSource);
   const [loadingFallback, setLoadingFallback] = useState(false);
@@ -69,14 +66,14 @@ export default function MaintenanceEvidenceImage({ image, sessionToken, alt = 'E
     setFailed(false);
     setOpen(false);
     setSource(kind === 'video' ? '' : initialSource);
-    if (needsProtectedOnMount && nearViewport) loadProtectedMedia();
-    // Solo debe ejecutarse al cambiar de evidencia o cuando se aproxima al viewport.
+    if (imageId && (kind === 'video' || !initialSource)) loadProtectedMedia();
+    // Solo debe ejecutarse al cambiar de evidencia.
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [imageId, initialSource, sessionToken, kind, needsProtectedOnMount, nearViewport]);
+  }, [imageId, initialSource, sessionToken, kind]);
 
   if (failed && !source) {
     return (
-      <div ref={viewportRef} className="maintenance-evidence-image maintenance-evidence-image--error">
+      <div className="maintenance-evidence-image maintenance-evidence-image--error">
         <Icon name={kind === 'video' ? 'videocam_off' : 'broken_image'} />
         <span>No se pudo cargar</span>
         <button type="button" onClick={() => { attemptedRef.current = false; setFailed(false); loadProtectedMedia(true); }}>
@@ -88,13 +85,13 @@ export default function MaintenanceEvidenceImage({ image, sessionToken, alt = 'E
 
   if (kind === 'video') {
     return source
-      ? <div ref={viewportRef} className="maintenance-evidence-video"><video src={source} controls preload="metadata" playsInline aria-label={alt} /></div>
-      : <div ref={viewportRef} className="maintenance-evidence-image"><span className="maintenance-evidence-image__loading"><Icon name={loadingFallback ? 'progress_activity' : 'videocam'} /> {loadingFallback ? 'Cargando video...' : 'Preparando video...'}</span></div>;
+      ? <div className="maintenance-evidence-video"><video src={source} controls preload="metadata" playsInline aria-label={alt} /></div>
+      : <div className="maintenance-evidence-image"><span className="maintenance-evidence-image__loading"><Icon name="progress_activity" /> {loadingFallback ? 'Cargando video...' : 'Preparando video...'}</span></div>;
   }
 
   return (
     <>
-      <button ref={viewportRef} type="button" className="maintenance-evidence-image" onClick={() => source && setOpen(true)} aria-label="Abrir evidencia en tamaño completo">
+      <button type="button" className="maintenance-evidence-image" onClick={() => source && setOpen(true)} aria-label="Abrir evidencia en tamaño completo">
         {source ? (
           <img
             src={source}
@@ -111,7 +108,7 @@ export default function MaintenanceEvidenceImage({ image, sessionToken, alt = 'E
             }}
           />
         ) : (
-          <span className="maintenance-evidence-image__loading"><Icon name={loadingFallback ? 'progress_activity' : 'image'} /> {loadingFallback ? 'Cargando...' : 'Preparando imagen...'}</span>
+          <span className="maintenance-evidence-image__loading"><Icon name="progress_activity" /> {loadingFallback ? 'Cargando...' : 'Preparando imagen...'}</span>
         )}
         <span className="maintenance-evidence-image__zoom"><Icon name="zoom_in" /></span>
       </button>

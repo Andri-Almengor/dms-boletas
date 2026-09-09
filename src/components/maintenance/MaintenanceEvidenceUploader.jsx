@@ -1,8 +1,9 @@
 import React, { useEffect, useRef, useState } from 'react';
 import Icon from '../common/Icon';
 import MaintenanceQuickDeviceCreator from './MaintenanceQuickDeviceCreator';
-import { uploadMaintenanceImagesInBatches } from '../../services/maintenanceImageBatch';
-import { pick } from '../../services/moduleApi';
+import { fileToBase64 } from '../../pages/maintenance/maintenanceFormData';
+import { MODULE_ROUTES, pick, requestAvailable } from '../../services/moduleApi';
+import { shouldUseLargeEvidenceUpload, uploadLargeMaintenanceEvidence } from '../../services/largeEvidenceUpload';
 import {
   createEvidencePreviewUrl,
   prepareEvidenceFiles,
@@ -28,10 +29,6 @@ function EvidencePreview({ evidence }) {
     return <video src={evidence.previewUrl} controls preload="metadata" playsInline aria-label={evidence.file.name} />;
   }
   return <img src={evidence.previewUrl} alt={evidence.file.name} />;
-}
-
-function uploadedClientKey(row = {}) {
-  return String(row.clientKey || row.id || row.FotoDispositivoID || '').trim();
 }
 
 function DeviceEvidenceUploader({ device, maintenanceId, sessionToken, onClose, onUploaded }) {
@@ -84,34 +81,40 @@ function DeviceEvidenceUploader({ device, maintenanceId, sessionToken, onClose, 
     setSaving(true);
     setError('');
     try {
-      const pendingSnapshot = [...evidences];
-      const result = await uploadMaintenanceImagesInBatches({
-        maintenanceId,
-        deviceId,
-        images: pendingSnapshot,
-        sessionToken,
-      });
-
-      const uploadedKeys = new Set((result.uploaded || []).map(uploadedClientKey).filter(Boolean));
-      pendingSnapshot
-        .filter((item) => uploadedKeys.has(String(item.localId)))
-        .forEach((item) => releaseEvidencePreviewUrl(item.previewUrl));
-      setEvidences((current) => current.filter((item) => !uploadedKeys.has(String(item.localId))));
-
-      if (uploadedKeys.size) await onUploaded?.();
-
-      if (result.failed?.length) {
-        const firstMessages = result.failed
-          .slice(0, 3)
-          .map((item) => item.fileName ? `${item.fileName}: ${item.message}` : item.message)
-          .filter(Boolean)
-          .join(' · ');
-        setError(
-          `Se guardaron ${uploadedKeys.size} evidencia${uploadedKeys.size === 1 ? '' : 's'}, pero ${result.failed.length} no se pudieron cargar.${firstMessages ? ` ${firstMessages}` : ''}`,
-        );
-        return;
+      for (const evidence of evidences) {
+        if (shouldUseLargeEvidenceUpload(evidence)) {
+          await uploadLargeMaintenanceEvidence({
+            maintenanceId,
+            deviceId,
+            imageId: evidence.localId,
+            item: evidence,
+            sessionToken,
+          });
+        } else {
+          await requestAvailable(
+            MODULE_ROUTES.maintenance.imageUpload,
+            {
+              maintenanceId,
+              deviceId,
+              imageId: evidence.localId,
+              FotoDispositivoID: evidence.localId,
+              DispositivoMantenimientoRef: deviceId,
+              Tipo: evidence.type,
+              Nota: evidence.note,
+              fileName: evidence.file.name,
+              mimeType: evidence.mimeType,
+              mediaType: evidence.mediaType,
+              durationSeconds: Number(evidence.durationSeconds || 0),
+              size: Number(evidence.size || evidence.file.size || 0),
+              base64: await fileToBase64(evidence.file),
+            },
+            sessionToken,
+          );
+        }
+        releaseEvidencePreviewUrl(evidence.previewUrl);
+        setEvidences((current) => current.filter((item) => item.localId !== evidence.localId));
       }
-
+      await onUploaded?.();
       onClose();
     } catch (uploadError) {
       setError(uploadError.message || 'No se pudieron guardar las evidencias.');
