@@ -7,15 +7,24 @@ import path from 'node:path';
 const ROOT = fileURLToPath(new URL('../../', import.meta.url));
 const source = (relativePath) => readFileSync(path.join(ROOT, relativePath), 'utf8');
 
-test('las fotos intentan primero el thumbnail y los videos usan el fallback protegido deduplicado', () => {
+test('las fotos usan thumbnail en la grilla y cargan el original protegido al ampliar', () => {
   const contents = source('src/components/maintenance/MaintenanceEvidenceImage.jsx');
+  const styles = source('src/styles/maintenance-enhancements.css');
+
   assert.match(contents, /const initialSource = pick\(image, \['PreviewURL', 'previewUrl', 'DriveURL', 'url'\]\)/);
   assert.match(contents, /const \[source, setSource\] = useState\(kind === 'video' \? '' : initialSource\)/);
+  assert.match(contents, /const \[fullSource, setFullSource\] = useState\(''\)/);
+  assert.match(contents, /async function openFullImage\(\)/);
+  assert.match(contents, /const protectedSource = await requestProtectedSource\(imageId, sessionToken\)/);
+  assert.match(contents, /onClick=\{openFullImage\}/);
+  assert.match(contents, /<img src=\{fullSource\} alt=\{alt\} referrerPolicy="no-referrer" \/>/);
   assert.match(contents, /if \(imageId && \(kind === 'video' \|\| !initialSource\)\) loadProtectedMedia\(\)/);
   assert.match(contents, /onError=\{\(\) => \{/);
   assert.match(contents, /protectedMediaCache/);
   assert.match(contents, /protectedMediaRequests/);
   assert.match(contents, /<video src=\{source\} controls/);
+  assert.match(styles, /\.maintenance-lightbox img\{[^}]*object-fit:contain/);
+  assert.doesNotMatch(contents, /maintenance-lightbox[\s\S]*<img src=\{source\}/);
   assert.doesNotMatch(contents, /isProtectedGoogleUrl/);
 });
 
