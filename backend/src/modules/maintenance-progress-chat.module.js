@@ -1,4 +1,3 @@
-import { countStatuses } from '../core/status-counts.js';
 import { pick } from '../core/utils.js';
 import { maintenancePlannedCountsChanged } from '../core/maintenance-progress.js';
 import { readTable, findById } from '../infra/sheets.repository.js';
@@ -14,26 +13,6 @@ function clean(value) {
 
 function maintenanceFromResult(result = {}) {
   return result?.mantenimiento || result?.maintenance || result || {};
-}
-
-function canReadGlobalStatusCounts(ctx) {
-  return ctx.permissions?.includes('USUARIOS_GESTIONAR');
-}
-
-async function list(ctx) {
-  if (!ctx.payload?.includeStatusCounts || !canReadGlobalStatusCounts(ctx)) {
-    return baseMaintenanceHandlers.list(ctx);
-  }
-
-  const [result, rows] = await Promise.all([
-    baseMaintenanceHandlers.list(ctx),
-    readTable('Mantenimiento'),
-  ]);
-  const activeRows = rows.filter((row) => row.Activo !== false);
-  return {
-    ...result,
-    statusCounts: countStatuses(activeRows),
-  };
 }
 
 async function requestedMaintenanceAlreadyExists(ctx) {
@@ -81,7 +60,6 @@ export { maintenanceQuestionHandlers };
 
 export const maintenanceProgressChatHandlers = {
   ...baseMaintenanceHandlers,
-  list,
   create,
   update,
 };
