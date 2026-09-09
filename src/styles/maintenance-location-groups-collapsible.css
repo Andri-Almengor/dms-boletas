@@ -117,6 +117,18 @@
   animation: maintenance-location-group-reveal .18s ease-out;
 }
 
+/* La miniatura del inventario conserva 4:3, pero la imagen abierta en el lightbox
+   debe respetar siempre la proporción real del archivo original. */
+.maintenance-inventory-images .maintenance-lightbox > img,
+.maintenance-detail-images .maintenance-lightbox > img {
+  width: auto;
+  height: auto;
+  max-width: min(100%, 1200px);
+  max-height: calc(100vh - 90px);
+  aspect-ratio: auto;
+  object-fit: contain;
+}
+
 @keyframes maintenance-location-group-reveal {
   from {
     opacity: 0;
