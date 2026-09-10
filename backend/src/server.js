@@ -21,8 +21,44 @@ import {
   stopWeeklyBackupScheduler,
 } from './services/weekly-backup.service.js';
 
+const RUNTIME_MEMORY_MONITOR_MS = 30_000;
+const RUNTIME_MEMORY_WARN_RSS_MB = 360;
+const RUNTIME_MEMORY_WARN_HEAP_MB = 280;
+let runtimeMemoryTimer = null;
+
 function mb(value) {
   return Math.round((Number(value || 0) / 1024 / 1024) * 10) / 10;
+}
+
+function runtimeMemorySnapshot() {
+  const memory = process.memoryUsage();
+  return {
+    rssMb: mb(memory.rss),
+    heapUsedMb: mb(memory.heapUsed),
+    heapTotalMb: mb(memory.heapTotal),
+    externalMb: mb(memory.external),
+    arrayBuffersMb: mb(memory.arrayBuffers),
+  };
+}
+
+function runtimeMemoryText() {
+  const memory = runtimeMemorySnapshot();
+  return `rss=${memory.rssMb}MB heap=${memory.heapUsedMb}/${memory.heapTotalMb}MB external=${memory.externalMb}MB arrayBuffers=${memory.arrayBuffersMb}MB uptime=${Math.round(process.uptime())}s`;
+}
+
+function startRuntimeMemoryMonitor() {
+  if (runtimeMemoryTimer) return;
+  runtimeMemoryTimer = setInterval(() => {
+    const memory = runtimeMemorySnapshot();
+    if (memory.rssMb < RUNTIME_MEMORY_WARN_RSS_MB && memory.heapUsedMb < RUNTIME_MEMORY_WARN_HEAP_MB) return;
+    console.warn(`[runtime][MEMORY_HIGH] ${runtimeMemoryText()}`);
+  }, RUNTIME_MEMORY_MONITOR_MS);
+  runtimeMemoryTimer.unref?.();
+}
+
+function stopRuntimeMemoryMonitor() {
+  clearInterval(runtimeMemoryTimer);
+  runtimeMemoryTimer = null;
 }
 
 function sendHealth(req, res) {
@@ -95,6 +131,9 @@ server.maxRequestsPerSocket = 1000;
 server.listen(env.port, '0.0.0.0', () => {
   console.log(`DMS backend escuchando en el puerto ${env.port}`);
   console.log(`Concurrencia HTTP: ${env.httpMaxConcurrentRequests}; solicitudes grandes: ${env.httpMaxConcurrentLargeRequests}`);
+  console.log(`[runtime] pid=${process.pid} ${runtimeMemoryText()}`);
+  startRuntimeMemoryMonitor();
+
   if (env.isProduction && env.frontendOrigin === '*') {
     console.warn('FRONTEND_ORIGIN permite cualquier origen. Configure una lista explícita para endurecer CORS en producción.');
   }
@@ -132,10 +171,11 @@ server.listen(env.port, '0.0.0.0', () => {
 });
 
 let shuttingDown = false;
-function shutdown(signal) {
+function shutdown(signal, exitCode = 0) {
   if (shuttingDown) return;
   shuttingDown = true;
-  console.log(`${signal}: cerrando servidor...`);
+  console.log(`${signal}: cerrando servidor... ${runtimeMemoryText()}`);
+  stopRuntimeMemoryMonitor();
   stopMaintenanceProgressScheduler();
   stopWeeklyBackupScheduler();
 
@@ -146,15 +186,26 @@ function shutdown(signal) {
       console.warn('El cierre continuó con notificaciones de Agenda todavía pendientes; podrán reenviarse desde el detalle.');
     }
     await flushAuditQueue().catch(() => {});
-    process.exit(0);
+    process.exit(exitCode);
   });
   server.closeIdleConnections?.();
   setTimeout(async () => {
     await flushAuditQueue().catch(() => {});
     server.closeAllConnections?.();
-    process.exit(1);
+    process.exit(exitCode || 1);
   }, env.shutdownGraceMs).unref();
 }
 
 process.on('SIGTERM', () => shutdown('SIGTERM'));
 process.on('SIGINT', () => shutdown('SIGINT'));
+process.on('uncaughtException', (error) => {
+  console.error(`[runtime][UNCAUGHT_EXCEPTION] ${runtimeMemoryText()}`, error);
+  shutdown('uncaughtException', 1);
+});
+process.on('unhandledRejection', (reason) => {
+  console.error(`[runtime][UNHANDLED_REJECTION] ${runtimeMemoryText()}`, reason);
+  shutdown('unhandledRejection', 1);
+});
+process.on('exit', (code) => {
+  console.log(`[runtime][EXIT] code=${code} ${runtimeMemoryText()}`);
+});
