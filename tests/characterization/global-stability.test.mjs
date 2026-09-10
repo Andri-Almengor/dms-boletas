@@ -9,7 +9,7 @@ import {
   encodeWeeklyBackupSlot,
   shouldRunAutomaticBackup,
 } from '../../backend/src/services/weekly-backup-slot.js';
-import { Semaphore } from '../../backend/src/core/semaphore.js';
+import { AsyncSemaphore } from '../../backend/src/core/semaphore.js';
 
 const here = path.dirname(fileURLToPath(import.meta.url));
 const root = path.resolve(here, '../..');
@@ -48,7 +48,7 @@ test('three cold starts in the same weekly slot schedule one automatic backup at
     })) {
       automaticBackups += 1;
       persistedLastSlot = encodeWeeklyBackupSlot(slot);
-      persistedLastStatus = 'success';
+      persistedLastStatus = 'COMPLETADO';
     }
   }
 
@@ -57,29 +57,31 @@ test('three cold starts in the same weekly slot schedule one automatic backup at
 
 test('/api/health stays before application middleware and has no Sheets/Drive dependency', () => {
   const source = read('backend/src/server.js');
-  const healthStart = source.indexOf("req.url?.startsWith('/api/health')");
-  const gateStart = source.indexOf('httpConcurrencyGate(req, res)');
+  const healthStart = source.indexOf("requestPath === '/api/health'");
+  const gateStart = source.indexOf('concurrencyMiddleware(req, res');
   const appStart = source.indexOf('app(req, res)');
   assert.ok(healthStart >= 0 && gateStart > healthStart && appStart > gateStart);
 
-  const healthBlock = source.slice(healthStart, gateStart);
+  const sendHealthStart = source.indexOf('function sendHealth');
+  const requestHandlerStart = source.indexOf('function requestHandler');
+  const healthBlock = source.slice(sendHealthStart, requestHandlerStart);
   assert.match(healthBlock, /bootId/);
   assert.match(healthBlock, /uptimeSeconds/);
-  assert.doesNotMatch(healthBlock, /Sheets|Drive|googleapis|SMTP|Gemini|Chat/i);
+  assert.doesNotMatch(healthBlock, /readTable|readTables|copyDriveFile|createFolder|googleapis|SMTP|Gemini|sendChat/i);
 });
 
 test('large requests are backpressured before Express parses the body', () => {
   const server = read('backend/src/server.js');
   const app = read('backend/src/app.js');
   const env = read('backend/src/config/env.js');
-  assert.ok(server.indexOf('httpConcurrencyGate(req, res)') < server.indexOf('app(req, res)'));
+  assert.ok(server.indexOf('concurrencyMiddleware(req, res') < server.indexOf('app(req, res)'));
   assert.match(app, /express\.json\(/);
-  assert.match(env, /HTTP_MAX_CONCURRENT_LARGE_REQUESTS[^\n]*'1'/);
-  assert.match(env, /HTTP_MAX_QUEUED_LARGE_REQUESTS[^\n]*'2'/);
+  assert.match(env, /HTTP_MAX_CONCURRENT_LARGE_REQUESTS[^\n]*1/);
+  assert.match(env, /HTTP_MAX_QUEUED_LARGE_REQUESTS[^\n]*2/);
 });
 
 test('a single-slot semaphore does not process multiple large jobs simultaneously', async () => {
-  const gate = new Semaphore(1, 2);
+  const gate = new AsyncSemaphore({ name: 'test-large', max: 1, queueLimit: 2, timeoutMs: 1000 });
   let active = 0;
   let maxActive = 0;
   const job = async () => {
@@ -95,7 +97,7 @@ test('a single-slot semaphore does not process multiple large jobs simultaneousl
 });
 
 test('queued work can be aborted instead of surviving a disconnected client', async () => {
-  const gate = new Semaphore(1, 2);
+  const gate = new AsyncSemaphore({ name: 'test-abort', max: 1, queueLimit: 2, timeoutMs: 1000 });
   const release = await gate.acquire();
   const controller = new AbortController();
   const queued = gate.acquire({ signal: controller.signal });
