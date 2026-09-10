@@ -27,11 +27,16 @@ const DEFAULT_TIMEZONE = 'America/Costa_Rica';
 const DEFAULT_DAY = 0; // Domingo.
 const DEFAULT_HOUR = 2;
 const SCHEDULER_TICK_MS = 15 * 60_000;
+// Un reinicio de Render no debe disparar inmediatamente una copia completa
+// del Sheet. Si la instancia se mantiene estable, la verificación se hace
+// después de diez minutos y luego continúa con el intervalo normal.
+const SCHEDULER_STARTUP_DELAY_MS = 10 * 60_000;
 const WEEKDAYS = Object.freeze({ Sun: 0, Mon: 1, Tue: 2, Wed: 3, Thu: 4, Fri: 5, Sat: 6 });
 
 let schedulerTimer = null;
 let schedulerStartupTimer = null;
 let schedulerRunning = false;
+let schedulerCompletedSlot = '';
 let backupTail = Promise.resolve();
 
 function clean(value, maxLength = 1200) {
@@ -225,8 +230,13 @@ async function schedulerTick() {
     const settings = await getWeeklyBackupStatus();
     if (!settings.enabled) return;
     const slot = weeklyBackupSlot(settings, new Date());
-    if (settings.lastSlot === slot && settings.lastStatus === 'COMPLETADO') return;
+    if (schedulerCompletedSlot === slot) return;
+    if (settings.lastSlot === slot && settings.lastStatus === 'COMPLETADO') {
+      schedulerCompletedSlot = slot;
+      return;
+    }
     const result = await createWeeklyBackup({ actor: 'SYSTEM', scheduledSlot: slot });
+    schedulerCompletedSlot = slot;
     console.log(`[weekly-backup] Respaldo ${result.fileName} creado para la semana ${slot}.`);
   } catch (error) {
     console.warn(`[weekly-backup] No se pudo crear el respaldo semanal: ${clean(error?.message || error, 500)}`);
@@ -237,11 +247,11 @@ async function schedulerTick() {
 
 export function startWeeklyBackupScheduler() {
   if (schedulerTimer) return { started: true, alreadyStarted: true };
-  schedulerStartupTimer = setTimeout(() => void schedulerTick(), 5_000);
+  schedulerStartupTimer = setTimeout(() => void schedulerTick(), SCHEDULER_STARTUP_DELAY_MS);
   schedulerStartupTimer.unref?.();
   schedulerTimer = setInterval(() => void schedulerTick(), SCHEDULER_TICK_MS);
   schedulerTimer.unref?.();
-  console.log('[weekly-backup] Verificación semanal habilitada; la configuración se lee desde Configuracion.');
+  console.log(`[weekly-backup] Verificación semanal habilitada; primera comprobación en ${Math.round(SCHEDULER_STARTUP_DELAY_MS / 60_000)} min.`);
   return { started: true };
 }
 
