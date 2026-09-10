@@ -72,7 +72,7 @@ export const env = Object.freeze({
   maintenanceImageBatchMaxFiles: optionalNumber('MAINTENANCE_IMAGE_BATCH_MAX_FILES', 20, 1),
   maintenanceImageBatchMaxBase64Chars: optionalNumber('MAINTENANCE_IMAGE_BATCH_MAX_BASE64_CHARS', 22_000_000, 1_000_000),
   maintenanceImageMetadataBatchMaxItems: optionalNumber('MAINTENANCE_IMAGE_METADATA_BATCH_MAX_ITEMS', 100, 1),
-  maintenanceImageUploadConcurrency: optionalNumber('MAINTENANCE_IMAGE_UPLOAD_CONCURRENCY', 3, 1),
+  maintenanceImageUploadConcurrency: optionalNumber('MAINTENANCE_IMAGE_UPLOAD_CONCURRENCY', 1, 1),
 
   // Avance automático de mantenimientos al Chat configurado en cada cliente.
   // Las horas se interpretan en la zona horaria indicada y el servicio omite
@@ -87,10 +87,13 @@ export const env = Object.freeze({
   auditBatchSize: optionalNumber('AUDIT_BATCH_SIZE', 100, 1),
   auditMaxBufferedRows: optionalNumber('AUDIT_MAX_BUFFERED_ROWS', 2_000, 100),
 
+  // En Render Free las solicitudes con base64 son costosas en memoria. Se
+  // procesa una sola solicitud grande a la vez y las demás esperan en cola
+  // antes de que Express lea/parchee el cuerpo completo.
   httpMaxConcurrentRequests: optionalNumber('HTTP_MAX_CONCURRENT_REQUESTS', 40, 1),
-  httpMaxConcurrentLargeRequests: optionalNumber('HTTP_MAX_CONCURRENT_LARGE_REQUESTS', 2, 1),
+  httpMaxConcurrentLargeRequests: optionalNumber('HTTP_MAX_CONCURRENT_LARGE_REQUESTS', 1, 1),
   httpQueueLimit: optionalNumber('HTTP_QUEUE_LIMIT', 100, 0),
-  httpQueueTimeoutMs: optionalNumber('HTTP_QUEUE_TIMEOUT_MS', 15000, 1000),
+  httpQueueTimeoutMs: optionalNumber('HTTP_QUEUE_TIMEOUT_MS', 60_000, 1_000),
   httpLargeRequestBytes: optionalNumber('HTTP_LARGE_REQUEST_BYTES', 1000000, 1024),
   heavyActionMaxConcurrent: optionalNumber('HEAVY_ACTION_MAX_CONCURRENT', 1, 1),
   writeActionMaxConcurrent: optionalNumber('WRITE_ACTION_MAX_CONCURRENT', 2, 1),
