@@ -24,6 +24,7 @@ import './evidence-memory.test.mjs';
 import './form-draft-lifecycle.test.mjs';
 import './form-inline-creation-invariant.test.mjs';
 import './gemini-model-rotation.test.mjs';
+import './global-stability.test.mjs';
 import './indexeddb-version-recovery.test.mjs';
 import './knowledge-long-content.test.mjs';
 import './model-order-mac-format.test.mjs';
