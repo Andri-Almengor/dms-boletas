@@ -5,6 +5,11 @@ import {
   updateRows,
 } from '../infra/sheets.repository.js';
 import { copyDriveFile, createFolder, getDriveFile } from '../infra/drive.repository.js';
+import {
+  decodeWeeklyBackupSlot,
+  encodeWeeklyBackupSlot,
+  shouldRunAutomaticBackup,
+} from './weekly-backup-slot.js';
 
 const BACKUP_KEYS = Object.freeze({
   enabled: 'BACKUP_WEEKLY_ENABLED',
@@ -64,7 +69,7 @@ function backupSettingsFromConfig(config = {}) {
     folderId: clean(config[BACKUP_KEYS.folderId], 300),
     folderUrl: clean(config[BACKUP_KEYS.folderUrl], 1000),
     lastAt: clean(config[BACKUP_KEYS.lastAt], 100),
-    lastSlot: clean(config[BACKUP_KEYS.lastSlot], 20),
+    lastSlot: decodeWeeklyBackupSlot(config[BACKUP_KEYS.lastSlot]),
     lastFileId: clean(config[BACKUP_KEYS.lastFileId], 300),
     lastFileName: clean(config[BACKUP_KEYS.lastFileName], 300),
     lastUrl: clean(config[BACKUP_KEYS.lastUrl], 1000),
@@ -183,7 +188,9 @@ async function performBackup({ actor = 'SYSTEM', now = new Date(), scheduledSlot
     const url = copied.webViewLink || `https://docs.google.com/spreadsheets/d/${encodeURIComponent(copied.id)}/edit`;
     await upsertConfigEntries({
       [BACKUP_KEYS.lastAt]: now.toISOString(),
-      [BACKUP_KEYS.lastSlot]: slot,
+      // USER_ENTERED se conserva para Configuracion por compatibilidad. El
+      // prefijo opaco impide que Sheets convierta el slot semanal en fecha.
+      [BACKUP_KEYS.lastSlot]: encodeWeeklyBackupSlot(slot),
       [BACKUP_KEYS.lastFileId]: copied.id,
       [BACKUP_KEYS.lastFileName]: copied.name || name,
       [BACKUP_KEYS.lastUrl]: url,
@@ -225,7 +232,7 @@ async function schedulerTick() {
     const settings = await getWeeklyBackupStatus();
     if (!settings.enabled) return;
     const slot = weeklyBackupSlot(settings, new Date());
-    if (settings.lastSlot === slot && settings.lastStatus === 'COMPLETADO') return;
+    if (!shouldRunAutomaticBackup({ slot, lastSlot: settings.lastSlot, lastStatus: settings.lastStatus })) return;
     const result = await createWeeklyBackup({ actor: 'SYSTEM', scheduledSlot: slot });
     console.log(`[weekly-backup] Respaldo ${result.fileName} creado para la semana ${slot}.`);
   } catch (error) {
@@ -235,9 +242,9 @@ async function schedulerTick() {
   }
 }
 
-export function startWeeklyBackupScheduler() {
+export function startWeeklyBackupScheduler({ initialDelayMs = 5_000 } = {}) {
   if (schedulerTimer) return { started: true, alreadyStarted: true };
-  schedulerStartupTimer = setTimeout(() => void schedulerTick(), 5_000);
+  schedulerStartupTimer = setTimeout(() => void schedulerTick(), Math.max(0, Number(initialDelayMs) || 0));
   schedulerStartupTimer.unref?.();
   schedulerTimer = setInterval(() => void schedulerTick(), SCHEDULER_TICK_MS);
   schedulerTimer.unref?.();
