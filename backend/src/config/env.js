@@ -87,9 +87,14 @@ export const env = Object.freeze({
   auditBatchSize: optionalNumber('AUDIT_BATCH_SIZE', 100, 1),
   auditMaxBufferedRows: optionalNumber('AUDIT_MAX_BUFFERED_ROWS', 2_000, 100),
 
-  httpMaxConcurrentRequests: optionalNumber('HTTP_MAX_CONCURRENT_REQUESTS', 40, 1),
-  httpMaxConcurrentLargeRequests: optionalNumber('HTTP_MAX_CONCURRENT_LARGE_REQUESTS', 2, 1),
-  httpQueueLimit: optionalNumber('HTTP_QUEUE_LIMIT', 100, 0),
+  // La instancia pequeña necesita capacidad reservada para login/listados y
+  // no gana nada manteniendo 40 bodies parseados cuando Sheets procesa 2
+  // lecturas y 1 escritura. Los payloads grandes se serializan a 1 y solo dos
+  // pueden esperar antes del parser para acotar RSS durante reconexiones.
+  httpMaxConcurrentRequests: optionalNumber('HTTP_MAX_CONCURRENT_REQUESTS', 16, 1),
+  httpMaxConcurrentLargeRequests: optionalNumber('HTTP_MAX_CONCURRENT_LARGE_REQUESTS', 1, 1),
+  httpQueueLimit: optionalNumber('HTTP_QUEUE_LIMIT', 40, 0),
+  httpLargeQueueLimit: optionalNumber('HTTP_MAX_QUEUED_LARGE_REQUESTS', 2, 0),
   httpQueueTimeoutMs: optionalNumber('HTTP_QUEUE_TIMEOUT_MS', 15000, 1000),
   httpLargeRequestBytes: optionalNumber('HTTP_LARGE_REQUEST_BYTES', 1000000, 1024),
   heavyActionMaxConcurrent: optionalNumber('HEAVY_ACTION_MAX_CONCURRENT', 1, 1),
@@ -98,6 +103,9 @@ export const env = Object.freeze({
   serverHeadersTimeoutMs: optionalNumber('SERVER_HEADERS_TIMEOUT_MS', 66000, 2000),
   serverRequestTimeoutMs: optionalNumber('SERVER_REQUEST_TIMEOUT_MS', 360000, 10000),
   shutdownGraceMs: optionalNumber('SHUTDOWN_GRACE_MS', 15000, 1000),
+  startupRecoveryGraceMs: optionalNumber('STARTUP_RECOVERY_GRACE_MS', 30_000, 0),
+  memoryTelemetryIntervalMs: optionalNumber('MEMORY_TELEMETRY_INTERVAL_MS', 60_000, 30_000),
+  memoryTelemetrySpikeBytes: optionalNumber('MEMORY_TELEMETRY_SPIKE_BYTES', 64 * 1024 * 1024, 8 * 1024 * 1024),
 
   // Las notificaciones automáticas de Agenda siguen ejecutándose en segundo plano.
   agendaNotificationMaxConcurrent: optionalNumber('AGENDA_NOTIFICATION_MAX_CONCURRENT', 1, 1),
