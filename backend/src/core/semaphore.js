@@ -24,7 +24,17 @@ export class AsyncSemaphore {
     return error;
   }
 
-  acquire() {
+  abortedError() {
+    const error = new Error('La solicitud fue cancelada antes de entrar al servidor.');
+    error.code = 'QUEUE_ABORTED';
+    error.status = 499;
+    error.semaphoreLane = this.name;
+    return error;
+  }
+
+  acquire({ signal } = {}) {
+    if (signal?.aborted) return Promise.reject(this.abortedError());
+
     if (this.active < this.max) {
       this.active += 1;
       return Promise.resolve(this.releaseFactory());
@@ -36,11 +46,39 @@ export class AsyncSemaphore {
       ));
     }
     return new Promise((resolve, reject) => {
-      const entry = { resolve, reject, timer: null };
+      const entry = {
+        resolve,
+        reject,
+        timer: null,
+        signal,
+        onAbort: null,
+      };
+
+      const cleanup = () => {
+        if (entry.timer) clearTimeout(entry.timer);
+        entry.timer = null;
+        if (entry.signal && entry.onAbort) entry.signal.removeEventListener('abort', entry.onAbort);
+        entry.onAbort = null;
+      };
+
+      const removeFromQueue = () => {
+        const index = this.queue.indexOf(entry);
+        if (index >= 0) this.queue.splice(index, 1);
+      };
+
+      if (signal) {
+        entry.onAbort = () => {
+          removeFromQueue();
+          cleanup();
+          reject(this.abortedError());
+        };
+        signal.addEventListener('abort', entry.onAbort, { once: true });
+      }
+
       if (this.timeoutMs > 0) {
         entry.timer = setTimeout(() => {
-          const index = this.queue.indexOf(entry);
-          if (index >= 0) this.queue.splice(index, 1);
+          removeFromQueue();
+          cleanup();
           reject(this.busyError(
             'SERVER_BUSY_TIMEOUT',
             'La solicitud esperó demasiado porque el servidor está ocupado.',
@@ -66,6 +104,13 @@ export class AsyncSemaphore {
     while (this.active < this.max && this.queue.length) {
       const entry = this.queue.shift();
       if (entry.timer) clearTimeout(entry.timer);
+      if (entry.signal && entry.onAbort) entry.signal.removeEventListener('abort', entry.onAbort);
+      entry.timer = null;
+      entry.onAbort = null;
+      if (entry.signal?.aborted) {
+        entry.reject(this.abortedError());
+        continue;
+      }
       this.active += 1;
       entry.resolve(this.releaseFactory());
     }
