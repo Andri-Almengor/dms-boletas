@@ -6,6 +6,11 @@ import {
   isNetworkError,
   throwIfAborted,
 } from './services/requestErrors';
+import {
+  markBackendReady,
+  markBackendUnavailable,
+  waitForBackendReady,
+} from './services/backendAvailability';
 import { createLocalId } from './utils/localId';
 
 const APPS_SCRIPT_FALLBACK = 'https://script.google.com/macros/s/AKfycbzGZuFbXWJn3y4hbfSGRFeaJfWufu2xaDnoAb9dFZl4DklRXiuFU9-GSb-q2hnY7O6pmQ/exec';
@@ -156,6 +161,10 @@ async function performRequest(route, payload, sessionToken, { signal } = {}) {
     signal,
   });
 
+  // Una respuesta con el identificador de DMS demuestra que Node/Express está
+  // atendiendo, incluso si la acción devuelve 401/429/503 por una regla propia.
+  if (response.ok || responseHeader(response, 'x-request-id')) markBackendReady();
+
   const responseText = await response.text();
   let result;
   try {
@@ -178,6 +187,7 @@ async function performRequest(route, payload, sessionToken, { signal } = {}) {
     throw error;
   }
 
+  markBackendReady();
   return result.data;
 }
 
@@ -199,11 +209,15 @@ async function retryRequest(route, payload, sessionToken, signal) {
       if (isAbortError(error)) throw error;
       lastError = error;
       const retryable = transientError(error);
+      if (retryable) markBackendUnavailable(error);
       if (!retryable || attempt === TRANSIENT_RETRY_DELAYS_MS.length) {
         if (retryable && !isOfflineModeEnabled()) throw onlineRequiredError(error);
         throw error;
       }
       await wait(retryDelayMs(error, attempt), signal);
+      // No gastamos los siguientes intentos mientras Render/Node aún no pasa
+      // /api/health. El deadline central de cada ruta sigue siendo el límite.
+      await waitForBackendReady(signal);
     }
   }
   throw lastError;
