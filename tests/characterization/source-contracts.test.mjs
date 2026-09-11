@@ -69,7 +69,8 @@ test('la capa HTTP mantiene deduplicación, caché corta, reintentos y cancelaci
     'const pendingReads = new Map();',
     'if (!signal && pendingReads.has(key)) return pendingReads.get(key);',
     'signal,',
-    'await wait(TRANSIENT_RETRY_DELAYS_MS[attempt], signal);',
+    'function retryDelayMs(error, attempt)',
+    'await wait(retryDelayMs(error, attempt), signal);',
   ]);
 });
 
