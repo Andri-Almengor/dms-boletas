@@ -1,3 +1,4 @@
+import { claimAutomaticReload } from './services/reloadRecovery';
 import React from 'react';
 import ReactDOM from 'react-dom/client';
 import { BrowserRouter } from 'react-router-dom';
@@ -13,23 +14,19 @@ import { initializeTheme } from './services/theme';
 import App from './App';
 import './styles/index.css';
 
-const SERVICE_WORKER_RELOAD_KEY = 'dms_sw_controller_reload_at';
-const SERVICE_WORKER_RELOAD_WINDOW_MS = 15_000;
-
 initializePerformanceMode();
 initializeTheme();
 
 function reloadForServiceWorkerUpdate() {
-  let lastReloadAt = 0;
-  try {
-    lastReloadAt = Number(sessionStorage.getItem(SERVICE_WORKER_RELOAD_KEY) || 0);
-  } catch {
-    // La recarga también funciona cuando sessionStorage está restringido.
-  }
-  if (Date.now() - lastReloadAt < SERVICE_WORKER_RELOAD_WINDOW_MS) return;
-  try { sessionStorage.setItem(SERVICE_WORKER_RELOAD_KEY, String(Date.now())); } catch { /* Sin efecto. */ }
-  window.location.reload();
+  if (claimAutomaticReload()) window.location.reload();
 }
+
+window.addEventListener('vite:preloadError', (event) => {
+  if (navigator.onLine !== false && claimAutomaticReload()) {
+    event.preventDefault();
+    window.location.reload();
+  }
+});
 
 if ('serviceWorker' in navigator && import.meta.env.PROD) {
   const controlledAtStartup = Boolean(navigator.serviceWorker.controller);

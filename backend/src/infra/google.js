@@ -33,6 +33,10 @@ class ApiGate {
 
   run(task) {
     return new Promise((resolve, reject) => {
+      if (this.queue.length >= 100) {
+        reject(new AppError('SERVER_BUSY', 'Google Sheets está ocupado. Reintente en unos segundos.', 503));
+        return;
+      }
       this.queue.push({ task, resolve, reject, queuedAt: Date.now() });
       this.drain();
     });
@@ -152,15 +156,21 @@ function wrapRead(method, fn) {
           },
         );
 
-        if (env.sheetsGlobalReadCacheMs > 0 || env.sheetsGlobalReadStaleMs > 0) {
+        // Repository table reads already retain normalized rows. Avoid keeping
+        // a second copy of every raw A:ZZ table plus the SDK request object.
+        const repositoryRead = method === 'spreadsheets.values.batchGet'
+          && args.valueRenderOption === 'UNFORMATTED_VALUE'
+          && Array.isArray(args.ranges) && args.ranges.every(range => /!A:ZZ$/.test(range));
+        if (!repositoryRead && (env.sheetsGlobalReadCacheMs > 0 || env.sheetsGlobalReadStaleMs > 0)) {
           const storedAt = Date.now();
           const expiresAt = storedAt + env.sheetsGlobalReadCacheMs;
           readCache.set(key, {
-            value,
+            value: { data: value.data, status: value.status, headers: value.headers },
             expiresAt,
             staleUntil: expiresAt + env.sheetsGlobalReadStaleMs,
           });
-          if (readCache.size > 500) clearExpiredReadCache();
+          clearExpiredReadCache();
+          while (readCache.size > 100) readCache.delete(readCache.keys().next().value);
         }
         return value;
       } catch (error) {

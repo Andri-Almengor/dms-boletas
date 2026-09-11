@@ -1,3 +1,5 @@
+import { shouldUseLargeEvidenceUpload, uploadLargeMaintenanceEvidence } from '../../services/largeEvidenceUpload';
+import { createLocalId } from '../../utils/localId';
 import React, { useEffect, useRef, useState } from 'react';
 import Icon from '../common/Icon';
 import ProcessingOverlay from '../feedback/ProcessingOverlay';
@@ -170,7 +172,9 @@ export default function MaintenanceQuickDeviceCreator({
 
       const pendingImages = [...(device.newImages || [])];
       for (const image of pendingImages) {
-        const uploaded = await requestAvailable(
+        const uploaded = shouldUseLargeEvidenceUpload(image)
+          ? await uploadLargeMaintenanceEvidence({ maintenanceId, deviceId, imageId: image.localId || createLocalId('image'), item: image, sessionToken })
+          : await requestAvailable(
           MODULE_ROUTES.maintenance.imageUpload,
           {
             maintenanceId,

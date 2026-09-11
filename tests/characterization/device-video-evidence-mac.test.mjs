@@ -93,20 +93,20 @@ test('mantenimientos aceptan videos grandes en editor, carga rápida y lotes', (
   assert.match(batches, /size: Number\(image\.size/);
 });
 
-test('los videos de 30 a 300 MB usan carga reanudable en bloques de 8 MB', () => {
+test('las evidencias mayores de 256 KiB usan carga reanudable en bloques de 256 KiB', () => {
   const frontend = source('src/services/largeEvidenceUpload.js');
   const backend = source('backend/src/services/large-evidence-upload.service.js');
   const router = source('backend/src/core/action-router.js');
   const google = source('backend/src/infra/google.js');
 
   assert.doesNotThrow(() => syntaxCheck('backend/src/services/large-evidence-upload.service.js'));
-  assert.match(frontend, /LARGE_EVIDENCE_THRESHOLD_BYTES = 30 \* 1024 \* 1024/);
+  assert.match(frontend, /LARGE_EVIDENCE_THRESHOLD_BYTES = 256 \* 1024/);
   assert.match(frontend, /file\.slice\(offset, end/);
   assert.match(frontend, /fileToBase64\(chunk/);
-  assert.match(frontend, /videos mayores de 30 MB necesitan conexión a internet/i);
-  assert.match(backend, /LARGE_VIDEO_THRESHOLD_BYTES = 30 \* 1024 \* 1024/);
+  assert.match(frontend, /cargas por bloques necesitan conexión a internet/i);
+  assert.match(backend, /LARGE_VIDEO_THRESHOLD_BYTES = 256 \* 1024/);
   assert.match(backend, /LARGE_VIDEO_MAX_BYTES = 300 \* 1024 \* 1024/);
-  assert.match(backend, /LARGE_VIDEO_CHUNK_BYTES = 8 \* 1024 \* 1024/);
+  assert.match(backend, /LARGE_VIDEO_CHUNK_BYTES = 256 \* 1024/);
   assert.match(backend, /uploadType=resumable/);
   assert.match(backend, /Content-Range/);
   assert.match(backend, /response\.status === 308/);

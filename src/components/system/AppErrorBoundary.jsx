@@ -1,7 +1,6 @@
+import { claimAutomaticReload } from '../../services/reloadRecovery';
 import React from 'react';
 
-const RECOVERY_KEY = 'dms_app_recovery_at';
-const RECOVERY_WINDOW_MS = 60_000;
 const CHUNK_ERROR = /chunkloaderror|loading chunk|failed to fetch dynamically imported module|importing a module script failed|error loading dynamically imported module/i;
 
 function errorText(error) {
@@ -33,7 +32,7 @@ async function clearStaleApplicationCache() {
 }
 
 async function recoverAndReload() {
-  await clearStaleApplicationCache();
+  await Promise.race([clearStaleApplicationCache(), new Promise((resolve) => setTimeout(resolve, 3_000))]);
   window.location.reload();
 }
 
@@ -52,10 +51,7 @@ export default class AppErrorBoundary extends React.Component {
     console.error('Error de interfaz capturado por DMS-Boletas:', error, info);
     if (!mayRecoverAutomatically(error) || navigator.onLine === false) return;
 
-    let lastRecovery = 0;
-    try { lastRecovery = Number(sessionStorage.getItem(RECOVERY_KEY) || 0); } catch { /* Sin efecto. */ }
-    if (Date.now() - lastRecovery < RECOVERY_WINDOW_MS) return;
-    try { sessionStorage.setItem(RECOVERY_KEY, String(Date.now())); } catch { /* Sin efecto. */ }
+    if (!claimAutomaticReload()) return;
     this.setState({ recovering: true });
     recoverAndReload().catch(() => window.location.reload());
   }

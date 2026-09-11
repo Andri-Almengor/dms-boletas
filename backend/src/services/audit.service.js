@@ -21,6 +21,7 @@ export async function flushAuditQueue() {
   if (flushPromise) return flushPromise;
   if (!queue.length) return { flushed: 0 };
 
+  let failed = false;
   const batch = queue.splice(0, Math.min(queue.length, env.auditBatchSize));
   flushPromise = appendRows('Auditoria', batch, { chunkSize: env.auditBatchSize })
     .then(() => {
@@ -28,6 +29,7 @@ export async function flushAuditQueue() {
       return { flushed: batch.length };
     })
     .catch((error) => {
+      failed = true;
       failedFlushes += 1;
       // Se reinsertan al inicio para conservar el orden. Auditoría no bloquea
       // la operación principal, pero tampoco se descarta por un 429 temporal.
@@ -41,7 +43,7 @@ export async function flushAuditQueue() {
     })
     .finally(() => {
       flushPromise = null;
-      if (queue.length >= env.auditBatchSize) scheduleFlush();
+      if (!failed && queue.length >= env.auditBatchSize) scheduleFlush();
     });
 
   return flushPromise;

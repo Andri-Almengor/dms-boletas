@@ -24,6 +24,11 @@ function optionalBoolean(name, fallback = false) {
 
 const nodeEnv = optional('NODE_ENV', 'development');
 const isProduction = nodeEnv === 'production';
+// 2x downstream read/write capacity permits network overlap without dozens
+// of parsed requests waiting on the three Sheets slots (default: 6 HTTP).
+const downstreamSlots = optionalNumber('SHEETS_GLOBAL_MAX_CONCURRENT_READS', 2, 1)
+  + optionalNumber('SHEETS_GLOBAL_MAX_CONCURRENT_WRITES', 1, 1);
+
 
 export const env = Object.freeze({
   nodeEnv,
@@ -87,9 +92,10 @@ export const env = Object.freeze({
   auditBatchSize: optionalNumber('AUDIT_BATCH_SIZE', 100, 1),
   auditMaxBufferedRows: optionalNumber('AUDIT_MAX_BUFFERED_ROWS', 2_000, 100),
 
-  httpMaxConcurrentRequests: optionalNumber('HTTP_MAX_CONCURRENT_REQUESTS', 40, 1),
-  httpMaxConcurrentLargeRequests: optionalNumber('HTTP_MAX_CONCURRENT_LARGE_REQUESTS', 2, 1),
-  httpQueueLimit: optionalNumber('HTTP_QUEUE_LIMIT', 100, 0),
+  memoryBudgetMb: optionalNumber('MEMORY_BUDGET_MB', 512, 128),
+  httpMaxConcurrentRequests: optionalNumber('HTTP_MAX_CONCURRENT_REQUESTS', 2 * downstreamSlots, 2),
+  httpMaxConcurrentLargeRequests: optionalNumber('HTTP_MAX_CONCURRENT_LARGE_REQUESTS', 1, 1),
+  httpQueueLimit: optionalNumber('HTTP_QUEUE_LIMIT', 4 * downstreamSlots, 0),
   httpQueueTimeoutMs: optionalNumber('HTTP_QUEUE_TIMEOUT_MS', 15000, 1000),
   httpLargeRequestBytes: optionalNumber('HTTP_LARGE_REQUEST_BYTES', 1000000, 1024),
   heavyActionMaxConcurrent: optionalNumber('HEAVY_ACTION_MAX_CONCURRENT', 1, 1),

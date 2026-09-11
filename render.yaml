@@ -17,6 +17,14 @@ services:
         sync: false
       - key: GOOGLE_SERVICE_ACCOUNT_PRIVATE_KEY
         sync: false
+      - key: MEMORY_BUDGET_MB
+        value: "512"
+      - key: HTTP_MAX_CONCURRENT_REQUESTS
+        value: "6"
+      - key: HTTP_MAX_CONCURRENT_LARGE_REQUESTS
+        value: "1"
+      - key: HTTP_QUEUE_LIMIT
+        value: "12"
       - key: SESSION_HOURS
         value: "12"
       - key: FRONTEND_ORIGIN

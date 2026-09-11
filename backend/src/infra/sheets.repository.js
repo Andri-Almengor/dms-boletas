@@ -105,9 +105,8 @@ async function withWriteSlot(operation) {
 }
 
 function parseTable(values = []) {
-  const rows = values.map((row) => [...row]);
-  const headers = (rows.shift() || []).map(String);
-  const records = rows.map((row, rowIndex) => {
+  const headers = (values[0] || []).map(String);
+  const records = values.slice(1).map((row, rowIndex) => {
     const record = { __rowNumber: rowIndex + 2 };
     headers.forEach((header, index) => { if (header) record[header] = normalizeValue(header, row[index]); });
     return { record, hasData: row.some((value) => value !== '' && value !== null && value !== undefined) };

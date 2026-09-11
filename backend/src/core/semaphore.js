@@ -24,7 +24,8 @@ export class AsyncSemaphore {
     return error;
   }
 
-  acquire() {
+  acquire({ signal } = {}) {
+    if (signal?.aborted) return Promise.reject(signal.reason || new Error('Aborted'));
     if (this.active < this.max) {
       this.active += 1;
       return Promise.resolve(this.releaseFactory());
@@ -36,11 +37,22 @@ export class AsyncSemaphore {
       ));
     }
     return new Promise((resolve, reject) => {
-      const entry = { resolve, reject, timer: null };
+      const entry = { resolve, reject, timer: null, cleanup: () => {} };
+      const abort = () => {
+        const index = this.queue.indexOf(entry);
+        if (index < 0) return;
+        this.queue.splice(index, 1);
+        clearTimeout(entry.timer);
+        entry.cleanup();
+        reject(signal.reason || new Error('Aborted'));
+      };
+      entry.cleanup = () => signal?.removeEventListener('abort', abort);
+      signal?.addEventListener('abort', abort, { once: true });
       if (this.timeoutMs > 0) {
         entry.timer = setTimeout(() => {
           const index = this.queue.indexOf(entry);
           if (index >= 0) this.queue.splice(index, 1);
+          entry.cleanup();
           reject(this.busyError(
             'SERVER_BUSY_TIMEOUT',
             'La solicitud esperó demasiado porque el servidor está ocupado.',
@@ -66,6 +78,7 @@ export class AsyncSemaphore {
     while (this.active < this.max && this.queue.length) {
       const entry = this.queue.shift();
       if (entry.timer) clearTimeout(entry.timer);
+      entry.cleanup();
       this.active += 1;
       entry.resolve(this.releaseFactory());
     }

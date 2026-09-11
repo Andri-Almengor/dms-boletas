@@ -51,3 +51,7 @@ export function isNetworkError(error) {
     || text.includes('load failed')
     || text.includes('internet disconnected');
 }
+
+export function isAuthenticationError(error) {
+  return Number(error?.status || 0) === 401 || (Number(error?.status || 0) < 500 && String(error?.code || '').toUpperCase() === 'UNAUTHORIZED');
+}

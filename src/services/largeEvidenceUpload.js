@@ -1,7 +1,7 @@
 import { fileToBase64 } from '../utils/fileEncoding';
 import { requestAvailable } from './moduleApi';
 
-export const LARGE_EVIDENCE_THRESHOLD_BYTES = 30 * 1024 * 1024;
+export const LARGE_EVIDENCE_THRESHOLD_BYTES = 256 * 1024;
 const TICKET_LARGE_INIT_ROUTES = ['boletas.evidence.large.init', 'tickets.evidence.large.init'];
 const TICKET_LARGE_CHUNK_ROUTES = ['boletas.evidence.large.chunk', 'tickets.evidence.large.chunk'];
 const MAINTENANCE_LARGE_INIT_ROUTES = ['maintenance.images.large.init', 'mantenimientos.imagenes.grande.iniciar'];
@@ -13,23 +13,24 @@ function requestOptions(signal) {
 
 function assertOnline() {
   if (typeof navigator !== 'undefined' && navigator.onLine === false) {
-    throw new Error('Los videos mayores de 30 MB necesitan conexión a internet para cargarse de forma segura.');
+    throw new Error('Las cargas por bloques necesitan conexión a internet para cargarse de forma segura.');
   }
 }
 
 export function shouldUseLargeEvidenceUpload(item = {}) {
-  const mediaType = String(item.mediaType || '').toLowerCase();
   const size = Number(item.size || item.file?.size || 0);
-  return mediaType === 'video' && size > LARGE_EVIDENCE_THRESHOLD_BYTES;
+  const online = typeof navigator === 'undefined' || navigator.onLine !== false;
+  const previouslyRequiredOnline = String(item.mediaType || '').toLowerCase() === 'video' && size > 30 * 1024 * 1024;
+  return previouslyRequiredOnline || (online && size > LARGE_EVIDENCE_THRESHOLD_BYTES);
 }
 
-async function uploadByChunks({ initRoutes, chunkRoutes, initPayload, file, sessionToken, signal, onProgress }) {
+async function uploadByChunks({ initRoutes, chunkRoutes, initPayload, file, sessionToken, signal, onProgress, chunkPayload = {} }) {
   assertOnline();
   const init = await requestAvailable(initRoutes, initPayload, sessionToken, requestOptions(signal));
   if (init?.complete) return init.evidence || init;
 
   const uploadToken = String(init?.uploadToken || '');
-  const chunkBytes = Math.max(256 * 1024, Number(init?.chunkBytes || 8 * 1024 * 1024));
+  const chunkBytes = Math.max(256 * 1024, Math.min(256 * 1024, Number(init?.chunkBytes || 256 * 1024)));
   if (!uploadToken) throw new Error('El servidor no devolvió una sesión para cargar el video.');
 
   let offset = 0;
@@ -45,6 +46,7 @@ async function uploadByChunks({ initRoutes, chunkRoutes, initPayload, file, sess
     let base64 = await fileToBase64(chunk, { signal });
     try {
       const result = await requestAvailable(chunkRoutes, {
+        ...chunkPayload,
         uploadToken,
         offset,
         base64,
@@ -108,5 +110,13 @@ export function uploadLargeMaintenanceEvidence({ maintenanceId, deviceId, imageI
       durationSeconds: Number(item.durationSeconds || 0),
       size: Number(item.size || item.file.size || 0),
     },
+  });
+}
+
+export function uploadLargeKnowledgeAttachment({ tutorialId, file, sessionToken, signal }) {
+  const routes = ['knowledge.attachments.upload', 'baseConocimientos.adjuntos.upload', 'conocimiento.adjuntos.upload'];
+  return uploadByChunks({initRoutes:routes,chunkRoutes:routes,file,sessionToken,signal,
+    initPayload:{tutorialId,uploadPhase:'init',fileName:file.name,nombre:file.name,mimeType:file.type || 'application/octet-stream',size:file.size},
+    chunkPayload:{tutorialId,uploadPhase:'chunk'},
   });
 }

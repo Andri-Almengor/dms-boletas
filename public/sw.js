@@ -1,5 +1,5 @@
 const CACHE_PREFIX = 'dms-boletas-shell-';
-const CACHE_NAME = `${CACHE_PREFIX}v5`;
+const CACHE_NAME = `${CACHE_PREFIX}v6`;
 const APP_SHELL = ['/', '/manifest.webmanifest', '/icons/dms-icon.svg'];
 const NETWORK_TIMEOUT_MS = 5_000;
 
@@ -53,19 +53,23 @@ async function navigationResponse(request) {
         cache.put(request, response.clone()),
       ]);
     }
+    if (!response.ok) throw new Error('Navigation unavailable');
     return response;
   } catch {
     return (await cache.match(request, { ignoreSearch: true }))
       || (await cache.match('/'))
-      || Response.error();
+      || new Response('<!doctype html><html lang="es"><meta charset="utf-8"><title>DMS Boletas</title><body><h1>El servidor se está reconectando</h1><p>Intente nuevamente en unos segundos.</p><a href="/login">Reintentar</a></body></html>', { status: 503, headers: { 'Content-Type': 'text/html; charset=utf-8' } });
   }
 }
 
 async function codeAssetResponse(request) {
   const cache = await caches.open(CACHE_NAME);
+  const immutable = new URL(request.url).pathname.startsWith('/assets/');
+  const cached = immutable && await cache.match(request);
+  if (cached) return cached;
   try {
     const response = await fetchWithTimeout(request);
-    if (response.ok) {
+    if (response.ok && !String(response.headers.get('content-type')).includes('text/html')) {
       await cache.put(request, response.clone());
       return response;
     }
