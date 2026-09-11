@@ -1,3 +1,4 @@
+import { transferKnowledgeAttachment } from '../services/large-evidence-upload.service.js';
 import { appendRow, filterRows, findById, readTable, readTables, softDelete, updateRow } from '../infra/sheets.repository.js';
 import { uploadBase64, downloadAsDataUrl, trashFile } from '../infra/drive.repository.js';
 import { getConfig } from './config.module.js';
@@ -350,15 +351,18 @@ export const knowledgeHandlers = {
     const article = await findById('KnowledgeArticles', tutorialIdFrom(ctx.payload), 'TutorialID');
     assertArticleWrite(ctx, article);
     const cfg = await getConfig();
+    const transfer = ctx.payload.uploadPhase
+      ? await transferKnowledgeAttachment(ctx, article.TutorialID, cfg.ROOT_FOLDER_ID) : null;
+    if (transfer && !transfer.file) return transfer;
     const upload = normalizeUploadPayload(ctx.payload);
-    const file = await uploadBase64({
+    const file = transfer?.file || await uploadBase64({
       base64: upload.base64,
       mimeType: upload.mimeType,
       fileName: ctx.payload.fileName || ctx.payload.nombre,
       folderId: cfg.ROOT_FOLDER_ID,
     });
     const row = {
-      AdjuntoID: uuid(),
+      AdjuntoID: transfer?.token?.attachmentId || uuid(),
       TutorialID: article.TutorialID,
       Nombre: pick(ctx.payload, ['nombre', 'Nombre'], file.name),
       MimeType: file.mimeType,
@@ -370,7 +374,7 @@ export const knowledgeHandlers = {
       FechaCreacion: nowIso(),
     };
     await appendRow('KnowledgeAttachments', row);
-    return row;
+    return transfer ? {complete:true,evidence:row} : row;
   },
 
   attachmentDelete: async (ctx) => {

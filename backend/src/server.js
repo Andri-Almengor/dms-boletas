@@ -1,10 +1,12 @@
+import { activityQueueSnapshot } from './services/activity-log.service.js';
+import { bootId, logRuntime, safeError, startDiagnostics } from './core/runtime-diagnostics.js';
 import http from 'node:http';
 import { app } from './app.js';
 import { env } from './config/env.js';
 import { resolveRequestId } from './core/request-security.js';
 import { concurrencyMiddleware, concurrencySnapshot } from './middleware/concurrency.middleware.js';
 import { securityRateLimitSnapshot } from './middleware/security.middleware.js';
-import { readTables } from './infra/sheets.repository.js';
+import { readTables, sheetsRepositorySnapshot } from './infra/sheets.repository.js';
 import { googleSheetsGateSnapshot } from './infra/google.js';
 import { auditQueueSnapshot, flushAuditQueue } from './services/audit.service.js';
 import { actionConcurrencySnapshot } from './services/action-concurrency.service.js';
@@ -29,6 +31,8 @@ function sendHealth(req, res) {
   const requestId = resolveRequestId(req.headers['x-request-id']);
   const body = {
     ok: true,
+    bootId,
+    uptimeSeconds: Math.round(process.uptime()),
     service: 'dms-boletas-backend',
     time: new Date().toISOString(),
   };
@@ -99,43 +103,33 @@ server.listen(env.port, '0.0.0.0', () => {
     console.warn('FRONTEND_ORIGIN permite cualquier origen. Configure una lista explícita para endurecer CORS en producción.');
   }
 
-  startMaintenanceProgressScheduler();
-  startWeeklyBackupScheduler();
-
-  // Una sola lectura batch prepara autenticación, permisos y catálogos antes
-  // de que varios técnicos abran la aplicación al mismo tiempo después de un
-  // reinicio de Render. No bloquea el arranque ni el health check.
-  setTimeout(() => {
-    readTables([
-      'Sesiones',
-      'Usuarios',
-      'Roles',
-      'Permisos',
-      'RolPermisos',
-      'UsuarioPermisos',
-      'Clientes',
-      'ClienteUbicaciones',
-      'ClienteUbicacionesEquipo',
-      'ClienteContactos',
-      'Categorias',
-      'TiposDispositivo',
-      'Fabricantes',
-      'Modelos',
-      'TiposFalla',
-      'TipoDispositivoFabricantes',
-    ]).then(() => {
-      console.log('Caché crítica de Sheets precargada correctamente.');
-    }).catch((error) => {
-      console.warn(`No se pudo precargar la caché de Sheets: ${error.message}`);
+  // Auth only; catalogs remain available through the existing lazy cache.
+  // Start background jobs after warmup settles, not concurrently with it.
+  const before = process.memoryUsage().rss;
+  readTables(['Sesiones', 'Usuarios', 'Roles', 'Permisos', 'RolPermisos', 'UsuarioPermisos'])
+    .then((tables) => logRuntime('warmup_auth_ready', {}, {
+      rows: Object.fromEntries(Object.entries(tables).map(([name, rows]) => [name, rows.length])),
+      rssDeltaBytes: process.memoryUsage().rss - before,
+    }))
+    .catch((error) => logRuntime('warmup_auth_failed', {}, { error: safeError(error) }))
+    .finally(() => {
+      if (shuttingDown) return;
+      startMaintenanceProgressScheduler();
+      startWeeklyBackupScheduler();
     });
-  }, 750).unref?.();
 });
 
+const stopDiagnostics = startDiagnostics(() => ({
+  concurrency: concurrencySnapshot(), actions: actionConcurrencySnapshot(),
+  sheets: googleSheetsGateSnapshot(), repository: sheetsRepositorySnapshot(), audit: auditQueueSnapshot(), activity: activityQueueSnapshot(),
+  agenda: agendaNotificationQueueSnapshot(),
+}));
 let shuttingDown = false;
-function shutdown(signal) {
+function shutdown(signal, exitCode = 0) {
   if (shuttingDown) return;
   shuttingDown = true;
-  console.log(`${signal}: cerrando servidor...`);
+  logRuntime('runtime_shutdown', {}, { signal, exitCode });
+  stopDiagnostics();
   stopMaintenanceProgressScheduler();
   stopWeeklyBackupScheduler();
 
@@ -146,11 +140,11 @@ function shutdown(signal) {
       console.warn('El cierre continuó con notificaciones de Agenda todavía pendientes; podrán reenviarse desde el detalle.');
     }
     await flushAuditQueue().catch(() => {});
-    process.exit(0);
+    process.exit(exitCode);
   });
   server.closeIdleConnections?.();
-  setTimeout(async () => {
-    await flushAuditQueue().catch(() => {});
+  setTimeout(() => {
+    // A stuck Google request must not extend the hard shutdown deadline.
     server.closeAllConnections?.();
     process.exit(1);
   }, env.shutdownGraceMs).unref();
@@ -158,3 +152,15 @@ function shutdown(signal) {
 
 process.on('SIGTERM', () => shutdown('SIGTERM'));
 process.on('SIGINT', () => shutdown('SIGINT'));
+
+process.on('warning', (error) => logRuntime('runtime_warning', {}, { error: safeError(error) }));
+process.on('uncaughtException', (error) => {
+  logRuntime('runtime_uncaught_exception', {}, { error: safeError(error) });
+  // Do not dispatch/drain application work after an unknown fatal state.
+  server.closeAllConnections?.();
+  process.exit(1);
+});
+process.on('unhandledRejection', (error) => {
+  logRuntime('runtime_unhandled_rejection', {}, { error: safeError(error) });
+  shutdown('unhandledRejection', 1);
+});

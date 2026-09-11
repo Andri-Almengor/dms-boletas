@@ -1,3 +1,4 @@
+import { shouldUseLargeEvidenceUpload, uploadLargeTicketEvidence } from '../../services/largeEvidenceUpload';
 import React, { useEffect, useMemo, useState } from 'react';
 import { Link, useNavigate, useParams } from 'react-router-dom';
 import { useAuth } from '../../AuthContext';
@@ -592,6 +593,10 @@ export default function TicketRelatedVisitPage() {
       const createdId = text(pick(created?.boleta || created, ['BoletaUID', 'boletaUid'], localId));
 
       for (const item of evidences) {
+        if (shouldUseLargeEvidenceUpload(item)) {
+          await uploadLargeTicketEvidence({ boletaUid: createdId, evidenceId: item.localId || createOfflineId('evidencia'), item, sessionToken });
+          continue;
+        }
         await requestAvailable(MODULE_ROUTES.tickets.evidenceUpload, {
           boletaUid: createdId,
           BoletaUID: createdId,

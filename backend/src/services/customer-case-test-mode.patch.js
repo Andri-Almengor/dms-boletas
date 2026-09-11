@@ -21,6 +21,7 @@ import { generateInitialCaseEmail } from './customer-case-gemini.service.js';
 import { sendNewCustomerCaseEmail } from './customer-case-email.service.js';
 import { reconcileCustomerCases } from './customer-case-sync.service.js';
 import {
+  initCustomerCaseUpload, chunkCustomerCaseUpload, resolveCustomerCaseUpload,
   getCustomerCaseEvidenceFromAppsScript,
   uploadCustomerCaseEvidenceWithAppsScript,
 } from './customer-case-apps-script-drive.service.js';
@@ -185,7 +186,13 @@ function mimeFromName(fileName) {
   return '';
 }
 
-function evidenceInput(value, index) {
+function evidenceInput(value, index, scope = null) {
+  if (value?.uploadReference) {
+    if (!scope) throw badRequest('Falta el contexto de la evidencia.');
+    const evidence = resolveCustomerCaseUpload(value.uploadReference, scope.portal, scope.requestId);
+    if (!ALLOWED_IMAGE_MIME.has(evidence.mimeType) || !Number.isSafeInteger(evidence.bytes) || evidence.bytes <= 0 || evidence.bytes > MAX_FILE_BYTES) throw badRequest('La evidencia no cumple los límites permitidos.');
+    return {...evidence,note:clean(value.note || value.nota,1000)};
+  }
   const fileName = clean(value?.fileName || value?.name || `evidencia-${index + 1}.jpg`, 220);
   const mimeType = clean(value?.mimeType || value?.type || mimeFromName(fileName), 120).toLowerCase();
   const base64 = normalizeBase64(value?.base64 || value?.dataUrl || value?.fileBase64);
@@ -195,7 +202,7 @@ function evidenceInput(value, index) {
   if (!base64 || !/^[A-Za-z0-9+/]*={0,2}$/.test(base64)) {
     throw badRequest(`La evidencia ${fileName} no contiene datos válidos.`);
   }
-  const bytes = Buffer.from(base64, 'base64').length;
+  const bytes = Math.floor(base64.length * 3 / 4) - (base64.endsWith('==') ? 2 : base64.endsWith('=') ? 1 : 0);
   if (!bytes) throw badRequest(`La evidencia ${fileName} está vacía.`);
   if (bytes > MAX_FILE_BYTES) throw badRequest(`La evidencia ${fileName} supera el límite de 6 MB.`);
   const fingerprint = crypto
@@ -213,12 +220,12 @@ function evidenceInput(value, index) {
   };
 }
 
-function validateEvidences(values = []) {
+function validateEvidences(values = [], scope = null) {
   const source = Array.isArray(values) ? values : [];
   if (source.length > MAX_EVIDENCES) {
     throw badRequest(`Puede adjuntar un máximo de ${MAX_EVIDENCES} imágenes.`);
   }
-  const evidences = source.map(evidenceInput);
+  const evidences = source.map((value,index) => evidenceInput(value,index,scope));
   const total = evidences.reduce((sum, item) => sum + item.bytes, 0);
   if (total > MAX_TOTAL_BYTES) throw badRequest('Las evidencias superan el límite total de 16 MB.');
   return evidences;
@@ -386,7 +393,7 @@ async function createPublicCase(ctx, portal) {
   if (clean(ctx.payload.website, 200)) {
     return { accepted: true, caseNumber: '', message: 'Solicitud recibida.' };
   }
-  const requested = validateEvidences(ctx.payload.evidences || ctx.payload.evidencias || []);
+  const requested = validateEvidences(ctx.payload.evidences || ctx.payload.evidencias || [], {portal,requestId});
 
   return withCaseCreateLock(async () => {
     const rows = await readTable('CasosClientes', { force: true });
@@ -662,6 +669,14 @@ if (!customerCaseHandlers[INSTALL_FLAG]) {
     };
   };
 
+  customerCaseHandlers.publicEvidenceInit = async (ctx) => {
+    const portal = await resolvePortal(pick(ctx.payload, ['token', 'portalToken']));
+    return initCustomerCaseUpload(ctx.payload, portal);
+  };
+  customerCaseHandlers.publicEvidenceChunk = async (ctx) => {
+    const portal = await resolvePortal(pick(ctx.payload, ['token', 'portalToken']));
+    return chunkCustomerCaseUpload(ctx.payload, portal);
+  };
   customerCaseHandlers.publicSubmit = async (ctx) => {
     const portal = await resolvePortal(pick(ctx.payload, ['token', 'portalToken']));
     return createPublicCase(ctx, portal);

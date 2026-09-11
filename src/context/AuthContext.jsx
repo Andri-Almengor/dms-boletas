@@ -1,3 +1,4 @@
+import { isAuthenticationError } from '../services/requestErrors';
 import React, { createContext, useContext, useEffect, useMemo, useState } from 'react';
 import { apiRequest } from '../api';
 import { hasImpliedOperationalClientPermission } from '../config/formInlineCreationPolicy';
@@ -31,11 +32,6 @@ function saveStoredSession(sessionToken, user, permissions) {
   }
 }
 
-function isAuthenticationError(error) {
-  return Number(error?.status || 0) === 401
-    || String(error?.code || '').toUpperCase() === 'UNAUTHORIZED';
-}
-
 function effectivePermission(permissions, code) {
   if (!code) return true;
   if (permissions.includes('USUARIOS_GESTIONAR')) return true;
@@ -60,9 +56,10 @@ export function AuthProvider({ children }) {
     }
 
     let active = true;
+    const controller = new AbortController();
     setLoading(!user);
 
-    apiRequest('auth.me', {}, sessionToken)
+    apiRequest('auth.me', {}, sessionToken, { signal: controller.signal })
       .then((data) => {
         if (!active) return;
         const nextPermissions = data.permissions || [];
@@ -90,6 +87,7 @@ export function AuthProvider({ children }) {
 
     return () => {
       active = false;
+      controller.abort();
     };
   }, [sessionToken]);
 
@@ -120,7 +118,10 @@ export function AuthProvider({ children }) {
   }
 
   async function refreshMe() {
-    const data = await apiRequest('auth.me', {}, sessionToken);
+    const data = await apiRequest('auth.me', {}, sessionToken).catch((error) => {
+      if (isAuthenticationError(error)) clearSession();
+      throw error;
+    });
     const nextPermissions = data.permissions || [];
     setUser(data.user);
     setPermissions(nextPermissions);

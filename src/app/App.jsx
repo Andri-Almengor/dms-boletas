@@ -5,6 +5,8 @@ import Icon from '../components/common/Icon';
 import useOfflineMode from '../hooks/useOfflineMode';
 import PermissionRoute from '../routes/PermissionRoute';
 import ProtectedRoute from '../routes/ProtectedRoute';
+import LoginPage from '../pages/LoginPage';
+import '../styles/routes/login.js';
 
 const routeStyles = {
   home: () => import('../styles/routes/home.js'),
@@ -40,7 +42,7 @@ const OperationalDeleteBridge = lazy(() => import('../components/operational/Ope
 
 const ChangePasswordPage = lazyPage(() => import('../pages/ChangePasswordPage'), routeStyles.admin);
 const HomePage = lazyPage(() => import('../pages/HomePage'), routeStyles.home);
-const LoginPage = lazyPage(() => import('../pages/LoginPage'), routeStyles.login);
+
 const MorePage = lazyPage(() => import('../pages/MorePage'), routeStyles.more, routeStyles.offline);
 const AgendaPage = lazyPage(() => import('../pages/agenda/AgendaPage'));
 const CatalogsPage = lazyPage(() => import('../pages/admin/CatalogsPage'), routeStyles.admin);

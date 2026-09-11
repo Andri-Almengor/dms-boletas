@@ -26,7 +26,7 @@ test('la aplicación muestra una recuperación visible y no queda en negro ante 
 
 test('el service worker renueva el shell y conserva fallback de assets cuando una versión cambia', () => {
   const worker = source('public/sw.js');
-  assert.match(worker, /CACHE_NAME = `\$\{CACHE_PREFIX\}v5`/);
+  assert.match(worker, /CACHE_NAME = `\$\{CACHE_PREFIX\}v6`/);
   assert.match(worker, /cache\.match\(request\)\) \|\| response/);
   assert.match(worker, /cache:\s*'no-cache'/);
 });

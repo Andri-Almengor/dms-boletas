@@ -1,3 +1,4 @@
+import { safeError } from './core/runtime-diagnostics.js';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 import express from 'express';
@@ -106,6 +107,7 @@ app.get('/api/health', (_req, res) => {
 app.get('/api/media/stream', streamProtectedMedia);
 
 app.post('/api/action', actionEnvelopeMiddleware, actionRateLimitMiddleware, async (req, res, next) => {
+  req.dmsActionRunning = true;
   let envelope = null;
   let sessionToken = '';
   const startedAt = Date.now();
@@ -159,6 +161,9 @@ app.post('/api/action', actionEnvelopeMiddleware, actionRateLimitMiddleware, asy
       });
     }
     next(error);
+  } finally {
+    req.dmsActionRunning = false;
+    req.emit('dms-action-settled');
   }
 });
 
@@ -183,7 +188,7 @@ if (env.isProduction) {
     },
   }));
   app.get('*', (req, res, next) => {
-    if (req.path.startsWith('/api/')) return next();
+    if (req.path.startsWith('/api/') || req.path.startsWith('/assets/')) return next();
     res.setHeader('Cache-Control', 'no-cache, no-store, must-revalidate');
     return res.sendFile(path.join(distPath, 'index.html'));
   });
@@ -197,7 +202,7 @@ app.use((rawError, req, res, _next) => {
   const error = httpError(rawError);
   const status = error.status || error.statusCode || (error instanceof AppError ? error.status : 500);
   const isExpected = error instanceof AppError;
-  if (status >= 500) console.error(`[${req.requestId || 'sin-id'}]`, error);
+  if (status >= 500) console.error(`[${req.requestId || 'sin-id'}]`, safeError(error));
   else console.warn(`[${req.requestId || 'sin-id'}][${error.code || 'REQUEST_ERROR'}] ${error.message}`);
 
   res.setHeader('Cache-Control', 'no-store');

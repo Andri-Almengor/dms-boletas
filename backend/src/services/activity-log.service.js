@@ -174,6 +174,7 @@ export async function flushActivityQueue() {
   if (flushPromise) return flushPromise;
   if (!queue.length) return { flushed: 0 };
 
+  let failed = false;
   const batch = queue.splice(0, Math.min(queue.length, Math.max(20, env.auditBatchSize)));
   flushPromise = ensureActivitySchema()
     .then(() => appendRows('ActividadApp', batch, { chunkSize: Math.max(20, env.auditBatchSize) }))
@@ -182,6 +183,7 @@ export async function flushActivityQueue() {
       return { flushed: batch.length };
     })
     .catch((error) => {
+      failed = true;
       failedFlushes += 1;
       queue.unshift(...batch);
       while (queue.length > Math.max(5_000, env.auditMaxBufferedRows * 3)) {
@@ -193,7 +195,7 @@ export async function flushActivityQueue() {
     })
     .finally(() => {
       flushPromise = null;
-      if (queue.length >= env.auditBatchSize) void flushActivityQueue();
+      if (!failed && queue.length >= env.auditBatchSize) void flushActivityQueue();
     });
   return flushPromise;
 }
@@ -250,20 +252,24 @@ export async function recordApiActivityFromToken({
 }) {
   if (!sessionToken || !route) return { queued: false };
   try {
-    const auth = await authenticate(sessionToken);
     const detail = {
       solicitud: safeValue(payload),
       respuesta: error ? undefined : safeValue(data),
       error: error ? { code: error.code || '', message: error.message || String(error) } : undefined,
     };
+    const entityId = firstId(data) || firstId(payload);
+    const failed = Boolean(error);
+    // Do not retain complete uploads while re-authentication waits on Sheets.
+    payload = null; data = null; error = null;
+    const auth = await authenticate(sessionToken);
     const row = baseRow(auth, {
       type: 'API_ACTION',
       section: sectionForRoute(route),
       actionRoute: route,
       action: actionForRoute(route),
       entity: entityForRoute(route),
-      entityId: firstId(data) || firstId(payload),
-      result: error ? 'ERROR' : 'OK',
+      entityId,
+      result: failed ? 'ERROR' : 'OK',
       priority: priorityForRoute(route),
       detail,
       startedAt,

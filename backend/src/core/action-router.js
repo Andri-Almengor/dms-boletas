@@ -63,6 +63,8 @@ add(['ai.knowledgeRewrite','gemini.knowledgeRewrite','knowledge.ai.rewrite','bas
 add(['survey.public.get','encuesta.publica.get'], surveyHandlers.publicGet, null, true);
 add(['survey.public.submit','encuesta.publica.submit'], surveyHandlers.publicSubmit, null, true);
 add(['customerCases.public.get','casos.cliente.public.get'], customerCaseHandlers.publicGet, null, true);
+add('customerCases.evidence.init', ctx => customerCaseHandlers.publicEvidenceInit(ctx), null, true);
+add('customerCases.evidence.chunk', ctx => customerCaseHandlers.publicEvidenceChunk(ctx), null, true);
 add(['customerCases.public.submit','casos.cliente.public.submit'], customerCaseHandlers.publicSubmit, null, true);
 add(['ticket.signature.public.get','boletas.firma.publica.get'], publicSignatureHandlers.publicGet, null, true);
 add(['ticket.signature.public.submit','boletas.firma.publica.guardar'], publicSignatureHandlers.publicSubmit, null, true);

@@ -7,6 +7,7 @@ import {
 import { copyDriveFile, createFolder, getDriveFile } from '../infra/drive.repository.js';
 
 const BACKUP_KEYS = Object.freeze({
+  autoSlot: 'BACKUP_AUTO_SLOT',
   enabled: 'BACKUP_WEEKLY_ENABLED',
   day: 'BACKUP_WEEKLY_DAY',
   hour: 'BACKUP_WEEKLY_HOUR',
@@ -55,6 +56,15 @@ function configMap(rows = []) {
   return Object.fromEntries(rows.filter((row) => row?.Clave).map((row) => [String(row.Clave), row.Valor]));
 }
 
+function normalizeSlot(value) {
+  const text = clean(value, 80).replace(/^WEEK_SLOT:/, '');
+  if (/^\d{4}-\d{2}-\d{2}$/.test(text)) return text;
+  if (/^\d{5}(?:\.0+)?$/.test(text)) {
+    return new Date(Date.UTC(1899, 11, 30) + Number(text) * 86400000).toISOString().slice(0, 10);
+  }
+  return '';
+}
+
 function backupSettingsFromConfig(config = {}) {
   return {
     enabled: asBoolean(config[BACKUP_KEYS.enabled], false),
@@ -64,7 +74,8 @@ function backupSettingsFromConfig(config = {}) {
     folderId: clean(config[BACKUP_KEYS.folderId], 300),
     folderUrl: clean(config[BACKUP_KEYS.folderUrl], 1000),
     lastAt: clean(config[BACKUP_KEYS.lastAt], 100),
-    lastSlot: clean(config[BACKUP_KEYS.lastSlot], 20),
+    lastSlot: normalizeSlot(config[BACKUP_KEYS.lastSlot]),
+    autoSlot: normalizeSlot(config[BACKUP_KEYS.autoSlot]),
     lastFileId: clean(config[BACKUP_KEYS.lastFileId], 300),
     lastFileName: clean(config[BACKUP_KEYS.lastFileName], 300),
     lastUrl: clean(config[BACKUP_KEYS.lastUrl], 1000),
@@ -171,7 +182,20 @@ async function ensureBackupFolder(settings) {
 
 async function performBackup({ actor = 'SYSTEM', now = new Date(), scheduledSlot = '' } = {}) {
   const settings = await getWeeklyBackupStatus();
-  const slot = scheduledSlot || (settings.enabled ? weeklyBackupSlot(settings, now) : '');
+  const slot = scheduledSlot || settings.lastSlot;
+  if (scheduledSlot) {
+    if (settings.autoSlot === slot || (settings.lastSlot === slot && settings.lastStatus === 'COMPLETADO')) {
+      return { created: false, slot };
+    }
+    // Persist BEFORE the external side effect. An ambiguous failure requires
+    // operator review/manual backup, never an automatic duplicate after reboot.
+    await upsertConfigEntries({
+      [BACKUP_KEYS.autoSlot]: `WEEK_SLOT:${slot}`,
+      [BACKUP_KEYS.lastSlot]: `WEEK_SLOT:${slot}`,
+      [BACKUP_KEYS.lastStatus]: 'EN_PROCESO',
+    });
+    console.log(`[weekly-backup] slot_reserved slot=${slot}`);
+  }
   const folder = await ensureBackupFolder(settings);
   const name = `DMS Boletas - Respaldo ${backupFileTimestamp(now, settings.timezone)}`;
   try {
@@ -183,7 +207,7 @@ async function performBackup({ actor = 'SYSTEM', now = new Date(), scheduledSlot
     const url = copied.webViewLink || `https://docs.google.com/spreadsheets/d/${encodeURIComponent(copied.id)}/edit`;
     await upsertConfigEntries({
       [BACKUP_KEYS.lastAt]: now.toISOString(),
-      [BACKUP_KEYS.lastSlot]: slot,
+      [BACKUP_KEYS.lastSlot]: slot ? `WEEK_SLOT:${slot}` : '',
       [BACKUP_KEYS.lastFileId]: copied.id,
       [BACKUP_KEYS.lastFileName]: copied.name || name,
       [BACKUP_KEYS.lastUrl]: url,
@@ -225,9 +249,12 @@ async function schedulerTick() {
     const settings = await getWeeklyBackupStatus();
     if (!settings.enabled) return;
     const slot = weeklyBackupSlot(settings, new Date());
-    if (settings.lastSlot === slot && settings.lastStatus === 'COMPLETADO') return;
+    if (settings.autoSlot === slot || (settings.lastSlot === slot && settings.lastStatus === 'COMPLETADO')) {
+      console.log(`[weekly-backup] slot_skipped slot=${slot} status=${settings.lastStatus}`);
+      return;
+    }
     const result = await createWeeklyBackup({ actor: 'SYSTEM', scheduledSlot: slot });
-    console.log(`[weekly-backup] Respaldo ${result.fileName} creado para la semana ${slot}.`);
+    if (result.created) console.log(`[weekly-backup] Respaldo ${result.fileName} creado para la semana ${slot}.`);
   } catch (error) {
     console.warn(`[weekly-backup] No se pudo crear el respaldo semanal: ${clean(error?.message || error, 500)}`);
   } finally {

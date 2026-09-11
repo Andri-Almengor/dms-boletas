@@ -1,6 +1,9 @@
 import { env } from '../config/env.js';
 import { AsyncSemaphore } from '../core/semaphore.js';
 
+const authActions = new AsyncSemaphore({ name: 'action-auth', max: 2, queueLimit: env.httpQueueLimit, timeoutMs: env.httpQueueTimeoutMs });
+const uploadActions = new AsyncSemaphore({ name: 'action-upload', max: 1, queueLimit: env.httpQueueLimit, timeoutMs: env.httpQueueTimeoutMs });
+
 const writeActions = new AsyncSemaphore({
   name: 'action-write',
   max: env.writeActionMaxConcurrent,
@@ -52,7 +55,9 @@ function isHeavyRoute(route) {
     || value.includes('resend')
     || value.includes('reenviar')
     || value.includes('testfinalize')
-    || value.includes('probar');
+    || value.includes('probar')
+    || value.includes('.media.get')
+    || ['customercases.public.submit', 'casos.cliente.public.submit'].includes(value);
 }
 
 function addBusyContext(error, route, { heavy, write }) {
@@ -69,6 +74,7 @@ function addBusyContext(error, route, { heavy, write }) {
 export async function runWithActionConcurrency(route, operation) {
   const heavy = isHeavyRoute(route);
   const write = !isReadRoute(route);
+  let releaseDedicated;
   let releaseHeavy;
   let releaseWrite;
 
@@ -76,7 +82,11 @@ export async function runWithActionConcurrency(route, operation) {
     // Las acciones pesadas tienen un carril exclusivo. No reservan además un
     // slot de escrituras normales durante varios minutos: las escrituras a
     // Sheets ya están serializadas por los gates internos del repositorio.
-    if (heavy) {
+    if (normalizedRoute(route).startsWith('auth.')) {
+      releaseDedicated = await authActions.acquire();
+    } else if (/evidence|images|imagenes|grande|attachments|adjuntos/.test(normalizedRoute(route))) {
+      releaseDedicated = await uploadActions.acquire();
+    } else if (heavy) {
       releaseHeavy = await heavyActions.acquire();
     } else if (write) {
       releaseWrite = await writeActions.acquire();
@@ -85,6 +95,7 @@ export async function runWithActionConcurrency(route, operation) {
   } catch (error) {
     throw addBusyContext(error, route, { heavy, write });
   } finally {
+    releaseDedicated?.();
     releaseWrite?.();
     releaseHeavy?.();
   }
@@ -92,6 +103,8 @@ export async function runWithActionConcurrency(route, operation) {
 
 export function actionConcurrencySnapshot() {
   return {
+    auth: authActions.snapshot(),
+    uploads: uploadActions.snapshot(),
     writes: writeActions.snapshot(),
     heavy: heavyActions.snapshot(),
   };

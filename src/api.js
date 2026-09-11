@@ -1,3 +1,4 @@
+import { withRequestDeadline } from './services/requestPolicy';
 import { isOfflineModeEnabled } from './services/offlineMode';
 import {
   createAbortError,
@@ -86,7 +87,7 @@ function transientError(error) {
 }
 
 function onlineRequiredError(originalError = null) {
-  const error = new Error('No se pudo conectar al servidor. El modo sin conexión está desactivado en este dispositivo.');
+  const error = new Error('El servidor se está reconectando. Intente nuevamente en unos segundos. El modo sin conexión está desactivado en este dispositivo.');
   error.name = 'Error';
   error.code = 'ONLINE_REQUIRED';
   error.status = Number(originalError?.status || 0);
@@ -153,7 +154,11 @@ async function performRequest(route, payload, sessionToken, { signal } = {}) {
   return result.data;
 }
 
-async function performRequestWithRetry(route, payload, sessionToken, { signal } = {}) {
+function performRequestWithRetry(route, payload, sessionToken, { signal } = {}) {
+  return withRequestDeadline(route, signal, (deadlineSignal) => retryRequest(route, payload, sessionToken, deadlineSignal));
+}
+
+async function retryRequest(route, payload, sessionToken, signal) {
   throwIfAborted(signal);
   if (typeof navigator !== 'undefined' && navigator.onLine === false && !isOfflineModeEnabled()) {
     throw onlineRequiredError();
@@ -281,6 +286,8 @@ export async function apiRequest(route, payload = {}, sessionToken = '', options
     notifyWriteComplete(route, payload, data);
     return data;
   }
+
+  if (String(route).toLowerCase() === 'auth.me') return performRequestWithRetry(route, payload, sessionToken, { signal });
 
   const now = Date.now();
   pruneRecentReads(now);

@@ -1,3 +1,4 @@
+import { shouldUseLargeEvidenceUpload, uploadLargeKnowledgeAttachment } from '../../services/largeEvidenceUpload';
 import React, { useEffect, useMemo, useState } from 'react';
 import { Navigate, useNavigate, useParams } from 'react-router-dom';
 import { useAuth } from '../../AuthContext';
@@ -282,8 +283,12 @@ export default function KnowledgeEditorPage({ mode }) {
       const savedId = String(pick(response, ['TutorialID', 'tutorialId', 'id'], tutorialId));
       if (!savedId) throw new Error('El backend guardó el tutorial pero no devolvió su identificador.');
       for (const file of [...newFiles]) {
+        if (shouldUseLargeEvidenceUpload({file})) {
+          await uploadLargeKnowledgeAttachment({tutorialId:savedId,file,sessionToken});
+        } else {
         const dataUrl = await fileToDataUrl(file);
         await requestAvailable(MODULE_ROUTES.knowledge.attachmentUpload, { tutorialId: savedId, nombre: file.name, mimeType: file.type || 'application/octet-stream', size: file.size, dataUrl }, sessionToken);
+        }
         setNewFiles((current) => current.filter((item) => item !== file));
       }
       try { localStorage.removeItem(draftKey); } catch { /* El guardado del servidor ya terminó. */ }

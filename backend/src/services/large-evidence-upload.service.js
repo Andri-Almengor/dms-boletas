@@ -8,9 +8,9 @@ import { getConfig } from '../modules/config.module.js';
 import { ensureSheetColumns } from './sheet-columns.service.js';
 import { validateEvidenceMediaPayload } from './evidence-media-policy.service.js';
 
-export const LARGE_VIDEO_THRESHOLD_BYTES = 30 * 1024 * 1024;
+export const LARGE_VIDEO_THRESHOLD_BYTES = 256 * 1024;
 export const LARGE_VIDEO_MAX_BYTES = 300 * 1024 * 1024;
-export const LARGE_VIDEO_CHUNK_BYTES = 8 * 1024 * 1024;
+export const LARGE_VIDEO_CHUNK_BYTES = 256 * 1024;
 const UPLOAD_TOKEN_TTL_MS = 4 * 60 * 60 * 1000;
 const DRIVE_RESUMABLE_PREFIX = 'https://www.googleapis.com/upload/drive/v3/files?uploadType=resumable';
 const TICKET_MEDIA_COLUMNS = ['TipoMedio', 'DuracionSegundos', 'TamanoBytes'];
@@ -37,12 +37,13 @@ function sign(encodedPayload) {
   return crypto.createHmac('sha256', signingKey()).update(encodedPayload).digest('base64url');
 }
 
-function createUploadToken(payload) {
+export function createUploadToken(payload) {
   const encoded = encode({ ...payload, exp: Date.now() + UPLOAD_TOKEN_TTL_MS });
   return `${encoded}.${sign(encoded)}`;
 }
 
-function parseUploadToken(token, expectedKind) {
+export function parseUploadToken(token, expectedKind) {
+  if (typeof token !== 'string' || token.length > 12_000) throw badRequest('La sesión de carga no es válida.');
   const [encoded, signature] = clean(token).split('.');
   if (!encoded || !signature) throw badRequest('La sesión de carga del video no es válida. Inicie la carga nuevamente.');
   const expected = sign(encoded);
@@ -60,7 +61,7 @@ function parseUploadToken(token, expectedKind) {
   }
   if (Number(payload.exp || 0) <= Date.now()) throw badRequest('La sesión de carga del video expiró. Inicie la carga nuevamente.');
   if (payload.kind !== expectedKind) throw badRequest('La sesión de carga no corresponde a este tipo de evidencia.');
-  if (!clean(payload.sessionUrl).startsWith(DRIVE_RESUMABLE_PREFIX)) throw badRequest('La sesión de Drive recibida no es válida.');
+  if (expectedKind !== 'case-receipt' && !clean(payload.sessionUrl).startsWith(DRIVE_RESUMABLE_PREFIX)) throw badRequest('La sesión de Drive recibida no es válida.');
   return payload;
 }
 
@@ -76,6 +77,7 @@ async function startDriveResumableSession({ fileName, mimeType, size, folderId }
   const url = `${DRIVE_RESUMABLE_PREFIX}&supportsAllDrives=true&fields=id,name,mimeType,size,webViewLink,webContentLink,thumbnailLink,parents`;
   const response = await fetch(url, {
     method: 'POST',
+    signal: AbortSignal.timeout(60_000),
     headers: {
       Authorization: `Bearer ${token}`,
       'Content-Type': 'application/json; charset=UTF-8',
@@ -112,6 +114,9 @@ function existingMaintenanceEvidence(rows, imageId, deviceId) {
 }
 
 async function findExistingEvidence(token, kind) {
+  if (kind === 'knowledge') {
+    return (await readTable('KnowledgeAttachments', { force: true })).find(row => row.AdjuntoID === token.attachmentId) || null;
+  }
   if (kind === 'ticket') {
     return existingTicketEvidence(
       await readTable('EvidenciasBoleta', { force: true }),
@@ -126,13 +131,9 @@ async function findExistingEvidence(token, kind) {
   );
 }
 
-function validatedVideoMetadata(payload) {
-  const metadata = validateEvidenceMediaPayload(payload, { allowDocuments: false, requireData: false });
-  if (metadata.mediaType !== 'VIDEO') throw badRequest('La carga reanudable está disponible únicamente para videos.');
-  if (metadata.size <= LARGE_VIDEO_THRESHOLD_BYTES) {
-    throw badRequest('Este video puede utilizar la carga normal. La carga reanudable se reserva para archivos mayores de 30 MB.');
-  }
-  if (metadata.size > LARGE_VIDEO_MAX_BYTES) throw badRequest('El video supera el límite de 300 MB.');
+function validatedVideoMetadata(payload, allowDocuments = false) {
+  const metadata = validateEvidenceMediaPayload(payload, { allowDocuments, requireData: false });
+  if (!Number.isSafeInteger(metadata.size) || metadata.size <= 0) throw badRequest('El tamaño del archivo no es válido.');
   return metadata;
 }
 
@@ -145,7 +146,7 @@ async function initTicket(ctx) {
   const existing = existingTicketEvidence(await readTable('EvidenciasBoleta', { force: true }), evidenceId, boletaUid);
   if (existing) return { complete: true, evidence: existing };
 
-  const metadata = validatedVideoMetadata(ctx.payload);
+  const metadata = validatedVideoMetadata(ctx.payload, true);
   const cfg = await getConfig();
   const sessionUrl = await startDriveResumableSession({
     fileName: clean(ctx.payload.fileName, `video-${Date.now()}.mp4`),
@@ -227,7 +228,7 @@ async function appendTicketEvidence(token, file) {
     ArchivoURL: file.webViewLink || `https://drive.google.com/file/d/${encodeURIComponent(file.id)}/view`,
     NombreArchivo: file.name || token.fileName,
     MimeType: file.mimeType || token.mimeType,
-    TipoMedio: 'VIDEO',
+    TipoMedio: token.mediaType,
     DuracionSegundos: token.durationSeconds,
     TamanoBytes: token.size,
     Orden: Number(token.order || 0),
@@ -254,7 +255,7 @@ async function appendMaintenanceEvidence(token, file) {
     Nota: token.note,
     MimeType: file.mimeType || token.mimeType,
     Size: file.size || token.size,
-    TipoMedio: 'VIDEO',
+    TipoMedio: token.mediaType,
     DuracionSegundos: token.durationSeconds,
     DriveFileID: file.id,
     DriveURL: file.webViewLink || `https://drive.google.com/file/d/${encodeURIComponent(file.id)}/view`,
@@ -273,6 +274,8 @@ async function appendMaintenanceEvidence(token, file) {
 
 async function uploadChunk(ctx, kind) {
   const token = parseUploadToken(ctx.payload.uploadToken, kind);
+  if (token.actor !== ctx.user.UsuarioID) throw badRequest('La sesión de carga pertenece a otro usuario.');
+  if (String(ctx.payload.base64 || '').length > Math.ceil(LARGE_VIDEO_CHUNK_BYTES / 3) * 4 + 4) throw badRequest('El bloque supera el tamaño permitido.');
   const offset = Number(ctx.payload.offset);
   if (!Number.isInteger(offset) || offset < 0 || offset >= token.size) throw badRequest('La posición del bloque del video no es válida.');
   const normalized = clean(ctx.payload.base64).replace(/\s+/g, '');
@@ -285,6 +288,7 @@ async function uploadChunk(ctx, kind) {
   const bearer = await accessToken();
   const response = await fetch(token.sessionUrl, {
     method: 'PUT',
+    signal: AbortSignal.timeout(60_000),
     headers: {
       Authorization: `Bearer ${bearer}`,
       'Content-Type': token.mimeType,
@@ -309,6 +313,7 @@ async function uploadChunk(ctx, kind) {
 
   const file = await response.json();
   if (!file?.id) throw new Error('Google Drive no devolvió el archivo al completar el video.');
+  if (kind === 'knowledge') return { complete: true, nextOffset: token.size, file, token };
   const evidence = kind === 'ticket'
     ? await appendTicketEvidence(token, file)
     : await appendMaintenanceEvidence(token, file);
@@ -321,3 +326,23 @@ export const largeEvidenceUploadHandlers = {
   maintenanceInit: initMaintenance,
   maintenanceChunk: (ctx) => uploadChunk(ctx, 'maintenance'),
 };
+
+// Called only after the original knowledge handler authorizes the article.
+// Reuses exactly the same signed Drive sessions and bounded chunk transport.
+export async function transferKnowledgeAttachment(ctx, articleId, folderId) {
+  if (ctx.payload.uploadPhase === 'init') {
+    const size = Number(ctx.payload.size);
+    if (!Number.isSafeInteger(size) || size <= 0 || size > 50 * 1024 * 1024) throw badRequest('El tamaño del adjunto no es válido.');
+    const mimeType = clean(ctx.payload.mimeType, 'application/octet-stream');
+    const fileName = clean(ctx.payload.fileName || ctx.payload.nombre, 'adjunto');
+    const sessionUrl = await startDriveResumableSession({fileName, mimeType, size, folderId});
+    return {complete:false,chunkBytes:LARGE_VIDEO_CHUNK_BYTES,uploadToken:createUploadToken({
+      kind:'knowledge',sessionUrl,articleId,attachmentId:uuid(),actor:ctx.user.UsuarioID,size,mimeType,fileName,
+    })};
+  }
+  const token = parseUploadToken(ctx.payload.uploadToken, 'knowledge');
+  if (token.articleId !== articleId || token.actor !== ctx.user.UsuarioID) throw badRequest('La sesión de carga no corresponde a este adjunto.');
+  const existing = await findExistingEvidence(token, 'knowledge');
+  if (existing) return {complete:true,evidence:existing};
+  return uploadChunk(ctx, 'knowledge');
+}

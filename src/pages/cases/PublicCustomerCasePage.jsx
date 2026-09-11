@@ -1,3 +1,4 @@
+import { uploadCustomerCaseEvidences } from '../../services/customerCases';
 import React, { useEffect, useMemo, useRef, useState } from 'react';
 import { useParams } from 'react-router-dom';
 import Icon from '../../components/common/Icon';
@@ -111,7 +112,7 @@ export default function PublicCustomerCasePage() {
     try {
       const prepared = [];
       for (const file of selected) prepared.push(await prepareCustomerCaseEvidence(file));
-      const empty = prepared.find((item) => !item.base64);
+      const empty = prepared.find((item) => !item.file && !item.uploadReference);
       if (empty) throw new Error(`No se pudieron leer los datos de ${empty.fileName}.`);
       const nextTotal = totalBytes + prepared.reduce((sum, item) => sum + Number(item.size || 0), 0);
       if (nextTotal > Number(limits.maxTotalMb || 16) * 1024 * 1024) {
@@ -140,7 +141,7 @@ export default function PublicCustomerCasePage() {
     if (!form.problem.trim()) return 'Describa el problema que presenta.';
     if (!form.requesterName.trim()) return 'Escriba el nombre de quien genera el caso.';
     if (!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(form.email.trim())) return 'Escriba un correo electrónico válido.';
-    if (evidences.some((item) => !item.base64)) return 'Una de las evidencias no está lista. Elimínela y vuelva a seleccionarla.';
+    if (evidences.some((item) => !item.file && !item.uploadReference)) return 'Una de las evidencias no está lista. Elimínela y vuelva a seleccionarla.';
     return '';
   }
 
@@ -155,6 +156,7 @@ export default function PublicCustomerCasePage() {
     setSubmitting(true);
     setError('');
     try {
+      const uploadedEvidences = await uploadCustomerCaseEvidences({token,requestId,evidences});
       const response = await requestCustomerCase(CUSTOMER_CASE_ROUTES.publicSubmit, {
         token,
         requestId,
@@ -163,7 +165,7 @@ export default function PublicCustomerCasePage() {
         requesterName: form.requesterName.trim(),
         email: form.email.trim(),
         website: form.website,
-        evidences: evidences.map(({ previewUrl: _previewUrl, ...item }) => item),
+        evidences: uploadedEvidences,
       });
       setResult(normalizedResult(response, selectedCount));
       setTestMode(Boolean(response.testMode || testMode));

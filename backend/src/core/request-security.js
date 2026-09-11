@@ -9,6 +9,7 @@ const PUBLIC_WRITE_ROUTES = new Set([
   'survey.public.submit',
   'encuesta.publica.submit',
   'customercases.public.submit',
+  'customercases.evidence.init',
   'casos.cliente.public.submit',
   'ticket.signature.public.submit',
   'boletas.firma.publica.guardar',
@@ -86,6 +87,11 @@ export function resolveRequestId(value = '') {
 
 export function actionRateLimitPolicy(route, config) {
   const normalized = String(route || '').trim().toLowerCase();
+  if (normalized === 'customercases.evidence.chunk') {
+    // Transport only: every block also requires a signed, portal-bound token.
+    // 16 MiB / 256 KiB = 64 blocks; leave bounded room for retries.
+    return {name:'public-evidence-chunk',limit:128,windowMs:5*60_000};
+  }
   if (normalized === 'auth.login') {
     return {
       name: 'login',

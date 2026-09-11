@@ -1,3 +1,4 @@
+import { uploadCustomerCaseFile } from './largeEvidenceUpload';
 import { apiRequest } from '../api';
 import { requestFirstAvailable } from './aliasResolver';
 
@@ -77,19 +78,6 @@ export function customerCaseView(record = {}) {
   };
 }
 
-function fileToDataUrl(file) {
-  return new Promise((resolve, reject) => {
-    const reader = new FileReader();
-    reader.onload = () => resolve(String(reader.result || ''));
-    reader.onerror = () => reject(reader.error || new Error(`No se pudo leer ${file.name}.`));
-    reader.readAsDataURL(file);
-  });
-}
-
-function canvasBlob(canvas, type, quality) {
-  return new Promise((resolve) => canvas.toBlob(resolve, type, quality));
-}
-
 function mimeFromName(name) {
   const extension = String(name || '').toLowerCase().split('.').pop();
   if (extension === 'jpg' || extension === 'jpeg') return 'image/jpeg';
@@ -101,44 +89,21 @@ function mimeFromName(name) {
   return '';
 }
 
-async function optimizeImage(file, maxDimension = 1600, quality = 0.82) {
-  if (!/^image\/(jpeg|png|webp)$/i.test(file.type) || typeof createImageBitmap !== 'function') return file;
-  let bitmap;
-  try {
-    bitmap = await createImageBitmap(file);
-    const scale = Math.min(1, maxDimension / Math.max(bitmap.width, bitmap.height));
-    if (scale >= 1 && file.size <= 4 * 1024 * 1024) return file;
-    const canvas = document.createElement('canvas');
-    canvas.width = Math.max(1, Math.round(bitmap.width * scale));
-    canvas.height = Math.max(1, Math.round(bitmap.height * scale));
-    const context = canvas.getContext('2d');
-    if (!context) return file;
-    context.drawImage(bitmap, 0, 0, canvas.width, canvas.height);
-    const outputType = file.type === 'image/png' ? 'image/png' : 'image/jpeg';
-    const blob = await canvasBlob(canvas, outputType, outputType === 'image/png' ? undefined : quality);
-    if (!blob || blob.size >= file.size) return file;
-    return new File([blob], file.name.replace(/\.[^.]+$/, outputType === 'image/png' ? '.png' : '.jpg'), {
-      type: outputType,
-      lastModified: file.lastModified,
-    });
-  } catch {
-    return file;
-  } finally {
-    bitmap?.close?.();
-  }
+export async function prepareCustomerCaseEvidence(file) {
+  return {file,evidenceId:newCustomerCaseRequestId(),fileName:file.name,mimeType:file.type || mimeFromName(file.name) || 'image/jpeg',size:file.size,previewUrl:URL.createObjectURL(file)};
 }
 
-export async function prepareCustomerCaseEvidence(file) {
-  const optimized = await optimizeImage(file);
-  const dataUrl = await fileToDataUrl(optimized);
-  const mimeType = optimized.type || file.type || mimeFromName(optimized.name || file.name) || 'image/jpeg';
-  return {
-    fileName: optimized.name,
-    mimeType,
-    size: optimized.size,
-    base64: dataUrl.split(',')[1] || '',
-    previewUrl: URL.createObjectURL(optimized),
-  };
+export async function uploadCustomerCaseEvidences({token,requestId,evidences}) {
+  const results=[];
+  for (const item of evidences) {
+    // Successful receipts survive a submit retry in the current form.
+    if (!item.uploadReference) {
+      const uploaded=await uploadCustomerCaseFile({token,requestId,item});
+      Object.assign(item,uploaded);
+    }
+    results.push({uploadReference:item.uploadReference,note:item.note || '',fileName:item.fileName,mimeType:item.mimeType,size:item.size});
+  }
+  return results;
 }
 
 export function newCustomerCaseRequestId() {
