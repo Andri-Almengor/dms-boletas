@@ -62,6 +62,7 @@ import './paginated-collection.test.mjs';
 import './paginated-resource.test.mjs';
 import './password-vault.test.mjs';
 import './password-vault-system-search.test.mjs';
+import './render-edge-429-recovery.test.mjs';
 import './security-hardening.test.mjs';
 import './server-concurrency-isolation.test.mjs';
 import './shared-utilities.test.mjs';

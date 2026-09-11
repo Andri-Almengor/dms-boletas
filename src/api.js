@@ -101,16 +101,43 @@ function isSheetsQuotaError(error) {
     || String(error?.code || '').toUpperCase() === 'SHEETS_QUOTA_EXCEEDED';
 }
 
+function responseHeader(response, name) {
+  try { return String(response?.headers?.get?.(name) || '').trim(); } catch { return ''; }
+}
+
 function invalidResponseError(response) {
-  const temporary = TRANSIENT_BACKEND_STATUSES.has(Number(response.status));
-  const error = new Error(temporary
-    ? `El servidor se está reiniciando temporalmente (${response.status}). La aplicación reintentará la conexión.`
-    : `El backend respondió con un formato inválido (${response.status}).`);
+  const status = Number(response?.status || 0);
+  const appRequestId = responseHeader(response, 'x-request-id');
+  // DMS siempre agrega X-Request-ID en sus respuestas, incluso para errores de
+  // concurrencia y rate limit. Un 429 no-JSON sin ese header proviene de una
+  // capa anterior a Express (edge/proxy), por lo que la acción no fue aceptada
+  // por el backend y puede reintentarse con backoff sin confundirla con cuota
+  // de Sheets o RATE_LIMITED propios de la aplicación.
+  const edgeThrottled = status === 429 && !appRequestId;
+  const temporary = TRANSIENT_BACKEND_STATUSES.has(status) || edgeThrottled;
+  const error = new Error(edgeThrottled
+    ? 'El servidor está recibiendo demasiadas solicitudes temporalmente. La aplicación reintentará la conexión.'
+    : temporary
+      ? `El servidor se está reiniciando temporalmente (${status}). La aplicación reintentará la conexión.`
+      : `El backend respondió con un formato inválido (${status}).`);
   error.name = temporary ? 'NetworkError' : 'Error';
-  error.code = temporary ? 'BACKEND_TEMPORARILY_UNAVAILABLE' : 'INVALID_BACKEND_RESPONSE';
-  error.status = response.status;
+  error.code = edgeThrottled
+    ? 'BACKEND_EDGE_THROTTLED'
+    : temporary
+      ? 'BACKEND_TEMPORARILY_UNAVAILABLE'
+      : 'INVALID_BACKEND_RESPONSE';
+  error.status = status;
+  error.retryAfterSeconds = Number(responseHeader(response, 'retry-after') || 0);
   error.retryable = temporary;
   return error;
+}
+
+function retryDelayMs(error, attempt) {
+  const fallback = Number(TRANSIENT_RETRY_DELAYS_MS[attempt] || 0);
+  const retryAfter = Math.max(0, Number(error?.retryAfterSeconds || 0) * 1000);
+  // Un pequeño jitter evita que varias pestañas/técnicos vuelvan a golpear el
+  // edge exactamente al mismo tiempo cuando Render recupera la instancia.
+  return Math.max(fallback, retryAfter) + Math.floor(Math.random() * 250);
 }
 
 async function performRequest(route, payload, sessionToken, { signal } = {}) {
@@ -176,7 +203,7 @@ async function retryRequest(route, payload, sessionToken, signal) {
         if (retryable && !isOfflineModeEnabled()) throw onlineRequiredError(error);
         throw error;
       }
-      await wait(TRANSIENT_RETRY_DELAYS_MS[attempt], signal);
+      await wait(retryDelayMs(error, attempt), signal);
     }
   }
   throw lastError;

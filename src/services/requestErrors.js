@@ -45,6 +45,7 @@ export function isNetworkError(error) {
   const text = `${error?.name || ''} ${error?.message || ''}`.toLowerCase();
   return TRANSIENT_STATUSES.has(status)
     || code === 'BACKEND_TEMPORARILY_UNAVAILABLE'
+    || code === 'BACKEND_EDGE_THROTTLED'
     || text.includes('failed to fetch')
     || text.includes('networkerror')
     || text.includes('network request failed')
