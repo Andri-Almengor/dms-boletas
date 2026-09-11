@@ -8,9 +8,15 @@ import {
 } from './maintenance-finalization-job.storage.js';
 
 const ACTIVE_STATES = new Set(['PROGRAMADO', 'EN_PROCESO']);
+const ADMIN_PERMISSION = 'USUARIOS_GESTIONAR';
 
 function clean(value) {
   return String(value ?? '').trim();
+}
+
+function assertAuthorized(ctx) {
+  if ((ctx?.permissions || []).includes(ADMIN_PERMISSION)) return;
+  throw new AppError('FORBIDDEN', 'No tiene permiso para administrar finalizaciones de mantenimiento.', 403);
 }
 
 function maintenanceId(ctx) {
@@ -50,7 +56,8 @@ function compactRow(row = {}) {
   };
 }
 
-async function listActive() {
+async function listActive(ctx) {
+  assertAuthorized(ctx);
   const rows = await readTable('Mantenimiento', { force: true });
   const items = rows
     .filter(active)
@@ -64,6 +71,7 @@ async function listActive() {
 }
 
 async function stop(ctx) {
+  assertAuthorized(ctx);
   const id = maintenanceId(ctx);
   if (!id) throw new AppError('VALIDATION_ERROR', 'No se indicó el mantenimiento cuya finalización se debe detener.', 400);
 
