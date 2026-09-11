@@ -78,3 +78,5 @@ import './upload-pressure-agenda-latency.test.mjs';
 import './ux-performance-feedback.test.mjs';
 
 import './global-stability.test.mjs';
+
+import './case-chunk-memory.test.mjs';

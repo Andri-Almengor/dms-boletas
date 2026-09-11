@@ -1,3 +1,4 @@
+import { BoundedCache } from '../core/bounded-cache.js';
 import { google } from 'googleapis';
 import { env } from '../config/env.js';
 import { AppError } from '../core/errors.js';
@@ -98,7 +99,7 @@ const writeGate = new ApiGate({
   minIntervalMs: env.sheetsGlobalWriteMinIntervalMs,
 });
 const readInflight = new Map();
-const readCache = new Map();
+const readCache = new BoundedCache({maxBytes:env.memoryBudgetMb * 1024 * 1024 / 64});
 const stats = {
   readCacheHits: 0,
   readStaleHits: 0,
@@ -239,6 +240,7 @@ export function googleSheetsGateSnapshot() {
     reads: readGate.snapshot(),
     writes: writeGate.snapshot(),
     cacheEntries: readCache.size,
+    cache: readCache.snapshot(),
     inflightReads: readInflight.size,
     ...stats,
   };

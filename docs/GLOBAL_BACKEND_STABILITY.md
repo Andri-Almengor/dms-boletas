@@ -7,11 +7,11 @@ Rama: `fix/global-backend-stability-20260911`. La rama `fix/global-backend-stabi
 
 El defecto de idempotencia semanal se reproduce localmente: veinte módulos nuevos, con persistencia compartida que modela USER_ENTERED y SERIAL_NUMBER, generan veinte copias antes del cambio y una después. La prueba no escribe a la hoja real ni certifica su locale/valor actual. Verificar BACKUP_LAST_SLOT en producción.
 
-Los 22 arranques en 47 minutos fueron descritos en el brief; no se adjuntó un export completo de logs, eventos, memoria, exit codes o despliegues de Render. OOM, SIGKILL o health failures siguen siendo hipótesis, no causas confirmadas. No es posible garantizar desde una prueba local que Render dejó de reiniciar.
+Actualización 2026-09-11: el aviso de Render aportado por el usuario confirma OOM por superar 512 MB para `pgz52`. El aviso de `2q484` no especifica causa. El extracto adjunto contiene 25 banners de arranque, todos con concurrencia HTTP 40 / grandes 2, y 23 mensajes de respaldo para el mismo slot 2026-09-06 (nombres entre 15:16 y 16:04 del 10 de septiembre). No aporta el perfil de asignaciones ni demuestra qué operación produjo ese pico; tampoco prueba que todos los reinicios sean OOM. No se publican los logs crudos porque incluyen datos de usuarios. No es posible garantizar desde una prueba local que Render dejó de reiniciar.
 
 **Pendientes bloqueantes para cerrar el alcance:**
 
-- Casos públicos utiliza `customer.case.evidence.upload` en un Apps Script externo, incluyendo propiedad del archivo y modo de prueba. Su implementación no está en `apps-script/boletas-report/Code.gs` de este repositorio. Falta el código del deployment real de `APPS_SCRIPT_REPORT_URL` para extender el transporte conservando ese contrato. Esa ruta y la sincronización legacy aún pueden transportar JSON/base64 grande; quedan serializadas y sujetas a admisión por memoria, pero no cumplen todavía la meta de transporte por bloques en todos los caminos.
+- Desplegar la versión completa de Apps Script preparada en `apps-script/report-service/Code.gs` antes de habilitar este frontend/backend. Ya se incorporó el código real suministrado y se completó el transporte de Casos por bloques, preservando propietario, secreto compartido y modo real/prueba. Falta validar contra el deployment real; la sincronización legacy conserva su contrato base64 y sigue sujeta al carril grande.
 - Las respuestas de medios antiguos y reportes todavía pueden construir buffers grandes. La admisión reduce la concurrencia de entrada; no constituye un límite duro sobre toda la memoria de V8, Drive o reportes. Medir RSS con carga representativa real antes de aprobar producción.
 - Validación visual real de navegación/deploy/offline en navegador y soak en Render pendientes. Las pruebas de recovery incluyen funciones, hooks y contratos de código, no un navegador real.
 - La reserva de backup cubre cold starts secuenciales de una instancia. Sheets no ofrece compare-and-swap para estas celdas; no es un bloqueo distribuido ante dos procesos que reservan simultáneamente. No escalar réplicas ni solapar dos schedulers automáticos sin coordinar un lock transaccional externo.
@@ -22,7 +22,7 @@ Inicio → warmup de 16 tablas + schedulers a los 2/5 segundos → slot de fecha
 
 La copia de Sheets usa Drive files.copy, no descarga el libro completo a Node; no se atribuye OOM a un buffer de ese respaldo sin evidencia.
 
-Otros problemas verificables: cargas chunked/sin Content-Length escapaban al carril grande; login compartía el carril de escrituras; el registro de actividad retenía payloads mientras reautenticaba; auditoría y actividad reintentaban inmediatamente un lote fallido; caché global retenía valores crudos y objetos SDK además de filas normalizadas.
+Otros problemas verificables: cargas chunked/sin Content-Length escapaban al carril grande; login compartía el carril de escrituras; el registro de actividad retenía payloads mientras reautenticaba; auditoría y actividad reintentaban inmediatamente un lote fallido; caché global retenía valores crudos y objetos SDK además de filas normalizadas. Además, el correo descargaba un archivo completo antes de comprobar su límite de adjuntos: un video de 300 MB se descartaba después de ocupar memoria. Se corrige consultando metadatos primero; este defecto es reproducible, pero los logs no prueban que haya sido el disparador de pgz52.
 
 ## Cambios implementados
 
@@ -37,20 +37,22 @@ Otros problemas verificables: cargas chunked/sin Content-Length escapaban al car
 | `audit.service.js`, `activity-log.service.js` | El fallo espera al próximo flush; actividad sanitiza y suelta payload/respuesta antes de esperar autenticación. |
 | `large-evidence-upload.service.js`, `largeEvidenceUpload.js` | Generaliza sesiones reanudables existentes a imágenes/documentos permitidos; bloques de 256 KiB; tipo de medio correcto; validación previa al decode; token ligado al usuario; timeout de Drive. |
 | Formularios de boletas, mantenimiento y conocimiento | Archivos mayores de 256 KiB usan bloques sin cambiar bytes; conocimiento verifica autor/permisos en cada bloque usando su handler original; completa visitas relacionadas y alta rápida que no usaban esa capa. |
-| `customerCases.js` | Elimina optimización automática de imagen preexistente: conserva bytes originales. No cambia el endpoint externo de Casos. |
+| Casos público y `apps-script/report-service/Code.gs` | Conserva File original en navegador, carga secuencial por bloques de 256 KiB a través del Apps Script propietario; finaliza con referencia firmada ligada a cliente/modo/requestId; adopta el archivo en la carpeta habitual sin duplicarlo. |
+| `bounded-cache.js`, cachés Sheets | Presupuestos estimados de retención: 16 MiB tablas, 16 MiB stale, 8 MiB global y 8 MiB por perfil de ruta en instancia de 512 MiB. LRU; un resultado que exceda el presupuesto se devuelve completo pero no se retiene. |
+| `email.service.js` | Comprueba tamaño en Drive antes de descargar adjuntos; conserva enlace de archivos que no caben y bytes de los que sí caben. |
 | `api.js`, `requestPolicy.js`, `requestErrors.js`, `AuthContext.jsx` | Deadline total incluye fetch, body y retries: login 20 s, me 25 s, común 45 s, evidencias 120 s, reportes/finalización 240 s. auth.me llega al servidor; fallo temporal conserva caché; 401 limpia sesión. |
 | `index.html`, `App.jsx`, `main.jsx`, `AppErrorBoundary.jsx`, `reloadRecovery.js`, `sw.js` | Login eager, HTML visible antes de React; misma única recarga automática por pestaña para SW/chunks; si sessionStorage falla, recuperación manual; navegación 5xx usa fallback; assets hash cache-first y no se cachea HTML como JS. |
 | `app.js` | Assets ausentes devuelven 404, no index.html; errores SDK no se imprimen completos; seguimiento de final de acción al desconectar. |
 
-No se modificaron PermissionRoute, ProtectedRoute, action-router, auth.service, permissions.service ni las reglas de roles. AuthContext conserva effectivePermission sin cambios. Las validaciones del tipo/duración/tamaño de evidencia siguen vigentes. La nueva capa no convierte, comprime ni reduce resolución.
+No se modificaron PermissionRoute, ProtectedRoute, auth.service, permissions.service ni las reglas de roles. action-router añade únicamente dos rutas de transporte público de Casos; ambas resuelven el portal original y el bloque exige además un token firmado. Las rutas existentes conservan sus permisos. Inicialización conserva el límite público de escrituras; bloques usan 128 peticiones/5 minutos por IP para permitir los 64 bloques de 16 MiB y reintentos. AuthContext conserva effectivePermission sin cambios. Las validaciones del tipo/duración/tamaño de evidencia siguen vigentes. La nueva capa no convierte, comprime ni reduce resolución.
 
 ## Memoria y event loop
 
 Con el default de una carga grande se elimina la multiplicación de JSON grandes simultáneos. Los cuerpos esperan sin ser parseados; longitud desconocida o Content-Encoding reservan el peor caso de 50 MiB. Antes de admitir se exige RSS + 4× tamaño < 90% del presupuesto. Es una estimación conservadora, no una garantía contra OOM ni una razón para subir el plan. Los bloques normales de 256 KiB generan aproximadamente 350 KiB base64 y un Buffer de 256 KiB; no se materializa el archivo entero en Node por esos caminos.
 
-Health continúa antes de Express y todos los semáforos. No importa resultados de Google. Sigue dependiendo del mismo event loop y proceso: una operación síncrona suficientemente grande puede retrasarlo. Casos/legacy/reportes pendientes impiden afirmar que ese riesgo desapareció.
+Health continúa antes de Express y todos los semáforos. No importa resultados de Google. Sigue dependiendo del mismo event loop y proceso: una operación síncrona suficientemente grande puede retrasarlo. Las respuestas legacy y la generación de reportes impiden afirmar que ese riesgo desapareció.
 
-Importar la aplicación completa sin warmup ni red en este entorno dio RSS 155,713,536 B, heapUsed 75,381,856 B, external 4,529,033 B. No extrapolar la prueba sintética más ligera a un proceso de producción cargado.
+Importar la aplicación completa sin warmup ni red en este entorno dio RSS 156,303,360 B, heapUsed 75,039,672 B, external 4,529,033 B. No extrapolar la prueba sintética más ligera a un proceso de producción cargado.
 
 ## Respaldo y recuperación de fallos ambiguos
 
@@ -60,9 +62,9 @@ No eliminar manualmente BACKUP_AUTO_SLOT para forzar retries sin revisar si la c
 
 ## Validación
 
-Se ejecutaron npm install y npm --prefix backend install sin modificar lockfiles. La suite ampliada incluye cold starts, serial de Sheets, resultado ambiguo, cancelación de colas, backpressure sin Content-Length, health real con downstream simulado, timeout, clasificación 401/5xx, AuthProvider con hooks controlados y conservación byte a byte de PNG/PDF/MP4.
+Se ejecutaron npm install y npm --prefix backend install sin modificar lockfiles. La suite ampliada ejecuta además los helpers del Apps Script con Drive simulado (bytes originales, recuperación de bloque ambiguo y final repetido, rechazo de cliente/modo ajenos), referencias firmadas, evicción de cachés y correo que no descarga video de 300 MB. Incluye cold starts, serial de Sheets, resultado ambiguo, cancelación de colas, backpressure sin Content-Length, health real con downstream simulado, timeout, clasificación 401/5xx, AuthProvider con hooks controlados y conservación byte a byte de PNG/PDF/MP4.
 
-Última validación local: 362/362 pruebas, check:backend, build y verify:final con salida 0 (incluyendo auditoría al umbral high). Sin cambio de lockfiles.
+Última validación local: 366/366 pruebas, check:backend, build y verify:final con salida 0 (incluyendo auditoría al umbral high). Sin cambio de lockfiles.
 
 Comandos reproducibles:
 
@@ -84,7 +86,7 @@ Auditoría de dependencias de producción: 2 moderadas frontend (react-router/re
 
 No se desplegó ni se cambió main. Mantener borrador hasta cerrar los pendientes.
 
-1. Obtener logs completos/eventos Render del intervalo y el código del Apps Script de Casos. Registrar commit, restart/exit reason, RSS y health failures. No enviar claves privadas ni secretos.
+1. Los logs y el Apps Script ya se recibieron. Aplicar primero la versión de `apps-script/report-service/Code.gs` al proyecto real siguiendo su README, manteniendo URL del deployment, ejecución como propietario y propiedades. Registrar versión efectiva. El script ampliado conserva acciones antiguas, por lo que se puede desplegar antes del backend.
 2. Revisar rama/PR y ejecutar todos los comandos anteriores en CI sobre el commit exacto.
 3. Validar por separado Casos y reportes con archivos originales, además de login bajo carga y permisos existentes. Confirmar un único scheduler activo.
 4. Para staging, desplegar la rama en servicio separado con datos de prueba, no con el scheduler automático contra el libro productivo.
@@ -103,3 +105,7 @@ No se hizo la migración. Propuesta posterior: frontend estático con proxy same
 
 - https://developers.google.com/workspace/sheets/api/reference/rest/v4/ValueInputOption
 - https://developers.google.com/workspace/sheets/api/reference/rest/v4/DateTimeRenderOption
+
+## Contrato de Drive para cargas reanudables
+
+Se usa el protocolo oficial de Drive: bloques múltiplos de 256 KiB salvo el último, respuesta 308 con Range, consulta de posición tras reiniciar la carga e ID preasignado para recuperar una finalización ambigua. [Documentación oficial](https://developers.google.com/workspace/drive/api/guides/manage-uploads). Las pruebas locales simulan este contrato; no sustituyen una prueba en el proyecto Google real.

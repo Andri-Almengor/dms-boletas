@@ -1,3 +1,4 @@
+import { uploadCustomerCaseFile } from './largeEvidenceUpload';
 import { apiRequest } from '../api';
 import { requestFirstAvailable } from './aliasResolver';
 
@@ -77,15 +78,6 @@ export function customerCaseView(record = {}) {
   };
 }
 
-function fileToDataUrl(file) {
-  return new Promise((resolve, reject) => {
-    const reader = new FileReader();
-    reader.onload = () => resolve(String(reader.result || ''));
-    reader.onerror = () => reject(reader.error || new Error(`No se pudo leer ${file.name}.`));
-    reader.readAsDataURL(file);
-  });
-}
-
 function mimeFromName(name) {
   const extension = String(name || '').toLowerCase().split('.').pop();
   if (extension === 'jpg' || extension === 'jpeg') return 'image/jpeg';
@@ -98,16 +90,20 @@ function mimeFromName(name) {
 }
 
 export async function prepareCustomerCaseEvidence(file) {
-  const optimized = file; // Preserve original bytes, resolution and metadata.
-  const dataUrl = await fileToDataUrl(optimized);
-  const mimeType = optimized.type || file.type || mimeFromName(optimized.name || file.name) || 'image/jpeg';
-  return {
-    fileName: optimized.name,
-    mimeType,
-    size: optimized.size,
-    base64: dataUrl.split(',')[1] || '',
-    previewUrl: URL.createObjectURL(optimized),
-  };
+  return {file,evidenceId:newCustomerCaseRequestId(),fileName:file.name,mimeType:file.type || mimeFromName(file.name) || 'image/jpeg',size:file.size,previewUrl:URL.createObjectURL(file)};
+}
+
+export async function uploadCustomerCaseEvidences({token,requestId,evidences}) {
+  const results=[];
+  for (const item of evidences) {
+    // Successful receipts survive a submit retry in the current form.
+    if (!item.uploadReference) {
+      const uploaded=await uploadCustomerCaseFile({token,requestId,item});
+      Object.assign(item,uploaded);
+    }
+    results.push({uploadReference:item.uploadReference,note:item.note || '',fileName:item.fileName,mimeType:item.mimeType,size:item.size});
+  }
+  return results;
 }
 
 export function newCustomerCaseRequestId() {

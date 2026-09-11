@@ -37,12 +37,13 @@ function sign(encodedPayload) {
   return crypto.createHmac('sha256', signingKey()).update(encodedPayload).digest('base64url');
 }
 
-function createUploadToken(payload) {
+export function createUploadToken(payload) {
   const encoded = encode({ ...payload, exp: Date.now() + UPLOAD_TOKEN_TTL_MS });
   return `${encoded}.${sign(encoded)}`;
 }
 
-function parseUploadToken(token, expectedKind) {
+export function parseUploadToken(token, expectedKind) {
+  if (typeof token !== 'string' || token.length > 12_000) throw badRequest('La sesión de carga no es válida.');
   const [encoded, signature] = clean(token).split('.');
   if (!encoded || !signature) throw badRequest('La sesión de carga del video no es válida. Inicie la carga nuevamente.');
   const expected = sign(encoded);
@@ -60,7 +61,7 @@ function parseUploadToken(token, expectedKind) {
   }
   if (Number(payload.exp || 0) <= Date.now()) throw badRequest('La sesión de carga del video expiró. Inicie la carga nuevamente.');
   if (payload.kind !== expectedKind) throw badRequest('La sesión de carga no corresponde a este tipo de evidencia.');
-  if (!clean(payload.sessionUrl).startsWith(DRIVE_RESUMABLE_PREFIX)) throw badRequest('La sesión de Drive recibida no es válida.');
+  if (expectedKind !== 'case-receipt' && !clean(payload.sessionUrl).startsWith(DRIVE_RESUMABLE_PREFIX)) throw badRequest('La sesión de Drive recibida no es válida.');
   return payload;
 }
 

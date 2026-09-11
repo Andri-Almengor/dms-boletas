@@ -3,6 +3,7 @@ export function requestTimeoutMs(route) {
   const value = String(route || '').toLowerCase();
   if (value === 'auth.login') return 20_000;
   if (value === 'auth.me') return 25_000;
+  if (['customercases.public.submit','casos.cliente.public.submit'].includes(value)) return 240_000;
   if (/finaliz|report|reporte|slides|presentacion|resend|reenviar/.test(value)) return 240_000;
   if (/upload|evidence|images|imagenes|grande/.test(value)) return 120_000;
   return 45_000;

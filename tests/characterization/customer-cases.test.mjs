@@ -190,7 +190,8 @@ test('el formulario nunca oculta un resultado parcial de evidencias', () => {
   assert.match(publicPage, /El caso fue creado, pero faltaron evidencias/);
   assert.match(publicPage, /Lista para enviar/);
   assert.match(service, /mimeFromName/);
-  assert.match(service, /base64/);
+  assert.match(service, /uploadReference/);
+  assert.match(service, /uploadCustomerCaseFile/);
   assert.match(service, /prepareCustomerCaseEvidence/);
 });
 

@@ -55,7 +55,9 @@ function isHeavyRoute(route) {
     || value.includes('resend')
     || value.includes('reenviar')
     || value.includes('testfinalize')
-    || value.includes('probar');
+    || value.includes('probar')
+    || value.includes('.media.get')
+    || ['customercases.public.submit', 'casos.cliente.public.submit'].includes(value);
 }
 
 function addBusyContext(error, route, { heavy, write }) {
@@ -82,7 +84,7 @@ export async function runWithActionConcurrency(route, operation) {
     // Sheets ya están serializadas por los gates internos del repositorio.
     if (normalizedRoute(route).startsWith('auth.')) {
       releaseDedicated = await authActions.acquire();
-    } else if (/evidence|images|imagenes|grande/.test(normalizedRoute(route))) {
+    } else if (/evidence|images|imagenes|grande|attachments|adjuntos/.test(normalizedRoute(route))) {
       releaseDedicated = await uploadActions.acquire();
     } else if (heavy) {
       releaseHeavy = await heavyActions.acquire();

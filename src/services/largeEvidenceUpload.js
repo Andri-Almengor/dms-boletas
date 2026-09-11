@@ -30,7 +30,7 @@ async function uploadByChunks({ initRoutes, chunkRoutes, initPayload, file, sess
   if (init?.complete) return init.evidence || init;
 
   const uploadToken = String(init?.uploadToken || '');
-  const chunkBytes = Math.max(256 * 1024, Math.min(256 * 1024, Number(init?.chunkBytes || 256 * 1024)));
+  const chunkBytes = 256 * 1024;
   if (!uploadToken) throw new Error('El servidor no devolvió una sesión para cargar el video.');
 
   let offset = 0;
@@ -56,7 +56,8 @@ async function uploadByChunks({ initRoutes, chunkRoutes, initPayload, file, sess
         return result.evidence || result;
       }
       const nextOffset = Number(result?.nextOffset);
-      offset = Number.isFinite(nextOffset) && nextOffset > offset ? nextOffset : end;
+      if (!Number.isSafeInteger(nextOffset) || nextOffset <= offset || nextOffset > file.size) throw new Error('El servidor no confirmó el siguiente bloque. Reintente la carga.');
+      offset = nextOffset;
       onProgress?.(Math.min(99, Math.round((offset / file.size) * 100)));
     } finally {
       base64 = '';
@@ -118,5 +119,12 @@ export function uploadLargeKnowledgeAttachment({ tutorialId, file, sessionToken,
   return uploadByChunks({initRoutes:routes,chunkRoutes:routes,file,sessionToken,signal,
     initPayload:{tutorialId,uploadPhase:'init',fileName:file.name,nombre:file.name,mimeType:file.type || 'application/octet-stream',size:file.size},
     chunkPayload:{tutorialId,uploadPhase:'chunk'},
+  });
+}
+
+export function uploadCustomerCaseFile({token,requestId,item,signal,onProgress}) {
+  return uploadByChunks({initRoutes:['customerCases.evidence.init'],chunkRoutes:['customerCases.evidence.chunk'],file:item.file,signal,onProgress,
+    initPayload:{token,requestId,evidenceId:item.evidenceId,fileName:item.fileName,mimeType:item.mimeType,size:item.size},
+    chunkPayload:{token,requestId},
   });
 }

@@ -2,7 +2,7 @@ import nodemailer from 'nodemailer';
 import { env } from '../config/env.js';
 import { AppError } from '../core/errors.js';
 import { escapeHtml } from '../core/utils.js';
-import { downloadFileBuffer, extractDriveFileId } from '../infra/drive.repository.js';
+import { downloadFileBuffer, extractDriveFileId, getDriveFile } from '../infra/drive.repository.js';
 
 let transporter;
 function getTransporter() {
@@ -97,8 +97,12 @@ export async function sendTicketReportEmail({ report, to, cc = [], testMode = fa
     const item = { name, note: String(evidence.Nota || ''), url: String(evidence.ArchivoURL || ''), attached: false, inlineCid: '' };
     if (fileId) {
       try {
-        const file = await downloadFileBuffer(fileId, evidence.MimeType || 'application/octet-stream');
-        if (accumulatedBytes + file.buffer.length <= maxBytes) {
+        // Check metadata BEFORE allocating: a 300 MB video would be rejected
+        // by the attachment budget after download in the old implementation.
+        const metadata = await getDriveFile(fileId);
+        const fits = Number(metadata.size) > 0 && Number(metadata.size) <= maxBytes - accumulatedBytes;
+        const file = fits ? await downloadFileBuffer(fileId, evidence.MimeType || 'application/octet-stream') : null;
+        if (file && accumulatedBytes + file.buffer.length <= maxBytes) {
           const cid = /^image\//i.test(file.mimeType) ? `evidence-${index + 1}-${ticket.BoletaUID}@dms` : undefined;
           attachments.push({
             filename: file.name || evidence.NombreArchivo || name,

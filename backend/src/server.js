@@ -6,7 +6,7 @@ import { env } from './config/env.js';
 import { resolveRequestId } from './core/request-security.js';
 import { concurrencyMiddleware, concurrencySnapshot } from './middleware/concurrency.middleware.js';
 import { securityRateLimitSnapshot } from './middleware/security.middleware.js';
-import { readTables } from './infra/sheets.repository.js';
+import { readTables, sheetsRepositorySnapshot } from './infra/sheets.repository.js';
 import { googleSheetsGateSnapshot } from './infra/google.js';
 import { auditQueueSnapshot, flushAuditQueue } from './services/audit.service.js';
 import { actionConcurrencySnapshot } from './services/action-concurrency.service.js';
@@ -121,7 +121,7 @@ server.listen(env.port, '0.0.0.0', () => {
 
 const stopDiagnostics = startDiagnostics(() => ({
   concurrency: concurrencySnapshot(), actions: actionConcurrencySnapshot(),
-  sheets: googleSheetsGateSnapshot(), audit: auditQueueSnapshot(), activity: activityQueueSnapshot(),
+  sheets: googleSheetsGateSnapshot(), repository: sheetsRepositorySnapshot(), audit: auditQueueSnapshot(), activity: activityQueueSnapshot(),
   agenda: agendaNotificationQueueSnapshot(),
 }));
 let shuttingDown = false;

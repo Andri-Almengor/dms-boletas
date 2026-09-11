@@ -1,11 +1,12 @@
+import { BoundedCache } from '../core/bounded-cache.js';
 import { env } from '../config/env.js';
 import { TABLES, DATE_FIELDS, TIME_FIELDS } from '../config/tables.js';
 import { sheetsApi } from './google.js';
 import { AppError, notFound } from '../core/errors.js';
 
 const headerCache = new Map();
-const tableCache = new Map();
-const staleTableCache = new Map();
+const tableCache = new BoundedCache({maxBytes:env.memoryBudgetMb * 1024 * 1024 / 32});
+const staleTableCache = new BoundedCache({maxBytes:env.memoryBudgetMb * 1024 * 1024 / 32});
 const inflightReads = new Map();
 const pendingReads = new Map();
 const headerCacheMs = 5 * 60_000;
@@ -400,4 +401,8 @@ export function filterRows(rows, payload = {}, searchFields = []) {
   const total = result.length;
   result = result.slice((page - 1) * pageSize, page * pageSize);
   return { items: result.map(({ __rowNumber, ...row }) => row), total, page, pageSize };
+}
+
+export function sheetsRepositorySnapshot() {
+  return {tables:tableCache.snapshot(),stale:staleTableCache.snapshot(),inflight:inflightReads.size,pending:pendingReads.size,writes:activeWrites,writeWaiters:writeWaiters.length};
 }

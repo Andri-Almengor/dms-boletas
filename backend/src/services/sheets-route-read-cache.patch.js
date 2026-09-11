@@ -1,9 +1,11 @@
+import { BoundedCache } from '../core/bounded-cache.js';
+import { env } from '../config/env.js';
 import { AsyncLocalStorage } from 'node:async_hooks';
 import { sheetsApi } from '../infra/google.js';
 
 const INSTALL_FLAG = Symbol.for('dms.sheetsRouteReadCachePatch');
 const routeStorage = new AsyncLocalStorage();
-const responseCache = new Map();
+const responseCache = new BoundedCache({maxBytes:env.memoryBudgetMb * 1024 * 1024 / 64, maxEntries:320});
 const inflightReads = new Map();
 
 const MAX_CACHE_ENTRIES = 320;
@@ -207,7 +209,8 @@ function wrapRead(owner, property, method) {
       .then((value) => {
         const storedAt = Date.now();
         responseCache.set(key, {
-          value,
+          // Retain response data, never the SDK request/socket graph.
+          value: {data:value.data,status:value.status,headers:value.headers},
           storedAt,
           expiresAt: storedAt + ttlMs,
           sheetNames,
