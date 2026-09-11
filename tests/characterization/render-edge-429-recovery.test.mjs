@@ -6,7 +6,8 @@ import { isNetworkError } from '../../src/services/requestErrors.js';
 const apiSource = readFileSync(new URL('../../src/api.js', import.meta.url), 'utf8');
 
 test('429 no-JSON sin X-Request-ID se clasifica como throttling externo reintentable', () => {
-  assert.match(apiSource, /edgeThrottled\s*=\s*status\s*===\s*429\s*&&\s*!appRequestId/);
+  assert.match(apiSource, /const backendReached\s*=\s*Boolean\(appRequestId\)/);
+  assert.match(apiSource, /edgeThrottled\s*=\s*status\s*===\s*429\s*&&\s*!backendReached/);
   assert.match(apiSource, /BACKEND_EDGE_THROTTLED/);
   assert.match(apiSource, /retry-after/i);
   assert.match(apiSource, /retryDelayMs\(error, attempt\)/);
