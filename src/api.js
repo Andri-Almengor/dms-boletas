@@ -113,18 +113,21 @@ function responseHeader(response, name) {
 function invalidResponseError(response) {
   const status = Number(response?.status || 0);
   const appRequestId = responseHeader(response, 'x-request-id');
+  const backendReached = Boolean(appRequestId);
   // DMS siempre agrega X-Request-ID en sus respuestas, incluso para errores de
   // concurrencia y rate limit. Un 429 no-JSON sin ese header proviene de una
   // capa anterior a Express (edge/proxy), por lo que la acción no fue aceptada
   // por el backend y puede reintentarse con backoff sin confundirla con cuota
   // de Sheets o RATE_LIMITED propios de la aplicación.
-  const edgeThrottled = status === 429 && !appRequestId;
+  const edgeThrottled = status === 429 && !backendReached;
   const temporary = TRANSIENT_BACKEND_STATUSES.has(status) || edgeThrottled;
   const error = new Error(edgeThrottled
     ? 'El servidor está recibiendo demasiadas solicitudes temporalmente. La aplicación reintentará la conexión.'
-    : temporary
-      ? `El servidor se está reiniciando temporalmente (${status}). La aplicación reintentará la conexión.`
-      : `El backend respondió con un formato inválido (${status}).`);
+    : temporary && backendReached
+      ? `El backend está respondiendo, pero no pudo procesar temporalmente la solicitud (${status}).`
+      : temporary
+        ? `El servidor se está reiniciando temporalmente (${status}). La aplicación reintentará la conexión.`
+        : `El backend respondió con un formato inválido (${status}).`);
   error.name = temporary ? 'NetworkError' : 'Error';
   error.code = edgeThrottled
     ? 'BACKEND_EDGE_THROTTLED'
@@ -132,6 +135,8 @@ function invalidResponseError(response) {
       ? 'BACKEND_TEMPORARILY_UNAVAILABLE'
       : 'INVALID_BACKEND_RESPONSE';
   error.status = status;
+  error.requestId = appRequestId;
+  error.backendReached = backendReached;
   error.retryAfterSeconds = Number(responseHeader(response, 'retry-after') || 0);
   error.retryable = temporary;
   return error;
@@ -161,9 +166,10 @@ async function performRequest(route, payload, sessionToken, { signal } = {}) {
     signal,
   });
 
+  const appRequestId = responseHeader(response, 'x-request-id');
   // Una respuesta con el identificador de DMS demuestra que Node/Express está
   // atendiendo, incluso si la acción devuelve 401/429/503 por una regla propia.
-  if (response.ok || responseHeader(response, 'x-request-id')) markBackendReady();
+  if (response.ok || appRequestId) markBackendReady();
 
   const responseText = await response.text();
   let result;
@@ -182,6 +188,8 @@ async function performRequest(route, payload, sessionToken, { signal } = {}) {
     error.code = result?.error?.code || (temporary ? 'BACKEND_TEMPORARILY_UNAVAILABLE' : 'API_ERROR');
     error.details = result?.error?.details || null;
     error.status = response.status;
+    error.requestId = appRequestId;
+    error.backendReached = Boolean(appRequestId);
     error.retryAfterSeconds = Number(response.headers.get('retry-after') || error.details?.retryAfterSeconds || 0);
     error.retryable = temporary;
     throw error;
@@ -209,15 +217,19 @@ async function retryRequest(route, payload, sessionToken, signal) {
       if (isAbortError(error)) throw error;
       lastError = error;
       const retryable = transientError(error);
-      if (retryable) markBackendUnavailable(error);
+      const backendReached = error?.backendReached === true;
+      // Un 503/502 propio de DMS significa ocupado, no caído. Solo activamos
+      // la pantalla global de reconexión cuando la solicitud no alcanzó Node.
+      if (retryable && !backendReached) markBackendUnavailable(error);
       if (!retryable || attempt === TRANSIENT_RETRY_DELAYS_MS.length) {
-        if (retryable && !isOfflineModeEnabled()) throw onlineRequiredError(error);
+        if (retryable && !backendReached && !isOfflineModeEnabled()) throw onlineRequiredError(error);
         throw error;
       }
       await wait(retryDelayMs(error, attempt), signal);
-      // No gastamos los siguientes intentos mientras Render/Node aún no pasa
-      // /api/health. El deadline central de cada ruta sigue siendo el límite.
-      await waitForBackendReady(signal);
+      // Si Node realmente no respondió, esperamos a que /api/health confirme
+      // recuperación. Si DMS respondió con X-Request-ID, basta el backoff: no
+      // convertimos saturación interna en una falsa caída global del backend.
+      if (!backendReached) await waitForBackendReady(signal);
     }
   }
   throw lastError;
