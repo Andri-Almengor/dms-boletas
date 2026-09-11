@@ -1,0 +1,83 @@
+.maintenance-finalizations-page {
+  display: grid;
+  gap: 16px;
+}
+
+.maintenance-finalizations-page__notice {
+  display: flex;
+  align-items: flex-start;
+  gap: 10px;
+  padding: 13px 15px;
+  border: 1px solid var(--outline-soft);
+  border-radius: var(--radius-md);
+  background: var(--surface-low);
+  color: var(--muted);
+  line-height: 1.45;
+}
+
+.maintenance-finalizations-page__notice .material-symbols-outlined {
+  flex: 0 0 auto;
+  color: var(--primary);
+}
+
+.maintenance-finalizations-grid {
+  margin-top: 0;
+}
+
+.maintenance-finalization-admin-card__progress {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto;
+  gap: 10px;
+  align-items: center;
+}
+
+.maintenance-finalization-admin-card__progress > div {
+  height: 8px;
+  overflow: hidden;
+  border-radius: 999px;
+  background: var(--surface-low);
+}
+
+.maintenance-finalization-admin-card__progress > div > span {
+  display: block;
+  height: 100%;
+  border-radius: inherit;
+  background: var(--primary);
+  transition: width 180ms ease;
+}
+
+.maintenance-finalization-admin-card__progress > strong {
+  min-width: 42px;
+  text-align: right;
+  font-size: .78rem;
+}
+
+.maintenance-finalization-admin-card .maintenance-progress-mini {
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+}
+
+.maintenance-finalization-admin-card__actions {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 9px;
+  margin-top: auto;
+}
+
+.maintenance-finalization-admin-card__actions .button {
+  justify-content: center;
+}
+
+[data-theme='dark'] .maintenance-finalizations-page__notice,
+[data-theme='dark'] .maintenance-finalization-admin-card__progress > div {
+  background: #242225;
+}
+
+@media (max-width: 760px) {
+  .maintenance-finalization-admin-card__actions {
+    grid-template-columns: 1fr;
+  }
+
+  .maintenance-finalization-admin-card .maintenance-progress-mini {
+    grid-template-columns: 1fr;
+  }
+}
