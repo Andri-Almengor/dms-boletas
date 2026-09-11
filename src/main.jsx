@@ -4,6 +4,7 @@ import ReactDOM from 'react-dom/client';
 import { BrowserRouter } from 'react-router-dom';
 import { AuthProvider } from './AuthContext';
 import AppErrorBoundary from './components/system/AppErrorBoundary';
+import BackendAvailabilityGate from './components/system/BackendAvailabilityGate';
 import './services/indexedDbVersionGuard';
 import './services/maintenanceRoutes';
 import './services/operationalRoutes';
@@ -72,9 +73,11 @@ ReactDOM.createRoot(document.getElementById('root')).render(
   <React.StrictMode>
     <AppErrorBoundary>
       <BrowserRouter>
-        <AuthProvider>
-          <App />
-        </AuthProvider>
+        <BackendAvailabilityGate>
+          <AuthProvider>
+            <App />
+          </AuthProvider>
+        </BackendAvailabilityGate>
       </BrowserRouter>
     </AppErrorBoundary>
   </React.StrictMode>,
