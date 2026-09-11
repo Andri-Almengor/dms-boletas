@@ -4,11 +4,13 @@ import { findById, readTable, updateRow } from '../infra/sheets.repository.js';
 import { audit } from './audit.service.js';
 import {
   findFinalizationJobForMaintenance,
+  getFinalizationJob,
   updateFinalizationJob,
 } from './maintenance-finalization-job.storage.js';
 
 const ACTIVE_STATES = new Set(['PROGRAMADO', 'EN_PROCESO']);
 const ADMIN_PERMISSION = 'USUARIOS_GESTIONAR';
+export const FINALIZATION_STOPPED_CODE = 'FINALIZATION_STOPPED';
 
 function clean(value) {
   return String(value ?? '').trim();
@@ -54,6 +56,18 @@ function compactRow(row = {}) {
     FinalizacionTotalEvidencias: Number(row.FinalizacionTotalEvidencias || 0),
     FinalizacionEvidenciasProcesadas: Number(row.FinalizacionEvidenciasProcesadas || 0),
   };
+}
+
+export async function assertMaintenanceFinalizationNotStopped(jobId) {
+  const id = clean(jobId);
+  if (!id) return;
+  const job = await getFinalizationJob(id);
+  if (clean(job?.Estado).toUpperCase() !== 'DETENIDO') return;
+  throw new AppError(
+    FINALIZATION_STOPPED_CODE,
+    'La finalización fue detenida manualmente. Lo ya completado se conserva.',
+    409,
+  );
 }
 
 async function listActive(ctx) {
