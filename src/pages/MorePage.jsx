@@ -211,6 +211,7 @@ export default function MorePage() {
         <section className="menu-section more-page__section more-page__section--administration">
           <h2>Administración</h2>
           <div className="menu-list">
+            {isAdmin && <MenuRow to="/mas/finalizaciones-mantenimiento" icon="stop_circle" label="Finalizaciones de mantenimiento" note="Ver procesos activos y detenerlos conservando lo ya completado" />}
             {isAdmin && <MenuRow to="/casos" icon="support_agent" label="Casos de clientes" note="Solicitudes, asignación de técnicos y boletas automáticas" />}
             {canViewPasswordVault && <MenuRow to="/credenciales" icon="shield_lock" label="Contraseñas de clientes" note="Credenciales cifradas, organizadas por cliente y categoría" />}
             {isAdmin && <MenuRow to="/metricas" icon="monitoring" label="Métricas operativas" note="Dashboards de boletas y mantenimientos" />}
