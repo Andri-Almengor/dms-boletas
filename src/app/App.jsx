@@ -60,6 +60,7 @@ const KnowledgeDetailPage = lazyPage(() => import('../pages/knowledge/KnowledgeD
 const KnowledgeEditorPage = lazyPage(() => import('../pages/knowledge/KnowledgeEditorPage'), routeStyles.knowledge);
 const KnowledgeListPage = lazyPage(() => import('../pages/knowledge/KnowledgeListPage'), routeStyles.knowledge);
 const MaintenanceDetailPage = lazyPage(() => import('../pages/maintenance/MaintenanceDetailPage'), routeStyles.maintenance);
+const MaintenanceFinalizationsPage = lazyPage(() => import('../pages/maintenance/MaintenanceFinalizationsPage'), routeStyles.maintenance, routeStyles.more);
 const MaintenanceFormPage = lazyPage(() => import('../pages/maintenance/MaintenanceFormPage'), routeStyles.maintenance);
 const MaintenanceListPage = lazyPage(() => import('../pages/maintenance/MaintenanceListPage'), routeStyles.maintenance);
 const OfflineContentPage = lazyPage(() => import('../pages/offline/OfflineContentPage'), routeStyles.offline);
@@ -191,6 +192,7 @@ export default function App() {
           <Route path="cambiar-contrasena" element={<ChangePasswordPage />} />
           <Route path="mas" element={<MorePage />} />
           <Route path="mas/contenido-offline" element={<OfflineContentPage />} />
+          <Route path="mas/finalizaciones-mantenimiento" element={<PermissionRoute permission="USUARIOS_GESTIONAR"><MaintenanceFinalizationsPage /></PermissionRoute>} />
           <Route path="usuarios" element={<PermissionRoute permission="USUARIOS_VER"><UsersPage /></PermissionRoute>} />
           <Route path="usuarios/nuevo" element={<PermissionRoute permission="USUARIOS_GESTIONAR"><UserFormPage mode="create" /></PermissionRoute>} />
           <Route path="usuarios/:usuarioId" element={<PermissionRoute permission="USUARIOS_VER"><UserDetailPage /></PermissionRoute>} />

@@ -6,6 +6,10 @@ import { maintenanceProgressChatHandlers } from '../modules/maintenance-progress
 import { ticketDeliveryHandlers } from '../modules/ticket-delivery.module.js';
 import { audit } from './audit.service.js';
 import {
+  assertMaintenanceFinalizationNotStopped,
+  FINALIZATION_STOPPED_CODE,
+} from './maintenance-finalization-control.service.js';
+import {
   createFinalizationJob,
   ensureFinalizationItems,
   ensureMaintenanceFinalizationStorage,
@@ -160,6 +164,7 @@ async function persistProgress(ctx, maintenanceIdValue, job, items, phase = job.
   const message = progressMessage(summary, phase);
   const actor = ctx.user?.UsuarioID || 'SISTEMA';
   const timestamp = nowIso();
+  await assertMaintenanceFinalizationNotStopped(job.JobID);
   await updateFinalizationJob(job.JobID, {
     Estado: 'EN_PROCESO',
     Fase: phase,
@@ -241,7 +246,7 @@ async function startOrResumeJob(ctx, id) {
   let job = await findFinalizationJobForMaintenance(id, row.FinalizacionJobID);
   const actor = ctx.user?.UsuarioID || 'SISTEMA';
   const retry = retryRequested(ctx);
-  if (job && clean(job.Estado).toUpperCase() === 'COMPLETADO') job = null;
+  if (job && ['COMPLETADO', 'DETENIDO'].includes(clean(job.Estado).toUpperCase())) job = null;
 
   if (!job) {
     job = await createFinalizationJob({ maintenanceId: id, actor });
@@ -350,6 +355,7 @@ async function processTicketStep(ctx, id, job, items) {
     await persistProgress(ctx, id, job, refreshed, 'BOLETAS');
     return { continue: true };
   } catch (error) {
+    if (clean(error?.code).toUpperCase() === FINALIZATION_STOPPED_CODE) throw error;
     const transient = isTransient(error);
     if (transient && attempts < AUTO_RETRY_MAX) {
       await updateFinalizationItem(item.ItemID, {
@@ -439,6 +445,7 @@ async function processDriveStep(ctx, id, job, items) {
         },
       });
     } catch (error) {
+      if (clean(error?.code).toUpperCase() === FINALIZATION_STOPPED_CODE) throw error;
       const transient = isTransient(error);
       if (transient && attempts < AUTO_RETRY_MAX) {
         results.push({
@@ -476,6 +483,7 @@ async function completeJob(ctx, id, job, items) {
   const summary = summarizeFinalizationItems(items);
   await persistProgress(ctx, id, job, items, 'CIERRE');
   const delivery = await finalizeStagedMaintenanceDelivery(ctx, id, summary.drive);
+  await assertMaintenanceFinalizationNotStopped(job.JobID);
   const maintenance = await findById('Mantenimiento', id);
   const signatureIncluded = maintenanceHasSignature(maintenance);
   const actor = ctx.user?.UsuarioID || 'SISTEMA';
@@ -534,6 +542,7 @@ async function stepJob(ctx, id, jobId) {
   const job = await getFinalizationJob(jobId);
   const jobState = clean(job.Estado).toUpperCase();
   if (jobState === 'COMPLETADO') return { completed: true };
+  if (jobState === 'DETENIDO') return { stopped: true };
   if (jobState === 'ERROR') return { error: true };
 
   let items = await listFinalizationItems(job.JobID);
@@ -564,13 +573,17 @@ async function schedulerLoop() {
     for (const [jobId, entry] of entries) {
       try {
         const result = await stepJob(entry.ctx, entry.maintenanceId, jobId);
-        if (result.completed || result.error) scheduledJobs.delete(jobId);
+        if (result.completed || result.error || result.stopped) scheduledJobs.delete(jobId);
         if (result.retryDelay) await sleep(result.retryDelay);
       } catch (error) {
-        const job = await getFinalizationJob(jobId).catch(() => ({ JobID: jobId, Fase: 'PREPARANDO' }));
-        await markJobError(entry.ctx, entry.maintenanceId, job, error).catch(() => {});
-        scheduledJobs.delete(jobId);
-        console.error(`[maintenance-staged-finalization][${entry.maintenanceId}]`, error);
+        if (clean(error?.code).toUpperCase() === FINALIZATION_STOPPED_CODE) {
+          scheduledJobs.delete(jobId);
+        } else {
+          const job = await getFinalizationJob(jobId).catch(() => ({ JobID: jobId, Fase: 'PREPARANDO' }));
+          await markJobError(entry.ctx, entry.maintenanceId, job, error).catch(() => {});
+          scheduledJobs.delete(jobId);
+          console.error(`[maintenance-staged-finalization][${entry.maintenanceId}]`, error);
+        }
       }
       await sleep(WORKER_DELAY_MS);
     }
@@ -679,3 +692,5 @@ if (!maintenanceProgressChatHandlers[GET_FLAG]) {
   };
   maintenanceProgressChatHandlers[GET_FLAG] = true;
 }
+
+await import('./maintenance-finalization-control.patch.js');
