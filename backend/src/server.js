@@ -68,6 +68,16 @@ function requestHandler(req, res) {
     return;
   }
 
+  // Los assets y navegaciones del frontend no consumen los seis slots de la
+  // API. En un navegador es normal descargar varios chunks en paralelo; antes
+  // esos GET podían llenar http-all/http-small y dejar login o /api/action en
+  // espera aunque Node estuviera sano. Siguen pasando por Express/Helmet/static.
+  const method = String(req.method || 'GET').toUpperCase();
+  if (!requestPath.startsWith('/api/') && (method === 'GET' || method === 'HEAD')) {
+    app(req, res);
+    return;
+  }
+
   concurrencyMiddleware(req, res, (error) => {
     if (!error) {
       app(req, res);
