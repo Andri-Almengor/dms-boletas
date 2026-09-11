@@ -173,6 +173,45 @@ export async function cancelScheduledMaintenanceFinalization({
   );
 }
 
+export async function listActiveMaintenanceFinalizations(sessionToken = '') {
+  const result = await requestAvailable(
+    MODULE_ROUTES.maintenance.list,
+    { finalizationActiveOnly: true },
+    sessionToken,
+  );
+  return {
+    ...result,
+    items: normalizeItems(result),
+  };
+}
+
+export async function stopMaintenanceFinalization({
+  maintenanceId,
+  state = '',
+  sessionToken = '',
+} = {}) {
+  const id = clean(maintenanceId);
+  if (!id) throw new Error('No se indicó el mantenimiento cuya finalización se debe detener.');
+  if (typeof navigator !== 'undefined' && navigator.onLine === false) {
+    throw new Error('Debe tener conexión para detener una finalización en curso.');
+  }
+
+  if (clean(state).toUpperCase() === 'PROGRAMADO') {
+    return cancelScheduledMaintenanceFinalization({ maintenanceId: id, sessionToken });
+  }
+
+  return requestAvailable(
+    MODULE_ROUTES.maintenance.finalize,
+    {
+      maintenanceId: id,
+      MantenimientoID: id,
+      stopFinalization: true,
+      detenerFinalizacion: true,
+    },
+    sessionToken,
+  );
+}
+
 export async function fetchMaintenanceFinalizationStatus(maintenanceId, sessionToken = '') {
   const id = clean(maintenanceId);
   if (!id) return null;
