@@ -131,7 +131,9 @@ function wrapRead(method, fn) {
   return async (args = {}) => {
     const key = stableKey(method, args);
     const now = Date.now();
-    const cached = readCache.get(key);
+    // Headers have a dedicated repository cache; force refresh must reach Google.
+    const headerRead = method === 'spreadsheets.values.get' && /!1:1$/.test(args.range || '');
+    const cached = headerRead ? null : readCache.get(key);
     if (cached && cached.expiresAt > now) {
       stats.readCacheHits += 1;
       return cached.value;
@@ -158,15 +160,15 @@ function wrapRead(method, fn) {
         );
 
         // Repository table reads already retain normalized rows. Avoid keeping
-        // a second copy of every raw A:ZZ table plus the SDK request object.
+        // a second copy of every raw table plus the SDK request object.
         const repositoryRead = method === 'spreadsheets.values.batchGet'
           && args.valueRenderOption === 'UNFORMATTED_VALUE'
-          && Array.isArray(args.ranges) && args.ranges.every(range => /!A:ZZ$/.test(range));
-        if (!repositoryRead && (env.sheetsGlobalReadCacheMs > 0 || env.sheetsGlobalReadStaleMs > 0)) {
+          && Array.isArray(args.ranges) && args.ranges.every(range => /!A:[A-Z]+$/i.test(range));
+        if (!repositoryRead && !headerRead && (env.sheetsGlobalReadCacheMs > 0 || env.sheetsGlobalReadStaleMs > 0)) {
           const storedAt = Date.now();
           const expiresAt = storedAt + env.sheetsGlobalReadCacheMs;
           readCache.set(key, {
-            value: { data: value.data, status: value.status, headers: value.headers },
+            value: { data: value.data },
             expiresAt,
             staleUntil: expiresAt + env.sheetsGlobalReadStaleMs,
           });

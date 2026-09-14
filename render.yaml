@@ -4,11 +4,13 @@ services:
     runtime: node
     plan: free
     region: oregon
-    buildCommand: npm install && npm run build && npm --prefix backend install
+    buildCommand: npm ci && npm run build && npm ci --prefix backend
     startCommand: npm --prefix backend start
     healthCheckPath: /api/health
     autoDeployTrigger: commit
     envVars:
+      - key: NODE_VERSION
+        value: "24.21.0"
       - key: NODE_ENV
         value: production
       - key: GOOGLE_SHEET_ID

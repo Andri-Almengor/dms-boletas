@@ -175,6 +175,13 @@ function wrapRead(owner, property, method) {
   if (typeof original !== 'function') return;
 
   owner[property] = async function cachedRouteRead(args = {}) {
+    // Repository tables and headers own their caches. Never retain their raw
+    // values again in the assistant/password-vault response cache.
+    const repositoryRead = args.valueRenderOption === 'UNFORMATTED_VALUE'
+      && ((method === 'spreadsheets.values.get' && /!1:1$/.test(args.range || ''))
+        || (method === 'spreadsheets.values.batchGet' && Array.isArray(args.ranges)
+          && args.ranges.every((range) => /!A:[A-Z]+$/i.test(range))));
+    if (repositoryRead) return original.call(this, args);
     const profile = routeStorage.getStore()?.profile || '';
     if (!profile) return original.call(this, args);
 
@@ -210,7 +217,7 @@ function wrapRead(owner, property, method) {
         const storedAt = Date.now();
         responseCache.set(key, {
           // Retain response data, never the SDK request/socket graph.
-          value: {data:value.data,status:value.status,headers:value.headers},
+          value: {data:value.data},
           storedAt,
           expiresAt: storedAt + ttlMs,
           sheetNames,
