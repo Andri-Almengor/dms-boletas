@@ -21,6 +21,8 @@ const HEAVY_SHEETS = new Set([
   'ActividadApp',
 ]);
 
+let repositoryReadTail = Promise.resolve();
+
 function configuredMaxRanges() {
   const parsed = Number.parseInt(String(process.env.SHEETS_REPOSITORY_BATCH_MAX_RANGES || ''), 10);
   if (!Number.isFinite(parsed)) return DEFAULT_MAX_RANGES;
@@ -76,33 +78,42 @@ function yieldForMemoryRecovery() {
   }));
 }
 
+function serializeRepositoryRead(operation) {
+  const run = repositoryReadTail.then(operation, operation);
+  // La cola nunca conserva el valor (potencialmente grande) de la lectura anterior.
+  repositoryReadTail = run.then(() => undefined, () => undefined);
+  return run;
+}
+
 export function installSheetsMemoryGuard() {
   if (sheetsApi[INSTALL_FLAG]) return;
 
   const originalBatchGet = sheetsApi.spreadsheets.values.batchGet.bind(sheetsApi.spreadsheets.values);
   sheetsApi.spreadsheets.values.batchGet = async function boundedRepositoryBatchGet(args = {}) {
-    const ranges = Array.isArray(args.ranges) ? args.ranges : [];
-    if (!isRepositoryBatchGet(args) || ranges.length <= 1) return originalBatchGet(args);
+    if (!isRepositoryBatchGet(args)) return originalBatchGet(args);
 
-    const batches = splitRepositoryRanges(ranges);
-    if (batches.length <= 1) return originalBatchGet(args);
+    return serializeRepositoryRead(async () => {
+      const ranges = Array.isArray(args.ranges) ? args.ranges : [];
+      const batches = splitRepositoryRanges(ranges);
+      if (batches.length <= 1) return originalBatchGet(args);
 
-    const valueRanges = [];
-    let lastResponse = null;
-    for (const batch of batches) {
-      const response = await originalBatchGet({ ...args, ranges: batch });
-      lastResponse = response;
-      valueRanges.push(...(response?.data?.valueRanges || []));
-      await yieldForMemoryRecovery();
-    }
+      const valueRanges = [];
+      let lastResponse = null;
+      for (const batch of batches) {
+        const response = await originalBatchGet({ ...args, ranges: batch });
+        lastResponse = response;
+        valueRanges.push(...(response?.data?.valueRanges || []));
+        await yieldForMemoryRecovery();
+      }
 
-    return {
-      ...lastResponse,
-      data: {
-        ...(lastResponse?.data || {}),
-        valueRanges,
-      },
-    };
+      return {
+        ...lastResponse,
+        data: {
+          ...(lastResponse?.data || {}),
+          valueRanges,
+        },
+      };
+    });
   };
 
   Object.defineProperty(sheetsApi, INSTALL_FLAG, {
@@ -117,6 +128,7 @@ export const SHEETS_MEMORY_GUARD_POLICY = Object.freeze({
   defaultMaxRanges: DEFAULT_MAX_RANGES,
   heavySheets: [...HEAVY_SHEETS],
   repositoryRangePattern: '!A:ZZ',
+  serialFullTableReads: true,
 });
 
 installSheetsMemoryGuard();
