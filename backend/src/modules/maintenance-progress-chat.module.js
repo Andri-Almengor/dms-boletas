@@ -75,7 +75,7 @@ async function update(ctx) {
   // El aviso inmediato se dispara únicamente cuando cambia la planificación de cantidades.
   if (maintenancePlannedCountsChanged(before, after)) {
     queueMaintenanceProgressNotification({
-      maintenance,
+      maintenance: after,
       reason: 'COUNTS_UPDATED',
       actor: ctx.user?.UsuarioID || 'SYSTEM',
     });
