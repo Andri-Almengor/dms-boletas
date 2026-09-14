@@ -1,3 +1,8 @@
+// Carga primero la protección de memoria de Google Sheets. El repositorio puede
+// solicitar muchas hojas A:ZZ en el mismo tick; dividir esas lecturas antes de
+// cargar la finalización evita respuestas gigantes retenidas en ArrayBuffers.
+await import('./sheets-memory-guard.service.js');
+
 // Carga toda la cadena de parches de finalización antes de que action-router.js
 // construya su Map de rutas. Esto evita que maintenance.finalize capture una
 // referencia histórica al finalizador monolítico durante el arranque de ESM.
