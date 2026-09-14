@@ -114,6 +114,14 @@
   color: var(--muted, #6b7280);
 }
 
+.ticket-visit-group-panel__actions {
+  display: flex;
+  flex-wrap: wrap;
+  justify-content: flex-end;
+  gap: 8px;
+  flex: 0 0 auto;
+}
+
 .ticket-visit-group-panel__shared {
   display: flex;
   align-items: center;
@@ -221,6 +229,161 @@
   gap: 8px;
 }
 
+.ticket-visit-link-modal {
+  position: fixed;
+  inset: 0;
+  z-index: 1200;
+  display: grid;
+  place-items: center;
+  padding: 18px;
+  background: rgba(17, 24, 39, .48);
+  backdrop-filter: blur(3px);
+}
+
+.ticket-visit-link-dialog {
+  width: min(620px, 100%);
+  max-height: min(76vh, 720px);
+  display: grid;
+  grid-template-rows: auto minmax(0, 1fr) auto;
+  overflow: hidden;
+  border: 1px solid var(--border, #e5e7eb);
+  border-radius: 18px;
+  background: var(--surface, #fff);
+  box-shadow: 0 24px 70px rgba(17, 24, 39, .24);
+}
+
+.ticket-visit-link-dialog__header {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 16px;
+  padding: 18px 20px 14px;
+  border-bottom: 1px solid var(--border, #e5e7eb);
+}
+
+.ticket-visit-link-dialog__header h3,
+.ticket-visit-link-dialog__header p {
+  margin: 4px 0 0;
+}
+
+.ticket-visit-link-dialog__header p {
+  color: var(--muted, #6b7280);
+  font-size: .9rem;
+}
+
+.ticket-visit-link-dialog > .alert {
+  margin: 12px 20px 0;
+}
+
+.ticket-visit-link-dialog__body {
+  min-height: 140px;
+  overflow-y: auto;
+  padding: 14px 20px;
+}
+
+.ticket-visit-link-list {
+  display: grid;
+  gap: 9px;
+}
+
+.ticket-visit-link-option {
+  display: grid;
+  grid-template-columns: auto minmax(0, 1fr) auto;
+  align-items: center;
+  gap: 10px;
+  padding: 12px 13px;
+  border: 1px solid var(--border, #e5e7eb);
+  border-radius: 12px;
+  background: var(--surface, #fff);
+  cursor: pointer;
+  transition: border-color .15s ease, background .15s ease, box-shadow .15s ease;
+}
+
+.ticket-visit-link-option:hover,
+.ticket-visit-link-option.is-selected {
+  border-color: color-mix(in srgb, var(--primary, #bd0018) 58%, #fff);
+  background: color-mix(in srgb, var(--primary, #bd0018) 4%, #fff);
+}
+
+.ticket-visit-link-option.is-selected {
+  box-shadow: inset 3px 0 0 var(--primary, #bd0018);
+}
+
+.ticket-visit-link-option > input {
+  position: absolute;
+  opacity: 0;
+  pointer-events: none;
+}
+
+.ticket-visit-link-option__check {
+  color: var(--primary, #bd0018);
+}
+
+.ticket-visit-link-option__content {
+  min-width: 0;
+  display: grid;
+  gap: 3px;
+}
+
+.ticket-visit-link-option__content span,
+.ticket-visit-link-option__content small {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.ticket-visit-link-option__content span {
+  color: var(--text, #1f2937);
+  font-size: .9rem;
+}
+
+.ticket-visit-link-option__content small {
+  color: var(--muted, #6b7280);
+}
+
+.ticket-visit-link-option__signed {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  color: #177245;
+  font-size: .76rem;
+  font-weight: 700;
+}
+
+.ticket-visit-link-empty {
+  min-height: 120px;
+  display: grid;
+  place-items: center;
+  align-content: center;
+  gap: 8px;
+  padding: 20px;
+  text-align: center;
+  color: var(--muted, #6b7280);
+}
+
+.ticket-visit-link-empty .material-symbols-outlined {
+  font-size: 30px;
+}
+
+.ticket-visit-link-dialog__footer {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  padding: 14px 20px;
+  border-top: 1px solid var(--border, #e5e7eb);
+}
+
+.ticket-visit-link-dialog__footer > span {
+  color: var(--muted, #6b7280);
+  font-size: .84rem;
+}
+
+.ticket-visit-link-dialog__footer > div {
+  display: flex;
+  gap: 8px;
+}
+
 .related-visit-page {
   padding-bottom: 100px;
 }
@@ -265,7 +428,13 @@
     display: grid;
   }
 
-  .ticket-visit-group-panel__heading .button {
+  .ticket-visit-group-panel__actions {
+    display: grid;
+    width: 100%;
+  }
+
+  .ticket-visit-group-panel__heading .button,
+  .ticket-visit-group-panel__actions .button {
     width: 100%;
   }
 
@@ -283,6 +452,41 @@
     justify-content: flex-end;
     border-top: 1px solid var(--border, #e5e7eb);
     padding-top: 10px;
+  }
+
+  .ticket-visit-link-modal {
+    align-items: end;
+    padding: 0;
+  }
+
+  .ticket-visit-link-dialog {
+    width: 100%;
+    max-height: 86vh;
+    border-radius: 18px 18px 0 0;
+  }
+
+  .ticket-visit-link-dialog__header,
+  .ticket-visit-link-dialog__body,
+  .ticket-visit-link-dialog__footer {
+    padding-left: 15px;
+    padding-right: 15px;
+  }
+
+  .ticket-visit-link-option {
+    grid-template-columns: auto minmax(0, 1fr);
+  }
+
+  .ticket-visit-link-option__signed {
+    grid-column: 2;
+  }
+
+  .ticket-visit-link-dialog__footer {
+    display: grid;
+  }
+
+  .ticket-visit-link-dialog__footer > div {
+    display: grid;
+    grid-template-columns: 1fr 1fr;
   }
 
   .related-visit-evidence-list article {
