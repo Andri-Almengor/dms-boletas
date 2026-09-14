@@ -12,13 +12,15 @@ function clean(value) {
   return String(value ?? '').trim();
 }
 
-function isActive(row = {}) {
-  return row.Activo !== false && clean(row.Activo).toLowerCase() !== 'false';
+function isActive(row) {
+  return Boolean(row) && row.Activo !== false && clean(row.Activo).toLowerCase() !== 'false';
 }
 
-function isVideo(row = {}) {
-  return clean(row.TipoMedio).toUpperCase() === 'VIDEO'
-    || clean(row.MimeType).toLowerCase().startsWith('video/');
+function isVideo(row) {
+  return Boolean(row) && (
+    clean(row.TipoMedio).toUpperCase() === 'VIDEO'
+    || clean(row.MimeType).toLowerCase().startsWith('video/')
+  );
 }
 
 function ticketStreamResult(row, ticket, ctx, kind = 'evidence') {
@@ -74,7 +76,7 @@ if (!ticketDeliveryHandlers[INSTALL_FLAG]) {
 
     if (evidenceId) {
       const row = await findById('EvidenciasBoleta', evidenceId);
-      if (!isActive(row)) throw notFound('La evidencia solicitada ya no está disponible.');
+      if (!row || !isActive(row)) throw notFound('La evidencia solicitada ya no está disponible.');
       const rowTicketId = clean(row.BoletaUID);
       if (requestedTicketId && rowTicketId !== requestedTicketId) {
         throw notFound('La evidencia no pertenece a la boleta solicitada.');
@@ -84,6 +86,7 @@ if (!ticketDeliveryHandlers[INSTALL_FLAG]) {
         throw notFound('El archivo solicitado no coincide con la evidencia autorizada.');
       }
       const ticket = await findById('Boletas', rowTicketId);
+      if (!ticket) throw notFound('La boleta asociada a la evidencia ya no está disponible.');
       await ticketAccessHandlers.assertTicketAccess(ctx, ticket);
       return ticketStreamResult(row, ticket, ctx, 'evidence');
     }
@@ -91,6 +94,7 @@ if (!ticketDeliveryHandlers[INSTALL_FLAG]) {
     if (kind === 'signature' || kind === 'firma') {
       if (!requestedTicketId) throw notFound('No fue posible identificar la boleta de la firma.');
       const ticket = await findById('Boletas', requestedTicketId);
+      if (!ticket) throw notFound('La boleta solicitada ya no está disponible.');
       await ticketAccessHandlers.assertTicketAccess(ctx, ticket);
       const signatureFileId = clean(pick(ticket, ['FirmaArchivoID', 'FirmaFileID']));
       if (!signatureFileId) return originalMediaGet(ctx);
