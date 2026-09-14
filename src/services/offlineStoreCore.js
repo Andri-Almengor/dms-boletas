@@ -130,6 +130,45 @@ async function readAll(storeName) {
   });
 }
 
+async function readByIndex(storeName, indexName, key) {
+  const db = await openDatabase();
+  if (!db) return [];
+  return new Promise((resolve, reject) => {
+    const transaction = db.transaction(storeName, 'readonly');
+    const request = transaction.objectStore(storeName).index(indexName).getAll(key);
+    request.onsuccess = () => resolve(request.result || []);
+    request.onerror = () => reject(request.error || new Error('No fue posible leer el contenido sin conexión.'));
+  });
+}
+
+async function scanStore(storeName, visitor) {
+  const db = await openDatabase();
+  if (!db) return 0;
+  return new Promise((resolve, reject) => {
+    const transaction = db.transaction(storeName, 'readonly');
+    const request = transaction.objectStore(storeName).openCursor();
+    let count = 0;
+    let failed = false;
+    request.onsuccess = () => {
+      const cursor = request.result;
+      if (!cursor || failed) return;
+      try {
+        count += 1;
+        visitor(cursor.value);
+        cursor.continue();
+      } catch (error) {
+        failed = true;
+        try { transaction.abort(); } catch { /* noop */ }
+        reject(error);
+      }
+    };
+    request.onerror = () => reject(request.error || new Error('No fue posible leer el contenido sin conexión.'));
+    transaction.oncomplete = () => { if (!failed) resolve(count); };
+    transaction.onerror = () => { if (!failed) reject(transaction.error || new Error('No fue posible leer el contenido sin conexión.')); };
+    transaction.onabort = () => { if (!failed) reject(transaction.error || new Error('La lectura local fue cancelada.')); };
+  });
+}
+
 function stable(value) {
   if (Array.isArray(value)) return value.map(stable);
   if (value && typeof value === 'object') {
@@ -148,6 +187,39 @@ function sessionScope(sessionToken = '') {
 
 function operationPriority(operation) {
   return Number(operation?.priority || OPERATION_PRIORITY[operation?.kind] || 35);
+}
+
+function compareQueuedOperations(a, b) {
+  const byPriority = operationPriority(a) - operationPriority(b);
+  if (byPriority) return byPriority;
+  return Number(a.createdAt || 0) - Number(b.createdAt || 0);
+}
+
+function sortQueuedOperations(operations = []) {
+  return operations.sort(compareQueuedOperations);
+}
+
+async function findQueuedOperationByDedupeKey(dedupeKey) {
+  const key = String(dedupeKey || '');
+  if (!key) return null;
+  const db = await openDatabase();
+  if (!db) return null;
+  return new Promise((resolve, reject) => {
+    const transaction = db.transaction(QUEUE_STORE, 'readonly');
+    const request = transaction.objectStore(QUEUE_STORE).openCursor();
+    let best = null;
+    request.onsuccess = () => {
+      const cursor = request.result;
+      if (!cursor) {
+        resolve(best);
+        return;
+      }
+      const candidate = cursor.value;
+      if (candidate?.dedupeKey === key && (!best || compareQueuedOperations(candidate, best) < 0)) best = candidate;
+      cursor.continue();
+    };
+    request.onerror = () => reject(request.error || new Error('No fue posible revisar la cola sin conexión.'));
+  });
 }
 
 export function responseCacheKey(routes, payload = {}, sessionToken = '') {
@@ -176,29 +248,36 @@ export async function readCachedResponse(key, maxAgeMs = CACHE_MAX_AGE_MS) {
 }
 
 export async function updateCachedResponses(predicate, updater) {
-  const entries = await readAll(CACHE_STORE);
-  const selected = entries.filter((entry) => {
-    try { return predicate(entry); } catch { return false; }
-  });
-  if (!selected.length) return 0;
-
   const db = await openDatabase();
   if (!db) return 0;
+  let selectedCount = 0;
   await new Promise((resolve, reject) => {
     const transaction = db.transaction(CACHE_STORE, 'readwrite');
     const store = transaction.objectStore(CACHE_STORE);
-    selected.forEach((entry) => {
-      try {
-        const nextData = updater(entry.data, entry);
-        if (nextData !== undefined) store.put({ ...entry, data: nextData, savedAt: Date.now() });
-      } catch {
-        // Una entrada dañada no debe impedir actualizar las demás.
+    const request = store.openCursor();
+    request.onsuccess = () => {
+      const cursor = request.result;
+      if (!cursor) return;
+      const entry = cursor.value;
+      let selected = false;
+      try { selected = Boolean(predicate(entry)); } catch { selected = false; }
+      if (selected) {
+        selectedCount += 1;
+        try {
+          const nextData = updater(entry.data, entry);
+          if (nextData !== undefined) cursor.update({ ...entry, data: nextData, savedAt: Date.now() });
+        } catch {
+          // Una entrada dañada no debe impedir actualizar las demás.
+        }
       }
-    });
+      cursor.continue();
+    };
+    request.onerror = () => reject(request.error || new Error('No fue posible actualizar la caché local.'));
     transaction.oncomplete = resolve;
     transaction.onerror = () => reject(transaction.error || new Error('No fue posible actualizar la caché local.'));
+    transaction.onabort = () => reject(transaction.error || new Error('La actualización local fue cancelada.'));
   });
-  return selected.length;
+  return selectedCount;
 }
 
 function emitQueueChange() {
@@ -211,17 +290,11 @@ export function createOfflineId(prefix = 'local') {
 }
 
 export async function listQueuedOperations() {
-  return (await readAll(QUEUE_STORE)).sort((a, b) => {
-    const byPriority = operationPriority(a) - operationPriority(b);
-    if (byPriority) return byPriority;
-    return Number(a.createdAt || 0) - Number(b.createdAt || 0);
-  });
+  return sortQueuedOperations(await readAll(QUEUE_STORE));
 }
 
 export async function enqueueOperation({ routes, payload, description = '', entityId = '', dedupeKey = '', kind = '', dependsOnLocalIds = [], priority = 0 }) {
-  const existing = dedupeKey
-    ? (await listQueuedOperations()).find((item) => item.dedupeKey === dedupeKey)
-    : null;
+  const existing = dedupeKey ? await findQueuedOperationByDedupeKey(dedupeKey) : null;
   const operation = {
     id: existing?.id || createOfflineId('op'),
     routes: Array.isArray(routes) ? [...routes] : [routes],
@@ -257,7 +330,7 @@ export async function queuedOperationCount() {
 export async function getEntityQueueState(entityId) {
   const id = String(entityId || '');
   if (!id) return { entityId: '', pending: 0, errors: 0, syncing: 0, operations: [], readyToFinalize: true };
-  const operations = (await listQueuedOperations()).filter((item) => String(item.entityId || '') === id);
+  const operations = sortQueuedOperations(await readByIndex(QUEUE_STORE, 'entityId', id));
   return {
     entityId: id,
     pending: operations.length,
@@ -276,17 +349,24 @@ export async function removeQueuedOperation(id) {
 export async function updateQueuedOperation(id, patch) {
   const db = await openDatabase();
   if (!db) return;
-  const current = await new Promise((resolve, reject) => {
-    const transaction = db.transaction(QUEUE_STORE, 'readonly');
-    const request = transaction.objectStore(QUEUE_STORE).get(id);
-    request.onsuccess = () => resolve(request.result || null);
-    request.onerror = () => reject(request.error);
+  let updated = false;
+  await new Promise((resolve, reject) => {
+    const transaction = db.transaction(QUEUE_STORE, 'readwrite');
+    const store = transaction.objectStore(QUEUE_STORE);
+    const request = store.get(id);
+    request.onsuccess = () => {
+      const current = request.result || null;
+      if (!current) return;
+      updated = true;
+      store.put({ ...current, ...patch, updatedAt: Date.now() });
+    };
+    request.onerror = () => reject(request.error || new Error('No fue posible actualizar la operación sin conexión.'));
+    transaction.oncomplete = resolve;
+    transaction.onerror = () => reject(transaction.error || new Error('No fue posible actualizar la operación sin conexión.'));
+    transaction.onabort = () => reject(transaction.error || new Error('La actualización local fue cancelada.'));
   });
-  if (!current) return;
-  await run(QUEUE_STORE, 'readwrite', (store) => store.put({ ...current, ...patch, updatedAt: Date.now() }));
-  emitQueueChange();
+  if (updated) emitQueueChange();
 }
-
 
 export async function listOfflineIdMappings() {
   return readAll(ID_MAP_STORE);
@@ -363,22 +443,48 @@ function classifyOfflineRoute(route) {
   return '';
 }
 
-function approximateBytes(value) {
-  try {
-    return new Blob([JSON.stringify(value)]).size;
-  } catch {
-    return 0;
+function approximateValueBytes(value, seen = new WeakSet()) {
+  if (value == null) return 4;
+  const type = typeof value;
+  if (type === 'string') return value.length * 2;
+  if (type === 'number' || type === 'bigint') return 8;
+  if (type === 'boolean') return 4;
+  if (type === 'undefined' || type === 'function' || type === 'symbol') return 0;
+  if (typeof Blob !== 'undefined' && value instanceof Blob) return Number(value.size || 0);
+  if (typeof ArrayBuffer !== 'undefined') {
+    if (value instanceof ArrayBuffer) return Number(value.byteLength || 0);
+    if (ArrayBuffer.isView?.(value)) return Number(value.byteLength || 0);
   }
+  if (value instanceof Date) return 8;
+  if (!value || type !== 'object') return 0;
+  if (seen.has(value)) return 0;
+  seen.add(value);
+
+  if (Array.isArray(value)) {
+    return 8 + value.reduce((total, item) => total + approximateValueBytes(item, seen), 0);
+  }
+  if (value instanceof Map) {
+    let total = 8;
+    value.forEach((itemValue, itemKey) => {
+      total += approximateValueBytes(itemKey, seen) + approximateValueBytes(itemValue, seen);
+    });
+    return total;
+  }
+  if (value instanceof Set) {
+    let total = 8;
+    value.forEach((item) => { total += approximateValueBytes(item, seen); });
+    return total;
+  }
+
+  let total = 8;
+  for (const [key, item] of Object.entries(value)) {
+    total += key.length * 2;
+    total += approximateValueBytes(item, seen);
+  }
+  return total;
 }
 
 export async function getOfflineStorageStats() {
-  const [responses, operations, metadata, mappings] = await Promise.all([
-    readAll(CACHE_STORE),
-    readAll(QUEUE_STORE),
-    readAll(META_STORE),
-    readAll(ID_MAP_STORE),
-  ]);
-
   const sectionMap = new Map(OFFLINE_SECTIONS.map((section) => [section.id, {
     ...section,
     records: 0,
@@ -389,17 +495,53 @@ export async function getOfflineStorageStats() {
   }]));
 
   let lastDownloadAt = 0;
-  responses.forEach((entry) => {
-    const sectionId = classifyOfflineRoute(routeFromCacheKey(entry.key));
-    const savedAt = Number(entry.savedAt || 0);
-    lastDownloadAt = Math.max(lastDownloadAt, savedAt);
-    if (!sectionId || !sectionMap.has(sectionId)) return;
-    const current = sectionMap.get(sectionId);
-    current.records = Math.max(current.records, cachedRecordCount(entry.data));
-    current.savedAt = Math.max(current.savedAt, savedAt);
-    current.available = true;
-    current.cacheEntries += 1;
-  });
+  let cacheEntries = 0;
+  let approximateIndexedDbBytes = 0;
+  let idMappingCount = 0;
+  const mappedIds = new Set();
+  const pendingOperations = [];
+  let errorCount = 0;
+
+  await Promise.all([
+    scanStore(CACHE_STORE, (entry) => {
+      cacheEntries += 1;
+      approximateIndexedDbBytes += approximateValueBytes(entry);
+      const sectionId = classifyOfflineRoute(routeFromCacheKey(entry.key));
+      const savedAt = Number(entry.savedAt || 0);
+      lastDownloadAt = Math.max(lastDownloadAt, savedAt);
+      if (!sectionId || !sectionMap.has(sectionId)) return;
+      const current = sectionMap.get(sectionId);
+      current.records = Math.max(current.records, cachedRecordCount(entry.data));
+      current.savedAt = Math.max(current.savedAt, savedAt);
+      current.available = true;
+      current.cacheEntries += 1;
+    }),
+    scanStore(QUEUE_STORE, (item) => {
+      approximateIndexedDbBytes += approximateValueBytes(item);
+      const status = String(item.status || 'PENDING').toUpperCase();
+      if (status === 'SYNCED') return;
+      if (status === 'ERROR') errorCount += 1;
+      pendingOperations.push({
+        id: item.id,
+        entityId: item.entityId || '',
+        kind: item.kind || '',
+        description: item.description || 'Cambio pendiente',
+        status,
+        createdAt: Number(item.createdAt || 0),
+        attempts: Number(item.attempts || 0),
+        lastError: item.lastError || '',
+        dependsOnLocalIds: item.dependsOnLocalIds || [],
+      });
+    }),
+    scanStore(META_STORE, (entry) => {
+      approximateIndexedDbBytes += approximateValueBytes(entry);
+    }),
+    scanStore(ID_MAP_STORE, (entry) => {
+      approximateIndexedDbBytes += approximateValueBytes(entry);
+      idMappingCount += 1;
+      mappedIds.add(String(entry.localId || ''));
+    }),
+  ]);
 
   const now = Date.now();
   const sections = OFFLINE_SECTIONS.map(({ id }) => {
@@ -411,9 +553,16 @@ export async function getOfflineStorageStats() {
   const downloadedSections = sections.filter((section) => section.available).length;
   const totalRecords = sections.reduce((sum, section) => sum + Number(section.records || 0), 0);
 
+  const blockedIds = new Set();
+  pendingOperations.forEach((item) => {
+    if ((item.dependsOnLocalIds || []).some((localId) => isOfflineLocalId(localId) && !mappedIds.has(String(localId)))) {
+      blockedIds.add(item.id);
+    }
+  });
+
   let usage = 0;
   let quota = 0;
-  if (navigator.storage?.estimate) {
+  if (typeof navigator !== 'undefined' && navigator.storage?.estimate) {
     const estimate = await navigator.storage.estimate().catch(() => ({}));
     usage = Number(estimate.usage || 0);
     quota = Number(estimate.quota || 0);
@@ -424,15 +573,6 @@ export async function getOfflineStorageStats() {
     shellCaches = (await caches.keys().catch(() => [])).length;
   }
 
-  const approximateIndexedDbBytes = approximateBytes(responses)
-    + approximateBytes(operations)
-    + approximateBytes(metadata)
-    + approximateBytes(mappings);
-  const pendingOperations = operations.filter((item) => String(item.status || 'PENDING').toUpperCase() !== 'SYNCED');
-  const mappedIds = new Set(mappings.map((entry) => String(entry.localId || '')));
-  const blockedOperations = pendingOperations.filter((item) => (item.dependsOnLocalIds || [])
-    .some((localId) => isOfflineLocalId(localId) && !mappedIds.has(String(localId))));
-
   return {
     supported: supportsIndexedDb(),
     online: typeof navigator === 'undefined' ? true : navigator.onLine !== false,
@@ -442,24 +582,16 @@ export async function getOfflineStorageStats() {
     totalSections: OFFLINE_SECTIONS.length,
     staleSections: sections.filter((section) => section.stale).length,
     totalRecords,
-    cacheEntries: responses.length,
+    cacheEntries,
     sections,
     lastDownloadAt,
     pendingCount: pendingOperations.length,
-    blockedCount: blockedOperations.length,
-    idMappingCount: mappings.length,
-    errorCount: pendingOperations.filter((item) => String(item.status).toUpperCase() === 'ERROR').length,
+    blockedCount: blockedIds.size,
+    idMappingCount,
+    errorCount,
     pendingOperations: pendingOperations.map((item) => ({
-      id: item.id,
-      entityId: item.entityId || '',
-      kind: item.kind || '',
-      description: item.description || 'Cambio pendiente',
-      status: String(item.status || 'PENDING').toUpperCase(),
-      createdAt: Number(item.createdAt || 0),
-      attempts: Number(item.attempts || 0),
-      lastError: item.lastError || '',
-      dependsOnLocalIds: item.dependsOnLocalIds || [],
-      blocked: blockedOperations.some((blocked) => blocked.id === item.id),
+      ...item,
+      blocked: blockedIds.has(item.id),
     })),
     usage,
     quota,

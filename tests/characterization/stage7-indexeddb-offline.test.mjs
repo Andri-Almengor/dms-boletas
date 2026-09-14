@@ -6,6 +6,13 @@ import path from 'node:path';
 
 const ROOT = fileURLToPath(new URL('../../', import.meta.url));
 const source = (relativePath) => readFileSync(path.join(ROOT, relativePath), 'utf8');
+const section = (text, start, end) => {
+  const from = text.indexOf(start);
+  assert.notEqual(from, -1, `No se encontró ${start}`);
+  const to = text.indexOf(end, from + start.length);
+  assert.notEqual(to, -1, `No se encontró ${end}`);
+  return text.slice(from, to);
+};
 
 const core = source('src/services/offlineStoreCore.js');
 const wrapper = source('src/services/offlineStore.js');
@@ -44,8 +51,8 @@ test('Etapa 7: el estado por entidad conserva contadores y bloqueo de finalizaci
 
 test('Etapa 7: caché offline conserva expiración de 30 días y contrato de secciones', () => {
   assert.match(core, /CACHE_MAX_AGE_MS = 30 \* 24 \* 60 \* 60 \* 1000/);
-  for (const section of ['clients', 'locations', 'equipmentLocations', 'contacts', 'categories', 'failures', 'devices', 'manufacturers', 'models', 'relations', 'users']) {
-    assert.match(core, new RegExp(`id: '${section}'`));
+  for (const sectionId of ['clients', 'locations', 'equipmentLocations', 'contacts', 'categories', 'failures', 'devices', 'manufacturers', 'models', 'relations', 'users']) {
+    assert.match(core, new RegExp(`id: '${sectionId}'`));
   }
   assert.match(core, /pendingOperations:\s*pendingOperations\.map/);
   assert.match(core, /blockedCount:/);
@@ -67,4 +74,60 @@ test('Etapa 7: el wrapper conserva carga diferida del núcleo y modo offline exp
   assert.match(wrapper, /OFFLINE_MODE_DISABLED/);
   assert.match(wrapper, /dehydrateCachedMedia/);
   assert.match(wrapper, /hydrateCachedMedia/);
+});
+
+test('Etapa 7: el estado de una entidad usa el índice existente y conserva el mismo orden', () => {
+  const body = section(core, 'export async function getEntityQueueState', 'export async function removeQueuedOperation');
+  assert.match(body, /readByIndex\(QUEUE_STORE, 'entityId', id\)/);
+  assert.match(body, /sortQueuedOperations/);
+  assert.doesNotMatch(body, /listQueuedOperations\(/);
+});
+
+test('Etapa 7: actualizar una operación usa una sola transacción readwrite', () => {
+  const body = section(core, 'export async function updateQueuedOperation', 'export async function listOfflineIdMappings');
+  assert.match(body, /db\.transaction\(QUEUE_STORE, 'readwrite'\)/);
+  assert.match(body, /store\.get\(id\)/);
+  assert.match(body, /store\.put\(/);
+  assert.doesNotMatch(body, /'readonly'/);
+  assert.doesNotMatch(body, /run\(QUEUE_STORE/);
+});
+
+test('Etapa 7: deduplicar la cola no materializa ni ordena todas las operaciones', () => {
+  const body = section(core, 'export async function enqueueOperation', 'export async function queuedOperationCount');
+  assert.match(body, /findQueuedOperationByDedupeKey\(dedupeKey\)/);
+  assert.doesNotMatch(body, /listQueuedOperations\(/);
+  const finder = section(core, 'async function findQueuedOperationByDedupeKey', 'export function responseCacheKey');
+  assert.match(finder, /openCursor\(\)/);
+  assert.match(finder, /compareQueuedOperations/);
+  assert.doesNotMatch(finder, /getAll\(/);
+});
+
+test('Etapa 7: actualizar respuestas de caché recorre y modifica por cursor sin cargar el store completo', () => {
+  const body = section(core, 'export async function updateCachedResponses', 'function emitQueueChange');
+  assert.match(body, /db\.transaction\(CACHE_STORE, 'readwrite'\)/);
+  assert.match(body, /store\.openCursor\(\)/);
+  assert.match(body, /cursor\.update\(/);
+  assert.doesNotMatch(body, /readAll\(CACHE_STORE\)/);
+  assert.doesNotMatch(body, /\.filter\(/);
+});
+
+test('Etapa 7: estadísticas IndexedDB se agregan por cursor y no serializan los stores completos', () => {
+  const body = core.slice(core.indexOf('export async function getOfflineStorageStats'));
+  assert.match(body, /scanStore\(CACHE_STORE/);
+  assert.match(body, /scanStore\(QUEUE_STORE/);
+  assert.match(body, /scanStore\(META_STORE/);
+  assert.match(body, /scanStore\(ID_MAP_STORE/);
+  assert.doesNotMatch(body, /readAll\(/);
+  const estimator = section(core, 'function approximateValueBytes', 'export async function getOfflineStorageStats');
+  assert.match(estimator, /value\.length \* 2/);
+  assert.match(estimator, /value instanceof Blob/);
+  assert.doesNotMatch(estimator, /JSON\.stringify/);
+});
+
+test('Etapa 7: estadísticas de medios cuentan bytes por cursor sin cargar todos los Blob', () => {
+  const body = mediaStore.slice(mediaStore.indexOf('export async function getOfflineMediaStats'));
+  assert.match(body, /openCursor\(\)/);
+  assert.match(body, /record\.blob\?\.size/);
+  assert.doesNotMatch(body, /listOfflineMedia\(\)/);
+  assert.doesNotMatch(body, /getAll\(\)/);
 });

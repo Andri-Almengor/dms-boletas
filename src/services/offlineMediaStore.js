@@ -171,14 +171,43 @@ export async function isPersistentOfflineStorage() {
 }
 
 export async function getOfflineMediaStats() {
-  const records = await listOfflineMedia();
-  const pending = records.filter((record) => String(record.status || 'PENDING').toUpperCase() !== 'SYNCED');
+  const db = await openDatabase();
+  let mediaCount = 0;
+  let pendingMediaCount = 0;
+  let mediaBytes = 0;
+  let pendingMediaBytes = 0;
+
+  if (db) {
+    await new Promise((resolve, reject) => {
+      const transaction = db.transaction(MEDIA_STORE, 'readonly');
+      const request = transaction.objectStore(MEDIA_STORE).openCursor();
+      request.onsuccess = () => {
+        const cursor = request.result;
+        if (!cursor) return;
+        const record = cursor.value;
+        const bytes = Number(record.size || record.blob?.size || 0);
+        const pending = String(record.status || 'PENDING').toUpperCase() !== 'SYNCED';
+        mediaCount += 1;
+        mediaBytes += bytes;
+        if (pending) {
+          pendingMediaCount += 1;
+          pendingMediaBytes += bytes;
+        }
+        cursor.continue();
+      };
+      request.onerror = () => reject(request.error || new Error('No fue posible calcular el almacenamiento de fotografías offline.'));
+      transaction.oncomplete = resolve;
+      transaction.onerror = () => reject(transaction.error || new Error('No fue posible calcular el almacenamiento de fotografías offline.'));
+      transaction.onabort = () => reject(transaction.error || new Error('La lectura de fotografías offline fue cancelada.'));
+    });
+  }
+
   return {
     mediaSupported: supportsIndexedDb(),
-    mediaCount: records.length,
-    pendingMediaCount: pending.length,
-    mediaBytes: records.reduce((total, record) => total + Number(record.size || record.blob?.size || 0), 0),
-    pendingMediaBytes: pending.reduce((total, record) => total + Number(record.size || record.blob?.size || 0), 0),
+    mediaCount,
+    pendingMediaCount,
+    mediaBytes,
+    pendingMediaBytes,
     persistentStorage: await isPersistentOfflineStorage(),
   };
 }
