@@ -1,15 +1,12 @@
-import { env } from '../config/env.js';
 import {
   appendRows,
   findById,
-  getHeaders,
-  invalidateTableCache,
   readTable,
   updateRow,
   updateRows,
 } from '../infra/sheets.repository.js';
-import { sheetsApi } from '../infra/google.js';
 import { nowIso, sha256, uuid } from '../core/utils.js';
+import { ensureSheetTables } from './sheet-schema.service.js';
 
 export const FINALIZATION_JOB_SHEET = 'MaintenanceFinalizationJobs';
 export const FINALIZATION_ITEM_SHEET = 'MaintenanceFinalizationItems';
@@ -59,73 +56,23 @@ export const FINALIZATION_ITEM_HEADERS = Object.freeze([
   'ActualizadoPor',
 ]);
 
-const ENSURE = new Map();
 const WRITE_BATCH = 100;
+let storageReady = null;
 
 function clean(value) {
   return String(value ?? '').trim();
 }
 
-function quote(name) {
-  return `'${String(name).replace(/'/g, "''")}'`;
-}
-
-function columnLetter(index) {
-  let result = '';
-  let number = index + 1;
-  while (number > 0) {
-    const remainder = (number - 1) % 26;
-    result = String.fromCharCode(65 + remainder) + result;
-    number = Math.floor((number - 1) / 26);
-  }
-  return result;
-}
-
-async function ensureSheet(sheetName, headers) {
-  if (ENSURE.has(sheetName)) return ENSURE.get(sheetName);
-  const promise = (async () => {
-    const { data } = await sheetsApi.spreadsheets.get({
-      spreadsheetId: env.sheetId,
-      fields: 'sheets.properties.title',
-    });
-    const exists = (data.sheets || []).some((sheet) => sheet.properties?.title === sheetName);
-    if (!exists) {
-      await sheetsApi.spreadsheets.batchUpdate({
-        spreadsheetId: env.sheetId,
-        requestBody: { requests: [{ addSheet: { properties: { title: sheetName } } }] },
-      });
-    }
-
-    const { data: values } = await sheetsApi.spreadsheets.values.get({
-      spreadsheetId: env.sheetId,
-      range: `${quote(sheetName)}!1:1`,
-    });
-    const current = (values.values?.[0] || []).map((value) => clean(value)).filter(Boolean);
-    const missing = headers.filter((header) => !current.includes(header));
-    const finalHeaders = current.length ? [...current, ...missing] : [...headers];
-    if (!current.length || missing.length) {
-      await sheetsApi.spreadsheets.values.update({
-        spreadsheetId: env.sheetId,
-        range: `${quote(sheetName)}!A1:${columnLetter(finalHeaders.length - 1)}1`,
-        valueInputOption: 'RAW',
-        requestBody: { values: [finalHeaders] },
-      });
-    }
-    invalidateTableCache(sheetName);
-    await getHeaders(sheetName, true);
-  })().catch((error) => {
-    ENSURE.delete(sheetName);
+export function ensureMaintenanceFinalizationStorage() {
+  if (storageReady) return storageReady;
+  storageReady = ensureSheetTables({
+    [FINALIZATION_JOB_SHEET]: FINALIZATION_JOB_HEADERS,
+    [FINALIZATION_ITEM_SHEET]: FINALIZATION_ITEM_HEADERS,
+  }).catch((error) => {
+    storageReady = null;
     throw error;
   });
-  ENSURE.set(sheetName, promise);
-  return promise;
-}
-
-export async function ensureMaintenanceFinalizationStorage() {
-  await Promise.all([
-    ensureSheet(FINALIZATION_JOB_SHEET, FINALIZATION_JOB_HEADERS),
-    ensureSheet(FINALIZATION_ITEM_SHEET, FINALIZATION_ITEM_HEADERS),
-  ]);
+  return storageReady;
 }
 
 export function createFinalizationJobId(maintenanceId) {
@@ -178,10 +125,18 @@ export async function findFinalizationJobForMaintenance(maintenanceId, jobId = '
       // Se buscará el último job del mantenimiento.
     }
   }
-  const rows = await readTable(FINALIZATION_JOB_SHEET);
-  return rows
-    .filter((row) => clean(row.MantenimientoID) === clean(maintenanceId))
-    .sort((a, b) => Number(b.__rowNumber || 0) - Number(a.__rowNumber || 0))[0] || null;
+
+  let latest = null;
+  let latestRowNumber = -1;
+  for (const row of await readTable(FINALIZATION_JOB_SHEET)) {
+    if (clean(row.MantenimientoID) !== clean(maintenanceId)) continue;
+    const rowNumber = Number(row.__rowNumber || 0);
+    if (rowNumber > latestRowNumber) {
+      latest = row;
+      latestRowNumber = rowNumber;
+    }
+  }
+  return latest;
 }
 
 export async function updateFinalizationJob(jobId, patch = {}) {
@@ -234,7 +189,8 @@ export async function ensureFinalizationItems(job, definitions = [], actor = 'SI
     };
   }).filter(Boolean);
 
-  if (creates.length) await appendRows(FINALIZATION_ITEM_SHEET, creates, { chunkSize: WRITE_BATCH });
+  if (!creates.length) return current;
+  await appendRows(FINALIZATION_ITEM_SHEET, creates, { chunkSize: WRITE_BATCH });
   return listFinalizationItems(job.JobID);
 }
 
@@ -264,23 +220,52 @@ function state(row) {
 }
 
 export function summarizeFinalizationItems(items = []) {
-  const tickets = items.filter((row) => clean(row.Tipo).toUpperCase() === 'TICKET');
-  const drive = items.filter((row) => clean(row.Tipo).toUpperCase() === 'DRIVE');
-  const ticketCompleted = tickets.filter((row) => state(row) === 'COMPLETADO');
-  const driveCompleted = drive.filter((row) => state(row) === 'COMPLETADO');
+  const tickets = [];
+  const drive = [];
+  const ticketCompleted = [];
+  const driveCompleted = [];
+  const pendingTickets = [];
+  const pendingDrive = [];
+  const failed = [];
   const deviceParts = new Map();
-  drive.forEach((row) => {
-    const id = clean(row.ReferenciaID);
-    if (!deviceParts.has(id)) deviceParts.set(id, []);
-    deviceParts.get(id).push(row);
-  });
-  const completedDevices = [...deviceParts.values()].filter(
-    (parts) => parts.length && parts.every((row) => state(row) === 'COMPLETADO'),
-  ).length;
-  const totalEvidences = drive.reduce((sum, row) => sum + Number(row.Evidencias || 0), 0);
-  const processedEvidences = driveCompleted.reduce((sum, row) => sum + Number(row.Evidencias || 0), 0);
-  const copied = driveCompleted.reduce((sum, row) => sum + Number(row.Copiadas || 0), 0);
-  const existing = driveCompleted.reduce((sum, row) => sum + Number(row.Existentes || 0), 0);
+  let totalEvidences = 0;
+  let processedEvidences = 0;
+  let copied = 0;
+  let existing = 0;
+
+  for (const row of items) {
+    const rowState = state(row);
+    const type = clean(row.Tipo).toUpperCase();
+    if (rowState === 'ERROR') failed.push(row);
+
+    if (type === 'TICKET') {
+      tickets.push(row);
+      if (rowState === 'COMPLETADO') ticketCompleted.push(row);
+      else pendingTickets.push(row);
+      continue;
+    }
+
+    if (type !== 'DRIVE') continue;
+    drive.push(row);
+    const referenceId = clean(row.ReferenciaID);
+    if (!deviceParts.has(referenceId)) deviceParts.set(referenceId, []);
+    deviceParts.get(referenceId).push(row);
+    totalEvidences += Number(row.Evidencias || 0);
+
+    if (rowState === 'COMPLETADO') {
+      driveCompleted.push(row);
+      processedEvidences += Number(row.Evidencias || 0);
+      copied += Number(row.Copiadas || 0);
+      existing += Number(row.Existentes || 0);
+    } else {
+      pendingDrive.push(row);
+    }
+  }
+
+  let completedDevices = 0;
+  for (const parts of deviceParts.values()) {
+    if (parts.length && parts.every((row) => state(row) === 'COMPLETADO')) completedDevices += 1;
+  }
 
   return {
     tickets,
@@ -293,9 +278,9 @@ export function summarizeFinalizationItems(items = []) {
     processedEvidences,
     copied,
     existing,
-    pendingTickets: tickets.filter((row) => !['COMPLETADO'].includes(state(row))),
-    pendingDrive: drive.filter((row) => !['COMPLETADO'].includes(state(row))),
-    failed: items.filter((row) => state(row) === 'ERROR'),
+    pendingTickets,
+    pendingDrive,
+    failed,
   };
 }
 

@@ -1,6 +1,7 @@
 import { ticketHandlers } from '../modules/tickets.module.js';
 import { ticketDeliveryHandlers } from '../modules/ticket-delivery.module.js';
 import { filterRows, readTable } from '../infra/sheets.repository.js';
+import { summarizeTicketHomeRows } from '../core/home-summary.js';
 import { assertTicketPayloadAccess, canViewAllTickets } from './ticket-access.service.js';
 
 function equals(row, field, expected) {
@@ -18,11 +19,12 @@ ticketHandlers.list = async (ctx) => {
   let rows = (await readTable('Boletas'))
     .filter((row) => row.Activo !== false && String(row.Estado || '').toUpperCase() !== 'ANULADA');
 
+  const viewAll = canViewAllTickets(ctx);
   const requestedAssignedUser = String(payload.asignadoUsuarioId || payload.UsuarioID || '').trim();
-  const needsAssignments = !canViewAllTickets(ctx) || Boolean(requestedAssignedUser);
+  const needsAssignments = !viewAll || Boolean(requestedAssignedUser);
   const assignments = needsAssignments ? await readTable('BoletaAsignados') : [];
 
-  if (!canViewAllTickets(ctx)) {
+  if (!viewAll) {
     const allowedIds = ticketIdsAssignedTo(assignments, ctx.user.UsuarioID);
     rows = rows.filter((row) => allowedIds.has(String(row.BoletaUID)));
   }
@@ -31,9 +33,6 @@ ticketHandlers.list = async (ctx) => {
     rows = rows.filter((row) => assignedIds.has(String(row.BoletaUID)));
   }
 
-  if (payload.status || payload.estado) {
-    rows = rows.filter((row) => String(row.Estado || '').toUpperCase() === String(payload.status || payload.estado).toUpperCase());
-  }
   if (payload.dateFrom) rows = rows.filter((row) => String(row.Fecha || '').slice(0, 10) >= String(payload.dateFrom));
   if (payload.dateTo) rows = rows.filter((row) => String(row.Fecha || '').slice(0, 10) <= String(payload.dateTo));
   if (payload.clienteId) rows = rows.filter((row) => equals(row, 'ClienteID', payload.clienteId));
@@ -42,7 +41,13 @@ ticketHandlers.list = async (ctx) => {
   if (payload.fabricanteId) rows = rows.filter((row) => equals(row, 'FabricanteID', payload.fabricanteId));
   if (payload.modeloId) rows = rows.filter((row) => equals(row, 'ModeloID', payload.modeloId));
 
-  return filterRows(rows, payload, ['Titulo', 'Cliente', 'Ubicacion', 'Categoria', 'TipoDispositivo', 'Modelo', 'BoletaID']);
+  const homeSummary = payload.homeSummary ? summarizeTicketHomeRows(rows) : null;
+  if (payload.status || payload.estado) {
+    rows = rows.filter((row) => String(row.Estado || '').toUpperCase() === String(payload.status || payload.estado).toUpperCase());
+  }
+
+  const result = filterRows(rows, payload, ['Titulo', 'Cliente', 'Ubicacion', 'Categoria', 'TipoDispositivo', 'Modelo', 'BoletaID']);
+  return homeSummary ? { ...result, homeSummary } : result;
 };
 
 for (const key of [

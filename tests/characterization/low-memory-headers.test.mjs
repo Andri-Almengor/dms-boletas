@@ -50,12 +50,42 @@ test('huge historical sheets: audit is header+append, schema never scans, normal
   assert.equal(report.cache.inflight, 0);
 });
 
-// Baseline main 65c86e2: explicit invariants requested for this removal.
+test('ticket Home summary keeps the existing technician-assignment visibility gate', () => {
+  const visibility = read('backend/src/services/ticket-visibility.patch.js');
+  assert.match(visibility, /const viewAll = canViewAllTickets\(ctx\)/);
+  assert.match(visibility, /const needsAssignments = !viewAll \|\| Boolean\(requestedAssignedUser\)/);
+  assert.match(visibility, /ticketIdsAssignedTo\(assignments, ctx\.user\.UsuarioID\)/);
+  assert.match(visibility, /allowedIds\.has\(String\(row\.BoletaUID\)\)/);
+  assert.match(visibility, /summarizeTicketHomeRows\(rows\)/);
+
+  const access = read('backend/src/services/ticket-access.service.js');
+  assert.match(access, /USUARIOS_GESTIONAR/);
+  assert.match(access, /BOLETAS_ELIMINAR/);
+  assert.match(access, /assignedTicketIdsForUser\(ctx\.user\.UsuarioID\)/);
+  assert.match(access, /Solo puede consultar o modificar las boletas en las que está asignado/);
+});
+
+test('finalization storage reuses shared schema and preserves bounded recoverable writes', () => {
+  const storage = read('backend/src/services/maintenance-finalization-job.storage.js');
+  assert.match(storage, /ensureSheetTables/);
+  assert.doesNotMatch(storage, /sheetsApi|invalidateTableCache|getHeaders|spreadsheets\.values\.get/);
+  assert.match(storage, /const WRITE_BATCH = 100/);
+  assert.match(storage, /if \(!creates\.length\) return current/);
+  assert.match(storage, /appendRows\(FINALIZATION_ITEM_SHEET, creates, \{ chunkSize: WRITE_BATCH \}\)/);
+  assert.match(storage, /updateRows\(FINALIZATION_ITEM_SHEET, normalized, 'ItemID'\)/);
+  assert.match(storage, /JobID/);
+  assert.match(storage, /ItemID/);
+  assert.match(storage, /FechaActualizacion/);
+});
+
+// Baseline main 65c86e2: explicit invariants requested for the activity-removal work.
+// Ticket visibility and finalization storage are intentionally covered by behavior/source
+// guards above because this PR changes their internals while preserving authorization,
+// persisted headers, checkpoints and write batching.
 const businessBaseline = {
   "backend/src/core/action-router.js": "92f33f8d565c70a77e6ef8b6196a696237a5b7b9880b0858842f6aa23aa37033",
   "backend/src/services/auth.service.js": "2af2682ef2b898bc71fe7aafa9c030fb3e2410559c28aea1d198520a0d7d7098",
   "backend/src/services/permissions.service.js": "4447b2b92c8438456e2bd6e5bea9dcd72a3cb4892e26aa9f3d5335c22090feba",
-  "backend/src/services/ticket-visibility.patch.js": "60570ba49fcfe693c8c55e061f0951773b20cc36a2297469dfbcb2758e220995",
   "backend/src/services/maintenance-evidence-permissions.patch.js": "c39ed14272d49ad648ddd4e40ecedeaf0bad22555d88df17baa53b2ae715032b",
   "backend/src/services/maintenance-device-delete-permissions.patch.js": "40cf84fbc2552b8e00b16d840d11c0f9825c71819c6bf4bcb86e630d7e359903",
   "backend/src/modules/tickets.module.js": "6f40142d4a0691e99e83cbdc869cc8871559010871c017084f4a393887b60059",
@@ -65,7 +95,6 @@ const businessBaseline = {
   "backend/src/modules/ticket-signature.module.js": "c1df58a8a8a5303d10ba236335eef7a3d7d12c643057be6f6063a60f72271ba0",
   "backend/src/modules/maintenance-signature.module.js": "607439631bfdb7b8e17cff815ca8e55fd5f716223ee764fd983fec79fa4416b6",
   "backend/src/services/protected-media-stream.service.js": "7c84b03e743ac5c80b7957e3fdba0ae89128114869368d8ab3ade93acf5dac11",
-  "backend/src/services/maintenance-finalization-job.storage.js": "65a2c29a4b575ec876126e4c22d24dfa509507772292524c69dbbd88d00a0beb",
   "backend/src/services/maintenance-finalization-resume.patch.js": "0f9dca7d2a8110451d52dbe152bb6b8df654579e190dfb44046eef2f775478e6",
   "backend/src/services/maintenance-finalization-schedule.patch.js": "726eba328256a4a1cac542dc2489e1fe1a25eca6efd14cc2d61a5aa8220a9bbd",
   "apps-script/KnowledgeBase.gs": "5ccb3dc0115e44445c0c0fd7a7944c19c11cbe65298e4cc7a60d6d4fa6783ab3",
@@ -84,6 +113,6 @@ const businessBaseline = {
   "apps-script/report-service/Code.gs": "9c7e56b51a6d4585161fa267c50e8ec94475532a4b735136c448bea7186314b0",
   "apps-script/report-service/README.md": "972bad00e5fc9f8593c2b2b95a4009d61bb8eade84c975425a7f74c1169b60ea"
 };
-test('roles, permissions, technician assignment, business handlers, original media and Apps Script are unchanged', () => {
+test('roles, permissions, unchanged business handlers, original media and Apps Script remain byte-identical', () => {
   for (const [file, digest] of Object.entries(businessBaseline)) assert.equal(createHash('sha256').update(read(file)).digest('hex'), digest, file);
 });
