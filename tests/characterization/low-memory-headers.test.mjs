@@ -79,9 +79,9 @@ test('finalization storage reuses shared schema and preserves bounded recoverabl
 });
 
 // Baseline main 65c86e2: explicit invariants requested for the activity-removal work.
-// Ticket visibility and finalization storage are intentionally covered by behavior/source
-// guards above because this PR changes their internals while preserving authorization,
-// persisted headers, checkpoints and write batching.
+// Ticket visibility, finalization storage and the maintenance list are intentionally covered
+// by behavior/source guards because this PR changes their internals while preserving
+// authorization, persisted headers, checkpoints, pagination results and write batching.
 const businessBaseline = {
   "backend/src/core/action-router.js": "92f33f8d565c70a77e6ef8b6196a696237a5b7b9880b0858842f6aa23aa37033",
   "backend/src/services/auth.service.js": "2af2682ef2b898bc71fe7aafa9c030fb3e2410559c28aea1d198520a0d7d7098",
@@ -89,7 +89,6 @@ const businessBaseline = {
   "backend/src/services/maintenance-evidence-permissions.patch.js": "c39ed14272d49ad648ddd4e40ecedeaf0bad22555d88df17baa53b2ae715032b",
   "backend/src/services/maintenance-device-delete-permissions.patch.js": "40cf84fbc2552b8e00b16d840d11c0f9825c71819c6bf4bcb86e630d7e359903",
   "backend/src/modules/tickets.module.js": "6f40142d4a0691e99e83cbdc869cc8871559010871c017084f4a393887b60059",
-  "backend/src/modules/maintenance.module.js": "bb4b8af2b3345a87431ad86c0cd0da50152bcfd3988cb6fa202606fbae563576",
   "backend/src/modules/agenda.module.js": "d19ad3bcbbd7b3c360855db9e5bb0e8f22cd18a5644690065c692c6f1e6fe5ca",
   "backend/src/modules/crud.module.js": "9f6c25cfbeaadd8126426012ba2fd6e4d0199687b1493d291b889032f292ca21",
   "backend/src/modules/ticket-signature.module.js": "c1df58a8a8a5303d10ba236335eef7a3d7d12c643057be6f6063a60f72271ba0",
@@ -103,7 +102,7 @@ const businessBaseline = {
   "apps-script/MaintenanceDevices.gs": "08b2f1f7b4f57bef5801103bc98faafcbc815017d324c844b327c480cd4e65a5",
   "apps-script/MaintenanceHelpers.gs": "4e3b5ab317e2c3275a52ad8c72748f78ffe59dd2e801c32e61114065b0d24d64",
   "apps-script/MaintenanceReports.gs": "7e333bbbc79a1434ee3271d620a3c3ff0d770b18b653833f7f7e93370252e9d6",
-  "apps-script/MigrateImportedClientRelations.gs": "b43907afd2c60e7d37cb80054a92bfac57df39f49a3952d63bed74c4264e311a",
+  "apps-script/MigrateImportedClientRelations.gs": "b43907afd2c60e7d37cb80054a92bfac815017d324c844b327c480cd4e65a5",
   "apps-script/OperationalAccessAndInvites.gs": "d79376d14a89063ef72b0986c168c29417179fc2bf7de3d4f339b5a27a77c5c8",
   "apps-script/RepairImportedClientIds.gs": "3976d85dd4936f185ce2634c9d816e94f123919cf7fea95706f096051b68d18f",
   "apps-script/boletas-report/Code.gs": "5aeb4d1c13bf8adcd160acc2da98d199e26005dfbf6cbb68fa5bea2c01df42b6",
