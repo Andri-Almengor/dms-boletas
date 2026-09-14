@@ -17,11 +17,23 @@ const largeRequests = new AsyncSemaphore({
   timeoutMs: env.httpQueueTimeoutMs,
 });
 
+// Media sigue consumiendo http-all: no aumenta la capacidad global. Su propio
+// límite impide que streams largos ocupen todos los slots y deja como mínimo
+// dos (o uno cuando HTTP_MAX_CONCURRENT_REQUESTS=2) para acciones foreground.
+const foregroundReserve = Math.min(2, Math.max(1, env.httpMaxConcurrentRequests - 1));
+const mediaRequests = new AsyncSemaphore({
+  name: 'http-media',
+  max: Math.max(1, env.httpMaxConcurrentRequests - foregroundReserve),
+  queueLimit: env.httpQueueLimit,
+  timeoutMs: env.httpQueueTimeoutMs,
+});
+
 export function concurrencySnapshot() {
   return {
     requests: allRequests.snapshot(),
     largeRequests: largeRequests.snapshot(),
     smallRequests: smallRequests.snapshot(),
+    mediaRequests: mediaRequests.snapshot(),
   };
 }
 
@@ -29,19 +41,24 @@ export async function concurrencyMiddleware(req, res, next) {
   let releaseAll;
   let releaseLarge;
   let releaseSmall;
+  let releaseMedia;
   const controller = new AbortController();
   const abort = () => controller.abort();
   res.once('close', abort);
   try {
+    const requestPath = String(req.url || '').split('?', 1)[0];
+    const media = requestPath === '/api/media/stream';
     const size = Number(req.headers['content-length'] || 0);
     const hasBody = !['GET', 'HEAD', 'OPTIONS'].includes(req.method);
     const unknown = hasBody && !req.headers['content-length'];
     const encoded = req.headers['content-encoding'] && req.headers['content-encoding'] !== 'identity';
-    const large = size >= env.httpLargeRequestBytes || unknown || encoded;
+    const large = !media && (size >= env.httpLargeRequestBytes || unknown || encoded);
     // IncomingMessage stays paused while queued: no body parser runs yet.
-    if (large) releaseLarge = await largeRequests.acquire({ signal: controller.signal });
+    if (media) releaseMedia = await mediaRequests.acquire({ signal: controller.signal });
+    else if (large) releaseLarge = await largeRequests.acquire({ signal: controller.signal });
     else releaseSmall = await smallRequests.acquire({ signal: controller.signal });
-    // Keep one HTTP slot available to small requests under upload pressure.
+    // Media también usa el límite global. El lane media solo reserva capacidad
+    // para foreground; no crea capacidad adicional.
     releaseAll = await allRequests.acquire({ signal: controller.signal });
     if (large) {
       const estimatedBytes = (unknown || encoded ? 50 * 1024 * 1024 : size) * 4;
@@ -56,6 +73,7 @@ export async function concurrencyMiddleware(req, res, next) {
       releaseAll?.();
       releaseLarge?.();
       releaseSmall?.();
+      releaseMedia?.();
       res.off('close', abort);
     };
     res.once('finish', release);
@@ -69,6 +87,7 @@ export async function concurrencyMiddleware(req, res, next) {
     releaseAll?.();
     releaseLarge?.();
     releaseSmall?.();
+    releaseMedia?.();
     res.off('close', abort);
     if (controller.signal.aborted) return;
     if (error && ['SERVER_BUSY', 'SERVER_BUSY_TIMEOUT'].includes(error.code)) {
