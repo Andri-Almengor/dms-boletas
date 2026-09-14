@@ -4,6 +4,10 @@ import { ticketDeliveryHandlers } from '../modules/ticket-delivery.module.js';
 import { filterRows, readTable } from '../infra/sheets.repository.js';
 import { summarizeTicketHomeRows } from '../core/home-summary.js';
 import { assertTicketPayloadAccess, canViewAllTickets } from './ticket-access.service.js';
+import {
+  isExistingVisitLinkRequest,
+  linkExistingTicketVisits,
+} from './ticket-existing-visit-link.service.js';
 
 function equals(row, field, expected) {
   return !expected || String(row[field] || '') === String(expected);
@@ -66,6 +70,9 @@ for (const key of [
   const original = ticketHandlers[key];
   if (!original) continue;
   ticketHandlers[key] = async (ctx) => {
+    if (key === 'update' && isExistingVisitLinkRequest(ctx.payload)) {
+      return linkExistingTicketVisits(ctx);
+    }
     await assertTicketPayloadAccess(ctx, ctx.payload);
     return original(ctx);
   };
