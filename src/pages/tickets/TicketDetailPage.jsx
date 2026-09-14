@@ -50,6 +50,14 @@ function cameraEvidenceName(mediaType = 'image') {
   return `${mediaType === 'video' ? 'Video' : 'Foto'} ${formatter.format(new Date())}`;
 }
 
+function evidenceIdentity(item = {}) {
+  return String(pick(item, ['EvidenciaID', 'id'], '') || '').trim();
+}
+
+function authoritativeEvidence(result) {
+  return result?.evidence || result?.evidencia || result || null;
+}
+
 export default function TicketDetailPage() {
   const { boletaUid } = useParams();
   const { sessionToken, hasPermission } = useAuth();
@@ -57,6 +65,7 @@ export default function TicketDetailPage() {
   const cameraInputRef = useRef(null);
   const videoInputRef = useRef(null);
   const fileInputRef = useRef(null);
+  const loadSequenceRef = useRef(0);
   const [data, setData] = useState(null);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState('');
@@ -74,21 +83,62 @@ export default function TicketDetailPage() {
   const canAdmin = hasPermission('BOLETAS_ELIMINAR') || hasPermission('USUARIOS_GESTIONAR');
   const canTest = hasPermission('NOTIFICACIONES_PRUEBA') && hasPermission('USUARIOS_GESTIONAR');
 
+  function patchEvidence(result) {
+    const evidence = authoritativeEvidence(result);
+    const id = evidenceIdentity(evidence);
+    if (!evidence || !id) return;
+    setData((current) => {
+      if (!current) return current;
+      const list = current.evidencias || current.evidences || [];
+      const index = list.findIndex((item) => evidenceIdentity(item) === id);
+      const next = index >= 0
+        ? list.map((item, itemIndex) => itemIndex === index ? { ...item, ...evidence } : item)
+        : [...list, evidence];
+      return { ...current, evidencias: next, evidences: next };
+    });
+  }
+
+  function removeEvidence(id) {
+    const target = String(id || '').trim();
+    if (!target) return;
+    setData((current) => {
+      if (!current) return current;
+      const list = current.evidencias || current.evidences || [];
+      const next = list.filter((item) => evidenceIdentity(item) !== target);
+      return { ...current, evidencias: next, evidences: next };
+    });
+  }
+
   async function loadTicket() {
+    const sequence = ++loadSequenceRef.current;
     setLoading(true);
     setError('');
     try {
       const result = await requestAvailable(MODULE_ROUTES.tickets.get, { boletaUid, id: boletaUid }, sessionToken);
+      if (sequence !== loadSequenceRef.current) return;
       setData(result?.boleta ? result : { boleta: result, evidencias: result?.Evidencias || [], asignados: result?.asignados || [] });
     } catch (err) {
+      if (sequence !== loadSequenceRef.current) return;
       setError(err.message);
       setData(null);
     } finally {
-      setLoading(false);
+      if (sequence === loadSequenceRef.current) setLoading(false);
     }
   }
 
-  useEffect(() => { loadTicket(); }, [boletaUid, sessionToken]);
+  useEffect(() => {
+    loadTicket();
+    return () => { loadSequenceRef.current += 1; };
+  }, [boletaUid, sessionToken]);
+
+  useEffect(() => {
+    function onEvidenceUploaded(event) {
+      if (String(event.detail?.boletaUid || '') !== String(boletaUid || '')) return;
+      patchEvidence(event.detail?.evidence);
+    }
+    window.addEventListener('dms-ticket-evidence-uploaded', onEvidenceUploaded);
+    return () => window.removeEventListener('dms-ticket-evidence-uploaded', onEvidenceUploaded);
+  }, [boletaUid]);
 
   const record = data?.boleta || {};
 
@@ -176,10 +226,11 @@ export default function TicketDetailPage() {
     setError('');
     setNotice('');
     try {
+      let result;
       if (shouldUseLargeEvidenceUpload(evidenceForm)) {
-        await uploadLargeTicketEvidence({ boletaUid, item: evidenceForm, sessionToken });
+        result = await uploadLargeTicketEvidence({ boletaUid, item: evidenceForm, sessionToken });
       } else {
-        await requestAvailable(MODULE_ROUTES.tickets.evidenceUpload, {
+        result = await requestAvailable(MODULE_ROUTES.tickets.evidenceUpload, {
           boletaUid,
           nombre: evidenceForm.name || evidenceForm.file.name,
           nota: evidenceForm.note,
@@ -191,9 +242,9 @@ export default function TicketDetailPage() {
           base64: await fileToBase64(evidenceForm.file),
         }, sessionToken);
       }
+      patchEvidence(result);
       clearEvidenceForm();
       setNotice('Evidencia agregada correctamente. Si la boleta ya estaba finalizada, use “Reenviar a chats” para publicar el reporte actualizado.');
-      await loadTicket();
     } catch (err) {
       setError(err.message);
     } finally {
@@ -210,11 +261,23 @@ export default function TicketDetailPage() {
     setError('');
     setNotice('');
     try {
-      await requestAvailable(MODULE_ROUTES.tickets.signatureUpload, { boletaUid, base64: signatureDraft.split(',')[1], mimeType: 'image/png', fileName: `firma_boleta_${boletaUid}.png` }, sessionToken);
+      const result = await requestAvailable(MODULE_ROUTES.tickets.signatureUpload, { boletaUid, base64: signatureDraft.split(',')[1], mimeType: 'image/png', fileName: `firma_boleta_${boletaUid}.png` }, sessionToken);
+      const fileId = pick(result, ['id', 'fileId', 'ArchivoID', 'FirmaArchivoID']);
+      const signatureUrl = pick(result, ['webViewLink', 'url', 'FirmaURL']);
+      if (fileId || signatureUrl) {
+        setData((current) => current ? {
+          ...current,
+          boleta: {
+            ...current.boleta,
+            ...(fileId ? { FirmaArchivoID: fileId, FirmaFileID: fileId } : {}),
+            ...(signatureUrl ? { FirmaURL: signatureUrl } : {}),
+            FirmaMimeType: 'image/png',
+          },
+        } : current);
+      }
       setSignatureDraft('');
       setSignatureEditorOpen(false);
       setNotice('Firma actualizada correctamente. Si la boleta ya estaba finalizada, use “Reenviar a chats” para publicar el reporte actualizado.');
-      await loadTicket();
     } catch (err) {
       setError(err.message);
     } finally {
@@ -230,9 +293,9 @@ export default function TicketDetailPage() {
     setProcessing(true);
     setError('');
     try {
-      await requestAvailable(MODULE_ROUTES.tickets.evidenceUpdate, { evidenciaId: pick(item, ['EvidenciaID', 'id']), nombre, nota }, sessionToken);
+      const result = await requestAvailable(MODULE_ROUTES.tickets.evidenceUpdate, { evidenciaId: pick(item, ['EvidenciaID', 'id']), nombre, nota }, sessionToken);
+      patchEvidence(result);
       setNotice('Evidencia actualizada. En una boleta finalizada, use “Reenviar a chats” para compartir el nuevo reporte.');
-      await loadTicket();
     } catch (err) {
       setError(err.message);
     } finally {
@@ -245,9 +308,10 @@ export default function TicketDetailPage() {
     setProcessing(true);
     setError('');
     try {
-      await requestAvailable(MODULE_ROUTES.tickets.evidenceDelete, { evidenciaId: pick(item, ['EvidenciaID', 'id']) }, sessionToken);
+      const evidenceId = pick(item, ['EvidenciaID', 'id']);
+      await requestAvailable(MODULE_ROUTES.tickets.evidenceDelete, { evidenciaId }, sessionToken);
+      removeEvidence(evidenceId);
       setNotice('Evidencia eliminada. En una boleta finalizada, use “Reenviar a chats” para compartir el nuevo reporte.');
-      await loadTicket();
     } catch (err) {
       setError(err.message);
     } finally {
