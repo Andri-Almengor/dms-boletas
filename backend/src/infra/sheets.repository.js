@@ -1,7 +1,7 @@
 import { BoundedCache } from '../core/bounded-cache.js';
 import { env } from '../config/env.js';
 import { TABLES, DATE_FIELDS, TIME_FIELDS } from '../config/tables.js';
-import { sheetsApi } from './google.js';
+import { sheetsApi, sheetsRevisionTracker } from './google.js';
 import { AppError, notFound } from '../core/errors.js';
 
 const headerCache = new Map();
@@ -105,6 +105,10 @@ async function withWriteSlot(operation) {
   }
 }
 
+function sheetRevision(sheetName) {
+  return sheetsRevisionTracker.snapshot(new Set([sheetName]));
+}
+
 function parseTable(values = []) {
   const headers = (values[0] || []).map(String);
   const records = [];
@@ -117,16 +121,28 @@ function parseTable(values = []) {
   }
   return { headers, records };
 }
-function getCachedEntry(sheetName) {
+function currentCachedEntry(sheetName) {
   const cached = tableCache.get(sheetName);
+  if (!cached) return null;
+  if (!sheetsRevisionTracker.isCurrent(cached.revision)) {
+    invalidateSheetCaches(sheetName);
+    return null;
+  }
+  return cached;
+}
+function getCachedEntry(sheetName) {
+  const cached = currentCachedEntry(sheetName);
   if (!cached || env.sheetsCacheTtlMs <= 0 || Date.now() - cached.at >= env.sheetsCacheTtlMs) return null;
   return cached;
 }
 function getCachedTable(sheetName) { return getCachedEntry(sheetName)?.records || null; }
-function setTableCache(sheetName, records, at = Date.now()) {
-  const entry = { at, records };
-  tableCache.set(sheetName, entry);
-  staleTableCache.set(sheetName, entry);
+function setTableCache(sheetName, records, at = Date.now(), revision = sheetRevision(sheetName)) {
+  if (!sheetsRevisionTracker.isCurrent(revision)) return false;
+  const entry = { at, records, revision };
+  const weight = tableCache.measure(entry);
+  tableCache.setWithWeight(sheetName, entry, weight);
+  staleTableCache.setWithWeight(sheetName, entry, weight);
+  return true;
 }
 export function invalidateHeaderCache(sheetName) { headerCache.delete(sheetName); }
 export function invalidateTableCache(sheetName) { tableCache.delete(sheetName); }
@@ -138,9 +154,17 @@ function parseUpdatedStartRow(updatedRange = '') {
   const match = String(updatedRange).match(/![A-Z]+(\d+):[A-Z]+\d+$/i);
   return match ? Number(match[1]) : 0;
 }
-function appendToCachedTable(sheetName, headers, records, updatedRange) {
+function cacheCanPromoteAfterWrite(sheetName, cached, beforeRevision) {
+  return Boolean(
+    cached
+    && beforeRevision
+    && sheetsRevisionTracker.same(cached.revision, beforeRevision)
+    && sheetsRevisionTracker.isSingleWriteAfter(beforeRevision, new Set([sheetName])),
+  );
+}
+function appendToCachedTable(sheetName, headers, records, updatedRange, beforeRevision) {
   const cached = tableCache.get(sheetName);
-  if (!cached) {
+  if (!cacheCanPromoteAfterWrite(sheetName, cached, beforeRevision)) {
     invalidateSheetCaches(sheetName);
     return;
   }
@@ -153,9 +177,9 @@ function appendToCachedTable(sheetName, headers, records, updatedRange) {
   });
   setTableCache(sheetName, [...cached.records, ...appended]);
 }
-function patchCachedRows(sheetName, patchesByRowNumber = new Map()) {
+function patchCachedRows(sheetName, patchesByRowNumber = new Map(), beforeRevision) {
   const cached = tableCache.get(sheetName);
-  if (!cached) {
+  if (!cacheCanPromoteAfterWrite(sheetName, cached, beforeRevision)) {
     invalidateSheetCaches(sheetName);
     return;
   }
@@ -172,11 +196,11 @@ async function flushPendingReads() {
   pendingReads.clear();
   const namesToLoad = [];
 
-  for (const [sheetName, deferred] of batch.entries()) {
+  for (const [sheetName, entry] of batch.entries()) {
     const cached = getCachedTable(sheetName);
     if (cached) {
-      inflightReads.delete(sheetName);
-      deferred.resolve(cached);
+      if (inflightReads.get(sheetName) === entry) inflightReads.delete(sheetName);
+      entry.resolve(cached);
     } else {
       namesToLoad.push(sheetName);
     }
@@ -187,8 +211,12 @@ async function flushPendingReads() {
     // Parse and release each raw table before downloading the next one.
     // The existing SDK gate and memory guard still bound and serialize reads.
     for (const sheetName of namesToLoad) {
+      const entry = batch.get(sheetName);
+      const readRevision = sheetRevision(sheetName);
+      entry.revision = readRevision;
       const headers = await getHeaders(sheetName);
       let records = [];
+      let parsedHeaders = headers;
       if (headers.length) {
         const values = await withQuotaRetry(async () => (await sheetsApi.spreadsheets.values.batchGet({
           spreadsheetId: env.sheetId,
@@ -198,31 +226,42 @@ async function flushPendingReads() {
         })).data.valueRanges?.[0]?.values || []);
         const parsed = parseTable(values);
         records = parsed.records;
+        parsedHeaders = parsed.headers;
+      }
+      if (sheetsRevisionTracker.isCurrent(readRevision)) {
         // Keep the header TTL: refreshing it here would hide externally added
         // columns forever when full-table reads happen more often than its TTL.
         const headerAt = headerCache.get(sheetName)?.at || Date.now();
-        headerCache.set(sheetName, { at: headerAt, headers: parsed.headers });
+        headerCache.set(sheetName, { at: headerAt, headers: parsedHeaders });
+        setTableCache(sheetName, records, Date.now(), readRevision);
       }
-      setTableCache(sheetName, records);
-      inflightReads.delete(sheetName);
-      batch.get(sheetName)?.resolve(records);
+      if (inflightReads.get(sheetName) === entry) inflightReads.delete(sheetName);
+      entry.resolve(records);
       batch.delete(sheetName);
     }
   } catch (error) {
-    batch.forEach((_deferred, sheetName) => {
-      inflightReads.delete(sheetName);
-      batch.get(sheetName)?.reject(error);
+    batch.forEach((entry, sheetName) => {
+      if (inflightReads.get(sheetName) === entry) inflightReads.delete(sheetName);
+      entry.reject(error);
     });
   }
 }
 function queueTableRead(sheetName) {
   const existing = inflightReads.get(sheetName);
-  if (existing) return existing;
+  if (existing && sheetsRevisionTracker.isCurrent(existing.revision)) return existing.promise;
+  if (existing && pendingReads.get(sheetName) === existing) {
+    // A write happened while the read was only waiting for the batching window.
+    // The network read has not started, so it can safely join the new revision.
+    existing.revision = sheetRevision(sheetName);
+    return existing.promise;
+  }
+
   let resolve;
   let reject;
   const promise = new Promise((res, rej) => { resolve = res; reject = rej; });
-  inflightReads.set(sheetName, promise);
-  pendingReads.set(sheetName, { resolve, reject });
+  const entry = { promise, resolve, reject, revision: sheetRevision(sheetName) };
+  inflightReads.set(sheetName, entry);
+  pendingReads.set(sheetName, entry);
   if (!readFlushTimer) readFlushTimer = setTimeout(flushPendingReads, env.sheetsBatchWindowMs);
   return promise;
 }
@@ -241,10 +280,9 @@ export async function getHeaders(sheetName, force = false) {
 }
 export async function readTable(sheetName, options = {}) {
   if (!TABLES[sheetName]) throw new Error(`Tabla no registrada: ${sheetName}`);
-  const cachedEntry = tableCache.get(sheetName);
+  const cachedEntry = currentCachedEntry(sheetName);
   if (!options.force) {
-    const cached = getCachedTable(sheetName);
-    if (cached) return cached;
+    if (cachedEntry && env.sheetsCacheTtlMs > 0 && Date.now() - cachedEntry.at < env.sheetsCacheTtlMs) return cachedEntry.records;
   } else if (cachedEntry && Date.now() - cachedEntry.at < env.sheetsForceCoalesceMs) {
     return cachedEntry.records;
   } else {
@@ -254,7 +292,9 @@ export async function readTable(sheetName, options = {}) {
   try {
     return await queueTableRead(sheetName);
   } catch (error) {
-    const stale = staleTableCache.get(sheetName)?.records;
+    const staleEntry = staleTableCache.get(sheetName);
+    const stale = staleEntry && sheetsRevisionTracker.isCurrent(staleEntry.revision) ? staleEntry.records : null;
+    if (staleEntry && !stale) staleTableCache.delete(sheetName);
     if (!options.force && isQuotaError(error) && stale) return stale;
     throw error;
   }
@@ -319,6 +359,7 @@ export async function appendRows(sheetName, records = [], options = {}) {
   const chunkSize = Math.max(1, Math.min(500, Number(options.chunkSize || 300)));
   for (let offset = 0; offset < records.length; offset += chunkSize) {
     const chunk = records.slice(offset, offset + chunkSize);
+    const beforeRevision = sheetRevision(sheetName);
     const response = await withWriteSlot(() => sheetsApi.spreadsheets.values.append({
       spreadsheetId: env.sheetId,
       range: `${quote(sheetName)}!A1`,
@@ -326,7 +367,7 @@ export async function appendRows(sheetName, records = [], options = {}) {
       insertDataOption: 'INSERT_ROWS',
       requestBody: { values: chunk.map((record) => headers.map((header) => writable(record[header]))) },
     }));
-    appendToCachedTable(sheetName, headers, chunk, response?.data?.updates?.updatedRange);
+    appendToCachedTable(sheetName, headers, chunk, response?.data?.updates?.updatedRange, beforeRevision);
   }
   return records;
 }
@@ -376,11 +417,12 @@ export async function updateRows(sheetName, updates = [], idColumn = TABLES[shee
 
   if (data.length) {
     try {
+      const beforeRevision = sheetRevision(sheetName);
       await withWriteSlot(() => sheetsApi.spreadsheets.values.batchUpdate({
         spreadsheetId: env.sheetId,
         requestBody: { valueInputOption: 'USER_ENTERED', data },
       }));
-      patchCachedRows(sheetName, cachePatches);
+      patchCachedRows(sheetName, cachePatches, beforeRevision);
     } catch (error) {
       if (isProtectedRangeError(error)) {
         const affectedRows = [...rowNumbers];
@@ -427,5 +469,12 @@ export function filterRows(rows, payload = {}, searchFields = []) {
 }
 
 export function sheetsRepositorySnapshot() {
-  return {tables:tableCache.snapshot(),stale:staleTableCache.snapshot(),inflight:inflightReads.size,pending:pendingReads.size,writes:activeWrites,writeWaiters:writeWaiters.length};
+  return {
+    tables: tableCache.snapshot(),
+    stale: staleTableCache.snapshot(),
+    inflight: inflightReads.size,
+    pending: pendingReads.size,
+    writes: activeWrites,
+    writeWaiters: writeWaiters.length,
+  };
 }

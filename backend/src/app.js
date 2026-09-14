@@ -1,5 +1,6 @@
 import { safeError } from './core/runtime-diagnostics.js';
 import path from 'node:path';
+import { performance } from 'node:perf_hooks';
 import { fileURLToPath } from 'node:url';
 import express from 'express';
 import cors from 'cors';
@@ -19,9 +20,11 @@ import './services/customer-case-test-mode.patch.js';
 import './services/customer-case-real-ticket-sequence.patch.js';
 import './services/customer-case-initial-email-retry.patch.js';
 import './services/customer-case-ticket-finalization.patch.js';
+import './services/customer-case-query-optimization.patch.js';
 import './services/metrics-assigned-hours.patch.js';
 import './services/metrics-dynamic-maintenance-counts.patch.js';
 import './services/knowledge-long-content.patch.js';
+import './services/agenda-query-optimization.patch.js';
 import './services/password-vault-assistant.patch.js';
 import './services/password-vault-system-assistant.patch.js';
 import './services/assistant-maintenance-keyword.patch.js';
@@ -37,6 +40,7 @@ import {
 import { maintenanceFinalizationWorkerRouter } from './routes/maintenance-finalization-worker.routes.js';
 import { runWithActionConcurrency } from './services/action-concurrency.service.js';
 import { runWithActionSingleFlight } from './services/action-single-flight.service.js';
+import { startRouteObservation } from './services/performance-observability.service.js';
 import {
   actionEnvelopeMiddleware,
   actionRateLimitMiddleware,
@@ -107,6 +111,15 @@ app.post('/api/action', actionEnvelopeMiddleware, actionRateLimitMiddleware, asy
   req.dmsActionRunning = true;
   let envelope = null;
   let sessionToken = '';
+  const observation = startRouteObservation(req.actionEnvelope?.route);
+  const finishObservation = () => {
+    const header = res.getHeader('content-length');
+    const responseSize = typeof header === 'string' || typeof header === 'number' ? Number(header) || 0 : 0;
+    observation.finish({ statusCode: res.statusCode, responseSize });
+  };
+  res.once('finish', finishObservation);
+  res.once('close', finishObservation);
+
   try {
     res.setHeader('Cache-Control', 'no-store');
     envelope = req.actionEnvelope;
@@ -115,21 +128,30 @@ app.post('/api/action', actionEnvelopeMiddleware, actionRateLimitMiddleware, asy
     const action = isPasswordVaultRoute(envelope.route)
       ? dispatchPasswordVaultAction
       : dispatchAction;
-    const execute = () => runWithSheetsRouteReadCache(envelope.route, () => (
-      runWithActionConcurrency(envelope.route, () => action({
-        route: envelope.route,
-        payload: envelope.payload,
-        sessionToken,
-        ip: req.ip,
-        userAgent: req.get('user-agent') || '',
-        origin: requestOrigin,
-      }))
-    ));
-    const data = await runWithActionSingleFlight({
+    const execute = () => runWithSheetsRouteReadCache(envelope.route, () => {
+      const queuedAt = performance.now();
+      return runWithActionConcurrency(envelope.route, async () => {
+        const handlerStartedAt = performance.now();
+        observation.markQueueWait(handlerStartedAt - queuedAt);
+        try {
+          return await action({
+            route: envelope.route,
+            payload: envelope.payload,
+            sessionToken,
+            ip: req.ip,
+            userAgent: req.get('user-agent') || '',
+            origin: requestOrigin,
+          });
+        } finally {
+          observation.markHandlerDuration(performance.now() - handlerStartedAt);
+        }
+      });
+    });
+    const data = await observation.run(() => runWithActionSingleFlight({
       route: envelope.route,
       payload: envelope.payload,
       sessionToken,
-    }, execute);
+    }, execute));
 
     res.json({ ok: true, data });
   } catch (error) {

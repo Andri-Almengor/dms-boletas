@@ -5,6 +5,11 @@ import { getConfig } from './config.module.js';
 import { asBool, nowIso, pick, uuid } from '../core/utils.js';
 import { badRequest, forbidden, notFound } from '../core/errors.js';
 import { ensureKnowledgeCategoryStorage } from '../services/knowledge-category-storage.service.js';
+import {
+  buildKnowledgeEnrichmentIndex,
+  indexedArticleCategoryIds,
+  isActiveKnowledgeRelation,
+} from '../services/knowledge-enrichment-index.js';
 
 const CATEGORY_PAYLOAD_KEYS = [
   'categoriaIds',
@@ -58,12 +63,11 @@ function categoryIdsFromPayload(payload = {}) {
 }
 
 function isActiveRelation(row) {
-  return row?.Activo !== false
-    && String(row?.Activo ?? 'true').toLowerCase() !== 'false'
-    && String(row?.Estado || '').toUpperCase() !== 'INACTIVO';
+  return isActiveKnowledgeRelation(row);
 }
 
-function articleCategoryIds(article, relations = []) {
+function articleCategoryIds(article, relations = [], enrichmentIndex = null) {
+  if (enrichmentIndex) return indexedArticleCategoryIds(article, enrichmentIndex);
   const tutorialId = String(article.TutorialID || article.ArticuloID || '');
   const related = relations
     .filter((row) => String(row.TutorialID || '') === tutorialId && isActiveRelation(row))
@@ -107,8 +111,9 @@ function assertArticleWrite(ctx, article) {
   throw forbidden('Solo el autor o un administrador puede modificar este tutorial.');
 }
 
-function categoryViews(categoryIds, categories) {
-  const categoryMap = new Map(categories.map((item) => [String(item.CategoriaConocimientoID), item]));
+function categoryViews(categoryIds, categories, enrichmentIndex = null) {
+  const categoryMap = enrichmentIndex?.categoriesById
+    || new Map(categories.map((item) => [String(item.CategoriaConocimientoID), item]));
   return categoryIds.map((id, index) => {
     const row = categoryMap.get(String(id));
     return {
@@ -122,14 +127,18 @@ function categoryViews(categoryIds, categories) {
   });
 }
 
-function enrichArticle(article, attachments, categories, users = [], relations = []) {
+function enrichArticle(article, attachments, categories, users = [], relations = [], enrichmentIndex = null) {
   const tutorialId = String(article.TutorialID || article.ArticuloID || '');
-  const ids = articleCategoryIds(article, relations);
-  const categoryList = categoryViews(ids, categories);
+  const ids = articleCategoryIds(article, relations, enrichmentIndex);
+  const categoryList = categoryViews(ids, categories, enrichmentIndex);
   const categoryNames = categoryList.map((item) => item.name);
   const primaryCategory = categoryList[0] || null;
-  const author = users.find((item) => String(item.UsuarioID) === String(article.AutorUsuarioID));
-  const relatedAttachments = attachments.filter((item) => String(item.TutorialID || item.ArticuloID || item.ArticuloRef) === tutorialId && item.Activo !== false);
+  const author = enrichmentIndex
+    ? enrichmentIndex.usersById.get(String(article.AutorUsuarioID))
+    : users.find((item) => String(item.UsuarioID) === String(article.AutorUsuarioID));
+  const relatedAttachments = enrichmentIndex
+    ? (enrichmentIndex.attachmentsByTutorialId.get(tutorialId) || [])
+    : attachments.filter((item) => String(item.TutorialID || item.ArticuloID || item.ArticuloRef) === tutorialId && item.Activo !== false);
   const item = {
     ...article,
     TutorialID: tutorialId,
@@ -256,6 +265,12 @@ export const knowledgeHandlers = {
     const { payload = {} } = ctx;
     await ensureKnowledgeCategoryStorage();
     const tables = await readTables(['KnowledgeArticles', 'KnowledgeAttachments', 'KnowledgeCategories', 'KnowledgeArticleCategories', 'Usuarios']);
+    const enrichmentIndex = buildKnowledgeEnrichmentIndex({
+      attachments: tables.KnowledgeAttachments,
+      categories: tables.KnowledgeCategories,
+      users: tables.Usuarios,
+      relations: tables.KnowledgeArticleCategories,
+    });
     const includeDrafts = asBool(payload.includeDrafts, false);
     const requestedAuthor = String(payload.autorUsuarioId || payload.AutorUsuarioID || '').trim();
     const requestedCategory = String(payload.categoriaId || payload.CategoriaConocimientoID || '').trim();
@@ -270,7 +285,7 @@ export const knowledgeHandlers = {
 
     if (requestedAuthor) rows = rows.filter((article) => String(article.AutorUsuarioID || '') === requestedAuthor);
     if (requestedCategory) {
-      rows = rows.filter((article) => articleCategoryIds(article, tables.KnowledgeArticleCategories).includes(requestedCategory));
+      rows = rows.filter((article) => articleCategoryIds(article, tables.KnowledgeArticleCategories, enrichmentIndex).includes(requestedCategory));
     }
 
     rows = rows.map((article) => enrichArticle(
@@ -279,6 +294,7 @@ export const knowledgeHandlers = {
       tables.KnowledgeCategories,
       tables.Usuarios,
       tables.KnowledgeArticleCategories,
+      enrichmentIndex,
     ).item);
     return filterRows(rows, payload, ['Titulo', 'ProblemaResuelto', 'ContenidoHTML', 'CategoriaNombre', 'CategoriasNombres', 'AutorNombre']);
   },

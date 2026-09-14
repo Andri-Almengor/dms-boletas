@@ -82,6 +82,78 @@ export function activeTicketAssignment(row = {}) {
   return enabled(row.Activo, true) && !clean(row.FechaDesasignacion);
 }
 
+function activeTicket(ticket = {}) {
+  const annulled = normalizeAgendaText(ticket.Anulada);
+  return !['true', '1', 'si'].includes(annulled)
+    && normalizeAgendaText(ticket.Estado) !== 'anulada';
+}
+
+function appendMapArray(map, key, value) {
+  if (!key) return;
+  const current = map.get(key);
+  if (current) current.push(value);
+  else map.set(key, [value]);
+}
+
+/**
+ * Índices efímeros y exclusivos de una petición de Agenda.
+ * No conservan estado entre requests ni alteran el orden de las filas.
+ */
+export function buildAgendaRequestIndex({
+  agendas = [],
+  agendaAssignments = [],
+  users = [],
+  tickets = [],
+  ticketAssignments = [],
+} = {}) {
+  const userById = new Map();
+  for (const user of users) {
+    userById.set(clean(user.UsuarioID), user);
+  }
+
+  const agendaAssignmentsByAgendaId = new Map();
+  const agendaIdsByUser = new Map();
+  for (const row of agendaAssignments) {
+    if (!activeAgendaAssignment(row)) continue;
+    const agendaId = clean(row.AgendaID);
+    const userId = clean(row.UsuarioID);
+    if (!agendaId || !userId) continue;
+    appendMapArray(agendaAssignmentsByAgendaId, agendaId, row);
+    if (!agendaIdsByUser.has(userId)) agendaIdsByUser.set(userId, new Set());
+    agendaIdsByUser.get(userId).add(agendaId);
+  }
+
+  const ticketById = new Map();
+  const ticketsByDate = new Map();
+  for (const ticket of tickets) {
+    if (!activeTicket(ticket)) continue;
+    const ticketId = clean(ticket.BoletaUID);
+    ticketById.set(ticketId, ticket);
+    const date = agendaDate(ticket.Fecha);
+    if (date) appendMapArray(ticketsByDate, date, ticket);
+  }
+
+  const ticketAssignmentsByTicketId = new Map();
+  for (const row of ticketAssignments) {
+    if (!activeTicketAssignment(row)) continue;
+    const ticketId = clean(row.BoletaUID);
+    const userId = clean(row.UsuarioID);
+    if (!ticketId || !userId) continue;
+    if (!ticketAssignmentsByTicketId.has(ticketId)) ticketAssignmentsByTicketId.set(ticketId, new Set());
+    ticketAssignmentsByTicketId.get(ticketId).add(userId);
+  }
+
+  return {
+    agendas,
+    userById,
+    agendaAssignmentsByAgendaId,
+    agendaIdsByUser,
+    ticketById,
+    ticketsByDate,
+    ticketAssignmentsByTicketId,
+  };
+}
+
 function tokenSet(value) {
   return new Set(normalizeAgendaText(value).split(' ').filter((token) => token.length >= 4));
 }
@@ -138,41 +210,20 @@ export function agendaTicketMatchScore(agenda = {}, ticket = {}) {
 export function resolveAgendaTicketMatches({
   agendas = [],
   agendaAssignments = [],
+  users = [],
   tickets = [],
   ticketAssignments = [],
   ticketExceptions = DEFAULT_AGENDA_TICKET_EXCEPTIONS,
+  requestIndex = null,
 } = {}) {
-  const agendaUsers = new Map();
-  for (const row of agendaAssignments.filter(activeAgendaAssignment)) {
-    const id = clean(row.AgendaID);
-    const userId = clean(row.UsuarioID);
-    if (!id || !userId) continue;
-    if (!agendaUsers.has(id)) agendaUsers.set(id, new Set());
-    agendaUsers.get(id).add(userId);
-  }
-
-  const ticketUsers = new Map();
-  for (const row of ticketAssignments.filter(activeTicketAssignment)) {
-    const id = clean(row.BoletaUID);
-    const userId = clean(row.UsuarioID);
-    if (!id || !userId) continue;
-    if (!ticketUsers.has(id)) ticketUsers.set(id, new Set());
-    ticketUsers.get(id).add(userId);
-  }
-
-  const validTickets = tickets.filter((ticket) => {
-    const annulled = normalizeAgendaText(ticket.Anulada);
-    return !['true', '1', 'si'].includes(annulled)
-      && normalizeAgendaText(ticket.Estado) !== 'anulada';
+  const index = requestIndex || buildAgendaRequestIndex({
+    agendas,
+    agendaAssignments,
+    users,
+    tickets,
+    ticketAssignments,
   });
-  const ticketById = new Map(validTickets.map((ticket) => [clean(ticket.BoletaUID), ticket]));
-  const ticketsByDate = new Map();
-  for (const ticket of validTickets) {
-    const date = agendaDate(ticket.Fecha);
-    if (!date) continue;
-    if (!ticketsByDate.has(date)) ticketsByDate.set(date, []);
-    ticketsByDate.get(date).push(ticket);
-  }
+  const { ticketById, ticketsByDate, ticketAssignmentsByTicketId } = index;
 
   const matches = new Map();
   const reserved = new Set();
@@ -199,13 +250,16 @@ export function resolveAgendaTicketMatches({
     if (!agendaRequiresTicket(agenda.Detalle, ticketExceptions)) continue;
     if (normalizeAgendaText(agenda.Estado) === 'cancelada') continue;
 
-    const assigned = agendaUsers.get(agendaId) || new Set();
+    const assigned = new Set((index.agendaAssignmentsByAgendaId.get(agendaId) || [])
+      .map((row) => clean(row.UsuarioID))
+      .filter(Boolean));
     if (!assigned.size) continue;
     const candidates = (ticketsByDate.get(agendaDate(agenda.Fecha)) || [])
       .filter((ticket) => !reserved.has(clean(ticket.BoletaUID)))
       .filter((ticket) => {
-        const users = ticketUsers.get(clean(ticket.BoletaUID)) || new Set();
-        return [...assigned].some((userId) => users.has(userId))
+        const ticketId = clean(ticket.BoletaUID);
+        const ticketUsers = ticketAssignmentsByTicketId.get(ticketId) || new Set();
+        return [...assigned].some((userId) => ticketUsers.has(userId))
           || assigned.has(clean(ticket.CreadoPor));
       })
       .map((ticket) => ({ ticket, score: agendaTicketMatchScore(agenda, ticket) }))
@@ -246,29 +300,41 @@ export function buildAgendaViews({
   ticketAssignments = [],
   today = costaRicaDate(),
   ticketExceptions = DEFAULT_AGENDA_TICKET_EXCEPTIONS,
+  requestIndex = null,
+  ticketMatches = null,
 } = {}) {
-  const userById = new Map(users.map((user) => [clean(user.UsuarioID), user]));
-  const assignmentMap = new Map();
-  for (const row of agendaAssignments.filter(activeAgendaAssignment)) {
-    const agendaId = clean(row.AgendaID);
-    if (!assignmentMap.has(agendaId)) assignmentMap.set(agendaId, []);
-    const user = userById.get(clean(row.UsuarioID));
-    if (user) {
-      assignmentMap.get(agendaId).push({
+  const index = requestIndex || buildAgendaRequestIndex({
+    agendas,
+    agendaAssignments,
+    users,
+    tickets,
+    ticketAssignments,
+  });
+  const matches = ticketMatches || resolveAgendaTicketMatches({
+    agendas,
+    agendaAssignments,
+    users,
+    tickets,
+    ticketAssignments,
+    ticketExceptions,
+    requestIndex: index,
+  });
+
+  return agendas.map((agenda) => {
+    const agendaId = clean(agenda.AgendaID);
+    const assignedUsers = (index.agendaAssignmentsByAgendaId.get(agendaId) || [])
+      .map((row) => index.userById.get(clean(row.UsuarioID)))
+      .filter(Boolean)
+      .map((user) => ({
         UsuarioID: clean(user.UsuarioID),
         NombreCompleto: clean(user.NombreCompleto || user.Nombre || user.NombreUsuario || user.Correo),
         Nombre: clean(user.Nombre || user.NombreCompleto || user.NombreUsuario || user.Correo),
         NombreUsuario: clean(user.NombreUsuario),
         Correo: clean(user.Correo),
-      });
-    }
-  }
-
-  const matches = resolveAgendaTicketMatches({ agendas, agendaAssignments, tickets, ticketAssignments, ticketExceptions });
-  return agendas.map((agenda) => {
-    const ticket = matches.get(clean(agenda.AgendaID)) || null;
+      }));
+    const ticket = matches.get(agendaId) || null;
     return {
-      AgendaID: clean(agenda.AgendaID),
+      AgendaID: agendaId,
       Fecha: agendaDate(agenda.Fecha),
       HoraInicio: clean(agenda.HoraInicio, '07:00'),
       HoraFin: clean(agenda.HoraFin, '17:00'),
@@ -282,7 +348,7 @@ export function buildAgendaViews({
       CreadoPor: clean(agenda.CreadoPor),
       FechaCreacion: clean(agenda.FechaCreacion),
       FechaActualizacion: clean(agenda.FechaActualizacion),
-      asignados: assignmentMap.get(clean(agenda.AgendaID)) || [],
+      asignados: assignedUsers,
       status: agendaStatus(agenda, ticket, today, ticketExceptions),
       boleta: ticket ? {
         BoletaUID: clean(ticket.BoletaUID),

@@ -17,6 +17,7 @@ import {
   getFinalizationJob,
   listFinalizationItems,
   progressForSummary,
+  runWithFinalizationItemStepSnapshot,
   summarizeFinalizationItems,
   updateFinalizationItem,
   updateFinalizationItems,
@@ -157,28 +158,38 @@ async function ensureProgressStorage() {
   ]);
 }
 
+function sameProgressValue(left, right) {
+  return Number(left || 0) === Number(right || 0);
+}
+
+function progressStateChanged(job, phase, summary, progress) {
+  return clean(job.Estado).toUpperCase() !== 'EN_PROCESO'
+    || clean(job.Fase).toUpperCase() !== clean(phase).toUpperCase()
+    || !sameProgressValue(job.TotalBoletas, summary.totalTickets)
+    || !sameProgressValue(job.BoletasCompletadas, summary.completedTickets)
+    || !sameProgressValue(job.TotalDispositivos, summary.totalDevices)
+    || !sameProgressValue(job.DispositivosCompletados, summary.completedDevices)
+    || !sameProgressValue(job.TotalEvidencias, summary.totalEvidences)
+    || !sameProgressValue(job.EvidenciasProcesadas, summary.processedEvidences)
+    || !sameProgressValue(job.Porcentaje, progress)
+    || Boolean(clean(job.UltimoError));
+}
+
 async function persistProgress(ctx, maintenanceIdValue, job, items, phase = job.Fase, patch = {}) {
   const summary = summarizeFinalizationItems(items);
   const progress = progressForSummary(summary, phase);
   const step = phaseToStep(phase);
   const message = progressMessage(summary, phase);
   const actor = ctx.user?.UsuarioID || 'SISTEMA';
+  const explicitPatch = Object.keys(patch.job || {}).length > 0 || Object.keys(patch.maintenance || {}).length > 0;
+  const changed = progressStateChanged(job, phase, summary, progress);
+  if (!changed && !explicitPatch) return { summary, progress, step, message, skipped: true };
+
   const timestamp = nowIso();
   await assertMaintenanceFinalizationNotStopped(job.JobID);
-  await updateFinalizationJob(job.JobID, {
-    Estado: 'EN_PROCESO',
-    Fase: phase,
-    TotalBoletas: summary.totalTickets,
-    BoletasCompletadas: summary.completedTickets,
-    TotalDispositivos: summary.totalDevices,
-    DispositivosCompletados: summary.completedDevices,
-    TotalEvidencias: summary.totalEvidences,
-    EvidenciasProcesadas: summary.processedEvidences,
-    Porcentaje: progress,
-    UltimoError: '',
-    ActualizadoPor: actor,
-    ...patch.job,
-  });
+  // Mantenimiento se persiste primero y el job actúa como marcador durable del
+  // progreso. Si la segunda escritura falla, el siguiente paso verá el job
+  // desactualizado y repetirá de forma segura ambas escrituras.
   await updateRow('Mantenimiento', maintenanceIdValue, {
     EstadoFinalizacion: 'EN_PROCESO',
     PasoFinalizacion: step,
@@ -197,7 +208,21 @@ async function persistProgress(ctx, maintenanceIdValue, job, items, phase = job.
     FechaActualizacion: timestamp,
     ...patch.maintenance,
   });
-  return { summary, progress, step, message };
+  await updateFinalizationJob(job.JobID, {
+    Estado: 'EN_PROCESO',
+    Fase: phase,
+    TotalBoletas: summary.totalTickets,
+    BoletasCompletadas: summary.completedTickets,
+    TotalDispositivos: summary.totalDevices,
+    DispositivosCompletados: summary.completedDevices,
+    TotalEvidencias: summary.totalEvidences,
+    EvidenciasProcesadas: summary.processedEvidences,
+    Porcentaje: progress,
+    UltimoError: '',
+    ActualizadoPor: actor,
+    ...patch.job,
+  });
+  return { summary, progress, step, message, skipped: false };
 }
 
 async function markJobError(ctx, maintenanceIdValue, job, error) {
@@ -351,8 +376,7 @@ async function processTicketStep(ctx, id, job, items) {
       FechaFinalizacion: nowIso(),
       ActualizadoPor: ctx.user?.UsuarioID || 'SISTEMA',
     });
-    const refreshed = await listFinalizationItems(job.JobID);
-    await persistProgress(ctx, id, job, refreshed, 'BOLETAS');
+    await persistProgress(ctx, id, job, items, 'BOLETAS');
     return { continue: true };
   } catch (error) {
     if (clean(error?.code).toUpperCase() === FINALIZATION_STOPPED_CODE) throw error;
@@ -470,8 +494,7 @@ async function processDriveStep(ctx, id, job, items) {
     }
   }
   await updateFinalizationItems(results);
-  const refreshed = await listFinalizationItems(job.JobID);
-  await persistProgress(ctx, id, job, refreshed, 'DRIVE');
+  await persistProgress(ctx, id, job, items, 'DRIVE');
   if (hardError) {
     await markJobError(ctx, id, job, hardError);
     return { error: true };
@@ -545,7 +568,7 @@ async function stepJob(ctx, id, jobId) {
   if (jobState === 'DETENIDO') return { stopped: true };
   if (jobState === 'ERROR') return { error: true };
 
-  let items = await listFinalizationItems(job.JobID);
+  const items = await listFinalizationItems(job.JobID);
   if (!items.length || clean(job.Fase).toUpperCase() === 'PREPARANDO') {
     return prepareJob(ctx, id, job);
   }
@@ -559,7 +582,6 @@ async function stepJob(ctx, id, jobId) {
     return { continue: true };
   }
 
-  items = await listFinalizationItems(job.JobID);
   summary = summarizeFinalizationItems(items);
   if (summary.completedDevices < summary.totalDevices || summary.processedEvidences < summary.totalEvidences) {
     return processDriveStep(ctx, id, job, items);
@@ -572,7 +594,10 @@ async function schedulerLoop() {
     const entries = [...scheduledJobs.entries()];
     for (const [jobId, entry] of entries) {
       try {
-        const result = await stepJob(entry.ctx, entry.maintenanceId, jobId);
+        const result = await runWithFinalizationItemStepSnapshot(
+          jobId,
+          () => stepJob(entry.ctx, entry.maintenanceId, jobId),
+        );
         if (result.completed || result.error || result.stopped) scheduledJobs.delete(jobId);
         if (result.retryDelay) await sleep(result.retryDelay);
       } catch (error) {

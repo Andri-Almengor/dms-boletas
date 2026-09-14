@@ -58,8 +58,10 @@ test('mantenimientos y visitas construyen índices una sola vez por respuesta', 
   const maintenance = source('backend/src/modules/maintenance.module.js');
   const multi = source('backend/src/modules/ticket-multi.module.js');
 
-  assert.match(maintenance, /readTables\(\['Mantenimiento', 'Evidencia_Mantenimientos'\]\)/);
+  assert.match(maintenance, /const result = filterRows/);
+  assert.match(maintenance, /const pageIds = new Set\(result\.items\.map/);
   assert.match(maintenance, /countRowsBy/);
+  assert.match(maintenance, /pageIds\.has\(String\(device\.MantenimientoRef\)\)/);
   assert.match(maintenance, /groupRowsBy/);
   assert.doesNotMatch(maintenance, /devices\.filter\(\(device\).*\.length/s);
 

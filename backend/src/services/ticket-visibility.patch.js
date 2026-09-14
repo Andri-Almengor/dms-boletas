@@ -1,3 +1,4 @@
+import './ticket-write-consistency.patch.js';
 import { ticketHandlers } from '../modules/tickets.module.js';
 import { ticketDeliveryHandlers } from '../modules/ticket-delivery.module.js';
 import { filterRows, readTable } from '../infra/sheets.repository.js';

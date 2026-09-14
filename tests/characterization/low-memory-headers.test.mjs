@@ -79,9 +79,9 @@ test('finalization storage reuses shared schema and preserves bounded recoverabl
 });
 
 // Baseline main 65c86e2: explicit invariants requested for the activity-removal work.
-// Ticket visibility and finalization storage are intentionally covered by behavior/source
-// guards above because this PR changes their internals while preserving authorization,
-// persisted headers, checkpoints and write batching.
+// Ticket visibility, finalization storage and the maintenance list are intentionally covered
+// by behavior/source guards because this PR changes their internals while preserving
+// authorization, persisted headers, checkpoints, pagination results and write batching.
 const businessBaseline = {
   "backend/src/core/action-router.js": "92f33f8d565c70a77e6ef8b6196a696237a5b7b9880b0858842f6aa23aa37033",
   "backend/src/services/auth.service.js": "2af2682ef2b898bc71fe7aafa9c030fb3e2410559c28aea1d198520a0d7d7098",
@@ -89,7 +89,6 @@ const businessBaseline = {
   "backend/src/services/maintenance-evidence-permissions.patch.js": "c39ed14272d49ad648ddd4e40ecedeaf0bad22555d88df17baa53b2ae715032b",
   "backend/src/services/maintenance-device-delete-permissions.patch.js": "40cf84fbc2552b8e00b16d840d11c0f9825c71819c6bf4bcb86e630d7e359903",
   "backend/src/modules/tickets.module.js": "6f40142d4a0691e99e83cbdc869cc8871559010871c017084f4a393887b60059",
-  "backend/src/modules/maintenance.module.js": "bb4b8af2b3345a87431ad86c0cd0da50152bcfd3988cb6fa202606fbae563576",
   "backend/src/modules/agenda.module.js": "d19ad3bcbbd7b3c360855db9e5bb0e8f22cd18a5644690065c692c6f1e6fe5ca",
   "backend/src/modules/crud.module.js": "9f6c25cfbeaadd8126426012ba2fd6e4d0199687b1493d291b889032f292ca21",
   "backend/src/modules/ticket-signature.module.js": "c1df58a8a8a5303d10ba236335eef7a3d7d12c643057be6f6063a60f72271ba0",

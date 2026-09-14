@@ -1,3 +1,4 @@
+import './maintenance-list-performance.patch.js';
 import { assistantDynamicMaintenanceQuestionHandlers } from '../modules/assistant-dynamic-maintenance-questions.module.js';
 
 const baseChat = assistantDynamicMaintenanceQuestionHandlers.chat;
