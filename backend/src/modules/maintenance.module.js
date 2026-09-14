@@ -183,20 +183,25 @@ function isAdmin(ctx) {
 
 export const maintenanceHandlers = {
   list: async ({ payload }) => {
-    const tables = await readTables(['Mantenimiento', 'Evidencia_Mantenimientos']);
-    let rows = (tables.Mantenimiento || []).filter((row) => row.Activo !== false);
+    let rows = (await readTable('Mantenimiento')).filter((row) => row.Activo !== false);
     if (payload.dateFrom) rows = rows.filter((row) => String(row.Fecha).slice(0, 10) >= String(payload.dateFrom));
     if (payload.dateTo) rows = rows.filter((row) => String(row.Fecha).slice(0, 10) <= String(payload.dateTo));
+
+    const result = filterRows(rows, payload, ['TituloMantenimiento', 'Cliente', 'Ubicacion', 'Responsables', 'DescripcionGeneral']);
+    if (!result.items.length) return result;
+
+    const pageIds = new Set(result.items.map((row) => String(row.MantenimientoID)));
+    const devices = await readTable('Evidencia_Mantenimientos');
     const deviceCounts = countRowsBy(
-      tables.Evidencia_Mantenimientos || [],
+      devices,
       (device) => device.MantenimientoRef,
-      { predicate: (device) => device.Activo !== false },
+      { predicate: (device) => device.Activo !== false && pageIds.has(String(device.MantenimientoRef)) },
     );
-    rows = rows.map((row) => ({
+    result.items = result.items.map((row) => ({
       ...row,
       DispositivosRegistrados: deviceCounts.get(String(row.MantenimientoID)) || 0,
     }));
-    return filterRows(rows, payload, ['TituloMantenimiento', 'Cliente', 'Ubicacion', 'Responsables', 'DescripcionGeneral']);
+    return result;
   },
 
   get: async ({ payload }) => enrichedMaintenanceById(pick(payload, ['maintenanceId', 'MantenimientoID', 'id'])),
