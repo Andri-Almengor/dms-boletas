@@ -15,11 +15,6 @@ function abortReason(signal) {
   return signal?.reason instanceof Error ? signal.reason : createAbortError();
 }
 
-function maybeAbort(entry) {
-  if (entry.settled || entry.consumers.size) return;
-  entry.controller.abort(createAbortError());
-}
-
 function subscribe(entry, signal) {
   throwIfAborted(signal);
   return new Promise((resolve, reject) => {
@@ -35,7 +30,6 @@ function subscribe(entry, signal) {
       consumer.settled = true;
       cleanup();
       reject(abortReason(signal));
-      maybeAbort(entry);
     };
 
     entry.consumers.add(consumer);
@@ -67,18 +61,19 @@ export function loadTicketDetail(boletaUid, sessionToken, { signal } = {}) {
   const key = resourceKey(ticketId, token);
   let entry = inflight.get(key);
   if (!entry) {
-    const controller = new AbortController();
     entry = {
-      controller,
       consumers: new Set(),
       settled: false,
       promise: null,
     };
+    // No pasamos la señal al fetch subyacente aquí porque TicketDetailPage aún
+    // comparte esta misma lectura mediante el dedupe existente de api.js. Así
+    // panel + detalle conservan un solo HTTP; cada consumidor puede abandonar
+    // su resultado sin actualizar una vista desmontada.
     entry.promise = requestAvailable(
       MODULE_ROUTES.tickets.get,
       { boletaUid: ticketId, id: ticketId },
       token,
-      { signal: controller.signal },
     ).finally(() => {
       entry.settled = true;
       if (inflight.get(key) === entry) inflight.delete(key);
@@ -97,6 +92,5 @@ export function ticketDetailResourceSnapshot() {
 }
 
 export function resetTicketDetailResourceForTests() {
-  for (const entry of inflight.values()) entry.controller.abort(createAbortError());
   inflight.clear();
 }
