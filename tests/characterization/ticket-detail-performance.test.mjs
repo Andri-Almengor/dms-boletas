@@ -23,6 +23,7 @@ const multiUpload = source('src/components/forms/TicketEvidenceMultiSelectBridge
 const detailPage = source('src/pages/tickets/TicketDetailPage.jsx');
 const diagnostics = source('backend/src/core/runtime-diagnostics.js');
 const observability = source('backend/src/services/performance-observability.service.js');
+const concurrency = source('backend/src/middleware/concurrency.middleware.js');
 const app = source('backend/src/app.js');
 
 test('las evidencias protegidas no se descargan hasta acercarse al viewport', () => {
@@ -90,6 +91,22 @@ test('una evidencia debe validar pertenencia y acceso antes de emitir streamUrl'
   assert.ok(accessIndex >= 0 && streamIndex > accessIndex, 'el acceso debe validarse antes de crear el stream');
   assert.match(mediaPatch, /requestedFileId[\s\S]+requestedFileId !== actualFileId/);
   assert.match(mediaPatch, /rowTicketId !== requestedTicketId/);
+});
+
+test('evidencia inexistente devuelve notFound antes de tocar propiedades de null', () => {
+  const missingGuard = mediaPatch.indexOf("if (!row || !isActive(row)) throw notFound('La evidencia solicitada ya no está disponible.')");
+  const propertyRead = mediaPatch.indexOf('const rowTicketId = clean(row.BoletaUID)');
+  assert.ok(missingGuard >= 0 && propertyRead > missingGuard, 'el guard null debe ejecutarse antes de leer row.BoletaUID');
+  assert.match(mediaPatch, /function isActive\(row\) \{\s*return Boolean\(row\)/);
+  assert.match(mediaPatch, /function isVideo\(row\) \{\s*return Boolean\(row\)/);
+});
+
+test('streams de media conservan http-all y reservan capacidad foreground', () => {
+  assert.match(concurrency, /name:\s*'http-media'/);
+  assert.match(concurrency, /requestPath === '\/api\/media\/stream'/);
+  assert.match(concurrency, /releaseMedia = await mediaRequests\.acquire/);
+  assert.match(concurrency, /releaseAll = await allRequests\.acquire/);
+  assert.match(concurrency, /foregroundReserve/);
 });
 
 test('tickets.get evita el enriquecimiento base duplicado y conserva ambas validaciones de acceso', () => {
