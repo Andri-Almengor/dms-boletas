@@ -27,7 +27,6 @@ import './services/password-vault-system-assistant.patch.js';
 import './services/assistant-maintenance-keyword.patch.js';
 import { runWithSheetsRouteReadCache } from './services/sheets-route-read-cache.patch.js';
 import { streamProtectedMedia } from './services/protected-media-stream.service.js';
-import { recordApiActivityFromToken } from './services/activity-log.service.js';
 import { env } from './config/env.js';
 import { dispatchAction } from './core/action-router.js';
 import { AppError } from './core/errors.js';
@@ -36,7 +35,6 @@ import {
   isPasswordVaultRoute,
 } from './modules/password-vault.module.js';
 import { maintenanceFinalizationWorkerRouter } from './routes/maintenance-finalization-worker.routes.js';
-import { activityReportRouter } from './routes/activity-report.routes.js';
 import { runWithActionConcurrency } from './services/action-concurrency.service.js';
 import { runWithActionSingleFlight } from './services/action-single-flight.service.js';
 import {
@@ -97,7 +95,6 @@ app.use(express.json({ limit: '50mb' }));
 app.use(express.text({ type: ['text/plain', 'application/javascript'], limit: '50mb' }));
 
 app.use('/api/maintenance-finalization', maintenanceFinalizationWorkerRouter);
-app.use('/api/activity', activityReportRouter);
 
 app.get('/api/health', (_req, res) => {
   res.setHeader('Cache-Control', 'no-store');
@@ -110,7 +107,6 @@ app.post('/api/action', actionEnvelopeMiddleware, actionRateLimitMiddleware, asy
   req.dmsActionRunning = true;
   let envelope = null;
   let sessionToken = '';
-  const startedAt = Date.now();
   try {
     res.setHeader('Cache-Control', 'no-store');
     envelope = req.actionEnvelope;
@@ -135,31 +131,8 @@ app.post('/api/action', actionEnvelopeMiddleware, actionRateLimitMiddleware, asy
       sessionToken,
     }, execute);
 
-    void recordApiActivityFromToken({
-      sessionToken,
-      route: envelope.route,
-      payload: envelope.payload,
-      data,
-      startedAt,
-      endedAt: Date.now(),
-      ip: req.ip,
-      userAgent: req.get('user-agent') || '',
-    });
-
     res.json({ ok: true, data });
   } catch (error) {
-    if (envelope?.route && sessionToken) {
-      void recordApiActivityFromToken({
-        sessionToken,
-        route: envelope.route,
-        payload: envelope.payload,
-        error,
-        startedAt,
-        endedAt: Date.now(),
-        ip: req.ip,
-        userAgent: req.get('user-agent') || '',
-      });
-    }
     next(error);
   } finally {
     req.dmsActionRunning = false;

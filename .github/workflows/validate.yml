@@ -18,7 +18,7 @@ jobs:
       - name: Setup Node
         uses: actions/setup-node@v4
         with:
-          node-version: 20
+          node-version-file: '.node-version'
           cache: npm
           cache-dependency-path: |
             package-lock.json
@@ -47,6 +47,7 @@ jobs:
         run: |
           npm run baseline
           npm run report:final
+          node scripts/low-memory-smoke.mjs > .artifacts/low-memory-smoke.json
 
       - name: Upload final validation report
         if: always()

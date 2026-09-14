@@ -107,12 +107,15 @@ async function withWriteSlot(operation) {
 
 function parseTable(values = []) {
   const headers = (values[0] || []).map(String);
-  const records = values.slice(1).map((row, rowIndex) => {
-    const record = { __rowNumber: rowIndex + 2 };
+  const records = [];
+  for (let rowIndex = 1; rowIndex < values.length; rowIndex += 1) {
+    const row = values[rowIndex];
+    if (!row.some((value) => value !== '' && value !== null && value !== undefined)) continue;
+    const record = { __rowNumber: rowIndex + 1 };
     headers.forEach((header, index) => { if (header) record[header] = normalizeValue(header, row[index]); });
-    return { record, hasData: row.some((value) => value !== '' && value !== null && value !== undefined) };
-  }).filter((item) => item.hasData).map((item) => item.record);
-  return { headers: headers.filter(Boolean), records };
+    records.push(record);
+  }
+  return { headers, records };
 }
 function getCachedEntry(sheetName) {
   const cached = tableCache.get(sheetName);
@@ -125,10 +128,11 @@ function setTableCache(sheetName, records, at = Date.now()) {
   tableCache.set(sheetName, entry);
   staleTableCache.set(sheetName, entry);
 }
+export function invalidateHeaderCache(sheetName) { headerCache.delete(sheetName); }
 export function invalidateTableCache(sheetName) { tableCache.delete(sheetName); }
 function invalidateSheetCaches(sheetName) {
   tableCache.delete(sheetName);
-  headerCache.delete(sheetName);
+  staleTableCache.delete(sheetName);
 }
 function parseUpdatedStartRow(updatedRange = '') {
   const match = String(updatedRange).match(/![A-Z]+(\d+):[A-Z]+\d+$/i);
@@ -137,7 +141,7 @@ function parseUpdatedStartRow(updatedRange = '') {
 function appendToCachedTable(sheetName, headers, records, updatedRange) {
   const cached = tableCache.get(sheetName);
   if (!cached) {
-    invalidateTableCache(sheetName);
+    invalidateSheetCaches(sheetName);
     return;
   }
   const fallbackStart = cached.records.reduce((max, row) => Math.max(max, Number(row.__rowNumber || 0)), 1) + 1;
@@ -152,7 +156,7 @@ function appendToCachedTable(sheetName, headers, records, updatedRange) {
 function patchCachedRows(sheetName, patchesByRowNumber = new Map()) {
   const cached = tableCache.get(sheetName);
   if (!cached) {
-    invalidateTableCache(sheetName);
+    invalidateSheetCaches(sheetName);
     return;
   }
   const records = cached.records.map((row) => {
@@ -180,22 +184,32 @@ async function flushPendingReads() {
   if (!namesToLoad.length) return;
 
   try {
-    const { data } = await withQuotaRetry(() => sheetsApi.spreadsheets.values.batchGet({
-      spreadsheetId: env.sheetId,
-      ranges: namesToLoad.map((sheetName) => `${quote(sheetName)}!A:ZZ`),
-      valueRenderOption: 'UNFORMATTED_VALUE',
-      dateTimeRenderOption: 'SERIAL_NUMBER',
-    }));
-
-    namesToLoad.forEach((sheetName, index) => {
-      const parsed = parseTable(data.valueRanges?.[index]?.values || []);
-      setTableCache(sheetName, parsed.records);
-      headerCache.set(sheetName, { at: Date.now(), headers: parsed.headers });
+    // Parse and release each raw table before downloading the next one.
+    // The existing SDK gate and memory guard still bound and serialize reads.
+    for (const sheetName of namesToLoad) {
+      const headers = await getHeaders(sheetName);
+      let records = [];
+      if (headers.length) {
+        const values = await withQuotaRetry(async () => (await sheetsApi.spreadsheets.values.batchGet({
+          spreadsheetId: env.sheetId,
+          ranges: [`${quote(sheetName)}!A:${columnLetter(headers.length - 1)}`],
+          valueRenderOption: 'UNFORMATTED_VALUE',
+          dateTimeRenderOption: 'SERIAL_NUMBER',
+        })).data.valueRanges?.[0]?.values || []);
+        const parsed = parseTable(values);
+        records = parsed.records;
+        // Keep the header TTL: refreshing it here would hide externally added
+        // columns forever when full-table reads happen more often than its TTL.
+        const headerAt = headerCache.get(sheetName)?.at || Date.now();
+        headerCache.set(sheetName, { at: headerAt, headers: parsed.headers });
+      }
+      setTableCache(sheetName, records);
       inflightReads.delete(sheetName);
-      batch.get(sheetName)?.resolve(parsed.records);
-    });
+      batch.get(sheetName)?.resolve(records);
+      batch.delete(sheetName);
+    }
   } catch (error) {
-    namesToLoad.forEach((sheetName) => {
+    batch.forEach((_deferred, sheetName) => {
       inflightReads.delete(sheetName);
       batch.get(sheetName)?.reject(error);
     });
@@ -216,8 +230,14 @@ function queueTableRead(sheetName) {
 export async function getHeaders(sheetName, force = false) {
   const cached = headerCache.get(sheetName);
   if (!force && cached && Date.now() - cached.at < headerCacheMs) return cached.headers;
-  await readTable(sheetName, { force });
-  return headerCache.get(sheetName)?.headers || [];
+  const { data } = await withQuotaRetry(() => sheetsApi.spreadsheets.values.get({
+    spreadsheetId: env.sheetId,
+    range: `${quote(sheetName)}!1:1`,
+    valueRenderOption: 'UNFORMATTED_VALUE',
+  }));
+  const headers = (data.values?.[0] || []).map(String);
+  headerCache.set(sheetName, { at: Date.now(), headers });
+  return headers;
 }
 export async function readTable(sheetName, options = {}) {
   if (!TABLES[sheetName]) throw new Error(`Tabla no registrada: ${sheetName}`);
@@ -254,11 +274,12 @@ export async function findById(sheetName, idValue, idColumn = TABLES[sheetName]?
 export async function ensureColumns(sheetName, requestedColumns = []) {
   const columns = [...new Set((requestedColumns || []).map((value) => String(value || '').trim()).filter(Boolean))];
   if (!columns.length) return getHeaders(sheetName);
+  const cachedHeaders = headerCache.get(sheetName);
   let headers = await getHeaders(sheetName);
   let missing = columns.filter((column) => !headers.includes(column));
   if (!missing.length) return headers;
 
-  headers = await getHeaders(sheetName, true);
+  if (cachedHeaders && Date.now() - cachedHeaders.at < headerCacheMs) headers = await getHeaders(sheetName, true);
   missing = columns.filter((column) => !headers.includes(column));
   if (!missing.length) return headers;
 
@@ -286,7 +307,9 @@ export async function ensureColumns(sheetName, requestedColumns = []) {
     requestBody: { values: [missing] },
   }));
   invalidateSheetCaches(sheetName);
-  return getHeaders(sheetName, true);
+  const updatedHeaders = headers.concat(missing);
+  headerCache.set(sheetName, { at: Date.now(), headers: updatedHeaders });
+  return updatedHeaders;
 }
 
 export async function appendRows(sheetName, records = [], options = {}) {

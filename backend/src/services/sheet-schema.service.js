@@ -1,12 +1,8 @@
 import { env } from '../config/env.js';
 import { sheetsApi } from '../infra/google.js';
-import { ensureColumns, invalidateTableCache } from '../infra/sheets.repository.js';
+import { ensureColumns } from '../infra/sheets.repository.js';
 
 const pending = new Map();
-
-function quote(name) {
-  return `'${String(name).replace(/'/g, "''")}'`;
-}
 
 async function sheetMetadata(name) {
   const { data } = await sheetsApi.spreadsheets.get({
@@ -41,26 +37,7 @@ async function ensureSheetTableInternal(name, headers) {
   }
   if (!metadata) throw new Error(`No fue posible crear la hoja ${name}.`);
 
-  const { data } = await sheetsApi.spreadsheets.values.get({
-    spreadsheetId: env.sheetId,
-    range: `${quote(name)}!1:1`,
-    valueRenderOption: 'UNFORMATTED_VALUE',
-  });
-  const current = (data.values?.[0] || []).map((value) => String(value || '').trim()).filter(Boolean);
-
-  if (!current.length) {
-    await sheetsApi.spreadsheets.values.update({
-      spreadsheetId: env.sheetId,
-      range: `${quote(name)}!A1`,
-      valueInputOption: 'RAW',
-      requestBody: { values: [expected] },
-    });
-    invalidateTableCache(name);
-    return expected;
-  }
-
   await ensureColumns(name, expected);
-  invalidateTableCache(name);
   return expected;
 }
 

@@ -1,4 +1,3 @@
-import { activityQueueSnapshot } from './services/activity-log.service.js';
 import { bootId, logRuntime, safeError, startDiagnostics } from './core/runtime-diagnostics.js';
 import http from 'node:http';
 import { app } from './app.js';
@@ -131,7 +130,7 @@ server.listen(env.port, '0.0.0.0', () => {
 
 const stopDiagnostics = startDiagnostics(() => ({
   concurrency: concurrencySnapshot(), actions: actionConcurrencySnapshot(),
-  sheets: googleSheetsGateSnapshot(), repository: sheetsRepositorySnapshot(), audit: auditQueueSnapshot(), activity: activityQueueSnapshot(),
+  sheets: googleSheetsGateSnapshot(), repository: sheetsRepositorySnapshot(), audit: auditQueueSnapshot(),
   agenda: agendaNotificationQueueSnapshot(),
 }));
 let shuttingDown = false;

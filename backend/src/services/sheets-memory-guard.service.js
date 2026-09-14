@@ -18,7 +18,6 @@ const HEAVY_SHEETS = new Set([
   'CasoEvidencias',
   'EncuestaRespuestas',
   'Auditoria',
-  'ActividadApp',
 ]);
 
 let repositoryReadTail = Promise.resolve();
@@ -38,7 +37,7 @@ function sheetNameFromRange(range) {
 }
 
 function isRepositoryRange(range) {
-  return /!A:ZZ$/i.test(String(range || '').trim());
+  return /!A:[A-Z]+$/i.test(String(range || '').trim());
 }
 
 function isRepositoryBatchGet(args = {}) {
@@ -128,7 +127,7 @@ export function installSheetsMemoryGuard() {
 export const SHEETS_MEMORY_GUARD_POLICY = Object.freeze({
   defaultMaxRanges: DEFAULT_MAX_RANGES,
   heavySheets: [...HEAVY_SHEETS],
-  repositoryRangePattern: '!A:ZZ',
+  repositoryRangePattern: '!A:[A-Z]+',
   serialFullTableReads: true,
 });
 
