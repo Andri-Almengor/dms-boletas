@@ -12,6 +12,7 @@ import './assistant-password-vault-sheets-cache.test.mjs';
 import './backend-batching.test.mjs';
 import './backend-readiness-gate.test.mjs';
 import './backend-busy-readiness.test.mjs';
+import './backend-memory-restart-guard.test.mjs';
 import './backend-utils.test.mjs';
 import './catalog-resources.test.mjs';
 import './client-relations.test.mjs';
