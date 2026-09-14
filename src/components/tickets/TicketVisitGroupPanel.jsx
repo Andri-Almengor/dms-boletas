@@ -1,6 +1,7 @@
 import React, { useEffect, useMemo, useState } from 'react';
 import { Link } from 'react-router-dom';
 import Icon from '../common/Icon';
+import TicketLinkExistingVisitsModal from './TicketLinkExistingVisitsModal';
 import { MODULE_ROUTES, pick, requestAvailable } from '../../services/moduleApi';
 import { listQueuedOperations } from '../../services/offlineStore';
 import { formatDate, formatTime, normalizeTicketStatus } from '../../utils/tickets';
@@ -36,6 +37,8 @@ export default function TicketVisitGroupPanel({ boletaUid, sessionToken, canCrea
   const [bundle, setBundle] = useState(null);
   const [error, setError] = useState('');
   const [queueState, setQueueState] = useState({ pending: 0, errors: 0, syncing: 0 });
+  const [linkModalOpen, setLinkModalOpen] = useState(false);
+  const [refreshRevision, setRefreshRevision] = useState(0);
 
   const visits = useMemo(() => {
     const source = bundle?.visitasRelacionadas || bundle?.grupoVisitas?.visits || [];
@@ -75,7 +78,7 @@ export default function TicketVisitGroupPanel({ boletaUid, sessionToken, canCrea
       active = false;
       window.removeEventListener('dms-offline-sync-complete', load);
     };
-  }, [boletaUid, sessionToken]);
+  }, [boletaUid, sessionToken, refreshRevision]);
 
   useEffect(() => {
     let active = true;
@@ -101,17 +104,20 @@ export default function TicketVisitGroupPanel({ boletaUid, sessionToken, canCrea
     };
   }, [relationIds]);
 
-  const groupPending = queueState.pending > 0;
+  const groupSyncPending = queueState.pending > 0;
 
   useEffect(() => {
-    document.body.classList.toggle('dms-group-unsynced', groupPending);
+    document.body.classList.toggle('dms-group-unsynced', groupSyncPending);
     return () => document.body.classList.remove('dms-group-unsynced');
-  }, [groupPending]);
+  }, [groupSyncPending]);
 
   if (!bundle && !error) return null;
 
   const groupCount = Number(bundle?.grupoVisitas?.count || visits.length || 1);
   const groupSigned = Boolean(bundle?.grupoVisitas?.signed) || visits.some((visit) => pick(visit, ['FirmaArchivoID', 'FirmaURL']));
+  const trackingPending = visits.length > 0 && visits.every((visit) => normalizeTicketStatus(visit) === 'PENDIENTE');
+  const clienteId = String(pick(bundle?.boleta, ['ClienteID']));
+  const canLinkExisting = Boolean(canEdit && clienteId && trackingPending && !groupSyncPending);
 
   return (
     <section className="ticket-visit-group-panel">
@@ -121,15 +127,22 @@ export default function TicketVisitGroupPanel({ boletaUid, sessionToken, canCrea
           <h2>{groupCount > 1 ? `${groupCount} visitas del mismo trabajo` : 'Visita inicial'}</h2>
           <p>Las visitas mantienen su propia información, evidencias y edición, pero comparten la firma, la encuesta y el envío final.</p>
         </div>
-        {canCreate && (
-          <Link className="button button--primary" to={`/boletas/${encodeURIComponent(boletaUid)}/nueva-visita`}>
-            <Icon name="add_circle" /> Añadir otra visita
-          </Link>
-        )}
+        <div className="ticket-visit-group-panel__actions">
+          {canLinkExisting && (
+            <button className="button button--secondary" type="button" onClick={() => setLinkModalOpen(true)}>
+              <Icon name="link" /> Vincular boletas
+            </button>
+          )}
+          {canCreate && (
+            <Link className="button button--primary" to={`/boletas/${encodeURIComponent(boletaUid)}/nueva-visita`}>
+              <Icon name="add_circle" /> Añadir otra visita
+            </Link>
+          )}
+        </div>
       </div>
 
       {error && <div className="alert alert--warning"><Icon name="cloud_off" /><span>No se pudo actualizar la relación de visitas: {error}</span></div>}
-      {groupPending && (
+      {groupSyncPending && (
         <div className="alert alert--warning">
           <Icon name={queueState.errors ? 'sync_problem' : 'sync'} />
           <span>
@@ -176,6 +189,20 @@ export default function TicketVisitGroupPanel({ boletaUid, sessionToken, canCrea
           );
         })}
       </div>
+
+      {linkModalOpen && (
+        <TicketLinkExistingVisitsModal
+          boletaUid={boletaUid}
+          clienteId={clienteId}
+          relationIds={relationIds}
+          sessionToken={sessionToken}
+          onClose={() => setLinkModalOpen(false)}
+          onLinked={() => {
+            setLinkModalOpen(false);
+            setRefreshRevision((value) => value + 1);
+          }}
+        />
+      )}
     </section>
   );
 }
