@@ -98,18 +98,19 @@ export function installSheetsMemoryGuard() {
       if (batches.length <= 1) return originalBatchGet(args);
 
       const valueRanges = [];
-      let lastResponse = null;
+      let spreadsheetId = '';
       for (const batch of batches) {
         const response = await originalBatchGet({ ...args, ranges: batch });
-        lastResponse = response;
+        spreadsheetId ||= String(response?.data?.spreadsheetId || '');
         valueRanges.push(...(response?.data?.valueRanges || []));
+        // No conservamos el objeto response entre lotes. Así los buffers del
+        // transporte HTTP pueden ser recolectados antes de pedir el siguiente.
         await yieldForMemoryRecovery();
       }
 
       return {
-        ...lastResponse,
         data: {
-          ...(lastResponse?.data || {}),
+          spreadsheetId,
           valueRanges,
         },
       };
