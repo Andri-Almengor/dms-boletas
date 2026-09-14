@@ -82,6 +82,8 @@ test('finalization storage reuses shared schema and preserves bounded recoverabl
 // Ticket visibility, finalization storage and the maintenance list are intentionally covered
 // by behavior/source guards because this PR changes their internals while preserving
 // authorization, persisted headers, checkpoints, pagination results and write batching.
+// Protected media is intentionally excluded here because PR #305 changes its transport;
+// dedicated security/performance characterization covers that path instead.
 const businessBaseline = {
   "backend/src/core/action-router.js": "92f33f8d565c70a77e6ef8b6196a696237a5b7b9880b0858842f6aa23aa37033",
   "backend/src/services/auth.service.js": "2af2682ef2b898bc71fe7aafa9c030fb3e2410559c28aea1d198520a0d7d7098",
@@ -93,7 +95,6 @@ const businessBaseline = {
   "backend/src/modules/crud.module.js": "9f6c25cfbeaadd8126426012ba2fd6e4d0199687b1493d291b889032f292ca21",
   "backend/src/modules/ticket-signature.module.js": "c1df58a8a8a5303d10ba236335eef7a3d7d12c643057be6f6063a60f72271ba0",
   "backend/src/modules/maintenance-signature.module.js": "607439631bfdb7b8e17cff815ca8e55fd5f716223ee764fd983fec79fa4416b6",
-  "backend/src/services/protected-media-stream.service.js": "7c84b03e743ac5c80b7957e3fdba0ae89128114869368d8ab3ade93acf5dac11",
   "backend/src/services/maintenance-finalization-resume.patch.js": "0f9dca7d2a8110451d52dbe152bb6b8df654579e190dfb44046eef2f775478e6",
   "backend/src/services/maintenance-finalization-schedule.patch.js": "726eba328256a4a1cac542dc2489e1fe1a25eca6efd14cc2d61a5aa8220a9bbd",
   "apps-script/KnowledgeBase.gs": "5ccb3dc0115e44445c0c0fd7a7944c19c11cbe65298e4cc7a60d6d4fa6783ab3",
@@ -112,6 +113,6 @@ const businessBaseline = {
   "apps-script/report-service/Code.gs": "9c7e56b51a6d4585161fa267c50e8ec94475532a4b735136c448bea7186314b0",
   "apps-script/report-service/README.md": "972bad00e5fc9f8593c2b2b95a4009d61bb8eade84c975425a7f74c1169b60ea"
 };
-test('roles, permissions, unchanged business handlers, original media and Apps Script remain byte-identical', () => {
+test('roles, permissions, unchanged business handlers and Apps Script remain byte-identical', () => {
   for (const [file, digest] of Object.entries(businessBaseline)) assert.equal(createHash('sha256').update(read(file)).digest('hex'), digest, file);
 });
