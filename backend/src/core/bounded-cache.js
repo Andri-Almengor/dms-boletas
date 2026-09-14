@@ -12,31 +12,69 @@ export function retainedBytes(value, seen = new WeakSet()) {
   for (const key of Object.keys(value)) bytes += 24 + key.length * 2 + retainedBytes(value[key], seen);
   return bytes;
 }
+
 export class BoundedCache extends Map {
   constructor({ maxBytes, maxEntries = 100 }) {
-    super(); this.maxBytes = maxBytes; this.maxEntries = maxEntries;
-    this.bytes = 0; this.weights = new Map(); this.evictions = 0;
+    super();
+    this.maxBytes = maxBytes;
+    this.maxEntries = maxEntries;
+    this.bytes = 0;
+    this.weights = new Map();
+    this.evictions = 0;
+    this.hits = 0;
+    this.misses = 0;
+    this.weightEvaluations = 0;
   }
+
   set(key, value) {
+    this.weightEvaluations += 1;
     const weight = retainedBytes(value);
     this.delete(key);
     if (weight > this.maxBytes) return this; // Caller still receives full result.
     while (this.size && (this.bytes + weight > this.maxBytes || this.size >= this.maxEntries)) {
-      this.delete(this.keys().next().value); this.evictions++;
+      this.delete(this.keys().next().value);
+      this.evictions += 1;
     }
-    super.set(key, value); this.weights.set(key, weight); this.bytes += weight;
+    super.set(key, value);
+    this.weights.set(key, weight);
+    this.bytes += weight;
     return this;
   }
+
   get(key) {
+    if (!super.has(key)) {
+      this.misses += 1;
+      return undefined;
+    }
+    this.hits += 1;
     const value = super.get(key);
-    if (super.has(key)) { super.delete(key); super.set(key, value); }
+    super.delete(key);
+    super.set(key, value);
     return value;
   }
+
   delete(key) {
     if (!super.has(key)) return false;
-    this.bytes -= this.weights.get(key) || 0; this.weights.delete(key);
+    this.bytes -= this.weights.get(key) || 0;
+    this.weights.delete(key);
     return super.delete(key);
   }
-  clear() { super.clear(); this.weights.clear(); this.bytes = 0; }
-  snapshot() { return { entries:this.size, estimatedBytes:this.bytes, maxBytes:this.maxBytes, evictions:this.evictions }; }
+
+  clear() {
+    super.clear();
+    this.weights.clear();
+    this.bytes = 0;
+  }
+
+  snapshot() {
+    return {
+      entries: this.size,
+      estimatedBytes: this.bytes,
+      maxBytes: this.maxBytes,
+      evictions: this.evictions,
+      hits: this.hits,
+      misses: this.misses,
+      weightEvaluations: this.weightEvaluations,
+    };
+  }
 }
