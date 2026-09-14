@@ -15,6 +15,13 @@ function responseTotal(data) {
   return Number.isFinite(total) && total >= 0 ? total : normalizeItems(data).length;
 }
 
+function summaryCounts(data) {
+  const pending = Number(data?.homeSummary?.pending);
+  const finished = Number(data?.homeSummary?.finished);
+  if (!Number.isFinite(pending) || pending < 0 || !Number.isFinite(finished) || finished < 0) return null;
+  return { pending, finished };
+}
+
 function scheduleAfterPaint(callback) {
   if (typeof window.requestIdleCallback === 'function') {
     const id = window.requestIdleCallback(callback, { timeout: 1_200 });
@@ -24,13 +31,76 @@ function scheduleAfterPaint(callback) {
   return () => window.clearTimeout(id);
 }
 
+async function loadTicketHome(sessionToken, signal) {
+  const recentData = await requestAvailable(MODULE_ROUTES.tickets.list, {
+    page: 1,
+    pageSize: 3,
+    sortBy: 'Fecha',
+    sortDir: 'desc',
+    homeSummary: true,
+  }, sessionToken, { signal });
+  const summary = summaryCounts(recentData);
+  if (summary) return { recentData, summary };
+
+  // Compatibilidad con un backend/App Script anterior que todavía ignore homeSummary.
+  const countPayload = { page: 1, pageSize: 1 };
+  const [pendingData, finishedData] = await Promise.all([
+    requestAvailable(MODULE_ROUTES.tickets.list, {
+      ...countPayload,
+      status: 'PENDIENTE',
+      estado: 'PENDIENTE',
+    }, sessionToken, { signal }),
+    requestAvailable(MODULE_ROUTES.tickets.list, {
+      ...countPayload,
+      status: 'FINALIZADA',
+      estado: 'FINALIZADA',
+    }, sessionToken, { signal }),
+  ]);
+  return {
+    recentData,
+    summary: {
+      pending: responseTotal(pendingData),
+      finished: responseTotal(finishedData),
+    },
+  };
+}
+
+async function loadMaintenanceHome(sessionToken, signal) {
+  const summaryData = await requestAvailable(MODULE_ROUTES.maintenance.list, {
+    page: 1,
+    pageSize: 1,
+    activo: true,
+    homeSummary: true,
+  }, sessionToken, { signal });
+  const summary = summaryCounts(summaryData);
+  if (summary) return summary;
+
+  // Compatibilidad con un backend/App Script anterior que todavía ignore homeSummary.
+  const countPayload = { page: 1, pageSize: 1, activo: true };
+  const [pendingData, finishedData] = await Promise.all([
+    requestAvailable(MODULE_ROUTES.maintenance.list, {
+      ...countPayload,
+      status: 'PENDIENTE',
+      estado: 'PENDIENTE',
+    }, sessionToken, { signal }),
+    requestAvailable(MODULE_ROUTES.maintenance.list, {
+      ...countPayload,
+      status: 'FINALIZADO',
+      estado: 'FINALIZADO',
+    }, sessionToken, { signal }),
+  ]);
+  return {
+    pending: responseTotal(pendingData),
+    finished: responseTotal(finishedData),
+  };
+}
+
 export default function HomePage() {
   const { user, hasPermission, sessionToken } = useAuth();
   const [tickets, setTickets] = useState([]);
-  const [counts, setCounts] = useState({ pending: 0, finished: 0 });
-  const [maintenanceCounts, setMaintenanceCounts] = useState({ pending: 0, finished: 0 });
+  const [counts, setCounts] = useState({ pending: null, finished: null });
+  const [maintenanceCounts, setMaintenanceCounts] = useState({ pending: null, finished: null });
   const [loading, setLoading] = useState(true);
-  const [finishedLoading, setFinishedLoading] = useState(false);
   const [maintenanceLoading, setMaintenanceLoading] = useState(false);
   const [error, setError] = useState('');
   const [maintenanceError, setMaintenanceError] = useState('');
@@ -40,105 +110,61 @@ export default function HomePage() {
 
   useEffect(() => {
     let active = true;
+    const controller = new AbortController();
     if (!canViewTickets) {
       setTickets([]);
       setCounts({ pending: 0, finished: 0 });
       setLoading(false);
-      setFinishedLoading(false);
-      return undefined;
+      return () => controller.abort();
     }
 
     setLoading(true);
     setError('');
-    const countPayload = { page: 1, pageSize: 1 };
+    setCounts({ pending: null, finished: null });
 
-    Promise.all([
-      requestAvailable(MODULE_ROUTES.tickets.list, {
-        ...countPayload,
-        status: 'PENDIENTE',
-        estado: 'PENDIENTE',
-      }, sessionToken),
-      requestAvailable(MODULE_ROUTES.tickets.list, {
-        page: 1,
-        pageSize: 3,
-        sortBy: 'Fecha',
-        sortDir: 'desc',
-      }, sessionToken),
-    ])
-      .then(([pendingData, recentData]) => {
+    loadTicketHome(sessionToken, controller.signal)
+      .then(({ recentData, summary }) => {
         if (!active) return;
-        setCounts((current) => ({ ...current, pending: responseTotal(pendingData) }));
+        setCounts(summary);
         setTickets(sortTicketsNewestFirst(normalizeItems(recentData)).slice(0, 3));
       })
       .catch((loadError) => {
         if (!active) return;
         setTickets([]);
-        setCounts((current) => ({ ...current, pending: 0 }));
+        setCounts({ pending: null, finished: null });
         setError(loadError.message);
       })
       .finally(() => {
         if (active) setLoading(false);
       });
 
-    setFinishedLoading(true);
-    const cancelDeferred = scheduleAfterPaint(() => {
-      requestAvailable(MODULE_ROUTES.tickets.list, {
-        ...countPayload,
-        status: 'FINALIZADA',
-        estado: 'FINALIZADA',
-      }, sessionToken)
-        .then((finishedData) => {
-          if (active) setCounts((current) => ({ ...current, finished: responseTotal(finishedData) }));
-        })
-        .catch(() => {
-          if (active) setCounts((current) => ({ ...current, finished: 0 }));
-        })
-        .finally(() => {
-          if (active) setFinishedLoading(false);
-        });
-    });
-
     return () => {
       active = false;
-      cancelDeferred();
+      controller.abort();
     };
   }, [sessionToken, canViewTickets]);
 
   useEffect(() => {
     let active = true;
+    const controller = new AbortController();
     if (!isAdmin) {
       setMaintenanceCounts({ pending: 0, finished: 0 });
       setMaintenanceLoading(false);
       setMaintenanceError('');
-      return undefined;
+      return () => controller.abort();
     }
 
     setMaintenanceLoading(true);
     setMaintenanceError('');
-    const countPayload = { page: 1, pageSize: 1, activo: true };
+    setMaintenanceCounts({ pending: null, finished: null });
     const cancelDeferred = scheduleAfterPaint(() => {
-      Promise.all([
-        requestAvailable(MODULE_ROUTES.maintenance.list, {
-          ...countPayload,
-          status: 'PENDIENTE',
-          estado: 'PENDIENTE',
-        }, sessionToken),
-        requestAvailable(MODULE_ROUTES.maintenance.list, {
-          ...countPayload,
-          status: 'FINALIZADO',
-          estado: 'FINALIZADO',
-        }, sessionToken),
-      ])
-        .then(([pendingData, finishedData]) => {
-          if (!active) return;
-          setMaintenanceCounts({
-            pending: responseTotal(pendingData),
-            finished: responseTotal(finishedData),
-          });
+      loadMaintenanceHome(sessionToken, controller.signal)
+        .then((summary) => {
+          if (active) setMaintenanceCounts(summary);
         })
         .catch((loadError) => {
           if (!active) return;
-          setMaintenanceCounts({ pending: 0, finished: 0 });
+          setMaintenanceCounts({ pending: null, finished: null });
           setMaintenanceError(loadError.message);
         })
         .finally(() => {
@@ -149,6 +175,7 @@ export default function HomePage() {
     return () => {
       active = false;
       cancelDeferred();
+      controller.abort();
     };
   }, [sessionToken, isAdmin]);
 
@@ -166,22 +193,22 @@ export default function HomePage() {
       {(canViewTickets || isAdmin) && <section className={`stats-grid${isAdmin ? ' stats-grid--admin' : ''}`}>
         {canViewTickets && <Link className="stat-card stat-card--warning" to="/boletas/pendientes">
           <Icon name="pending_actions" />
-          <strong>{loading ? '—' : counts.pending}</strong>
+          <strong>{loading || counts.pending === null ? '—' : counts.pending}</strong>
           <span>Boletas pendientes</span>
         </Link>}
         {canViewTickets && <Link className="stat-card stat-card--success" to="/boletas/finalizadas">
           <Icon name="task_alt" filled />
-          <strong>{finishedLoading ? '—' : counts.finished}</strong>
+          <strong>{loading || counts.finished === null ? '—' : counts.finished}</strong>
           <span>Boletas finalizadas</span>
         </Link>}
         {isAdmin && <Link className="stat-card stat-card--maintenance-pending" to="/mantenimientos?estado=PENDIENTE">
           <Icon name="engineering" />
-          <strong>{maintenanceLoading ? '—' : maintenanceCounts.pending}</strong>
+          <strong>{maintenanceLoading || maintenanceCounts.pending === null ? '—' : maintenanceCounts.pending}</strong>
           <span>Mantenimientos pendientes</span>
         </Link>}
         {isAdmin && <Link className="stat-card stat-card--maintenance-finished" to="/mantenimientos?estado=FINALIZADO">
           <Icon name="verified" filled />
-          <strong>{maintenanceLoading ? '—' : maintenanceCounts.finished}</strong>
+          <strong>{maintenanceLoading || maintenanceCounts.finished === null ? '—' : maintenanceCounts.finished}</strong>
           <span>Mantenimientos finalizados</span>
         </Link>}
       </section>}
