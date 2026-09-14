@@ -15,6 +15,7 @@ import './services/maintenance-finalization-resume.patch.js';
 import './services/maintenance-finalization-schedule.patch.js';
 import './services/device-media-video-mac.patch.js';
 import './services/protected-media-stream.patch.js';
+import './services/ticket-detail-read-optimization.patch.js';
 import './services/customer-case-evidence-recovery.patch.js';
 import './services/customer-case-test-mode.patch.js';
 import './services/customer-case-real-ticket-sequence.patch.js';
@@ -105,13 +106,28 @@ app.get('/api/health', (_req, res) => {
   res.json({ ok: true, service: 'dms-boletas-backend', time: new Date().toISOString() });
 });
 
-app.get('/api/media/stream', streamProtectedMedia);
+app.get('/api/media/stream', async (req, res, next) => {
+  const observation = startRouteObservation('ticket.media.stream', { requestId: req.requestId });
+  const finishObservation = () => {
+    const header = res.getHeader('content-length');
+    const responseSize = typeof header === 'string' || typeof header === 'number' ? Number(header) || 0 : 0;
+    observation.finish({ statusCode: res.statusCode, responseSize });
+  };
+  res.once('finish', finishObservation);
+  res.once('close', finishObservation);
+  const handlerStartedAt = performance.now();
+  try {
+    await observation.run(() => streamProtectedMedia(req, res, next));
+  } finally {
+    observation.markHandlerDuration(performance.now() - handlerStartedAt);
+  }
+});
 
 app.post('/api/action', actionEnvelopeMiddleware, actionRateLimitMiddleware, async (req, res, next) => {
   req.dmsActionRunning = true;
   let envelope = null;
   let sessionToken = '';
-  const observation = startRouteObservation(req.actionEnvelope?.route);
+  const observation = startRouteObservation(req.actionEnvelope?.route, { requestId: req.requestId });
   const finishObservation = () => {
     const header = res.getHeader('content-length');
     const responseSize = typeof header === 'string' || typeof header === 'number' ? Number(header) || 0 : 0;
@@ -197,8 +213,17 @@ app.use((rawError, req, res, _next) => {
   const error = httpError(rawError);
   const status = error.status || error.statusCode || (error instanceof AppError ? error.status : 500);
   const isExpected = error instanceof AppError;
-  if (status >= 500) console.error(`[${req.requestId || 'sin-id'}]`, safeError(error));
-  else console.warn(`[${req.requestId || 'sin-id'}][${error.code || 'REQUEST_ERROR'}] ${error.message}`);
+  const action = req.actionEnvelope?.route || (req.path === '/api/media/stream' ? 'ticket.media.stream' : 'http');
+  if (status >= 500) {
+    console.error(JSON.stringify({
+      event: 'backend_error',
+      ...safeError(error, {
+        requestId: req.requestId,
+        action,
+        phase: error?.phase || error?.details?.phase || (req.path === '/api/media/stream' ? 'media' : 'handler'),
+      }),
+    }));
+  } else console.warn(`[${req.requestId || 'sin-id'}][${error.code || 'REQUEST_ERROR'}] ${error.message}`);
 
   res.setHeader('Cache-Control', 'no-store');
   if (Number(status) === 429) {
