@@ -1,5 +1,6 @@
 import { pick } from '../core/utils.js';
 import { maintenancePlannedCountsChanged } from '../core/maintenance-progress.js';
+import { summarizeMaintenanceHomeRows } from '../core/home-summary.js';
 import { readTable, findById } from '../infra/sheets.repository.js';
 import {
   maintenanceDynamicQuestionHandlers as baseMaintenanceHandlers,
@@ -13,6 +14,32 @@ function clean(value) {
 
 function maintenanceFromResult(result = {}) {
   return result?.mantenimiento || result?.maintenance || result || {};
+}
+
+function canUseHomeSummary(payload = {}) {
+  if (payload.homeSummary !== true) return false;
+  const allowed = new Set(['homeSummary', 'page', 'pageSize', 'activo']);
+  return Object.keys(payload).every((key) => allowed.has(key));
+}
+
+async function list(ctx) {
+  if (!canUseHomeSummary(ctx.payload)) return baseMaintenanceHandlers.list(ctx);
+
+  let rows = (await readTable('Mantenimiento'))
+    .filter((row) => row.Activo !== false);
+  if (ctx.payload.activo !== undefined) {
+    rows = rows.filter((row) => (
+      String(row.Activo).toLowerCase() === String(ctx.payload.activo).toLowerCase()
+    ));
+  }
+
+  return {
+    items: [],
+    total: rows.length,
+    page: 1,
+    pageSize: 0,
+    homeSummary: summarizeMaintenanceHomeRows(rows),
+  };
 }
 
 async function requestedMaintenanceAlreadyExists(ctx) {
@@ -48,7 +75,7 @@ async function update(ctx) {
   // El aviso inmediato se dispara únicamente cuando cambia la planificación de cantidades.
   if (maintenancePlannedCountsChanged(before, after)) {
     queueMaintenanceProgressNotification({
-      maintenance: after,
+      maintenance,
       reason: 'COUNTS_UPDATED',
       actor: ctx.user?.UsuarioID || 'SYSTEM',
     });
@@ -60,6 +87,7 @@ export { maintenanceQuestionHandlers };
 
 export const maintenanceProgressChatHandlers = {
   ...baseMaintenanceHandlers,
+  list,
   create,
   update,
 };
