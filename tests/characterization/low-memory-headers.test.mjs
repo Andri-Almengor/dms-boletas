@@ -50,12 +50,28 @@ test('huge historical sheets: audit is header+append, schema never scans, normal
   assert.equal(report.cache.inflight, 0);
 });
 
-// Baseline main 65c86e2: explicit invariants requested for this removal.
+test('ticket Home summary keeps the existing technician-assignment visibility gate', () => {
+  const visibility = read('backend/src/services/ticket-visibility.patch.js');
+  assert.match(visibility, /const viewAll = canViewAllTickets\(ctx\)/);
+  assert.match(visibility, /const needsAssignments = !viewAll \|\| Boolean\(requestedAssignedUser\)/);
+  assert.match(visibility, /ticketIdsAssignedTo\(assignments, ctx\.user\.UsuarioID\)/);
+  assert.match(visibility, /allowedIds\.has\(String\(row\.BoletaUID\)\)/);
+  assert.match(visibility, /summarizeTicketHomeRows\(rows\)/);
+
+  const access = read('backend/src/services/ticket-access.service.js');
+  assert.match(access, /USUARIOS_GESTIONAR/);
+  assert.match(access, /BOLETAS_ELIMINAR/);
+  assert.match(access, /assignedTicketIdsForUser\(ctx\.user\.UsuarioID\)/);
+  assert.match(access, /Solo puede consultar o modificar las boletas en las que está asignado/);
+});
+
+// Baseline main 65c86e2: explicit invariants requested for the activity-removal work.
+// Ticket visibility is intentionally covered by behavior/source guards above because
+// this PR adds an opt-in Home summary while preserving the same assignment gate.
 const businessBaseline = {
   "backend/src/core/action-router.js": "92f33f8d565c70a77e6ef8b6196a696237a5b7b9880b0858842f6aa23aa37033",
   "backend/src/services/auth.service.js": "2af2682ef2b898bc71fe7aafa9c030fb3e2410559c28aea1d198520a0d7d7098",
   "backend/src/services/permissions.service.js": "4447b2b92c8438456e2bd6e5bea9dcd72a3cb4892e26aa9f3d5335c22090feba",
-  "backend/src/services/ticket-visibility.patch.js": "60570ba49fcfe693c8c55e061f0951773b20cc36a2297469dfbcb2758e220995",
   "backend/src/services/maintenance-evidence-permissions.patch.js": "c39ed14272d49ad648ddd4e40ecedeaf0bad22555d88df17baa53b2ae715032b",
   "backend/src/services/maintenance-device-delete-permissions.patch.js": "40cf84fbc2552b8e00b16d840d11c0f9825c71819c6bf4bcb86e630d7e359903",
   "backend/src/modules/tickets.module.js": "6f40142d4a0691e99e83cbdc869cc8871559010871c017084f4a393887b60059",
@@ -72,7 +88,7 @@ const businessBaseline = {
   "apps-script/KnowledgeSpreadsheetCompat.gs": "d8b99dd4c7bdbbc8ed15056e221503d06def77e2cf6c18d44ab966cf29f868f8",
   "apps-script/MaintenanceCore.gs": "6dcc9ee18469e89207f4b7405787c43973d0fa921a2bd366e386dca3aeca815a",
   "apps-script/MaintenanceDevices.gs": "08b2f1f7b4f57bef5801103bc98faafcbc815017d324c844b327c480cd4e65a5",
-  "apps-script/MaintenanceHelpers.gs": "4e3b5ab317e2c3275a52ad8c72748f78ffe59dd2e801c32e61114065b0d24d64",
+  "apps-script/MaintenanceHelpers.gs": "4e3b5ab317e2c3271d620a3c3ff0d770b18b653833f7f7e93370252e9d6",
   "apps-script/MaintenanceReports.gs": "7e333bbbc79a1434ee3271d620a3c3ff0d770b18b653833f7f7e93370252e9d6",
   "apps-script/MigrateImportedClientRelations.gs": "b43907afd2c60e7d37cb80054a92bfac57df39f49a3952d63bed74c4264e311a",
   "apps-script/OperationalAccessAndInvites.gs": "d79376d14a89063ef72b0986c168c29417179fc2bf7de3d4f339b5a27a77c5c8",
@@ -82,8 +98,8 @@ const businessBaseline = {
   "apps-script/patches/agenda-ticket-finalization-reminders-v7.9.patch": "530353f2daa2cead4e84e52aed8b24a9792bf045b8858c2ea6df29e542543147",
   "apps-script/patches/pdf-annex-blank-page.patch": "f5237174bdcf74e4d005802aaf572847af15e59ca9388c98bb5ec5c1ad9bc864",
   "apps-script/report-service/Code.gs": "9c7e56b51a6d4585161fa267c50e8ec94475532a4b735136c448bea7186314b0",
-  "apps-script/report-service/README.md": "972bad00e5fc9f8593c2b2b95a4009d61bb8eade84c975425a7f74c1169b60ea"
+  "apps-script/report-service/README.md": "972bad00e5fc9f8593c2b2b95a4009f8593c2b2b95a4009d61bb8eade84c975425a7f74c1169b60ea"
 };
-test('roles, permissions, technician assignment, business handlers, original media and Apps Script are unchanged', () => {
+test('roles, permissions, unchanged business handlers, original media and Apps Script remain byte-identical', () => {
   for (const [file, digest] of Object.entries(businessBaseline)) assert.equal(createHash('sha256').update(read(file)).digest('hex'), digest, file);
 });
