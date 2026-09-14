@@ -43,7 +43,6 @@ test('stepJob hace una sola lectura de items y reutiliza ese snapshot para bolet
   const step = functionBody(staged, 'stepJob', 'schedulerLoop');
   const reads = step.match(/listFinalizationItems\(job\.JobID\)/g) || [];
   assert.equal(reads.length, 1);
-  assert.doesNotMatch(step, /items\s*=\s*await listFinalizationItems/);
   assert.match(step, /const items = await listFinalizationItems\(job\.JobID\)/);
   assert.match(step, /processTicketStep\(ctx, id, job, items\)/);
   assert.match(step, /processDriveStep\(ctx, id, job, items\)/);
