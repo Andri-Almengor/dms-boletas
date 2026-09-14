@@ -40,6 +40,14 @@ function fileSizeLabel(size) {
   return `${Math.max(1, Math.round(bytes / 1024))} KB`;
 }
 
+function notifyUploadedEvidence(boletaUid, result) {
+  const evidence = result?.evidence || result?.evidencia || result;
+  if (!evidence || !String(evidence.EvidenciaID || evidence.id || '').trim()) return;
+  window.dispatchEvent(new CustomEvent('dms-ticket-evidence-uploaded', {
+    detail: { boletaUid, evidence },
+  }));
+}
+
 export default function TicketEvidenceMultiSelectBridge() {
   const { pathname } = useLocation();
   const { sessionToken } = useAuth();
@@ -238,10 +246,11 @@ export default function TicketEvidenceMultiSelectBridge() {
           button.innerHTML = `<span class="material-symbols-outlined" aria-hidden="true">progress_activity</span><span>Cargando ${index + 1} de ${items.length}...</span>`;
           renderSelection(form, `Cargando ${index + 1} de ${items.length}...`, 'progress');
 
+          let result;
           if (shouldUseLargeEvidenceUpload(uploadItem)) {
-            await uploadLargeTicketEvidence({ boletaUid, item: uploadItem, sessionToken });
+            result = await uploadLargeTicketEvidence({ boletaUid, item: uploadItem, sessionToken });
           } else {
-            await requestAvailable(MODULE_ROUTES.tickets.evidenceUpload, {
+            result = await requestAvailable(MODULE_ROUTES.tickets.evidenceUpload, {
               boletaUid,
               nombre: uploadItem.name,
               nota: note,
@@ -254,13 +263,17 @@ export default function TicketEvidenceMultiSelectBridge() {
             }, sessionToken);
           }
           uploadedCount = index + 1;
+          notifyUploadedEvidence(boletaUid, result);
         }
 
-        renderSelection(form, 'Todas las evidencias se cargaron correctamente.', 'success');
-        button.innerHTML = '<span class="material-symbols-outlined" aria-hidden="true">check_circle</span><span>Evidencias cargadas</span>';
+        uploading = false;
         selectedFilesRef.current = [];
         if (activeInputRef.current) activeInputRef.current.value = '';
-        window.setTimeout(() => window.location.reload(), 450);
+        form.querySelectorAll('.ticket-detail-capture-actions .button').forEach((item) => {
+          item.disabled = false;
+        });
+        renderSelection(form, 'Todas las evidencias se cargaron correctamente.', 'success');
+        syncSubmissionMode(form);
       } catch (error) {
         uploading = false;
         selectedFilesRef.current = items.slice(uploadedCount);

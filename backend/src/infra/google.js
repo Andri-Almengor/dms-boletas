@@ -1,3 +1,4 @@
+import { performance } from 'node:perf_hooks';
 import { BoundedCache } from '../core/bounded-cache.js';
 import {
   readSheetNames,
@@ -75,9 +76,10 @@ class ApiGate {
     this.active += 1;
     this.started += 1;
     this.lastStartedAt = Date.now();
+    const queueWaitMs = Math.max(0, Date.now() - entry.queuedAt);
 
     Promise.resolve()
-      .then(entry.task)
+      .then(() => entry.task({ queueWaitMs }))
       .then(entry.resolve, entry.reject)
       .finally(() => {
         this.active = Math.max(0, this.active - 1);
@@ -186,13 +188,23 @@ function wrapRead(method, fn) {
 
     const revision = sheetsRevisionTracker.snapshot(sheetNames);
     const entry = { revision, sheetNames, promise: null };
-    const request = readGate.run(async () => {
+    const request = readGate.run(async ({ queueWaitMs = 0 } = {}) => {
       stats.readApiCalls += 1;
+      let firstAttempt = true;
       try {
         const value = await withSheetsTransientRetry(
           () => {
-            recordSheetsRead();
-            return fn(args);
+            const startedAt = performance.now();
+            const queuedMs = firstAttempt ? queueWaitMs : 0;
+            firstAttempt = false;
+            return Promise.resolve(fn(args)).finally(() => {
+              recordSheetsRead({
+                count: 1,
+                durationMs: performance.now() - startedAt,
+                queueMs: queuedMs,
+                tables: [...sheetNames],
+              });
+            });
           },
           {
             retries: env.sheetsTransientRetries,
@@ -313,8 +325,21 @@ function observeDriveResource(resource) {
       const value = Reflect.get(target, property, receiver);
       if (typeof value !== 'function') return value;
       return (...args) => {
-        recordDriveCall();
-        return Reflect.apply(value, target, args);
+        const startedAt = performance.now();
+        let result;
+        try {
+          result = Reflect.apply(value, target, args);
+        } catch (error) {
+          recordDriveCall({ count: 1, durationMs: performance.now() - startedAt });
+          throw error;
+        }
+        if (result && typeof result.finally === 'function') {
+          return result.finally(() => {
+            recordDriveCall({ count: 1, durationMs: performance.now() - startedAt });
+          });
+        }
+        recordDriveCall({ count: 1, durationMs: performance.now() - startedAt });
+        return result;
       };
     },
   });

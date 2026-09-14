@@ -2,7 +2,8 @@ import React, { useEffect, useMemo, useState } from 'react';
 import { Link } from 'react-router-dom';
 import Icon from '../common/Icon';
 import TicketVisitLinkControl from './TicketVisitLinkControl';
-import { MODULE_ROUTES, pick, requestAvailable } from '../../services/moduleApi';
+import { pick } from '../../services/moduleApi';
+import { loadTicketDetail } from '../../services/ticketDetailResource';
 import { listQueuedOperations } from '../../services/offlineStore';
 import { formatDate, formatTime, normalizeTicketStatus } from '../../utils/tickets';
 
@@ -61,19 +62,25 @@ export default function TicketVisitGroupPanel({ boletaUid, sessionToken, canCrea
 
   useEffect(() => {
     let active = true;
+    let controller = null;
     const load = () => {
-      requestAvailable(MODULE_ROUTES.tickets.get, { boletaUid, id: boletaUid }, sessionToken)
+      controller?.abort();
+      controller = new AbortController();
+      loadTicketDetail(boletaUid, sessionToken, { signal: controller.signal })
         .then((result) => {
           if (!active) return;
           setBundle(result);
           setError('');
         })
-        .catch((loadError) => { if (active) setError(loadError.message); });
+        .catch((loadError) => {
+          if (active && loadError?.name !== 'AbortError') setError(loadError.message);
+        });
     };
     load();
     window.addEventListener('dms-offline-sync-complete', load);
     return () => {
       active = false;
+      controller?.abort();
       window.removeEventListener('dms-offline-sync-complete', load);
     };
   }, [boletaUid, sessionToken]);
