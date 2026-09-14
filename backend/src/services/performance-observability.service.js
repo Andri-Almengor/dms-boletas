@@ -94,7 +94,7 @@ function createAggregate(routeName) {
 function aggregateFor(routeName) {
   const key = canonicalRouteName(routeName);
   if (routeAggregates.has(key)) return routeAggregates.get(key);
-  if (routeAggregates.size >= MAX_ROUTE_KEYS) {
+  if (routeAggregates.size >= MAX_ROUTE_KEYS - 1) {
     if (!routeAggregates.has('__other__')) routeAggregates.set('__other__', createAggregate('__other__'));
     return routeAggregates.get('__other__');
   }
