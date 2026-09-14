@@ -23,6 +23,24 @@ export function throwIfAborted(signal) {
   if (signal?.aborted) throw signal.reason || createAbortError();
 }
 
+export function createUnknownResultError(originalError = null, options = {}) {
+  const error = new Error('No fue posible confirmar si el servidor completó la operación. El cambio conserva la misma identidad para poder reconciliarse sin repetirlo a ciegas.');
+  error.name = 'UnknownResultError';
+  error.code = 'UNKNOWN_RESULT';
+  error.status = Number(originalError?.status || 0);
+  error.requestId = String(originalError?.requestId || '');
+  error.clientRequestId = String(options.clientRequestId || originalError?.clientRequestId || '');
+  error.backendReached = originalError?.backendReached === true;
+  error.retryable = false;
+  error.queueOffline = options.queueOffline === true;
+  error.cause = originalError || undefined;
+  return error;
+}
+
+export function isUnknownResultError(error) {
+  return String(error?.code || '').trim().toUpperCase() === 'UNKNOWN_RESULT';
+}
+
 export function isMissingRouteError(error) {
   const code = String(error?.code || '').trim().toUpperCase();
   if (MISSING_ROUTE_CODES.has(code)) return true;
@@ -40,6 +58,7 @@ export function isNetworkError(error) {
   if (isAbortError(error)) return false;
   const code = String(error?.code || '').trim().toUpperCase();
   if (code === 'ONLINE_REQUIRED' || code === 'OFFLINE_MODE_DISABLED') return false;
+  if (code === 'UNKNOWN_RESULT') return error?.queueOffline === true;
 
   const status = Number(error?.status || 0);
   const text = `${error?.name || ''} ${error?.message || ''}`.toLowerCase();

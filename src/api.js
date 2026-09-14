@@ -2,6 +2,7 @@ import { withRequestDeadline } from './services/requestPolicy';
 import { isOfflineModeEnabled } from './services/offlineMode';
 import {
   createAbortError,
+  createUnknownResultError,
   isAbortError,
   isNetworkError,
   throwIfAborted,
@@ -23,6 +24,7 @@ const TRANSIENT_RETRY_DELAYS_MS = [700, 1500, 2800];
 const pendingReads = new Map();
 const recentReads = new Map();
 let writeEpoch = 0;
+let clientMutationRevision = Date.now() * 1000;
 
 export const API_URL = String(
   import.meta.env.VITE_API_URL
@@ -45,14 +47,28 @@ function isReadRoute(route) {
     || value.endsWith('.config');
 }
 
+function nextClientMutationRevision() {
+  const clock = Date.now() * 1000;
+  clientMutationRevision = Math.max(clientMutationRevision + 1, clock);
+  return clientMutationRevision;
+}
+
 function preparePayload(route, payload) {
   const value = String(route || '').toLowerCase();
+  const target = payload && typeof payload === 'object' ? payload : {};
+  if (!isReadRoute(route) && !target.__clientRequestId) {
+    target.__clientRequestId = createLocalId('req');
+  }
+  if (value === 'boletas.autosave' && !Number(target.__clientRevision || 0)) {
+    target.__clientRevision = nextClientMutationRevision();
+  }
+
   const isTicketCreate = value === 'boletas.create' || value === 'tickets.create';
-  if (!isTicketCreate || payload?.boletaUid || payload?.BoletaUID) return payload;
+  if (!isTicketCreate || target.boletaUid || target.BoletaUID) return target;
   const uid = createLocalId('boleta');
-  payload.boletaUid = uid;
-  payload.BoletaUID = uid;
-  return payload;
+  target.boletaUid = uid;
+  target.BoletaUID = uid;
+  return target;
 }
 
 function stableValue(value) {
@@ -150,6 +166,28 @@ function retryDelayMs(error, attempt) {
   return Math.max(fallback, retryAfter) + Math.floor(Math.random() * 250);
 }
 
+function mutationCanReplayAfterUnknown(route, payload = {}) {
+  const value = String(route || '').trim().toLowerCase();
+  const has = (...keys) => keys.some((key) => String(payload?.[key] || '').trim());
+
+  if (['boletas.create', 'tickets.create'].includes(value)) {
+    return has('boletaUid', 'BoletaUID');
+  }
+  if (['boletas.evidence.upload', 'tickets.evidence.upload'].includes(value)) {
+    return has('evidenciaId', 'EvidenciaID');
+  }
+  if (['maintenance.create', 'mantenimientos.create'].includes(value)) {
+    return has('maintenanceId', 'MantenimientoID');
+  }
+  if (['maintenance.devices.create', 'mantenimientos.dispositivos.create'].includes(value)) {
+    return has('deviceId', 'EvidenciaMantenimientoID');
+  }
+  if (['maintenance.images.upload', 'mantenimientos.imagenes.upload'].includes(value)) {
+    return has('imageId', 'FotoDispositivoID');
+  }
+  return false;
+}
+
 async function performRequest(route, payload, sessionToken, { signal } = {}) {
   if (!API_URL) throw new Error('Falta configurar VITE_API_URL.');
   throwIfAborted(signal);
@@ -209,6 +247,7 @@ async function retryRequest(route, payload, sessionToken, signal) {
     throw onlineRequiredError();
   }
 
+  const read = isReadRoute(route);
   let lastError;
   for (let attempt = 0; attempt <= TRANSIENT_RETRY_DELAYS_MS.length; attempt += 1) {
     try {
@@ -218,11 +257,31 @@ async function retryRequest(route, payload, sessionToken, signal) {
       lastError = error;
       const retryable = transientError(error);
       const backendReached = error?.backendReached === true;
-      // Un 503/502 propio de DMS significa ocupado, no caído. Solo activamos
-      // la pantalla global de reconexión cuando la solicitud no alcanzó Node.
-      if (retryable && !backendReached) markBackendUnavailable(error);
-      if (!retryable || attempt === TRANSIENT_RETRY_DELAYS_MS.length) {
-        if (retryable && !backendReached && !isOfflineModeEnabled()) throw onlineRequiredError(error);
+      const safeMutationRetry = !read
+        && String(error?.code || '').toUpperCase() === 'BACKEND_EDGE_THROTTLED'
+        && !backendReached;
+      const ambiguousMutation = !read
+        && !safeMutationRetry
+        && (retryable || Number(error?.status || 0) >= 500);
+
+      // Una pérdida de transporte después de enviar una escritura no demuestra
+      // que el servidor haya fallado. No repetimos esa mutación a ciegas. Solo
+      // permitimos que la cola offline reconcilie automáticamente operaciones
+      // que ya tienen una identidad natural y deduplicación de backend.
+      if (ambiguousMutation) {
+        if (retryable && !backendReached) markBackendUnavailable(error);
+        throw createUnknownResultError(error, {
+          clientRequestId: payload?.__clientRequestId,
+          queueOffline: isOfflineModeEnabled() && mutationCanReplayAfterUnknown(route, payload),
+        });
+      }
+
+      const shouldRetry = read ? retryable : safeMutationRetry;
+      if (shouldRetry && !backendReached) markBackendUnavailable(error);
+      if (!shouldRetry || attempt === TRANSIENT_RETRY_DELAYS_MS.length) {
+        if (read) {
+          if (retryable && !backendReached && !isOfflineModeEnabled()) throw onlineRequiredError(error);
+        }
         throw error;
       }
       await wait(retryDelayMs(error, attempt), signal);
