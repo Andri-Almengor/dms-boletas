@@ -3,6 +3,14 @@ import { google } from 'googleapis';
 import { env } from '../config/env.js';
 import { AppError } from '../core/errors.js';
 import {
+  recordCacheEvictions,
+  recordCacheHit,
+  recordCacheMiss,
+  recordDriveCall,
+  recordSheetsRead,
+  recordSheetsWrite,
+} from '../services/performance-observability.service.js';
+import {
   isSheetsTransientError,
   withSheetsTransientRetry,
 } from './sheets-transient-retry.js';
@@ -71,8 +79,6 @@ class ApiGate {
         this.drain();
       });
 
-    // Permite aprovechar la concurrencia configurada, manteniendo la separación
-    // mínima entre el inicio de cada llamada.
     if (this.active < this.maxConcurrent) this.drain();
   }
 
@@ -131,14 +137,15 @@ function wrapRead(method, fn) {
   return async (args = {}) => {
     const key = stableKey(method, args);
     const now = Date.now();
-    // Headers have a dedicated repository cache; force refresh must reach Google.
     const headerRead = method === 'spreadsheets.values.get' && /!1:1$/.test(args.range || '');
     const cached = headerRead ? null : readCache.get(key);
     if (cached && cached.expiresAt > now) {
       stats.readCacheHits += 1;
+      recordCacheHit();
       return cached.value;
     }
 
+    recordCacheMiss();
     const stale = cached && cached.staleUntil > now ? cached : null;
     if (cached && !stale) readCache.delete(key);
     if (readInflight.has(key)) {
@@ -150,7 +157,10 @@ function wrapRead(method, fn) {
       stats.readApiCalls += 1;
       try {
         const value = await withSheetsTransientRetry(
-          () => fn(args),
+          () => {
+            recordSheetsRead();
+            return fn(args);
+          },
           {
             retries: env.sheetsTransientRetries,
             baseMs: env.sheetsTransientBackoffMs,
@@ -159,19 +169,19 @@ function wrapRead(method, fn) {
           },
         );
 
-        // Repository table reads already retain normalized rows. Avoid keeping
-        // a second copy of every raw table plus the SDK request object.
         const repositoryRead = method === 'spreadsheets.values.batchGet'
           && args.valueRenderOption === 'UNFORMATTED_VALUE'
           && Array.isArray(args.ranges) && args.ranges.every(range => /!A:[A-Z]+$/i.test(range));
         if (!repositoryRead && !headerRead && (env.sheetsGlobalReadCacheMs > 0 || env.sheetsGlobalReadStaleMs > 0)) {
           const storedAt = Date.now();
           const expiresAt = storedAt + env.sheetsGlobalReadCacheMs;
+          const evictionsBefore = readCache.evictions;
           readCache.set(key, {
             value: { data: value.data },
             expiresAt,
             staleUntil: expiresAt + env.sheetsGlobalReadStaleMs,
           });
+          recordCacheEvictions(readCache.evictions - evictionsBefore);
           clearExpiredReadCache();
           while (readCache.size > 100) readCache.delete(readCache.keys().next().value);
         }
@@ -179,6 +189,7 @@ function wrapRead(method, fn) {
       } catch (error) {
         if (stale && stale.staleUntil > Date.now()) {
           stats.readStaleHits += 1;
+          recordCacheHit();
           return stale.value;
         }
         if (isSheetsTransientError(error)) {
@@ -205,10 +216,8 @@ function wrapRead(method, fn) {
 function wrapWrite(method, fn) {
   return async (args = {}) => writeGate.run(async () => {
     stats.writeApiCalls += 1;
+    recordSheetsWrite();
     const result = await fn(args);
-    // Una escritura puede afectar cualquier lectura previamente cacheada. El
-    // repositorio mantiene su propia caché coherente; esta caché global es solo
-    // una segunda barrera contra ráfagas y se invalida conservadoramente.
     readCache.clear();
     return result;
   });
@@ -248,6 +257,31 @@ export function googleSheetsGateSnapshot() {
   };
 }
 
-export const driveApi = google.drive({ version: 'v3', auth });
+const rawDriveApi = google.drive({ version: 'v3', auth });
+const observedDriveResources = new WeakMap();
+
+function observeDriveResource(resource) {
+  if (!resource || typeof resource !== 'object') return resource;
+  if (observedDriveResources.has(resource)) return observedDriveResources.get(resource);
+  const observed = new Proxy(resource, {
+    get(target, property, receiver) {
+      const value = Reflect.get(target, property, receiver);
+      if (typeof value !== 'function') return value;
+      return (...args) => {
+        recordDriveCall();
+        return Reflect.apply(value, target, args);
+      };
+    },
+  });
+  observedDriveResources.set(resource, observed);
+  return observed;
+}
+
+export const driveApi = new Proxy(rawDriveApi, {
+  get(target, property, receiver) {
+    const value = Reflect.get(target, property, receiver);
+    return observeDriveResource(value);
+  },
+});
 export const docsApi = google.docs({ version: 'v1', auth });
 export const slidesApi = google.slides({ version: 'v1', auth });

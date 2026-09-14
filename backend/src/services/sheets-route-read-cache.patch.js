@@ -2,6 +2,11 @@ import { BoundedCache } from '../core/bounded-cache.js';
 import { env } from '../config/env.js';
 import { AsyncLocalStorage } from 'node:async_hooks';
 import { sheetsApi } from '../infra/google.js';
+import {
+  recordCacheEvictions,
+  recordCacheHit,
+  recordCacheMiss,
+} from './performance-observability.service.js';
 
 const INSTALL_FLAG = Symbol.for('dms.sheetsRouteReadCachePatch');
 const routeStorage = new AsyncLocalStorage();
@@ -175,8 +180,6 @@ function wrapRead(owner, property, method) {
   if (typeof original !== 'function') return;
 
   owner[property] = async function cachedRouteRead(args = {}) {
-    // Repository tables and headers own their caches. Never retain their raw
-    // values again in the assistant/password-vault response cache.
     const repositoryRead = args.valueRenderOption === 'UNFORMATTED_VALUE'
       && ((method === 'spreadsheets.values.get' && /!1:1$/.test(args.range || ''))
         || (method === 'spreadsheets.values.batchGet' && Array.isArray(args.ranges)
@@ -194,8 +197,10 @@ function wrapRead(owner, property, method) {
     const cached = responseCache.get(key);
     if (cached && cached.expiresAt > now) {
       stats.cacheHits += 1;
+      recordCacheHit();
       return cached.value;
     }
+    recordCacheMiss();
     if (cached) responseCache.delete(key);
 
     const requestCache = routeStorage.getStore()?.requestCache;
@@ -215,13 +220,14 @@ function wrapRead(owner, property, method) {
       })
       .then((value) => {
         const storedAt = Date.now();
+        const evictionsBefore = responseCache.evictions;
         responseCache.set(key, {
-          // Retain response data, never the SDK request/socket graph.
           value: {data:value.data},
           storedAt,
           expiresAt: storedAt + ttlMs,
           sheetNames,
         });
+        recordCacheEvictions(responseCache.evictions - evictionsBefore);
         cleanupCache();
         return value;
       })

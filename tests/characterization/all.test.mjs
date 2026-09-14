@@ -74,6 +74,7 @@ import './sheets-transient-retry.test.mjs';
 import './signature-completion-email.test.mjs';
 import './signature-image-upload.test.mjs';
 import './source-contracts.test.mjs';
+import './stage0-observability.test.mjs';
 import './technician-delete-weekly-backup.test.mjs';
 import './ticket-detail-evidence-ui.test.mjs';
 import './ticket-form-domain.test.mjs';
