@@ -80,6 +80,7 @@ import './stage2-maintenance-list.test.mjs';
 import './stage3-knowledge-list.test.mjs';
 import './stage4-agenda-query.test.mjs';
 import './stage5-cases-metrics.test.mjs';
+import './stage6-cache-coherence.test.mjs';
 import './technician-delete-weekly-backup.test.mjs';
 import './ticket-detail-evidence-ui.test.mjs';
 import './ticket-form-domain.test.mjs';
