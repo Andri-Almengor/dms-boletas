@@ -20,6 +20,7 @@ import './services/customer-case-test-mode.patch.js';
 import './services/customer-case-real-ticket-sequence.patch.js';
 import './services/customer-case-initial-email-retry.patch.js';
 import './services/customer-case-ticket-finalization.patch.js';
+import './services/customer-case-query-optimization.patch.js';
 import './services/metrics-assigned-hours.patch.js';
 import './services/metrics-dynamic-maintenance-counts.patch.js';
 import './services/knowledge-long-content.patch.js';
