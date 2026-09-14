@@ -1,3 +1,4 @@
+import './stage2-maintenance-list.test.mjs';
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import {
