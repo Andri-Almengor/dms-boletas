@@ -1,4 +1,10 @@
 import { BoundedCache } from '../core/bounded-cache.js';
+import {
+  readSheetNames,
+  SheetRevisionTracker,
+  sheetSetsIntersect,
+  writeSheetNames,
+} from '../core/sheet-cache-coherence.js';
 import { google } from 'googleapis';
 import { env } from '../config/env.js';
 import { AppError } from '../core/errors.js';
@@ -106,14 +112,19 @@ const writeGate = new ApiGate({
 });
 const readInflight = new Map();
 const readCache = new BoundedCache({maxBytes:env.memoryBudgetMb * 1024 * 1024 / 64});
+export const sheetsRevisionTracker = new SheetRevisionTracker();
 const stats = {
   readCacheHits: 0,
   readStaleHits: 0,
   readInflightHits: 0,
+  readInflightBypasses: 0,
+  readCacheWriteSkips: 0,
   readApiCalls: 0,
   readTransientRetries: 0,
   readTransientFailures: 0,
   writeApiCalls: 0,
+  selectiveInvalidations: 0,
+  fullInvalidations: 0,
 };
 
 function stableKey(method, args) {
@@ -129,8 +140,20 @@ function stableKey(method, args) {
 function clearExpiredReadCache() {
   const now = Date.now();
   for (const [key, entry] of readCache.entries()) {
-    if (entry.staleUntil <= now) readCache.delete(key);
+    if (entry.staleUntil <= now || !sheetsRevisionTracker.isCurrent(entry.revision)) readCache.delete(key);
   }
+}
+
+function invalidateReadCache(sheetNames = null) {
+  if (!sheetNames) {
+    readCache.clear();
+    stats.fullInvalidations += 1;
+    return;
+  }
+  for (const [key, entry] of readCache.entries()) {
+    if (sheetSetsIntersect(entry.sheetNames, sheetNames)) readCache.delete(key);
+  }
+  stats.selectiveInvalidations += 1;
 }
 
 function wrapRead(method, fn) {
@@ -138,7 +161,12 @@ function wrapRead(method, fn) {
     const key = stableKey(method, args);
     const now = Date.now();
     const headerRead = method === 'spreadsheets.values.get' && /!1:1$/.test(args.range || '');
-    const cached = headerRead ? null : readCache.get(key);
+    const sheetNames = readSheetNames(method, args);
+    const cachedCandidate = headerRead ? null : readCache.get(key);
+    const cached = cachedCandidate && sheetsRevisionTracker.isCurrent(cachedCandidate.revision)
+      ? cachedCandidate
+      : null;
+    if (cachedCandidate && !cached) readCache.delete(key);
     if (cached && cached.expiresAt > now) {
       stats.readCacheHits += 1;
       recordCacheHit();
@@ -148,11 +176,16 @@ function wrapRead(method, fn) {
     recordCacheMiss();
     const stale = cached && cached.staleUntil > now ? cached : null;
     if (cached && !stale) readCache.delete(key);
-    if (readInflight.has(key)) {
-      stats.readInflightHits += 1;
-      return readInflight.get(key);
-    }
 
+    const existing = readInflight.get(key);
+    if (existing && sheetsRevisionTracker.isCurrent(existing.revision)) {
+      stats.readInflightHits += 1;
+      return existing.promise;
+    }
+    if (existing) stats.readInflightBypasses += 1;
+
+    const revision = sheetsRevisionTracker.snapshot(sheetNames);
+    const entry = { revision, sheetNames, promise: null };
     const request = readGate.run(async () => {
       stats.readApiCalls += 1;
       try {
@@ -173,21 +206,27 @@ function wrapRead(method, fn) {
           && args.valueRenderOption === 'UNFORMATTED_VALUE'
           && Array.isArray(args.ranges) && args.ranges.every(range => /!A:[A-Z]+$/i.test(range));
         if (!repositoryRead && !headerRead && (env.sheetsGlobalReadCacheMs > 0 || env.sheetsGlobalReadStaleMs > 0)) {
-          const storedAt = Date.now();
-          const expiresAt = storedAt + env.sheetsGlobalReadCacheMs;
-          const evictionsBefore = readCache.evictions;
-          readCache.set(key, {
-            value: { data: value.data },
-            expiresAt,
-            staleUntil: expiresAt + env.sheetsGlobalReadStaleMs,
-          });
-          recordCacheEvictions(readCache.evictions - evictionsBefore);
-          clearExpiredReadCache();
-          while (readCache.size > 100) readCache.delete(readCache.keys().next().value);
+          if (sheetsRevisionTracker.isCurrent(revision)) {
+            const storedAt = Date.now();
+            const expiresAt = storedAt + env.sheetsGlobalReadCacheMs;
+            const evictionsBefore = readCache.evictions;
+            readCache.set(key, {
+              value: { data: value.data },
+              expiresAt,
+              staleUntil: expiresAt + env.sheetsGlobalReadStaleMs,
+              sheetNames,
+              revision,
+            });
+            recordCacheEvictions(readCache.evictions - evictionsBefore);
+            clearExpiredReadCache();
+            while (readCache.size > 100) readCache.delete(readCache.keys().next().value);
+          } else {
+            stats.readCacheWriteSkips += 1;
+          }
         }
         return value;
       } catch (error) {
-        if (stale && stale.staleUntil > Date.now()) {
+        if (stale && stale.staleUntil > Date.now() && sheetsRevisionTracker.isCurrent(stale.revision)) {
           stats.readStaleHits += 1;
           recordCacheHit();
           return stale.value;
@@ -206,9 +245,12 @@ function wrapRead(method, fn) {
         }
         throw error;
       }
-    }).finally(() => readInflight.delete(key));
+    }).finally(() => {
+      if (readInflight.get(key) === entry) readInflight.delete(key);
+    });
 
-    readInflight.set(key, request);
+    entry.promise = request;
+    readInflight.set(key, entry);
     return request;
   };
 }
@@ -218,7 +260,9 @@ function wrapWrite(method, fn) {
     stats.writeApiCalls += 1;
     recordSheetsWrite();
     const result = await fn(args);
-    readCache.clear();
+    const sheetNames = writeSheetNames(method, args);
+    sheetsRevisionTracker.advance(sheetNames);
+    invalidateReadCache(sheetNames);
     return result;
   });
 }
@@ -253,6 +297,7 @@ export function googleSheetsGateSnapshot() {
     cacheEntries: readCache.size,
     cache: readCache.snapshot(),
     inflightReads: readInflight.size,
+    revisionTracker: sheetsRevisionTracker.snapshotState(),
     ...stats,
   };
 }

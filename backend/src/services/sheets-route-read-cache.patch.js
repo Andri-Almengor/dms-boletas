@@ -1,4 +1,10 @@
 import { BoundedCache } from '../core/bounded-cache.js';
+import {
+  readSheetNames,
+  SheetRevisionTracker,
+  sheetSetsIntersect,
+  writeSheetNames,
+} from '../core/sheet-cache-coherence.js';
 import { env } from '../config/env.js';
 import { AsyncLocalStorage } from 'node:async_hooks';
 import { sheetsApi } from '../infra/google.js';
@@ -12,6 +18,7 @@ const INSTALL_FLAG = Symbol.for('dms.sheetsRouteReadCachePatch');
 const routeStorage = new AsyncLocalStorage();
 const responseCache = new BoundedCache({maxBytes:env.memoryBudgetMb * 1024 * 1024 / 64, maxEntries:320});
 const inflightReads = new Map();
+const revisionTracker = new SheetRevisionTracker();
 
 const MAX_CACHE_ENTRIES = 320;
 const ASSISTANT_OPERATIONAL_TTL_MS = 60_000;
@@ -61,6 +68,8 @@ const ASSISTANT_OPERATIONAL_SHEETS = new Set([
 const stats = {
   cacheHits: 0,
   inflightHits: 0,
+  staleInflightBypasses: 0,
+  cacheWriteSkips: 0,
   apiReads: 0,
   selectiveInvalidations: 0,
   fullInvalidations: 0,
@@ -81,48 +90,6 @@ function stableKey(profile, method, args) {
     serialized = String(args || '');
   }
   return `${profile}|${method}|${serialized}`;
-}
-
-function sheetNameFromRange(range) {
-  const value = String(range || '').trim();
-  const separator = value.indexOf('!');
-  if (separator < 0) return value || '';
-  const raw = value.slice(0, separator).trim();
-  if (raw.startsWith("'") && raw.endsWith("'")) {
-    return raw.slice(1, -1).replace(/''/g, "'");
-  }
-  return raw;
-}
-
-function readSheetNames(method, args = {}) {
-  if (method === 'spreadsheets.get') return new Set(['*metadata*']);
-  if (method === 'spreadsheets.values.get') {
-    return new Set([sheetNameFromRange(args.range)].filter(Boolean));
-  }
-  if (method === 'spreadsheets.values.batchGet') {
-    return new Set((args.ranges || []).map(sheetNameFromRange).filter(Boolean));
-  }
-  return new Set();
-}
-
-function writeSheetNames(method, args = {}) {
-  if (['spreadsheets.values.append', 'spreadsheets.values.update', 'spreadsheets.values.clear'].includes(method)) {
-    const name = sheetNameFromRange(args.range);
-    return name ? new Set([name]) : null;
-  }
-  if (method === 'spreadsheets.values.batchUpdate') {
-    const names = (args.requestBody?.data || [])
-      .map((item) => sheetNameFromRange(item?.range))
-      .filter(Boolean);
-    return names.length ? new Set(names) : null;
-  }
-  if (method === 'spreadsheets.values.batchClear') {
-    const names = (args.requestBody?.ranges || [])
-      .map(sheetNameFromRange)
-      .filter(Boolean);
-    return names.length ? new Set(names) : null;
-  }
-  return null;
 }
 
 function ttlFor(profile, method, sheets) {
@@ -148,7 +115,7 @@ function ttlFor(profile, method, sheets) {
 function cleanupCache() {
   const now = Date.now();
   for (const [key, entry] of responseCache.entries()) {
-    if (entry.expiresAt <= now) responseCache.delete(key);
+    if (entry.expiresAt <= now || !revisionTracker.isCurrent(entry.revision)) responseCache.delete(key);
   }
   if (responseCache.size <= MAX_CACHE_ENTRIES) return;
   const oldest = [...responseCache.entries()]
@@ -158,8 +125,7 @@ function cleanupCache() {
 }
 
 function intersects(left, right) {
-  for (const value of left) if (right.has(value)) return true;
-  return false;
+  return sheetSetsIntersect(left, right);
 }
 
 function invalidateReadCache(sheetNames = null) {
@@ -173,6 +139,10 @@ function invalidateReadCache(sheetNames = null) {
     if (intersects(entry.sheetNames, sheetNames)) responseCache.delete(key);
   }
   stats.selectiveInvalidations += 1;
+}
+
+function currentInflight(entry) {
+  return entry && revisionTracker.isCurrent(entry.revision);
 }
 
 function wrapRead(owner, property, method) {
@@ -194,7 +164,11 @@ function wrapRead(owner, property, method) {
 
     const key = stableKey(profile, method, args);
     const now = Date.now();
-    const cached = responseCache.get(key);
+    const cachedCandidate = responseCache.get(key);
+    const cached = cachedCandidate && revisionTracker.isCurrent(cachedCandidate.revision)
+      ? cachedCandidate
+      : null;
+    if (cachedCandidate && !cached) responseCache.delete(key);
     if (cached && cached.expiresAt > now) {
       stats.cacheHits += 1;
       recordCacheHit();
@@ -204,40 +178,54 @@ function wrapRead(owner, property, method) {
     if (cached) responseCache.delete(key);
 
     const requestCache = routeStorage.getStore()?.requestCache;
-    if (requestCache?.has(key)) {
+    const requestEntry = requestCache?.get(key);
+    if (currentInflight(requestEntry)) {
       stats.inflightHits += 1;
-      return requestCache.get(key);
+      return requestEntry.promise;
     }
-    if (inflightReads.has(key)) {
-      stats.inflightHits += 1;
-      return inflightReads.get(key);
-    }
+    if (requestEntry) requestCache.delete(key);
 
+    const sharedEntry = inflightReads.get(key);
+    if (currentInflight(sharedEntry)) {
+      stats.inflightHits += 1;
+      requestCache?.set(key, sharedEntry);
+      return sharedEntry.promise;
+    }
+    if (sharedEntry) stats.staleInflightBypasses += 1;
+
+    const revision = revisionTracker.snapshot(sheetNames);
+    const entry = { revision, sheetNames, promise: null };
     const request = Promise.resolve()
       .then(() => {
         stats.apiReads += 1;
         return original.call(this, args);
       })
       .then((value) => {
-        const storedAt = Date.now();
-        const evictionsBefore = responseCache.evictions;
-        responseCache.set(key, {
-          value: {data:value.data},
-          storedAt,
-          expiresAt: storedAt + ttlMs,
-          sheetNames,
-        });
-        recordCacheEvictions(responseCache.evictions - evictionsBefore);
-        cleanupCache();
+        if (revisionTracker.isCurrent(revision)) {
+          const storedAt = Date.now();
+          const evictionsBefore = responseCache.evictions;
+          responseCache.set(key, {
+            value: { data: value.data },
+            storedAt,
+            expiresAt: storedAt + ttlMs,
+            sheetNames,
+            revision,
+          });
+          recordCacheEvictions(responseCache.evictions - evictionsBefore);
+          cleanupCache();
+        } else {
+          stats.cacheWriteSkips += 1;
+        }
         return value;
       })
       .finally(() => {
-        inflightReads.delete(key);
-        requestCache?.delete(key);
+        if (inflightReads.get(key) === entry) inflightReads.delete(key);
+        if (requestCache?.get(key) === entry) requestCache.delete(key);
       });
 
-    inflightReads.set(key, request);
-    requestCache?.set(key, request);
+    entry.promise = request;
+    inflightReads.set(key, entry);
+    requestCache?.set(key, entry);
     return request;
   };
 }
@@ -248,7 +236,9 @@ function wrapWrite(owner, property, method) {
 
   owner[property] = async function selectivelyInvalidatingWrite(args = {}) {
     const result = await original.call(this, args);
-    invalidateReadCache(writeSheetNames(method, args));
+    const sheetNames = writeSheetNames(method, args);
+    revisionTracker.advance(sheetNames);
+    invalidateReadCache(sheetNames);
     return result;
   };
 }
@@ -293,6 +283,7 @@ export function sheetsRouteReadCacheSnapshot() {
   return {
     entries: responseCache.size,
     inflight: inflightReads.size,
+    revisionTracker: revisionTracker.snapshotState(),
     ...stats,
   };
 }

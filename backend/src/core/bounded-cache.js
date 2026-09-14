@@ -26,9 +26,16 @@ export class BoundedCache extends Map {
     this.weightEvaluations = 0;
   }
 
-  set(key, value) {
+  measure(value) {
     this.weightEvaluations += 1;
-    const weight = retainedBytes(value);
+    return retainedBytes(value);
+  }
+
+  setWithWeight(key, value, measuredWeight) {
+    const numericWeight = Number(measuredWeight);
+    const weight = Number.isFinite(numericWeight) && numericWeight >= 0
+      ? numericWeight
+      : this.measure(value);
     this.delete(key);
     if (weight > this.maxBytes) return this; // Caller still receives full result.
     while (this.size && (this.bytes + weight > this.maxBytes || this.size >= this.maxEntries)) {
@@ -39,6 +46,10 @@ export class BoundedCache extends Map {
     this.weights.set(key, weight);
     this.bytes += weight;
     return this;
+  }
+
+  set(key, value) {
+    return this.setWithWeight(key, value, this.measure(value));
   }
 
   get(key) {
