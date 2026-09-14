@@ -1,6 +1,7 @@
 import React, { useEffect, useMemo, useState } from 'react';
 import { Link } from 'react-router-dom';
 import Icon from '../common/Icon';
+import TicketVisitLinkControl from './TicketVisitLinkControl';
 import { MODULE_ROUTES, pick, requestAvailable } from '../../services/moduleApi';
 import { listQueuedOperations } from '../../services/offlineStore';
 import { formatDate, formatTime, normalizeTicketStatus } from '../../utils/tickets';
@@ -121,10 +122,24 @@ export default function TicketVisitGroupPanel({ boletaUid, sessionToken, canCrea
           <h2>{groupCount > 1 ? `${groupCount} visitas del mismo trabajo` : 'Visita inicial'}</h2>
           <p>Las visitas mantienen su propia información, evidencias y edición, pero comparten la firma, la encuesta y el envío final.</p>
         </div>
-        {canCreate && (
-          <Link className="button button--primary" to={`/boletas/${encodeURIComponent(boletaUid)}/nueva-visita`}>
-            <Icon name="add_circle" /> Añadir otra visita
-          </Link>
+        {(canCreate || canEdit) && (
+          <div className="ticket-visit-group-panel__actions">
+            {canEdit && (
+              <TicketVisitLinkControl
+                boletaUid={boletaUid}
+                sessionToken={sessionToken}
+                onLinked={(result) => {
+                  setBundle(result);
+                  setError('');
+                }}
+              />
+            )}
+            {canCreate && (
+              <Link className="button button--primary" to={`/boletas/${encodeURIComponent(boletaUid)}/nueva-visita`}>
+                <Icon name="add_circle" /> Añadir otra visita
+              </Link>
+            )}
+          </div>
         )}
       </div>
 
