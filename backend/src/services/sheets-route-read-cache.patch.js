@@ -238,7 +238,7 @@ function wrapWrite(owner, property, method) {
     const result = await original.call(this, args);
     const sheetNames = writeSheetNames(method, args);
     revisionTracker.advance(sheetNames);
-    invalidateReadCache(sheetNames);
+    invalidateReadCache(writeSheetNames(method, args));
     return result;
   };
 }
