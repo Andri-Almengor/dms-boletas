@@ -1,3 +1,4 @@
+import { AsyncLocalStorage } from 'node:async_hooks';
 import {
   appendRows,
   findById,
@@ -58,9 +59,35 @@ export const FINALIZATION_ITEM_HEADERS = Object.freeze([
 
 const WRITE_BATCH = 100;
 let storageReady = null;
+const finalizationItemStepStorage = new AsyncLocalStorage();
 
 function clean(value) {
   return String(value ?? '').trim();
+}
+
+function sortFinalizationItems(items = []) {
+  return items.sort((a, b) => Number(a.Orden || 0) - Number(b.Orden || 0));
+}
+
+function activeItemSnapshot(jobId) {
+  const snapshot = finalizationItemStepStorage.getStore();
+  return snapshot && clean(snapshot.jobId) === clean(jobId) ? snapshot : null;
+}
+
+export function mergeFinalizationItemSnapshot(items = [], updates = []) {
+  if (!Array.isArray(items) || !items.length || !Array.isArray(updates) || !updates.length) return items;
+  const indexes = new Map(items.map((item, index) => [clean(item.ItemID), index]));
+  for (const update of updates) {
+    const itemId = clean(update?.ItemID);
+    const index = indexes.get(itemId);
+    if (index === undefined) continue;
+    items[index] = { ...items[index], ...update };
+  }
+  return sortFinalizationItems(items);
+}
+
+export function runWithFinalizationItemStepSnapshot(jobId, operation) {
+  return finalizationItemStepStorage.run({ jobId: clean(jobId), items: null }, operation);
 }
 
 export function ensureMaintenanceFinalizationStorage() {
@@ -149,10 +176,12 @@ export async function updateFinalizationJob(jobId, patch = {}) {
 
 export async function listFinalizationItems(jobId) {
   await ensureMaintenanceFinalizationStorage();
+  const snapshot = activeItemSnapshot(jobId);
+  if (snapshot?.items) return snapshot.items;
   const rows = await readTable(FINALIZATION_ITEM_SHEET);
-  return rows
-    .filter((row) => clean(row.JobID) === clean(jobId))
-    .sort((a, b) => Number(a.Orden || 0) - Number(b.Orden || 0));
+  const items = sortFinalizationItems(rows.filter((row) => clean(row.JobID) === clean(jobId)));
+  if (snapshot) snapshot.items = items;
+  return items;
 }
 
 export async function ensureFinalizationItems(job, definitions = [], actor = 'SISTEMA') {
@@ -191,15 +220,19 @@ export async function ensureFinalizationItems(job, definitions = [], actor = 'SI
 
   if (!creates.length) return current;
   await appendRows(FINALIZATION_ITEM_SHEET, creates, { chunkSize: WRITE_BATCH });
-  return listFinalizationItems(job.JobID);
+  current.push(...creates);
+  return sortFinalizationItems(current);
 }
 
 export async function updateFinalizationItem(itemId, patch = {}) {
   await ensureMaintenanceFinalizationStorage();
-  return updateRow(FINALIZATION_ITEM_SHEET, clean(itemId), {
+  const updated = await updateRow(FINALIZATION_ITEM_SHEET, clean(itemId), {
     ...patch,
     FechaActualizacion: patch.FechaActualizacion || nowIso(),
   }, 'ItemID');
+  const snapshot = activeItemSnapshot(updated?.JobID);
+  if (snapshot?.items) mergeFinalizationItemSnapshot(snapshot.items, [updated]);
+  return updated;
 }
 
 export async function updateFinalizationItems(updates = []) {
@@ -212,7 +245,17 @@ export async function updateFinalizationItems(updates = []) {
       FechaActualizacion: update.patch?.FechaActualizacion || nowIso(),
     },
   }));
-  return updateRows(FINALIZATION_ITEM_SHEET, normalized, 'ItemID');
+  const updated = await updateRows(FINALIZATION_ITEM_SHEET, normalized, 'ItemID');
+  const snapshots = new Map();
+  for (const item of updated) {
+    const snapshot = activeItemSnapshot(item?.JobID);
+    if (snapshot?.items) snapshots.set(snapshot, snapshot.items);
+  }
+  for (const [snapshot, items] of snapshots) {
+    const jobUpdates = updated.filter((item) => clean(item.JobID) === clean(snapshot.jobId));
+    mergeFinalizationItemSnapshot(items, jobUpdates);
+  }
+  return updated;
 }
 
 function state(row) {
