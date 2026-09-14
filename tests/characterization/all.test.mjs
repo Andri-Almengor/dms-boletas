@@ -78,6 +78,7 @@ import './stage0-observability.test.mjs';
 import './stage1-write-consistency.test.mjs';
 import './stage2-maintenance-list.test.mjs';
 import './stage3-knowledge-list.test.mjs';
+import './stage4-agenda-query.test.mjs';
 import './technician-delete-weekly-backup.test.mjs';
 import './ticket-detail-evidence-ui.test.mjs';
 import './ticket-form-domain.test.mjs';
