@@ -73,12 +73,23 @@ export function markBackendUnavailable(error = null) {
     offlineState();
     return;
   }
+
+  const code = String(error?.code || error?.status || error?.name || 'UNAVAILABLE');
+  // Un fallo aislado de /api/action no debe convertir toda la aplicación en una
+  // pantalla de reconexión. Primero confirmamos con /api/health, que no depende
+  // de Sheets ni de los slots de acciones. probeBackend coalesce las pruebas
+  // simultáneas que puedan disparar varias solicitudes fallidas a la vez.
+  if (state.status === 'ready' && code !== 'HEALTH_UNAVAILABLE') {
+    void probeBackend();
+    return;
+  }
+
   const since = state.unavailableSince || Date.now();
   emit({
     status: 'waking',
     checked: true,
     unavailableSince: since,
-    lastError: String(error?.code || error?.status || error?.name || 'UNAVAILABLE'),
+    lastError: code,
   });
   scheduleProbe();
 }
