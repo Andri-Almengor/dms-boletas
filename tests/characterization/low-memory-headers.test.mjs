@@ -88,7 +88,7 @@ const businessBaseline = {
   "apps-script/KnowledgeSpreadsheetCompat.gs": "d8b99dd4c7bdbbc8ed15056e221503d06def77e2cf6c18d44ab966cf29f868f8",
   "apps-script/MaintenanceCore.gs": "6dcc9ee18469e89207f4b7405787c43973d0fa921a2bd366e386dca3aeca815a",
   "apps-script/MaintenanceDevices.gs": "08b2f1f7b4f57bef5801103bc98faafcbc815017d324c844b327c480cd4e65a5",
-  "apps-script/MaintenanceHelpers.gs": "4e3b5ab317e2c3271d620a3c3ff0d770b18b653833f7f7e93370252e9d6",
+  "apps-script/MaintenanceHelpers.gs": "4e3b5ab317e2c3275a52ad8c72748f78ffe59dd2e801c32e61114065b0d24d64",
   "apps-script/MaintenanceReports.gs": "7e333bbbc79a1434ee3271d620a3c3ff0d770b18b653833f7f7e93370252e9d6",
   "apps-script/MigrateImportedClientRelations.gs": "b43907afd2c60e7d37cb80054a92bfac57df39f49a3952d63bed74c4264e311a",
   "apps-script/OperationalAccessAndInvites.gs": "d79376d14a89063ef72b0986c168c29417179fc2bf7de3d4f339b5a27a77c5c8",
@@ -98,7 +98,7 @@ const businessBaseline = {
   "apps-script/patches/agenda-ticket-finalization-reminders-v7.9.patch": "530353f2daa2cead4e84e52aed8b24a9792bf045b8858c2ea6df29e542543147",
   "apps-script/patches/pdf-annex-blank-page.patch": "f5237174bdcf74e4d005802aaf572847af15e59ca9388c98bb5ec5c1ad9bc864",
   "apps-script/report-service/Code.gs": "9c7e56b51a6d4585161fa267c50e8ec94475532a4b735136c448bea7186314b0",
-  "apps-script/report-service/README.md": "972bad00e5fc9f8593c2b2b95a4009f8593c2b2b95a4009d61bb8eade84c975425a7f74c1169b60ea"
+  "apps-script/report-service/README.md": "972bad00e5fc9f8593c2b2b95a4009d61bb8eade84c975425a7f74c1169b60ea"
 };
 test('roles, permissions, unchanged business handlers, original media and Apps Script remain byte-identical', () => {
   for (const [file, digest] of Object.entries(businessBaseline)) assert.equal(createHash('sha256').update(read(file)).digest('hex'), digest, file);
