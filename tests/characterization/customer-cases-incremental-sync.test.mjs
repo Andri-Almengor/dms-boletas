@@ -44,11 +44,11 @@ test('sync Casos: el detalle incremental conserva el handler autoritativo comple
   assert.match(deltaSource, /resource === 'customerCase'.*materializeCustomerCaseDelta/s);
   assert.match(deltaSource, /resource === 'customerCase'.*return \{ caseId: entityId, id: entityId \}/s);
   assert.match(deltaSource, /\['ticket', 'maintenance', 'customerCase'\]\.includes\(resource\)/);
-  assert.match(deltaSource, /route: resourceSpec\.detailRoute/);
+  assert.match(deltaSource, /authoritativeDetail\(ctx, resourceSpec\.detailRoute, resource, entityId\)/);
   assert.match(registrySource, /customerCase: Object\.freeze\(\{ snapshotRoute: 'customerCases\.list', detailRoute: 'customerCases\.get', permission: 'USUARIOS_GESTIONAR' \}\)/);
 });
 
-test('sync Casos: frontend usa IndexedDB/delta en lista y fuerza frescura al abrir detalle', () => {
+test('sync Casos: frontend usa IndexedDB\/delta en lista y fuerza frescura al abrir detalle', () => {
   assert.match(frontendServiceSource, /requestSynchronizedCollection\(candidates, payload, sessionToken/);
   assert.match(frontendServiceSource, /resource: 'customerCase'/);
   assert.match(frontendServiceSource, /requestSynchronizedDetail\(candidates, payload, sessionToken/);
