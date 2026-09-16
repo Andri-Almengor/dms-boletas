@@ -142,7 +142,7 @@ async function initializeGroup(ticket, actor = 'SISTEMA') {
   return { ...ticket, ...updated, ...patch };
 }
 
-export async function ensureVisitGroupForTicket(ticketId, actor = 'SISTEMA') {
+export async function ensureVisitGroupForTicket(ticketId, actor = 'SISTEMA', snapshot = null) {
   await ensureTicketVisitColumns();
   const id = clean(ticketId);
   if (!id) throw notFound('No se indicó la boleta para consultar sus visitas.');
@@ -151,8 +151,8 @@ export async function ensureVisitGroupForTicket(ticketId, actor = 'SISTEMA') {
   if (groupLocks.has(lockKey)) return groupLocks.get(lockKey);
 
   const operation = (async () => {
-    let rows = await readTable(SHEET_NAME, { force: true });
-    let ticket = rows.find((row) => clean(row.BoletaUID) === id);
+    let rows = await (snapshot ? snapshot.read(SHEET_NAME, { force: true }) : readTable(SHEET_NAME, { force: true }));
+    let ticket = snapshot ? snapshot.locate(rows, id) : rows.find((row) => clean(row.BoletaUID) === id);
     if (!ticket) throw notFound('No se encontró la boleta solicitada.');
     if (!clean(ticket.GrupoVisitaID) || !clean(ticket.BoletaPrincipalUID)) {
       ticket = await initializeGroup(ticket, actor);

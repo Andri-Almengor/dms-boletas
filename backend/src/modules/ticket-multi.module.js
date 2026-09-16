@@ -45,8 +45,10 @@ function matchCatalogRow(rows, source, spec) {
     || null;
 }
 
-async function normalizeCatalogPayload(payload = {}) {
-  const tables = await readTables(CATALOG_SPECS.map((spec) => spec.table));
+async function normalizeCatalogPayload(payload = {}, snapshot = null) {
+  const specs = snapshot ? CATALOG_SPECS.filter(spec => clean(pick(payload, spec.idKeys)) || comparable(pick(payload, spec.labelKeys))) : CATALOG_SPECS;
+  const names = specs.map(spec => spec.table);
+  const tables = await (snapshot ? snapshot.tables(names) : readTables(names));
   const next = { ...payload };
   for (const spec of CATALOG_SPECS) {
     const match = matchCatalogRow(tables[spec.table] || [], next, spec);
@@ -63,9 +65,9 @@ async function normalizeCatalogPayload(payload = {}) {
   return next;
 }
 
-async function repairStoredCatalogReferences(ticket, actor = 'SISTEMA') {
+async function repairStoredCatalogReferences(ticket, actor = 'SISTEMA', snapshot = null) {
   if (!ticket?.BoletaUID) return ticket;
-  const normalized = await normalizeCatalogPayload(ticket);
+  const normalized = await normalizeCatalogPayload(ticket, snapshot);
   const patch = {};
   for (const spec of CATALOG_SPECS) {
     const id = clean(normalized[spec.targetId]);
@@ -95,25 +97,32 @@ function assignedView(ticketId, assignmentsByTicket, usersById) {
   });
 }
 
-async function enrichWithVisitGroup(bundle, actor = 'SISTEMA') {
+async function enrichWithVisitGroup(bundle, actor = 'SISTEMA', snapshot = null) {
   const sourceTicket = bundle?.boleta || bundle;
   if (!sourceTicket?.BoletaUID) return bundle;
-  const ticket = await repairStoredCatalogReferences(sourceTicket, actor);
+  const ticket = await repairStoredCatalogReferences(sourceTicket, actor, snapshot);
   const [group, tables] = await Promise.all([
-    ensureVisitGroupForTicket(ticket.BoletaUID, actor),
-    readTables(['BoletaAsignados', 'EvidenciasBoleta', 'Usuarios']),
+    ensureVisitGroupForTicket(ticket.BoletaUID, actor, snapshot),
+    snapshot ? snapshot.tables(['BoletaAsignados', 'EvidenciasBoleta', 'Usuarios']) : readTables(['BoletaAsignados', 'EvidenciasBoleta', 'Usuarios']),
   ]);
-  const usersById = indexRowsBy(tables.Usuarios, (user) => user.UsuarioID);
+  const visitIds = new Set(group.visits.map(visit => clean(visit.BoletaUID)));
   const assignmentsByTicket = groupRowsBy(
     tables.BoletaAsignados,
     (item) => item.BoletaUID,
-    { predicate: (item) => item.Activo !== false },
+    { predicate: (item) => item.Activo !== false && visitIds.has(clean(item.BoletaUID)) },
   );
   const evidencesByTicket = groupRowsBy(
     tables.EvidenciasBoleta,
     (item) => item.BoletaUID,
-    { predicate: (item) => item.Activo !== false },
+    { predicate: (item) => item.Activo !== false && visitIds.has(clean(item.BoletaUID)) },
   );
+  const userIds = new Set();
+  for (const assignments of assignmentsByTicket.values()) {
+    for (const item of assignments) userIds.add(clean(item.UsuarioID));
+  }
+  const usersById = indexRowsBy(tables.Usuarios, (user) => user.UsuarioID, {
+    predicate: user => userIds.has(clean(user.UsuarioID)),
+  });
   const visits = group.visits.map((visit) => ({
     ...visit,
     GrupoVisitaID: ticketGroupId(visit),
@@ -179,7 +188,7 @@ function inheritedPayload(parentBundle, payload, relation) {
 
 async function getEnriched(ctx) {
   const bundle = await baseTicketHandlers.get(ctx);
-  return enrichWithVisitGroup(bundle, ctx.user?.UsuarioID || 'SISTEMA');
+  return enrichWithVisitGroup(bundle, ctx.user?.UsuarioID || 'SISTEMA', ctx.__ticketDetailSnapshot);
 }
 
 async function createTicket(ctx) {

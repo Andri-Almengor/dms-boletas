@@ -1,6 +1,6 @@
 import { notFound } from '../core/errors.js';
 import { pick } from '../core/utils.js';
-import { readTable } from '../infra/sheets.repository.js';
+import { createTicketDetailSnapshot } from './ticket-detail-snapshot.service.js';
 import { ticketHandlers as baseTicketHandlers } from '../modules/tickets.module.js';
 import { ticketMultiHandlers } from '../modules/ticket-multi.module.js';
 import { ticketAccessHandlers } from '../modules/ticket-access.module.js';
@@ -33,21 +33,20 @@ if (!ticketDeliveryHandlers[INSTALL_FLAG]) {
     const ticketId = clean(pick(ctx.payload, ['boletaUid', 'BoletaUID', 'id']));
     if (!ticketId) throw notFound('No se indicó la boleta solicitada.');
 
-    // ensureVisitGroupForTicket ya requiere una lectura fresca de Boletas. La
-    // adelantamos aquí para autorización y la segunda lectura force se coalesce
-    // con el snapshot recién cargado, evitando dos viajes a Google.
-    const tickets = await readTable('Boletas', { force: true });
-    const ticket = tickets.find((row) => clean(row.BoletaUID) === ticketId);
+    const snapshot = createTicketDetailSnapshot();
+    const tickets = await snapshot.read('Boletas', { force: true });
+    const ticket = snapshot.locate(tickets, ticketId);
     if (!ticket) throw notFound('No se encontró la boleta solicitada.');
 
     // Se mantienen las dos capas de acceso existentes. No se amplía ningún rol
     // ni se cambia la restricción de técnicos por asignación.
-    await ticketAccessHandlers.assertTicketAccess(ctx, ticket);
-    await assertTicketPayloadAccess(ctx, ctx.payload);
+    await ticketAccessHandlers.assertTicketAccess(ctx, ticket, 'consultar', snapshot);
+    await assertTicketPayloadAccess(ctx, ctx.payload, snapshot);
 
     return ticketMultiHandlers.get({
       ...ctx,
       __ticketDetailRow: ticket,
+      __ticketDetailSnapshot: snapshot,
     });
   };
 

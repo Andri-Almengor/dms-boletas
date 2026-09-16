@@ -100,10 +100,10 @@ function sortNewestFirst(rows) {
   });
 }
 
-async function assertTicketAccess(ctx, ticket, action = 'consultar') {
+async function assertTicketAccess(ctx, ticket, action = 'consultar', snapshot = null) {
   if (isAdministrator(ctx)) return ticket;
   const technicianId = userId(ctx);
-  const assignments = await readTable('BoletaAsignados');
+  const assignments = await (snapshot ? snapshot.read('BoletaAsignados') : readTable('BoletaAsignados'));
   const assignedIds = assignedTicketIds(assignments, technicianId);
   if (!technicianIsAssigned(ticket, assignedIds)) {
     throw forbidden(`Solo puede ${action} boletas en las que está asignado.`);

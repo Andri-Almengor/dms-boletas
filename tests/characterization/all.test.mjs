@@ -103,3 +103,5 @@ import './latest-resource.test.mjs';
 import './catalog-index.test.mjs';
 
 import './critical-ticket-list.test.mjs';
+
+import './critical-ticket-detail.test.mjs';
