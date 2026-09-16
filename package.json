@@ -18,9 +18,10 @@
     "test:stress": "node scripts/stress-stability.mjs",
     "baseline": "node scripts/collect-baseline.mjs",
     "report:final": "node scripts/final-validation.mjs",
+    "benchmark:sync": "node scripts/benchmark-incremental-sync.mjs",
     "audit:security": "npm audit --omit=dev --audit-level=high && npm --prefix backend audit --omit=dev --audit-level=high",
     "verify:stage0": "npm run test:characterization && npm run check:backend && npm run build && npm run baseline",
-    "verify:final": "npm run verify:stage0 && npm run audit:security && npm run report:final"
+    "verify:final": "npm run verify:stage0 && npm run audit:security && npm run report:final && npm run benchmark:sync"
   },
   "dependencies": {
     "react": "^18.3.1",
