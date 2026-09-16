@@ -11,6 +11,7 @@ import {
 } from './sync-change.service.js';
 import { syncResourceRegistry } from './sync-resource-registry.js';
 import { isCrudSyncResource, materializeCrudDelta } from './sync-crud.service.js';
+import { materializeAgendaDelta } from './sync-agenda.service.js';
 import { materializeTicketDelta } from './sync-ticket.service.js';
 import { materializeMaintenanceDelta } from './sync-maintenance.service.js';
 
@@ -120,6 +121,7 @@ function incrementalResponse({
 async function materializeResourceDelta(ctx, resource, resourceEvents) {
   if (resource === 'ticket') return materializeTicketDelta(ctx, resourceEvents);
   if (resource === 'maintenance') return materializeMaintenanceDelta(ctx, resourceEvents);
+  if (resource === 'agenda') return materializeAgendaDelta(ctx, resourceEvents);
   if (isCrudSyncResource(resource)) return materializeCrudDelta(ctx, resource, resourceEvents);
   return null;
 }
@@ -137,6 +139,9 @@ async function materializeChangedDetail(ctx, resource, resourceSpec, entityId, m
 
   if (isCrudSyncResource(resource)) {
     return materialized.upserts?.[0] || null;
+  }
+  if (resource === 'agenda') {
+    return (materialized.upserts || []).find((item) => String(item?.AgendaID || '') === String(entityId)) || null;
   }
 
   if (!['ticket', 'maintenance'].includes(resource) || !resourceSpec?.detailRoute) return null;
@@ -204,6 +209,25 @@ export async function buildSyncDelta(ctx = {}) {
         fromCursor,
         reason: 'security_changed',
         securityInvalidated: true,
+        snapshotCursor: scan.cursor,
+      })),
+      cacheScope,
+      eventsScanned: scan.eventsScanned,
+    }, startedAt);
+  }
+
+  const resourceInvalidated = scan.events.some((event) => (
+    String(event.Resource || '') === resource
+    && (String(event.Operation || '').toUpperCase() === 'INVALIDATE' || String(event.EntityID || '') === '*')
+  ));
+  if (resourceInvalidated) {
+    return finishResponse({
+      ...(await fullSnapshotResponse({
+        descriptor,
+        resource,
+        entityId,
+        fromCursor,
+        reason: 'resource_invalidated',
         snapshotCursor: scan.cursor,
       })),
       cacheScope,
