@@ -1,4 +1,5 @@
 import { performance } from 'node:perf_hooks';
+import { createSyncOutbox } from '../backend/src/core/sync-outbox.js';
 
 const DATASETS = [1_000, 10_000];
 const RUNS = 40;
@@ -22,6 +23,18 @@ function makeTicket(index) {
   };
 }
 
+function makeMaintenance(index) {
+  return {
+    MantenimientoID: `MT${String(index + 1).padStart(6, '0')}`,
+    Estado: index % 4 === 0 ? 'FINALIZADO' : 'PENDIENTE',
+    ClienteID: `C${String(index % 80).padStart(3, '0')}`,
+    TituloMantenimiento: `Mantenimiento ${index + 1}`,
+    FechaInicio: `2026-09-${String((index % 28) + 1).padStart(2, '0')}`,
+    Activo: true,
+    FechaActualizacion: '2026-09-16T12:00:00.000Z',
+  };
+}
+
 function median(values) {
   const sorted = [...values].sort((a, b) => a - b);
   const middle = Math.floor(sorted.length / 2);
@@ -39,12 +52,12 @@ function timeMedian(fn) {
   return { ms: Number(median(samples).toFixed(4)), result };
 }
 
-function fullList(tickets) {
+function fullList(items) {
   return {
-    items: tickets,
-    total: tickets.length,
+    items,
+    total: items.length,
     page: 1,
-    pageSize: tickets.length,
+    pageSize: items.length,
   };
 }
 
@@ -66,12 +79,12 @@ function deltaEnvelope({ cursor, upserts = [], removed = [], counts = null, notM
   return result;
 }
 
-function counts(tickets) {
+function counts(items, finishedStatus = 'FINALIZADA') {
   let pending = 0;
   let finished = 0;
-  for (const ticket of tickets) {
-    if (ticket.Estado === 'PENDIENTE') pending += 1;
-    else if (ticket.Estado === 'FINALIZADA') finished += 1;
+  for (const item of items) {
+    if (item.Estado === 'PENDIENTE') pending += 1;
+    else if (item.Estado === finishedStatus) finished += 1;
   }
   return { pending, finished };
 }
@@ -90,7 +103,17 @@ function detailFor(ticket) {
   };
 }
 
-function row({ dataset, scenario, full, delta, changedEntities, rowsInspectedModel, sheetsCallsModel, idbWrites }) {
+function row({
+  dataset,
+  scenario,
+  full,
+  delta,
+  changedEntities,
+  rowsInspectedModel,
+  sheetsCallsModel,
+  collectionPassesModel = null,
+  idbWrites,
+}) {
   const fullTimed = timeMedian(() => JSON.stringify(full));
   const deltaTimed = timeMedian(() => JSON.stringify(delta));
   return {
@@ -104,8 +127,41 @@ function row({ dataset, scenario, full, delta, changedEntities, rowsInspectedMod
     deltaSerializeMedianMs: deltaTimed.ms,
     modeledSheetsCalls: sheetsCallsModel,
     modeledRowsInspected: rowsInspectedModel,
+    modeledCollectionPasses: collectionPassesModel,
     modeledTemporaryEntityRefs: changedEntities,
     modeledIndexedDbWriteCount: idbWrites,
+  };
+}
+
+async function measureOutboxBatching(mutationCount) {
+  let appendCalls = 0;
+  let appendedEvents = 0;
+  const outbox = createSyncOutbox({
+    maxEvents: 250,
+    append: async (batch) => {
+      appendCalls += 1;
+      appendedEvents += batch.length;
+      return batch;
+    },
+  });
+  for (let index = 0; index < mutationCount; index += 1) {
+    await outbox.enqueue([{
+      resource: 'ticket',
+      entityId: `B-${index + 1}`,
+      operation: 'UPSERT',
+      sourceRoute: 'boletas.autosave',
+    }]);
+  }
+  await outbox.flush();
+  return {
+    mutationCount,
+    measuredOutboxAppendCalls: appendCalls,
+    measuredEventsAppended: appendedEvents,
+    modeledBusinessSheetWrites: mutationCount,
+    modeledPreviousChangelogWrites: mutationCount,
+    modeledPreviousTotalSheetWrites: mutationCount * 2,
+    modeledOutboxChangelogWrites: appendCalls,
+    modeledOutboxTotalSheetWrites: mutationCount + appendCalls,
   };
 }
 
@@ -124,6 +180,7 @@ for (const dataset of DATASETS) {
     changedEntities: 0,
     rowsInspectedModel: { syncChanges: 0, authoritative: 0 },
     sheetsCallsModel: { syncChanges: 1, authoritative: 0 },
+    collectionPassesModel: { tickets: 0, assignments: 0 },
     idbWrites: 1,
   }));
 
@@ -138,11 +195,11 @@ for (const dataset of DATASETS) {
       full,
       delta: deltaEnvelope({ cursor, upserts: changed, counts: baseCounts }),
       changedEntities: changeCount,
-      // El materializador actual reutiliza snapshots Boletas/BoletaAsignados cuando
-      // están calientes, pero todavía recorre esos arrays para permisos y counts.
-      // Son filas en memoria; no equivalen necesariamente a I/O de Sheets.
+      // Warm repository snapshots avoid external reads, while current permission
+      // and authoritative Home counts still require one bounded pass per source.
       rowsInspectedModel: { syncChanges: changeCount, authoritativeCachedRows: dataset * 2 },
       sheetsCallsModel: { syncChanges: 1, authoritativeWarmCache: 0, authoritativeColdCache: 2 },
+      collectionPassesModel: { tickets: 1, assignments: 1 },
       idbWrites: 1,
     }));
   }
@@ -160,6 +217,7 @@ for (const dataset of DATASETS) {
     changedEntities: 1,
     rowsInspectedModel: { syncChanges: 1, authoritativeCachedRows: dataset * 2 },
     sheetsCallsModel: { syncChanges: 1, authoritativeWarmCache: 0, authoritativeColdCache: 2 },
+    collectionPassesModel: { tickets: 1, assignments: 1 },
     idbWrites: 1,
   }));
 
@@ -171,6 +229,7 @@ for (const dataset of DATASETS) {
     changedEntities: 0,
     rowsInspectedModel: { syncChanges: 1, authoritativeCachedRows: dataset * 2 },
     sheetsCallsModel: { syncChanges: 1, authoritativeWarmCache: 0, authoritativeColdCache: 2 },
+    collectionPassesModel: { tickets: 1, assignments: 1 },
     idbWrites: 1,
   }));
 
@@ -197,12 +256,50 @@ for (const dataset of DATASETS) {
     sheetsCallsModel: { syncChanges: 1, authoritative: 'handler-dependent' },
     idbWrites: 2,
   }));
+
+  const maintenances = Array.from({ length: dataset }, (_, index) => makeMaintenance(index));
+  const fullMaintenance = fullList(maintenances);
+  const maintenanceCounts = counts(maintenances, 'FINALIZADO');
+  results.push(row({
+    dataset,
+    scenario: 'MAINTENANCE_REVISIT_NO_CHANGES',
+    full: fullMaintenance,
+    delta: deltaEnvelope({ cursor }),
+    changedEntities: 0,
+    rowsInspectedModel: { syncChanges: 0, authoritative: 0 },
+    sheetsCallsModel: { syncChanges: 1, authoritative: 0 },
+    collectionPassesModel: { maintenances: 0, devices: 0 },
+    idbWrites: 1,
+  }));
+  for (const changeCount of [1, 10]) {
+    const changed = maintenances.slice(-changeCount).map((maintenance, index) => ({
+      ...maintenance,
+      TituloMantenimiento: `${maintenance.TituloMantenimiento} / cambio ${index + 1}`,
+    }));
+    results.push(row({
+      dataset,
+      scenario: `MAINTENANCE_REVISIT_${changeCount}_CHANGE${changeCount === 1 ? '' : 'S'}`,
+      full: fullMaintenance,
+      delta: deltaEnvelope({ cursor, upserts: changed, counts: maintenanceCounts }),
+      changedEntities: changeCount,
+      rowsInspectedModel: { syncChanges: changeCount, authoritativeCachedRows: dataset, changedDeviceRows: 'dataset-dependent' },
+      sheetsCallsModel: { syncChanges: 1, authoritativeWarmCache: 0, authoritativeColdCache: 2 },
+      collectionPassesModel: { maintenances: 1, devices: 1 },
+      idbWrites: 1,
+    }));
+  }
+}
+
+const writeBatching = [];
+for (const mutationCount of [1, 10, 100]) {
+  writeBatching.push(await measureOutboxBatching(mutationCount));
 }
 
 console.log(JSON.stringify({
   benchmark: 'incremental-sync',
   synthetic: true,
-  note: 'Bytes y tiempos de JSON.stringify son mediciones locales reproducibles. Sheets calls, rows inspected, temporary refs e IndexedDB writes son un modelo explícito de la arquitectura actual; no son métricas de producción.',
+  note: 'Bytes, JSON.stringify y outbox append-call counts son mediciones locales reproducibles. Sheets calls/rows/total writes e IndexedDB writes son un modelo explícito de la arquitectura; no son métricas de producción.',
   runsPerScenario: RUNS,
+  writeBatching,
   results,
 }, null, 2));
