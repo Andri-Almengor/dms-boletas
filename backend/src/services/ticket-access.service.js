@@ -7,8 +7,8 @@ export function canViewAllTickets(ctx) {
     || ctx.permissions?.includes('BOLETAS_ELIMINAR');
 }
 
-export async function assignedTicketIdsForUser(userId) {
-  const rows = await readTable('BoletaAsignados');
+export async function assignedTicketIdsForUser(userId, snapshot = null) {
+  const rows = await (snapshot ? snapshot.read('BoletaAsignados') : readTable('BoletaAsignados'));
   return new Set(rows
     .filter((row) => row.Activo !== false && String(row.UsuarioID) === String(userId))
     .map((row) => String(row.BoletaUID)));
@@ -34,11 +34,11 @@ async function resolveTicketId(payload = {}) {
   return '';
 }
 
-export async function assertTicketPayloadAccess(ctx, payload = {}) {
+export async function assertTicketPayloadAccess(ctx, payload = {}, snapshot = null) {
   if (canViewAllTickets(ctx)) return true;
   const ticketId = await resolveTicketId(payload);
   if (!ticketId) throw forbidden('No fue posible validar el acceso a la boleta.');
-  const allowedIds = await assignedTicketIdsForUser(ctx.user.UsuarioID);
+  const allowedIds = await assignedTicketIdsForUser(ctx.user.UsuarioID, snapshot);
   if (!allowedIds.has(String(ticketId))) {
     throw forbidden('Solo puede consultar o modificar las boletas en las que está asignado.');
   }

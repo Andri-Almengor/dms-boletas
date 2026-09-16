@@ -96,3 +96,12 @@ import './ux-performance-feedback.test.mjs';
 import './global-stability.test.mjs';
 
 import './case-chunk-memory.test.mjs';
+import './shared-list-work.test.mjs';
+
+import './latest-resource.test.mjs';
+
+import './catalog-index.test.mjs';
+
+import './critical-ticket-list.test.mjs';
+
+import './critical-ticket-detail.test.mjs';

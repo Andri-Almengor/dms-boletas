@@ -36,3 +36,13 @@ export function includeSelectedCatalogItem(items = [], selectedItem, getId) {
   if (!selectedItem) return items;
   return mergeCatalogItems(items, [selectedItem], getId);
 }
+
+// Preserve Array.find's first-match semantics, including legacy duplicate IDs.
+export function indexCatalogById(records, idKey) {
+  const index = new Map();
+  for (const record of records) {
+    const id = String(record[idKey]);
+    if (!index.has(id)) index.set(id, record);
+  }
+  return index;
+}

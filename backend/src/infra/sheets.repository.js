@@ -453,19 +453,31 @@ export async function softDelete(sheetName, idValue, actor = '') {
 }
 export function filterRows(rows, payload = {}, searchFields = []) {
   const search = String(payload.search || payload.q || '').trim().toLowerCase();
-  let result = rows.filter((row) => {
-    if (payload.activo !== undefined && String(row.Activo).toLowerCase() !== String(payload.activo).toLowerCase()) return false;
-    if (payload.estado && String(row.Estado || '').toUpperCase() !== String(payload.estado).toUpperCase()) return false;
-    if (payload.clienteId && String(row.ClienteID || row.ClienteRef || '') !== String(payload.clienteId)) return false;
-    if (search && !searchFields.some((field) => String(row[field] || '').toLowerCase().includes(search))) return false;
-    return true;
-  });
-  if (payload.sortBy) result.sort((a, b) => String(a[payload.sortBy] || '').localeCompare(String(b[payload.sortBy] || ''), 'es') * (String(payload.sortDir).toLowerCase() === 'desc' ? -1 : 1));
+  const active = payload.activo === undefined ? null : String(payload.activo).toLowerCase();
+  const state = payload.estado ? String(payload.estado).toUpperCase() : '';
+  const client = payload.clienteId ? String(payload.clienteId) : '';
   const page = Math.max(1, Number(payload.page || 1));
   const pageSize = Math.min(1000, Math.max(1, Number(payload.pageSize || 100)));
-  const total = result.length;
-  result = result.slice((page - 1) * pageSize, page * pageSize);
-  return { items: result.map(({ __rowNumber, ...row }) => row), total, page, pageSize };
+  // Match Array.slice's integer conversion, including historical fractional/NaN inputs.
+  const start = Math.trunc((page - 1) * pageSize) || 0;
+  const end = Math.trunc(page * pageSize) || 0;
+  const result = [];
+  let total = 0;
+  for (const row of rows) {
+    if (active !== null && String(row.Activo).toLowerCase() !== active) continue;
+    if (payload.estado && String(row.Estado || '').toUpperCase() !== state) continue;
+    if (payload.clienteId && String(row.ClienteID || row.ClienteRef || '') !== client) continue;
+    if (search && !searchFields.some((field) => String(row[field] || '').toLowerCase().includes(search))) continue;
+    if (payload.sortBy || (total >= start && total < end)) result.push(row);
+    total += 1;
+  }
+  let items = result;
+  if (payload.sortBy) {
+    const direction = String(payload.sortDir).toLowerCase() === 'desc' ? -1 : 1;
+    result.sort((a, b) => String(a[payload.sortBy] || '').localeCompare(String(b[payload.sortBy] || ''), 'es') * direction);
+    items = result.slice(start, end);
+  }
+  return { items: items.map(({ __rowNumber, ...row }) => row), total, page, pageSize };
 }
 
 export function sheetsRepositorySnapshot() {

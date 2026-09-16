@@ -1,7 +1,8 @@
-import React, { useCallback, useEffect, useMemo, useState } from 'react';
+import React, { useCallback, useMemo, useState } from 'react';
 import { useAuth } from '../../AuthContext';
 import Icon from '../common/Icon';
 import { requestAvailable } from '../../services/moduleApi';
+import useLatestResource from '../../hooks/useLatestResource';
 import {
   DonutBreakdown,
   FilterChip,
@@ -44,23 +45,12 @@ export default function MaintenanceMetricsDashboard() {
   const { sessionToken } = useAuth();
   const [filters, setFilters] = useState(INITIAL_FILTERS);
   const [search, setSearch] = useState('');
-  const [data, setData] = useState(null);
-  const [loading, setLoading] = useState(true);
-  const [error, setError] = useState('');
-
-  const load = useCallback(async () => {
-    setLoading(true);
-    setError('');
-    try {
-      setData(await requestAvailable(MAINTENANCE_METRICS_ROUTES, filters, sessionToken));
-    } catch (requestError) {
-      setError(requestError.message || 'No fue posible cargar las métricas de mantenimientos.');
-    } finally {
-      setLoading(false);
-    }
-  }, [filters, sessionToken]);
-
-  useEffect(() => { load(); }, [load]);
+  const fetchMetrics = useCallback((signal) => requestAvailable(
+    MAINTENANCE_METRICS_ROUTES, filters, sessionToken, { signal },
+  ), [filters, sessionToken]);
+  const { data, loading, error, load } = useLatestResource(
+    fetchMetrics, 'No fue posible cargar las métricas de mantenimientos.',
+  );
 
   function applyFilter(current, key, value) {
     const next = {

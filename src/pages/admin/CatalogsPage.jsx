@@ -3,6 +3,7 @@ import { Navigate } from 'react-router-dom';
 import { useAuth } from '../../AuthContext';
 import Icon from '../../components/common/Icon';
 import AdminEntityModal from '../../components/forms/AdminEntityModal';
+import { indexCatalogById } from '../../utils/catalogCollection';
 import { MODULE_ROUTES, normalizeItems, pick, requestAvailable, toBoolean } from '../../services/moduleApi';
 
 const TABS = [
@@ -69,8 +70,8 @@ function payloadFromValues(tab, values) {
   return payload;
 }
 
-function lookup(records, idKey, id) {
-  return pick(records.find((item) => String(item[idKey]) === String(id)), ['Nombre'], id || 'Sin identificar');
+function lookup(index, id) {
+  return pick(index.get(String(id)), ['Nombre'], id || 'Sin identificar');
 }
 
 function recordId(config, record, fallback = '') {
@@ -85,14 +86,14 @@ function upsert(items, config, record) {
   return items.map((item, current) => current === index ? { ...item, ...record } : item);
 }
 
-function catalogConfig(tab, data) {
+function catalogConfig(tab, data, deviceTypesById, manufacturersById) {
   return {
     categories: { items: data.categories, routes: MODULE_ROUTES.categories, deleteRoutes: DELETE_ROUTES.categories, idKeys: ['CategoriaID', 'id'], idPayload: 'categoriaId', icon: 'category', title: (r) => pick(r, ['Nombre', 'Categoria']), description: (r) => pick(r, ['Descripcion'], 'Categoría de servicio') },
     deviceTypes: { items: data.deviceTypes, routes: MODULE_ROUTES.deviceTypes, deleteRoutes: DELETE_ROUTES.deviceTypes, idKeys: ['TipoDispositivoID', 'id'], idPayload: 'tipoDispositivoId', icon: 'devices', title: (r) => pick(r, ['Nombre', 'TipoDispositivo']), description: (r) => pick(r, ['Descripcion'], 'Tipo de dispositivo') },
     manufacturers: { items: data.manufacturers, routes: MODULE_ROUTES.manufacturers, deleteRoutes: DELETE_ROUTES.manufacturers, idKeys: ['FabricanteID', 'id'], idPayload: 'fabricanteId', icon: 'factory', title: (r) => pick(r, ['Nombre', 'Fabricante']), description: () => 'Fabricante' },
-    models: { items: data.models, routes: MODULE_ROUTES.models, deleteRoutes: DELETE_ROUTES.models, idKeys: ['ModeloID', 'id'], idPayload: 'modeloId', icon: 'view_in_ar', title: (r) => pick(r, ['Nombre', 'Modelo']), description: (r) => [lookup(data.deviceTypes, 'TipoDispositivoID', pick(r, ['TipoDispositivoID'])), lookup(data.manufacturers, 'FabricanteID', pick(r, ['FabricanteID'])), pick(r, ['Descripcion'])].filter(Boolean).join(' · ') || 'Modelo' },
+    models: { items: data.models, routes: MODULE_ROUTES.models, deleteRoutes: DELETE_ROUTES.models, idKeys: ['ModeloID', 'id'], idPayload: 'modeloId', icon: 'view_in_ar', title: (r) => pick(r, ['Nombre', 'Modelo']), description: (r) => [lookup(deviceTypesById, pick(r, ['TipoDispositivoID'])), lookup(manufacturersById, pick(r, ['FabricanteID'])), pick(r, ['Descripcion'])].filter(Boolean).join(' · ') || 'Modelo' },
     failureTypes: { items: data.failureTypes, routes: MODULE_ROUTES.failureTypes, deleteRoutes: DELETE_ROUTES.failureTypes, idKeys: ['TipoFallaID', 'id'], idPayload: 'tipoFallaId', icon: 'warning', title: (r) => pick(r, ['Nombre', 'TipoFalla']), description: (r) => pick(r, ['Descripcion'], 'Tipo de falla') },
-    relations: { items: data.relations, routes: MODULE_ROUTES.deviceManufacturers, deleteRoutes: DELETE_ROUTES.relations, idKeys: ['RelacionID', 'id'], idPayload: 'relacionId', icon: 'account_tree', title: (r) => `${lookup(data.deviceTypes, 'TipoDispositivoID', pick(r, ['TipoDispositivoID']))} → ${lookup(data.manufacturers, 'FabricanteID', pick(r, ['FabricanteID']))}`, description: () => 'Relación dispositivo-fabricante' },
+    relations: { items: data.relations, routes: MODULE_ROUTES.deviceManufacturers, deleteRoutes: DELETE_ROUTES.relations, idKeys: ['RelacionID', 'id'], idPayload: 'relacionId', icon: 'account_tree', title: (r) => `${lookup(deviceTypesById, pick(r, ['TipoDispositivoID']))} → ${lookup(manufacturersById, pick(r, ['FabricanteID']))}`, description: () => 'Relación dispositivo-fabricante' },
   }[tab];
 }
 
@@ -159,7 +160,9 @@ export default function CatalogsPage() {
     loadKeys(dependencies);
   }, [canView, tab, sessionToken, canManage]);
 
-  const activeConfig = useMemo(() => catalogConfig(tab, data), [tab, data]);
+  const deviceTypesById = useMemo(() => indexCatalogById(data.deviceTypes, 'TipoDispositivoID'), [data.deviceTypes]);
+  const manufacturersById = useMemo(() => indexCatalogById(data.manufacturers, 'FabricanteID'), [data.manufacturers]);
+  const activeConfig = useMemo(() => catalogConfig(tab, data, deviceTypesById, manufacturersById), [tab, data, deviceTypesById, manufacturersById]);
   const visibleItems = useMemo(() => {
     const query = search.trim().toLowerCase();
     if (!query) return activeConfig.items;
@@ -289,7 +292,7 @@ export default function CatalogsPage() {
 
     <AdminEntityModal open={Boolean(selected)} title={editor ? (editor.mode === 'edit' ? `Editar ${tabLabel}` : `Nuevo: ${tabLabel}`) : (selected && Object.keys(selected).length ? activeConfig.title(selected) : `Nuevo: ${tabLabel}`)} subtitle={editor ? 'Complete la información del registro.' : (selected && Object.keys(selected).length ? activeConfig.description(selected) : 'Complete la información del registro.')} eyebrow={editor ? 'Edición de catálogo' : 'Detalle de catálogo'} icon={activeConfig.icon} onClose={closeModal} busy={saving} footer={!editor && selected && Object.keys(selected).length && canManage ? <><button className="button button--danger" type="button" onClick={remove} disabled={saving}><Icon name="delete" />Eliminar</button><button className="button button--secondary" type="button" onClick={toggle} disabled={saving}><Icon name={selectedActive ? 'block' : 'refresh'} />{selectedActive ? 'Desactivar' : 'Reactivar'}</button><button className="button button--primary" type="button" onClick={openEdit} disabled={saving}><Icon name="edit" />Editar</button></> : null}>
       {modalError && <div className="alert alert--error"><Icon name="error" /><span>{modalError}</span></div>}
-      {editor ? <form className="stack-form" onSubmit={submit}><CatalogFields tab={tab} values={editor.values} setEditor={setEditor} data={data} /><div className="form-actions"><button className="button button--secondary" type="button" onClick={() => editor.mode === 'create' ? closeModal() : setEditor(null)} disabled={saving}>Cancelar</button><button className="button button--primary" disabled={saving}>{saving ? 'Guardando...' : 'Guardar'}</button></div></form> : selected && Object.keys(selected).length ? <div className="admin-detail-grid"><div><span>Estado</span><strong>{selectedActive ? 'ACTIVO' : 'INACTIVO'}</strong></div><div><span>Tipo de catálogo</span><strong>{tabLabel}</strong></div><div className="is-wide"><span>Descripción</span><strong>{activeConfig.description(selected)}</strong></div>{tab === 'models' && <><div><span>Tipo de dispositivo</span><strong>{lookup(data.deviceTypes, 'TipoDispositivoID', pick(selected, ['TipoDispositivoID']))}</strong></div><div><span>Fabricante</span><strong>{lookup(data.manufacturers, 'FabricanteID', pick(selected, ['FabricanteID']))}</strong></div></>}</div> : null}
+      {editor ? <form className="stack-form" onSubmit={submit}><CatalogFields tab={tab} values={editor.values} setEditor={setEditor} data={data} /><div className="form-actions"><button className="button button--secondary" type="button" onClick={() => editor.mode === 'create' ? closeModal() : setEditor(null)} disabled={saving}>Cancelar</button><button className="button button--primary" disabled={saving}>{saving ? 'Guardando...' : 'Guardar'}</button></div></form> : selected && Object.keys(selected).length ? <div className="admin-detail-grid"><div><span>Estado</span><strong>{selectedActive ? 'ACTIVO' : 'INACTIVO'}</strong></div><div><span>Tipo de catálogo</span><strong>{tabLabel}</strong></div><div className="is-wide"><span>Descripción</span><strong>{activeConfig.description(selected)}</strong></div>{tab === 'models' && <><div><span>Tipo de dispositivo</span><strong>{lookup(deviceTypesById, pick(selected, ['TipoDispositivoID']))}</strong></div><div><span>Fabricante</span><strong>{lookup(manufacturersById, pick(selected, ['FabricanteID']))}</strong></div></>}</div> : null}
     </AdminEntityModal>
   </div>;
 }
