@@ -15,7 +15,7 @@ const root = path.resolve(__dirname, '../..');
 const agendaSource = fs.readFileSync(path.join(root, 'backend/src/modules/agenda.module.js'), 'utf8');
 const optimizationSource = fs.readFileSync(path.join(root, 'backend/src/services/agenda-query-optimization.patch.js'), 'utf8');
 const agendaPageSource = fs.readFileSync(path.join(root, 'src/pages/agenda/AgendaPage.jsx'), 'utf8');
-const routerSource = fs.readFileSync(path.join(root, 'backend/src/core/action-router.js'), 'utf8');
+const appSource = fs.readFileSync(path.join(root, 'backend/src/app.js'), 'utf8');
 
 function countMatches(source, expression) {
   return [...source.matchAll(expression)].length;
@@ -157,10 +157,11 @@ test('Etapa 4: boletas válidas heredadas sin UID siguen participando en el matc
   assert.match(source, /if \(date\) appendMapArray\(ticketsByDate, date, ticket\);/);
 });
 
-test('Etapa 4: el parche se instala antes de que action-router capture agendaHandlers', () => {
-  assert.match(routerSource, /import '\.\.\/services\/agenda-query-optimization\.patch\.js';/);
-  assert.ok(
-    routerSource.indexOf("import '../services/agenda-query-optimization.patch.js';")
-      < routerSource.indexOf("import { agendaHandlers } from '../modules/agenda.module.js';"),
-  );
+test('Etapa 4: el parche se instala antes de que app importe action-router', () => {
+  const patchImport = "import './services/agenda-query-optimization.patch.js';";
+  const routerImport = "import { dispatchAction } from './core/action-router.js';";
+  assert.match(appSource, /import '\.\/services\/agenda-query-optimization\.patch\.js';/);
+  assert.ok(appSource.indexOf(patchImport) >= 0);
+  assert.ok(appSource.indexOf(routerImport) >= 0);
+  assert.ok(appSource.indexOf(patchImport) < appSource.indexOf(routerImport));
 });
