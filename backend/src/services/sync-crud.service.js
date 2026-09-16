@@ -13,6 +13,7 @@ const RESOURCE_DEFINITIONS = Object.freeze({
   model: 'models',
   failureType: 'failureTypes',
   deviceManufacturerRelation: 'deviceManufacturers',
+  knowledgeCategory: 'knowledgeCategories',
 });
 
 export function isCrudSyncResource(resource) {
