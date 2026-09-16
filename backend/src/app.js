@@ -31,6 +31,7 @@ import './services/password-vault-system-assistant.patch.js';
 import './services/assistant-maintenance-keyword.patch.js';
 import { runWithSheetsRouteReadCache } from './services/sheets-route-read-cache.patch.js';
 import { streamProtectedMedia } from './services/protected-media-stream.service.js';
+import { dispatchActionWithIncrementalSync } from './services/incremental-sync-dispatch.service.js';
 import { env } from './config/env.js';
 import { dispatchAction } from './core/action-router.js';
 import { AppError } from './core/errors.js';
@@ -143,7 +144,7 @@ app.post('/api/action', actionEnvelopeMiddleware, actionRateLimitMiddleware, asy
     sessionToken = envelope.sessionToken || req.headers.authorization?.replace(/^Bearer\s+/i, '') || '';
     const action = isPasswordVaultRoute(envelope.route)
       ? dispatchPasswordVaultAction
-      : dispatchAction;
+      : dispatchActionWithIncrementalSync;
     const execute = () => runWithSheetsRouteReadCache(envelope.route, () => {
       const queuedAt = performance.now();
       return runWithActionConcurrency(envelope.route, async () => {

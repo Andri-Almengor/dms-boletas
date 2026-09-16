@@ -599,3 +599,70 @@ export async function getOfflineStorageStats() {
     shellCaches,
   };
 }
+
+// The cursor and the response patches form one durable unit. Compare inside the
+// readwrite transaction so tabs and out-of-order requests cannot race the check.
+export async function commitSyncCacheUpdate({
+  stateKey, expectedState, nextState, cachePrefix, predicate = () => false,
+  updater, snapshotKey, snapshotData, replaceResource = false,
+}) {
+  const db = await openDatabase();
+  if (!db) return { committed: false, state: null, writes: 0 };
+  return new Promise((resolve, reject) => {
+    const transaction = db.transaction([CACHE_STORE, META_STORE], 'readwrite');
+    const responses = transaction.objectStore(CACHE_STORE);
+    const meta = transaction.objectStore(META_STORE);
+    let result = { committed: false, state: null, writes: 0, reconcileRequired: false };
+    let failure;
+    const request = meta.get(stateKey);
+    request.onsuccess = () => {
+      const current = request.result?.value || null;
+      result.state = current;
+      const matches = !current && !expectedState || current && expectedState
+        && current.generation === expectedState.generation
+        && current.cacheScope === expectedState.cacheScope
+        && Number(current.cursor) === Number(expectedState.cursor)
+        && Number(current.revision || 0) === Number(expectedState.revision || 0);
+      if (!matches) return;
+      if (current?.generation === nextState.generation && Number(nextState.cursor) < Number(current.cursor)) return;
+      const savedAt = Date.now();
+      const state = { ...nextState, revision: Number(current?.revision || 0) + 1, savedAt };
+      const finish = () => {
+        if (snapshotKey) {
+          responses.put({ key: snapshotKey, data: snapshotData, savedAt });
+          result.writes += 1;
+        }
+        meta.put({ key: stateKey, value: state, savedAt });
+        result = { ...result, committed: true, state };
+      };
+      if (!cachePrefix || (!updater && !replaceResource)) { finish(); return; }
+      // Responses are keyed scope|route|payload; inspect only this user's scope,
+      // one row at a time, without materializing every cached response in RAM.
+      const range = IDBKeyRange.bound(cachePrefix, `${cachePrefix}\uffff`);
+      const scan = responses.openCursor(range);
+      scan.onsuccess = () => {
+        const cursor = scan.result;
+        if (!cursor) { finish(); return; }
+        try {
+          const entry = cursor.value;
+          if (predicate(entry)) {
+            if (replaceResource) cursor.delete();
+            else {
+              const data = updater(entry.data, entry);
+              if (data?.syncIntegrityPending) result.reconcileRequired = true;
+              if (data !== undefined && data !== entry.data) cursor.update({ ...entry, data, savedAt });
+            }
+            result.writes += 1;
+          }
+          cursor.continue();
+        } catch (error) {
+          failure = error;
+          transaction.abort();
+        }
+      };
+    };
+    transaction.oncomplete = () => resolve(result);
+    transaction.onerror = () => reject(failure || transaction.error || new Error('No fue posible aplicar el delta.'));
+    transaction.onabort = () => reject(failure || transaction.error || new Error('El delta local fue cancelado.'));
+  });
+}

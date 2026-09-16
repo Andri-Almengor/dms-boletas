@@ -29,7 +29,6 @@ const isProduction = nodeEnv === 'production';
 const downstreamSlots = optionalNumber('SHEETS_GLOBAL_MAX_CONCURRENT_READS', 2, 1)
   + optionalNumber('SHEETS_GLOBAL_MAX_CONCURRENT_WRITES', 1, 1);
 
-
 export const env = Object.freeze({
   nodeEnv,
   port: Number(optional('PORT', '10000')),
@@ -39,8 +38,7 @@ export const env = Object.freeze({
   sessionHours: Number(optional('SESSION_HOURS', '12')),
 
   // Caché y coalescencia de lecturas. Los cambios realizados por esta misma
-  // aplicación actualizan la caché inmediatamente. Los cambios externos
-  // (por ejemplo AppSheet) pueden tardar hasta este TTL en reflejarse.
+  // aplicación actualizan la caché inmediatamente.
   sheetsCacheTtlMs: optionalNumber('SHEETS_CACHE_TTL_MS', 120_000),
   sheetsBatchWindowMs: optionalNumber('SHEETS_BATCH_WINDOW_MS', 40),
   sheetsForceCoalesceMs: optionalNumber('SHEETS_FORCE_COALESCE_MS', 5_000),
@@ -52,24 +50,30 @@ export const env = Object.freeze({
 
   // Reintentos externos para fallos transitorios de lectura que Gaxios ya no
   // pudo recuperar: HTTP 5xx, backendError, timeouts y cortes de transporte.
-  // Se mantienen separados de los 429 para no duplicar el backoff de cuota.
   sheetsTransientRetries: optionalNumber('SHEETS_TRANSIENT_RETRIES', 2),
   sheetsTransientBackoffMs: optionalNumber('SHEETS_TRANSIENT_BACKOFF_MS', 800, 100),
   sheetsTransientMaxBackoffMs: optionalNumber('SHEETS_TRANSIENT_MAX_BACKOFF_MS', 8_000, 500),
 
-  // Límite conservador del repositorio. 1.5 s deja margen frente al límite
-  // de 60 escrituras por minuto de la cuenta de servicio.
+  // Límite conservador del repositorio.
   sheetsMaxConcurrentWrites: optionalNumber('SHEETS_MAX_CONCURRENT_WRITES', 1, 1),
   sheetsWriteMinIntervalMs: optionalNumber('SHEETS_WRITE_MIN_INTERVAL_MS', 1_500, 0),
 
   // Protección global: también cubre llamadas directas a sheetsApi que no
-  // pasan por sheets.repository.js (reportes, migraciones y módulos antiguos).
+  // pasan por sheets.repository.js.
   sheetsGlobalMaxConcurrentReads: optionalNumber('SHEETS_GLOBAL_MAX_CONCURRENT_READS', 2, 1),
   sheetsGlobalReadMinIntervalMs: optionalNumber('SHEETS_GLOBAL_READ_MIN_INTERVAL_MS', 250, 0),
   sheetsGlobalMaxConcurrentWrites: optionalNumber('SHEETS_GLOBAL_MAX_CONCURRENT_WRITES', 1, 1),
   sheetsGlobalWriteMinIntervalMs: optionalNumber('SHEETS_GLOBAL_WRITE_MIN_INTERVAL_MS', 1_500, 0),
   sheetsGlobalReadCacheMs: optionalNumber('SHEETS_GLOBAL_READ_CACHE_MS', 15_000, 0),
   sheetsGlobalReadStaleMs: optionalNumber('SHEETS_GLOBAL_READ_STALE_MS', 5 * 60_000, 0),
+
+  // Motor incremental. El feature flag conserva el camino legacy como kill switch.
+  incrementalSyncEnabled: optionalBoolean('INCREMENTAL_SYNC_ENABLED', true),
+  syncSchemaVersion: optionalNumber('SYNC_SCHEMA_VERSION', 1, 1),
+  syncDeltaMaxEvents: optionalNumber('SYNC_DELTA_MAX_EVENTS', 250, 1),
+  syncDeltaSnapshotThreshold: optionalNumber('SYNC_DELTA_SNAPSHOT_THRESHOLD', 5_000, 100),
+  syncBackgroundIntervalMs: optionalNumber('SYNC_BACKGROUND_INTERVAL_MS', 60_000, 15_000),
+  syncIntegrityCheckMs: optionalNumber('SYNC_INTEGRITY_CHECK_MS', 15 * 60_000, 60_000),
 
   // Los límites siguientes son por solicitud, no por mantenimiento. El total
   // de dispositivos y evidencias permanece abierto; el cliente divide el
@@ -80,8 +84,6 @@ export const env = Object.freeze({
   maintenanceImageUploadConcurrency: optionalNumber('MAINTENANCE_IMAGE_UPLOAD_CONCURRENCY', 3, 1),
 
   // Avance automático de mantenimientos al Chat configurado en cada cliente.
-  // Las horas se interpretan en la zona horaria indicada y el servicio omite
-  // sábados y domingos tanto para envíos programados como inmediatos.
   maintenanceProgressChatEnabled: optionalBoolean('MAINTENANCE_PROGRESS_CHAT_ENABLED', true),
   maintenanceProgressChatTimezone: optional('MAINTENANCE_PROGRESS_CHAT_TIMEZONE', 'America/Costa_Rica'),
   maintenanceProgressChatHours: optional('MAINTENANCE_PROGRESS_CHAT_HOURS', '7,17'),

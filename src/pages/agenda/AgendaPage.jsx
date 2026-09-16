@@ -17,6 +17,13 @@ import {
   statusMeta,
   tomorrowCostaRicaDate,
 } from '../../features/agenda/agendaDomain';
+import {
+  readSynchronizedCollectionCache,
+  requestSynchronizedCollection,
+  requestSynchronizedDetail,
+  subscribeSyncEntity,
+  subscribeSyncResource,
+} from '../../services/syncManager';
 import AgendaCalendarSummary from './AgendaCalendarSummary';
 import AgendaClientAssignment from './AgendaClientAssignment';
 import AgendaDayDialog from './AgendaDayDialog';
@@ -27,6 +34,8 @@ import '../../styles/agenda-split.css';
 
 const WEEKDAYS = ['Lun', 'Mar', 'Mié', 'Jue', 'Vie', 'Sáb', 'Dom'];
 const EMPTY_DRAFT = Object.freeze({ fecha: '', horaInicio: '07:00', horaFin: '17:00', detalle: '', usuarioIds: [] });
+const AGENDA_LIST_ROUTE = 'agenda.list';
+const AGENDA_DETAIL_ROUTE = 'agenda.get';
 
 function personName(user = {}) {
   return String(user.NombreCompleto || user.Nombre || user.NombreUsuario || user.Correo || 'Usuario').trim();
@@ -296,9 +305,10 @@ function AgendaEditor({ users, editItem, onClose, onSaved, sessionToken, ticketE
 }
 
 export default function AgendaPage() {
-  const { sessionToken, hasPermission } = useAuth();
+  const { sessionToken, user, permissions, hasPermission } = useAuth();
   const [searchParams, setSearchParams] = useSearchParams();
   const isAdmin = hasPermission('USUARIOS_GESTIONAR');
+  const userId = String(user?.UsuarioID || user?.id || '');
   const requestedAgendaId = searchParams.get('agendaId') || '';
   const requestedDay = searchParams.get('day') || '';
   const requestedMonth = searchParams.get('month') || '';
@@ -316,13 +326,19 @@ export default function AgendaPage() {
   const today = costaRicaDateKey();
   const days = useMemo(() => calendarDays(month), [month]);
   const range = useMemo(() => calendarMonthRange(month), [month]);
+  const agendaPayload = useMemo(() => ({ from: range.from, to: range.to }), [range.from, range.to]);
 
   const load = useCallback(async ({ silent = false } = {}) => {
-    if (!range.from || !range.to) return;
+    if (!agendaPayload.from || !agendaPayload.to) return;
     if (!silent) setLoading(true);
     setError('');
     try {
-      const requests = [apiRequest('agenda.list', { from: range.from, to: range.to }, sessionToken)];
+      const requests = [requestSynchronizedCollection(
+        AGENDA_LIST_ROUTE,
+        agendaPayload,
+        sessionToken,
+        { resource: 'agenda', userId, permissions },
+      )];
       if (isAdmin) {
         requests.push(apiRequest('users.assignment.list', { pageSize: 1000 }, sessionToken));
         requests.push(apiRequest('config.get', { section: 'AGENDA_TICKET_EXCEPTIONS' }, sessionToken));
@@ -339,9 +355,31 @@ export default function AgendaPage() {
     } finally {
       if (!silent) setLoading(false);
     }
-  }, [isAdmin, range.from, range.to, sessionToken]);
+  }, [agendaPayload, isAdmin, permissions, sessionToken, userId]);
 
   useEffect(() => { load(); }, [load]);
+
+  useEffect(() => {
+    if (!sessionToken || !userId || !agendaPayload.from || !agendaPayload.to) return undefined;
+    let active = true;
+    const refreshFromCache = async (event = null) => {
+      if (event?.delta?.removed?.map(String).includes(String(requestedAgendaId))) {
+        setSelected((current) => String(current?.AgendaID || '') === String(requestedAgendaId) ? null : current);
+      }
+      const cached = await readSynchronizedCollectionCache(
+        AGENDA_LIST_ROUTE,
+        agendaPayload,
+        { resource: 'agenda', userId, permissions },
+      );
+      if (!active || cached === null) return;
+      setItems(Array.isArray(cached?.items) ? cached.items : []);
+    };
+    const unsubscribe = subscribeSyncResource('agenda', (event) => { void refreshFromCache(event); });
+    return () => {
+      active = false;
+      unsubscribe();
+    };
+  }, [agendaPayload, permissions, requestedAgendaId, sessionToken, userId]);
 
   useEffect(() => {
     if (!requestedAgendaId) return;
@@ -351,7 +389,12 @@ export default function AgendaPage() {
 
   useEffect(() => {
     if (!requestedAgendaId || selected || loading) return;
-    apiRequest('agenda.get', { agendaId: requestedAgendaId }, sessionToken)
+    requestSynchronizedDetail(
+      AGENDA_DETAIL_ROUTE,
+      { agendaId: requestedAgendaId },
+      sessionToken,
+      { resource: 'agenda', entityId: requestedAgendaId, userId, permissions },
+    )
       .then((data) => {
         const item = data?.item;
         if (!item) return;
@@ -360,7 +403,22 @@ export default function AgendaPage() {
         setSelected(item);
       })
       .catch(() => {});
-  }, [loading, month, requestedAgendaId, selected, sessionToken]);
+  }, [loading, month, permissions, requestedAgendaId, selected, sessionToken, userId]);
+
+  useEffect(() => {
+    if (!requestedAgendaId) return undefined;
+    return subscribeSyncEntity('agenda', requestedAgendaId, (event) => {
+      if (event?.type === 'removed') {
+        setSelected((current) => String(current?.AgendaID || '') === String(requestedAgendaId) ? null : current);
+        return;
+      }
+      const item = event?.data?.item || (event?.data?.AgendaID ? event.data : null);
+      if (!item) return;
+      const itemMonth = String(item.Fecha || '').slice(0, 7);
+      if (/^\d{4}-\d{2}$/.test(itemMonth) && itemMonth !== month) setMonth(itemMonth);
+      setSelected(item);
+    });
+  }, [month, requestedAgendaId]);
 
   const filtered = useMemo(() => {
     const query = normalizeAgendaText(search);
@@ -430,8 +488,8 @@ export default function AgendaPage() {
       });
     }
 
-    // Confirma en segundo plano contra Sheets sin mantener abierto el modal ni
-    // reemplazar el calendario por una pantalla de carga completa.
+    // Confirma en segundo plano contra el changelog/IndexedDB sin mantener
+    // abierto el modal ni reemplazar el calendario por una carga completa.
     void load({ silent: true });
   }
 

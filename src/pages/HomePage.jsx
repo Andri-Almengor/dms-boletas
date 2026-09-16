@@ -3,7 +3,12 @@ import { Link } from 'react-router-dom';
 import { useAuth } from '../AuthContext';
 import Icon from '../components/common/Icon';
 import TicketCard from '../components/tickets/TicketCard';
-import { MODULE_ROUTES, normalizeItems, requestAvailable } from '../services/moduleApi';
+import { MODULE_ROUTES, normalizeItems } from '../services/moduleApi';
+import {
+  patchTicketItemsForQuery,
+  requestSynchronizedCollection,
+  subscribeSyncResource,
+} from '../services/syncManager';
 import { getTicketId, sortTicketsNewestFirst } from '../utils/tickets';
 
 function firstName(name = '') {
@@ -31,30 +36,44 @@ function scheduleAfterPaint(callback) {
   return () => window.clearTimeout(id);
 }
 
-async function loadTicketHome(sessionToken, signal) {
-  const recentData = await requestAvailable(MODULE_ROUTES.tickets.list, {
-    page: 1,
-    pageSize: 3,
-    sortBy: 'Fecha',
-    sortDir: 'desc',
-    homeSummary: true,
-  }, sessionToken, { signal });
+const HOME_TICKET_QUERY = Object.freeze({
+  page: 1,
+  pageSize: 3,
+  sortBy: 'Fecha',
+  sortDir: 'desc',
+  homeSummary: true,
+});
+
+const HOME_MAINTENANCE_QUERY = Object.freeze({
+  page: 1,
+  pageSize: 1,
+  activo: true,
+  homeSummary: true,
+});
+
+async function loadTicketHome(sessionToken, userId, permissions, signal) {
+  const recentData = await requestSynchronizedCollection(
+    MODULE_ROUTES.tickets.list,
+    HOME_TICKET_QUERY,
+    sessionToken,
+    { resource: 'ticket', userId, permissions, signal },
+  );
   const summary = summaryCounts(recentData);
   if (summary) return { recentData, summary };
 
-  // Compatibilidad con un backend/App Script anterior que todavía ignore homeSummary.
+  // Compatibilidad con un backend anterior que todavía ignore homeSummary.
   const countPayload = { page: 1, pageSize: 1 };
   const [pendingData, finishedData] = await Promise.all([
-    requestAvailable(MODULE_ROUTES.tickets.list, {
+    requestSynchronizedCollection(MODULE_ROUTES.tickets.list, {
       ...countPayload,
       status: 'PENDIENTE',
       estado: 'PENDIENTE',
-    }, sessionToken, { signal }),
-    requestAvailable(MODULE_ROUTES.tickets.list, {
+    }, sessionToken, { resource: 'ticket', userId, permissions, signal }),
+    requestSynchronizedCollection(MODULE_ROUTES.tickets.list, {
       ...countPayload,
       status: 'FINALIZADA',
       estado: 'FINALIZADA',
-    }, sessionToken, { signal }),
+    }, sessionToken, { resource: 'ticket', userId, permissions, signal }),
   ]);
   return {
     recentData,
@@ -65,29 +84,29 @@ async function loadTicketHome(sessionToken, signal) {
   };
 }
 
-async function loadMaintenanceHome(sessionToken, signal) {
-  const summaryData = await requestAvailable(MODULE_ROUTES.maintenance.list, {
-    page: 1,
-    pageSize: 1,
-    activo: true,
-    homeSummary: true,
-  }, sessionToken, { signal });
+async function loadMaintenanceHome(sessionToken, userId, permissions, signal) {
+  const summaryData = await requestSynchronizedCollection(
+    MODULE_ROUTES.maintenance.list,
+    HOME_MAINTENANCE_QUERY,
+    sessionToken,
+    { resource: 'maintenance', userId, permissions, signal },
+  );
   const summary = summaryCounts(summaryData);
   if (summary) return summary;
 
-  // Compatibilidad con un backend/App Script anterior que todavía ignore homeSummary.
+  // Compatibilidad con un backend anterior que todavía ignore homeSummary.
   const countPayload = { page: 1, pageSize: 1, activo: true };
   const [pendingData, finishedData] = await Promise.all([
-    requestAvailable(MODULE_ROUTES.maintenance.list, {
+    requestSynchronizedCollection(MODULE_ROUTES.maintenance.list, {
       ...countPayload,
       status: 'PENDIENTE',
       estado: 'PENDIENTE',
-    }, sessionToken, { signal }),
-    requestAvailable(MODULE_ROUTES.maintenance.list, {
+    }, sessionToken, { resource: 'maintenance', userId, permissions, signal }),
+    requestSynchronizedCollection(MODULE_ROUTES.maintenance.list, {
       ...countPayload,
       status: 'FINALIZADO',
       estado: 'FINALIZADO',
-    }, sessionToken, { signal }),
+    }, sessionToken, { resource: 'maintenance', userId, permissions, signal }),
   ]);
   return {
     pending: responseTotal(pendingData),
@@ -96,8 +115,10 @@ async function loadMaintenanceHome(sessionToken, signal) {
 }
 
 export default function HomePage() {
-  const { user, hasPermission, sessionToken } = useAuth();
+  const { user, permissions, hasPermission, sessionToken, securityRevision } = useAuth();
   const [tickets, setTickets] = useState([]);
+  const [ticketSyncRevision, setTicketSyncRevision] = useState(0);
+  const [maintenanceSyncRevision, setMaintenanceSyncRevision] = useState(0);
   const [counts, setCounts] = useState({ pending: null, finished: null });
   const [maintenanceCounts, setMaintenanceCounts] = useState({ pending: null, finished: null });
   const [loading, setLoading] = useState(true);
@@ -122,7 +143,7 @@ export default function HomePage() {
     setError('');
     setCounts({ pending: null, finished: null });
 
-    loadTicketHome(sessionToken, controller.signal)
+    loadTicketHome(sessionToken, user?.UsuarioID, permissions, controller.signal)
       .then(({ recentData, summary }) => {
         if (!active) return;
         setCounts(summary);
@@ -142,7 +163,28 @@ export default function HomePage() {
       active = false;
       controller.abort();
     };
-  }, [sessionToken, canViewTickets]);
+  }, [sessionToken, canViewTickets, user?.UsuarioID, permissions, securityRevision, ticketSyncRevision]);
+
+  useEffect(() => subscribeSyncResource('ticket', ({ type, delta }) => {
+    if (!canViewTickets) return;
+    if (type === 'security-invalidated') {
+      setTickets([]);
+      setCounts({ pending: null, finished: null });
+      setLoading(true);
+      return;
+    }
+    if (type === 'snapshot' || delta?.queryReconcileRequired) {
+      setTicketSyncRevision((value) => value + 1);
+      return;
+    }
+    if (type !== 'delta' || !delta) return;
+    if (delta.counts) {
+      const pending = Number(delta.counts.pending);
+      const finished = Number(delta.counts.finished);
+      if (Number.isFinite(pending) && Number.isFinite(finished)) setCounts({ pending, finished });
+    }
+    setTickets((current) => patchTicketItemsForQuery(current, HOME_TICKET_QUERY, delta, 3));
+  }), [canViewTickets]);
 
   useEffect(() => {
     let active = true;
@@ -158,7 +200,7 @@ export default function HomePage() {
     setMaintenanceError('');
     setMaintenanceCounts({ pending: null, finished: null });
     const cancelDeferred = scheduleAfterPaint(() => {
-      loadMaintenanceHome(sessionToken, controller.signal)
+      loadMaintenanceHome(sessionToken, user?.UsuarioID, permissions, controller.signal)
         .then((summary) => {
           if (active) setMaintenanceCounts(summary);
         })
@@ -177,7 +219,27 @@ export default function HomePage() {
       cancelDeferred();
       controller.abort();
     };
-  }, [sessionToken, isAdmin]);
+  }, [sessionToken, isAdmin, user?.UsuarioID, permissions, securityRevision, maintenanceSyncRevision]);
+
+  useEffect(() => subscribeSyncResource('maintenance', ({ type, delta }) => {
+    if (!isAdmin) return;
+    if (type === 'security-invalidated') {
+      setMaintenanceCounts({ pending: null, finished: null });
+      setMaintenanceLoading(true);
+      return;
+    }
+    if (type === 'snapshot' || delta?.queryReconcileRequired) {
+      setMaintenanceSyncRevision((value) => value + 1);
+      return;
+    }
+    if (type !== 'delta' || !delta?.counts) return;
+    const pending = Number(delta.counts.pending);
+    const finished = Number(delta.counts.finished);
+    if (Number.isFinite(pending) && Number.isFinite(finished)) {
+      setMaintenanceCounts({ pending, finished });
+      setMaintenanceLoading(false);
+    }
+  }), [isAdmin]);
 
   return (
     <div className="page page--home">

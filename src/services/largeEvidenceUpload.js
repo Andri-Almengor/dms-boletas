@@ -1,5 +1,6 @@
 import { fileToBase64 } from '../utils/fileEncoding';
 import { requestAvailable } from './moduleApi';
+import { withMediaUploadPriority } from './mediaActivity';
 
 export const LARGE_EVIDENCE_THRESHOLD_BYTES = 256 * 1024;
 const TICKET_LARGE_INIT_ROUTES = ['boletas.evidence.large.init', 'tickets.evidence.large.init'];
@@ -25,46 +26,48 @@ export function shouldUseLargeEvidenceUpload(item = {}) {
 }
 
 async function uploadByChunks({ initRoutes, chunkRoutes, initPayload, file, sessionToken, signal, onProgress, chunkPayload = {} }) {
-  assertOnline();
-  const init = await requestAvailable(initRoutes, initPayload, sessionToken, requestOptions(signal));
-  if (init?.complete) return init.evidence || init;
-
-  const uploadToken = String(init?.uploadToken || '');
-  const chunkBytes = 256 * 1024;
-  if (!uploadToken) throw new Error('El servidor no devolvió una sesión para cargar el video.');
-
-  let offset = 0;
-  while (offset < file.size) {
-    if (signal?.aborted) {
-      const error = new Error('La carga del video fue cancelada.');
-      error.name = 'AbortError';
-      throw error;
-    }
+  return withMediaUploadPriority(async () => {
     assertOnline();
-    const end = Math.min(file.size, offset + chunkBytes);
-    const chunk = file.slice(offset, end, file.type || initPayload.mimeType || 'application/octet-stream');
-    let base64 = await fileToBase64(chunk, { signal });
-    try {
-      const result = await requestAvailable(chunkRoutes, {
-        ...chunkPayload,
-        uploadToken,
-        offset,
-        base64,
-      }, sessionToken, requestOptions(signal));
-      if (result?.complete) {
-        onProgress?.(100);
-        return result.evidence || result;
-      }
-      const nextOffset = Number(result?.nextOffset);
-      if (!Number.isSafeInteger(nextOffset) || nextOffset <= offset || nextOffset > file.size) throw new Error('El servidor no confirmó el siguiente bloque. Reintente la carga.');
-      offset = nextOffset;
-      onProgress?.(Math.min(99, Math.round((offset / file.size) * 100)));
-    } finally {
-      base64 = '';
-    }
-  }
+    const init = await requestAvailable(initRoutes, initPayload, sessionToken, requestOptions(signal));
+    if (init?.complete) return init.evidence || init;
 
-  throw new Error('La carga del video terminó sin confirmación de Google Drive.');
+    const uploadToken = String(init?.uploadToken || '');
+    const chunkBytes = 256 * 1024;
+    if (!uploadToken) throw new Error('El servidor no devolvió una sesión para cargar el video.');
+
+    let offset = 0;
+    while (offset < file.size) {
+      if (signal?.aborted) {
+        const error = new Error('La carga del video fue cancelada.');
+        error.name = 'AbortError';
+        throw error;
+      }
+      assertOnline();
+      const end = Math.min(file.size, offset + chunkBytes);
+      const chunk = file.slice(offset, end, file.type || initPayload.mimeType || 'application/octet-stream');
+      let base64 = await fileToBase64(chunk, { signal });
+      try {
+        const result = await requestAvailable(chunkRoutes, {
+          ...chunkPayload,
+          uploadToken,
+          offset,
+          base64,
+        }, sessionToken, requestOptions(signal));
+        if (result?.complete) {
+          onProgress?.(100);
+          return result.evidence || result;
+        }
+        const nextOffset = Number(result?.nextOffset);
+        if (!Number.isSafeInteger(nextOffset) || nextOffset <= offset || nextOffset > file.size) throw new Error('El servidor no confirmó el siguiente bloque. Reintente la carga.');
+        offset = nextOffset;
+        onProgress?.(Math.min(99, Math.round((offset / file.size) * 100)));
+      } finally {
+        base64 = '';
+      }
+    }
+
+    throw new Error('La carga del video terminó sin confirmación de Google Drive.');
+  });
 }
 
 export function uploadLargeTicketEvidence({ boletaUid, evidenceId, item, sessionToken, signal, onProgress }) {

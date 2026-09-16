@@ -1,3 +1,4 @@
+import { observeSyncWrite } from '../core/sync-write-observer.js';
 import { performance } from 'node:perf_hooks';
 import { BoundedCache } from '../core/bounded-cache.js';
 import {
@@ -271,8 +272,11 @@ function wrapWrite(method, fn) {
   return async (args = {}) => writeGate.run(async () => {
     stats.writeApiCalls += 1;
     recordSheetsWrite();
-    const result = await fn(args);
     const sheetNames = writeSheetNames(method, args);
+    observeSyncWrite(sheetNames);
+    let result;
+    try { result = await fn(args); }
+    finally { observeSyncWrite(sheetNames); }
     sheetsRevisionTracker.advance(sheetNames);
     invalidateReadCache(sheetNames);
     return result;

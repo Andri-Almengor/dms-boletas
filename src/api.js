@@ -1,5 +1,6 @@
 import { withRequestDeadline } from './services/requestPolicy';
 import { isOfflineModeEnabled } from './services/offlineMode';
+import { beginMediaUpload } from './services/mediaActivity';
 import {
   createAbortError,
   createUnknownResultError,
@@ -37,7 +38,8 @@ function isAppsScriptUrl(value) {
 
 function isReadRoute(route) {
   const value = String(route || '').toLowerCase();
-  return value === 'auth.me'
+  return value === 'sync.delta'
+    || value === 'auth.me'
     || value === 'assistant.chat'
     || value === 'asistente.chat'
     || value === 'config.get'
@@ -45,6 +47,16 @@ function isReadRoute(route) {
     || value.endsWith('.list')
     || value.endsWith('.get')
     || value.endsWith('.config');
+}
+
+function isMediaUploadRoute(route) {
+  const value = String(route || '').trim().toLowerCase();
+  if (!value) return false;
+  const mediaRoute = ['evidence', 'evidencia', 'images', 'imagenes', 'signature', 'firma', 'attachments', 'adjuntos']
+    .some((token) => value.includes(token));
+  const uploadAction = ['upload', 'subir', 'subirlote', '.init', '.iniciar', '.chunk', '.bloque']
+    .some((token) => value.includes(token));
+  return mediaRoute && uploadAction;
 }
 
 function nextClientMutationRevision() {
@@ -391,12 +403,23 @@ export async function apiRequest(route, payload = {}, sessionToken = '', options
   const signal = options?.signal;
   throwIfAborted(signal);
 
+  // Cursor probes and authoritative snapshots must never use the short/stale
+  // response cache: its content could predate the cursor captured by sync.
+  if (String(route).toLowerCase() === 'sync.delta' || (isReadRoute(route) && options.cache === 'no-store')) {
+    return performRequestWithRetry(route, payload, sessionToken, { signal });
+  }
+
   if (!isReadRoute(route)) {
-    writeEpoch += 1;
-    invalidateRelatedReads(route);
-    const data = await performRequestWithRetry(route, payload, sessionToken, { signal });
-    notifyWriteComplete(route, payload, data);
-    return data;
+    const releaseMedia = isMediaUploadRoute(route) ? beginMediaUpload() : null;
+    try {
+      writeEpoch += 1;
+      invalidateRelatedReads(route);
+      const data = await performRequestWithRetry(route, payload, sessionToken, { signal });
+      notifyWriteComplete(route, payload, data);
+      return data;
+    } finally {
+      releaseMedia?.();
+    }
   }
 
   if (String(route).toLowerCase() === 'auth.me') return performRequestWithRetry(route, payload, sessionToken, { signal });

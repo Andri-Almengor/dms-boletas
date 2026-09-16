@@ -4,6 +4,8 @@ import {
   OFFLINE_CATALOG_PAYLOAD,
   requestAvailable,
 } from './moduleApi';
+import { crudSyncResourceForRoutes } from './crudSyncDomain';
+import { requestSynchronizedCollection } from './syncManager';
 import { stableCatalogPayload } from '../utils/catalogCollection';
 
 const DEFAULT_CATALOG_TTL_MS = 5 * 60_000;
@@ -72,6 +74,22 @@ function normalizedCatalogResponse(response, payload = {}) {
   };
 }
 
+function readSyncIdentity(sessionToken) {
+  if (!sessionToken || typeof localStorage === 'undefined') return null;
+  try {
+    const stored = JSON.parse(localStorage.getItem('dms_session') || '{}');
+    if (!stored?.sessionToken || stored.sessionToken !== sessionToken) return null;
+    const userId = String(stored?.user?.UsuarioID || stored?.user?.id || '').trim();
+    if (!userId) return null;
+    return {
+      userId,
+      permissions: Array.isArray(stored.permissions) ? stored.permissions : [],
+    };
+  } catch {
+    return null;
+  }
+}
+
 export function catalogRequestKey({ routes, payload = {}, sessionToken = '' }) {
   return `${String(sessionToken || '')}::${routeKey(routes)}::${stableCatalogPayload(payload)}`;
 }
@@ -97,12 +115,27 @@ export async function loadCatalogResource({
   if (signal?.aborted) throw abortError();
   const key = catalogRequestKey({ routes, payload, sessionToken });
   const cached = catalogCache.get(key);
-  if (!force && cached && Date.now() - cached.at < ttlMs) return cached.value;
+  const resource = crudSyncResourceForRoutes(routes);
+  const syncIdentity = resource ? readSyncIdentity(sessionToken) : null;
+
+  // The in-memory TTL remains for resources that are not yet incremental.
+  // Incremental client/catalog resources always consult syncManager so their
+  // persistent IndexedDB snapshot can receive remote deltas before the TTL
+  // would otherwise expire.
+  if (!syncIdentity && !force && cached && Date.now() - cached.at < ttlMs) return cached.value;
 
   const options = signal ? { signal } : {};
   let response;
   try {
-    response = await requestAvailable(routes, payload, sessionToken, options);
+    response = syncIdentity
+      ? await requestSynchronizedCollection(routes, payload, sessionToken, {
+        resource,
+        userId: syncIdentity.userId,
+        permissions: syncIdentity.permissions,
+        signal,
+        forceSync: force,
+      })
+      : await requestAvailable(routes, payload, sessionToken, options);
   } catch (error) {
     const browserOffline = typeof navigator !== 'undefined' && navigator.onLine === false;
     if (!browserOffline && !isNetworkError(error)) throw error;

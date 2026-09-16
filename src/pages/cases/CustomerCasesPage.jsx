@@ -7,7 +7,9 @@ import {
   CUSTOMER_CASE_ROUTES,
   customerCaseStateLabel,
   customerCaseView,
+  readCustomerCaseListCache,
   requestCustomerCase,
+  subscribeCustomerCaseList,
 } from '../../services/customerCases';
 import '../../styles/customer-cases.css';
 import '../../styles/customer-cases-polish.css';
@@ -21,6 +23,9 @@ const STATUS_TABS = Object.freeze([
   { value: 'EN_PROCESO', label: 'En proceso', icon: 'engineering', countKey: 'EN_PROCESO' },
   { value: 'FINALIZADO', label: 'Finalizados', icon: 'task_alt', countKey: 'FINALIZADO' },
 ]);
+
+const EMPTY_COUNTS = Object.freeze({ TOTAL: 0, EN_ESPERA: 0, EN_PROCESO: 0, FINALIZADO: 0 });
+const EMPTY_MODE_COUNTS = Object.freeze({ REAL: 0, TEST: 0, ALL: 0 });
 
 function dateLabel(value) {
   const date = new Date(value);
@@ -46,8 +51,8 @@ function evidenceLabel(item) {
 export default function CustomerCasesPage() {
   const { sessionToken } = useAuth();
   const [cases, setCases] = useState([]);
-  const [counts, setCounts] = useState({ TOTAL: 0, EN_ESPERA: 0, EN_PROCESO: 0, FINALIZADO: 0 });
-  const [modeCounts, setModeCounts] = useState({ REAL: 0, TEST: 0, ALL: 0 });
+  const [counts, setCounts] = useState({ ...EMPTY_COUNTS });
+  const [modeCounts, setModeCounts] = useState({ ...EMPTY_MODE_COUNTS });
   const [mode, setMode] = useState('REAL');
   const [status, setStatus] = useState('');
   const [search, setSearch] = useState('');
@@ -57,30 +62,50 @@ export default function CustomerCasesPage() {
   const [settingsOpen, setSettingsOpen] = useState(false);
   const [error, setError] = useState('');
 
+  const casePayload = useMemo(() => ({
+    status,
+    mode,
+    search: submittedSearch,
+    page: 1,
+    pageSize: 200,
+  }), [mode, status, submittedSearch]);
+
+  const applyResponse = useCallback((response = {}) => {
+    setCases((response.items || []).map(customerCaseView));
+    setCounts(response.counts || { ...EMPTY_COUNTS });
+    setModeCounts(response.modeCounts || { ...EMPTY_MODE_COUNTS });
+  }, []);
+
   const load = useCallback(async ({ quiet = false } = {}) => {
     if (quiet) setRefreshing(true);
     else setLoading(true);
     setError('');
     try {
-      const response = await requestCustomerCase(CUSTOMER_CASE_ROUTES.list, {
-        status,
-        mode,
-        search: submittedSearch,
-        page: 1,
-        pageSize: 200,
-      }, sessionToken);
-      setCases((response.items || []).map(customerCaseView));
-      setCounts(response.counts || { TOTAL: 0, EN_ESPERA: 0, EN_PROCESO: 0, FINALIZADO: 0 });
-      setModeCounts(response.modeCounts || { REAL: 0, TEST: 0, ALL: 0 });
+      const response = await requestCustomerCase(CUSTOMER_CASE_ROUTES.list, casePayload, sessionToken);
+      applyResponse(response);
     } catch (loadError) {
       setError(loadError.message || 'No se pudieron cargar los casos.');
     } finally {
       setLoading(false);
       setRefreshing(false);
     }
-  }, [sessionToken, status, mode, submittedSearch]);
+  }, [applyResponse, casePayload, sessionToken]);
 
   useEffect(() => { load(); }, [load]);
+
+  useEffect(() => {
+    let active = true;
+    const unsubscribe = subscribeCustomerCaseList(() => {
+      void readCustomerCaseListCache(casePayload, sessionToken).then((cached) => {
+        if (!active || cached === null) return;
+        applyResponse(cached);
+      });
+    });
+    return () => {
+      active = false;
+      unsubscribe();
+    };
+  }, [applyResponse, casePayload, sessionToken]);
 
   const visibleCases = useMemo(() => {
     const query = search.trim().toLowerCase();

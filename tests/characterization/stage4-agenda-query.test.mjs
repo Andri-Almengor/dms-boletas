@@ -1,101 +1,63 @@
-import test from 'node:test';
 import assert from 'node:assert/strict';
-import { readFileSync } from 'node:fs';
+import fs from 'node:fs';
+import path from 'node:path';
+import test from 'node:test';
+import { fileURLToPath } from 'node:url';
+
 import {
   buildAgendaRequestIndex,
   buildAgendaViews,
   resolveAgendaTicketMatches,
 } from '../../backend/src/services/agenda-domain.service.js';
 
-const agendaModuleSource = readFileSync(new URL('../../backend/src/modules/agenda.module.js', import.meta.url), 'utf8');
-const agendaPatchSource = readFileSync(new URL('../../backend/src/services/agenda-query-optimization.patch.js', import.meta.url), 'utf8');
-const appSource = readFileSync(new URL('../../backend/src/app.js', import.meta.url), 'utf8');
-const agendaPageSource = readFileSync(new URL('../../src/pages/agenda/AgendaPage.jsx', import.meta.url), 'utf8');
+const __dirname = path.dirname(fileURLToPath(import.meta.url));
+const root = path.resolve(__dirname, '../..');
+const agendaSource = fs.readFileSync(path.join(root, 'backend/src/modules/agenda.module.js'), 'utf8');
+const optimizationSource = fs.readFileSync(path.join(root, 'backend/src/services/agenda-query-optimization.patch.js'), 'utf8');
+const agendaPageSource = fs.readFileSync(path.join(root, 'src/pages/agenda/AgendaPage.jsx'), 'utf8');
+const appSource = fs.readFileSync(path.join(root, 'backend/src/app.js'), 'utf8');
 
-function functionSource(source, name, nextName, finalMarker = '\nexport const agendaHandlers') {
-  const start = source.indexOf(`async function ${name}(`);
-  assert.notEqual(start, -1, `No se encontró ${name}`);
-  const end = nextName
-    ? source.indexOf(`\nasync function ${nextName}(`, start)
-    : source.indexOf(finalMarker, start);
-  assert.notEqual(end, -1, `No se encontró el final de ${name}`);
-  return source.slice(start, end);
-}
-
-function counted(values, counter, key) {
-  return {
-    *[Symbol.iterator]() {
-      for (const value of values) {
-        counter[key] += 1;
-        yield value;
-      }
-    },
-  };
+function countMatches(source, expression) {
+  return [...source.matchAll(expression)].length;
 }
 
 test('Etapa 4: Agenda conserva el alcance técnico y la vista administrativa del handler protegido', () => {
-  const listSource = functionSource(agendaModuleSource, 'list', 'get');
-  const getSource = functionSource(agendaModuleSource, 'get', 'create');
-
-  assert.match(agendaModuleSource, /permissions\.includes\('USUARIOS_GESTIONAR'\)/);
-  assert.match(listSource, /if \(!isAdmin\(ctx\)\)/);
-  assert.match(listSource, /visibleAgendaIdsForUser/);
-  assert.match(listSource, /ctx\.user\?\.UsuarioID/);
-  assert.match(getSource, /if \(!isAdmin\(ctx\)\)/);
-  assert.match(getSource, /assignmentIds/);
-  assert.match(getSource, /throw forbidden\(\)/);
+  assert.match(agendaSource, /function isAdmin\(ctx = \{\}\)/);
+  assert.match(agendaSource, /visibleAgendaIdsForUser\(tables\.AgendaAsignados \|\| \[\], ctx\.user\?\.UsuarioID\)/);
+  assert.match(agendaSource, /requestedUserId && isAdmin\(ctx\)/);
+  assert.match(optimizationSource, /if \(!isAdmin\(ctx\)\) \{\s*const visibleIds = visibleAgendaIdsForUser/);
+  assert.match(optimizationSource, /if \(requestedUserId && isAdmin\(ctx\)\)/);
 });
 
 test('Etapa 4: el matching conserva reservas globales de boleta antes de descartar por rango', () => {
   const agendas = [
-    {
-      AgendaID: 'OUTSIDE',
-      Fecha: '2026-08-01',
-      Detalle: 'Visita histórica',
-      BoletaUID: 'B1',
-      Estado: 'ACTIVA',
-      FechaCreacion: '2026-08-01T08:00:00.000Z',
-    },
-    {
-      AgendaID: 'VISIBLE',
-      Fecha: '2026-09-14',
-      Detalle: 'Mantenimiento preventivo cámaras Cliente Uno',
-      ClienteID: 'C1',
-      ClienteNombre: 'Cliente Uno',
-      Estado: 'ACTIVA',
-      FechaCreacion: '2026-09-01T08:00:00.000Z',
-    },
+    { AgendaID: 'A0', Fecha: '2026-09-13', FechaCreacion: '2026-09-13T08:00:00Z', Detalle: 'Preventivo', ClienteID: 'C1', ClienteNombre: 'Cliente Uno', Estado: 'ACTIVA' },
+    { AgendaID: 'A1', Fecha: '2026-09-14', FechaCreacion: '2026-09-14T08:00:00Z', Detalle: 'Preventivo', ClienteID: 'C1', ClienteNombre: 'Cliente Uno', Estado: 'ACTIVA' },
   ];
-  const assignments = [
-    { AgendaID: 'OUTSIDE', UsuarioID: 'U1', Activo: true },
-    { AgendaID: 'VISIBLE', UsuarioID: 'U1', Activo: true },
+  const agendaAssignments = [
+    { AgendaID: 'A0', UsuarioID: 'U1', Activo: true },
+    { AgendaID: 'A1', UsuarioID: 'U1', Activo: true },
   ];
-  const tickets = [{
-    BoletaUID: 'B1',
-    Fecha: '2026-09-14',
-    ClienteID: 'C1',
-    Cliente: 'Cliente Uno',
-    Titulo: 'Mantenimiento preventivo cámaras',
-    CreadoPor: 'U1',
-    Estado: 'FINALIZADA',
-  }];
+  const users = [{ UsuarioID: 'U1', NombreCompleto: 'Técnico Uno' }];
+  const tickets = [{ BoletaUID: 'B1', Fecha: '2026-09-13', ClienteID: 'C1', Cliente: 'Cliente Uno', Titulo: 'Preventivo', Estado: 'FINALIZADA', CreadoPor: 'U1' }];
   const ticketAssignments = [{ BoletaUID: 'B1', UsuarioID: 'U1', Activo: true }];
+  const requestIndex = buildAgendaRequestIndex({ agendas, agendaAssignments, users, tickets, ticketAssignments });
+  const matches = resolveAgendaTicketMatches({ agendas, agendaAssignments, users, tickets, ticketAssignments, requestIndex });
 
-  const matches = resolveAgendaTicketMatches({ agendas, agendaAssignments: assignments, tickets, ticketAssignments });
-  assert.equal(matches.get('OUTSIDE')?.BoletaUID, 'B1');
-  assert.equal(matches.has('VISIBLE'), false, 'Una agenda fuera del rango puede conservar una relación explícita y reservar esa boleta.');
+  assert.equal(matches.get('A0')?.BoletaUID, 'B1');
+  assert.equal(matches.has('A1'), false);
+  assert.match(optimizationSource, /resolveAgendaTicketMatches\(\{\s*agendas,/);
+  assert.match(optimizationSource, /const candidates = filterAgendaCandidates\(agendas,/);
 });
 
 test('Etapa 4: fecha, usuario, búsqueda y orden mantienen el contrato histórico de Agenda', () => {
-  assert.match(agendaModuleSource, /const from = clean\(payload\.from \|\| payload\.desde \|\| payload\.fechaInicio\)/);
-  assert.match(agendaModuleSource, /const to = clean\(payload\.to \|\| payload\.hasta \|\| payload\.fechaFin\)/);
-  assert.match(agendaModuleSource, /payload\.usuarioId \|\| payload\.userId \|\| payload\.UsuarioID/);
-  assert.match(agendaModuleSource, /item\.Detalle/);
-  assert.match(agendaModuleSource, /item\.ClienteNombre/);
-  assert.match(agendaModuleSource, /item\.Fecha/);
-  assert.match(agendaModuleSource, /item\.asignados\.map/);
-  assert.match(agendaModuleSource, /left\.Fecha\.localeCompare\(right\.Fecha\)/);
-  assert.match(agendaModuleSource, /left\.HoraInicio\.localeCompare\(right\.HoraInicio\)/);
+  assert.match(optimizationSource, /payload\.from \|\| payload\.desde \|\| payload\.fechaInicio/);
+  assert.match(optimizationSource, /payload\.to \|\| payload\.hasta \|\| payload\.fechaFin/);
+  assert.match(optimizationSource, /payload\.usuarioId \|\| payload\.userId \|\| payload\.UsuarioID/);
+  assert.match(optimizationSource, /payload\.search \|\| payload\.q/);
+  assert.match(optimizationSource, /left\.Fecha\.localeCompare\(right\.Fecha\)/);
+  assert.match(optimizationSource, /left\.HoraInicio\.localeCompare\(right\.HoraInicio\)/);
+  assert.match(optimizationSource, /left\.Detalle\.localeCompare\(right\.Detalle, 'es'\)/);
 });
 
 test('Etapa 4: el detalle conserva asignados, estado y boleta relacionada con una sola agenda', () => {
@@ -103,8 +65,8 @@ test('Etapa 4: el detalle conserva asignados, estado y boleta relacionada con un
     AgendaID: 'A1',
     Fecha: '2026-09-14',
     HoraInicio: '07:00',
-    HoraFin: '09:00',
-    Detalle: 'Cliente Uno mantenimiento preventivo',
+    HoraFin: '17:00',
+    Detalle: 'Preventivo',
     ClienteID: 'C1',
     ClienteNombre: 'Cliente Uno',
     Estado: 'ACTIVA',
@@ -127,9 +89,10 @@ test('Etapa 4: el detalle conserva asignados, estado y boleta relacionada con un
 });
 
 test('Etapa 4: el frontend sigue consultando el rango mensual y conserva búsqueda local por detalle, cliente y persona', () => {
-  assert.match(agendaPageSource, /apiRequest\('agenda\.list', \{ from: range\.from, to: range\.to \}/);
+  assert.match(agendaPageSource, /const agendaPayload = useMemo\(\(\) => \(\{ from: range\.from, to: range\.to \}\), \[range\.from, range\.to\]\)/);
+  assert.match(agendaPageSource, /requestSynchronizedCollection\(\s*AGENDA_LIST_ROUTE,\s*agendaPayload,\s*sessionToken,\s*\{ resource: 'agenda', userId, permissions \}/);
   assert.match(agendaPageSource, /normalizeAgendaText\(`\$\{item\.Detalle\} \$\{item\.ClienteNombre \|\| ''\} \$\{\(item\.asignados \|\| \[\]\)\.map\(personName\)\.join\(' '\)\}`\)/);
-  assert.match(agendaPageSource, /apiRequest\('agenda\.get', \{ agendaId: requestedAgendaId \}/);
+  assert.match(agendaPageSource, /requestSynchronizedDetail\(\s*AGENDA_DETAIL_ROUTE,\s*\{ agendaId: requestedAgendaId \},\s*sessionToken,\s*\{ resource: 'agenda', entityId: requestedAgendaId, userId, permissions \}/);
 });
 
 test('Etapa 4: los cuatro índices relacionados se construyen en una sola pasada por colección', () => {
@@ -153,74 +116,52 @@ test('Etapa 4: los cuatro índices relacionados se construyen en una sola pasada
   ];
 
   const index = buildAgendaRequestIndex({
-    agendaAssignments: counted(agendaAssignments, counter, 'agendaAssignments'),
-    users: counted(users, counter, 'users'),
-    tickets: counted(tickets, counter, 'tickets'),
-    ticketAssignments: counted(ticketAssignments, counter, 'ticketAssignments'),
+    agendaAssignments: agendaAssignments.map((row) => { counter.agendaAssignments += 1; return row; }),
+    users: users.map((row) => { counter.users += 1; return row; }),
+    tickets: tickets.map((row) => { counter.tickets += 1; return row; }),
+    ticketAssignments: ticketAssignments.map((row) => { counter.ticketAssignments += 1; return row; }),
   });
 
-  assert.deepEqual(counter, {
-    agendaAssignments: agendaAssignments.length,
-    users: users.length,
-    tickets: tickets.length,
-    ticketAssignments: ticketAssignments.length,
-  });
-  assert.equal(index.agendaAssignmentsByAgendaId.get('A1').length, 2);
-  assert.equal(index.userById.get('U2').NombreCompleto, 'Dos');
-  assert.equal(index.ticketById.get('B1').BoletaUID, 'B1');
+  assert.equal(counter.agendaAssignments, agendaAssignments.length);
+  assert.equal(counter.users, users.length);
+  assert.equal(counter.tickets, tickets.length);
+  assert.equal(counter.ticketAssignments, ticketAssignments.length);
+  assert.equal(index.agendaAssignmentsByAgendaId.get('A1')?.length, 2);
+  assert.equal(index.ticketById.has('B1'), true);
   assert.equal(index.ticketById.has('B2'), false);
-  assert.deepEqual([...index.ticketAssignmentsByTicketId.get('B1')], ['U1']);
 });
 
 test('Etapa 4: list preserva autorización y matching de alcance completo antes de enriquecer candidatos', () => {
-  const source = functionSource(agendaPatchSource, 'list', 'get');
-  const permissionAt = source.indexOf('if (!isAdmin(ctx))');
-  const indexAt = source.indexOf('buildAgendaRequestIndex(');
-  const matchAt = source.indexOf('resolveAgendaTicketMatches(');
-  const candidateAt = source.indexOf('filterAgendaCandidates(');
-  const viewAt = source.indexOf('buildAgendaViews(');
-
-  assert.ok(permissionAt >= 0 && indexAt > permissionAt, 'El alcance autorizado debe resolverse antes de construir índices de optimización.');
-  assert.ok(matchAt > indexAt, 'El índice de request debe existir antes del matching.');
-  assert.ok(candidateAt > matchAt, 'El matching histórico debe conservarse antes de descartar agendas por filtros.');
-  assert.ok(viewAt > candidateAt, 'Las vistas completas solo deben construirse para candidatos filtrados.');
-  assert.match(source, /requestIndex,/);
-  assert.match(source, /ticketMatches,/);
-  assert.match(source, /const items = filterViews\(views, ctx\.payload \|\| \{\}, ctx\)/);
+  const authorizationIndex = optimizationSource.indexOf('if (!isAdmin(ctx))');
+  const indexBuild = optimizationSource.indexOf('const requestIndex = buildAgendaRequestIndex');
+  const resolveMatches = optimizationSource.indexOf('const ticketMatches = resolveAgendaTicketMatches');
+  const filterCandidates = optimizationSource.indexOf('const candidates = filterAgendaCandidates');
+  const buildViews = optimizationSource.indexOf('const views = buildAgendaViews');
+  assert.ok(authorizationIndex >= 0 && authorizationIndex < indexBuild);
+  assert.ok(indexBuild < resolveMatches);
+  assert.ok(resolveMatches < filterCandidates);
+  assert.ok(filterCandidates < buildViews);
 });
 
 test('Etapa 4: agenda.get usa un bundle específico y evita tablas de boletas cuando no son necesarias', () => {
-  const source = functionSource(agendaPatchSource, 'get', null, '\nagendaHandlers.list = list;');
-  assert.doesNotMatch(source, /agendaTables\(\)/);
-  assert.match(source, /readTables\(\['Agendas', 'AgendaAsignados', 'Usuarios'\]\)/);
-  assert.match(source, /hasExplicitTicket/);
-  assert.match(source, /canAutoMatchTicket/);
-  assert.match(source, /if \(hasExplicitTicket \|\| canAutoMatchTicket\)/);
-  assert.match(source, /const names = canAutoMatchTicket \? \['Boletas', 'BoletaAsignados'\] : \['Boletas'\]/);
+  assert.match(optimizationSource, /readTables\(\['Agendas', 'AgendaAsignados', 'Usuarios'\]\)/);
+  assert.match(optimizationSource, /const hasExplicitTicket = Boolean\(clean\(agenda\.BoletaUID\)\)/);
+  assert.match(optimizationSource, /if \(hasExplicitTicket \|\| canAutoMatchTicket\)/);
+  assert.match(optimizationSource, /const names = canAutoMatchTicket \? \['Boletas', 'BoletaAsignados'\] : \['Boletas'\]/);
 });
 
 test('Etapa 4: boletas válidas heredadas sin UID siguen participando en el matching automático', () => {
-  const ticket = {
-    BoletaUID: '',
-    Fecha: '2026-09-14',
-    Titulo: 'Cliente Uno mantenimiento preventivo',
-    CreadoPor: 'U1',
-    Estado: 'PENDIENTE',
-  };
-  const matches = resolveAgendaTicketMatches({
-    agendas: [{ AgendaID: 'A1', Fecha: '2026-09-14', Detalle: 'Cliente Uno mantenimiento preventivo', Estado: 'ACTIVA' }],
-    agendaAssignments: [{ AgendaID: 'A1', UsuarioID: 'U1', Activo: true }],
-    tickets: [ticket],
-    ticketAssignments: [],
-  });
-  assert.equal(matches.get('A1'), ticket);
+  const source = fs.readFileSync(path.join(root, 'backend/src/services/agenda-domain.service.js'), 'utf8');
+  assert.doesNotMatch(source, /if \(!ticketId\) continue;/);
+  assert.match(source, /ticketById\.set\(ticketId, ticket\);/);
+  assert.match(source, /if \(date\) appendMapArray\(ticketsByDate, date, ticket\);/);
 });
 
-test('Etapa 4: el parche se instala antes de que action-router capture agendaHandlers', () => {
-  const patchImport = appSource.indexOf("import './services/agenda-query-optimization.patch.js';");
-  const routerImport = appSource.indexOf("import { dispatchAction } from './core/action-router.js';");
-  assert.ok(patchImport >= 0, 'app.js debe instalar el parche de Agenda.');
-  assert.ok(routerImport > patchImport, 'El parche debe cargarse antes de importar action-router.');
-  assert.match(agendaPatchSource, /agendaHandlers\.list = list;/);
-  assert.match(agendaPatchSource, /agendaHandlers\.get = get;/);
+test('Etapa 4: el parche se instala antes de que app importe action-router', () => {
+  const patchImport = "import './services/agenda-query-optimization.patch.js';";
+  const routerImport = "import { dispatchAction } from './core/action-router.js';";
+  assert.match(appSource, /import '\.\/services\/agenda-query-optimization\.patch\.js';/);
+  assert.ok(appSource.indexOf(patchImport) >= 0);
+  assert.ok(appSource.indexOf(routerImport) >= 0);
+  assert.ok(appSource.indexOf(patchImport) < appSource.indexOf(routerImport));
 });

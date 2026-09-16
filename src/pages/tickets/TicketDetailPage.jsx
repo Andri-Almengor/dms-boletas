@@ -7,6 +7,10 @@ import MediaPreview from '../../components/tickets/MediaPreview';
 import SignaturePad from '../../components/tickets/SignaturePad';
 import { TicketStatusChip } from '../../components/tickets/TicketCard';
 import { MODULE_ROUTES, pick, requestAvailable } from '../../services/moduleApi';
+import {
+  requestSynchronizedDetail,
+  subscribeSyncEntity,
+} from '../../services/syncManager';
 import { shouldUseLargeEvidenceUpload, uploadLargeTicketEvidence } from '../../services/largeEvidenceUpload';
 import { prepareEvidenceFiles } from '../../utils/evidenceMedia';
 import { normalizeMacAddress } from '../../utils/macAddress';
@@ -58,9 +62,16 @@ function authoritativeEvidence(result) {
   return result?.evidence || result?.evidencia || result || null;
 }
 
+function normalizeDetailResult(result) {
+  if (!result) return null;
+  return result?.boleta
+    ? result
+    : { boleta: result, evidencias: result?.Evidencias || [], asignados: result?.asignados || [] };
+}
+
 export default function TicketDetailPage() {
   const { boletaUid } = useParams();
-  const { sessionToken, hasPermission } = useAuth();
+  const { sessionToken, user, permissions, hasPermission, securityRevision } = useAuth();
   const navigate = useNavigate();
   const cameraInputRef = useRef(null);
   const videoInputRef = useRef(null);
@@ -109,16 +120,28 @@ export default function TicketDetailPage() {
     });
   }
 
-  async function loadTicket() {
+  async function loadTicket({ signal, forceSync = false, showLoading = true } = {}) {
     const sequence = ++loadSequenceRef.current;
-    setLoading(true);
+    if (showLoading) setLoading(true);
     setError('');
     try {
-      const result = await requestAvailable(MODULE_ROUTES.tickets.get, { boletaUid, id: boletaUid }, sessionToken);
-      if (sequence !== loadSequenceRef.current) return;
-      setData(result?.boleta ? result : { boleta: result, evidencias: result?.Evidencias || [], asignados: result?.asignados || [] });
+      const result = await requestSynchronizedDetail(
+        MODULE_ROUTES.tickets.get,
+        { boletaUid, id: boletaUid },
+        sessionToken,
+        {
+          resource: 'ticket',
+          entityId: boletaUid,
+          userId: user?.UsuarioID,
+          permissions,
+          signal,
+          forceSync,
+        },
+      );
+      if (signal?.aborted || sequence !== loadSequenceRef.current) return;
+      setData(normalizeDetailResult(result));
     } catch (err) {
-      if (sequence !== loadSequenceRef.current) return;
+      if (signal?.aborted || sequence !== loadSequenceRef.current || err?.name === 'AbortError') return;
       setError(err.message);
       setData(null);
     } finally {
@@ -127,9 +150,33 @@ export default function TicketDetailPage() {
   }
 
   useEffect(() => {
-    loadTicket();
-    return () => { loadSequenceRef.current += 1; };
-  }, [boletaUid, sessionToken]);
+    const controller = new AbortController();
+    loadTicket({ signal: controller.signal });
+    return () => {
+      controller.abort();
+      loadSequenceRef.current += 1;
+    };
+  }, [boletaUid, sessionToken, user?.UsuarioID, permissions, securityRevision]);
+
+  useEffect(() => subscribeSyncEntity('ticket', boletaUid, ({ type, data: incoming }) => {
+    if (type === 'security-invalidated') {
+      setData(null);
+      setError('La seguridad de la sesión cambió. Validando nuevamente sus permisos...');
+      setLoading(true);
+      return;
+    }
+    if (type === 'removed') {
+      setData(null);
+      setLoading(false);
+      setError('Esta boleta ya no está disponible para su usuario.');
+      return;
+    }
+    if ((type === 'detail' || type === 'snapshot') && incoming) {
+      setData(normalizeDetailResult(incoming));
+      setLoading(false);
+      setError('');
+    }
+  }), [boletaUid]);
 
   useEffect(() => {
     function onEvidenceUploaded(event) {
@@ -180,7 +227,7 @@ export default function TicketDetailPage() {
         result = await requestAvailable(RESEND_CHAT_ROUTES, { boletaUid }, sessionToken);
         setNotice(result?.message || 'Boleta reenviada únicamente a los chats configurados. No se envió correo electrónico.');
       }
-      await loadTicket();
+      await loadTicket({ forceSync: true, showLoading: false });
     } catch (err) {
       setError(err.message);
     } finally {
