@@ -1,6 +1,6 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import { materializeMaintenanceDeltaFromRows } from '../src/services/sync-maintenance.service.js';
+import { materializeMaintenanceDeltaFromRows } from '../src/core/sync-maintenance-delta.js';
 
 function event(id, operation = 'UPSERT') {
   return { EntityID: id, Operation: operation };
