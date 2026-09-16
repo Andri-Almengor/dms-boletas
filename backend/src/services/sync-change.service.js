@@ -1,3 +1,4 @@
+import { syncUnloggedRevision } from '../core/sync-write-observer.js';
 import { performance } from 'node:perf_hooks';
 import { env } from '../config/env.js';
 import { AppError } from '../core/errors.js';
@@ -258,15 +259,19 @@ async function readDescriptorInternal() {
   return cachedDescriptor;
 }
 
+function descriptorWithWriteRevision(descriptor) {
+  return { ...descriptor, generation: `${descriptor.generation}:r${syncUnloggedRevision()}` };
+}
+
 export async function getSyncDescriptor({ force = false } = {}) {
   if (!env.incrementalSyncEnabled) {
     return { enabled: false, generation: '', schemaVersion: SYNC_SCHEMA_VERSION, unsafe: false, unsafeReason: '' };
   }
-  if (!force && cachedDescriptor) return { ...cachedDescriptor, unsafe: Boolean(unsafeReason), unsafeReason };
+  if (!force && cachedDescriptor) return descriptorWithWriteRevision({ ...cachedDescriptor, unsafe: Boolean(unsafeReason), unsafeReason });
   if (!descriptorPromise || force) {
     descriptorPromise = readDescriptorInternal().finally(() => { descriptorPromise = null; });
   }
-  return descriptorPromise;
+  return descriptorWithWriteRevision(await descriptorPromise);
 }
 
 async function initializeCursor() {

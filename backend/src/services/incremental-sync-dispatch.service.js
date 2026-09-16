@@ -1,3 +1,4 @@
+import { trackSyncWrites, confirmObservedSyncWrites } from '../core/sync-write-observer.js';
 import { env } from '../config/env.js';
 import { dispatchAction } from '../core/action-router.js';
 import { authenticate } from './auth.service.js';
@@ -46,7 +47,11 @@ export function expandMutationEntityIds(classification = {}, result = null) {
   };
 }
 
-export async function dispatchActionWithIncrementalSync(args = {}) {
+export function dispatchActionWithIncrementalSync(args = {}) {
+  return trackSyncWrites(() => dispatchTrackedAction(args));
+}
+
+async function dispatchTrackedAction(args = {}) {
   if (String(args.route || '') === 'sync.delta') {
     const auth = await authenticate(args.sessionToken || '');
     return buildSyncDelta({ ...args, ...auth });
@@ -98,6 +103,7 @@ export async function dispatchActionWithIncrementalSync(args = {}) {
     sessionToken: args.sessionToken || '',
     ...auth,
   };
-  await recordClassifiedSyncChanges([mutation, ...derived], context);
+  const recorded = await recordClassifiedSyncChanges([mutation, ...derived], context);
+  if (Array.isArray(recorded) && recorded.length) confirmObservedSyncWrites();
   return result;
 }

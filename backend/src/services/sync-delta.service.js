@@ -200,6 +200,11 @@ export async function buildSyncDelta(ctx = {}) {
     return finishResponse({ ...(await fullSnapshotResponse({ descriptor, resource, entityId, fromCursor: payload.cursor, reason: 'feature_disabled' })), cacheScope }, startedAt);
   }
 
+  if (payload.cacheScope && payload.cacheScope !== cacheScope) {
+    return finishResponse({ ...(await fullSnapshotResponse({ descriptor, resource, entityId,
+      fromCursor: payload.cursor, reason: 'security_scope_changed', securityInvalidated: true })), cacheScope }, startedAt);
+  }
+
   if (descriptor.unsafe) {
     return finishResponse({ ...(await fullSnapshotResponse({ descriptor, resource, entityId, fromCursor: payload.cursor, reason: 'sync_unsafe' })), cacheScope }, startedAt);
   }

@@ -597,6 +597,7 @@ async function synchronizeResourceInternal({
       resource,
       cursor: Number(state.cursor || 1),
       generation: state.generation,
+      cacheScope: state.cacheScope,
       schemaVersion: state.schemaVersion,
     }, sessionToken, { signal });
 
@@ -675,6 +676,7 @@ async function synchronizeDetailInternal({
       entityId,
       cursor: Number(state.cursor || 1),
       generation: state.generation,
+      cacheScope: state.cacheScope,
       schemaVersion: state.schemaVersion,
     }, sessionToken, { signal });
 
