@@ -141,7 +141,9 @@ async function materializeChangedDetail(ctx, resource, resourceSpec, entityId, m
     return materialized.upserts?.[0] || null;
   }
   if (resource === 'agenda') {
-    return (materialized.upserts || []).find((item) => String(item?.AgendaID || '') === String(entityId)) || null;
+    const item = (materialized.upserts || [])
+      .find((candidate) => String(candidate?.AgendaID || '') === String(entityId)) || null;
+    return item ? { item } : null;
   }
 
   if (!['ticket', 'maintenance'].includes(resource) || !resourceSpec?.detailRoute) return null;
