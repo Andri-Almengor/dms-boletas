@@ -10,10 +10,12 @@ permissions:
 jobs:
   build:
     runs-on: ubuntu-latest
-    timeout-minutes: 25
+    timeout-minutes: 45
     steps:
       - name: Checkout
         uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
 
       - name: Setup Node
         uses: actions/setup-node@v4
@@ -30,24 +32,19 @@ jobs:
       - name: Install backend dependencies
         run: npm ci --prefix backend
 
-      - name: Run characterization tests
-        run: npm run test:characterization
-
-      - name: Build frontend
-        run: npm run build
-
-      - name: Check backend syntax
+      - name: Run requested final validation
         run: |
-          find backend/src -name '*.js' -print0 | xargs -0 -n1 node --check
-
-      - name: Audit production dependencies
-        run: npm run audit:security
-
-      - name: Collect final metrics and CSS audit
-        run: |
+          npm run test:characterization
+          npm run check:backend
+          npm run build
           npm run baseline
+          npm run verify:stage0
+          npm run audit:security
           npm run report:final
-          node scripts/low-memory-smoke.mjs > .artifacts/low-memory-smoke.json
+          npm run test:stress
+          npm run verify:final
+          node scripts/benchmark-critical-ticket-routes.mjs
+          git diff --check
 
       - name: Upload final validation report
         if: always()
