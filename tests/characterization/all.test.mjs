@@ -97,3 +97,5 @@ import './global-stability.test.mjs';
 
 import './case-chunk-memory.test.mjs';
 import './shared-list-work.test.mjs';
+
+import './latest-resource.test.mjs';

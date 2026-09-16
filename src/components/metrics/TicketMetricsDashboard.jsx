@@ -1,7 +1,8 @@
-import React, { useCallback, useEffect, useMemo, useState } from 'react';
+import React, { useCallback, useMemo, useState } from 'react';
 import { useAuth } from '../../AuthContext';
 import Icon from '../common/Icon';
 import { requestAvailable } from '../../services/moduleApi';
+import useLatestResource from '../../hooks/useLatestResource';
 import {
   BarDistribution,
   DateColumns,
@@ -33,23 +34,12 @@ function activateWithKeyboard(event, action) {
 export default function TicketMetricsDashboard() {
   const { sessionToken } = useAuth();
   const [filters, setFilters] = useState(INITIAL_FILTERS);
-  const [data, setData] = useState(null);
-  const [loading, setLoading] = useState(true);
-  const [error, setError] = useState('');
-
-  const load = useCallback(async () => {
-    setLoading(true);
-    setError('');
-    try {
-      setData(await requestAvailable(TICKET_METRICS_ROUTES, filters, sessionToken));
-    } catch (requestError) {
-      setError(requestError.message || 'No fue posible cargar las métricas de boletas.');
-    } finally {
-      setLoading(false);
-    }
-  }, [filters, sessionToken]);
-
-  useEffect(() => { load(); }, [load]);
+  const fetchMetrics = useCallback((signal) => requestAvailable(
+    TICKET_METRICS_ROUTES, filters, sessionToken, { signal },
+  ), [filters, sessionToken]);
+  const { data, loading, error, load } = useLatestResource(
+    fetchMetrics, 'No fue posible cargar las métricas de boletas.',
+  );
 
   function updateFilter(key, value) {
     setFilters((current) => ({
