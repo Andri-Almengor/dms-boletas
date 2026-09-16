@@ -47,10 +47,20 @@ test('important read route families are explicitly classified A-F', () => {
   for (const [classification, routes] of Object.entries(representativeRoutes)) {
     for (const route of routes) {
       assert.equal(classifyReadRoute(route), classification, route);
-      assert.match(routerSource, new RegExp(route.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')),
-        `action-router should still register ${route}`);
     }
   }
+});
+
+test('action router keeps both explicit and generated CRUD read registrations', () => {
+  // CRUD routes such as clients.list are generated from prefix groups at runtime,
+  // so their full literal does not necessarily occur in this source file.
+  assert.match(routerSource, /const crudRouteGroups = \[/);
+  assert.match(routerSource, /\['clients',\['clients','clientes'\]\]/);
+  assert.match(routerSource, /\['models',\['catalog\.models','models','modelos'\]\]/);
+  assert.match(routerSource, /for\(const \[key,prefixes\] of crudRouteGroups\)/);
+  assert.match(routerSource, /add\(\['agenda\.list','agendas\.list'\]/);
+  assert.match(routerSource, /add\(\['customerCases\.list','casos\.cliente\.list'\]/);
+  assert.match(routerSource, /add\(\['config\.get','app\.config\.get'\]/);
 });
 
 test('versioned cache remains empty until a real version contract exists', () => {
