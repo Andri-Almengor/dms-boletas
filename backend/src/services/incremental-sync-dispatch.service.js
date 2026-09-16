@@ -14,6 +14,10 @@ const PUBLIC_SYNC_ACTORS = new Set([
   'casos.cliente.public.submit',
 ]);
 
+function clean(value) {
+  return String(value ?? '').trim();
+}
+
 function publicActor(route) {
   return PUBLIC_SYNC_ACTORS.has(String(route || ''))
     ? { user: { UsuarioID: 'CLIENTE', Nombre: 'Cliente' }, permissions: [] }
@@ -25,6 +29,21 @@ async function authenticatedContext(args = {}) {
   return authenticate(args.sessionToken);
 }
 
+export function expandMutationEntityIds(classification = {}, result = null) {
+  if (classification?.resource !== 'agenda' || !Array.isArray(result?.items)) return classification;
+  const entityIds = [...new Set(
+    result.items
+      .map((item) => clean(item?.AgendaID || item?.agendaId || item?.id))
+      .filter(Boolean),
+  )];
+  if (!entityIds.length) return classification;
+  return {
+    ...classification,
+    entityId: entityIds[0],
+    entityIds,
+  };
+}
+
 export async function dispatchActionWithIncrementalSync(args = {}) {
   if (String(args.route || '') === 'sync.delta') {
     const auth = await authenticate(args.sessionToken || '');
@@ -32,7 +51,10 @@ export async function dispatchActionWithIncrementalSync(args = {}) {
   }
 
   const result = await dispatchAction(args);
-  const mutation = classifyMutationRoute(args.route, args.payload || {}, result);
+  const mutation = expandMutationEntityIds(
+    classifyMutationRoute(args.route, args.payload || {}, result),
+    result,
+  );
   if (mutation.classification === SYNC_MUTATION_CLASS.NO_SYNC_REQUIRED) return result;
 
   const auth = await authenticatedContext(args);
