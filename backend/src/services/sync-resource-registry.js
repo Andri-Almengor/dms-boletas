@@ -66,17 +66,41 @@ const SECURITY_MUTATIONS = new Set([
   'usuarios.contrasena.restablecer', 'auth.changePassword', 'auth.change-password',
 ]);
 
+// Keep the most-specific client aliases before clients./clientes. so nested
+// resources cannot be swallowed by the generic client prefix. Operational
+// aliases use the same aggregate as their administrative counterparts.
 const RESOURCE_PREFIXES = Object.freeze([
+  {
+    prefixes: [
+      'clientLocations.', 'clients.locations.', 'clientes.ubicaciones.', 'ubicacionesCliente.',
+      'clients.operational.locations.', 'clientLocations.operational.',
+      'clientes.ubicaciones.operational.', 'ubicacionesCliente.operational.',
+    ],
+    resource: 'clientLocation',
+  },
+  {
+    prefixes: [
+      'equipmentLocations.', 'clients.equipmentLocations.', 'clientes.ubicacionesEquipo.', 'ubicacionesEquipo.',
+      'clients.operational.equipmentLocations.', 'equipmentLocations.operational.',
+      'clientes.ubicacionesEquipo.operational.', 'ubicacionesEquipo.operational.',
+    ],
+    resource: 'equipmentLocation',
+  },
+  {
+    prefixes: [
+      'contacts.', 'clients.contacts.', 'clientes.contactos.', 'contactosCliente.',
+      'clients.operational.contacts.', 'contacts.operational.',
+      'clientes.contactos.operational.', 'contactosCliente.operational.',
+    ],
+    resource: 'contact',
+  },
+  { prefixes: ['catalog.categories.', 'catalog.operational.categories.', 'categories.', 'categorias.'], resource: 'catalogCategory' },
+  { prefixes: ['catalog.deviceTypes.', 'catalog.operational.deviceTypes.', 'deviceTypes.', 'tiposDispositivo.'], resource: 'deviceType' },
+  { prefixes: ['catalog.manufacturers.', 'catalog.operational.manufacturers.', 'manufacturers.', 'fabricantes.'], resource: 'manufacturer' },
+  { prefixes: ['catalog.models.', 'catalog.operational.models.', 'models.', 'modelos.'], resource: 'model' },
+  { prefixes: ['catalog.failureTypes.', 'catalog.operational.failureTypes.', 'failureTypes.', 'tiposFalla.'], resource: 'failureType' },
+  { prefixes: ['catalog.deviceManufacturers.', 'catalog.operational.deviceManufacturers.', 'deviceManufacturers.', 'tipoDispositivoFabricantes.'], resource: 'deviceManufacturerRelation' },
   { prefixes: ['clients.', 'clientes.'], resource: 'client' },
-  { prefixes: ['clientLocations.', 'clients.locations.', 'clientes.ubicaciones.', 'ubicacionesCliente.'], resource: 'clientLocation' },
-  { prefixes: ['equipmentLocations.', 'clients.equipmentLocations.', 'clientes.ubicacionesEquipo.', 'ubicacionesEquipo.'], resource: 'equipmentLocation' },
-  { prefixes: ['contacts.', 'clients.contacts.', 'clientes.contactos.', 'contactosCliente.'], resource: 'contact' },
-  { prefixes: ['catalog.categories.', 'categories.', 'categorias.'], resource: 'catalogCategory' },
-  { prefixes: ['catalog.deviceTypes.', 'deviceTypes.', 'tiposDispositivo.'], resource: 'deviceType' },
-  { prefixes: ['catalog.manufacturers.', 'manufacturers.', 'fabricantes.'], resource: 'manufacturer' },
-  { prefixes: ['catalog.models.', 'models.', 'modelos.'], resource: 'model' },
-  { prefixes: ['catalog.failureTypes.', 'failureTypes.', 'tiposFalla.'], resource: 'failureType' },
-  { prefixes: ['catalog.deviceManufacturers.', 'deviceManufacturers.', 'tipoDispositivoFabricantes.'], resource: 'deviceManufacturerRelation' },
   { prefixes: ['customerCases.', 'casos.cliente.'], resource: 'customerCase' },
   { prefixes: ['knowledge.', 'baseConocimientos.', 'conocimiento.', 'tutorials.'], resource: 'knowledgeArticle' },
 ]);
