@@ -1,6 +1,13 @@
 import { uploadCustomerCaseFile } from './largeEvidenceUpload';
 import { apiRequest } from '../api';
 import { requestFirstAvailable } from './aliasResolver';
+import {
+  readSynchronizedCollectionCache,
+  requestSynchronizedCollection,
+  requestSynchronizedDetail,
+  subscribeSyncEntity,
+  subscribeSyncResource,
+} from './syncManager';
 
 export const CUSTOMER_CASE_ROUTES = Object.freeze({
   publicGet: ['customerCases.public.get', 'casos.cliente.public.get'],
@@ -16,13 +23,73 @@ export const CUSTOMER_CASE_ROUTES = Object.freeze({
   mediaGet: ['customerCases.media.get', 'casos.cliente.media.get'],
 });
 
+function normalizedRoutes(routes) {
+  return (Array.isArray(routes) ? routes : [routes]).map((route) => String(route || '').toLowerCase());
+}
+
+function storedSyncContext(sessionToken = '') {
+  if (!sessionToken || typeof localStorage === 'undefined') return null;
+  try {
+    const stored = JSON.parse(localStorage.getItem('dms_session') || '{}');
+    if (String(stored.sessionToken || '') !== String(sessionToken)) return null;
+    return {
+      userId: String(stored.user?.UsuarioID || stored.user?.id || ''),
+      permissions: Array.isArray(stored.permissions) ? stored.permissions : [],
+    };
+  } catch {
+    return null;
+  }
+}
+
+function customerCaseEntityId(payload = {}) {
+  return String(payload.caseId || payload.CasoID || payload.id || '').trim();
+}
+
 export function requestCustomerCase(routes, payload = {}, sessionToken = '', options = {}) {
   const candidates = Array.isArray(routes) ? routes : [routes];
+  const syncContext = storedSyncContext(sessionToken);
+  const names = normalizedRoutes(candidates);
+  if (syncContext && names.some((route) => ['customercases.list', 'casos.cliente.list'].includes(route))) {
+    return requestSynchronizedCollection(candidates, payload, sessionToken, {
+      resource: 'customerCase',
+      ...syncContext,
+      signal: options?.signal,
+    });
+  }
+  if (syncContext && names.some((route) => ['customercases.get', 'casos.cliente.get'].includes(route))) {
+    const entityId = customerCaseEntityId(payload);
+    if (entityId) {
+      return requestSynchronizedDetail(candidates, payload, sessionToken, {
+        resource: 'customerCase',
+        entityId,
+        ...syncContext,
+        signal: options?.signal,
+      });
+    }
+  }
   return requestFirstAvailable(
     candidates,
     (route) => apiRequest(route, payload, sessionToken, options),
     { signal: options?.signal },
   );
+}
+
+export async function readCustomerCaseListCache(payload = {}, sessionToken = '') {
+  const syncContext = storedSyncContext(sessionToken);
+  if (!syncContext) return null;
+  return readSynchronizedCollectionCache(
+    CUSTOMER_CASE_ROUTES.list,
+    payload,
+    { resource: 'customerCase', ...syncContext },
+  );
+}
+
+export function subscribeCustomerCaseList(callback) {
+  return subscribeSyncResource('customerCase', callback);
+}
+
+export function subscribeCustomerCase(entityId, callback) {
+  return subscribeSyncEntity('customerCase', entityId, callback);
 }
 
 export function normalizeCustomerCaseState(value) {
@@ -96,7 +163,6 @@ export async function prepareCustomerCaseEvidence(file) {
 export async function uploadCustomerCaseEvidences({token,requestId,evidences}) {
   const results=[];
   for (const item of evidences) {
-    // Successful receipts survive a submit retry in the current form.
     if (!item.uploadReference) {
       const uploaded=await uploadCustomerCaseFile({token,requestId,item});
       Object.assign(item,uploaded);
