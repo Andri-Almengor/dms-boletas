@@ -34,7 +34,12 @@ if (!ticketDeliveryHandlers[INSTALL_FLAG]) {
     if (!ticketId) throw notFound('No se indicó la boleta solicitada.');
 
     const snapshot = createTicketDetailSnapshot();
-    const tickets = await snapshot.read('Boletas', { force: true });
+    // El repositorio ya mantiene coherencia por revisión para todas las
+    // escrituras de la aplicación. Forzar Boletas aquí hacía que cada detalle
+    // abierto después de la ventana de coalescencia descartara una tabla válida
+    // y descargara nuevamente la hoja completa. Reutilizamos la misma política
+    // TTL/coherencia que las listas; el snapshot sigue aislando esta solicitud.
+    const tickets = await snapshot.read('Boletas');
     const ticket = snapshot.locate(tickets, ticketId);
     if (!ticket) throw notFound('No se encontró la boleta solicitada.');
 

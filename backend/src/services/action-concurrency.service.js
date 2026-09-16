@@ -25,6 +25,7 @@ function normalizedRoute(route) {
 function isReadRoute(route) {
   const value = normalizedRoute(route);
   return value === 'auth.me'
+    || value === 'sync.delta'
     || value === 'assistant.chat'
     || value === 'asistente.chat'
     || value === 'config.get'
@@ -56,7 +57,6 @@ function isHeavyRoute(route) {
     || value.includes('reenviar')
     || value.includes('testfinalize')
     || value.includes('probar')
-    || value.includes('.media.get')
     || ['customercases.public.submit', 'casos.cliente.public.submit'].includes(value);
 }
 
@@ -82,6 +82,8 @@ export async function runWithActionConcurrency(route, operation) {
     // Las acciones pesadas tienen un carril exclusivo. No reservan además un
     // slot de escrituras normales durante varios minutos: las escrituras a
     // Sheets ya están serializadas por los gates internos del repositorio.
+    // Las lecturas de medios solo emiten un grant temporal y las lecturas
+    // incrementales no deben competir con finalizaciones/reportes pesados.
     if (normalizedRoute(route).startsWith('auth.')) {
       releaseDedicated = await authActions.acquire();
     } else if (/evidence|images|imagenes|grande|attachments|adjuntos/.test(normalizedRoute(route))) {

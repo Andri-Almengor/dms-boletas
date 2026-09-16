@@ -18,6 +18,8 @@ const mediaQueue = source('src/services/mediaPreviewQueue.js');
 const mediaStream = source('backend/src/services/protected-media-stream.service.js');
 const mediaPatch = source('backend/src/services/protected-media-stream.patch.js');
 const detailPatch = source('backend/src/services/ticket-detail-read-optimization.patch.js');
+const ticketMulti = source('backend/src/modules/ticket-multi.module.js');
+const actionConcurrency = source('backend/src/services/action-concurrency.service.js');
 const singleFlight = source('backend/src/services/action-single-flight.service.js');
 const multiUpload = source('src/components/forms/TicketEvidenceMultiSelectBridge.jsx');
 const detailPage = source('src/pages/tickets/TicketDetailPage.jsx');
@@ -109,12 +111,35 @@ test('streams de media conservan http-all y reservan capacidad foreground', () =
   assert.match(concurrency, /foregroundReserve/);
 });
 
+test('media.get y sync.delta no compiten con finalizaciones en el carril pesado', () => {
+  const readStart = actionConcurrency.indexOf('function isReadRoute');
+  const heavyStart = actionConcurrency.indexOf('function isHeavyRoute');
+  const busyStart = actionConcurrency.indexOf('function addBusyContext');
+  assert.ok(readStart >= 0 && heavyStart > readStart && busyStart > heavyStart);
+  const readClassifier = actionConcurrency.slice(readStart, heavyStart);
+  const heavyClassifier = actionConcurrency.slice(heavyStart, busyStart);
+  assert.match(readClassifier, /value === 'sync\.delta'/);
+  assert.match(readClassifier, /\.media\.get/);
+  assert.doesNotMatch(heavyClassifier, /\.media\.get/);
+});
+
 test('tickets.get evita el enriquecimiento base duplicado y conserva ambas validaciones de acceso', () => {
   assert.match(detailPatch, /__ticketDetailRow/);
   assert.match(detailPatch, /ticketAccessHandlers\.assertTicketAccess/);
   assert.match(detailPatch, /assertTicketPayloadAccess/);
   assert.match(detailPatch, /ticketMultiHandlers\.get/);
   assert.match(app, /ticket-detail-read-optimization\.patch/);
+});
+
+test('tickets.get reutiliza la tabla Boletas coherente en vez de forzar una descarga completa', () => {
+  assert.match(detailPatch, /const tickets = await snapshot\.read\('Boletas'\);/);
+  assert.doesNotMatch(detailPatch, /snapshot\.read\('Boletas',\s*\{\s*force:\s*true\s*\}\)/);
+});
+
+test('detalle con referencias completas no relee cuatro catálogos solo para confirmar etiquetas', () => {
+  assert.match(ticketMulti, /function hasCompleteStoredCatalogReferences/);
+  assert.match(ticketMulti, /if \(snapshot && hasCompleteStoredCatalogReferences\(ticket\)\) return ticket;/);
+  assert.match(ticketMulti, /const normalized = await normalizeCatalogPayload\(ticket, snapshot\);/);
 });
 
 test('tickets.get tiene single-flight por boleta y sesión sin afectar candidatos de vinculación', () => {

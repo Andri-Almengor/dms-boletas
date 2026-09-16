@@ -65,8 +65,20 @@ async function normalizeCatalogPayload(payload = {}, snapshot = null) {
   return next;
 }
 
+function hasCompleteStoredCatalogReferences(ticket = {}) {
+  return CATALOG_SPECS.every((spec) => (
+    clean(ticket[spec.targetId]) && clean(ticket[spec.targetLabel])
+  ));
+}
+
 async function repairStoredCatalogReferences(ticket, actor = 'SISTEMA', snapshot = null) {
   if (!ticket?.BoletaUID) return ticket;
+  // El detalle es de solo lectura. Si la boleta ya conserva ID y etiqueta para
+  // todas sus referencias, releer cuatro catálogos completos solo para volver a
+  // confirmar los mismos valores aumenta mucho la latencia fría. Las rutas de
+  // creación/edición siguen normalizando contra los catálogos autoritativos y
+  // los registros legacy incompletos conservan la reparación anterior.
+  if (snapshot && hasCompleteStoredCatalogReferences(ticket)) return ticket;
   const normalized = await normalizeCatalogPayload(ticket, snapshot);
   const patch = {};
   for (const spec of CATALOG_SPECS) {
