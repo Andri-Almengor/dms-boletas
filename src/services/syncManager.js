@@ -1,6 +1,7 @@
 import { apiRequest } from '../api';
 import { requestFirstAvailable } from './aliasResolver';
 import { normalizeItems, requestAvailable } from './moduleApi';
+import { crudSyncListRoutes, patchCrudCollection } from './crudSyncDomain';
 import { patchMaintenanceCollection } from './maintenanceSyncDomain';
 
 export const CLIENT_SYNC_SCHEMA_VERSION = 1;
@@ -367,10 +368,21 @@ async function applyMaintenanceDeltaToCaches(cacheScope, delta) {
   );
 }
 
-async function applyRemoteDelta(resource, state, delta) {
+async function applyCrudDeltaToCaches(cacheScope, resource, delta, permissions) {
+  const routes = new Set(crudSyncListRoutes(resource));
+  if (!routes.size) return 0;
+  const core = await loadCore();
+  const prefix = `${cacheScope}|`;
+  return core.updateCachedResponses(
+    (entry) => String(entry?.key || '').startsWith(prefix) && routes.has(cacheRoute(entry)),
+    (data, entry) => patchCrudCollection(resource, data, cachePayload(entry), delta, permissions),
+  );
+}
+
+async function applyRemoteDelta(resource, state, delta, permissions = []) {
   if (resource === 'ticket') return applyTicketDeltaToCaches(state.cacheScope, delta);
   if (resource === 'maintenance') return applyMaintenanceDeltaToCaches(state.cacheScope, delta);
-  return 0;
+  return applyCrudDeltaToCaches(state.cacheScope, resource, delta, permissions);
 }
 
 async function authoritativeRequest(routes, payload, sessionToken, signal) {
@@ -380,6 +392,21 @@ async function authoritativeRequest(routes, payload, sessionToken, signal) {
     (route) => apiRequest(route, payload, sessionToken, { signal }),
     { signal },
   );
+}
+
+function onlineNow() {
+  return typeof navigator === 'undefined' || navigator.onLine !== false;
+}
+
+async function repairScopedCollectionIfNeeded({ state, routes, payload, sessionToken, signal, cached }) {
+  if (!cached?.syncIntegrityPending || !onlineNow()) return cached;
+  try {
+    const data = await authoritativeRequest(routes, payload, sessionToken, signal);
+    await writeScopedCache(state, routes, payload, data);
+    return data;
+  } catch {
+    return cached;
+  }
 }
 
 async function probeSnapshot(resource, sessionToken, signal, entityId = '') {
@@ -484,7 +511,7 @@ async function synchronizeResourceInternal({
     if (Number(delta.cursor || 0) < Number(current.cursor || 0)) return current;
 
     const idbPatchStartedAt = performance.now();
-    const idbWriteCount = await applyRemoteDelta(resource, current, delta);
+    const idbWriteCount = await applyRemoteDelta(resource, current, delta, permissions);
     const idbPatchMs = Math.round((performance.now() - idbPatchStartedAt) * 100) / 100;
     state = await saveState(resource, userId, permissions, {
       ...current,
@@ -569,7 +596,7 @@ async function synchronizeDetailInternal({
     if ((delta.removed || []).map(String).includes(String(entityId))) {
       await writeScopedCache(current, routes, payload, null);
       const idbPatchStartedAt = performance.now();
-      const idbWriteCount = await applyRemoteDelta(resource, current, delta);
+      const idbWriteCount = await applyRemoteDelta(resource, current, delta, permissions);
       const idbPatchMs = Math.round((performance.now() - idbPatchStartedAt) * 100) / 100;
       state = await saveState(resource, userId, permissions, {
         ...current,
@@ -585,7 +612,7 @@ async function synchronizeDetailInternal({
     if (!delta.notModified && delta.detail) {
       await writeScopedCache(current, routes, payload, delta.detail);
       const idbPatchStartedAt = performance.now();
-      const idbWriteCount = await applyRemoteDelta(resource, current, delta);
+      const idbWriteCount = await applyRemoteDelta(resource, current, delta, permissions);
       const idbPatchMs = Math.round((performance.now() - idbPatchStartedAt) * 100) / 100;
       state = await saveState(resource, userId, permissions, {
         ...current,
@@ -654,20 +681,28 @@ export async function requestSynchronizedCollection(
   routes,
   payload = {},
   sessionToken = '',
-  { resource, userId = '', permissions = [], signal } = {},
+  { resource, userId = '', permissions = [], signal, forceSync = false } = {},
 ) {
   if (!sessionToken || !resource) return requestAvailable(routes, payload, sessionToken, { signal });
   if (await securityBlocked(userId, permissions)) {
-    if (typeof navigator !== 'undefined' && navigator.onLine === false) throw securityRefreshRequiredError();
+    if (!onlineNow()) throw securityRefreshRequiredError();
     return authoritativeRequest(routes, payload, sessionToken, signal);
   }
   let state = await readState(resource, userId, permissions);
 
   if (state?.enabled !== false && state?.cacheScope && !state?.securityInvalidated) {
-    const cached = await readScopedCache(state, routes, payload);
+    let cached = await readScopedCache(state, routes, payload);
     if (cached !== null) {
-      scheduleSync({ resource, routes, payload, sessionToken, userId, permissions });
-      return cached;
+      const options = { resource, routes, payload, sessionToken, userId, permissions, signal };
+      if (forceSync && onlineNow()) {
+        await synchronizeResource(options);
+        state = await readState(resource, userId, permissions);
+        const refreshed = await readScopedCache(state, routes, payload);
+        if (refreshed !== null) cached = refreshed;
+      } else {
+        scheduleSync({ ...options, signal: undefined });
+      }
+      return repairScopedCollectionIfNeeded({ state, routes, payload, sessionToken, signal, cached });
     }
   }
 
