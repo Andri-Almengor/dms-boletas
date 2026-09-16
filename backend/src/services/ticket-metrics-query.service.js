@@ -145,7 +145,7 @@ function matchesTechnician(assignees, technician) {
   return assignees.some((name) => sameText(name, technician));
 }
 
-export function buildTicketMetrics({ tickets = [], assignments = [], users = [], payload = {} } = {}) {
+export function buildTicketMetrics({ tickets = [], assignments = [], users = [], payload = {}, fullAssignedHours = false } = {}) {
   const filters = ticketFilters(payload);
   const assigneesByTicketId = buildTicketAssigneeIndex(assignments, users);
   const clients = new Set();
@@ -190,7 +190,7 @@ export function buildTicketMetrics({ tickets = [], assignments = [], users = [],
     increment(byFailureType, row.TipoFalla || 'Sin tipo de falla');
     increment(byCategory, row.Categoria || 'Sin categoría');
 
-    const share = assignees.length ? hours / assignees.length : 0;
+    const share = fullAssignedHours ? hours : (assignees.length ? hours / assignees.length : 0);
     if (assignees.length) assignees.forEach((name) => increment(assignedHours, name, share));
     else increment(assignedHours, 'Sin asignar', hours);
 

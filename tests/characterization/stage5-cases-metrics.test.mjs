@@ -210,7 +210,7 @@ test('Etapa 5: la tabla final de horas conserva horas completas por técnico y S
     ['Alice', 4], ['Bob', 4],
   ], 'El filtro selecciona boletas donde participa Alice; la política histórica acredita la boleta completa a todos sus asignados.');
 
-  assert.match(assignedHoursPatch, /tableAsignadoHoras:\s*buildFullAssignedHours/);
+  assert.match(assignedHoursPatch, /fullAssignedHours: true/);
   assert.match(assignedHoursPatch, /metrics-ticket-query-optimization\.patch\.js/);
   assert.doesNotMatch(assignedHoursPatch, /assignments\s*\.filter/);
 });
@@ -236,4 +236,36 @@ test('Etapa 5: los adaptadores se instalan antes de action-router y no alteran p
   assert.ok(metricsPatchAt >= 0 && metricsPatchAt < routerAt);
   assert.match(casePatchSource, /customerCaseHandlers\.list = async/);
   assert.match(casePatchSource, /customerCaseHandlers\.get = async/);
+});
+
+
+test('métricas: horas completas reutilizan un recorrido y el índice de asignados', () => {
+  for (const payload of [{}, { cliente: 'Acme' }, { tecnico: 'Bob' }, { estado: 'finalizado' }, { tecnico: 'Sin asignar' }]) {
+    const input = { tickets: TICKETS, assignments: ASSIGNMENTS, users: USERS, payload };
+    const expected = { ...buildTicketMetrics(input), tableAsignadoHoras: buildFullAssignedHours(input) };
+    const counter = { tickets: 0, assignments: 0 };
+    const actual = buildTicketMetrics({
+      ...input,
+      tickets: counted(TICKETS, counter, 'tickets'),
+      assignments: counted(ASSIGNMENTS, counter, 'assignments'),
+      fullAssignedHours: true,
+    });
+    assert.deepEqual(actual, expected);
+    assert.equal(counter.tickets, TICKETS.length);
+    assert.equal(counter.assignments, ASSIGNMENTS.length);
+  }
+});
+
+test('métricas: handler de horas completas solicita los snapshots una sola vez', async () => {
+  let calls = 0;
+  const handlers = {};
+  const source = assignedHoursPatch.replace(/^import .*;\n/gm, '');
+  new Function('readTables', 'metricsHandlers', 'buildTicketMetrics', source)(async (names) => {
+    calls += 1;
+    assert.deepEqual(names, ['Boletas', 'BoletaAsignados', 'Usuarios']);
+    return { Boletas: TICKETS, BoletaAsignados: ASSIGNMENTS, Usuarios: USERS };
+  }, handlers, buildTicketMetrics);
+  const result = await handlers.tickets({ payload: { cliente: 'Acme' } });
+  assert.equal(calls, 1);
+  assert.deepEqual(result.tableAsignadoHoras, buildFullAssignedHours({ tickets: TICKETS, assignments: ASSIGNMENTS, users: USERS, payload: { cliente: 'Acme' } }));
 });
