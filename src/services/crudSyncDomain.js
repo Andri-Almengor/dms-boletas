@@ -13,6 +13,16 @@ const RESOURCE_SPECS = Object.freeze({
     search: ['CasoNumero', 'Cliente', 'RazonVisita', 'Problema', 'NombreSolicitante', 'CorreoSolicitante'],
     routes: ['customercases.list', 'casos.cliente.list'],
   }),
+  knowledgeArticle: Object.freeze({
+    id: 'TutorialID',
+    search: ['Titulo', 'ProblemaResuelto', 'ContenidoHTML', 'CategoriaNombre', 'CategoriasNombres', 'AutorNombre'],
+    routes: ['knowledge.list', 'baseconocimientos.list', 'conocimiento.list', 'tutorials.list'],
+  }),
+  knowledgeCategory: Object.freeze({
+    id: 'CategoriaConocimientoID',
+    search: ['Nombre', 'Descripcion'],
+    routes: ['knowledge.categories.list', 'baseconocimientos.categorias.list', 'categoriasconocimiento.list'],
+  }),
   client: Object.freeze({
     id: 'ClienteID',
     search: ['Nombre', 'Clientes', 'RazonSocial', 'CorreoGeneral', 'Telefono'],
@@ -89,6 +99,7 @@ function itemsFrom(data) {
 function canIncludeInactive(resource, permissions = []) {
   if (permissions.includes('USUARIOS_GESTIONAR')) return true;
   if (CLIENT_RESOURCES.has(resource)) return permissions.includes('CLIENTES_EDITAR');
+  if (resource === 'knowledgeCategory') return permissions.includes('CONOCIMIENTO_CATEGORIAS_GESTIONAR');
   return permissions.includes('CATALOGOS_GESTIONAR');
 }
 
@@ -119,6 +130,40 @@ function customerCaseMatchesQuery(row = {}, request = {}) {
   return true;
 }
 
+function knowledgeArticleMatchesQuery(row = {}, request = {}, permissions = []) {
+  if (row.Activo === false) return false;
+  const manager = permissions.includes('USUARIOS_GESTIONAR') || permissions.includes('CONOCIMIENTO_GESTIONAR');
+  const published = String(row.Estado || 'PUBLICADO').trim().toUpperCase() === 'PUBLICADO';
+  const includeDrafts = bool(request.includeDrafts, false);
+  const requestedAuthor = clean(request.autorUsuarioId || request.AutorUsuarioID);
+  if (!published && !(includeDrafts && (manager || (requestedAuthor && clean(row.AutorUsuarioID) === requestedAuthor)))) return false;
+  if (requestedAuthor && clean(row.AutorUsuarioID) !== requestedAuthor) return false;
+
+  const requestedCategory = clean(request.categoriaId || request.CategoriaConocimientoID);
+  if (requestedCategory) {
+    const ids = Array.isArray(row.CategoriaConocimientoIDs)
+      ? row.CategoriaConocimientoIDs.map(String)
+      : Array.isArray(row.CategoriaIDs)
+        ? row.CategoriaIDs.map(String)
+        : [clean(row.CategoriaConocimientoID)].filter(Boolean);
+    if (!ids.includes(requestedCategory)) return false;
+  }
+
+  const query = clean(request.search || request.q).toLowerCase();
+  if (query) {
+    const searchable = [
+      row.Titulo,
+      row.ProblemaResuelto,
+      row.ContenidoHTML,
+      row.CategoriaNombre,
+      row.CategoriasNombres,
+      row.AutorNombre,
+    ].map((value) => String(value || '')).join(' ').toLowerCase();
+    if (!searchable.includes(query)) return false;
+  }
+  return true;
+}
+
 function parentValue(resource, request = {}) {
   if (resource === 'clientLocation' || resource === 'contact') {
     return clean(request.ClienteID ?? request.clienteId);
@@ -133,6 +178,7 @@ export function crudRowMatchesSyncQuery(resource, row = {}, request = {}, permis
   const spec = RESOURCE_SPECS[resource];
   if (!spec) return false;
   if (resource === 'customerCase') return customerCaseMatchesQuery(row, request);
+  if (resource === 'knowledgeArticle') return knowledgeArticleMatchesQuery(row, request, permissions);
 
   const includeInactive = bool(request.includeInactive, false) && canIncludeInactive(resource, permissions);
   if (!includeInactive && !activeRecord(row)) return false;
@@ -241,7 +287,8 @@ export function patchCrudCollection(resource, data, request = {}, delta = {}, pe
 
     total += 1;
     const lastKnownPage = page * pageSize >= total;
-    if (completeCollection || lastKnownPage || (resource === 'customerCase' && page === 1)) {
+    const canPatchLeadingPage = page === 1 && ['customerCase', 'knowledgeArticle'].includes(resource);
+    if (completeCollection || lastKnownPage || canPatchLeadingPage) {
       items.push(incoming);
     } else {
       integrityPending = true;
@@ -256,7 +303,7 @@ export function patchCrudCollection(resource, data, request = {}, delta = {}, pe
   items = sortItems(resource, items, request);
   if (!completeCollection && items.length > pageSize) {
     items = items.slice(0, pageSize);
-    if (resource !== 'customerCase' || page !== 1) integrityPending = true;
+    if (!(['customerCase', 'knowledgeArticle'].includes(resource) && page === 1)) integrityPending = true;
   }
   return rebuildCollection(data, items, total, integrityPending, resource, delta);
 }
