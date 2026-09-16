@@ -1,11 +1,22 @@
-import { selectTicketPage } from '../services/ticket-list-query.service.js';
-
 function clean(value) {
   return String(value ?? '').trim();
 }
 
 function active(row = {}) {
   return row.Activo !== false && String(row.Activo ?? 'true').toLowerCase() !== 'false';
+}
+
+function normalizeStatus(value) {
+  const text = clean(value).toUpperCase();
+  if (text.includes('FINAL')) return 'FINALIZADA';
+  if (text.includes('PEND')) return 'PENDIENTE';
+  if (text.includes('ANUL')) return 'ANULADA';
+  return text;
+}
+
+function publicTicketRow(row = {}) {
+  const { __rowNumber, ...ticket } = row;
+  return ticket;
 }
 
 export function isTicketSyncAdministrator(ctx = {}) {
@@ -28,41 +39,59 @@ export function ticketSyncAllowedIds(ctx = {}, assignments = []) {
   return ids;
 }
 
-function assignmentMap(assignments = [], entityIds = new Set(), ctx = {}) {
-  const admin = isTicketSyncAdministrator(ctx);
-  const ownUserId = clean(ctx.user?.UsuarioID);
-  const result = new Map();
-  for (const assignment of assignments) {
-    if (!active(assignment)) continue;
-    const ticketId = clean(assignment.BoletaUID);
-    if (!entityIds.has(ticketId)) continue;
-    const assignedUserId = clean(assignment.UsuarioID);
-    if (!admin && assignedUserId !== ownUserId) continue;
-    if (!result.has(ticketId)) result.set(ticketId, []);
-    result.get(ticketId).push(assignedUserId);
-  }
-  for (const [ticketId, ids] of result.entries()) result.set(ticketId, [...new Set(ids)].sort());
-  return result;
-}
-
 export function materializeTicketDeltaFromRows({
   ctx = {},
   events = [],
   tickets = [],
   assignments = [],
 } = {}) {
-  const allowedIds = ticketSyncAllowedIds(ctx, assignments);
-  const counts = selectTicketPage(
-    tickets,
-    { page: 1, pageSize: 1, homeSummary: true },
-    allowedIds,
-  ).homeSummary;
-  const byId = new Map(tickets.map((ticket) => [clean(ticket.BoletaUID), ticket]));
+  const admin = isTicketSyncAdministrator(ctx);
+  const ownUserId = clean(ctx.user?.UsuarioID);
   const entityIds = new Set(events.map((event) => clean(event.EntityID)).filter(Boolean));
-  const assignmentsByTicket = assignmentMap(assignments, entityIds, ctx);
+  const allowedIds = admin ? null : new Set();
+  const assignmentsByTicket = new Map();
+
+  // Authorization and changed-ticket assignment metadata are derived together.
+  // This keeps current server-side visibility authoritative without two complete
+  // passes over BoletaAsignados for every delta.
+  for (const assignment of assignments) {
+    if (!active(assignment)) continue;
+    const ticketId = clean(assignment.BoletaUID);
+    const assignedUserId = clean(assignment.UsuarioID);
+    if (!ticketId || !assignedUserId) continue;
+
+    const visibleAssignment = admin || assignedUserId === ownUserId;
+    if (!admin && assignedUserId === ownUserId) allowedIds.add(ticketId);
+    if (!visibleAssignment || !entityIds.has(ticketId)) continue;
+
+    if (!assignmentsByTicket.has(ticketId)) assignmentsByTicket.set(ticketId, []);
+    assignmentsByTicket.get(ticketId).push(assignedUserId);
+  }
+  for (const [ticketId, ids] of assignmentsByTicket.entries()) {
+    assignmentsByTicket.set(ticketId, [...new Set(ids)].sort());
+  }
+
+  const counts = { pending: 0, finished: 0 };
+  const changedVisibleTickets = new Map();
+
+  // One ticket pass now performs both authoritative Home counts and changed-ID
+  // selection. Previously counts and the by-id materialization each traversed
+  // the complete collection independently.
+  for (const ticket of tickets) {
+    if (!active(ticket)) continue;
+    const ticketId = clean(ticket.BoletaUID);
+    const status = normalizeStatus(ticket.Estado);
+    if (!ticketId || status === 'ANULADA') continue;
+    if (allowedIds && !allowedIds.has(ticketId)) continue;
+
+    if (status === 'PENDIENTE') counts.pending += 1;
+    else if (status === 'FINALIZADA') counts.finished += 1;
+
+    if (entityIds.has(ticketId)) changedVisibleTickets.set(ticketId, publicTicketRow(ticket));
+  }
+
   const upserts = [];
   const removed = [];
-
   for (const event of events) {
     const entityId = clean(event.EntityID);
     if (!entityId) continue;
@@ -71,24 +100,14 @@ export function materializeTicketDeltaFromRows({
       continue;
     }
 
-    const ticket = byId.get(entityId);
+    const ticket = changedVisibleTickets.get(entityId);
     if (!ticket) {
       removed.push(entityId);
       continue;
     }
 
-    const visible = selectTicketPage(
-      [ticket],
-      { page: 1, pageSize: 1 },
-      allowedIds,
-    ).items[0];
-    if (!visible) {
-      removed.push(entityId);
-      continue;
-    }
-
     upserts.push({
-      ...visible,
+      ...ticket,
       __sync: {
         assignedUserIds: assignmentsByTicket.get(entityId) || [],
       },
