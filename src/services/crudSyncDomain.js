@@ -1,6 +1,13 @@
+import { patchAgendaCollection } from './agendaSyncDomain';
+
 const CLIENT_RESOURCES = new Set(['client', 'clientLocation', 'equipmentLocation', 'contact']);
 
 const RESOURCE_SPECS = Object.freeze({
+  agenda: Object.freeze({
+    id: 'AgendaID',
+    search: [],
+    routes: ['agenda.list', 'agendas.list'],
+  }),
   client: Object.freeze({
     id: 'ClienteID',
     search: ['Nombre', 'Clientes', 'RazonSocial', 'CorreoGeneral', 'Telefono'],
@@ -141,6 +148,7 @@ function sortItems(items, request = {}) {
 }
 
 export function patchCrudCollection(resource, data, request = {}, delta = {}, permissions = []) {
+  if (resource === 'agenda') return patchAgendaCollection(data, request, delta, permissions);
   const spec = RESOURCE_SPECS[resource];
   if (!spec) return data;
 
