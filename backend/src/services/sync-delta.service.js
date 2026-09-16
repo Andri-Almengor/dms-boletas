@@ -10,6 +10,7 @@ import {
 } from './sync-change.service.js';
 import { syncResourceRegistry } from './sync-resource-registry.js';
 import { materializeTicketDelta } from './sync-ticket.service.js';
+import { materializeMaintenanceDelta } from './sync-maintenance.service.js';
 
 function clean(value, maxLength = 180) {
   return String(value ?? '').trim().slice(0, maxLength);
@@ -79,11 +80,43 @@ async function fullSnapshotResponse({
   };
 }
 
+function incrementalResponse({
+  descriptor,
+  cacheScope,
+  resource,
+  entityId,
+  fromCursor,
+  scan,
+  resourceEvents,
+  materialized,
+} = {}) {
+  return {
+    enabled: true,
+    generation: descriptor.generation,
+    schemaVersion: descriptor.schemaVersion,
+    cacheScope,
+    resource,
+    entityId,
+    fromCursor,
+    cursor: scan.cursor,
+    hasMore: scan.hasMore,
+    fullSnapshotRequired: false,
+    notModified: false,
+    securityInvalidated: false,
+    upserts: materialized.upserts,
+    removed: materialized.removed,
+    invalidated: materialized.invalidated,
+    counts: materialized.counts,
+    eventsScanned: scan.eventsScanned,
+    eventsDeduped: resourceEvents.length,
+  };
+}
+
 export async function buildSyncDelta(ctx = {}) {
   const startedAt = performance.now();
   const payload = ctx.payload || {};
   const resource = clean(payload.resource, 80);
-  const entityId = clean(payload.entityId || payload.boletaUid || payload.id, 180);
+  const entityId = clean(payload.entityId || payload.boletaUid || payload.maintenanceId || payload.id, 180);
   const resourceSpec = syncResourceRegistry[resource];
   if (!resource || !resourceSpec) {
     throw new AppError('SYNC_RESOURCE_INVALID', 'El recurso solicitado no admite sincronización incremental.', 400);
@@ -171,26 +204,16 @@ export async function buildSyncDelta(ctx = {}) {
 
   if (resource === 'ticket') {
     const materialized = await materializeTicketDelta(ctx, resourceEvents);
-    return finishResponse({
-      enabled: true,
-      generation: descriptor.generation,
-      schemaVersion: descriptor.schemaVersion,
-      cacheScope,
-      resource,
-      entityId,
-      fromCursor,
-      cursor: scan.cursor,
-      hasMore: scan.hasMore,
-      fullSnapshotRequired: false,
-      notModified: false,
-      securityInvalidated: false,
-      upserts: materialized.upserts,
-      removed: materialized.removed,
-      invalidated: materialized.invalidated,
-      counts: materialized.counts,
-      eventsScanned: scan.eventsScanned,
-      eventsDeduped: resourceEvents.length,
-    }, startedAt);
+    return finishResponse(incrementalResponse({
+      descriptor, cacheScope, resource, entityId, fromCursor, scan, resourceEvents, materialized,
+    }), startedAt);
+  }
+
+  if (resource === 'maintenance') {
+    const materialized = await materializeMaintenanceDelta(ctx, resourceEvents);
+    return finishResponse(incrementalResponse({
+      descriptor, cacheScope, resource, entityId, fromCursor, scan, resourceEvents, materialized,
+    }), startedAt);
   }
 
   return finishResponse({

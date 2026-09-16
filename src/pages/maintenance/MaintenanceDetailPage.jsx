@@ -9,6 +9,10 @@ import MaintenanceEvidenceUploader from '../../components/maintenance/Maintenanc
 import MaintenanceQuickDeviceCreator from '../../components/maintenance/MaintenanceQuickDeviceCreator';
 import MaintenanceSignatureCard from '../../components/maintenance/MaintenanceSignatureCard';
 import { MODULE_ROUTES, pick, requestAvailable } from '../../services/moduleApi';
+import {
+  requestSynchronizedDetail,
+  subscribeSyncEntity,
+} from '../../services/syncManager';
 
 const MAINTENANCE_TICKET_TEST_ROUTES = ['maintenance.tickets.test', 'mantenimientos.boletas.probar'];
 const MAINTENANCE_LOCATION_UPDATE_ROUTES = [
@@ -107,7 +111,7 @@ function MaintenanceMobileFold({
 export default function MaintenanceDetailPage() {
   const { maintenanceId } = useParams();
   const navigate = useNavigate();
-  const { sessionToken, hasPermission } = useAuth();
+  const { sessionToken, user, permissions, hasPermission, securityRevision } = useAuth();
   const isAdministrator = hasPermission('USUARIOS_GESTIONAR');
   const isAdmin = isAdministrator
     || hasPermission('MANTENIMIENTOS_ELIMINAR')
@@ -130,31 +134,71 @@ export default function MaintenanceDetailPage() {
   const [summaryOpen, setSummaryOpen] = useState(false);
   const [signatureOpen, setSignatureOpen] = useState(false);
 
-  async function load({ silent = false } = {}) {
+  async function load({ silent = false, forceSync = false, signal } = {}) {
     if (!silent) setLoading(true);
     setError('');
     try {
-      setData(await requestAvailable(MODULE_ROUTES.maintenance.get, { maintenanceId }, sessionToken));
+      const payload = { maintenanceId };
+      const offline = typeof navigator !== 'undefined' && navigator.onLine === false;
+      const result = offline
+        ? await requestAvailable(MODULE_ROUTES.maintenance.get, payload, sessionToken, { signal })
+        : await requestSynchronizedDetail(
+          MODULE_ROUTES.maintenance.get,
+          payload,
+          sessionToken,
+          {
+            resource: 'maintenance',
+            entityId: maintenanceId,
+            userId: user?.UsuarioID,
+            permissions,
+            signal,
+            forceSync,
+          },
+        );
+      if (!signal?.aborted) setData(result);
     } catch (loadError) {
+      if (signal?.aborted || loadError?.name === 'AbortError') return;
       setError(loadError.message);
     } finally {
-      if (!silent) setLoading(false);
+      if (!silent && !signal?.aborted) setLoading(false);
     }
   }
 
   useEffect(() => {
-    load();
-    const refresh = () => load({ silent: true });
+    const controller = new AbortController();
+    load({ signal: controller.signal });
+    const refresh = () => load({ silent: true, forceSync: navigator.onLine !== false });
     window.addEventListener('dms-offline-sync-complete', refresh);
     window.addEventListener('dms-offline-queue-change', refresh);
     window.addEventListener('dms-client-equipment-catalog-updated', refresh);
     return () => {
+      controller.abort();
       window.removeEventListener('dms-offline-sync-complete', refresh);
       window.removeEventListener('dms-offline-queue-change', refresh);
       window.removeEventListener('dms-client-equipment-catalog-updated', refresh);
     };
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [maintenanceId, sessionToken]);
+  }, [maintenanceId, sessionToken, user?.UsuarioID, permissions, securityRevision]);
+
+  useEffect(() => subscribeSyncEntity('maintenance', maintenanceId, ({ type, data: incoming }) => {
+    if (type === 'security-invalidated') {
+      setData(null);
+      setError('La seguridad de la sesión cambió. Validando nuevamente sus permisos...');
+      setLoading(true);
+      return;
+    }
+    if (type === 'removed') {
+      setData(null);
+      setLoading(false);
+      setError('Este mantenimiento ya no está disponible.');
+      return;
+    }
+    if ((type === 'detail' || type === 'snapshot') && incoming) {
+      setData(incoming);
+      setError('');
+      setLoading(false);
+    }
+  }), [maintenanceId]);
 
   const row = data?.mantenimiento || data || {};
   const devices = data?.dispositivos || data?.devices || [];
@@ -217,7 +261,7 @@ export default function MaintenanceDetailPage() {
         if (reportWindow) reportWindow.location.replace(url);
         else setNotice('La presentación fue creada. Use el enlace “Presentación creada” para abrirla.');
       }
-      await load({ silent: true });
+      await load({ silent: true, forceSync: navigator.onLine !== false });
     } catch (actionError) {
       try { reportWindow?.close(); } catch { /* sin acción */ }
       setError(actionError.message);
@@ -260,7 +304,7 @@ export default function MaintenanceDetailPage() {
         ubicacionesEquipoIds: nextLocations.map((item) => item.id),
       }, sessionToken);
       if (Array.isArray(result?.ubicacionesEquipo) || Array.isArray(result?.equipmentLocations)) setData(result);
-      else if (navigator.onLine !== false) await load({ silent: true });
+      else if (navigator.onLine !== false) await load({ silent: true, forceSync: true });
       setNotice(successMessage);
       return true;
     } catch (saveError) {
@@ -377,7 +421,7 @@ export default function MaintenanceDetailPage() {
             disabled={Boolean(working)}
             onStatusChange={(signed) => {
               setMaintenanceSigned(signed);
-              if (signed) load({ silent: true });
+              if (signed) load({ silent: true, forceSync: true });
             }}
           />
         </MaintenanceMobileFold>
@@ -418,10 +462,10 @@ export default function MaintenanceDetailPage() {
       </section>
 
       <MaintenanceLocationPickerModal open={locationPickerOpen} maintenanceLocationId={String(pick(row, ['UbicacionID'], ''))} existingLocations={maintenanceLocations} saving={working === 'locations'} onClose={() => setLocationPickerOpen(false)} onSave={addLocation} />
-      {quickDeviceLocation && <MaintenanceQuickDeviceCreator maintenanceId={maintenanceId} sessionToken={sessionToken} initialEquipmentLocation={quickDeviceLocation} onClose={() => setQuickDeviceLocation(null)} onCreated={() => load({ silent: true })} />}
-      {evidenceDevice && <MaintenanceEvidenceUploader device={evidenceDevice} maintenanceId={maintenanceId} sessionToken={sessionToken} onClose={() => setEvidenceDevice(null)} onUploaded={() => load({ silent: true })} />}
-      {quickEvidenceOpen && <MaintenanceEvidenceUploader devices={devices} maintenanceId={maintenanceId} sessionToken={sessionToken} onClose={() => setQuickEvidenceOpen(false)} onUploaded={() => load({ silent: true })} />}
-      {editingEvidence && <MaintenanceEvidenceEditor image={editingEvidence.image} device={editingEvidence.device} maintenanceId={maintenanceId} sessionToken={sessionToken} isAdmin={isAdmin} onClose={() => setEditingEvidence(null)} onUpdated={() => load({ silent: true })} />}
+      {quickDeviceLocation && <MaintenanceQuickDeviceCreator maintenanceId={maintenanceId} sessionToken={sessionToken} initialEquipmentLocation={quickDeviceLocation} onClose={() => setQuickDeviceLocation(null)} onCreated={() => load({ silent: true, forceSync: navigator.onLine !== false })} />}
+      {evidenceDevice && <MaintenanceEvidenceUploader device={evidenceDevice} maintenanceId={maintenanceId} sessionToken={sessionToken} onClose={() => setEvidenceDevice(null)} onUploaded={() => load({ silent: true, forceSync: navigator.onLine !== false })} />}
+      {quickEvidenceOpen && <MaintenanceEvidenceUploader devices={devices} maintenanceId={maintenanceId} sessionToken={sessionToken} onClose={() => setQuickEvidenceOpen(false)} onUploaded={() => load({ silent: true, forceSync: navigator.onLine !== false })} />}
+      {editingEvidence && <MaintenanceEvidenceEditor image={editingEvidence.image} device={editingEvidence.device} maintenanceId={maintenanceId} sessionToken={sessionToken} isAdmin={isAdmin} onClose={() => setEditingEvidence(null)} onUpdated={() => load({ silent: true, forceSync: navigator.onLine !== false })} />}
     </div>
   );
 }

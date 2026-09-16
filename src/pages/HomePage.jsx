@@ -3,7 +3,7 @@ import { Link } from 'react-router-dom';
 import { useAuth } from '../AuthContext';
 import Icon from '../components/common/Icon';
 import TicketCard from '../components/tickets/TicketCard';
-import { MODULE_ROUTES, normalizeItems, requestAvailable } from '../services/moduleApi';
+import { MODULE_ROUTES, normalizeItems } from '../services/moduleApi';
 import {
   patchTicketItemsForQuery,
   requestSynchronizedCollection,
@@ -44,6 +44,13 @@ const HOME_TICKET_QUERY = Object.freeze({
   homeSummary: true,
 });
 
+const HOME_MAINTENANCE_QUERY = Object.freeze({
+  page: 1,
+  pageSize: 1,
+  activo: true,
+  homeSummary: true,
+});
+
 async function loadTicketHome(sessionToken, userId, permissions, signal) {
   const recentData = await requestSynchronizedCollection(
     MODULE_ROUTES.tickets.list,
@@ -77,29 +84,29 @@ async function loadTicketHome(sessionToken, userId, permissions, signal) {
   };
 }
 
-async function loadMaintenanceHome(sessionToken, signal) {
-  const summaryData = await requestAvailable(MODULE_ROUTES.maintenance.list, {
-    page: 1,
-    pageSize: 1,
-    activo: true,
-    homeSummary: true,
-  }, sessionToken, { signal });
+async function loadMaintenanceHome(sessionToken, userId, permissions, signal) {
+  const summaryData = await requestSynchronizedCollection(
+    MODULE_ROUTES.maintenance.list,
+    HOME_MAINTENANCE_QUERY,
+    sessionToken,
+    { resource: 'maintenance', userId, permissions, signal },
+  );
   const summary = summaryCounts(summaryData);
   if (summary) return summary;
 
   // Compatibilidad con un backend anterior que todavía ignore homeSummary.
   const countPayload = { page: 1, pageSize: 1, activo: true };
   const [pendingData, finishedData] = await Promise.all([
-    requestAvailable(MODULE_ROUTES.maintenance.list, {
+    requestSynchronizedCollection(MODULE_ROUTES.maintenance.list, {
       ...countPayload,
       status: 'PENDIENTE',
       estado: 'PENDIENTE',
-    }, sessionToken, { signal }),
-    requestAvailable(MODULE_ROUTES.maintenance.list, {
+    }, sessionToken, { resource: 'maintenance', userId, permissions, signal }),
+    requestSynchronizedCollection(MODULE_ROUTES.maintenance.list, {
       ...countPayload,
       status: 'FINALIZADO',
       estado: 'FINALIZADO',
-    }, sessionToken, { signal }),
+    }, sessionToken, { resource: 'maintenance', userId, permissions, signal }),
   ]);
   return {
     pending: responseTotal(pendingData),
@@ -187,7 +194,7 @@ export default function HomePage() {
     setMaintenanceError('');
     setMaintenanceCounts({ pending: null, finished: null });
     const cancelDeferred = scheduleAfterPaint(() => {
-      loadMaintenanceHome(sessionToken, controller.signal)
+      loadMaintenanceHome(sessionToken, user?.UsuarioID, permissions, controller.signal)
         .then((summary) => {
           if (active) setMaintenanceCounts(summary);
         })
@@ -206,7 +213,23 @@ export default function HomePage() {
       cancelDeferred();
       controller.abort();
     };
-  }, [sessionToken, isAdmin]);
+  }, [sessionToken, isAdmin, user?.UsuarioID, permissions, securityRevision]);
+
+  useEffect(() => subscribeSyncResource('maintenance', ({ type, delta }) => {
+    if (!isAdmin) return;
+    if (type === 'security-invalidated') {
+      setMaintenanceCounts({ pending: null, finished: null });
+      setMaintenanceLoading(true);
+      return;
+    }
+    if (type !== 'delta' || !delta?.counts) return;
+    const pending = Number(delta.counts.pending);
+    const finished = Number(delta.counts.finished);
+    if (Number.isFinite(pending) && Number.isFinite(finished)) {
+      setMaintenanceCounts({ pending, finished });
+      setMaintenanceLoading(false);
+    }
+  }), [isAdmin]);
 
   return (
     <div className="page page--home">

@@ -19,6 +19,13 @@ import {
   requestAvailable,
 } from '../../services/moduleApi';
 import {
+  patchMaintenanceItemsForQuery,
+} from '../../services/maintenanceSyncDomain';
+import {
+  requestSynchronizedCollection,
+  subscribeSyncResource,
+} from '../../services/syncManager';
+import {
   OFFLINE_MAINTENANCE_NOT_DOWNLOADED_MESSAGE,
   readOfflineMaintenancePage,
 } from '../../services/offlineMaintenanceData';
@@ -34,7 +41,7 @@ function invalidDateRange(filters) { return Boolean(filters.dateFrom && filters.
 function maintenanceKey(row, index, source) { return maintenanceRecordId(row, `${source}-${index}`); }
 
 export default function MaintenanceListPage() {
-  const { sessionToken, hasPermission } = useAuth();
+  const { sessionToken, user, permissions, hasPermission, securityRevision } = useAuth();
   const navigate = useNavigate();
   const [searchParams] = useSearchParams();
   const requestedStatus = normalizeMaintenanceStatus(searchParams.get('estado'));
@@ -53,7 +60,7 @@ export default function MaintenanceListPage() {
 
   const resource = usePaginatedResource({
     pageSize: PAGE_SIZE,
-    resetKey: `${sessionToken}|${status}|${appliedSearch}|${JSON.stringify(appliedFilters)}`,
+    resetKey: `${sessionToken}|${status}|${securityRevision}|${appliedSearch}|${JSON.stringify(appliedFilters)}`,
     getItemKey: maintenanceKey,
     normalizeResponse: (data) => normalizeItems(data).filter((row) => (
       matchesMaintenanceListFilters(row, status, appliedSearch, appliedFilters)
@@ -72,11 +79,16 @@ export default function MaintenanceListPage() {
       }
       const payload = maintenanceListPayload(query);
       try {
-        return await requestAvailable(
+        return await requestSynchronizedCollection(
           MODULE_ROUTES.maintenance.list,
           payload,
           sessionToken,
-          { signal },
+          {
+            resource: 'maintenance',
+            userId: user?.UsuarioID,
+            permissions,
+            signal,
+          },
         );
       } catch (loadError) {
         if (isNetworkError(loadError)) return readOfflineMaintenancePage(query);
@@ -84,7 +96,54 @@ export default function MaintenanceListPage() {
       }
     },
   });
-  const { items: records, total, hasMore, loading, loadingMore, error, setError, loadMore, reload } = resource;
+  const {
+    items: records,
+    setItems,
+    page,
+    total,
+    setTotal,
+    hasMore,
+    setHasMore,
+    loading,
+    loadingMore,
+    error,
+    setError,
+    loadMore,
+    reload,
+    clear,
+  } = resource;
+
+  useEffect(() => subscribeSyncResource('maintenance', ({ type, delta }) => {
+    if (type === 'security-invalidated') {
+      clear();
+      return;
+    }
+    if (type === 'snapshot') {
+      reload();
+      return;
+    }
+    if (type !== 'delta' || !delta) return;
+    const query = maintenanceListPayload({
+      page: 1,
+      pageSize: PAGE_SIZE,
+      status,
+      search: appliedSearch,
+      filters: appliedFilters,
+    });
+    const loadedLimit = Math.max(PAGE_SIZE, page * PAGE_SIZE, records.length);
+    setItems((current) => patchMaintenanceItemsForQuery(current, query, delta, loadedLimit));
+
+    const hasFilters = Boolean(appliedSearch || Object.values(appliedFilters).some(Boolean));
+    if (!hasFilters && delta.counts) {
+      const nextTotal = status === 'PENDIENTE'
+        ? Number(delta.counts.pending)
+        : Number(delta.counts.finished);
+      if (Number.isFinite(nextTotal) && nextTotal >= 0) {
+        setTotal(nextTotal);
+        setHasMore(nextTotal > loadedLimit);
+      }
+    }
+  }), [appliedFilters, appliedSearch, clear, page, records.length, reload, setHasMore, setItems, setTotal, status]);
 
   async function ensureClients() {
     if (clientOptions.length || filterLoading) return;

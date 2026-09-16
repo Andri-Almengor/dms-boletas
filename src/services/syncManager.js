@@ -1,6 +1,7 @@
 import { apiRequest } from '../api';
 import { requestFirstAvailable } from './aliasResolver';
 import { normalizeItems, requestAvailable } from './moduleApi';
+import { patchMaintenanceCollection } from './maintenanceSyncDomain';
 
 export const CLIENT_SYNC_SCHEMA_VERSION = 1;
 
@@ -356,8 +357,19 @@ async function applyTicketDeltaToCaches(cacheScope, delta) {
   );
 }
 
+async function applyMaintenanceDeltaToCaches(cacheScope, delta) {
+  const core = await loadCore();
+  const prefix = `${cacheScope}|`;
+  return core.updateCachedResponses(
+    (entry) => String(entry?.key || '').startsWith(prefix)
+      && ['maintenance.list', 'mantenimientos.list'].includes(cacheRoute(entry)),
+    (data, entry) => patchMaintenanceCollection(data, cachePayload(entry), delta),
+  );
+}
+
 async function applyRemoteDelta(resource, state, delta) {
   if (resource === 'ticket') return applyTicketDeltaToCaches(state.cacheScope, delta);
+  if (resource === 'maintenance') return applyMaintenanceDeltaToCaches(state.cacheScope, delta);
   return 0;
 }
 
@@ -687,7 +699,7 @@ export async function requestSynchronizedDetail(
   sessionToken = '',
   { resource, entityId, userId = '', permissions = [], signal, forceSync = false } = {},
 ) {
-  const targetId = clean(entityId || payload.boletaUid || payload.id);
+  const targetId = clean(entityId || payload.boletaUid || payload.maintenanceId || payload.id);
   if (!sessionToken || !resource || !targetId) return requestAvailable(routes, payload, sessionToken, { signal });
   if (await securityBlocked(userId, permissions)) {
     if (typeof navigator !== 'undefined' && navigator.onLine === false) throw securityRefreshRequiredError();
