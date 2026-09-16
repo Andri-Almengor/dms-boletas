@@ -1,7 +1,8 @@
 import { dispatchAction } from '../core/action-router.js';
 import { authenticate } from './auth.service.js';
 import { buildSyncDelta } from './sync-delta.service.js';
-import { recordClassifiedSyncChange } from './sync-change.service.js';
+import { collectDerivedSyncClassifications } from './sync-derived-changes.service.js';
+import { markSyncUnsafe, recordClassifiedSyncChange } from './sync-change.service.js';
 import { classifyMutationRoute, SYNC_MUTATION_CLASS } from './sync-resource-registry.js';
 
 const PUBLIC_SYNC_ACTORS = new Set([
@@ -35,11 +36,29 @@ export async function dispatchActionWithIncrementalSync(args = {}) {
   if (mutation.classification === SYNC_MUTATION_CLASS.NO_SYNC_REQUIRED) return result;
 
   const auth = await authenticatedContext(args);
-  await recordClassifiedSyncChange(mutation, {
+  let derived = [];
+  try {
+    derived = await collectDerivedSyncClassifications({
+      route: args.route,
+      payload: args.payload || {},
+      result,
+      primaryClassification: mutation,
+    });
+  } catch (error) {
+    await markSyncUnsafe(`${args.route || 'unknown'}:derived:${error?.code || error?.message || 'lookup_failed'}`);
+    console.warn(`[sync-change][${args.route || 'unknown'}] cambio derivado no identificable; se fuerza reconciliación: ${error?.code || error?.message || error}`);
+    return result;
+  }
+
+  const context = {
     route: args.route,
     payload: args.payload || {},
     sessionToken: args.sessionToken || '',
     ...auth,
-  });
+  };
+  await recordClassifiedSyncChange(mutation, context);
+  for (const derivedMutation of derived) {
+    await recordClassifiedSyncChange(derivedMutation, context);
+  }
   return result;
 }
