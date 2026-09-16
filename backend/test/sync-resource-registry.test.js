@@ -23,6 +23,24 @@ test('ticket mutations collapse to the ticket aggregate root', () => {
   assert.equal(evidence.operation, 'UPSERT');
 });
 
+test('group mutations emit every changed ticket id once', () => {
+  const result = classifyMutationRoute(
+    'boletas.finalize',
+    { boletaUid: 'B-1' },
+    {
+      boleta: { BoletaUID: 'B-1' },
+      grupoVisitas: {
+        visits: [
+          { BoletaUID: 'B-1' },
+          { BoletaUID: 'B-2' },
+          { BoletaUID: 'B-2' },
+        ],
+      },
+    },
+  );
+  assert.deepEqual(result.entityIds, ['B-1', 'B-2']);
+});
+
 test('child deletion invalidates aggregate without deleting aggregate', () => {
   const ticketEvidence = classifyMutationRoute(
     'boletas.evidence.delete',
@@ -71,10 +89,11 @@ test('public signatures resolve their actual aggregate type', () => {
   const ticket = classifyMutationRoute(
     'ticket.signature.public.submit',
     {},
-    { ticket: { uid: 'B-9' }, signed: true },
+    { ticket: { uid: 'B-9', visits: [{ uid: 'B-9' }, { uid: 'B-10' }] }, signed: true },
   );
   assert.equal(ticket.resource, 'ticket');
   assert.equal(ticket.entityId, 'B-9');
+  assert.deepEqual(ticket.entityIds, ['B-9', 'B-10']);
 
   const maintenance = classifyMutationRoute(
     'maintenance.signature.public.submit',

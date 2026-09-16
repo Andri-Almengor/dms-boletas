@@ -18,6 +18,13 @@ const TICKET_MUTATIONS = new Set([
   'boletas.signature.upload',
 ]);
 
+const TICKET_GROUP_MUTATIONS = new Set([
+  'boletas.create', 'tickets.create',
+  'boletas.finalize', 'tickets.finalize',
+  'boletas.returnPending',
+  'boletas.signature.upload',
+]);
+
 const PUBLIC_SIGNATURE_MUTATIONS = new Set([
   'ticket.signature.public.submit', 'boletas.firma.publica.guardar',
   'maintenance.signature.public.submit', 'mantenimientos.firma.publica.guardar',
@@ -81,6 +88,7 @@ function clean(value) {
 function resultEntityId(result, keys = []) {
   const sources = [
     result?.boleta,
+    result?.ticket,
     result?.maintenance,
     result?.mantenimiento,
     result?.item,
@@ -95,7 +103,7 @@ function resultEntityId(result, keys = []) {
 }
 
 function ticketEntityId(payload = {}, result = {}) {
-  return resultEntityId(result, ['BoletaUID', 'boletaUid', 'id'])
+  return resultEntityId(result, ['BoletaUID', 'boletaUid', 'uid', 'id'])
     || clean(pick(payload, ['boletaUid', 'BoletaUID', 'ticketId', 'id'], ''))
     || clean(result?.BoletaUID)
     || clean(result?.boleta?.BoletaUID)
@@ -103,8 +111,27 @@ function ticketEntityId(payload = {}, result = {}) {
     || clean(result?.ticket?.uid);
 }
 
+function ticketGroupEntityIds(payload = {}, result = {}) {
+  const ids = new Set();
+  const primary = ticketEntityId(payload, result);
+  if (primary) ids.add(primary);
+  const sources = [
+    result?.grupoVisitas?.visits,
+    result?.ticket?.visits,
+    result?.visitasRelacionadas,
+  ];
+  for (const visits of sources) {
+    if (!Array.isArray(visits)) continue;
+    for (const visit of visits) {
+      const id = clean(pick(visit, ['BoletaUID', 'boletaUid', 'uid', 'id'], ''));
+      if (id) ids.add(id);
+    }
+  }
+  return [...ids];
+}
+
 function maintenanceEntityId(payload = {}, result = {}) {
-  return resultEntityId(result, ['MantenimientoID', 'mantenimientoId', 'maintenanceId', 'id'])
+  return resultEntityId(result, ['MantenimientoID', 'mantenimientoId', 'maintenanceId', 'uid', 'id'])
     || clean(pick(payload, ['mantenimientoId', 'MantenimientoID', 'maintenanceId', 'id'], ''))
     || clean(result?.maintenance?.MantenimientoID)
     || clean(result?.maintenance?.uid);
@@ -155,10 +182,12 @@ function classifyPublicSignature(route, result = {}) {
       metadata: metadataFor(route),
     };
   }
+  const entityIds = ticketGroupEntityIds({}, result);
   return {
     classification: SYNC_MUTATION_CLASS.SYNC_RESOURCE,
     resource: 'ticket',
-    entityId: ticketEntityId({}, result),
+    entityId: entityIds[0] || ticketEntityId({}, result),
+    entityIds,
     operation: 'UPSERT',
     metadata: metadataFor(route),
   };
@@ -200,10 +229,14 @@ export function classifyMutationRoute(route, payload = {}, result = null) {
     if (normalizedRoute === 'boletas.autosave' && result?.throttled) {
       return { classification: SYNC_MUTATION_CLASS.NO_SYNC_REQUIRED, reason: 'autosave_throttled' };
     }
+    const entityIds = TICKET_GROUP_MUTATIONS.has(normalizedRoute)
+      ? ticketGroupEntityIds(payload, result || {})
+      : [];
     return {
       classification: SYNC_MUTATION_CLASS.SYNC_RESOURCE,
       resource: 'ticket',
-      entityId: ticketEntityId(payload, result),
+      entityId: entityIds[0] || ticketEntityId(payload, result),
+      entityIds,
       operation: ticketMutationOperation(normalizedRoute),
       metadata: metadataFor(normalizedRoute),
     };
@@ -265,8 +298,8 @@ export function mutationIdFrom(payload = {}) {
 }
 
 export const syncResourceRegistry = Object.freeze({
-  ticket: Object.freeze({ snapshotRoute: 'boletas.list', detailRoute: 'boletas.get' }),
-  maintenance: Object.freeze({ snapshotRoute: 'maintenance.list', detailRoute: 'maintenance.get' }),
+  ticket: Object.freeze({ snapshotRoute: 'boletas.list', detailRoute: 'boletas.get', permission: 'BOLETAS_VER' }),
+  maintenance: Object.freeze({ snapshotRoute: 'maintenance.list', detailRoute: 'maintenance.get', permissions: ['MANTENIMIENTOS_VER','MANTENIMIENTOS_CREAR','MANTENIMIENTOS_EDITAR','MANTENIMIENTOS_GESTIONAR','BOLETAS_VER'] }),
   agenda: Object.freeze({ snapshotRoute: 'agenda.list', detailRoute: 'agenda.get' }),
   client: Object.freeze({ snapshotRoute: 'clients.list', detailRoute: 'clients.get' }),
   clientLocation: Object.freeze({ snapshotRoute: 'clientLocations.list', detailRoute: 'clientLocations.get' }),
@@ -278,7 +311,7 @@ export const syncResourceRegistry = Object.freeze({
   model: Object.freeze({ snapshotRoute: 'catalog.models.list', detailRoute: 'catalog.models.get' }),
   failureType: Object.freeze({ snapshotRoute: 'catalog.failureTypes.list', detailRoute: 'catalog.failureTypes.get' }),
   deviceManufacturerRelation: Object.freeze({ snapshotRoute: 'catalog.deviceManufacturers.list', detailRoute: 'catalog.deviceManufacturers.get' }),
-  customerCase: Object.freeze({ snapshotRoute: 'customerCases.list', detailRoute: 'customerCases.get' }),
+  customerCase: Object.freeze({ snapshotRoute: 'customerCases.list', detailRoute: 'customerCases.get', permission: 'USUARIOS_GESTIONAR' }),
   knowledgeArticle: Object.freeze({ snapshotRoute: 'knowledge.list', detailRoute: 'knowledge.get' }),
   knowledgeCategory: Object.freeze({ snapshotRoute: 'knowledge.categories.list', detailRoute: 'knowledge.categories.get' }),
 });

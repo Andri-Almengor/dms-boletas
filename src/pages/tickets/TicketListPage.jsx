@@ -6,6 +6,11 @@ import FilterDrawer from '../../components/forms/FilterDrawer';
 import TicketCard from '../../components/tickets/TicketCard';
 import usePaginatedResource from '../../hooks/usePaginatedResource';
 import { MODULE_ROUTES, normalizeItems, pick, requestAvailable } from '../../services/moduleApi';
+import {
+  patchTicketItemsForQuery,
+  requestSynchronizedCollection,
+  subscribeSyncResource,
+} from '../../services/syncManager';
 import { getTicketId, groupTicketsByDate, normalizeTicketStatus } from '../../utils/tickets';
 
 const TICKET_PAGE_SIZE = 50;
@@ -19,7 +24,7 @@ function invalidDateRange(filters) { return Boolean(filters.dateFrom && filters.
 function ticketKey(ticket, index, source) { return getTicketId(ticket, `${source}-${index}`); }
 
 export default function TicketListPage({ status }) {
-  const { sessionToken, user, hasPermission } = useAuth();
+  const { sessionToken, user, permissions, hasPermission } = useAuth();
   const isAdmin = hasPermission('BOLETAS_ELIMINAR') || hasPermission('USUARIOS_GESTIONAR');
   const [search, setSearch] = useState('');
   const [filters, setFilters] = useState(EMPTY_FILTERS);
@@ -32,6 +37,22 @@ export default function TicketListPage({ status }) {
   const catalogsRequestStarted = useRef(false);
   const isPending = status === 'PENDIENTE';
 
+  const baseListPayload = useMemo(() => ({
+    search: appliedSearch,
+    estado: status === 'FINALIZADA' ? 'FINALIZADO' : status,
+    status,
+    dateFrom: appliedFilters.dateFrom,
+    dateTo: appliedFilters.dateTo,
+    clienteId: appliedFilters.clienteId,
+    categoriaId: appliedFilters.categoriaId,
+    tipoDispositivoId: appliedFilters.tipoDispositivoId,
+    fabricanteId: appliedFilters.fabricanteId,
+    modeloId: appliedFilters.modeloId,
+    asignadoUsuarioId: isAdmin ? appliedFilters.asignadoUsuarioId : user?.UsuarioID,
+    sortBy: 'Fecha',
+    sortDir: 'desc',
+  }), [appliedFilters, appliedSearch, isAdmin, status, user?.UsuarioID]);
+
   const resource = usePaginatedResource({
     pageSize: TICKET_PAGE_SIZE,
     resetKey: `${sessionToken}|${status}|${isAdmin}|${user?.UsuarioID || ''}|${appliedSearch}|${JSON.stringify(appliedFilters)}`,
@@ -42,16 +63,55 @@ export default function TicketListPage({ status }) {
       if (appliedFilters.modeloId) items = items.filter((item) => String(pick(item, ['ModeloID'])) === String(appliedFilters.modeloId));
       return items;
     },
-    fetchPage: ({ page, pageSize, signal }) => requestAvailable(MODULE_ROUTES.tickets.list, {
-      page, pageSize, search: appliedSearch, estado: status === 'FINALIZADA' ? 'FINALIZADO' : status, status,
-      dateFrom: appliedFilters.dateFrom, dateTo: appliedFilters.dateTo, clienteId: appliedFilters.clienteId,
-      categoriaId: appliedFilters.categoriaId, tipoDispositivoId: appliedFilters.tipoDispositivoId,
-      fabricanteId: appliedFilters.fabricanteId, modeloId: appliedFilters.modeloId,
-      asignadoUsuarioId: isAdmin ? appliedFilters.asignadoUsuarioId : user?.UsuarioID,
-      sortBy: 'Fecha', sortDir: 'desc',
-    }, sessionToken, { signal }),
+    fetchPage: ({ page, pageSize, signal }) => requestSynchronizedCollection(
+      MODULE_ROUTES.tickets.list,
+      { ...baseListPayload, page, pageSize },
+      sessionToken,
+      {
+        resource: 'ticket',
+        userId: user?.UsuarioID,
+        permissions,
+        signal,
+      },
+    ),
   });
-  const { items: tickets, page, total, hasMore, loading, loadingMore, error, setError, loadMore, reload } = resource;
+  const {
+    items: tickets,
+    setItems,
+    page,
+    total,
+    setTotal,
+    hasMore,
+    setHasMore,
+    loading,
+    loadingMore,
+    error,
+    setError,
+    loadMore,
+    reload,
+  } = resource;
+
+  useEffect(() => subscribeSyncResource('ticket', ({ type, delta }) => {
+    if (type === 'snapshot') {
+      reload();
+      return;
+    }
+    if (type !== 'delta' || !delta) return;
+    const query = { ...baseListPayload, page: 1, pageSize: TICKET_PAGE_SIZE };
+    const loadedLimit = Math.max(TICKET_PAGE_SIZE, page * TICKET_PAGE_SIZE, tickets.length);
+    setItems((current) => patchTicketItemsForQuery(current, query, delta, loadedLimit));
+
+    const hasFilters = Boolean(appliedSearch || Object.values(appliedFilters).some(Boolean));
+    if (!hasFilters && delta.counts) {
+      const nextTotal = status === 'PENDIENTE'
+        ? Number(delta.counts.pending)
+        : Number(delta.counts.finished);
+      if (Number.isFinite(nextTotal) && nextTotal >= 0) {
+        setTotal(nextTotal);
+        setHasMore(nextTotal > loadedLimit);
+      }
+    }
+  }), [appliedFilters, appliedSearch, baseListPayload, page, reload, setHasMore, setItems, setTotal, status, tickets.length]);
 
   useEffect(() => {
     if (!filterOpen || catalogsLoaded || catalogsRequestStarted.current || !sessionToken) return undefined;
@@ -100,8 +160,12 @@ export default function TicketListPage({ status }) {
   }
   async function annulTicket(ticket) {
     if (!isAdmin || !window.confirm(`¿Anular la boleta #${getTicketId(ticket)}?`)) return;
-    try { const boletaUid = pick(ticket, ['BoletaUID', 'TicketUID', 'boletaUid']); await requestAvailable(MODULE_ROUTES.tickets.annul, { boletaUid, estado: 'ANULADO' }, sessionToken); await reload(); }
-    catch (err) { setError(err.message); }
+    try {
+      const boletaUid = pick(ticket, ['BoletaUID', 'TicketUID', 'boletaUid']);
+      await requestAvailable(MODULE_ROUTES.tickets.annul, { boletaUid, estado: 'ANULADO' }, sessionToken);
+      setItems((current) => current.filter((item) => String(getTicketId(item)) !== String(boletaUid)));
+      setTotal((current) => Math.max(0, Number(current || 0) - 1));
+    } catch (err) { setError(err.message); }
   }
 
   const filterFields = <>

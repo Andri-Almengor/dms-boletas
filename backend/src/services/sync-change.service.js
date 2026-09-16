@@ -32,6 +32,7 @@ let infrastructurePromise = null;
 let descriptorPromise = null;
 let cachedDescriptor = null;
 let currentCursor = null;
+let syncRowCapacity = 0;
 let unsafeReason = '';
 let eventWriteTail = Promise.resolve();
 
@@ -109,6 +110,7 @@ async function ensureSyncInfrastructureInternal() {
       },
     });
   }
+  syncRowCapacity = Math.max(2, Number(properties?.gridProperties?.rowCount || 1000));
 
   const [headerResponse, cursorResponse] = await Promise.all([
     sheetsApi.spreadsheets.values.get({
@@ -171,6 +173,31 @@ export function ensureSyncInfrastructure() {
     });
   }
   return infrastructurePromise;
+}
+
+async function ensureRowCapacity(requiredRow) {
+  if (requiredRow <= syncRowCapacity) return;
+  const properties = await sheetProperties(SYNC_SHEET);
+  if (!properties) throw new AppError('SYNC_SHEET_MISSING', 'No se encontró la hoja SyncChanges.', 503);
+  const current = Math.max(2, Number(properties.gridProperties?.rowCount || 0));
+  if (requiredRow <= current) {
+    syncRowCapacity = current;
+    return;
+  }
+  const target = Math.ceil(requiredRow / 1000) * 1000;
+  await sheetsApi.spreadsheets.batchUpdate({
+    spreadsheetId: env.sheetId,
+    requestBody: {
+      requests: [{
+        appendDimension: {
+          sheetId: properties.sheetId,
+          dimension: 'ROWS',
+          length: target - current,
+        },
+      }],
+    },
+  });
+  syncRowCapacity = target;
 }
 
 async function writeConfigValue(key, value) {
@@ -306,29 +333,36 @@ function buildEvent({
   };
 }
 
-export async function appendSyncChange(change = {}) {
-  if (!env.incrementalSyncEnabled) return null;
+export async function appendSyncChanges(changes = []) {
+  if (!env.incrementalSyncEnabled || !Array.isArray(changes) || !changes.length) return [];
   const operation = async () => {
     await ensureSyncInfrastructure();
-    const event = buildEvent(change);
-    const cursor = (await initializeCursor()) + 1;
-    const values = SYNC_CHANGE_HEADERS.map((header) => event[header] ?? '');
+    const events = changes.map(buildEvent);
+    const startCursor = (await initializeCursor()) + 1;
+    const endCursor = startCursor + events.length - 1;
+    await ensureRowCapacity(endCursor);
+    const values = events.map((event) => SYNC_CHANGE_HEADERS.map((header) => event[header] ?? ''));
     await sheetsApi.spreadsheets.values.batchUpdate({
       spreadsheetId: env.sheetId,
       requestBody: {
         valueInputOption: 'RAW',
         data: [
-          { range: `${quote(SYNC_SHEET)}!A${cursor}:K${cursor}`, values: [values] },
-          { range: `${quote(SYNC_SHEET)}!${CURSOR_VALUE_CELL}`, values: [[cursor]] },
+          { range: `${quote(SYNC_SHEET)}!A${startCursor}:K${endCursor}`, values },
+          { range: `${quote(SYNC_SHEET)}!${CURSOR_VALUE_CELL}`, values: [[endCursor]] },
         ],
       },
     });
-    currentCursor = cursor;
-    return { ...event, cursor };
+    currentCursor = endCursor;
+    return events.map((event, index) => ({ ...event, cursor: startCursor + index }));
   };
   const current = eventWriteTail.then(operation, operation);
   eventWriteTail = current.catch(() => {});
   return current;
+}
+
+export async function appendSyncChange(change = {}) {
+  const events = await appendSyncChanges([change]);
+  return events[0] || null;
 }
 
 export async function markSyncUnsafe(reason = 'changelog_write_failed') {
@@ -354,25 +388,33 @@ export async function clearSyncUnsafeAfterReconciliation() {
 export async function recordClassifiedSyncChange(classification, ctx = {}) {
   if (!env.incrementalSyncEnabled || !classification || classification.classification === SYNC_MUTATION_CLASS.NO_SYNC_REQUIRED) return null;
   const startedAt = performance.now();
+  const entityIds = [...new Set(
+    (Array.isArray(classification.entityIds) && classification.entityIds.length
+      ? classification.entityIds
+      : [classification.entityId])
+      .map((value) => clean(value, 180))
+      .filter(Boolean),
+  )];
+  if (!entityIds.length) return null;
   try {
-    return await appendSyncChange({
+    return await appendSyncChanges(entityIds.map((entityId) => ({
       resource: classification.resource,
-      entityId: classification.entityId,
+      entityId,
       operation: classification.operation,
       parentId: classification.parentId,
       actorUserId: ctx.user?.UsuarioID || '',
       sourceRoute: ctx.route || '',
       mutationId: mutationIdFrom(ctx.payload),
       metadata: classification.metadata,
-    });
+    })));
   } catch (error) {
     await markSyncUnsafe(`${ctx.route || 'unknown'}:${error?.code || error?.message || 'sync_change_failed'}`);
-    throw new AppError(
-      'SYNC_CHANGELOG_UNSAFE',
-      'La operación de negocio se completó, pero no fue posible confirmar su evento de sincronización. Se forzará una reconciliación completa.',
-      503,
-      { syncReconcileRequired: true, handlerMs: Math.round(performance.now() - startedAt) },
-    );
+    console.warn(`[sync-change][${ctx.route || 'unknown'}] negocio confirmado; changelog inseguro: ${error?.code || error?.message || error}`);
+    return {
+      unsafe: true,
+      reconcileRequired: true,
+      handlerMs: Math.round((performance.now() - startedAt) * 100) / 100,
+    };
   }
 }
 

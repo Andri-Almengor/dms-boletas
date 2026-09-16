@@ -4,6 +4,11 @@ import { useAuth } from '../AuthContext';
 import Icon from '../components/common/Icon';
 import TicketCard from '../components/tickets/TicketCard';
 import { MODULE_ROUTES, normalizeItems, requestAvailable } from '../services/moduleApi';
+import {
+  patchTicketItemsForQuery,
+  requestSynchronizedCollection,
+  subscribeSyncResource,
+} from '../services/syncManager';
 import { getTicketId, sortTicketsNewestFirst } from '../utils/tickets';
 
 function firstName(name = '') {
@@ -31,30 +36,37 @@ function scheduleAfterPaint(callback) {
   return () => window.clearTimeout(id);
 }
 
-async function loadTicketHome(sessionToken, signal) {
-  const recentData = await requestAvailable(MODULE_ROUTES.tickets.list, {
-    page: 1,
-    pageSize: 3,
-    sortBy: 'Fecha',
-    sortDir: 'desc',
-    homeSummary: true,
-  }, sessionToken, { signal });
+const HOME_TICKET_QUERY = Object.freeze({
+  page: 1,
+  pageSize: 3,
+  sortBy: 'Fecha',
+  sortDir: 'desc',
+  homeSummary: true,
+});
+
+async function loadTicketHome(sessionToken, userId, permissions, signal) {
+  const recentData = await requestSynchronizedCollection(
+    MODULE_ROUTES.tickets.list,
+    HOME_TICKET_QUERY,
+    sessionToken,
+    { resource: 'ticket', userId, permissions, signal },
+  );
   const summary = summaryCounts(recentData);
   if (summary) return { recentData, summary };
 
-  // Compatibilidad con un backend/App Script anterior que todavía ignore homeSummary.
+  // Compatibilidad con un backend anterior que todavía ignore homeSummary.
   const countPayload = { page: 1, pageSize: 1 };
   const [pendingData, finishedData] = await Promise.all([
-    requestAvailable(MODULE_ROUTES.tickets.list, {
+    requestSynchronizedCollection(MODULE_ROUTES.tickets.list, {
       ...countPayload,
       status: 'PENDIENTE',
       estado: 'PENDIENTE',
-    }, sessionToken, { signal }),
-    requestAvailable(MODULE_ROUTES.tickets.list, {
+    }, sessionToken, { resource: 'ticket', userId, permissions, signal }),
+    requestSynchronizedCollection(MODULE_ROUTES.tickets.list, {
       ...countPayload,
       status: 'FINALIZADA',
       estado: 'FINALIZADA',
-    }, sessionToken, { signal }),
+    }, sessionToken, { resource: 'ticket', userId, permissions, signal }),
   ]);
   return {
     recentData,
@@ -75,7 +87,7 @@ async function loadMaintenanceHome(sessionToken, signal) {
   const summary = summaryCounts(summaryData);
   if (summary) return summary;
 
-  // Compatibilidad con un backend/App Script anterior que todavía ignore homeSummary.
+  // Compatibilidad con un backend anterior que todavía ignore homeSummary.
   const countPayload = { page: 1, pageSize: 1, activo: true };
   const [pendingData, finishedData] = await Promise.all([
     requestAvailable(MODULE_ROUTES.maintenance.list, {
@@ -96,7 +108,7 @@ async function loadMaintenanceHome(sessionToken, signal) {
 }
 
 export default function HomePage() {
-  const { user, hasPermission, sessionToken } = useAuth();
+  const { user, permissions, hasPermission, sessionToken } = useAuth();
   const [tickets, setTickets] = useState([]);
   const [counts, setCounts] = useState({ pending: null, finished: null });
   const [maintenanceCounts, setMaintenanceCounts] = useState({ pending: null, finished: null });
@@ -122,7 +134,7 @@ export default function HomePage() {
     setError('');
     setCounts({ pending: null, finished: null });
 
-    loadTicketHome(sessionToken, controller.signal)
+    loadTicketHome(sessionToken, user?.UsuarioID, permissions, controller.signal)
       .then(({ recentData, summary }) => {
         if (!active) return;
         setCounts(summary);
@@ -142,7 +154,17 @@ export default function HomePage() {
       active = false;
       controller.abort();
     };
-  }, [sessionToken, canViewTickets]);
+  }, [sessionToken, canViewTickets, user?.UsuarioID, permissions]);
+
+  useEffect(() => subscribeSyncResource('ticket', ({ type, delta }) => {
+    if (!canViewTickets || type !== 'delta' || !delta) return;
+    if (delta.counts) {
+      const pending = Number(delta.counts.pending);
+      const finished = Number(delta.counts.finished);
+      if (Number.isFinite(pending) && Number.isFinite(finished)) setCounts({ pending, finished });
+    }
+    setTickets((current) => patchTicketItemsForQuery(current, HOME_TICKET_QUERY, delta, 3));
+  }), [canViewTickets]);
 
   useEffect(() => {
     let active = true;
