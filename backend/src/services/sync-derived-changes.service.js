@@ -1,4 +1,5 @@
 import { readTable } from '../infra/sheets.repository.js';
+import { isActiveKnowledgeRelation } from './knowledge-enrichment-index.js';
 import { SYNC_MUTATION_CLASS } from './sync-resource-registry.js';
 
 const EQUIPMENT_LOCATION_UPDATE_ROUTES = new Set([
@@ -67,6 +68,27 @@ async function modelRelationDerivedChanges(route, result, primaryClassification)
     : [];
 }
 
+async function knowledgeCategoryArticleChanges(route, result, primaryClassification) {
+  if (primaryClassification?.resource !== 'knowledgeCategory' || primaryClassification?.operation !== 'UPSERT') return [];
+  if (!/\.update$/i.test(clean(route))) return [];
+  const categoryId = clean(result?.CategoriaConocimientoID || result?.CategoriaID || result?.id);
+  if (!categoryId) return [];
+
+  const relations = await readTable('KnowledgeArticleCategories');
+  const tutorialIds = [...new Set(
+    relations
+      .filter((row) => (
+        clean(row.CategoriaConocimientoID) === categoryId
+        && isActiveKnowledgeRelation(row)
+      ))
+      .map((row) => clean(row.TutorialID))
+      .filter(Boolean),
+  )];
+  return tutorialIds.map((tutorialId) => (
+    syncClassification('knowledgeArticle', tutorialId, route, 'knowledgeCategory')
+  ));
+}
+
 function ticketCanChangeAgendaView(route, primaryClassification) {
   if (primaryClassification?.resource !== 'ticket') return false;
   const normalized = clean(route).toLowerCase();
@@ -104,9 +126,10 @@ export async function collectDerivedSyncClassifications({
   primaryClassification = null,
 } = {}) {
   const normalizedRoute = clean(route);
-  const [equipmentChanges, relationChanges] = await Promise.all([
+  const [equipmentChanges, relationChanges, knowledgeChanges] = await Promise.all([
     equipmentLocationDerivedChanges(normalizedRoute, payload, result || {}),
     modelRelationDerivedChanges(normalizedRoute, result || {}, primaryClassification),
+    knowledgeCategoryArticleChanges(normalizedRoute, result || {}, primaryClassification),
   ]);
   const agendaChanges = ticketAgendaDerivedChanges(normalizedRoute, primaryClassification);
   const caseProcessChanges = customerCaseProcessDerivedChanges(normalizedRoute, result || {});
@@ -116,6 +139,7 @@ export async function collectDerivedSyncClassifications({
   return [
     ...equipmentChanges,
     ...relationChanges,
+    ...knowledgeChanges,
     ...agendaChanges,
     ...caseProcessChanges,
     ...ticketCaseChanges,
