@@ -108,7 +108,7 @@ async function loadMaintenanceHome(sessionToken, signal) {
 }
 
 export default function HomePage() {
-  const { user, permissions, hasPermission, sessionToken } = useAuth();
+  const { user, permissions, hasPermission, sessionToken, securityRevision } = useAuth();
   const [tickets, setTickets] = useState([]);
   const [counts, setCounts] = useState({ pending: null, finished: null });
   const [maintenanceCounts, setMaintenanceCounts] = useState({ pending: null, finished: null });
@@ -154,10 +154,17 @@ export default function HomePage() {
       active = false;
       controller.abort();
     };
-  }, [sessionToken, canViewTickets, user?.UsuarioID, permissions]);
+  }, [sessionToken, canViewTickets, user?.UsuarioID, permissions, securityRevision]);
 
   useEffect(() => subscribeSyncResource('ticket', ({ type, delta }) => {
-    if (!canViewTickets || type !== 'delta' || !delta) return;
+    if (!canViewTickets) return;
+    if (type === 'security-invalidated') {
+      setTickets([]);
+      setCounts({ pending: null, finished: null });
+      setLoading(true);
+      return;
+    }
+    if (type !== 'delta' || !delta) return;
     if (delta.counts) {
       const pending = Number(delta.counts.pending);
       const finished = Number(delta.counts.finished);

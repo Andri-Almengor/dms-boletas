@@ -2,6 +2,7 @@ import { isAuthenticationError } from '../services/requestErrors';
 import React, { createContext, useContext, useEffect, useMemo, useState } from 'react';
 import { apiRequest } from '../api';
 import { hasImpliedOperationalClientPermission } from '../config/formInlineCreationPolicy';
+import { clearSyncSecurityBlock } from '../services/syncManager';
 
 const STORAGE_KEY = 'dms_session';
 const AuthContext = createContext(null);
@@ -42,12 +43,31 @@ function effectivePermission(permissions, code) {
   return false;
 }
 
+async function acceptAuthoritativeSession(sessionToken, data, setters = {}) {
+  const nextPermissions = data.permissions || [];
+  await clearSyncSecurityBlock(data.user?.UsuarioID, nextPermissions).catch(() => {});
+  setters.setUser?.(data.user);
+  setters.setPermissions?.(nextPermissions);
+  saveStoredSession(sessionToken, data.user, nextPermissions);
+  return nextPermissions;
+}
+
 export function AuthProvider({ children }) {
   const initial = useMemo(() => readStoredSession(), []);
   const [sessionToken, setSessionToken] = useState(initial.sessionToken);
   const [user, setUser] = useState(initial.user);
   const [permissions, setPermissions] = useState(initial.permissions);
   const [loading, setLoading] = useState(Boolean(initial.sessionToken && !initial.user));
+  const [securityRevision, setSecurityRevision] = useState(0);
+
+  function clearSession() {
+    try { localStorage.removeItem(STORAGE_KEY); } catch { /* La sesión en memoria también se limpia. */ }
+    setSessionToken('');
+    setUser(null);
+    setPermissions([]);
+    setSecurityRevision((current) => current + 1);
+    setLoading(false);
+  }
 
   useEffect(() => {
     if (!sessionToken) {
@@ -60,12 +80,10 @@ export function AuthProvider({ children }) {
     setLoading(!user);
 
     apiRequest('auth.me', {}, sessionToken, { signal: controller.signal })
-      .then((data) => {
+      .then(async (data) => {
         if (!active) return;
-        const nextPermissions = data.permissions || [];
-        setUser(data.user);
-        setPermissions(nextPermissions);
-        saveStoredSession(sessionToken, data.user, nextPermissions);
+        await acceptAuthoritativeSession(sessionToken, data, { setUser, setPermissions });
+        if (active) setSecurityRevision((current) => current + 1);
       })
       .catch((error) => {
         if (!active) return;
@@ -91,22 +109,38 @@ export function AuthProvider({ children }) {
     };
   }, [sessionToken]);
 
-  function clearSession() {
-    try { localStorage.removeItem(STORAGE_KEY); } catch { /* La sesión en memoria también se limpia. */ }
-    setSessionToken('');
-    setUser(null);
-    setPermissions([]);
-    setLoading(false);
-  }
+  useEffect(() => {
+    if (!sessionToken || typeof window === 'undefined') return undefined;
+    let active = true;
+    let controller = null;
+    const onSecurityInvalidated = () => {
+      controller?.abort();
+      controller = new AbortController();
+      apiRequest('auth.me', {}, sessionToken, { signal: controller.signal })
+        .then(async (data) => {
+          if (!active) return;
+          await acceptAuthoritativeSession(sessionToken, data, { setUser, setPermissions });
+          if (active) setSecurityRevision((current) => current + 1);
+        })
+        .catch((error) => {
+          if (!active) return;
+          if (isAuthenticationError(error)) clearSession();
+        });
+    };
+    window.addEventListener('dms-sync-security-invalidated', onSecurityInvalidated);
+    return () => {
+      active = false;
+      controller?.abort();
+      window.removeEventListener('dms-sync-security-invalidated', onSecurityInvalidated);
+    };
+  }, [sessionToken]);
 
   async function login(username, password) {
     const data = await apiRequest('auth.login', { username, password });
-    const nextPermissions = data.permissions || [];
-    saveStoredSession(data.sessionToken, data.user, nextPermissions);
+    const nextPermissions = await acceptAuthoritativeSession(data.sessionToken, data, { setUser, setPermissions });
     setSessionToken(data.sessionToken);
-    setUser(data.user);
-    setPermissions(nextPermissions);
-    return data;
+    setSecurityRevision((current) => current + 1);
+    return { ...data, permissions: nextPermissions };
   }
 
   async function logout() {
@@ -122,11 +156,9 @@ export function AuthProvider({ children }) {
       if (isAuthenticationError(error)) clearSession();
       throw error;
     });
-    const nextPermissions = data.permissions || [];
-    setUser(data.user);
-    setPermissions(nextPermissions);
-    saveStoredSession(sessionToken, data.user, nextPermissions);
-    return data;
+    const nextPermissions = await acceptAuthoritativeSession(sessionToken, data, { setUser, setPermissions });
+    setSecurityRevision((current) => current + 1);
+    return { ...data, permissions: nextPermissions };
   }
 
   const value = useMemo(() => ({
@@ -134,12 +166,13 @@ export function AuthProvider({ children }) {
     user,
     permissions,
     loading,
+    securityRevision,
     login,
     logout,
     refreshMe,
     clearSession,
     hasPermission: (code) => effectivePermission(permissions, code),
-  }), [sessionToken, user, permissions, loading]);
+  }), [sessionToken, user, permissions, loading, securityRevision]);
 
   return <AuthContext.Provider value={value}>{children}</AuthContext.Provider>;
 }

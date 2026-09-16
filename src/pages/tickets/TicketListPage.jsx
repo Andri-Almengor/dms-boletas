@@ -24,7 +24,7 @@ function invalidDateRange(filters) { return Boolean(filters.dateFrom && filters.
 function ticketKey(ticket, index, source) { return getTicketId(ticket, `${source}-${index}`); }
 
 export default function TicketListPage({ status }) {
-  const { sessionToken, user, permissions, hasPermission } = useAuth();
+  const { sessionToken, user, permissions, hasPermission, securityRevision } = useAuth();
   const isAdmin = hasPermission('BOLETAS_ELIMINAR') || hasPermission('USUARIOS_GESTIONAR');
   const [search, setSearch] = useState('');
   const [filters, setFilters] = useState(EMPTY_FILTERS);
@@ -55,7 +55,7 @@ export default function TicketListPage({ status }) {
 
   const resource = usePaginatedResource({
     pageSize: TICKET_PAGE_SIZE,
-    resetKey: `${sessionToken}|${status}|${isAdmin}|${user?.UsuarioID || ''}|${appliedSearch}|${JSON.stringify(appliedFilters)}`,
+    resetKey: `${sessionToken}|${status}|${isAdmin}|${user?.UsuarioID || ''}|${securityRevision}|${appliedSearch}|${JSON.stringify(appliedFilters)}`,
     getItemKey: ticketKey,
     normalizeResponse: (data) => {
       let items = normalizeItems(data).filter((item) => normalizeTicketStatus(item) === status);
@@ -89,9 +89,14 @@ export default function TicketListPage({ status }) {
     setError,
     loadMore,
     reload,
+    clear,
   } = resource;
 
   useEffect(() => subscribeSyncResource('ticket', ({ type, delta }) => {
+    if (type === 'security-invalidated') {
+      clear();
+      return;
+    }
     if (type === 'snapshot') {
       reload();
       return;
@@ -111,7 +116,7 @@ export default function TicketListPage({ status }) {
         setHasMore(nextTotal > loadedLimit);
       }
     }
-  }), [appliedFilters, appliedSearch, baseListPayload, page, reload, setHasMore, setItems, setTotal, status, tickets.length]);
+  }), [appliedFilters, appliedSearch, baseListPayload, clear, page, reload, setHasMore, setItems, setTotal, status, tickets.length]);
 
   useEffect(() => {
     if (!filterOpen || catalogsLoaded || catalogsRequestStarted.current || !sessionToken) return undefined;

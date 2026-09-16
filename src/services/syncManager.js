@@ -1,11 +1,14 @@
 import { apiRequest } from '../api';
+import { requestFirstAvailable } from './aliasResolver';
 import { normalizeItems, requestAvailable } from './moduleApi';
 
 export const CLIENT_SYNC_SCHEMA_VERSION = 1;
 
 let corePromise = null;
 const syncInflight = new Map();
+const detailInflight = new Map();
 const listeners = new Map();
+const entityListeners = new Map();
 
 function loadCore() {
   if (!corePromise) corePromise = import('./offlineStoreCore');
@@ -45,8 +48,18 @@ function permissionFingerprint(permissions = []) {
   return [...new Set((permissions || []).map(String).filter(Boolean))].sort().join(',');
 }
 
-function stateMetaKey(resource, userId, permissions = []) {
-  return `incremental-sync:${clean(resource)}:${clean(userId) || 'anonymous'}:${hashText(permissionFingerprint(permissions))}`;
+function scopeFingerprint(userId, permissions = []) {
+  return `${clean(userId) || 'anonymous'}:${hashText(permissionFingerprint(permissions))}`;
+}
+
+function stateMetaKey(resource, userId, permissions = [], entityId = '') {
+  const entity = clean(entityId);
+  const suffix = entity ? `:entity:${hashText(entity)}` : '';
+  return `incremental-sync:${clean(resource)}:${scopeFingerprint(userId, permissions)}${suffix}`;
+}
+
+function securityMetaKey(userId, permissions = []) {
+  return `incremental-sync-security:${scopeFingerprint(userId, permissions)}`;
 }
 
 export function synchronizedResponseCacheKey(cacheScope, routes, payload = {}) {
@@ -225,15 +238,15 @@ export function patchTicketCollection(data, request = {}, delta = {}) {
   return rebuildCollection(data, items, total, request, delta, integrityPending);
 }
 
-async function readState(resource, userId, permissions) {
+async function readState(resource, userId, permissions, entityId = '') {
   const core = await loadCore();
-  const entry = await core.getOfflineMeta(stateMetaKey(resource, userId, permissions));
+  const entry = await core.getOfflineMeta(stateMetaKey(resource, userId, permissions, entityId));
   return entry?.value || null;
 }
 
-async function saveState(resource, userId, permissions, nextState = {}) {
+async function saveState(resource, userId, permissions, nextState = {}, entityId = '') {
   const core = await loadCore();
-  const key = stateMetaKey(resource, userId, permissions);
+  const key = stateMetaKey(resource, userId, permissions, entityId);
   const current = (await core.getOfflineMeta(key))?.value || null;
   if (current && current.generation === nextState.generation
     && Number(nextState.cursor || 0) < Number(current.cursor || 0)) return current;
@@ -241,11 +254,37 @@ async function saveState(resource, userId, permissions, nextState = {}) {
     ...(current || {}),
     ...nextState,
     resource,
+    entityId: clean(entityId),
     userId: clean(userId),
     savedAt: Date.now(),
   };
   await core.setOfflineMeta(key, value);
   return value;
+}
+
+async function securityBlocked(userId, permissions) {
+  const core = await loadCore();
+  const entry = await core.getOfflineMeta(securityMetaKey(userId, permissions));
+  return Boolean(entry?.value?.blocked);
+}
+
+async function markSecurityBlocked(userId, permissions, delta = {}) {
+  const core = await loadCore();
+  await core.setOfflineMeta(securityMetaKey(userId, permissions), {
+    blocked: true,
+    generation: clean(delta.generation),
+    cursor: Number(delta.cursor || 0),
+    reason: clean(delta.reason || 'security_changed'),
+    savedAt: Date.now(),
+  });
+}
+
+export async function clearSyncSecurityBlock(userId, permissions = []) {
+  const core = await loadCore();
+  await core.setOfflineMeta(securityMetaKey(userId, permissions), {
+    blocked: false,
+    savedAt: Date.now(),
+  });
 }
 
 async function readScopedCache(state, routes, payload) {
@@ -268,8 +307,20 @@ function emit(resource, detail) {
       try { callback(detail); } catch { /* one view must not break the others */ }
     }
   }
-  if (typeof window !== 'undefined') {
-    window.dispatchEvent(new CustomEvent(`dms-sync-${resource}`, { detail }));
+  if (typeof window !== 'undefined') window.dispatchEvent(new CustomEvent(`dms-sync-${resource}`, { detail }));
+}
+
+function entityListenerKey(resource, entityId) {
+  return `${clean(resource)}:${clean(entityId)}`;
+}
+
+function emitEntity(resource, entityId, detail) {
+  const key = entityListenerKey(resource, entityId);
+  const callbacks = entityListeners.get(key);
+  if (callbacks) {
+    for (const callback of [...callbacks]) {
+      try { callback(detail); } catch { /* one detail view must not break others */ }
+    }
   }
 }
 
@@ -281,6 +332,17 @@ export function subscribeSyncResource(resource, callback) {
     const callbacks = listeners.get(key);
     callbacks?.delete(callback);
     if (callbacks && callbacks.size === 0) listeners.delete(key);
+  };
+}
+
+export function subscribeSyncEntity(resource, entityId, callback) {
+  const key = entityListenerKey(resource, entityId);
+  if (!entityListeners.has(key)) entityListeners.set(key, new Set());
+  entityListeners.get(key).add(callback);
+  return () => {
+    const callbacks = entityListeners.get(key);
+    callbacks?.delete(callback);
+    if (callbacks && callbacks.size === 0) entityListeners.delete(key);
   };
 }
 
@@ -299,9 +361,19 @@ async function applyRemoteDelta(resource, state, delta) {
   return 0;
 }
 
-async function probeSnapshot(resource, sessionToken, signal) {
+async function authoritativeRequest(routes, payload, sessionToken, signal) {
+  const candidates = Array.isArray(routes) ? routes : [routes];
+  return requestFirstAvailable(
+    candidates,
+    (route) => apiRequest(route, payload, sessionToken, { signal }),
+    { signal },
+  );
+}
+
+async function probeSnapshot(resource, sessionToken, signal, entityId = '') {
   return apiRequest('sync.delta', {
     resource,
+    entityId: clean(entityId),
     cursor: 1,
     generation: '',
     schemaVersion: CLIENT_SYNC_SCHEMA_VERSION,
@@ -320,6 +392,26 @@ function stateFromDelta(delta = {}, cursor = null) {
   };
 }
 
+function notifySecurityInvalidation(resource, entityId, delta) {
+  const detail = { type: 'security-invalidated', resource, entityId: clean(entityId), delta };
+  emit(resource, detail);
+  if (entityId) emitEntity(resource, entityId, detail);
+  if (typeof window !== 'undefined') {
+    window.dispatchEvent(new CustomEvent('dms-sync-security-invalidated', { detail: delta }));
+  }
+}
+
+async function handleSecurityInvalidation({ resource, entityId = '', userId, permissions, state, delta }) {
+  await markSecurityBlocked(userId, permissions, delta);
+  const blockedState = await saveState(resource, userId, permissions, {
+    ...(state || {}),
+    securityInvalidated: true,
+    lastSyncAt: Date.now(),
+  }, entityId);
+  notifySecurityInvalidation(resource, entityId, delta);
+  return blockedState;
+}
+
 async function replaceSnapshot({
   resource,
   routes,
@@ -329,13 +421,18 @@ async function replaceSnapshot({
   permissions,
   delta,
   signal,
+  entityId = '',
 }) {
   const snapshotCursor = Number(delta.snapshotCursor ?? delta.cursor ?? 1);
   const snapshotState = stateFromDelta(delta, snapshotCursor);
-  const data = await requestAvailable(routes, payload, sessionToken, { signal });
+  // Reconciliation must come from the authoritative online endpoint. If this
+  // request fails, keep the previous compatible cache instead of replacing it
+  // with an offline fallback that may predate the requested cursor.
+  const data = await authoritativeRequest(routes, payload, sessionToken, signal);
   await writeScopedCache(snapshotState, routes, payload, data);
-  const saved = await saveState(resource, userId, permissions, snapshotState);
-  emit(resource, { type: 'snapshot', resource, data, state: saved, reason: delta.reason || 'reconcile' });
+  const saved = await saveState(resource, userId, permissions, snapshotState, entityId);
+  if (entityId) emitEntity(resource, entityId, { type: 'snapshot', resource, entityId, data, state: saved, reason: delta.reason || 'reconcile' });
+  else emit(resource, { type: 'snapshot', resource, data, state: saved, reason: delta.reason || 'reconcile' });
   return { data, state: saved };
 }
 
@@ -350,6 +447,7 @@ async function synchronizeResourceInternal({
 }) {
   let state = await readState(resource, userId, permissions);
   if (!state?.generation || !state?.cacheScope || state.enabled === false) return null;
+  if (await securityBlocked(userId, permissions)) return state;
 
   for (let page = 0; page < 20; page += 1) {
     const delta = await apiRequest('sync.delta', {
@@ -359,21 +457,12 @@ async function synchronizeResourceInternal({
       schemaVersion: state.schemaVersion,
     }, sessionToken, { signal });
 
-    if (delta.securityInvalidated && typeof window !== 'undefined') {
-      window.dispatchEvent(new CustomEvent('dms-sync-security-invalidated', { detail: delta }));
+    if (delta.securityInvalidated) {
+      return handleSecurityInvalidation({ resource, userId, permissions, state, delta });
     }
 
     if (delta.fullSnapshotRequired) {
-      const replacement = await replaceSnapshot({
-        resource,
-        routes,
-        payload,
-        sessionToken,
-        userId,
-        permissions,
-        delta,
-        signal,
-      });
+      const replacement = await replaceSnapshot({ resource, routes, payload, sessionToken, userId, permissions, delta, signal });
       state = replacement.state;
       continue;
     }
@@ -395,12 +484,7 @@ async function synchronizeResourceInternal({
       securityInvalidated: false,
       lastSyncAt: Date.now(),
     });
-    emit(resource, {
-      type: 'delta',
-      resource,
-      delta: { ...delta, idbPatchMs, idbWriteCount },
-      state,
-    });
+    emit(resource, { type: 'delta', resource, delta: { ...delta, idbPatchMs, idbWriteCount }, state });
     if (!delta.hasMore) return state;
   }
 
@@ -410,6 +494,9 @@ async function synchronizeResourceInternal({
     generation: '__force_snapshot__',
     schemaVersion: state.schemaVersion,
   }, sessionToken, { signal });
+  if (fallback.securityInvalidated) {
+    return handleSecurityInvalidation({ resource, userId, permissions, state, delta: fallback });
+  }
   if (fallback.fullSnapshotRequired) {
     return (await replaceSnapshot({ resource, routes, payload, sessionToken, userId, permissions, delta: fallback, signal })).state;
   }
@@ -418,14 +505,120 @@ async function synchronizeResourceInternal({
 
 export async function synchronizeResource(options = {}) {
   const state = await readState(options.resource, options.userId, options.permissions);
-  if (!state?.cacheScope) return null;
+  if (!state?.cacheScope || state.securityInvalidated) return state || null;
   const key = `${state.cacheScope}|${options.resource}|${Number(state.cursor || 1)}`;
   if (syncInflight.has(key)) return syncInflight.get(key);
-  const promise = synchronizeResourceInternal(options)
-    .finally(() => {
-      if (syncInflight.get(key) === promise) syncInflight.delete(key);
-    });
+  const promise = synchronizeResourceInternal(options).finally(() => {
+    if (syncInflight.get(key) === promise) syncInflight.delete(key);
+  });
   syncInflight.set(key, promise);
+  return promise;
+}
+
+async function synchronizeDetailInternal({
+  resource,
+  entityId,
+  routes,
+  payload,
+  sessionToken,
+  userId,
+  permissions,
+  signal,
+}) {
+  let state = await readState(resource, userId, permissions, entityId);
+  if (!state?.generation || !state?.cacheScope || state.enabled === false) return null;
+  if (await securityBlocked(userId, permissions)) return state;
+
+  for (let page = 0; page < 20; page += 1) {
+    const delta = await apiRequest('sync.delta', {
+      resource,
+      entityId,
+      cursor: Number(state.cursor || 1),
+      generation: state.generation,
+      schemaVersion: state.schemaVersion,
+    }, sessionToken, { signal });
+
+    if (delta.securityInvalidated) {
+      return handleSecurityInvalidation({ resource, entityId, userId, permissions, state, delta });
+    }
+
+    if (delta.fullSnapshotRequired) {
+      const replacement = await replaceSnapshot({
+        resource, routes, payload, sessionToken, userId, permissions, delta, signal, entityId,
+      });
+      state = replacement.state;
+      continue;
+    }
+
+    const current = await readState(resource, userId, permissions, entityId);
+    if (!current || current.generation !== delta.generation) return null;
+    if (Number(delta.cursor || 0) < Number(current.cursor || 0)) return current;
+
+    if ((delta.removed || []).map(String).includes(String(entityId))) {
+      await writeScopedCache(current, routes, payload, null);
+      const idbPatchStartedAt = performance.now();
+      const idbWriteCount = await applyRemoteDelta(resource, current, delta);
+      const idbPatchMs = Math.round((performance.now() - idbPatchStartedAt) * 100) / 100;
+      state = await saveState(resource, userId, permissions, {
+        ...current,
+        cursor: Number(delta.cursor || current.cursor || 1),
+        lastSyncAt: Date.now(),
+      }, entityId);
+      const enriched = { ...delta, idbPatchMs, idbWriteCount };
+      emit(resource, { type: 'delta', resource, delta: enriched, state });
+      emitEntity(resource, entityId, { type: 'removed', resource, entityId, delta: enriched, state });
+      return state;
+    }
+
+    if (!delta.notModified && delta.detail) {
+      await writeScopedCache(current, routes, payload, delta.detail);
+      const idbPatchStartedAt = performance.now();
+      const idbWriteCount = await applyRemoteDelta(resource, current, delta);
+      const idbPatchMs = Math.round((performance.now() - idbPatchStartedAt) * 100) / 100;
+      state = await saveState(resource, userId, permissions, {
+        ...current,
+        cursor: Number(delta.cursor || current.cursor || 1),
+        lastSyncAt: Date.now(),
+      }, entityId);
+      const enriched = { ...delta, idbPatchMs, idbWriteCount };
+      emit(resource, { type: 'delta', resource, delta: enriched, state });
+      emitEntity(resource, entityId, { type: 'detail', resource, entityId, data: delta.detail, delta: enriched, state });
+    } else {
+      state = await saveState(resource, userId, permissions, {
+        ...current,
+        cursor: Number(delta.cursor || current.cursor || 1),
+        lastSyncAt: Date.now(),
+      }, entityId);
+    }
+
+    if (!delta.hasMore) return state;
+  }
+
+  const fallback = await apiRequest('sync.delta', {
+    resource,
+    entityId,
+    cursor: Number(state.cursor || 1),
+    generation: '__force_snapshot__',
+    schemaVersion: state.schemaVersion,
+  }, sessionToken, { signal });
+  if (fallback.securityInvalidated) {
+    return handleSecurityInvalidation({ resource, entityId, userId, permissions, state, delta: fallback });
+  }
+  if (fallback.fullSnapshotRequired) {
+    return (await replaceSnapshot({ resource, routes, payload, sessionToken, userId, permissions, delta: fallback, signal, entityId })).state;
+  }
+  return state;
+}
+
+export async function synchronizeDetail(options = {}) {
+  const state = await readState(options.resource, options.userId, options.permissions, options.entityId);
+  if (!state?.cacheScope || state.securityInvalidated) return state || null;
+  const key = `${state.cacheScope}|${options.resource}|${clean(options.entityId)}|${Number(state.cursor || 1)}`;
+  if (detailInflight.has(key)) return detailInflight.get(key);
+  const promise = synchronizeDetailInternal(options).finally(() => {
+    if (detailInflight.get(key) === promise) detailInflight.delete(key);
+  });
+  detailInflight.set(key, promise);
   return promise;
 }
 
@@ -434,18 +627,28 @@ function scheduleSync(options) {
   Promise.resolve().then(() => synchronizeResource(options)).catch(() => {});
 }
 
+function scheduleDetailSync(options) {
+  if (typeof navigator !== 'undefined' && navigator.onLine === false) return;
+  Promise.resolve().then(() => synchronizeDetail(options)).catch(() => {});
+}
+
+function securityRefreshRequiredError() {
+  const error = new Error('La seguridad de la sesión cambió. Conéctese a internet para validar nuevamente sus permisos.');
+  error.code = 'SYNC_SECURITY_REFRESH_REQUIRED';
+  return error;
+}
+
 export async function requestSynchronizedCollection(
   routes,
   payload = {},
   sessionToken = '',
-  {
-    resource,
-    userId = '',
-    permissions = [],
-    signal,
-  } = {},
+  { resource, userId = '', permissions = [], signal } = {},
 ) {
   if (!sessionToken || !resource) return requestAvailable(routes, payload, sessionToken, { signal });
+  if (await securityBlocked(userId, permissions)) {
+    if (typeof navigator !== 'undefined' && navigator.onLine === false) throw securityRefreshRequiredError();
+    return authoritativeRequest(routes, payload, sessionToken, signal);
+  }
   let state = await readState(resource, userId, permissions);
 
   if (state?.enabled !== false && state?.cacheScope && !state?.securityInvalidated) {
@@ -467,14 +670,77 @@ export async function requestSynchronizedCollection(
     }
   }
 
-  const data = await requestAvailable(routes, payload, sessionToken, { signal });
-  await writeScopedCache(snapshotBasis, routes, payload, data);
-  state = await saveState(resource, userId, permissions, snapshotBasis);
-  scheduleSync({ resource, routes, payload, sessionToken, userId, permissions });
-  return data;
+  try {
+    const data = await authoritativeRequest(routes, payload, sessionToken, signal);
+    await writeScopedCache(snapshotBasis, routes, payload, data);
+    state = await saveState(resource, userId, permissions, snapshotBasis);
+    scheduleSync({ resource, routes, payload, sessionToken, userId, permissions });
+    return data;
+  } catch {
+    return requestAvailable(routes, payload, sessionToken, { signal });
+  }
+}
+
+export async function requestSynchronizedDetail(
+  routes,
+  payload = {},
+  sessionToken = '',
+  { resource, entityId, userId = '', permissions = [], signal, forceSync = false } = {},
+) {
+  const targetId = clean(entityId || payload.boletaUid || payload.id);
+  if (!sessionToken || !resource || !targetId) return requestAvailable(routes, payload, sessionToken, { signal });
+  if (await securityBlocked(userId, permissions)) {
+    if (typeof navigator !== 'undefined' && navigator.onLine === false) throw securityRefreshRequiredError();
+    return authoritativeRequest(routes, payload, sessionToken, signal);
+  }
+  let state = await readState(resource, userId, permissions, targetId);
+
+  if (state?.enabled !== false && state?.cacheScope && !state?.securityInvalidated) {
+    const cached = await readScopedCache(state, routes, payload);
+    if (cached !== null) {
+      const options = { resource, entityId: targetId, routes, payload, sessionToken, userId, permissions, signal };
+      if (forceSync && typeof navigator !== 'undefined' && navigator.onLine !== false) {
+        await synchronizeDetail(options);
+        const refreshedState = await readState(resource, userId, permissions, targetId);
+        const refreshed = await readScopedCache(refreshedState, routes, payload);
+        if (refreshed !== null) return refreshed;
+      } else {
+        scheduleDetailSync({ ...options, signal: undefined });
+      }
+      return cached;
+    }
+  }
+
+  let snapshotBasis = state;
+  if (!snapshotBasis?.generation || !snapshotBasis?.cacheScope) {
+    try {
+      const probe = await probeSnapshot(resource, sessionToken, signal, targetId);
+      if (probe.enabled === false) return requestAvailable(routes, payload, sessionToken, { signal });
+      snapshotBasis = stateFromDelta(probe);
+    } catch {
+      return requestAvailable(routes, payload, sessionToken, { signal });
+    }
+  }
+
+  try {
+    const data = await authoritativeRequest(routes, payload, sessionToken, signal);
+    await writeScopedCache(snapshotBasis, routes, payload, data);
+    state = await saveState(resource, userId, permissions, snapshotBasis, targetId);
+    scheduleDetailSync({ resource, entityId: targetId, routes, payload, sessionToken, userId, permissions });
+    return data;
+  } catch {
+    return requestAvailable(routes, payload, sessionToken, { signal });
+  }
 }
 
 export async function readSynchronizedCollectionCache(routes, payload = {}, { resource, userId = '', permissions = [] } = {}) {
+  if (await securityBlocked(userId, permissions)) return null;
   const state = await readState(resource, userId, permissions);
+  return readScopedCache(state, routes, payload);
+}
+
+export async function readSynchronizedDetailCache(routes, payload = {}, { resource, entityId, userId = '', permissions = [] } = {}) {
+  if (await securityBlocked(userId, permissions)) return null;
+  const state = await readState(resource, userId, permissions, entityId);
   return readScopedCache(state, routes, payload);
 }

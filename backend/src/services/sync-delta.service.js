@@ -2,6 +2,7 @@ import { performance } from 'node:perf_hooks';
 import { env } from '../config/env.js';
 import { AppError } from '../core/errors.js';
 import { sha256 } from '../core/utils.js';
+import { selectSyncResourceEvents } from '../core/sync-delta-events.js';
 import {
   getSyncCursor,
   getSyncDescriptor,
@@ -20,16 +21,7 @@ export function buildSyncCacheScope(user = {}, permissions = [], schemaVersion =
   return `u:${userId}:${sha256(`${userId}|${permissionFingerprint}|${Number(schemaVersion || 1)}`).slice(0, 24)}`;
 }
 
-export function dedupeSyncEvents(events = [], resource = '') {
-  const latest = new Map();
-  for (const event of events) {
-    if (resource && String(event.Resource || '') !== resource) continue;
-    const entityId = clean(event.EntityID);
-    if (!entityId) continue;
-    latest.set(entityId, event);
-  }
-  return [...latest.values()].sort((left, right) => Number(left.__rowNumber || 0) - Number(right.__rowNumber || 0));
-}
+export { dedupeSyncEvents } from '../core/sync-delta-events.js';
 
 function assertResourceAccess(ctx, resourceSpec = {}) {
   const required = Array.isArray(resourceSpec.permissions)
@@ -60,6 +52,7 @@ async function fullSnapshotResponse({
   reason,
   securityInvalidated = false,
   snapshotCursor = null,
+  entityId = '',
 } = {}) {
   const cursor = snapshotCursor ?? await getSyncCursor();
   return {
@@ -68,11 +61,13 @@ async function fullSnapshotResponse({
     schemaVersion: Number(descriptor?.schemaVersion || env.syncSchemaVersion || 1),
     cacheScope: null,
     resource,
+    entityId: clean(entityId),
     fromCursor: Number(fromCursor || 0),
     cursor,
     snapshotCursor: cursor,
     hasMore: false,
     fullSnapshotRequired: true,
+    notModified: false,
     reason,
     securityInvalidated,
     upserts: [],
@@ -88,6 +83,7 @@ export async function buildSyncDelta(ctx = {}) {
   const startedAt = performance.now();
   const payload = ctx.payload || {};
   const resource = clean(payload.resource, 80);
+  const entityId = clean(payload.entityId || payload.boletaUid || payload.id, 180);
   const resourceSpec = syncResourceRegistry[resource];
   if (!resource || !resourceSpec) {
     throw new AppError('SYNC_RESOURCE_INVALID', 'El recurso solicitado no admite sincronización incremental.', 400);
@@ -97,34 +93,34 @@ export async function buildSyncDelta(ctx = {}) {
   const descriptor = await getSyncDescriptor();
   const cacheScope = buildSyncCacheScope(ctx.user, ctx.permissions, descriptor.schemaVersion);
   if (!descriptor.enabled) {
-    return finishResponse({ ...(await fullSnapshotResponse({ descriptor, resource, fromCursor: payload.cursor, reason: 'feature_disabled' })), cacheScope }, startedAt);
+    return finishResponse({ ...(await fullSnapshotResponse({ descriptor, resource, entityId, fromCursor: payload.cursor, reason: 'feature_disabled' })), cacheScope }, startedAt);
   }
 
   if (descriptor.unsafe) {
-    return finishResponse({ ...(await fullSnapshotResponse({ descriptor, resource, fromCursor: payload.cursor, reason: 'sync_unsafe' })), cacheScope }, startedAt);
+    return finishResponse({ ...(await fullSnapshotResponse({ descriptor, resource, entityId, fromCursor: payload.cursor, reason: 'sync_unsafe' })), cacheScope }, startedAt);
   }
 
   const requestedSchema = Number(payload.schemaVersion || 0);
   if (!payload.generation || clean(payload.generation, 160) !== descriptor.generation) {
-    return finishResponse({ ...(await fullSnapshotResponse({ descriptor, resource, fromCursor: payload.cursor, reason: 'generation_mismatch' })), cacheScope }, startedAt);
+    return finishResponse({ ...(await fullSnapshotResponse({ descriptor, resource, entityId, fromCursor: payload.cursor, reason: 'generation_mismatch' })), cacheScope }, startedAt);
   }
   if (!requestedSchema || requestedSchema !== Number(descriptor.schemaVersion)) {
-    return finishResponse({ ...(await fullSnapshotResponse({ descriptor, resource, fromCursor: payload.cursor, reason: 'schema_mismatch' })), cacheScope }, startedAt);
+    return finishResponse({ ...(await fullSnapshotResponse({ descriptor, resource, entityId, fromCursor: payload.cursor, reason: 'schema_mismatch' })), cacheScope }, startedAt);
   }
 
   const fromCursor = Number(payload.cursor || 1);
   if (!Number.isInteger(fromCursor) || fromCursor < 1) {
-    return finishResponse({ ...(await fullSnapshotResponse({ descriptor, resource, fromCursor, reason: 'invalid_cursor' })), cacheScope }, startedAt);
+    return finishResponse({ ...(await fullSnapshotResponse({ descriptor, resource, entityId, fromCursor, reason: 'invalid_cursor' })), cacheScope }, startedAt);
   }
 
   const scan = await readSyncChangesAfter(fromCursor, { limit: env.syncDeltaMaxEvents });
   if (scan.invalidCursor) {
-    return finishResponse({ ...(await fullSnapshotResponse({ descriptor, resource, fromCursor, reason: 'invalid_cursor', snapshotCursor: scan.cursor })), cacheScope }, startedAt);
+    return finishResponse({ ...(await fullSnapshotResponse({ descriptor, resource, entityId, fromCursor, reason: 'invalid_cursor', snapshotCursor: scan.cursor })), cacheScope }, startedAt);
   }
 
   const incompatibleEvent = scan.events.find((event) => Number(event.SchemaVersion || 0) !== Number(descriptor.schemaVersion));
   if (incompatibleEvent) {
-    return finishResponse({ ...(await fullSnapshotResponse({ descriptor, resource, fromCursor, reason: 'event_schema_mismatch', snapshotCursor: scan.cursor })), cacheScope }, startedAt);
+    return finishResponse({ ...(await fullSnapshotResponse({ descriptor, resource, entityId, fromCursor, reason: 'event_schema_mismatch', snapshotCursor: scan.cursor })), cacheScope }, startedAt);
   }
 
   const securityChanged = scan.events.some((event) => String(event.Resource || '') === 'security');
@@ -133,6 +129,7 @@ export async function buildSyncDelta(ctx = {}) {
       ...(await fullSnapshotResponse({
         descriptor,
         resource,
+        entityId,
         fromCursor,
         reason: 'security_changed',
         securityInvalidated: true,
@@ -144,10 +141,11 @@ export async function buildSyncDelta(ctx = {}) {
   }
 
   if (scan.eventsScanned >= env.syncDeltaSnapshotThreshold) {
-    return finishResponse({ ...(await fullSnapshotResponse({ descriptor, resource, fromCursor, reason: 'delta_too_large', snapshotCursor: scan.cursor })), cacheScope }, startedAt);
+    return finishResponse({ ...(await fullSnapshotResponse({ descriptor, resource, entityId, fromCursor, reason: 'delta_too_large', snapshotCursor: scan.cursor })), cacheScope }, startedAt);
   }
 
-  const resourceEvents = dedupeSyncEvents(scan.events, resource);
+  const selection = selectSyncResourceEvents(scan.events, resource, entityId);
+  const resourceEvents = selection.events;
   if (!resourceEvents.length) {
     return finishResponse({
       enabled: true,
@@ -155,10 +153,12 @@ export async function buildSyncDelta(ctx = {}) {
       schemaVersion: descriptor.schemaVersion,
       cacheScope,
       resource,
+      entityId,
       fromCursor,
       cursor: scan.cursor,
       hasMore: scan.hasMore,
       fullSnapshotRequired: false,
+      notModified: Boolean(entityId),
       securityInvalidated: false,
       upserts: [],
       removed: [],
@@ -177,10 +177,12 @@ export async function buildSyncDelta(ctx = {}) {
       schemaVersion: descriptor.schemaVersion,
       cacheScope,
       resource,
+      entityId,
       fromCursor,
       cursor: scan.cursor,
       hasMore: scan.hasMore,
       fullSnapshotRequired: false,
+      notModified: false,
       securityInvalidated: false,
       upserts: materialized.upserts,
       removed: materialized.removed,
@@ -191,11 +193,8 @@ export async function buildSyncDelta(ctx = {}) {
     }, startedAt);
   }
 
-  // Resource-specific authoritative materialization is registered domain by
-  // domain. Until a domain is migrated, a changed resource falls back to a
-  // snapshot instead of returning incomplete or unauthorized data.
   return finishResponse({
-    ...(await fullSnapshotResponse({ descriptor, resource, fromCursor, reason: 'resource_snapshot_required', snapshotCursor: scan.cursor })),
+    ...(await fullSnapshotResponse({ descriptor, resource, entityId, fromCursor, reason: 'resource_snapshot_required', snapshotCursor: scan.cursor })),
     cacheScope,
     eventsScanned: scan.eventsScanned,
     eventsDeduped: resourceEvents.length,
