@@ -12,6 +12,7 @@ import {
 import { syncResourceRegistry } from './sync-resource-registry.js';
 import { isCrudSyncResource, materializeCrudDelta } from './sync-crud.service.js';
 import { materializeAgendaDelta } from './sync-agenda.service.js';
+import { materializeCustomerCaseDelta } from './sync-customer-case.service.js';
 import { materializeTicketDelta } from './sync-ticket.service.js';
 import { materializeMaintenanceDelta } from './sync-maintenance.service.js';
 
@@ -122,6 +123,7 @@ async function materializeResourceDelta(ctx, resource, resourceEvents) {
   if (resource === 'ticket') return materializeTicketDelta(ctx, resourceEvents);
   if (resource === 'maintenance') return materializeMaintenanceDelta(ctx, resourceEvents);
   if (resource === 'agenda') return materializeAgendaDelta(ctx, resourceEvents);
+  if (resource === 'customerCase') return materializeCustomerCaseDelta(ctx, resourceEvents);
   if (isCrudSyncResource(resource)) return materializeCrudDelta(ctx, resource, resourceEvents);
   return null;
 }
@@ -130,6 +132,7 @@ function detailPayload(resource, entityId) {
   if (resource === 'ticket') return { boletaUid: entityId, id: entityId };
   if (resource === 'maintenance') return { maintenanceId: entityId, id: entityId };
   if (resource === 'agenda') return { agendaId: entityId, id: entityId };
+  if (resource === 'customerCase') return { caseId: entityId, id: entityId };
   return { id: entityId };
 }
 
@@ -146,7 +149,7 @@ async function materializeChangedDetail(ctx, resource, resourceSpec, entityId, m
     return item ? { item } : null;
   }
 
-  if (!['ticket', 'maintenance'].includes(resource) || !resourceSpec?.detailRoute) return null;
+  if (!['ticket', 'maintenance', 'customerCase'].includes(resource) || !resourceSpec?.detailRoute) return null;
   return dispatchAction({
     route: resourceSpec.detailRoute,
     payload: detailPayload(resource, entityId),
@@ -161,7 +164,7 @@ export async function buildSyncDelta(ctx = {}) {
   const startedAt = performance.now();
   const payload = ctx.payload || {};
   const resource = clean(payload.resource, 80);
-  const entityId = clean(payload.entityId || payload.boletaUid || payload.maintenanceId || payload.id, 180);
+  const entityId = clean(payload.entityId || payload.boletaUid || payload.maintenanceId || payload.caseId || payload.id, 180);
   const resourceSpec = syncResourceRegistry[resource];
   if (!resource || !resourceSpec) {
     throw new AppError('SYNC_RESOURCE_INVALID', 'El recurso solicitado no admite sincronización incremental.', 400);
