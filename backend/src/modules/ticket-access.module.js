@@ -1,3 +1,4 @@
+import { selectTicketPage } from '../services/ticket-list-query.service.js';
 import { forbidden, notFound } from '../core/errors.js';
 import { pick } from '../core/utils.js';
 import { filterRows, findById, readTable, readTables } from '../infra/sheets.repository.js';
@@ -62,12 +63,13 @@ function optionalMaintenanceSignatureResponse(ticket = {}) {
 function assignedTicketIds(assignments, selectedUserId) {
   const selected = String(selectedUserId || '').trim();
   if (!selected) return new Set();
-  return new Set(
-    assignments
-      .filter((row) => isActive(row) && String(row.UsuarioID || '').trim() === selected)
-      .map((row) => String(row.BoletaUID || '').trim())
-      .filter(Boolean),
-  );
+  const ids = new Set();
+  for (const row of assignments) {
+    if (!isActive(row) || String(row.UsuarioID || '').trim() !== selected) continue;
+    const id = String(row.BoletaUID || '').trim();
+    if (id) ids.add(id);
+  }
+  return ids;
 }
 
 function technicianIsAssigned(ticket, assignedIds) {
@@ -182,36 +184,12 @@ export const ticketAccessHandlers = {
 
   list: async (ctx) => {
     const { payload } = ctx;
-    const tables = await readTables(['Boletas', 'BoletaAsignados']);
-    const requestedStatus = normalizeStatus(payload.status || payload.estado);
     const admin = isAdministrator(ctx);
-    let rows = tables.Boletas.filter((row) => isActive(row) && normalizeStatus(row.Estado) !== 'ANULADA');
-
-    if (requestedStatus) rows = rows.filter((row) => normalizeStatus(row.Estado) === requestedStatus);
-
-    if (admin) {
-      const selectedTechnician = String(payload.asignadoUsuarioId || '').trim();
-      if (selectedTechnician) {
-        const selectedIds = assignedTicketIds(tables.BoletaAsignados, selectedTechnician);
-        rows = rows.filter((row) => technicianIsAssigned(row, selectedIds));
-      }
-    } else {
-      const assignedIds = assignedTicketIds(tables.BoletaAsignados, userId(ctx));
-      rows = rows.filter((row) => technicianIsAssigned(row, assignedIds));
-    }
-
-    if (payload.dateFrom) rows = rows.filter((row) => String(row.Fecha || '').slice(0, 10) >= String(payload.dateFrom));
-    if (payload.dateTo) rows = rows.filter((row) => String(row.Fecha || '').slice(0, 10) <= String(payload.dateTo));
-    rows = sortNewestFirst(applyFieldFilters(rows, payload));
-
-    return filterRows(rows, {
-      ...payload,
-      estado: undefined,
-      status: undefined,
-      sortBy: undefined,
-      sortDir: undefined,
-      asignadoUsuarioId: undefined,
-    }, ['Titulo', 'Cliente', 'Ubicacion', 'Categoria', 'TipoDispositivo', 'Fabricante', 'Modelo', 'BoletaID']);
+    const selectedTechnician = admin ? String(payload.asignadoUsuarioId || '').trim() : userId(ctx);
+    const needsAssignments = !admin || Boolean(selectedTechnician);
+    const tables = await readTables(needsAssignments ? ['Boletas', 'BoletaAsignados'] : ['Boletas']);
+    const allowedIds = needsAssignments ? assignedTicketIds(tables.BoletaAsignados, selectedTechnician) : null;
+    return selectTicketPage(tables.Boletas, payload, allowedIds);
   },
 
   get: async (ctx) => {
