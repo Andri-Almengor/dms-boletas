@@ -8,6 +8,11 @@ const EQUIPMENT_LOCATION_UPDATE_ROUTES = new Set([
   'ubicacionesEquipo.update',
 ]);
 
+const CUSTOMER_CASE_PROCESS_ROUTES = new Set([
+  'customerCases.process',
+  'casos.cliente.procesar',
+]);
+
 function clean(value) {
   return String(value ?? '').trim();
 }
@@ -72,11 +77,24 @@ function ticketCanChangeAgendaView(route, primaryClassification) {
 
 function ticketAgendaDerivedChanges(route, primaryClassification) {
   if (!ticketCanChangeAgendaView(route, primaryClassification)) return [];
-  // Agenda can auto-match tickets by date, assignee, client and text. One ticket
-  // can also reserve a match before another agenda, so an entity-only patch is
-  // not sufficient. A resource invalidation refreshes only the active Agenda
-  // query/detail, preserving correctness without changing Agenda permissions.
   return [syncClassification('agenda', '*', route, 'ticketMatching', 'INVALIDATE')];
+}
+
+function customerCaseProcessDerivedChanges(route, result) {
+  if (!CUSTOMER_CASE_PROCESS_ROUTES.has(route)) return [];
+  const ticketId = clean(result?.case?.BoletaUID || result?.ticket?.BoletaUID || result?.BoletaUID);
+  if (!ticketId) return [];
+  return [
+    syncClassification('ticket', ticketId, route, 'customerCaseProcess'),
+    syncClassification('agenda', '*', route, 'customerCaseTicketMatching', 'INVALIDATE'),
+  ];
+}
+
+function ticketFinalizationCaseDerivedChanges(route, result, primaryClassification) {
+  if (primaryClassification?.resource !== 'ticket') return [];
+  const caseId = clean(result?.customerCase?.CasoID || result?.customerCase?.caseId);
+  if (!caseId) return [];
+  return [syncClassification('customerCase', caseId, route, 'ticketFinalization')];
 }
 
 export async function collectDerivedSyncClassifications({
@@ -91,9 +109,17 @@ export async function collectDerivedSyncClassifications({
     modelRelationDerivedChanges(normalizedRoute, result || {}, primaryClassification),
   ]);
   const agendaChanges = ticketAgendaDerivedChanges(normalizedRoute, primaryClassification);
+  const caseProcessChanges = customerCaseProcessDerivedChanges(normalizedRoute, result || {});
+  const ticketCaseChanges = ticketFinalizationCaseDerivedChanges(normalizedRoute, result || {}, primaryClassification);
 
   const seen = new Set();
-  return [...equipmentChanges, ...relationChanges, ...agendaChanges].filter((classification) => {
+  return [
+    ...equipmentChanges,
+    ...relationChanges,
+    ...agendaChanges,
+    ...caseProcessChanges,
+    ...ticketCaseChanges,
+  ].filter((classification) => {
     const key = `${classification.resource}:${classification.entityId}:${classification.operation}`;
     if (!classification.entityId || seen.has(key)) return false;
     seen.add(key);
