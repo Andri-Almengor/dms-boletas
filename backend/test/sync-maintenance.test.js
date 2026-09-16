@@ -6,6 +6,19 @@ function event(id, operation = 'UPSERT') {
   return { EntityID: id, Operation: operation };
 }
 
+function countedIterable(rows) {
+  let iterations = 0;
+  return {
+    iterable: {
+      *[Symbol.iterator]() {
+        iterations += 1;
+        yield* rows;
+      },
+    },
+    iterations: () => iterations,
+  };
+}
+
 test('maintenance delta returns only changed authoritative rows and device counts', () => {
   const result = materializeMaintenanceDeltaFromRows({
     events: [event('M-2')],
@@ -44,4 +57,27 @@ test('maintenance finalized status is normalized for list convergence', () => {
   });
   assert.equal(result.upserts[0].Estado, 'FINALIZADO');
   assert.deepEqual(result.counts, { pending: 0, finished: 1 });
+});
+
+test('maintenance delta traverses maintenance and device snapshots only once', () => {
+  const maintenanceRows = countedIterable([
+    { MantenimientoID: 'M-1', Estado: 'PENDIENTE', Activo: true },
+    { MantenimientoID: 'M-2', Estado: 'FINALIZADA', Activo: true },
+  ]);
+  const deviceRows = countedIterable([
+    { MantenimientoRef: 'M-2', Activo: true },
+    { MantenimientoRef: 'M-1', Activo: true },
+  ]);
+
+  const result = materializeMaintenanceDeltaFromRows({
+    events: [event('M-2')],
+    maintenances: maintenanceRows.iterable,
+    devices: deviceRows.iterable,
+  });
+
+  assert.equal(maintenanceRows.iterations(), 1);
+  assert.equal(deviceRows.iterations(), 1);
+  assert.equal(result.upserts[0].MantenimientoID, 'M-2');
+  assert.equal(result.upserts[0].DispositivosRegistrados, 1);
+  assert.deepEqual(result.counts, { pending: 1, finished: 1 });
 });

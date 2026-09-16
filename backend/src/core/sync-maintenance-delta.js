@@ -1,6 +1,3 @@
-import { summarizeMaintenanceHomeRows } from './home-summary.js';
-import { countRowsBy } from './row-index.js';
-
 function clean(value) {
   return String(value ?? '').trim();
 }
@@ -20,21 +17,33 @@ export function materializeMaintenanceDeltaFromRows({
   maintenances = [],
   devices = [],
 } = {}) {
-  const activeRows = maintenances.filter(active);
-  const counts = summarizeMaintenanceHomeRows(activeRows.map((row) => ({
-    ...row,
-    Estado: normalizeStatus(row.Estado),
-  })));
   const changedIds = new Set(events.map((event) => clean(event.EntityID)).filter(Boolean));
-  const deviceCounts = countRowsBy(
-    devices,
-    (device) => device.MantenimientoRef,
-    { predicate: (device) => active(device) && changedIds.has(clean(device.MantenimientoRef)) },
-  );
-  const byId = new Map(activeRows.map((row) => [clean(row.MantenimientoID), row]));
+  const changedRows = new Map();
+  const counts = { pending: 0, finished: 0 };
+
+  // Counts and changed authoritative rows are resolved in the same pass. This
+  // avoids filter + map + Map copies of the complete maintenance collection.
+  for (const maintenance of maintenances) {
+    if (!active(maintenance)) continue;
+    const entityId = clean(maintenance.MantenimientoID);
+    const status = normalizeStatus(maintenance.Estado);
+    if (status === 'PENDIENTE') counts.pending += 1;
+    else if (status === 'FINALIZADO') counts.finished += 1;
+    if (entityId && changedIds.has(entityId)) {
+      changedRows.set(entityId, { ...maintenance, Estado: status });
+    }
+  }
+
+  const deviceCounts = new Map();
+  for (const device of devices) {
+    if (!active(device)) continue;
+    const entityId = clean(device.MantenimientoRef);
+    if (!entityId || !changedIds.has(entityId)) continue;
+    deviceCounts.set(entityId, (deviceCounts.get(entityId) || 0) + 1);
+  }
+
   const upserts = [];
   const removed = [];
-
   for (const event of events) {
     const entityId = clean(event.EntityID);
     if (!entityId) continue;
@@ -42,14 +51,13 @@ export function materializeMaintenanceDeltaFromRows({
       removed.push(entityId);
       continue;
     }
-    const maintenance = byId.get(entityId);
+    const maintenance = changedRows.get(entityId);
     if (!maintenance) {
       removed.push(entityId);
       continue;
     }
     upserts.push({
       ...maintenance,
-      Estado: normalizeStatus(maintenance.Estado),
       DispositivosRegistrados: deviceCounts.get(entityId) || 0,
     });
   }
