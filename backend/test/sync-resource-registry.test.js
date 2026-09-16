@@ -118,6 +118,55 @@ test('security writes are invalidations, not catalog synchronization', () => {
   assert.equal(result.operation, 'INVALIDATE');
 });
 
+test('nested and operational client aliases keep their specific resource', () => {
+  const location = classifyMutationRoute(
+    'clients.locations.update',
+    { ubicacionId: 'L-1' },
+    { UbicacionID: 'L-1' },
+  );
+  assert.equal(location.resource, 'clientLocation');
+  assert.equal(location.entityId, 'L-1');
+
+  const equipment = classifyMutationRoute(
+    'clients.equipmentLocations.update',
+    { ubicacionEquipoId: 'E-1' },
+    { UbicacionEquipoID: 'E-1' },
+  );
+  assert.equal(equipment.resource, 'equipmentLocation');
+  assert.equal(equipment.entityId, 'E-1');
+
+  const operationalLocation = classifyMutationRoute(
+    'clients.operational.locations.create',
+    { ClienteID: 'C-1' },
+    { UbicacionID: 'L-2', ClienteID: 'C-1' },
+  );
+  assert.equal(operationalLocation.resource, 'clientLocation');
+  assert.equal(operationalLocation.entityId, 'L-2');
+
+  const operationalContact = classifyMutationRoute(
+    'clients.operational.contacts.create',
+    { ClienteID: 'C-1' },
+    { ContactoID: 'CT-1', ClienteID: 'C-1' },
+  );
+  assert.equal(operationalContact.resource, 'contact');
+  assert.equal(operationalContact.entityId, 'CT-1');
+});
+
+test('operational catalog aliases classify as their canonical resources', () => {
+  assert.equal(
+    classifyMutationRoute('catalog.operational.models.create', {}, { ModeloID: 'MO-1' }).resource,
+    'model',
+  );
+  assert.equal(
+    classifyMutationRoute('catalog.operational.deviceTypes.update', {}, { TipoDispositivoID: 'TD-1' }).resource,
+    'deviceType',
+  );
+  assert.equal(
+    classifyMutationRoute('catalog.operational.manufacturers.create', {}, { FabricanteID: 'F-1' }).resource,
+    'manufacturer',
+  );
+});
+
 test('read routes do not create sync events', () => {
   const result = classifyMutationRoute('catalog.models.list', {}, null);
   assert.equal(result.classification, SYNC_MUTATION_CLASS.NO_SYNC_REQUIRED);
