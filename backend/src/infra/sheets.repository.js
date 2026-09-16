@@ -465,8 +465,8 @@ export function filterRows(rows, payload = {}, searchFields = []) {
   let total = 0;
   for (const row of rows) {
     if (active !== null && String(row.Activo).toLowerCase() !== active) continue;
-    if (state && String(row.Estado || '').toUpperCase() !== state) continue;
-    if (client && String(row.ClienteID || row.ClienteRef || '') !== client) continue;
+    if (payload.estado && String(row.Estado || '').toUpperCase() !== state) continue;
+    if (payload.clienteId && String(row.ClienteID || row.ClienteRef || '') !== client) continue;
     if (search && !searchFields.some((field) => String(row[field] || '').toLowerCase().includes(search))) continue;
     if (payload.sortBy || (total >= start && total < end)) result.push(row);
     total += 1;

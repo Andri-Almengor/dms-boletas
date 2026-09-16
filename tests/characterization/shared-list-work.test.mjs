@@ -32,7 +32,7 @@ test('paginación compartida: conserva resultados, orden y entradas históricas 
     for (const sortDir of ['asc', 'desc']) {
       for (const page of [1, 2, 30, 1.5, 'invalid', Infinity]) {
         for (const pageSize of [1, 50, 3.7, 'invalid', 2000]) {
-          for (const filters of [{}, { activo: false }, { estado: 'pendiente' }, { clienteId: 'C2' }, { q: 'CÁM', activo: 'TRUE' }]) {
+          for (const filters of [{}, { activo: false }, { estado: 'pendiente' }, { clienteId: 'C2' }, { q: 'CÁM', activo: 'TRUE' }, { estado: [] }, { clienteId: [] }]) {
             const payload = { sortBy, sortDir, page, pageSize, ...filters };
             assert.deepEqual(filterRows(rows, payload, ['Nombre']), referenceFilterRows(rows, payload, ['Nombre']));
           }

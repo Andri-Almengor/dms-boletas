@@ -269,3 +269,9 @@ test('métricas: handler de horas completas solicita los snapshots una sola vez'
   assert.equal(calls, 1);
   assert.deepEqual(result.tableAsignadoHoras, buildFullAssignedHours({ tickets: TICKETS, assignments: ASSIGNMENTS, users: USERS, payload: { cliente: 'Acme' } }));
 });
+
+
+test('métricas: acumulación completa conserva valores numéricos extremos históricos', () => {
+  const input = { tickets: [1e308, 1e308, 3].map(HorasTotales => ({ BoletaUID: 'B1', HorasTotales })), assignments: ASSIGNMENTS, users: USERS };
+  assert.deepEqual(buildTicketMetrics({ ...input, fullAssignedHours: true }).tableAsignadoHoras, buildFullAssignedHours(input));
+});
