@@ -64,6 +64,7 @@ export function requestCustomerCase(routes, payload = {}, sessionToken = '', opt
         entityId,
         ...syncContext,
         signal: options?.signal,
+        forceSync: true,
       });
     }
   }
