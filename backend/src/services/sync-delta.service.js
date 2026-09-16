@@ -219,7 +219,7 @@ export async function buildSyncDelta(ctx = {}) {
 
   const scan = await readSyncChangesAfter(fromCursor, { limit: env.syncDeltaMaxEvents });
   if (scan.invalidCursor) {
-    return finishResponse({ ...(await fullSnapshotResponse({ descriptor, resource, entityId, fromCursor, reason: 'invalid_cursor', snapshotCursor: scan.cursor })), cacheScope }, startedAt);
+    return finishResponse({ ...(await fullSnapshotResponse({ descriptor, resource, entityId, fromCursor, reason: scan.reason || 'invalid_cursor', snapshotCursor: scan.cursor })), cacheScope }, startedAt);
   }
 
   const incompatibleEvent = scan.events.find((event) => Number(event.SchemaVersion || 0) !== Number(descriptor.schemaVersion));

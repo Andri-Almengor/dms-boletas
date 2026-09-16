@@ -1,9 +1,10 @@
+import { env } from '../config/env.js';
 import { dispatchAction } from '../core/action-router.js';
 import { authenticate } from './auth.service.js';
 import { buildSyncDelta } from './sync-delta.service.js';
 import { overrideSyncClassification } from './sync-classification-overrides.service.js';
 import { collectDerivedSyncClassifications } from './sync-derived-changes.service.js';
-import { markSyncUnsafe, recordClassifiedSyncChange } from './sync-change.service.js';
+import { markSyncUnsafe, recordClassifiedSyncChanges } from './sync-change.service.js';
 import { classifyMutationRoute, SYNC_MUTATION_CLASS } from './sync-resource-registry.js';
 
 const PUBLIC_SYNC_ACTORS = new Set([
@@ -51,7 +52,20 @@ export async function dispatchActionWithIncrementalSync(args = {}) {
     return buildSyncDelta({ ...args, ...auth });
   }
 
-  const result = await dispatchAction(args);
+  if (!env.incrementalSyncEnabled) return dispatchAction(args);
+  let result;
+  try {
+    result = await dispatchAction(args);
+  } catch (error) {
+    // Some actions persist several rows before a later step fails. Preserve the
+    // original error, but never allow the partial write to stay invisible.
+    const planned = classifyMutationRoute(args.route, args.payload || {}, {});
+    if (planned.classification !== SYNC_MUTATION_CLASS.NO_SYNC_REQUIRED
+      || /\.(chunk|bloque)$/.test(String(args.route || ''))) {
+      await markSyncUnsafe('mutation_failed_after_possible_write');
+    }
+    throw error;
+  }
   const classified = classifyMutationRoute(args.route, args.payload || {}, result);
   const overridden = overrideSyncClassification({
     route: args.route,
@@ -62,9 +76,10 @@ export async function dispatchActionWithIncrementalSync(args = {}) {
   const mutation = expandMutationEntityIds(overridden, result);
   if (mutation.classification === SYNC_MUTATION_CLASS.NO_SYNC_REQUIRED) return result;
 
-  const auth = await authenticatedContext(args);
+  let auth;
   let derived = [];
   try {
+    auth = await authenticatedContext(args);
     derived = await collectDerivedSyncClassifications({
       route: args.route,
       payload: args.payload || {},
@@ -83,9 +98,6 @@ export async function dispatchActionWithIncrementalSync(args = {}) {
     sessionToken: args.sessionToken || '',
     ...auth,
   };
-  await recordClassifiedSyncChange(mutation, context);
-  for (const derivedMutation of derived) {
-    await recordClassifiedSyncChange(derivedMutation, context);
-  }
+  await recordClassifiedSyncChanges([mutation, ...derived], context);
   return result;
 }
