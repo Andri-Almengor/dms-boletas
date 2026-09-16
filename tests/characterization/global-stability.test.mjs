@@ -128,13 +128,17 @@ test('AuthProvider retains cached session on network failure and clears it on 40
 test('reusable evidence transport preserves every byte and bounds each block', async () => {
   const original=Buffer.alloc(2*1024*1024+19);for(let i=0;i<original.length;i++)original[i]=i%251;
   const blocks=[];
-  globalThis.__uploadFixture={fileToBase64:async blob=>Buffer.from(await blob.arrayBuffer()).toString('base64'),requestAvailable:async (_routes,payload)=>{
-    if(!('offset' in payload))return {uploadToken:'fixture',chunkBytes:256*1024};
-    const chunk=Buffer.from(payload.base64,'base64');assert.ok(chunk.length<=256*1024);blocks.push(chunk);
-    return {complete:payload.offset+chunk.length===original.length,nextOffset:payload.offset+chunk.length,evidence:{id:'fixture'}};
-  }};
+  globalThis.__uploadFixture={
+    fileToBase64:async blob=>Buffer.from(await blob.arrayBuffer()).toString('base64'),
+    withMediaUploadPriority:async work=>work(),
+    requestAvailable:async (_routes,payload)=>{
+      if(!('offset' in payload))return {uploadToken:'fixture',chunkBytes:256*1024};
+      const chunk=Buffer.from(payload.base64,'base64');assert.ok(chunk.length<=256*1024);blocks.push(chunk);
+      return {complete:payload.offset+chunk.length===original.length,nextOffset:payload.offset+chunk.length,evidence:{id:'fixture'}};
+    },
+  };
   let code=readFileSync(new URL('../../src/services/largeEvidenceUpload.js',import.meta.url),'utf8').replace(/import[^;]+;\n/g,'');
-  code='const {fileToBase64,requestAvailable}=globalThis.__uploadFixture;\n'+code;
+  code='const {fileToBase64,requestAvailable,withMediaUploadPriority}=globalThis.__uploadFixture;\n'+code;
   const module=await import('data:text/javascript;base64,'+Buffer.from(code).toString('base64'));
   for(const mimeType of ['image/png','application/pdf','video/mp4']) {
     blocks.length=0;const file=new Blob([original],{type:mimeType});file.name='fixture';
