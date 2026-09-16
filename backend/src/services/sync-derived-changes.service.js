@@ -1,0 +1,84 @@
+import { readTable } from '../infra/sheets.repository.js';
+import { SYNC_MUTATION_CLASS } from './sync-resource-registry.js';
+
+const EQUIPMENT_LOCATION_UPDATE_ROUTES = new Set([
+  'equipmentLocations.update',
+  'clients.equipmentLocations.update',
+  'clientes.ubicacionesEquipo.update',
+  'ubicacionesEquipo.update',
+]);
+
+function clean(value) {
+  return String(value ?? '').trim();
+}
+
+function syncClassification(resource, entityId, route, derivedFrom) {
+  return {
+    classification: SYNC_MUTATION_CLASS.SYNC_RESOURCE,
+    resource,
+    entityId: clean(entityId),
+    operation: 'UPSERT',
+    metadata: {
+      action: clean(route).slice(0, 120),
+      derivedFrom: clean(derivedFrom).slice(0, 80),
+    },
+  };
+}
+
+async function equipmentLocationDerivedChanges(route, payload, result) {
+  if (!EQUIPMENT_LOCATION_UPDATE_ROUTES.has(route)) return [];
+  if (payload?.Nombre === undefined && payload?.nombre === undefined) return [];
+  const locationId = clean(result?.UbicacionEquipoID || result?.id);
+  if (!locationId) return [];
+
+  const devices = await readTable('Evidencia_Mantenimientos');
+  const maintenanceIds = [...new Set(
+    devices
+      .filter((row) => clean(row.UbicacionEquipoID) === locationId)
+      .map((row) => clean(row.MantenimientoRef))
+      .filter(Boolean),
+  )];
+  return maintenanceIds.map((maintenanceId) => (
+    syncClassification('maintenance', maintenanceId, route, 'equipmentLocation')
+  ));
+}
+
+async function modelRelationDerivedChanges(route, result, primaryClassification) {
+  if (primaryClassification?.resource !== 'model' || primaryClassification?.operation !== 'UPSERT') return [];
+  const typeId = clean(result?.TipoDispositivoID);
+  const manufacturerId = clean(result?.FabricanteID);
+  if (!typeId || !manufacturerId) return [];
+
+  const relations = await readTable('TipoDispositivoFabricantes');
+  const relation = relations.find((row) => (
+    clean(row.TipoDispositivoID) === typeId
+    && clean(row.FabricanteID) === manufacturerId
+    && row.Activo !== false
+    && String(row.Estado || 'ACTIVO').toUpperCase() !== 'INACTIVO'
+  ));
+  const relationId = clean(relation?.RelacionID);
+  return relationId
+    ? [syncClassification('deviceManufacturerRelation', relationId, route, 'modelRelationship')]
+    : [];
+}
+
+export async function collectDerivedSyncClassifications({
+  route = '',
+  payload = {},
+  result = null,
+  primaryClassification = null,
+} = {}) {
+  const normalizedRoute = clean(route);
+  const [equipmentChanges, relationChanges] = await Promise.all([
+    equipmentLocationDerivedChanges(normalizedRoute, payload, result || {}),
+    modelRelationDerivedChanges(normalizedRoute, result || {}, primaryClassification),
+  ]);
+
+  const seen = new Set();
+  return [...equipmentChanges, ...relationChanges].filter((classification) => {
+    const key = `${classification.resource}:${classification.entityId}`;
+    if (!classification.entityId || seen.has(key)) return false;
+    seen.add(key);
+    return true;
+  });
+}
