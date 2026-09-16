@@ -1,7 +1,6 @@
 import { forbidden } from './errors.js';
 import { asBool } from './utils.js';
 import { normalizeTicketHoursPayload } from './ticket-hours.js';
-import { env } from '../config/env.js';
 import { login, authenticate, logout, changePassword } from '../services/auth.service.js';
 import { safeUser } from '../services/permissions.service.js';
 import { rewriteTechnicalReport } from '../services/gemini.service.js';
@@ -27,33 +26,18 @@ import { knowledgeHandlers } from '../modules/knowledge.module.js';
 import { surveyHandlers } from '../modules/survey.module.js';
 import { metricsHandlers } from '../modules/metrics.module.js';
 import { legacyTicketImportHandlers } from '../modules/legacy-ticket-import.module.js';
-import { syncHandlers } from '../modules/sync.module.js';
 import { getClientConfig } from '../modules/config.module.js';
 import { propagateEquipmentLocationName } from '../services/equipment-location-propagation.service.js';
 import { largeEvidenceUploadHandlers } from '../services/large-evidence-upload.service.js';
-import { buildSyncCacheScope } from '../services/sync-delta.service.js';
-import { recordClassifiedSyncChange } from '../services/sync-change.service.js';
-import { classifyMutationRoute, SYNC_MUTATION_CLASS } from '../services/sync-resource-registry.js';
 
 const c = Object.fromEntries(Object.keys({clients:1,clientLocations:1,equipmentLocations:1,contacts:1,categories:1,deviceTypes:1,manufacturers:1,models:1,failureTypes:1,deviceManufacturers:1,knowledgeCategories:1}).map((key)=>[key,crudHandlers(key)]));
 const routes = new Map();
 function add(names, handler, permission = null, publicRoute = false) { for (const name of Array.isArray(names)?names:[names]) routes.set(name,{handler,permission,publicRoute}); }
 
 add('auth.login', async (ctx)=>login(ctx.payload.username||ctx.payload.nombreUsuario||ctx.payload.email,ctx.payload.password,{ip:ctx.ip,userAgent:ctx.userAgent}),null,true);
-add('auth.me', async (ctx)=>({
-  user:safeUser(ctx.user),
-  permissions:ctx.permissions,
-  mustChangePassword:asBool(ctx.user.CambioPasswordObligatorio,false),
-  sync:{
-    enabled:env.incrementalSyncEnabled,
-    schemaVersion:env.syncSchemaVersion,
-    cacheScope:buildSyncCacheScope(ctx.user,ctx.permissions,env.syncSchemaVersion),
-    backgroundIntervalMs:env.syncBackgroundIntervalMs,
-  },
-}));
+add('auth.me', async (ctx)=>({user:safeUser(ctx.user),permissions:ctx.permissions,mustChangePassword:asBool(ctx.user.CambioPasswordObligatorio,false)}));
 add('auth.logout', async (ctx)=>logout(ctx.sessionToken));
 add(['auth.changePassword','auth.change-password'], async (ctx)=>changePassword(ctx.user,ctx.payload.currentPassword||ctx.payload.passwordActual,ctx.payload.newPassword||ctx.payload.nuevaPassword));
-add('sync.delta',syncHandlers.delta);
 add('users.list',usersHandlers.list,'USUARIOS_VER');
 add('users.assignment.list',usersHandlers.assignable,['BOLETAS_CREAR','BOLETAS_EDITAR','MANTENIMIENTOS_CREAR','MANTENIMIENTOS_EDITAR','MANTENIMIENTOS_GESTIONAR','MANTENIMIENTOS_VER']);
 add('users.get',usersHandlers.get,'USUARIOS_VER');
@@ -243,9 +227,5 @@ export async function dispatchAction({ route, payload={}, sessionToken='', ip=''
   let auth={user:null,permissions:[]}; if(!entry.publicRoute) auth=await authenticate(sessionToken);
   if(entry.permission){const required=Array.isArray(entry.permission)?entry.permission:[entry.permission];const allowed=required.some((code)=>auth.permissions.includes(code))||auth.permissions.includes('USUARIOS_GESTIONAR');if(!allowed)throw forbidden();}
   const normalizedPayload = normalizeTicketHoursPayload(route, payload);
-  const ctx={route,payload:normalizedPayload,sessionToken,ip,userAgent,origin,...auth};
-  const result=await entry.handler(ctx);
-  const mutation=classifyMutationRoute(route,normalizedPayload,result);
-  if(mutation.classification!==SYNC_MUTATION_CLASS.NO_SYNC_REQUIRED) await recordClassifiedSyncChange(mutation,ctx);
-  return result;
+  return entry.handler({route,payload:normalizedPayload,sessionToken,ip,userAgent,origin,...auth});
 }
