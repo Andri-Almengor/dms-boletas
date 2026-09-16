@@ -1,6 +1,7 @@
 import { performance } from 'node:perf_hooks';
 import { env } from '../config/env.js';
 import { AppError } from '../core/errors.js';
+import { dispatchAction } from '../core/action-router.js';
 import { sha256 } from '../core/utils.js';
 import { selectSyncResourceEvents } from '../core/sync-delta-events.js';
 import {
@@ -9,6 +10,7 @@ import {
   readSyncChangesAfter,
 } from './sync-change.service.js';
 import { syncResourceRegistry } from './sync-resource-registry.js';
+import { isCrudSyncResource, materializeCrudDelta } from './sync-crud.service.js';
 import { materializeTicketDelta } from './sync-ticket.service.js';
 import { materializeMaintenanceDelta } from './sync-maintenance.service.js';
 
@@ -75,6 +77,7 @@ async function fullSnapshotResponse({
     removed: [],
     invalidated: [],
     counts: null,
+    detail: null,
     eventsScanned: 0,
     eventsDeduped: 0,
   };
@@ -89,6 +92,7 @@ function incrementalResponse({
   scan,
   resourceEvents,
   materialized,
+  detail = null,
 } = {}) {
   return {
     enabled: true,
@@ -107,9 +111,43 @@ function incrementalResponse({
     removed: materialized.removed,
     invalidated: materialized.invalidated,
     counts: materialized.counts,
+    detail: entityId ? detail : null,
     eventsScanned: scan.eventsScanned,
     eventsDeduped: resourceEvents.length,
   };
+}
+
+async function materializeResourceDelta(ctx, resource, resourceEvents) {
+  if (resource === 'ticket') return materializeTicketDelta(ctx, resourceEvents);
+  if (resource === 'maintenance') return materializeMaintenanceDelta(ctx, resourceEvents);
+  if (isCrudSyncResource(resource)) return materializeCrudDelta(ctx, resource, resourceEvents);
+  return null;
+}
+
+function detailPayload(resource, entityId) {
+  if (resource === 'ticket') return { boletaUid: entityId, id: entityId };
+  if (resource === 'maintenance') return { maintenanceId: entityId, id: entityId };
+  if (resource === 'agenda') return { agendaId: entityId, id: entityId };
+  return { id: entityId };
+}
+
+async function materializeChangedDetail(ctx, resource, resourceSpec, entityId, materialized) {
+  if (!entityId) return null;
+  if ((materialized.removed || []).map(String).includes(String(entityId))) return null;
+
+  if (isCrudSyncResource(resource)) {
+    return materialized.upserts?.[0] || null;
+  }
+
+  if (!['ticket', 'maintenance'].includes(resource) || !resourceSpec?.detailRoute) return null;
+  return dispatchAction({
+    route: resourceSpec.detailRoute,
+    payload: detailPayload(resource, entityId),
+    sessionToken: ctx.sessionToken || '',
+    ip: ctx.ip || '',
+    userAgent: ctx.userAgent || '',
+    origin: ctx.origin || '',
+  });
 }
 
 export async function buildSyncDelta(ctx = {}) {
@@ -197,22 +235,25 @@ export async function buildSyncDelta(ctx = {}) {
       removed: [],
       invalidated: [],
       counts: null,
+      detail: null,
       eventsScanned: scan.eventsScanned,
       eventsDeduped: 0,
     }, startedAt);
   }
 
-  if (resource === 'ticket') {
-    const materialized = await materializeTicketDelta(ctx, resourceEvents);
+  const materialized = await materializeResourceDelta(ctx, resource, resourceEvents);
+  if (materialized) {
+    const detail = await materializeChangedDetail(ctx, resource, resourceSpec, entityId, materialized);
     return finishResponse(incrementalResponse({
-      descriptor, cacheScope, resource, entityId, fromCursor, scan, resourceEvents, materialized,
-    }), startedAt);
-  }
-
-  if (resource === 'maintenance') {
-    const materialized = await materializeMaintenanceDelta(ctx, resourceEvents);
-    return finishResponse(incrementalResponse({
-      descriptor, cacheScope, resource, entityId, fromCursor, scan, resourceEvents, materialized,
+      descriptor,
+      cacheScope,
+      resource,
+      entityId,
+      fromCursor,
+      scan,
+      resourceEvents,
+      materialized,
+      detail,
     }), startedAt);
   }
 
