@@ -13,6 +13,7 @@ import { syncResourceRegistry } from './sync-resource-registry.js';
 import { isCrudSyncResource, materializeCrudDelta } from './sync-crud.service.js';
 import { materializeAgendaDelta } from './sync-agenda.service.js';
 import { materializeCustomerCaseDelta } from './sync-customer-case.service.js';
+import { materializeKnowledgeDelta } from './sync-knowledge.service.js';
 import { materializeTicketDelta } from './sync-ticket.service.js';
 import { materializeMaintenanceDelta } from './sync-maintenance.service.js';
 
@@ -119,21 +120,39 @@ function incrementalResponse({
   };
 }
 
-async function materializeResourceDelta(ctx, resource, resourceEvents) {
-  if (resource === 'ticket') return materializeTicketDelta(ctx, resourceEvents);
-  if (resource === 'maintenance') return materializeMaintenanceDelta(ctx, resourceEvents);
-  if (resource === 'agenda') return materializeAgendaDelta(ctx, resourceEvents);
-  if (resource === 'customerCase') return materializeCustomerCaseDelta(ctx, resourceEvents);
-  if (isCrudSyncResource(resource)) return materializeCrudDelta(ctx, resource, resourceEvents);
-  return null;
-}
-
 function detailPayload(resource, entityId) {
   if (resource === 'ticket') return { boletaUid: entityId, id: entityId };
   if (resource === 'maintenance') return { maintenanceId: entityId, id: entityId };
   if (resource === 'agenda') return { agendaId: entityId, id: entityId };
   if (resource === 'customerCase') return { caseId: entityId, id: entityId };
+  if (resource === 'knowledgeArticle') return { tutorialId: entityId, id: entityId };
   return { id: entityId };
+}
+
+function authoritativeDetail(ctx, route, resource, entityId) {
+  return dispatchAction({
+    route,
+    payload: detailPayload(resource, entityId),
+    sessionToken: ctx.sessionToken || '',
+    ip: ctx.ip || '',
+    userAgent: ctx.userAgent || '',
+    origin: ctx.origin || '',
+  });
+}
+
+async function materializeResourceDelta(ctx, resource, resourceEvents, resourceSpec) {
+  if (resource === 'ticket') return materializeTicketDelta(ctx, resourceEvents);
+  if (resource === 'maintenance') return materializeMaintenanceDelta(ctx, resourceEvents);
+  if (resource === 'agenda') return materializeAgendaDelta(ctx, resourceEvents);
+  if (resource === 'customerCase') return materializeCustomerCaseDelta(ctx, resourceEvents);
+  if (resource === 'knowledgeArticle') {
+    return materializeKnowledgeDelta(
+      resourceEvents,
+      (entityId) => authoritativeDetail(ctx, resourceSpec.detailRoute, resource, entityId),
+    );
+  }
+  if (isCrudSyncResource(resource)) return materializeCrudDelta(ctx, resource, resourceEvents);
+  return null;
 }
 
 async function materializeChangedDetail(ctx, resource, resourceSpec, entityId, materialized) {
@@ -148,23 +167,27 @@ async function materializeChangedDetail(ctx, resource, resourceSpec, entityId, m
       .find((candidate) => String(candidate?.AgendaID || '') === String(entityId)) || null;
     return item ? { item } : null;
   }
+  if (resource === 'knowledgeArticle') {
+    return materialized.detailById?.get(String(entityId)) || null;
+  }
 
   if (!['ticket', 'maintenance', 'customerCase'].includes(resource) || !resourceSpec?.detailRoute) return null;
-  return dispatchAction({
-    route: resourceSpec.detailRoute,
-    payload: detailPayload(resource, entityId),
-    sessionToken: ctx.sessionToken || '',
-    ip: ctx.ip || '',
-    userAgent: ctx.userAgent || '',
-    origin: ctx.origin || '',
-  });
+  return authoritativeDetail(ctx, resourceSpec.detailRoute, resource, entityId);
 }
 
 export async function buildSyncDelta(ctx = {}) {
   const startedAt = performance.now();
   const payload = ctx.payload || {};
   const resource = clean(payload.resource, 80);
-  const entityId = clean(payload.entityId || payload.boletaUid || payload.maintenanceId || payload.caseId || payload.id, 180);
+  const entityId = clean(
+    payload.entityId
+      || payload.boletaUid
+      || payload.maintenanceId
+      || payload.caseId
+      || payload.tutorialId
+      || payload.id,
+    180,
+  );
   const resourceSpec = syncResourceRegistry[resource];
   if (!resource || !resourceSpec) {
     throw new AppError('SYNC_RESOURCE_INVALID', 'El recurso solicitado no admite sincronización incremental.', 400);
@@ -270,7 +293,7 @@ export async function buildSyncDelta(ctx = {}) {
     }, startedAt);
   }
 
-  const materialized = await materializeResourceDelta(ctx, resource, resourceEvents);
+  const materialized = await materializeResourceDelta(ctx, resource, resourceEvents, resourceSpec);
   if (materialized) {
     const detail = await materializeChangedDetail(ctx, resource, resourceSpec, entityId, materialized);
     return finishResponse(incrementalResponse({
