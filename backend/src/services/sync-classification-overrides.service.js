@@ -17,6 +17,15 @@ const CLIENT_LINK_ROUTES = new Set([
   'casos.cliente.enlace.actualizar',
 ]);
 
+const KNOWLEDGE_ATTACHMENT_ROUTES = new Set([
+  'knowledge.attachments.upload',
+  'baseConocimientos.adjuntos.upload',
+  'conocimiento.adjuntos.upload',
+  'knowledge.attachments.delete',
+  'baseConocimientos.adjuntos.delete',
+  'conocimiento.adjuntos.delete',
+]);
+
 function clean(value) {
   return String(value ?? '').trim();
 }
@@ -33,6 +42,14 @@ function clientId(payload = {}, result = {}) {
     || clean(result?.ClienteID)
     || clean(result?.client?.ClienteID)
     || clean(pick(payload, ['clientId', 'ClienteID', 'id'], ''));
+}
+
+function knowledgeArticleId(payload = {}, result = {}) {
+  return clean(result?.evidence?.TutorialID)
+    || clean(result?.item?.TutorialID)
+    || clean(result?.article?.TutorialID)
+    || clean(result?.TutorialID)
+    || clean(pick(payload, ['tutorialId', 'TutorialID', 'articleId', 'ArticuloID'], ''));
 }
 
 function upsert(resource, entityId, route) {
@@ -54,6 +71,13 @@ export function overrideSyncClassification({ route = '', payload = {}, result = 
   if (CLIENT_LINK_ROUTES.has(normalized)) {
     const id = clientId(payload, result || {});
     return id ? upsert('client', id, normalized) : classification;
+  }
+  if (KNOWLEDGE_ATTACHMENT_ROUTES.has(normalized)) {
+    if (result?.complete === false) {
+      return { classification: SYNC_MUTATION_CLASS.NO_SYNC_REQUIRED, reason: 'knowledge_attachment_chunk' };
+    }
+    const id = knowledgeArticleId(payload, result || {});
+    return id ? upsert('knowledgeArticle', id, normalized) : classification;
   }
   return classification;
 }
