@@ -117,6 +117,8 @@ async function loadMaintenanceHome(sessionToken, userId, permissions, signal) {
 export default function HomePage() {
   const { user, permissions, hasPermission, sessionToken, securityRevision } = useAuth();
   const [tickets, setTickets] = useState([]);
+  const [ticketSyncRevision, setTicketSyncRevision] = useState(0);
+  const [maintenanceSyncRevision, setMaintenanceSyncRevision] = useState(0);
   const [counts, setCounts] = useState({ pending: null, finished: null });
   const [maintenanceCounts, setMaintenanceCounts] = useState({ pending: null, finished: null });
   const [loading, setLoading] = useState(true);
@@ -161,7 +163,7 @@ export default function HomePage() {
       active = false;
       controller.abort();
     };
-  }, [sessionToken, canViewTickets, user?.UsuarioID, permissions, securityRevision]);
+  }, [sessionToken, canViewTickets, user?.UsuarioID, permissions, securityRevision, ticketSyncRevision]);
 
   useEffect(() => subscribeSyncResource('ticket', ({ type, delta }) => {
     if (!canViewTickets) return;
@@ -169,6 +171,10 @@ export default function HomePage() {
       setTickets([]);
       setCounts({ pending: null, finished: null });
       setLoading(true);
+      return;
+    }
+    if (type === 'snapshot' || delta?.queryReconcileRequired) {
+      setTicketSyncRevision((value) => value + 1);
       return;
     }
     if (type !== 'delta' || !delta) return;
@@ -213,13 +219,17 @@ export default function HomePage() {
       cancelDeferred();
       controller.abort();
     };
-  }, [sessionToken, isAdmin, user?.UsuarioID, permissions, securityRevision]);
+  }, [sessionToken, isAdmin, user?.UsuarioID, permissions, securityRevision, maintenanceSyncRevision]);
 
   useEffect(() => subscribeSyncResource('maintenance', ({ type, delta }) => {
     if (!isAdmin) return;
     if (type === 'security-invalidated') {
       setMaintenanceCounts({ pending: null, finished: null });
       setMaintenanceLoading(true);
+      return;
+    }
+    if (type === 'snapshot' || delta?.queryReconcileRequired) {
+      setMaintenanceSyncRevision((value) => value + 1);
       return;
     }
     if (type !== 'delta' || !delta?.counts) return;

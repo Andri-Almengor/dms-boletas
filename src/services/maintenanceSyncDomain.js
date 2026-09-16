@@ -133,7 +133,9 @@ export function patchMaintenanceCollection(data, request = {}, delta = {}) {
   const serverTotal = authoritativeTotal(request, delta);
   let total = Number(data?.total);
   if (!Number.isFinite(total)) total = beforeItems.length;
-  let integrityPending = false;
+  const completeCollection = page === 1 && total <= beforeItems.length;
+  let integrityPending = Boolean(data?.syncIntegrityPending)
+    || !completeCollection && Boolean(delta.upserts?.length || delta.removed?.length);
 
   if (serverTotal !== null) {
     total = serverTotal;
@@ -148,5 +150,6 @@ export function patchMaintenanceCollection(data, request = {}, delta = {}) {
     }
   }
 
+  if (completeCollection && serverTotal === null) total = patchMaintenanceItemsForQuery(beforeItems, request, delta).length;
   return rebuild(data, items, total, request, delta, integrityPending);
 }

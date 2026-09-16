@@ -97,7 +97,7 @@ export default function TicketListPage({ status }) {
       clear();
       return;
     }
-    if (type === 'snapshot') {
+    if (type === 'snapshot' || delta?.queryReconcileRequired) {
       reload();
       return;
     }

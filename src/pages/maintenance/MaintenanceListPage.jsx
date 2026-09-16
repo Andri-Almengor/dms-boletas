@@ -118,7 +118,7 @@ export default function MaintenanceListPage() {
       clear();
       return;
     }
-    if (type === 'snapshot') {
+    if (type === 'snapshot' || delta?.queryReconcileRequired) {
       reload();
       return;
     }

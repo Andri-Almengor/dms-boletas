@@ -38,7 +38,8 @@ function isAppsScriptUrl(value) {
 
 function isReadRoute(route) {
   const value = String(route || '').toLowerCase();
-  return value === 'auth.me'
+  return value === 'sync.delta'
+    || value === 'auth.me'
     || value === 'assistant.chat'
     || value === 'asistente.chat'
     || value === 'config.get'
@@ -401,6 +402,12 @@ async function executeRead(route, payload, sessionToken, key, requestEpoch, sign
 export async function apiRequest(route, payload = {}, sessionToken = '', options = {}) {
   const signal = options?.signal;
   throwIfAborted(signal);
+
+  // Cursor probes and authoritative snapshots must never use the short/stale
+  // response cache: its content could predate the cursor captured by sync.
+  if (String(route).toLowerCase() === 'sync.delta' || (isReadRoute(route) && options.cache === 'no-store')) {
+    return performRequestWithRetry(route, payload, sessionToken, { signal });
+  }
 
   if (!isReadRoute(route)) {
     const releaseMedia = isMediaUploadRoute(route) ? beginMediaUpload() : null;
