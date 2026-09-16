@@ -12,12 +12,12 @@ function clean(value) {
   return String(value ?? '').trim();
 }
 
-function syncClassification(resource, entityId, route, derivedFrom) {
+function syncClassification(resource, entityId, route, derivedFrom, operation = 'UPSERT') {
   return {
     classification: SYNC_MUTATION_CLASS.SYNC_RESOURCE,
     resource,
     entityId: clean(entityId),
-    operation: 'UPSERT',
+    operation,
     metadata: {
       action: clean(route).slice(0, 120),
       derivedFrom: clean(derivedFrom).slice(0, 80),
@@ -62,6 +62,23 @@ async function modelRelationDerivedChanges(route, result, primaryClassification)
     : [];
 }
 
+function ticketCanChangeAgendaView(route, primaryClassification) {
+  if (primaryClassification?.resource !== 'ticket') return false;
+  const normalized = clean(route).toLowerCase();
+  if (normalized.includes('.evidence.') || normalized.includes('.evidencia.')) return false;
+  if (normalized.includes('.media.')) return false;
+  return true;
+}
+
+function ticketAgendaDerivedChanges(route, primaryClassification) {
+  if (!ticketCanChangeAgendaView(route, primaryClassification)) return [];
+  // Agenda can auto-match tickets by date, assignee, client and text. One ticket
+  // can also reserve a match before another agenda, so an entity-only patch is
+  // not sufficient. A resource invalidation refreshes only the active Agenda
+  // query/detail, preserving correctness without changing Agenda permissions.
+  return [syncClassification('agenda', '*', route, 'ticketMatching', 'INVALIDATE')];
+}
+
 export async function collectDerivedSyncClassifications({
   route = '',
   payload = {},
@@ -73,10 +90,11 @@ export async function collectDerivedSyncClassifications({
     equipmentLocationDerivedChanges(normalizedRoute, payload, result || {}),
     modelRelationDerivedChanges(normalizedRoute, result || {}, primaryClassification),
   ]);
+  const agendaChanges = ticketAgendaDerivedChanges(normalizedRoute, primaryClassification);
 
   const seen = new Set();
-  return [...equipmentChanges, ...relationChanges].filter((classification) => {
-    const key = `${classification.resource}:${classification.entityId}`;
+  return [...equipmentChanges, ...relationChanges, ...agendaChanges].filter((classification) => {
+    const key = `${classification.resource}:${classification.entityId}:${classification.operation}`;
     if (!classification.entityId || seen.has(key)) return false;
     seen.add(key);
     return true;
