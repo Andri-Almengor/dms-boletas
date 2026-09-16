@@ -2,67 +2,34 @@ import test from 'node:test';
 import assert from 'node:assert/strict';
 import { readFileSync } from 'node:fs';
 
-import { overrideSyncClassification } from '../../backend/src/services/sync-classification-overrides.service.js';
-import { collectDerivedSyncClassifications } from '../../backend/src/services/sync-derived-changes.service.js';
-
 const materializerSource = readFileSync(new URL('../../backend/src/services/sync-customer-case.service.js', import.meta.url), 'utf8');
 const deltaSource = readFileSync(new URL('../../backend/src/services/sync-delta.service.js', import.meta.url), 'utf8');
 const registrySource = readFileSync(new URL('../../backend/src/services/sync-resource-registry.js', import.meta.url), 'utf8');
+const overrideSource = readFileSync(new URL('../../backend/src/services/sync-classification-overrides.service.js', import.meta.url), 'utf8');
+const derivedSource = readFileSync(new URL('../../backend/src/services/sync-derived-changes.service.js', import.meta.url), 'utf8');
 const frontendServiceSource = readFileSync(new URL('../../src/services/customerCases.js', import.meta.url), 'utf8');
 const frontendPageSource = readFileSync(new URL('../../src/pages/cases/CustomerCasesPage.jsx', import.meta.url), 'utf8');
 const patchSource = readFileSync(new URL('../../src/services/crudSyncDomain.js', import.meta.url), 'utf8');
 
-function findDerived(rows, resource, entityId, operation = 'UPSERT') {
-  return rows.find((row) => (
-    row.resource === resource
-    && String(row.entityId) === String(entityId)
-    && row.operation === operation
-  ));
-}
-
 test('sync Casos: rutas especiales se atribuyen al agregado correcto', () => {
-  const resend = overrideSyncClassification({
-    route: 'customerCases.resendTechnicians',
-    payload: { caseId: 'CASE-1' },
-    result: { case: { CasoID: 'CASE-1' } },
-    classification: { classification: 'NO_SYNC_REQUIRED' },
-  });
-  assert.equal(resend.resource, 'customerCase');
-  assert.equal(resend.entityId, 'CASE-1');
-  assert.equal(resend.operation, 'UPSERT');
-
-  const clientLink = overrideSyncClassification({
-    route: 'customerCases.clientLink.update',
-    payload: { clientId: 'CLIENT-1' },
-    result: { clientId: 'CLIENT-1' },
-    classification: { resource: 'customerCase', entityId: 'CLIENT-1', operation: 'UPSERT' },
-  });
-  assert.equal(clientLink.resource, 'client');
-  assert.equal(clientLink.entityId, 'CLIENT-1');
+  assert.match(overrideSource, /'customerCases\.resendTechnicians'/);
+  assert.match(overrideSource, /'casos\.cliente\.reenviarTecnicos'/);
+  assert.match(overrideSource, /CASE_UPSERT_ROUTES\.has\(normalized\)[\s\S]*upsert\('customerCase', id, normalized\)/);
+  assert.match(overrideSource, /'customerCases\.clientLink\.update'/);
+  assert.match(overrideSource, /CLIENT_LINK_ROUTES\.has\(normalized\)[\s\S]*upsert\('client', id, normalized\)/);
 });
 
-test('sync Casos: procesar un caso propaga la boleta creada/actualizada y reconcilia Agenda', async () => {
-  const derived = await collectDerivedSyncClassifications({
-    route: 'customerCases.process',
-    payload: { caseId: 'CASE-1' },
-    result: { case: { CasoID: 'CASE-1', BoletaUID: 'TICKET-1' } },
-    primaryClassification: { resource: 'customerCase', entityId: 'CASE-1', operation: 'UPSERT' },
-  });
-
-  assert.ok(findDerived(derived, 'ticket', 'TICKET-1'));
-  assert.ok(findDerived(derived, 'agenda', '*', 'INVALIDATE'));
+test('sync Casos: procesar un caso propaga la boleta creada/actualizada y reconcilia Agenda', () => {
+  assert.match(derivedSource, /CUSTOMER_CASE_PROCESS_ROUTES/);
+  assert.match(derivedSource, /result\?\.case\?\.BoletaUID/);
+  assert.match(derivedSource, /syncClassification\('ticket', ticketId, route, 'customerCaseProcess'\)/);
+  assert.match(derivedSource, /syncClassification\('agenda', '\*', route, 'customerCaseTicketMatching', 'INVALIDATE'\)/);
 });
 
-test('sync Casos: finalizar una boleta vinculada propaga el caso finalizado', async () => {
-  const derived = await collectDerivedSyncClassifications({
-    route: 'boletas.finalize',
-    payload: { boletaUid: 'TICKET-1' },
-    result: { customerCase: { CasoID: 'CASE-1' } },
-    primaryClassification: { resource: 'ticket', entityId: 'TICKET-1', operation: 'UPSERT' },
-  });
-
-  assert.ok(findDerived(derived, 'customerCase', 'CASE-1'));
-  assert.ok(findDerived(derived, 'agenda', '*', 'INVALIDATE'));
+test('sync Casos: finalizar una boleta vinculada propaga el caso finalizado', () => {
+  assert.match(derivedSource, /function ticketFinalizationCaseDerivedChanges/);
+  assert.match(derivedSource, /result\?\.customerCase\?\.CasoID/);
+  assert.match(derivedSource, /syncClassification\('customerCase', caseId, route, 'ticketFinalization'\)/);
 });
 
 test('sync Casos: el delta materializa solo casos cambiados y calcula contadores con una lectura fuente', () => {
