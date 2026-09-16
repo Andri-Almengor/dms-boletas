@@ -1,5 +1,6 @@
 import { withRequestDeadline } from './services/requestPolicy';
 import { isOfflineModeEnabled } from './services/offlineMode';
+import { beginMediaUpload } from './services/mediaActivity';
 import {
   createAbortError,
   createUnknownResultError,
@@ -45,6 +46,16 @@ function isReadRoute(route) {
     || value.endsWith('.list')
     || value.endsWith('.get')
     || value.endsWith('.config');
+}
+
+function isMediaUploadRoute(route) {
+  const value = String(route || '').trim().toLowerCase();
+  if (!value) return false;
+  const mediaRoute = ['evidence', 'evidencia', 'images', 'imagenes', 'signature', 'firma', 'attachments', 'adjuntos']
+    .some((token) => value.includes(token));
+  const uploadAction = ['upload', 'subir', 'subirlote', '.init', '.iniciar', '.chunk', '.bloque']
+    .some((token) => value.includes(token));
+  return mediaRoute && uploadAction;
 }
 
 function nextClientMutationRevision() {
@@ -392,11 +403,16 @@ export async function apiRequest(route, payload = {}, sessionToken = '', options
   throwIfAborted(signal);
 
   if (!isReadRoute(route)) {
-    writeEpoch += 1;
-    invalidateRelatedReads(route);
-    const data = await performRequestWithRetry(route, payload, sessionToken, { signal });
-    notifyWriteComplete(route, payload, data);
-    return data;
+    const releaseMedia = isMediaUploadRoute(route) ? beginMediaUpload() : null;
+    try {
+      writeEpoch += 1;
+      invalidateRelatedReads(route);
+      const data = await performRequestWithRetry(route, payload, sessionToken, { signal });
+      notifyWriteComplete(route, payload, data);
+      return data;
+    } finally {
+      releaseMedia?.();
+    }
   }
 
   if (String(route).toLowerCase() === 'auth.me') return performRequestWithRetry(route, payload, sessionToken, { signal });
