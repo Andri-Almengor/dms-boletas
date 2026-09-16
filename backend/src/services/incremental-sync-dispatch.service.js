@@ -5,7 +5,8 @@ import { authenticate } from './auth.service.js';
 import { buildSyncDelta } from './sync-delta.service.js';
 import { overrideSyncClassification } from './sync-classification-overrides.service.js';
 import { collectDerivedSyncClassifications } from './sync-derived-changes.service.js';
-import { markSyncUnsafe, recordClassifiedSyncChanges } from './sync-change.service.js';
+import { markSyncUnsafe } from './sync-change.service.js';
+import { queueClassifiedSyncChanges } from './sync-outbox.service.js';
 import { classifyMutationRoute, SYNC_MUTATION_CLASS } from './sync-resource-registry.js';
 
 const PUBLIC_SYNC_ACTORS = new Set([
@@ -103,7 +104,15 @@ async function dispatchTrackedAction(args = {}) {
     sessionToken: args.sessionToken || '',
     ...auth,
   };
-  const recorded = await recordClassifiedSyncChanges([mutation, ...derived], context);
-  if (Array.isArray(recorded) && recorded.length) confirmObservedSyncWrites();
+  try {
+    const captured = await queueClassifiedSyncChanges([mutation, ...derived], context);
+    // Once captured by the bounded outbox, a process crash is still safe because
+    // PROCESS_GENERATION changes on restart. A flush failure deliberately leaves
+    // the write unconfirmed so sync-write-observer rotates the generation too.
+    if (captured?.accepted > 0 && !captured.unsafe) confirmObservedSyncWrites();
+  } catch (error) {
+    await markSyncUnsafe(`${args.route || 'unknown'}:outbox:${error?.code || error?.message || 'queue_failed'}`);
+    console.warn(`[sync-change][${args.route || 'unknown'}] no se pudo capturar el cambio; se fuerza reconciliación: ${error?.code || error?.message || error}`);
+  }
   return result;
 }

@@ -9,6 +9,7 @@ import {
   getSyncDescriptor,
   readSyncChangesAfter,
 } from './sync-change.service.js';
+import { flushSyncOutbox } from './sync-outbox.service.js';
 import { syncResourceRegistry } from './sync-resource-registry.js';
 import { isCrudSyncResource, materializeCrudDelta } from './sync-crud.service.js';
 import { materializeAgendaDelta } from './sync-agenda.service.js';
@@ -177,6 +178,11 @@ async function materializeChangedDetail(ctx, resource, resourceSpec, entityId, m
 
 export async function buildSyncDelta(ctx = {}) {
   const startedAt = performance.now();
+  // Business mutations are captured in a bounded in-memory outbox. Drain it
+  // before exposing generation/cursor so snapshot and delta cursors never skip
+  // a confirmed mutation from this process. A process restart changes the
+  // generation and therefore safely reconciles any RAM-only events it lost.
+  await flushSyncOutbox();
   const payload = ctx.payload || {};
   const resource = clean(payload.resource, 80);
   const entityId = clean(
