@@ -2,15 +2,19 @@ import { apiRequest } from '../api';
 import { requestFirstAvailable } from './aliasResolver';
 import { normalizeItems, requestAvailable } from './moduleApi';
 import { crudSyncListRoutes, patchCrudCollection } from './crudSyncDomain';
+import { isMediaUploadActive } from './mediaActivity';
 import { patchMaintenanceCollection } from './maintenanceSyncDomain';
 
 export const CLIENT_SYNC_SCHEMA_VERSION = 1;
 
+const BACKGROUND_SYNC_INTERVAL_MS = Math.max(30_000, Number(import.meta.env.VITE_INCREMENTAL_SYNC_INTERVAL_MS || 60_000));
 let corePromise = null;
 const syncInflight = new Map();
 const detailInflight = new Map();
 const listeners = new Map();
 const entityListeners = new Map();
+const knownResourceSync = new Map();
+let backgroundSchedulerStarted = false;
 
 function loadCore() {
   if (!corePromise) corePromise = import('./offlineStoreCore');
@@ -398,6 +402,82 @@ function onlineNow() {
   return typeof navigator === 'undefined' || navigator.onLine !== false;
 }
 
+function currentSessionToken() {
+  if (typeof localStorage === 'undefined') return '';
+  try {
+    return clean(JSON.parse(localStorage.getItem('dms_session') || '{}')?.sessionToken);
+  } catch {
+    return '';
+  }
+}
+
+function canRunBackgroundSync() {
+  if (!onlineNow() || isMediaUploadActive()) return false;
+  if (typeof document !== 'undefined' && document.hidden) return false;
+  return Boolean(currentSessionToken());
+}
+
+function knownResourceKey({ resource, userId, permissions = [] }) {
+  return `${scopeFingerprint(userId, permissions)}|${clean(resource)}`;
+}
+
+function ensureBackgroundScheduler() {
+  if (backgroundSchedulerStarted || typeof window === 'undefined') return;
+  backgroundSchedulerStarted = true;
+
+  const run = (reason) => {
+    if (!canRunBackgroundSync()) return;
+    Promise.resolve().then(() => syncKnownResourcesInBackground(reason)).catch(() => {});
+  };
+
+  window.addEventListener('focus', () => run('focus'));
+  window.addEventListener('online', () => run('online'));
+  window.addEventListener('dms-media-upload-idle', () => run('media-idle'));
+  window.addEventListener('dms-offline-replay-complete', () => run('offline-replay'));
+  window.setInterval(() => run('timer'), BACKGROUND_SYNC_INTERVAL_MS);
+}
+
+function rememberResourceSync(options = {}) {
+  if (!options.sessionToken || !options.resource) return;
+  const key = knownResourceKey(options);
+  knownResourceSync.set(key, {
+    resource: clean(options.resource),
+    routes: Array.isArray(options.routes) ? [...options.routes] : options.routes,
+    payload: stable(options.payload || {}),
+    sessionToken: clean(options.sessionToken),
+    userId: clean(options.userId),
+    permissions: [...new Set((options.permissions || []).map(String).filter(Boolean))],
+  });
+  ensureBackgroundScheduler();
+}
+
+export async function syncKnownResourcesInBackground(reason = 'timer') {
+  if (!canRunBackgroundSync()) return { reason, synced: 0, skipped: 'not-eligible' };
+  const activeToken = currentSessionToken();
+  let synced = 0;
+
+  for (const [key, options] of knownResourceSync.entries()) {
+    if (options.sessionToken !== activeToken) {
+      knownResourceSync.delete(key);
+      continue;
+    }
+    if (!canRunBackgroundSync()) break;
+    try {
+      await synchronizeResource({ ...options, signal: undefined });
+      synced += 1;
+    } catch {
+      // Background sync is best-effort. Foreground/cache fallback remains authoritative.
+    }
+  }
+
+  try {
+    globalThis.dispatchEvent?.(new CustomEvent('dms-sync-background-complete', { detail: { reason, synced } }));
+  } catch {
+    // Observability only.
+  }
+  return { reason, synced };
+}
+
 async function repairScopedCollectionIfNeeded({ state, routes, payload, sessionToken, signal, cached }) {
   if (!cached?.syncIntegrityPending || !onlineNow()) return cached;
   try {
@@ -663,11 +743,13 @@ export async function synchronizeDetail(options = {}) {
 
 function scheduleSync(options) {
   if (typeof navigator !== 'undefined' && navigator.onLine === false) return;
+  if (isMediaUploadActive()) return;
   Promise.resolve().then(() => synchronizeResource(options)).catch(() => {});
 }
 
 function scheduleDetailSync(options) {
   if (typeof navigator !== 'undefined' && navigator.onLine === false) return;
+  if (isMediaUploadActive()) return;
   Promise.resolve().then(() => synchronizeDetail(options)).catch(() => {});
 }
 
@@ -688,6 +770,7 @@ export async function requestSynchronizedCollection(
     if (!onlineNow()) throw securityRefreshRequiredError();
     return authoritativeRequest(routes, payload, sessionToken, signal);
   }
+  rememberResourceSync({ resource, routes, payload, sessionToken, userId, permissions });
   let state = await readState(resource, userId, permissions);
 
   if (state?.enabled !== false && state?.cacheScope && !state?.securityInvalidated) {
