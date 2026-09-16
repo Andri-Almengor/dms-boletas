@@ -8,6 +8,11 @@ const RESOURCE_SPECS = Object.freeze({
     search: [],
     routes: ['agenda.list', 'agendas.list'],
   }),
+  customerCase: Object.freeze({
+    id: 'CasoID',
+    search: ['CasoNumero', 'Cliente', 'RazonVisita', 'Problema', 'NombreSolicitante', 'CorreoSolicitante'],
+    routes: ['customercases.list', 'casos.cliente.list'],
+  }),
   client: Object.freeze({
     id: 'ClienteID',
     search: ['Nombre', 'Clientes', 'RazonSocial', 'CorreoGeneral', 'Telefono'],
@@ -91,6 +96,29 @@ function activeRecord(row = {}) {
   return String(row.Estado || 'ACTIVO').toUpperCase() !== 'INACTIVO' && row.Activo !== false;
 }
 
+function normalizeCustomerCaseState(value) {
+  const state = clean(value).toUpperCase().replace(/[\s-]+/g, '_');
+  if (['EN_PROCESO', 'PROCESO'].includes(state)) return 'EN_PROCESO';
+  if (['FINALIZADO', 'FINALIZADA', 'FINAL'].includes(state)) return 'FINALIZADO';
+  return 'EN_ESPERA';
+}
+
+function customerCaseMatchesQuery(row = {}, request = {}) {
+  if (!activeRecord(row)) return false;
+  const requestedState = clean(request.status || request.estado);
+  if (requestedState && normalizeCustomerCaseState(row.Estado) !== normalizeCustomerCaseState(requestedState)) return false;
+  const requestedClient = clean(request.clientId || request.ClienteID);
+  if (requestedClient && clean(row.ClienteID) !== requestedClient) return false;
+  const query = clean(request.search || request.q).toLowerCase();
+  if (query) {
+    const searchable = `${row.CasoNumero || ''} ${row.Cliente || ''} ${row.RazonVisita || ''} ${row.Problema || ''} ${row.NombreSolicitante || ''} ${row.CorreoSolicitante || ''}`.toLowerCase();
+    if (!searchable.includes(query)) return false;
+  }
+  // El handler autoritativo actual no aplica el parámetro mode; el parche
+  // incremental conserva exactamente ese contrato y no introduce un filtro nuevo.
+  return true;
+}
+
 function parentValue(resource, request = {}) {
   if (resource === 'clientLocation' || resource === 'contact') {
     return clean(request.ClienteID ?? request.clienteId);
@@ -104,6 +132,8 @@ function parentValue(resource, request = {}) {
 export function crudRowMatchesSyncQuery(resource, row = {}, request = {}, permissions = []) {
   const spec = RESOURCE_SPECS[resource];
   if (!spec) return false;
+  if (resource === 'customerCase') return customerCaseMatchesQuery(row, request);
+
   const includeInactive = bool(request.includeInactive, false) && canIncludeInactive(resource, permissions);
   if (!includeInactive && !activeRecord(row)) return false;
 
@@ -127,24 +157,36 @@ export function crudRowMatchesSyncQuery(resource, row = {}, request = {}, permis
   return true;
 }
 
-function rebuildCollection(original, items, total, integrityPending) {
+function rebuildCollection(original, items, total, integrityPending, resource = '', delta = {}) {
   if (Array.isArray(original)) return items;
   const shared = {
     ...original,
     total: Math.max(0, Number.isFinite(Number(total)) ? Number(total) : items.length),
     syncIntegrityPending: Boolean(integrityPending),
   };
+  if (resource === 'customerCase' && delta.counts) shared.counts = { ...delta.counts };
   if (Array.isArray(original?.items)) return { ...shared, items };
   if (Array.isArray(original?.rows)) return { ...shared, rows: items };
   if (Array.isArray(original?.data)) return { ...shared, data: items };
   return { ...shared, items };
 }
 
-function sortItems(items, request = {}) {
+function sortItems(resource, items, request = {}) {
+  if (resource === 'customerCase') {
+    return items.sort((left, right) => clean(right?.FechaCreacion).localeCompare(clean(left?.FechaCreacion)));
+  }
   const field = clean(request.sortBy);
   if (!field) return items;
   const direction = String(request.sortDir || '').toLowerCase() === 'desc' ? -1 : 1;
   return items.sort((left, right) => String(left?.[field] || '').localeCompare(String(right?.[field] || ''), 'es') * direction);
+}
+
+function authoritativeCustomerCaseTotal(request = {}, delta = {}) {
+  if (!delta.counts || request.search || request.q || request.clientId || request.ClienteID) return null;
+  const requestedState = clean(request.status || request.estado);
+  const key = requestedState ? normalizeCustomerCaseState(requestedState) : 'TOTAL';
+  const value = Number(delta.counts[key]);
+  return Number.isFinite(value) ? value : null;
 }
 
 export function patchCrudCollection(resource, data, request = {}, delta = {}, permissions = []) {
@@ -199,19 +241,24 @@ export function patchCrudCollection(resource, data, request = {}, delta = {}, pe
 
     total += 1;
     const lastKnownPage = page * pageSize >= total;
-    if (completeCollection || lastKnownPage) {
+    if (completeCollection || lastKnownPage || (resource === 'customerCase' && page === 1)) {
       items.push(incoming);
     } else {
       integrityPending = true;
     }
   }
 
-  items = sortItems(items, request);
+  const authoritativeTotal = resource === 'customerCase'
+    ? authoritativeCustomerCaseTotal(request, delta)
+    : null;
+  if (authoritativeTotal !== null) total = authoritativeTotal;
+
+  items = sortItems(resource, items, request);
   if (!completeCollection && items.length > pageSize) {
     items = items.slice(0, pageSize);
-    integrityPending = true;
+    if (resource !== 'customerCase' || page !== 1) integrityPending = true;
   }
-  return rebuildCollection(data, items, total, integrityPending);
+  return rebuildCollection(data, items, total, integrityPending, resource, delta);
 }
 
 export function crudSyncListRoutes(resource) {
