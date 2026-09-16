@@ -26,11 +26,14 @@ const GENERATION_KEY = 'INCREMENTAL_SYNC_GENERATION';
 const UNSAFE_KEY = 'INCREMENTAL_SYNC_UNSAFE';
 const CONFIG_DESCRIPTION = 'Estado interno del motor de sincronización incremental. No editar manualmente.';
 const MAX_METADATA_CHARS = 1200;
+const CURSOR_LABEL_CELL = 'L1';
+const CURSOR_VALUE_CELL = 'L2';
 let infrastructurePromise = null;
 let descriptorPromise = null;
 let cachedDescriptor = null;
 let currentCursor = null;
 let unsafeReason = '';
+let eventWriteTail = Promise.resolve();
 
 function quote(name) {
   return `'${String(name).replace(/'/g, "''")}'`;
@@ -38,11 +41,6 @@ function quote(name) {
 
 function clean(value, maxLength = 240) {
   return String(value ?? '').trim().slice(0, maxLength);
-}
-
-function parseUpdatedRow(updatedRange = '') {
-  const match = String(updatedRange).match(/![A-Z]+(\d+):[A-Z]+\d+$/i);
-  return match ? Number(match[1]) : 0;
 }
 
 function rowValuesToChange(values = [], rowNumber = 0) {
@@ -90,21 +88,41 @@ async function ensureSyncInfrastructureInternal() {
           addSheet: {
             properties: {
               title: SYNC_SHEET,
-              gridProperties: { rowCount: 1000, columnCount: SYNC_CHANGE_HEADERS.length },
+              gridProperties: { rowCount: 1000, columnCount: 12 },
             },
           },
         }],
       },
     });
     properties = response.data.replies?.[0]?.addSheet?.properties || await sheetProperties(SYNC_SHEET);
+  } else if (Number(properties.gridProperties?.columnCount || 0) < 12) {
+    await sheetsApi.spreadsheets.batchUpdate({
+      spreadsheetId: env.sheetId,
+      requestBody: {
+        requests: [{
+          appendDimension: {
+            sheetId: properties.sheetId,
+            dimension: 'COLUMNS',
+            length: 12 - Number(properties.gridProperties?.columnCount || 0),
+          },
+        }],
+      },
+    });
   }
 
-  const headerResponse = await sheetsApi.spreadsheets.values.get({
-    spreadsheetId: env.sheetId,
-    range: `${quote(SYNC_SHEET)}!1:1`,
-    valueRenderOption: 'UNFORMATTED_VALUE',
-  });
-  const currentHeaders = (headerResponse.data.values?.[0] || []).map(String);
+  const [headerResponse, cursorResponse] = await Promise.all([
+    sheetsApi.spreadsheets.values.get({
+      spreadsheetId: env.sheetId,
+      range: `${quote(SYNC_SHEET)}!1:1`,
+      valueRenderOption: 'UNFORMATTED_VALUE',
+    }),
+    sheetsApi.spreadsheets.values.get({
+      spreadsheetId: env.sheetId,
+      range: `${quote(SYNC_SHEET)}!${CURSOR_LABEL_CELL}:${CURSOR_VALUE_CELL}`,
+      valueRenderOption: 'UNFORMATTED_VALUE',
+    }),
+  ]);
+  const currentHeaders = (headerResponse.data.values?.[0] || []).slice(0, SYNC_CHANGE_HEADERS.length).map(String);
   const compatible = SYNC_CHANGE_HEADERS.every((header, index) => currentHeaders[index] === header);
   if (!compatible) {
     if (currentHeaders.some(Boolean)) {
@@ -120,6 +138,25 @@ async function ensureSyncInfrastructureInternal() {
       valueInputOption: 'RAW',
       requestBody: { values: [SYNC_CHANGE_HEADERS] },
     });
+  }
+
+  const cursorValues = cursorResponse.data.values || [];
+  const label = clean(cursorValues?.[0]?.[0]);
+  const storedCursor = Number(cursorValues?.[1]?.[0]);
+  if (label !== 'Cursor' || !Number.isInteger(storedCursor) || storedCursor < 1) {
+    await sheetsApi.spreadsheets.values.batchUpdate({
+      spreadsheetId: env.sheetId,
+      requestBody: {
+        valueInputOption: 'RAW',
+        data: [
+          { range: `${quote(SYNC_SHEET)}!${CURSOR_LABEL_CELL}`, values: [['Cursor']] },
+          { range: `${quote(SYNC_SHEET)}!${CURSOR_VALUE_CELL}`, values: [[1]] },
+        ],
+      },
+    });
+    currentCursor = 1;
+  } else {
+    currentCursor = storedCursor;
   }
 
   return { sheetId: properties?.sheetId ?? null };
@@ -145,6 +182,22 @@ async function writeConfigValue(key, value) {
   return appendRow('Configuracion', { Clave: key, Valor: String(value), Descripcion: CONFIG_DESCRIPTION });
 }
 
+async function rotateGeneration(reason = '') {
+  const nextGeneration = uuid();
+  await writeConfigValue(GENERATION_KEY, nextGeneration);
+  try { await writeConfigValue(UNSAFE_KEY, ''); } catch { /* generation mismatch is already safe */ }
+  unsafeReason = '';
+  cachedDescriptor = {
+    enabled: Boolean(env.incrementalSyncEnabled),
+    generation: nextGeneration,
+    schemaVersion: SYNC_SCHEMA_VERSION,
+    unsafe: false,
+    unsafeReason: '',
+    lastReconcileReason: clean(reason, 240),
+  };
+  return cachedDescriptor;
+}
+
 async function readDescriptorInternal() {
   await ensureSyncInfrastructure();
   const rows = await readTable('Configuracion');
@@ -154,7 +207,10 @@ async function readDescriptorInternal() {
     generation = uuid();
     await writeConfigValue(GENERATION_KEY, generation);
   }
-  if (persistedUnsafe) unsafeReason = persistedUnsafe;
+  if (persistedUnsafe) {
+    unsafeReason = persistedUnsafe;
+    try { return await rotateGeneration(persistedUnsafe); } catch { /* keep unsafe below */ }
+  }
   cachedDescriptor = {
     enabled: Boolean(env.incrementalSyncEnabled),
     generation,
@@ -179,14 +235,7 @@ export async function getSyncDescriptor({ force = false } = {}) {
 async function initializeCursor() {
   if (Number.isInteger(currentCursor)) return currentCursor;
   await ensureSyncInfrastructure();
-  const response = await sheetsApi.spreadsheets.values.get({
-    spreadsheetId: env.sheetId,
-    range: `${quote(SYNC_SHEET)}!A:A`,
-    valueRenderOption: 'UNFORMATTED_VALUE',
-  });
-  const values = response.data.values || [];
-  currentCursor = Math.max(1, values.length || 1);
-  return currentCursor;
+  return Number.isInteger(currentCursor) ? currentCursor : 1;
 }
 
 export async function getSyncCursor() {
@@ -196,7 +245,7 @@ export async function getSyncCursor() {
 export async function readSyncChangesAfter(fromCursor, { limit = env.syncDeltaMaxEvents } = {}) {
   await ensureSyncInfrastructure();
   const tail = await initializeCursor();
-  const cursor = Math.max(1, Number(fromCursor || 1));
+  const cursor = Number(fromCursor || 1);
   const maxEvents = Math.max(1, Math.min(Number(limit || env.syncDeltaMaxEvents), env.syncDeltaMaxEvents));
   if (!Number.isInteger(cursor) || cursor < 1 || cursor > tail) {
     return { invalidCursor: true, fromCursor: cursor, cursor: tail, hasMore: false, events: [], eventsScanned: 0 };
@@ -227,7 +276,7 @@ export async function readSyncChangesAfter(fromCursor, { limit = env.syncDeltaMa
   };
 }
 
-export async function appendSyncChange({
+function buildEvent({
   resource,
   entityId,
   operation = 'UPSERT',
@@ -237,15 +286,12 @@ export async function appendSyncChange({
   mutationId = '',
   metadata = null,
 } = {}) {
-  if (!env.incrementalSyncEnabled) return null;
-  await ensureSyncInfrastructure();
   const normalizedResource = clean(resource, 80);
   const normalizedEntity = clean(entityId, 180);
   if (!normalizedResource || !normalizedEntity) {
     throw new AppError('SYNC_EVENT_INVALID', 'No se pudo identificar el recurso modificado para sincronización.', 500);
   }
-
-  const event = {
+  return {
     ChangeID: uuid(),
     Resource: normalizedResource,
     EntityID: normalizedEntity,
@@ -258,38 +304,44 @@ export async function appendSyncChange({
     SchemaVersion: SYNC_SCHEMA_VERSION,
     Metadata: sanitizeSyncMetadata(metadata),
   };
-  const values = SYNC_CHANGE_HEADERS.map((header) => event[header] ?? '');
-  const response = await sheetsApi.spreadsheets.values.append({
-    spreadsheetId: env.sheetId,
-    range: `${quote(SYNC_SHEET)}!A1`,
-    valueInputOption: 'RAW',
-    insertDataOption: 'INSERT_ROWS',
-    requestBody: { values: [values] },
-  });
-  const row = parseUpdatedRow(response.data?.updates?.updatedRange);
-  if (row > 0) currentCursor = Math.max(Number(currentCursor || 1), row);
-  return { ...event, cursor: row || currentCursor || null };
+}
+
+export async function appendSyncChange(change = {}) {
+  if (!env.incrementalSyncEnabled) return null;
+  const operation = async () => {
+    await ensureSyncInfrastructure();
+    const event = buildEvent(change);
+    const cursor = (await initializeCursor()) + 1;
+    const values = SYNC_CHANGE_HEADERS.map((header) => event[header] ?? '');
+    await sheetsApi.spreadsheets.values.batchUpdate({
+      spreadsheetId: env.sheetId,
+      requestBody: {
+        valueInputOption: 'RAW',
+        data: [
+          { range: `${quote(SYNC_SHEET)}!A${cursor}:K${cursor}`, values: [values] },
+          { range: `${quote(SYNC_SHEET)}!${CURSOR_VALUE_CELL}`, values: [[cursor]] },
+        ],
+      },
+    });
+    currentCursor = cursor;
+    return { ...event, cursor };
+  };
+  const current = eventWriteTail.then(operation, operation);
+  eventWriteTail = current.catch(() => {});
+  return current;
 }
 
 export async function markSyncUnsafe(reason = 'changelog_write_failed') {
   unsafeReason = clean(reason, 600) || 'changelog_write_failed';
   cachedDescriptor = cachedDescriptor ? { ...cachedDescriptor, unsafe: true, unsafeReason } : null;
   try {
-    const nextGeneration = uuid();
-    await writeConfigValue(GENERATION_KEY, nextGeneration);
     await writeConfigValue(UNSAFE_KEY, unsafeReason);
-    cachedDescriptor = {
-      enabled: Boolean(env.incrementalSyncEnabled),
-      generation: nextGeneration,
-      schemaVersion: SYNC_SCHEMA_VERSION,
-      unsafe: true,
-      unsafeReason,
-    };
+    return await rotateGeneration(unsafeReason);
   } catch {
-    // Keep the process unsafe even if Sheets is temporarily unavailable. The
-    // mutation caller receives an error and safe clients keep their old cache.
+    // Keep the process unsafe if the generation cannot be rotated. On the
+    // next descriptor read the persisted unsafe marker retries the rotation.
+    return cachedDescriptor;
   }
-  return cachedDescriptor;
 }
 
 export async function clearSyncUnsafeAfterReconciliation() {

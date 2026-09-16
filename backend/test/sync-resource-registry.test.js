@@ -20,6 +20,30 @@ test('ticket mutations collapse to the ticket aggregate root', () => {
   );
   assert.equal(evidence.resource, 'ticket');
   assert.equal(evidence.entityId, 'B-100');
+  assert.equal(evidence.operation, 'UPSERT');
+});
+
+test('child deletion invalidates aggregate without deleting aggregate', () => {
+  const ticketEvidence = classifyMutationRoute(
+    'boletas.evidence.delete',
+    { evidenciaId: 'E-1' },
+    { EvidenciaID: 'E-1', BoletaUID: 'B-100' },
+  );
+  assert.equal(ticketEvidence.resource, 'ticket');
+  assert.equal(ticketEvidence.operation, 'UPSERT');
+
+  const maintenanceImage = classifyMutationRoute(
+    'maintenance.images.delete',
+    { maintenanceId: 'M-1', imageId: 'IMG-1' },
+    { MantenimientoID: 'M-1' },
+  );
+  assert.equal(maintenanceImage.resource, 'maintenance');
+  assert.equal(maintenanceImage.operation, 'UPSERT');
+});
+
+test('aggregate deletion remains DELETE', () => {
+  assert.equal(classifyMutationRoute('boletas.annul', { boletaUid: 'B-1' }, {}).operation, 'DELETE');
+  assert.equal(classifyMutationRoute('maintenance.delete', { maintenanceId: 'M-1' }, {}).operation, 'DELETE');
 });
 
 test('throttled autosave and unfinished media chunks do not emit changes', () => {
@@ -41,6 +65,31 @@ test('only the final large media chunk can invalidate its aggregate', () => {
   assert.equal(result.classification, SYNC_MUTATION_CLASS.SYNC_RESOURCE);
   assert.equal(result.resource, 'ticket');
   assert.equal(result.entityId, 'B-1');
+});
+
+test('public signatures resolve their actual aggregate type', () => {
+  const ticket = classifyMutationRoute(
+    'ticket.signature.public.submit',
+    {},
+    { ticket: { uid: 'B-9' }, signed: true },
+  );
+  assert.equal(ticket.resource, 'ticket');
+  assert.equal(ticket.entityId, 'B-9');
+
+  const maintenance = classifyMutationRoute(
+    'maintenance.signature.public.submit',
+    {},
+    { maintenance: { subjectType: 'maintenance', uid: 'M-9' }, signed: true },
+  );
+  assert.equal(maintenance.resource, 'maintenance');
+  assert.equal(maintenance.entityId, 'M-9');
+
+  const testSignature = classifyMutationRoute(
+    'maintenance.signature.public.submit',
+    {},
+    { testMode: true, maintenance: { uid: 'M-9' } },
+  );
+  assert.equal(testSignature.classification, SYNC_MUTATION_CLASS.NO_SYNC_REQUIRED);
 });
 
 test('security writes are invalidations, not catalog synchronization', () => {

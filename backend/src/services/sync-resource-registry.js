@@ -16,7 +16,11 @@ const TICKET_MUTATIONS = new Set([
   'boletas.evidence.update', 'tickets.evidence.update',
   'boletas.evidence.delete', 'tickets.evidence.delete',
   'boletas.signature.upload',
+]);
+
+const PUBLIC_SIGNATURE_MUTATIONS = new Set([
   'ticket.signature.public.submit', 'boletas.firma.publica.guardar',
+  'maintenance.signature.public.submit', 'mantenimientos.firma.publica.guardar',
 ]);
 
 const TICKET_LARGE_CHUNKS = new Set([
@@ -94,12 +98,16 @@ function ticketEntityId(payload = {}, result = {}) {
   return resultEntityId(result, ['BoletaUID', 'boletaUid', 'id'])
     || clean(pick(payload, ['boletaUid', 'BoletaUID', 'ticketId', 'id'], ''))
     || clean(result?.BoletaUID)
-    || clean(result?.boleta?.BoletaUID);
+    || clean(result?.boleta?.BoletaUID)
+    || clean(result?.ticket?.BoletaUID)
+    || clean(result?.ticket?.uid);
 }
 
 function maintenanceEntityId(payload = {}, result = {}) {
   return resultEntityId(result, ['MantenimientoID', 'mantenimientoId', 'maintenanceId', 'id'])
-    || clean(pick(payload, ['mantenimientoId', 'MantenimientoID', 'maintenanceId', 'id'], ''));
+    || clean(pick(payload, ['mantenimientoId', 'MantenimientoID', 'maintenanceId', 'id'], ''))
+    || clean(result?.maintenance?.MantenimientoID)
+    || clean(result?.maintenance?.uid);
 }
 
 function genericEntityId(payload = {}, result = {}) {
@@ -115,8 +123,16 @@ function genericEntityId(payload = {}, result = {}) {
   return '';
 }
 
-function mutationOperation(route) {
+function genericMutationOperation(route) {
   return /\.delete$|\.annul$/.test(route) ? 'DELETE' : 'UPSERT';
+}
+
+function ticketMutationOperation(route) {
+  return route === 'boletas.annul' ? 'DELETE' : 'UPSERT';
+}
+
+function maintenanceMutationOperation(route) {
+  return route === 'maintenance.delete' || route === 'mantenimientos.delete' ? 'DELETE' : 'UPSERT';
 }
 
 function isWriteVerb(route) {
@@ -127,9 +143,32 @@ function metadataFor(route) {
   return { action: clean(route).slice(0, 120) };
 }
 
+function classifyPublicSignature(route, result = {}) {
+  if (result?.testMode) return { classification: SYNC_MUTATION_CLASS.NO_SYNC_REQUIRED, reason: 'signature_test' };
+  const maintenance = result?.maintenance || (result?.ticket?.subjectType === 'maintenance' ? result.ticket : null);
+  if (maintenance) {
+    return {
+      classification: SYNC_MUTATION_CLASS.SYNC_RESOURCE,
+      resource: 'maintenance',
+      entityId: maintenanceEntityId({}, { maintenance }),
+      operation: 'UPSERT',
+      metadata: metadataFor(route),
+    };
+  }
+  return {
+    classification: SYNC_MUTATION_CLASS.SYNC_RESOURCE,
+    resource: 'ticket',
+    entityId: ticketEntityId({}, result),
+    operation: 'UPSERT',
+    metadata: metadataFor(route),
+  };
+}
+
 export function classifyMutationRoute(route, payload = {}, result = null) {
   const normalizedRoute = clean(route);
   if (!normalizedRoute) return { classification: SYNC_MUTATION_CLASS.NO_SYNC_REQUIRED };
+
+  if (PUBLIC_SIGNATURE_MUTATIONS.has(normalizedRoute)) return classifyPublicSignature(normalizedRoute, result || {});
 
   if (TICKET_LARGE_CHUNKS.has(normalizedRoute)) {
     if (!result?.completed && !result?.complete && !result?.finalized) {
@@ -165,7 +204,7 @@ export function classifyMutationRoute(route, payload = {}, result = null) {
       classification: SYNC_MUTATION_CLASS.SYNC_RESOURCE,
       resource: 'ticket',
       entityId: ticketEntityId(payload, result),
-      operation: mutationOperation(normalizedRoute),
+      operation: ticketMutationOperation(normalizedRoute),
       metadata: metadataFor(normalizedRoute),
     };
   }
@@ -178,7 +217,7 @@ export function classifyMutationRoute(route, payload = {}, result = null) {
       classification: SYNC_MUTATION_CLASS.SYNC_RESOURCE,
       resource: 'maintenance',
       entityId: maintenanceEntityId(payload, result),
-      operation: mutationOperation(normalizedRoute),
+      operation: maintenanceMutationOperation(normalizedRoute),
       metadata: metadataFor(normalizedRoute),
     };
   }
@@ -188,7 +227,7 @@ export function classifyMutationRoute(route, payload = {}, result = null) {
       classification: SYNC_MUTATION_CLASS.SYNC_RESOURCE,
       resource: 'agenda',
       entityId: resultEntityId(result, ['AgendaID', 'agendaId', 'id']) || genericEntityId(payload, result),
-      operation: mutationOperation(normalizedRoute),
+      operation: genericMutationOperation(normalizedRoute),
       metadata: metadataFor(normalizedRoute),
     };
   }
@@ -213,7 +252,7 @@ export function classifyMutationRoute(route, payload = {}, result = null) {
       classification: SYNC_MUTATION_CLASS.SYNC_RESOURCE,
       resource,
       entityId: genericEntityId(payload, result),
-      operation: mutationOperation(normalizedRoute),
+      operation: genericMutationOperation(normalizedRoute),
       metadata: metadataFor(normalizedRoute),
     };
   }
