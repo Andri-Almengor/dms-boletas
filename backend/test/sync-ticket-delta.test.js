@@ -21,6 +21,19 @@ function event(entityId, operation = 'UPSERT') {
   return { EntityID: entityId, Operation: operation, __rowNumber: 10 };
 }
 
+function countedIterable(rows) {
+  let iterations = 0;
+  return {
+    iterable: {
+      *[Symbol.iterator]() {
+        iterations += 1;
+        yield* rows;
+      },
+    },
+    iterations: () => iterations,
+  };
+}
+
 test('assigned technician receives only authoritative visible ticket', () => {
   const result = materializeTicketDeltaFromRows({
     ctx: context('U-1'),
@@ -76,4 +89,21 @@ test('annulled, missing and explicit deletes always remove cached entity', () =>
   });
   assert.deepEqual(result.upserts, []);
   assert.deepEqual(result.removed, ['B-3', 'B-404', 'B-2']);
+});
+
+test('ticket delta traverses each authoritative collection only once', () => {
+  const ticketRows = countedIterable(tickets.map((row, index) => ({ ...row, __rowNumber: index + 2 })));
+  const assignmentRows = countedIterable(assignments);
+  const result = materializeTicketDeltaFromRows({
+    ctx: context('U-1'),
+    events: [event('B-1')],
+    tickets: ticketRows.iterable,
+    assignments: assignmentRows.iterable,
+  });
+
+  assert.equal(ticketRows.iterations(), 1);
+  assert.equal(assignmentRows.iterations(), 1);
+  assert.equal(result.upserts[0].BoletaUID, 'B-1');
+  assert.equal('__rowNumber' in result.upserts[0], false);
+  assert.deepEqual(result.counts, { pending: 1, finished: 0 });
 });
