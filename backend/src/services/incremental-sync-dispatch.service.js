@@ -1,6 +1,7 @@
 import { dispatchAction } from '../core/action-router.js';
 import { authenticate } from './auth.service.js';
 import { buildSyncDelta } from './sync-delta.service.js';
+import { overrideSyncClassification } from './sync-classification-overrides.service.js';
 import { collectDerivedSyncClassifications } from './sync-derived-changes.service.js';
 import { markSyncUnsafe, recordClassifiedSyncChange } from './sync-change.service.js';
 import { classifyMutationRoute, SYNC_MUTATION_CLASS } from './sync-resource-registry.js';
@@ -51,10 +52,14 @@ export async function dispatchActionWithIncrementalSync(args = {}) {
   }
 
   const result = await dispatchAction(args);
-  const mutation = expandMutationEntityIds(
-    classifyMutationRoute(args.route, args.payload || {}, result),
+  const classified = classifyMutationRoute(args.route, args.payload || {}, result);
+  const overridden = overrideSyncClassification({
+    route: args.route,
+    payload: args.payload || {},
     result,
-  );
+    classification: classified,
+  });
+  const mutation = expandMutationEntityIds(overridden, result);
   if (mutation.classification === SYNC_MUTATION_CLASS.NO_SYNC_REQUIRED) return result;
 
   const auth = await authenticatedContext(args);
