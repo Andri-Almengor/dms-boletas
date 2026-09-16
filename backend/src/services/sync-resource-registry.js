@@ -105,6 +105,22 @@ const RESOURCE_PREFIXES = Object.freeze([
   { prefixes: ['knowledge.', 'baseConocimientos.', 'conocimiento.', 'tutorials.'], resource: 'knowledgeArticle' },
 ]);
 
+const RESOURCE_ENTITY_KEYS = Object.freeze({
+  client: ['ClienteID', 'clienteId', 'clientId', 'id'],
+  clientLocation: ['UbicacionID', 'ubicacionId', 'locationId', 'id'],
+  equipmentLocation: ['UbicacionEquipoID', 'ubicacionEquipoId', 'equipmentLocationId', 'id'],
+  contact: ['ContactoID', 'contactoId', 'contactId', 'id'],
+  catalogCategory: ['CategoriaID', 'categoriaId', 'categoryId', 'id'],
+  deviceType: ['TipoDispositivoID', 'tipoDispositivoId', 'deviceTypeId', 'id'],
+  manufacturer: ['FabricanteID', 'fabricanteId', 'manufacturerId', 'id'],
+  model: ['ModeloID', 'modeloId', 'modelId', 'id'],
+  failureType: ['TipoFallaID', 'tipoFallaId', 'failureTypeId', 'id'],
+  deviceManufacturerRelation: ['RelacionID', 'relacionId', 'relationshipId', 'id'],
+  customerCase: ['CasoID', 'casoId', 'caseId', 'id'],
+  knowledgeArticle: ['TutorialID', 'tutorialId', 'ArticuloID', 'articleId', 'id'],
+  knowledgeCategory: ['CategoriaConocimientoID', 'categoriaConocimientoId', 'CategoriaID', 'categoriaId', 'id'],
+});
+
 function clean(value) {
   return String(value ?? '').trim();
 }
@@ -172,6 +188,13 @@ function genericEntityId(payload = {}, result = {}) {
     if (/ID$|Id$|id$/.test(key) && clean(value)) return clean(value);
   }
   return '';
+}
+
+function resourceEntityId(resource, payload = {}, result = {}) {
+  const keys = RESOURCE_ENTITY_KEYS[resource] || [];
+  return resultEntityId(result, keys)
+    || clean(pick(payload, keys, ''))
+    || genericEntityId(payload, result);
 }
 
 function genericMutationOperation(route) {
@@ -308,7 +331,7 @@ export function classifyMutationRoute(route, payload = {}, result = null) {
     return {
       classification: SYNC_MUTATION_CLASS.SYNC_RESOURCE,
       resource,
-      entityId: genericEntityId(payload, result),
+      entityId: resourceEntityId(resource, payload, result),
       operation: genericMutationOperation(normalizedRoute),
       metadata: metadataFor(normalizedRoute),
     };
