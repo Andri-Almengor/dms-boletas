@@ -342,6 +342,28 @@ function detailHarness({ optimized, count, legacy = false, permission = 'BOLETAS
     return tables[name] || [];
   };
   const readTables = async names => Object.fromEntries(await Promise.all(names.map(async name => [name, await readTable(name)])));
+  const primaryKey = name => ({
+    Boletas: 'BoletaUID',
+    BoletaAsignados: 'BoletaAsignadoID',
+    EvidenciasBoleta: 'EvidenciaID',
+    Usuarios: 'UsuarioID',
+  }[name] || 'ID');
+  const findById = async (name, id) => {
+    reads.push(name);
+    const key = primaryKey(name);
+    const row = (tables[name] || []).find(item => String(item?.[key] ?? '') === String(id ?? ''));
+    if (!row) throw new Error(`No se encontró el registro en ${name}.`);
+    return row;
+  };
+  const findRows = async (name, filters = {}, { limit = 50000 } = {}) => {
+    reads.push(name);
+    const rows = tables[name] || [];
+    const matches = rows.filter(row => Object.entries(filters).every(([key, expected]) => {
+      const values = Array.isArray(expected) ? expected : [expected];
+      return values.some(value => String(row?.[key] ?? '') === String(value ?? ''));
+    }));
+    return matches.slice(0, limit);
+  };
   const updateRow = async (name, id, patch) => {
     writes.push({ name, id, patch });
     tables[name] = tables[name].map(row => row.BoletaUID === id ? { ...row, ...patch } : row);
@@ -365,7 +387,7 @@ function detailHarness({ optimized, count, legacy = false, permission = 'BOLETAS
   const errors = { notFound: message => new Error(message), forbidden: message => new Error(message) };
   const getSource = path => optimized ? currentSource(path) : sourceAt(DETAIL_BASE_SHA, path);
   const snapshotFactory = optimized
-    ? load(currentSource('backend/src/services/ticket-detail-snapshot.service.js'), { readTable, sheetsRevisionTracker: tracker }, 'createTicketDetailSnapshot').createTicketDetailSnapshot
+    ? load(currentSource('backend/src/services/ticket-detail-snapshot.service.js'), { findById, findRows, readTable, sheetsRevisionTracker: tracker }, 'createTicketDetailSnapshot').createTicketDetailSnapshot
     : null;
   const group = load(getSource('backend/src/services/ticket-visit-group.service.js'), {
     ...errors,
@@ -408,6 +430,7 @@ function detailHarness({ optimized, count, legacy = false, permission = 'BOLETAS
   load(getSource('backend/src/services/ticket-detail-read-optimization.patch.js'), {
     ...errors,
     pick,
+    findById,
     readTable,
     baseTicketHandlers,
     ticketMultiHandlers,
