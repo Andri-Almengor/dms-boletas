@@ -117,7 +117,7 @@ test('la aplicación activa CSP, validación, rate limit y errores sin filtrar d
   assert.match(workflow, /permissions:\s*\n\s*contents: read/);
   assert.doesNotMatch(workflow, /git push origin/);
   assert.match(workflow, /Audit production dependencies/);
-  assert.match(workflow, /Collect final metrics and CSS audit/);
+  assert.match(workflow, /Collect final metrics and validation/);
   assert.match(packageJson, /"react-router-dom": "6\.30\.4"/);
   assert.match(packageJson, /"audit:security"/);
   assert.match(packageJson, /"report:final"/);
