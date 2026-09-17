@@ -1,9 +1,7 @@
 name: Bootstrap PostgreSQL migration sources
 
 on:
-  push:
-    branches:
-      - feat/migrate-sheets-to-render-postgres
+  workflow_dispatch:
 
 permissions:
   contents: write
@@ -23,50 +21,18 @@ jobs:
         run: |
           set -u
           cat .migration-bootstrap/part-* | tr -d '\r\n\t ' > /tmp/dms-pg-work.b64
-          {
-            echo "base64_bytes=$(wc -c < /tmp/dms-pg-work.b64)"
-            echo "base64_mod4=$(( $(wc -c < /tmp/dms-pg-work.b64) % 4 ))"
-          } > .migration-bootstrap-debug.txt
-          set +e
-          base64 -d -i /tmp/dms-pg-work.b64 > /tmp/dms-pg-work.tar.gz 2>/tmp/base64.err
-          decode_status=$?
-          set -e
-          echo "base64_decode_status=${decode_status}" >> .migration-bootstrap-debug.txt
-          echo "decoded_bytes=$(wc -c < /tmp/dms-pg-work.tar.gz)" >> .migration-bootstrap-debug.txt
-          echo "decoded_sha256=$(sha256sum /tmp/dms-pg-work.tar.gz | awk '{print $1}')" >> .migration-bootstrap-debug.txt
-          echo "decoded_head=$(od -An -tx1 -N16 /tmp/dms-pg-work.tar.gz | tr -d ' \n')" >> .migration-bootstrap-debug.txt
-          if gzip -t /tmp/dms-pg-work.tar.gz 2>/tmp/gzip.err; then
-            echo 'gzip_ok=true' >> .migration-bootstrap-debug.txt
-            tar -xzf /tmp/dms-pg-work.tar.gz -C .
-            rm -rf .migration-bootstrap
-            rm -f .github/workflows/bootstrap-postgres-migration.yml .migration-bootstrap-debug.txt
-            echo 'expanded=true' >> "$GITHUB_OUTPUT"
-          else
-            echo 'gzip_ok=false' >> .migration-bootstrap-debug.txt
-            printf 'base64_error=' >> .migration-bootstrap-debug.txt
-            tr '\n' ' ' < /tmp/base64.err >> .migration-bootstrap-debug.txt
-            printf '\ngzip_error=' >> .migration-bootstrap-debug.txt
-            tr '\n' ' ' < /tmp/gzip.err >> .migration-bootstrap-debug.txt
-            printf '\nparts=' >> .migration-bootstrap-debug.txt
-            for f in .migration-bootstrap/part-*; do printf '%s:%s ' "$(basename "$f")" "$(wc -c < "$f")"; done >> .migration-bootstrap-debug.txt
-            printf '\n' >> .migration-bootstrap-debug.txt
-            echo 'expanded=false' >> "$GITHUB_OUTPUT"
-          fi
+          base64 -d -i /tmp/dms-pg-work.b64 > /tmp/dms-pg-work.tar.gz
+          gzip -t /tmp/dms-pg-work.tar.gz
+          tar -xzf /tmp/dms-pg-work.tar.gz -C .
+          rm -rf .migration-bootstrap
+          rm -f .github/workflows/bootstrap-postgres-migration.yml .migration-bootstrap-debug.txt
       - name: Refresh backend lockfile
-        if: steps.expand.outputs.expanded == 'true'
         run: npm install --package-lock-only --ignore-scripts --prefix backend
-      - name: Commit result
+      - name: Commit migration implementation
         run: |
           git config user.name 'github-actions[bot]'
           git config user.email '41898282+github-actions[bot]@users.noreply.github.com'
           git add -A
-          if git diff --cached --quiet; then
-            echo 'No changes to commit.'
-            exit 0
-          fi
-          if [ "${{ steps.expand.outputs.expanded }}" = 'true' ]; then
-            git commit -m 'feat: migrate operational persistence to PostgreSQL'
-          else
-            git commit -m 'chore: record migration bootstrap diagnostics'
-          fi
+          if git diff --cached --quiet; then exit 0; fi
+          git commit -m 'feat: migrate operational persistence to PostgreSQL'
           git push origin HEAD:feat/migrate-sheets-to-render-postgres
