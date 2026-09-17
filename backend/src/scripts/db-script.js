@@ -1,5 +1,6 @@
 import 'dotenv/config';
 import pg from 'pg';
+import { postgresSslConfig } from '../infra/postgres-ssl.js';
 
 const { Pool } = pg;
 
@@ -27,6 +28,7 @@ export function databaseUrl() {
 export function scriptPool() {
   return new Pool({
     connectionString: databaseUrl(),
+    ssl: postgresSslConfig(),
     max: positiveInteger('PG_POOL_MAX', 3, { min: 1, max: 4 }),
     idleTimeoutMillis: positiveInteger('PG_IDLE_TIMEOUT_MS', 30_000, { min: 1_000 }),
     connectionTimeoutMillis: positiveInteger('PG_CONNECTION_TIMEOUT_MS', 8_000, { min: 500 }),
