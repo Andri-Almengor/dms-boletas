@@ -1,3 +1,4 @@
+import { createObservedDriveApi } from './drive-observer.js';
 import { observeSyncWrite } from '../core/sync-write-observer.js';
 import { performance } from 'node:perf_hooks';
 import { BoundedCache } from '../core/bounded-cache.js';
@@ -14,7 +15,6 @@ import {
   recordCacheEvictions,
   recordCacheHit,
   recordCacheMiss,
-  recordDriveCall,
   recordSheetsRead,
   recordSheetsWrite,
 } from '../services/performance-observability.service.js';
@@ -319,43 +319,6 @@ export function googleSheetsGateSnapshot() {
 }
 
 const rawDriveApi = google.drive({ version: 'v3', auth });
-const observedDriveResources = new WeakMap();
-
-function observeDriveResource(resource) {
-  if (!resource || typeof resource !== 'object') return resource;
-  if (observedDriveResources.has(resource)) return observedDriveResources.get(resource);
-  const observed = new Proxy(resource, {
-    get(target, property, receiver) {
-      const value = Reflect.get(target, property, receiver);
-      if (typeof value !== 'function') return value;
-      return (...args) => {
-        const startedAt = performance.now();
-        let result;
-        try {
-          result = Reflect.apply(value, target, args);
-        } catch (error) {
-          recordDriveCall({ count: 1, durationMs: performance.now() - startedAt });
-          throw error;
-        }
-        if (result && typeof result.finally === 'function') {
-          return result.finally(() => {
-            recordDriveCall({ count: 1, durationMs: performance.now() - startedAt });
-          });
-        }
-        recordDriveCall({ count: 1, durationMs: performance.now() - startedAt });
-        return result;
-      };
-    },
-  });
-  observedDriveResources.set(resource, observed);
-  return observed;
-}
-
-export const driveApi = new Proxy(rawDriveApi, {
-  get(target, property, receiver) {
-    const value = Reflect.get(target, property, receiver);
-    return observeDriveResource(value);
-  },
-});
+export const driveApi = createObservedDriveApi(rawDriveApi);
 export const docsApi = google.docs({ version: 'v1', auth });
 export const slidesApi = google.slides({ version: 'v1', auth });

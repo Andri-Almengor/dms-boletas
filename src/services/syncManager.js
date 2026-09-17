@@ -432,14 +432,24 @@ function ensureBackgroundScheduler() {
   if (backgroundSchedulerStarted || typeof window === 'undefined') return;
   backgroundSchedulerStarted = true;
 
+  let deferredByUpload = false;
   const run = (reason) => {
-    if (!canRunBackgroundSync()) return;
+    if (!canRunBackgroundSync()) {
+      if (isMediaUploadActive()) deferredByUpload = true;
+      return;
+    }
+    deferredByUpload = false;
     Promise.resolve().then(() => syncKnownResourcesInBackground(reason)).catch(() => {});
   };
 
   window.addEventListener('focus', () => run('focus'));
   window.addEventListener('online', () => run('online'));
-  window.addEventListener('dms-media-upload-idle', () => run('media-idle'));
+  window.addEventListener('dms-media-upload-idle', () => {
+    // Upload completion already patches its own evidence. Resume a scheduled
+    // sync only if media actually deferred it; do not poll every visited module
+    // after each file (or after a failed upload).
+    if (deferredByUpload) run('media-idle');
+  });
   window.addEventListener('dms-offline-replay-complete', () => run('offline-replay'));
   window.setInterval(() => run('timer'), BACKGROUND_SYNC_INTERVAL_MS);
 }
