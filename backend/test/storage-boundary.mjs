@@ -75,10 +75,14 @@ test('googleapis package is centralized behind the Google integration boundary',
 
 test('auth, sessions and permissions use PostgreSQL repositories directly', async () => {
   const auth = await readFile(path.join(ROOT, 'src/services/auth.service.js'), 'utf8');
+  const authRepository = await readFile(path.join(ROOT, 'src/infra/auth-postgres.repository.js'), 'utf8');
   const permissions = await readFile(path.join(ROOT, 'src/services/permissions.service.js'), 'utf8');
   assert.match(auth, /auth-postgres\.repository\.js/);
   assert.match(auth, /postgres\.repository\.js/);
+  assert.match(auth, /findUserById\(session\.UsuarioID\)/);
   assert.doesNotMatch(auth, /sheets\.repository\.js|readTable\(['"]Usuarios['"]\)|readTable\(['"]Sesiones['"]\)|readTables\(/);
+  assert.match(authRepository, /"TokenHash" = \$1/);
+  assert.match(authRepository, /NOT IN \('true','1','si','sí','yes','activo'\)/);
   assert.match(permissions, /postgres\.repository\.js/);
   assert.doesNotMatch(permissions, /sheets\.repository\.js/);
 });
