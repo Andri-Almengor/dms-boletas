@@ -25,8 +25,8 @@ test('duplicate-tolerant repository preserves Sheets first-read / last-update se
   await query('DELETE FROM "Configuracion" WHERE "Clave"=$1', [key], { label: 'test.cleanup', write: true });
 });
 
-test('ticket numbering is atomic in PostgreSQL and keeps maintenance prefix', async () => {
-  await query('DELETE FROM "Boletas" WHERE "BoletaUID" LIKE $1 OR "BoletaUID"=$2', [`test-${suffix}-%`, `mnt-test-${suffix}`], { label: 'test.cleanup', write: true });
+test('ticket numbering is atomic in PostgreSQL and keeps full maintenance prefix', async () => {
+  await query('DELETE FROM "Boletas" WHERE "BoletaUID" LIKE $1 OR "BoletaUID" LIKE $2', [`test-${suffix}-%`, `mnt-test-${suffix}%`], { label: 'test.cleanup', write: true });
   await query("DELETE FROM runtime_sequences WHERE entity IN ('BOLETA','MANTENIMIENTO_BOLETA')", [], { label: 'test.cleanup', write: true });
   await query(
     'INSERT INTO "Boletas" ("BoletaUID","BoletaID","Estado","__payload") VALUES ($1,$2,$3,$4::jsonb)',
@@ -37,13 +37,20 @@ test('ticket numbering is atomic in PostgreSQL and keeps maintenance prefix', as
   const second = { BoletaUID: `test-${suffix}-b`, BoletaID: 1, Titulo: 'B', ClienteID: 'x', Estado: 'PENDIENTE' };
   await Promise.all([appendRow('Boletas', first), appendRow('Boletas', second)]);
   assert.deepEqual(new Set([String(first.BoletaID), String(second.BoletaID)]), new Set(['500', '501']));
+
+  await query(
+    'INSERT INTO "Boletas" ("BoletaUID","BoletaID","Estado","__payload") VALUES ($1,$2,$3,$4::jsonb)',
+    [`mnt-test-${suffix}-seed`, 'M205', 'PENDIENTE', JSON.stringify({ BoletaUID: `mnt-test-${suffix}-seed`, BoletaID: 'M205', Estado: 'PENDIENTE' })],
+    { label: 'test.seed.maintenance', write: true },
+  );
   const maintenance = { BoletaUID: `mnt-test-${suffix}`, BoletaID: 'M01', Titulo: 'M', ClienteID: 'x', Estado: 'PENDIENTE' };
   await appendRow('Boletas', maintenance);
-  assert.match(String(maintenance.BoletaID), /^M\d+$/);
+  assert.equal(String(maintenance.BoletaID), 'M206');
+
   const testTicket = { BoletaUID: `test-${suffix}-custom`, BoletaID: `PRUEBA-${suffix}`, Titulo: 'Prueba', ClienteID: 'x', Estado: 'PENDIENTE', EsPrueba: true };
   await appendRow('Boletas', testTicket);
   assert.equal(testTicket.BoletaID, `PRUEBA-${suffix}`);
-  await query('DELETE FROM "Boletas" WHERE "BoletaUID" LIKE $1 OR "BoletaUID"=$2', [`test-${suffix}-%`, maintenance.BoletaUID], { label: 'test.cleanup', write: true });
+  await query('DELETE FROM "Boletas" WHERE "BoletaUID" LIKE $1 OR "BoletaUID" LIKE $2', [`test-${suffix}-%`, `mnt-test-${suffix}%`], { label: 'test.cleanup', write: true });
   await query("DELETE FROM runtime_sequences WHERE entity IN ('BOLETA','MANTENIMIENTO_BOLETA')", [], { label: 'test.cleanup', write: true });
 });
 
