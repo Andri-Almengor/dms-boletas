@@ -1,9 +1,7 @@
 name: Bootstrap PostgreSQL migration sources
 
 on:
-  push:
-    branches:
-      - feat/migrate-sheets-to-render-postgres
+  workflow_dispatch:
 
 permissions:
   contents: write
@@ -21,8 +19,10 @@ jobs:
         shell: bash
         run: |
           set -euo pipefail
-          cat .migration-bootstrap/part-* | tr -d '\r\n\t ' > /tmp/dms-pg-work.b64
-          base64 -d -i /tmp/dms-pg-work.b64 > /tmp/dms-pg-work.tar.gz
+          cat .migration-bootstrap/payload-* > /tmp/dms-pg-work.b64
+          test "$(wc -c < /tmp/dms-pg-work.b64)" -eq 80740
+          base64 -d /tmp/dms-pg-work.b64 > /tmp/dms-pg-work.tar.gz
+          echo 'c9db7edeb79ac0ca1a29a0202f22321d2cbaa6faa92a4507850f1337d5402eb6  /tmp/dms-pg-work.tar.gz' | sha256sum -c -
           gzip -t /tmp/dms-pg-work.tar.gz
           tar -xzf /tmp/dms-pg-work.tar.gz -C .
           rm -rf .migration-bootstrap
