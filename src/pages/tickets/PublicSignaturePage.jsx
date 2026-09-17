@@ -8,6 +8,11 @@ const DMS_LOGO_URL = 'https://res.cloudinary.com/dj73vkht6/image/upload/v1784169
 const PUBLIC_GET_ROUTES = ['ticket.signature.public.get', 'boletas.firma.publica.get'];
 const PUBLIC_SUBMIT_ROUTES = ['ticket.signature.public.submit', 'boletas.firma.publica.guardar'];
 
+function isConfirmedPublicSignature(data = {}) {
+  const status = String(data?.request?.status || data?.request?.Estado || '').trim().toUpperCase();
+  return Boolean(data?.alreadySigned) || status === 'FIRMADA';
+}
+
 function VisitContext({ reasonForVisit, testsPerformed, compact = false }) {
   return (
     <section className={`public-signature-context${compact ? ' is-compact' : ''}`} aria-label="Información del servicio">
@@ -74,12 +79,43 @@ export default function PublicSignaturePage() {
       });
       setSigned(true);
       setSignature('');
+      setRequest(result.request || request);
       setSubject(result.maintenance || result.ticket || subject);
       setTestMode(Boolean(result.testMode || request?.testMode));
       setMessage(result.message || 'La firma fue guardada correctamente.');
     } catch (saveError) {
-      if (saveError.code === 'SIGNATURE_LINK_EXPIRED') setExpired(true);
-      else setError(saveError.message);
+      if (saveError.code === 'SIGNATURE_LINK_EXPIRED') {
+        setExpired(true);
+      } else if (saveError.code === 'UNKNOWN_RESULT') {
+        try {
+          // El POST pudo haberse completado aunque la respuesta no llegara al navegador.
+          // Confirmamos una sola vez por token y sin caché; nunca repetimos la firma a ciegas.
+          const confirmation = await requestAvailable(
+            PUBLIC_GET_ROUTES,
+            { token },
+            '',
+            { cache: 'no-store' },
+          );
+          if (isConfirmedPublicSignature(confirmation)) {
+            setSigned(true);
+            setSignature('');
+            setRequest(confirmation.request || request);
+            setSubject(confirmation.maintenance || confirmation.ticket || subject);
+            setTestMode(Boolean(confirmation.testMode || confirmation.request?.testMode || request?.testMode));
+            setMessage(confirmation.message || 'La firma fue recibida correctamente.');
+          } else {
+            setError('El servidor estaba ocupado y todavía no confirmó la firma. Su firma sigue en pantalla; espere unos segundos y presione “Guardar firma” nuevamente.');
+          }
+        } catch (confirmationError) {
+          if (confirmationError.code === 'SIGNATURE_LINK_EXPIRED') {
+            setExpired(true);
+          } else {
+            setError('No pudimos confirmar la firma porque el servidor está ocupado. Su firma sigue en pantalla; espere unos segundos y vuelva a presionar “Guardar firma”.');
+          }
+        }
+      } else {
+        setError(saveError.message);
+      }
     } finally {
       setSaving(false);
     }
