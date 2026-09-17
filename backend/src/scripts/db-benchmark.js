@@ -43,11 +43,11 @@ try {
   `, [migrationRun]);
 
   await client.query(`
-    INSERT INTO "Boletas" ("BoletaUID","BoletaID","Titulo","ClienteID","Cliente","Estado","Fecha","Activo","__payload","__migration_run_id")
+    INSERT INTO "Boletas" ("BoletaUID","BoletaID","Titulo","ClienteID","Cliente","Estado","Fecha","__payload","__migration_run_id")
     SELECT 'bench-ticket-'||g, g::text, 'Boleta '||g, 'bench-client-'||((g-1)%200+1), 'Cliente '||((g-1)%200+1),
       CASE WHEN g%3=0 THEN 'FINALIZADA' ELSE 'PENDIENTE' END,
-      to_char(DATE '2026-01-01' + ((g-1)%250), 'YYYY-MM-DD'), 'true',
-      jsonb_build_object('BoletaUID','bench-ticket-'||g,'BoletaID',g,'Titulo','Boleta '||g,'ClienteID','bench-client-'||((g-1)%200+1),'Estado',CASE WHEN g%3=0 THEN 'FINALIZADA' ELSE 'PENDIENTE' END,'Activo',true),
+      to_char(DATE '2026-01-01' + ((g-1)%250), 'YYYY-MM-DD'),
+      jsonb_build_object('BoletaUID','bench-ticket-'||g,'BoletaID',g,'Titulo','Boleta '||g,'ClienteID','bench-client-'||((g-1)%200+1),'Estado',CASE WHEN g%3=0 THEN 'FINALIZADA' ELSE 'PENDIENTE' END),
       $1::uuid
     FROM generate_series(1,1000) g
   `, [migrationRun]);
@@ -107,7 +107,7 @@ try {
   await client.query('ANALYZE "KnowledgeArticles"');
   await client.query('ANALYZE "CasosClientes"');
 
-  await explain('HOME', `SELECT COUNT(*) FILTER (WHERE "Estado"='PENDIENTE'), COUNT(*) FILTER (WHERE "Estado"='FINALIZADA') FROM "Boletas" WHERE "__valid"=TRUE AND LOWER(COALESCE("Activo",'true')) <> 'false'`);
+  await explain('HOME', `SELECT COUNT(*) FILTER (WHERE "Estado"='PENDIENTE'), COUNT(*) FILTER (WHERE "Estado"='FINALIZADA') FROM "Boletas" WHERE "__valid"=TRUE`);
   await explain('PENDIENTES', `SELECT "__payload" FROM "Boletas" WHERE "__valid"=TRUE AND "Estado"='PENDIENTE' ORDER BY "Fecha" DESC LIMIT 100`);
   await explain('FINALIZADAS', `SELECT "__payload" FROM "Boletas" WHERE "__valid"=TRUE AND "Estado"='FINALIZADA' ORDER BY "Fecha" DESC LIMIT 100`);
   await explain('DETALLE_BOLETA', `SELECT "__payload" FROM "Boletas" WHERE "__valid"=TRUE AND "BoletaUID"=$1 LIMIT 1`, ['bench-ticket-500']);
