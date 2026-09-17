@@ -391,10 +391,12 @@ function detailHarness({ optimized, count, legacy = false, permission = 'BOLETAS
     : null;
   const group = load(getSource('backend/src/services/ticket-visit-group.service.js'), {
     ...errors,
+    ensureColumns: async () => true,
     findById,
     findRows,
     readTable,
     updateRow,
+    updateRows: async (name, updates) => Promise.all(updates.map(item => updateRow(name, item.idValue, item.patch))),
     nowIso: () => 'fixed-time',
     env: { sheetId: 'fixture' },
     sheetsApi: { spreadsheets: { values: { get: async () => ({ data: { values: [['GrupoVisitaID', 'BoletaPrincipalUID', 'NumeroVisita', 'EsVisitaPrincipal', 'FirmaOrigen', 'FirmaFecha', 'EstadoEntregaFirma', 'UltimoErrorEntregaFirma', 'FirmaReenviadaEn']] } }) } } },
