@@ -222,7 +222,6 @@ async function notifyAgenda(views, users, mode, removedByAgenda = new Map()) {
   const emailPromise = (async () => {
     try {
       const data = await sendAppsScriptAction('agenda.notification.send', {
-        dataSpreadsheetId: env.sheetId,
         appUrl: env.appPublicUrl,
         mode,
         deliveries,
