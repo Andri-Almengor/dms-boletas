@@ -2,6 +2,7 @@ import { AsyncLocalStorage } from 'node:async_hooks';
 import { performance } from 'node:perf_hooks';
 import pg from 'pg';
 import { env } from '../config/env.js';
+import { postgresSslConfig } from './postgres-ssl.js';
 
 const { Pool } = pg;
 const txStorage = new AsyncLocalStorage();
@@ -13,6 +14,7 @@ function getPool() {
   if (!pool) {
     pool = new Pool({
       connectionString: env.databaseUrl,
+      ssl: postgresSslConfig(env.pgSslMode),
       max: env.pgPoolMax,
       idleTimeoutMillis: env.pgIdleTimeoutMs,
       connectionTimeoutMillis: env.pgConnectionTimeoutMs,
