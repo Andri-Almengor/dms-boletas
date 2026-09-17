@@ -1,7 +1,9 @@
 name: Bootstrap PostgreSQL migration sources
 
 on:
-  workflow_dispatch:
+  push:
+    branches:
+      - feat/migrate-sheets-to-render-postgres
 
 permissions:
   contents: write
@@ -15,11 +17,10 @@ jobs:
         with:
           ref: feat/migrate-sheets-to-render-postgres
           fetch-depth: 0
-      - name: Diagnose and expand prepared migration worktree
-        id: expand
+      - name: Expand prepared migration worktree
         shell: bash
         run: |
-          set -u
+          set -euo pipefail
           cat .migration-bootstrap/part-* | tr -d '\r\n\t ' > /tmp/dms-pg-work.b64
           base64 -d -i /tmp/dms-pg-work.b64 > /tmp/dms-pg-work.tar.gz
           gzip -t /tmp/dms-pg-work.tar.gz
