@@ -14,7 +14,7 @@ function getPool() {
   if (!pool) {
     pool = new Pool({
       connectionString: env.databaseUrl,
-      ssl: postgresSslConfig(env.pgSslMode),
+      ssl: postgresSslConfig(process.env.PG_SSL_MODE),
       max: env.pgPoolMax,
       idleTimeoutMillis: env.pgIdleTimeoutMs,
       connectionTimeoutMillis: env.pgConnectionTimeoutMs,
