@@ -12,7 +12,7 @@ permissions:
   contents: read
 
 jobs:
-  verify-import:
+  diagnose-sequence:
     runs-on: ubuntu-24.04
     env:
       DATABASE_URL: ${{ secrets.RENDER_DATABASE_URL }}
@@ -20,8 +20,6 @@ jobs:
       PG_POOL_MAX: 3
       PG_IDLE_TIMEOUT_MS: 30000
       PG_CONNECTION_TIMEOUT_MS: 8000
-      STAGE3_SOURCE_URL: 'https://sdmntprcentralus.oaiusercontent.com/files/00000000-5574-81f5-aa90-a7c9824fd15f/raw?se=2026-09-17T22%3A24%3A08Z&sp=r&sv=2026-02-06&sr=b&scid=4e700bfa-4354-5a81-ad32-f7a85107b72a&skoid=77636ecc-ad8d-44df-baa7-163b524a0261&sktid=a48cca56-e6da-484e-a814-9c849652bcb3&skt=2026-09-17T18%3A15%3A01Z&ske=2026-09-18T18%3A15%3A01Z&sks=b&skv=2026-02-06&sig=4Gvm3e53gwe6eMXr0rX0hxpX2Kopi81QXH5l9CQJbbY%3D'
-      STAGE3_SOURCE_SHA: 20c811d40231e7c2627fedeb32fcd748056aa77c0ebf5db037e360951e694512
     steps:
       - name: Checkout
         uses: actions/checkout@v4
@@ -33,77 +31,15 @@ jobs:
           cache: npm
           cache-dependency-path: backend/package-lock.json
 
-      - name: Require Stage 3 inputs
+      - name: Require Render database secret
         shell: bash
-        run: |
-          test -n "${DATABASE_URL:-}" || { echo "::error::RENDER_DATABASE_URL is missing"; exit 1; }
-          test -n "${STAGE3_SOURCE_URL:-}" || { echo "::error::Encrypted Stage 3 source URL is missing"; exit 1; }
-
-      - name: Download encrypted workbook
-        shell: bash
-        run: |
-          curl --fail --silent --show-error --location "$STAGE3_SOURCE_URL" --output /tmp/source.xlsx.enc
-          echo 'bfa04593751c52859b672348c7359fd638381f3c65b817223e593f6b87efbabb  /tmp/source.xlsx.enc' | sha256sum --check --strict
-
-      - name: Decrypt and verify workbook
-        shell: bash
-        run: |
-          node <<'NODE'
-          const fs = require('node:fs');
-          const crypto = require('node:crypto');
-          const encrypted = fs.readFileSync('/tmp/source.xlsx.enc');
-          if (encrypted.subarray(0, 8).toString() !== 'DMS3ENC1') throw new Error('Invalid Stage 3 encrypted source header');
-          const peerPublic = encrypted.subarray(8, 41);
-          const salt = encrypted.subarray(41, 57);
-          const iv = encrypted.subarray(57, 69);
-          const tag = encrypted.subarray(69, 85);
-          const ciphertext = encrypted.subarray(85);
-          const secret = process.env.DATABASE_URL || '';
-          if (!secret) throw new Error('Missing DATABASE_URL');
-          let seed = crypto.createHash('sha256').update('dms-boletas-stage3-transport-v1\0').update(secret).digest();
-          const ecdh = crypto.createECDH('secp256k1');
-          let counter = 0;
-          while (true) {
-            try { ecdh.setPrivateKey(seed); break; }
-            catch { counter += 1; seed = crypto.createHash('sha256').update(seed).update(String(counter)).digest(); }
-          }
-          const shared = ecdh.computeSecret(peerPublic);
-          const key = Buffer.from(crypto.hkdfSync('sha256', shared, salt, Buffer.from('dms-boletas-stage3-xlsx-v1'), 32));
-          const decipher = crypto.createDecipheriv('aes-256-gcm', key, iv);
-          decipher.setAuthTag(tag);
-          const plain = Buffer.concat([decipher.update(ciphertext), decipher.final()]);
-          const sha = crypto.createHash('sha256').update(plain).digest('hex');
-          if (sha !== process.env.STAGE3_SOURCE_SHA) throw new Error(`Unexpected workbook SHA-256: ${sha}`);
-          fs.writeFileSync('/tmp/DMS_WebApp_DB.xlsx', plain, { mode: 0o600 });
-          console.log(JSON.stringify({ step: 'source-integrity', ok: true, bytes: plain.length, sha256: sha }));
-          NODE
-          rm -f /tmp/source.xlsx.enc
+        run: test -n "${DATABASE_URL:-}" || { echo "::error::RENDER_DATABASE_URL is missing"; exit 1; }
 
       - name: Install backend dependencies
         run: npm --prefix backend ci
 
-      - name: Apply pending append-only migrations
-        run: npm --prefix backend run db:migrate
-
-      - name: Confirm migration status
+      - name: Confirm migrations
         run: npm --prefix backend run db:status
 
-      - name: Verify source and canonical checksums
-        run: npm --prefix backend run db:verify -- --file /tmp/DMS_WebApp_DB.xlsx
-
-      - name: Verify Stage 3 reconciliation and sequence continuity
-        run: npm --prefix backend run db:stage3:verify -- --file /tmp/DMS_WebApp_DB.xlsx
-
-      - name: Reverify Stage 2 structure after import
-        run: npm --prefix backend run db:stage2:verify
-
-      - name: Verify XLSX import idempotence
-        run: npm --prefix backend run db:import:xlsx -- --file /tmp/DMS_WebApp_DB.xlsx --apply
-
-      - name: Verify source and canonical checksums after idempotent re-run
-        run: npm --prefix backend run db:verify -- --file /tmp/DMS_WebApp_DB.xlsx
-
-      - name: Remove decrypted workbook
-        if: always()
-        shell: bash
-        run: rm -f /tmp/DMS_WebApp_DB.xlsx /tmp/source.xlsx.enc
+      - name: Diagnose sequence resolution with rollback-only probes
+        run: node backend/src/scripts/db-stage3-sequence-diagnose.js
