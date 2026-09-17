@@ -4,6 +4,9 @@ on:
   push:
     branches:
       - feat/migrate-sheets-to-render-postgres
+    paths:
+      - '.migration-bootstrap/**'
+      - '.github/workflows/bootstrap-postgres-migration.yml'
 
 permissions:
   contents: write
@@ -28,7 +31,7 @@ jobs:
           gzip -t /tmp/dms-pg-work.tar.gz
           tar -xzf /tmp/dms-pg-work.tar.gz -C .
           rm -rf .migration-bootstrap
-          rm -f .github/workflows/bootstrap-postgres-migration.yml .migration-bootstrap-debug.txt
+          rm -f .migration-bootstrap-debug.txt
       - name: Refresh backend lockfile
         run: npm install --package-lock-only --ignore-scripts --prefix backend
       - name: Commit migration implementation
