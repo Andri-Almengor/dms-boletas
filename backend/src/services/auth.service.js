@@ -1,6 +1,6 @@
 import { env } from '../config/env.js';
 import { appendRow, findById, updateRow, withTransaction } from '../infra/postgres.repository.js';
-import { findActiveSessionByTokenHash, findUserByLogin } from '../infra/auth-postgres.repository.js';
+import { findActiveSessionByTokenHash, findUserById, findUserByLogin } from '../infra/auth-postgres.repository.js';
 import { AppError, unauthorized } from '../core/errors.js';
 import { calculateUserPermissions, getPermissionTablesForUser, safeUser } from './permissions.service.js';
 import { asBool, hashPassword, nowIso, randomToken, sha256, uuid, verifyPassword } from '../core/utils.js';
@@ -31,7 +31,7 @@ export async function authenticate(token) {
   if (!token) throw unauthorized();
   const session = await findActiveSessionByTokenHash(sha256(token));
   if (!session || new Date(session.FechaExpiracion) <= new Date()) throw unauthorized();
-  const user = await findById('Usuarios', session.UsuarioID);
+  const user = await findUserById(session.UsuarioID);
   if (!user || String(user.Estado).toUpperCase() !== 'ACTIVO') throw unauthorized();
   const tables = await getPermissionTablesForUser(user);
   return { user, session, permissions: calculateUserPermissions(user, tables) };
