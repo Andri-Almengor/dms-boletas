@@ -1,8 +1,7 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import { readFileSync } from 'node:fs';
-const source = readFileSync(new URL('../../backend/src/infra/sheets.repository.js', import.meta.url), 'utf8');
-const filterRows = new Function(`${source.slice(source.indexOf('export function filterRows('), source.indexOf('export function sheetsRepositorySnapshot')).replace('export ', '')}; return filterRows;`)();
+import { filterRows } from '../../backend/src/infra/postgres.repository.queries.js';
+
 function referenceFilterRows(rows, payload = {}, searchFields = []) {
   const search = String(payload.search || payload.q || '').trim().toLowerCase();
   let result = rows.filter((row) => {
