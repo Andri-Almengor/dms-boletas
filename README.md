@@ -23,7 +23,7 @@ El frontend nunca se conecta directamente a PostgreSQL. `GOOGLE_SHEET_ID` ya no 
 ```text
 DATABASE_URL
 TEST_DATABASE_URL              # solo pruebas/integración
-PG_POOL_MAX                    # recomendado inicial: 6
+PG_POOL_MAX                    # recomendado inicial: 3
 PG_IDLE_TIMEOUT_MS             # default 30000
 PG_CONNECTION_TIMEOUT_MS       # default 8000
 PG_STATEMENT_TIMEOUT_MS        # default 60000
