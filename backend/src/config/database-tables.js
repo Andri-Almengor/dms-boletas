@@ -6,7 +6,27 @@ const migrationSql = readFileSync(new URL('../../migrations/002_operational_tabl
 const catalogMatch = migrationSql.match(/\$catalog\$([\s\S]+?)\$catalog\$::jsonb/);
 if (!catalogMatch) throw new Error('No se pudo cargar el catálogo PostgreSQL versionado.');
 const RAW_TABLES = JSON.parse(catalogMatch[1]);
-export const DATABASE_TABLES = Object.freeze(Object.fromEntries(Object.entries(RAW_TABLES).map(([name,meta])=>[name,Object.freeze({id:meta.id,columns:Object.freeze(meta.columns)})])));
+export const RUNTIME_COLUMN_EXTENSIONS = Object.freeze({
+  Mantenimiento: Object.freeze([
+    'CarpetaDriveID',
+    'CarpetaDriveURL',
+    'EstadoNotificacion',
+    'ChatDestino',
+    'ChatEnviadoEn',
+    'ChatFallbackPruebas',
+    'ImagenesEsperadas',
+    'ImagenesCopiadas',
+    'ImagenesYaExistentes',
+    'ErroresCopia',
+  ]),
+});
+export const DATABASE_TABLES = Object.freeze(Object.fromEntries(Object.entries(RAW_TABLES).map(([name,meta])=>[
+  name,
+  Object.freeze({
+    id: meta.id,
+    columns: Object.freeze([...meta.columns, ...(RUNTIME_COLUMN_EXTENSIONS[name] || [])]),
+  }),
+])));
 export const LEGACY_SHEETS = Object.freeze(["ActividadApp","ContactosCliente","ImportacionHistoricaLog","ImportacionHistoricaPreview","MigracionRelacionesLog","MigracionRelacionesPreview","ModelosHistoricosRevision","PreguntasDispositivo","ReparacionClientesLog","ReparacionClientesPreview","UbicacionesCliente","UbicacionesEquipo","_Schema","__VALIDACION_DEPURACION_2026072"]);
 const RAW_LEGACY_COLUMNS = {"ActividadApp":"ActividadID|UsuarioID|UsuarioNombre|SesionID|TipoEvento|Seccion|Vista|RutaUI|RutaAccion|Accion|Entidad|EntidadID|Resultado|Prioridad|DetalleJSON|FechaInicio|FechaFin|DuracionSegundos|IP|UserAgent|Fuente","ContactosCliente":"ContactoID|ClienteID|Nombre|Correo|Puesto|Telefono|EsSupervisor|RecibeCorreo|Activo|OrigenImportacion|FechaCreacion|FechaActualizacion","ImportacionHistoricaLog":"Fecha|Modo|Entidad|Accion|Cliente|Nombre|Detalle","ImportacionHistoricaPreview":"Fecha|Modo|Entidad|Accion|Cliente|Nombre|Detalle","MigracionRelacionesLog":"Entidad|Accion|Fila origen|Nombre|ID origen|ID destino|Detalle","MigracionRelacionesPreview":"Entidad|Accion|Fila origen|Nombre|ID origen|ID destino|Detalle","ModelosHistoricosRevision":"Fabricante observado|Modelo observado|Apariciones|Tipo sugerido|Estado","PreguntasDispositivo":"PreguntaID|TipoDispositivoID|Pregunta|TipoRespuesta|OpcionesJSON|Obligatoria|Orden|Activo|CreadoPor|FechaCreacion|ActualizadoPor|FechaActualizacion","ReparacionClientesLog":"Entidad|Accion|Fila|Nombre|ID anterior|ID canonical|Detalle","ReparacionClientesPreview":"Entidad|Accion|Fila|Nombre|ID anterior|ID canonical|Detalle","UbicacionesCliente":"UbicacionID|ClienteID|Nombre|Direccion|Notas|Activo|OrigenImportacion|FechaCreacion|FechaActualizacion","UbicacionesEquipo":"UbicacionEquipoID|UbicacionID|Nombre|Descripcion|Activo|OrigenImportacion|FechaCreacion|FechaActualizacion","_Schema":"Tabla|Columna|TipoSugerido|Obligatorio|Descripcion","__VALIDACION_DEPURACION_2026072":""};
 export const EXPECTED_WORKBOOK_SHEETS = Object.freeze(Object.fromEntries([...Object.entries(DATABASE_TABLES).map(([name,meta])=>[name,Object.freeze({columns:Object.freeze(name==='SyncChanges'?[...meta.columns,'Cursor']:[...meta.columns])})]),...Object.entries(RAW_LEGACY_COLUMNS).map(([name,columns])=>[name,Object.freeze({columns:Object.freeze(columns?columns.split('|'):[])})])]));
