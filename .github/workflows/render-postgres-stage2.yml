@@ -2,6 +2,11 @@ name: Render PostgreSQL Stage 2
 
 on:
   workflow_dispatch:
+  push:
+    branches:
+      - feat/migrate-sheets-to-render-postgres
+    paths:
+      - .github/workflows/render-postgres-stage2.yml
 
 permissions:
   contents: read
