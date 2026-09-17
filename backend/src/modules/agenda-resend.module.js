@@ -137,7 +137,6 @@ async function sendPendingTicketReminderTest(ctx) {
   let result;
   try {
     const data = await sendAppsScriptAction('agenda.notification.send', {
-      dataSpreadsheetId: env.sheetId,
       appUrl: env.appPublicUrl,
       mode: 'PENDING_TEST',
       reason: 'MANUAL_PENDING_TICKET_TEST',
@@ -245,7 +244,6 @@ async function resendEmail(ctx) {
   let result;
   try {
     const data = await sendAppsScriptAction('agenda.notification.send', {
-      dataSpreadsheetId: env.sheetId,
       appUrl: env.appPublicUrl,
       mode: 'CREATED',
       reason: 'MANUAL_RESEND',
