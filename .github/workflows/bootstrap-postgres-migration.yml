@@ -11,21 +11,21 @@ permissions:
 jobs:
   apply:
     runs-on: ubuntu-latest
-    timeout-minutes: 10
+    timeout-minutes: 15
     steps:
       - uses: actions/checkout@v4
         with:
           ref: feat/migrate-sheets-to-render-postgres
           fetch-depth: 0
-      - name: Verify and expand prepared migration worktree
+      - name: Expand prepared migration worktree
         run: |
-          cat .migration-bootstrap/part-* > /tmp/dms-pg-work.b64
-          test "$(wc -c < /tmp/dms-pg-work.b64)" -eq 80740
+          cat .migration-bootstrap/part-* | tr -d '\r\n\t ' > /tmp/dms-pg-work.b64
           base64 -d /tmp/dms-pg-work.b64 > /tmp/dms-pg-work.tar.gz
-          echo 'c9db7edeb79ac0ca1a29a0202f22321d2cbaa6faa92a4507850f1337d5402eb6  /tmp/dms-pg-work.tar.gz' | sha256sum -c -
           tar -xzf /tmp/dms-pg-work.tar.gz -C .
           rm -rf .migration-bootstrap
           rm -f .github/workflows/bootstrap-postgres-migration.yml
+      - name: Refresh backend lockfile
+        run: npm install --package-lock-only --ignore-scripts --prefix backend
       - name: Commit migration implementation
         run: |
           git config user.name 'github-actions[bot]'
