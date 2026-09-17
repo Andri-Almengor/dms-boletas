@@ -12,7 +12,7 @@ permissions:
   contents: read
 
 jobs:
-  import-and-verify:
+  verify-import:
     runs-on: ubuntu-24.04
     env:
       DATABASE_URL: ${{ secrets.RENDER_DATABASE_URL }}
@@ -20,7 +20,7 @@ jobs:
       PG_POOL_MAX: 3
       PG_IDLE_TIMEOUT_MS: 30000
       PG_CONNECTION_TIMEOUT_MS: 8000
-      STAGE3_SOURCE_URL: 'https://sdmntprcentralus.oaiusercontent.com/files/00000000-c0c4-81f5-8162-630581cfb0a6/raw?se=2026-09-17T22%3A16%3A45Z&sp=r&sv=2026-02-06&sr=b&scid=57510ff2-cfed-5c25-8352-837b6b37b4e0&skoid=77636ecc-ad8d-44df-baa7-163b524a0261&sktid=a48cca56-e6da-484e-a814-9c849652bcb3&skt=2026-09-17T18%3A21%3A36Z&ske=2026-09-18T18%3A21%3A36Z&sks=b&skv=2026-02-06&sig=0nUA3VqtVA6m/pqTfBS7nvBxQs1BjaTSJmZqxaI4cMA%3D'
+      STAGE3_SOURCE_URL: 'https://sdmntprcentralus.oaiusercontent.com/files/00000000-5574-81f5-aa90-a7c9824fd15f/raw?se=2026-09-17T22%3A24%3A08Z&sp=r&sv=2026-02-06&sr=b&scid=4e700bfa-4354-5a81-ad32-f7a85107b72a&skoid=77636ecc-ad8d-44df-baa7-163b524a0261&sktid=a48cca56-e6da-484e-a814-9c849652bcb3&skt=2026-09-17T18%3A15%3A01Z&ske=2026-09-18T18%3A15%3A01Z&sks=b&skv=2026-02-06&sig=4Gvm3e53gwe6eMXr0rX0hxpX2Kopi81QXH5l9CQJbbY%3D'
       STAGE3_SOURCE_SHA: 20c811d40231e7c2627fedeb32fcd748056aa77c0ebf5db037e360951e694512
     steps:
       - name: Checkout
@@ -82,27 +82,11 @@ jobs:
       - name: Install backend dependencies
         run: npm --prefix backend ci
 
-      - name: Syntax-check Stage 3 tooling
-        shell: bash
-        run: |
-          node --check backend/src/scripts/db-stage3-analyze.js
-          node --check backend/src/scripts/db-stage3-preflight.js
-          node --check backend/src/scripts/db-stage3-verify.js
+      - name: Apply pending append-only migrations
+        run: npm --prefix backend run db:migrate
 
-      - name: Confirm Stage 2 migrations
+      - name: Confirm migration status
         run: npm --prefix backend run db:status
-
-      - name: Reconfirm source analysis
-        run: npm --prefix backend run db:import:xlsx -- --file /tmp/DMS_WebApp_DB.xlsx --dry-run
-
-      - name: Confirm anomaly classification
-        run: npm --prefix backend run db:stage3:analyze -- --file /tmp/DMS_WebApp_DB.xlsx
-
-      - name: Require empty operational database before first import
-        run: npm --prefix backend run db:stage3:preflight -- --source-sha "$STAGE3_SOURCE_SHA"
-
-      - name: Apply XLSX migration transaction
-        run: npm --prefix backend run db:import:xlsx -- --file /tmp/DMS_WebApp_DB.xlsx --apply
 
       - name: Verify source and canonical checksums
         run: npm --prefix backend run db:verify -- --file /tmp/DMS_WebApp_DB.xlsx
@@ -115,6 +99,9 @@ jobs:
 
       - name: Verify XLSX import idempotence
         run: npm --prefix backend run db:import:xlsx -- --file /tmp/DMS_WebApp_DB.xlsx --apply
+
+      - name: Verify source and canonical checksums after idempotent re-run
+        run: npm --prefix backend run db:verify -- --file /tmp/DMS_WebApp_DB.xlsx
 
       - name: Remove decrypted workbook
         if: always()
