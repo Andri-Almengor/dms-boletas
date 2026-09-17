@@ -1,10 +1,7 @@
-import { env } from '../config/env.js';
 import { badRequest } from '../core/errors.js';
 import { nowIso, pick, uuid } from '../core/utils.js';
-import { sheetsApi } from '../infra/google.js';
 import {
   appendRows,
-  invalidateTableCache,
   readTable,
 } from '../infra/sheets.repository.js';
 import { ensureSheetColumns } from './sheet-columns.service.js';
@@ -183,37 +180,6 @@ export function legacyMaintenanceQuestions(typeName = '') {
   }));
 }
 
-async function createSheetIfMissing() {
-  const response = await sheetsApi.spreadsheets.get({
-    spreadsheetId: env.sheetId,
-    fields: 'sheets(properties(sheetId,title))',
-  });
-  const exists = (response.data.sheets || []).some((sheet) => sheet.properties?.title === MAINTENANCE_QUESTION_SHEET);
-  if (exists) return false;
-
-  await sheetsApi.spreadsheets.batchUpdate({
-    spreadsheetId: env.sheetId,
-    requestBody: {
-      requests: [{
-        addSheet: {
-          properties: {
-            title: MAINTENANCE_QUESTION_SHEET,
-            gridProperties: { rowCount: 1000, columnCount: MAINTENANCE_QUESTION_COLUMNS.length },
-          },
-        },
-      }],
-    },
-  });
-  await sheetsApi.spreadsheets.values.update({
-    spreadsheetId: env.sheetId,
-    range: `'${MAINTENANCE_QUESTION_SHEET}'!A1`,
-    valueInputOption: 'RAW',
-    requestBody: { values: [MAINTENANCE_QUESTION_COLUMNS] },
-  });
-  invalidateTableCache(MAINTENANCE_QUESTION_SHEET);
-  return true;
-}
-
 async function seedLegacyQuestions(actor = 'SYSTEM') {
   const deviceTypes = await readTable('TiposDispositivo', { force: true });
   const timestamp = nowIso();
@@ -249,11 +215,9 @@ export async function ensureMaintenanceQuestionCatalog(actor = 'SYSTEM') {
   if (ensurePromise) return ensurePromise;
 
   ensurePromise = (async () => {
-    const created = await createSheetIfMissing();
     await ensureSheetColumns(MAINTENANCE_QUESTION_SHEET, MAINTENANCE_QUESTION_COLUMNS);
-    if (created) await seedLegacyQuestions(actor);
     catalogReady = true;
-    return { created };
+    return { created: false };
   })().finally(() => {
     ensurePromise = null;
   });
