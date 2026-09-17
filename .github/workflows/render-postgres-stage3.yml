@@ -20,7 +20,7 @@ jobs:
       PG_POOL_MAX: 3
       PG_IDLE_TIMEOUT_MS: 30000
       PG_CONNECTION_TIMEOUT_MS: 8000
-      STAGE3_SOURCE_URL: 'https://sdmntprcentralus.oaiusercontent.com/files/00000000-4d1c-81f5-b2b0-868a32e27e8a/raw?se=2026-09-17T22%3A11%3A21Z&sp=r&sv=2026-02-06&sr=b&scid=b8d4aae1-c43d-569c-b1ae-41a605cf27d7&skoid=77636ecc-ad8d-44df-baa7-163b524a0261&sktid=a48cca56-e6da-484e-a814-9c849652bcb3&skt=2026-09-17T18%3A06%3A00Z&ske=2026-09-18T18%3A06%3A00Z&sks=b&skv=2026-02-06&sig=QzREVU9zhmpTdVhZ4NGHtGKsBtGkgCkgpZfkiQo2mM8%3D'
+      STAGE3_SOURCE_URL: 'https://sdmntprcentralus.oaiusercontent.com/files/00000000-80f8-81f5-9af1-258b4efef61e/raw?se=2026-09-17T22%3A14%3A08Z&sp=r&sv=2026-02-06&sr=b&scid=98eee7c5-8688-5828-badf-c1f46721cb8d&skoid=77636ecc-ad8d-44df-baa7-163b524a0261&sktid=a48cca56-e6da-484e-a814-9c849652bcb3&skt=2026-09-17T18%3A17%3A13Z&ske=2026-09-18T18%3A17%3A13Z&sks=b&skv=2026-02-06&sig=xS1UX2/otS7KDzm9nS2blNwjbfrvPKEOonYYztp7/jg%3D'
     steps:
       - name: Checkout
         uses: actions/checkout@v4
@@ -86,6 +86,9 @@ jobs:
 
       - name: Analyze XLSX without database writes
         run: npm --prefix backend run db:import:xlsx -- --file /tmp/DMS_WebApp_DB.xlsx --dry-run
+
+      - name: Summarize anomalies without exposing row values
+        run: npm --prefix backend run db:stage3:analyze -- --file /tmp/DMS_WebApp_DB.xlsx
 
       - name: Remove decrypted workbook
         if: always()
