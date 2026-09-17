@@ -37,8 +37,8 @@ test('el esquema crea hojas dedicadas y un token reutilizable por cliente', () =
   assert.match(schema, /OrigenCasoID/);
   assert.match(schema, /GeminiModeloInicial/);
   assert.match(schema, /CarpetaDriveURL/);
-  assert.match(tables, /CasosClientes:\s*\{ id: 'CasoID' \}/);
-  assert.match(tables, /CasoEvidencias:\s*\{ id: 'CasoEvidenciaID' \}/);
+  assert.match(tables, /["']?CasosClientes["']?\s*:\s*\{\s*id:\s*["']CasoID["']\s*\}/);
+  assert.match(tables, /["']?CasoEvidencias["']?\s*:\s*\{\s*id:\s*["']CasoEvidenciaID["']\s*\}/);
 });
 
 test('el formulario público es reutilizable, idempotente y limita imágenes', () => {
