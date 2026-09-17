@@ -1,0 +1,37 @@
+name: Render PostgreSQL Stage 3 Sequence Diagnose
+
+on:
+  workflow_dispatch:
+  push:
+    branches:
+      - feat/migrate-sheets-to-render-postgres
+    paths:
+      - .github/workflows/render-postgres-stage3-sequence-diagnose.yml
+      - backend/src/scripts/db-stage3-sequence-diagnose.js
+
+permissions:
+  contents: read
+
+jobs:
+  diagnose:
+    runs-on: ubuntu-24.04
+    env:
+      DATABASE_URL: ${{ secrets.RENDER_DATABASE_URL }}
+      PG_SSL_MODE: verify-full
+      PG_POOL_MAX: 3
+      PG_IDLE_TIMEOUT_MS: 30000
+      PG_CONNECTION_TIMEOUT_MS: 8000
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version-file: .node-version
+          cache: npm
+          cache-dependency-path: backend/package-lock.json
+      - name: Require Render database secret
+        shell: bash
+        run: test -n "${DATABASE_URL:-}" || { echo "::error::RENDER_DATABASE_URL is missing"; exit 1; }
+      - name: Install backend dependencies
+        run: npm --prefix backend ci
+      - name: Diagnose sequence resolution with rollback-only probes
+        run: node backend/src/scripts/db-stage3-sequence-diagnose.js
