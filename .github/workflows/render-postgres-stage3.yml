@@ -7,45 +7,87 @@ on:
       - feat/migrate-sheets-to-render-postgres
     paths:
       - .github/workflows/render-postgres-stage3.yml
-      - .stage3/source.xlsx.enc
 
 permissions:
   contents: read
 
 jobs:
-  prepare-transport-key:
+  dry-run-import:
     runs-on: ubuntu-24.04
     env:
       DATABASE_URL: ${{ secrets.RENDER_DATABASE_URL }}
+      PG_SSL_MODE: verify-full
+      PG_POOL_MAX: 3
+      PG_IDLE_TIMEOUT_MS: 30000
+      PG_CONNECTION_TIMEOUT_MS: 8000
+      STAGE3_SOURCE_URL: 'https://sdmntprcentralus.oaiusercontent.com/files/00000000-4d1c-81f5-b2b0-868a32e27e8a/raw?se=2026-09-17T22%3A11%3A21Z&sp=r&sv=2026-02-06&sr=b&scid=b8d4aae1-c43d-569c-b1ae-41a605cf27d7&skoid=77636ecc-ad8d-44df-baa7-163b524a0261&sktid=a48cca56-e6da-484e-a814-9c849652bcb3&skt=2026-09-17T18%3A06%3A00Z&ske=2026-09-18T18%3A06%3A00Z&sks=b&skv=2026-02-06&sig=QzREVU9zhmpTdVhZ4NGHtGKsBtGkgCkgpZfkiQo2mM8%3D'
     steps:
-      - name: Require Render database secret
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Setup Node
+        uses: actions/setup-node@v4
+        with:
+          node-version-file: .node-version
+          cache: npm
+          cache-dependency-path: backend/package-lock.json
+
+      - name: Require Stage 3 inputs
         shell: bash
         run: |
-          if [ -z "${DATABASE_URL:-}" ]; then
-            echo "::error::Configure RENDER_DATABASE_URL before Stage 3."
-            exit 1
-          fi
-      - name: Derive transport public key
+          test -n "${DATABASE_URL:-}" || { echo "::error::RENDER_DATABASE_URL is missing"; exit 1; }
+          test -n "${STAGE3_SOURCE_URL:-}" || { echo "::error::Encrypted Stage 3 source URL is missing"; exit 1; }
+
+      - name: Download encrypted workbook
+        shell: bash
+        run: |
+          curl --fail --silent --show-error --location "$STAGE3_SOURCE_URL" --output /tmp/source.xlsx.enc
+          echo 'bfa04593751c52859b672348c7359fd638381f3c65b817223e593f6b87efbabb  /tmp/source.xlsx.enc' | sha256sum --check --strict
+
+      - name: Decrypt workbook in runner memory boundary
         shell: bash
         run: |
           node <<'NODE'
+          const fs = require('node:fs');
           const crypto = require('node:crypto');
+          const encrypted = fs.readFileSync('/tmp/source.xlsx.enc');
+          if (encrypted.subarray(0, 8).toString() !== 'DMS3ENC1') throw new Error('Invalid Stage 3 encrypted source header');
+          const peerPublic = encrypted.subarray(8, 41);
+          const salt = encrypted.subarray(41, 57);
+          const iv = encrypted.subarray(57, 69);
+          const tag = encrypted.subarray(69, 85);
+          const ciphertext = encrypted.subarray(85);
           const secret = process.env.DATABASE_URL || '';
-          if (!secret) process.exit(1);
-          let seed = crypto.createHash('sha256')
-            .update('dms-boletas-stage3-transport-v1\0')
-            .update(secret)
-            .digest();
+          if (!secret) throw new Error('Missing DATABASE_URL');
+          let seed = crypto.createHash('sha256').update('dms-boletas-stage3-transport-v1\0').update(secret).digest();
           const ecdh = crypto.createECDH('secp256k1');
           let counter = 0;
           while (true) {
-            try {
-              ecdh.setPrivateKey(seed);
-              break;
-            } catch {
-              counter += 1;
-              seed = crypto.createHash('sha256').update(seed).update(String(counter)).digest();
-            }
+            try { ecdh.setPrivateKey(seed); break; }
+            catch { counter += 1; seed = crypto.createHash('sha256').update(seed).update(String(counter)).digest(); }
           }
-          console.log(`STAGE3_TRANSPORT_PUBLIC_KEY=${ecdh.getPublicKey('hex', 'compressed')}`);
+          const shared = ecdh.computeSecret(peerPublic);
+          const key = Buffer.from(crypto.hkdfSync('sha256', shared, salt, Buffer.from('dms-boletas-stage3-xlsx-v1'), 32));
+          const decipher = crypto.createDecipheriv('aes-256-gcm', key, iv);
+          decipher.setAuthTag(tag);
+          const plain = Buffer.concat([decipher.update(ciphertext), decipher.final()]);
+          const sha = crypto.createHash('sha256').update(plain).digest('hex');
+          if (sha !== '20c811d40231e7c2627fedeb32fcd748056aa77c0ebf5db037e360951e694512') throw new Error(`Unexpected workbook SHA-256: ${sha}`);
+          fs.writeFileSync('/tmp/DMS_WebApp_DB.xlsx', plain, { mode: 0o600 });
+          console.log(JSON.stringify({ step: 'source-integrity', ok: true, bytes: plain.length, sha256: sha }));
           NODE
+          rm -f /tmp/source.xlsx.enc
+
+      - name: Install backend dependencies
+        run: npm --prefix backend ci
+
+      - name: Confirm Stage 2 migrations are present
+        run: npm --prefix backend run db:status
+
+      - name: Analyze XLSX without database writes
+        run: npm --prefix backend run db:import:xlsx -- --file /tmp/DMS_WebApp_DB.xlsx --dry-run
+
+      - name: Remove decrypted workbook
+        if: always()
+        shell: bash
+        run: rm -f /tmp/DMS_WebApp_DB.xlsx /tmp/source.xlsx.enc
