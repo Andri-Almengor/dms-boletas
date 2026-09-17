@@ -13,6 +13,7 @@
     "test:db": "node --test test/postgres-integration.mjs",
     "db:migrate": "node src/scripts/db-migrate.js",
     "db:status": "node src/scripts/db-status.js",
+    "db:stage2:verify": "node src/scripts/db-stage2-verify.js",
     "db:import:xlsx": "node src/scripts/db-import-xlsx.js",
     "db:verify": "node src/scripts/db-verify.js",
     "db:backup:verify": "node src/scripts/db-backup-verify.js",
