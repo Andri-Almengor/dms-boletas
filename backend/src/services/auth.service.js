@@ -1,5 +1,5 @@
 import { env } from '../config/env.js';
-import { appendRow, findById, updateRow, withTransaction } from '../infra/postgres.repository.js';
+import { appendRow, updateRow, withTransaction } from '../infra/postgres.repository.js';
 import { findActiveSessionByTokenHash, findUserById, findUserByLogin } from '../infra/auth-postgres.repository.js';
 import { AppError, unauthorized } from '../core/errors.js';
 import { calculateUserPermissions, getPermissionTablesForUser, safeUser } from './permissions.service.js';
