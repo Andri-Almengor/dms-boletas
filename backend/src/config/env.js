@@ -19,7 +19,7 @@ function optionalBoolean(name, fallback = false) {
 
 const nodeEnv = optional('NODE_ENV', 'development');
 const isProduction = nodeEnv === 'production';
-const pgPoolMax = optionalNumber('PG_POOL_MAX', 6, 1);
+const pgPoolMax = optionalNumber('PG_POOL_MAX', 3, 1);
 const configuredTestDatabaseUrl = optional('TEST_DATABASE_URL');
 const databaseUrl = nodeEnv === 'test' && configuredTestDatabaseUrl
   ? configuredTestDatabaseUrl
