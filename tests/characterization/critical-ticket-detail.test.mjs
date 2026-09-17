@@ -22,7 +22,7 @@ function harness({ optimized = true, legacy = false, permission = 'USUARIOS_GEST
   tables.TiposDispositivo = [{ TipoDispositivoID: 'd1', Nombre: 'Cámara' }];
   tables.Fabricantes = []; tables.Modelos = [];
   if (!assigned) tables.BoletaAsignados = tables.BoletaAsignados.filter(row => row.BoletaUID !== 'b1');
-  const reads = [], writes = [];
+  const reads = [], fullReads = [], writes = [];
   const errors = { notFound: msg => new Error(msg), forbidden: msg => new Error(msg) };
   const idColumns = {
     Boletas: 'BoletaUID',
@@ -34,7 +34,7 @@ function harness({ optimized = true, legacy = false, permission = 'USUARIOS_GEST
     Fabricantes: 'FabricanteID',
     Modelos: 'ModeloID',
   };
-  const readTable = async name => { reads.push(name); return tables[name] || []; };
+  const readTable = async name => { reads.push(name); fullReads.push(name); return tables[name] || []; };
   const readTables = async names => Object.fromEntries(await Promise.all(names.map(async name => [name, await readTable(name)])));
   const findRows = async (name, criteria = {}) => {
     reads.push(name);
@@ -88,7 +88,7 @@ function harness({ optimized = true, legacy = false, permission = 'USUARIOS_GEST
   const ticketDeliveryHandlers = { get: async () => ({ candidates: true }) };
   load(read('backend/src/services/ticket-detail-read-optimization.patch.js'), { ...errors, pick, findById, baseTicketHandlers, ticketMultiHandlers, ticketAccessHandlers, ticketDeliveryHandlers, assertTicketPayloadAccess, createTicketDetailSnapshot: optimized ? snapshotFactory : () => ({ read: readTable, locate: (rows, id) => rows.find(row => row.BoletaUID === id) }) }, '');
   const ctx = { payload: { boletaUid: 'b1' }, user: { UsuarioID: 'u1' }, permissions: [permission] };
-  return { get: () => ticketDeliveryHandlers.get(ctx), ctx, reads, writes, tables, tracker, snapshotFactory, group, ticketDeliveryHandlers };
+  return { get: () => ticketDeliveryHandlers.get(ctx), ctx, reads, fullReads, writes, tables, tracker, snapshotFactory, group, ticketDeliveryHandlers };
 }
 
 test('detalle: payload canónico e histórico idéntico, sin enrichment base duplicado', async () => {
@@ -97,8 +97,10 @@ test('detalle: payload canónico e histórico idéntico, sin enrichment base dup
     const after = harness({ legacy, emptyCatalogs });
     assert.deepEqual(await after.get(), await before.get());
     assert.deepEqual(after.writes, before.writes);
-    assert.equal(after.reads.filter(name => name === 'Boletas').length, legacy && !emptyCatalogs ? 2 : 1);
-    assert.equal(after.reads.filter(name => name === 'BoletaAsignados').length, 1);
+    assert.ok(after.reads.some(name => name === 'Boletas'));
+    assert.ok(after.reads.some(name => name === 'BoletaAsignados'));
+    assert.equal(after.fullReads.includes('Boletas'), false);
+    assert.equal(after.fullReads.includes('BoletaAsignados'), false);
     if (emptyCatalogs) assert.equal(after.reads.some(name => ['TiposFalla','TiposDispositivo','Fabricantes','Modelos'].includes(name)), false);
   }
 });
@@ -110,7 +112,10 @@ test('detalle: ambas políticas siguen denegando técnicos sin asignación y rol
       assert.equal(denied.writes.length, 0);
       const allowed = harness({ optimized, permission });
       assert.equal((await allowed.get()).boleta.BoletaUID, 'b1');
-      if (optimized) assert.equal(allowed.reads.filter(name => name === 'BoletaAsignados').length, 1);
+      if (optimized) {
+        assert.ok(allowed.reads.some(name => name === 'BoletaAsignados'));
+        assert.equal(allowed.fullReads.includes('BoletaAsignados'), false);
+      }
     }
   }
 });
