@@ -12,7 +12,7 @@ permissions:
   contents: read
 
 jobs:
-  dry-run-import:
+  import-and-verify:
     runs-on: ubuntu-24.04
     env:
       DATABASE_URL: ${{ secrets.RENDER_DATABASE_URL }}
@@ -20,7 +20,8 @@ jobs:
       PG_POOL_MAX: 3
       PG_IDLE_TIMEOUT_MS: 30000
       PG_CONNECTION_TIMEOUT_MS: 8000
-      STAGE3_SOURCE_URL: 'https://sdmntprcentralus.oaiusercontent.com/files/00000000-80f8-81f5-9af1-258b4efef61e/raw?se=2026-09-17T22%3A14%3A08Z&sp=r&sv=2026-02-06&sr=b&scid=98eee7c5-8688-5828-badf-c1f46721cb8d&skoid=77636ecc-ad8d-44df-baa7-163b524a0261&sktid=a48cca56-e6da-484e-a814-9c849652bcb3&skt=2026-09-17T18%3A17%3A13Z&ske=2026-09-18T18%3A17%3A13Z&sks=b&skv=2026-02-06&sig=xS1UX2/otS7KDzm9nS2blNwjbfrvPKEOonYYztp7/jg%3D'
+      STAGE3_SOURCE_URL: 'https://sdmntprcentralus.oaiusercontent.com/files/00000000-c0c4-81f5-8162-630581cfb0a6/raw?se=2026-09-17T22%3A16%3A45Z&sp=r&sv=2026-02-06&sr=b&scid=57510ff2-cfed-5c25-8352-837b6b37b4e0&skoid=77636ecc-ad8d-44df-baa7-163b524a0261&sktid=a48cca56-e6da-484e-a814-9c849652bcb3&skt=2026-09-17T18%3A21%3A36Z&ske=2026-09-18T18%3A21%3A36Z&sks=b&skv=2026-02-06&sig=0nUA3VqtVA6m/pqTfBS7nvBxQs1BjaTSJmZqxaI4cMA%3D'
+      STAGE3_SOURCE_SHA: 20c811d40231e7c2627fedeb32fcd748056aa77c0ebf5db037e360951e694512
     steps:
       - name: Checkout
         uses: actions/checkout@v4
@@ -44,7 +45,7 @@ jobs:
           curl --fail --silent --show-error --location "$STAGE3_SOURCE_URL" --output /tmp/source.xlsx.enc
           echo 'bfa04593751c52859b672348c7359fd638381f3c65b817223e593f6b87efbabb  /tmp/source.xlsx.enc' | sha256sum --check --strict
 
-      - name: Decrypt workbook in runner memory boundary
+      - name: Decrypt and verify workbook
         shell: bash
         run: |
           node <<'NODE'
@@ -72,7 +73,7 @@ jobs:
           decipher.setAuthTag(tag);
           const plain = Buffer.concat([decipher.update(ciphertext), decipher.final()]);
           const sha = crypto.createHash('sha256').update(plain).digest('hex');
-          if (sha !== '20c811d40231e7c2627fedeb32fcd748056aa77c0ebf5db037e360951e694512') throw new Error(`Unexpected workbook SHA-256: ${sha}`);
+          if (sha !== process.env.STAGE3_SOURCE_SHA) throw new Error(`Unexpected workbook SHA-256: ${sha}`);
           fs.writeFileSync('/tmp/DMS_WebApp_DB.xlsx', plain, { mode: 0o600 });
           console.log(JSON.stringify({ step: 'source-integrity', ok: true, bytes: plain.length, sha256: sha }));
           NODE
@@ -81,14 +82,39 @@ jobs:
       - name: Install backend dependencies
         run: npm --prefix backend ci
 
-      - name: Confirm Stage 2 migrations are present
+      - name: Syntax-check Stage 3 tooling
+        shell: bash
+        run: |
+          node --check backend/src/scripts/db-stage3-analyze.js
+          node --check backend/src/scripts/db-stage3-preflight.js
+          node --check backend/src/scripts/db-stage3-verify.js
+
+      - name: Confirm Stage 2 migrations
         run: npm --prefix backend run db:status
 
-      - name: Analyze XLSX without database writes
+      - name: Reconfirm source analysis
         run: npm --prefix backend run db:import:xlsx -- --file /tmp/DMS_WebApp_DB.xlsx --dry-run
 
-      - name: Summarize anomalies without exposing row values
+      - name: Confirm anomaly classification
         run: npm --prefix backend run db:stage3:analyze -- --file /tmp/DMS_WebApp_DB.xlsx
+
+      - name: Require empty operational database before first import
+        run: npm --prefix backend run db:stage3:preflight -- --source-sha "$STAGE3_SOURCE_SHA"
+
+      - name: Apply XLSX migration transaction
+        run: npm --prefix backend run db:import:xlsx -- --file /tmp/DMS_WebApp_DB.xlsx --apply
+
+      - name: Verify source and canonical checksums
+        run: npm --prefix backend run db:verify -- --file /tmp/DMS_WebApp_DB.xlsx
+
+      - name: Verify Stage 3 reconciliation and sequence continuity
+        run: npm --prefix backend run db:stage3:verify -- --file /tmp/DMS_WebApp_DB.xlsx
+
+      - name: Reverify Stage 2 structure after import
+        run: npm --prefix backend run db:stage2:verify
+
+      - name: Verify XLSX import idempotence
+        run: npm --prefix backend run db:import:xlsx -- --file /tmp/DMS_WebApp_DB.xlsx --apply
 
       - name: Remove decrypted workbook
         if: always()
