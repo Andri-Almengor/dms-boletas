@@ -50,7 +50,7 @@ try{
   const previous=await client.query("SELECT migration_run_id FROM migration_runs WHERE source_sha256=$1 AND status='APPLIED' ORDER BY completed_at DESC LIMIT 1",[analysis.file.sha256]);
   if(previous.rows[0]){console.log(`Workbook already applied: run=${previous.rows[0].migration_run_id}`); process.exitCode=0;}
   else {
-    const nonEmpty=await client.query(`SELECT EXISTS(${Object.keys(DATABASE_TABLES).map((name)=>`SELECT 1 FROM ${quoted(name)} LIMIT 1`).join(' UNION ALL ')}) AS present`);
+    const nonEmpty=await client.query(`SELECT ${Object.keys(DATABASE_TABLES).map((name)=>`EXISTS(SELECT 1 FROM ${quoted(name)} LIMIT 1)`).join(' OR ')} AS present`);
     if(nonEmpty.rows[0]?.present&&!options.replace) throw new Error('La base operativa no está vacía. Use --replace únicamente durante un cutover controlado.');
     await client.query('BEGIN');
     if(options.replace){
