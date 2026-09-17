@@ -1,16 +1,12 @@
 import { env } from '../config/env.js';
-import { appendRow, findById, findOneBy, readTable, readTables, updateRow, withTransaction } from '../infra/sheets.repository.js';
+import { appendRow, findById, updateRow, withTransaction } from '../infra/postgres.repository.js';
+import { findActiveSessionByTokenHash, findUserByLogin } from '../infra/auth-postgres.repository.js';
 import { AppError, unauthorized } from '../core/errors.js';
-import { calculateUserPermissions, PERMISSION_TABLE_NAMES, safeUser } from './permissions.service.js';
+import { calculateUserPermissions, getPermissionTablesForUser, safeUser } from './permissions.service.js';
 import { asBool, hashPassword, nowIso, randomToken, sha256, uuid, verifyPassword } from '../core/utils.js';
 
-async function permissionTables() { return readTables(PERMISSION_TABLE_NAMES); }
-
 export async function login(username, password, requestMeta = {}) {
-  // Usuarios is intentionally small; sessions are never scanned.
-  const [users, tables] = await Promise.all([readTable('Usuarios'), permissionTables()]);
-  const key = String(username || '').trim().toLowerCase();
-  const user = users.find((item) => [item.NombreUsuario, item.Correo].some((value) => String(value || '').trim().toLowerCase() === key));
+  const user = await findUserByLogin(username);
   if (!user || String(user.Estado || '').toUpperCase() !== 'ACTIVO') throw new AppError('INVALID_CREDENTIALS', 'Usuario o contraseña incorrectos.', 401);
   if (user.BloqueadoHasta && new Date(user.BloqueadoHasta) > new Date()) throw new AppError('ACCOUNT_LOCKED', 'La cuenta está bloqueada temporalmente.', 423);
   if (!verifyPassword(password, user.PasswordSalt, user.PasswordHash)) {
@@ -20,6 +16,8 @@ export async function login(username, password, requestMeta = {}) {
     await updateRow('Usuarios', user.UsuarioID, patch);
     throw new AppError('INVALID_CREDENTIALS', 'Usuario o contraseña incorrectos.', 401);
   }
+
+  const tables = await getPermissionTablesForUser(user);
   const token = randomToken();
   const expires = new Date(Date.now() + env.sessionHours * 3600000).toISOString();
   await withTransaction(async () => {
@@ -31,16 +29,17 @@ export async function login(username, password, requestMeta = {}) {
 
 export async function authenticate(token) {
   if (!token) throw unauthorized();
-  const session = await findOneBy('Sesiones', { TokenHash: sha256(token), Revocada: false });
+  const session = await findActiveSessionByTokenHash(sha256(token));
   if (!session || new Date(session.FechaExpiracion) <= new Date()) throw unauthorized();
-  const [user, tables] = await Promise.all([findById('Usuarios', session.UsuarioID), permissionTables()]);
+  const user = await findById('Usuarios', session.UsuarioID);
   if (!user || String(user.Estado).toUpperCase() !== 'ACTIVO') throw unauthorized();
+  const tables = await getPermissionTablesForUser(user);
   return { user, session, permissions: calculateUserPermissions(user, tables) };
 }
 
 export async function logout(token) {
   if (!token) return { loggedOut: true };
-  const session = await findOneBy('Sesiones', { TokenHash: sha256(token), Revocada: false });
+  const session = await findActiveSessionByTokenHash(sha256(token));
   if (session) await updateRow('Sesiones', session.SesionID, { Revocada: true, FechaRevocacion: nowIso() });
   return { loggedOut: true };
 }
