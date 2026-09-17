@@ -6,7 +6,7 @@ on:
     branches:
       - feat/migrate-sheets-to-render-postgres
     paths:
-      - .github/workflows/render-postgres-stage2.yml
+      - '.github/workflows/render-postgres-stage2.yml'
 
 permissions:
   contents: read
@@ -17,6 +17,7 @@ jobs:
     timeout-minutes: 15
     env:
       DATABASE_URL: ${{ secrets.RENDER_DATABASE_URL }}
+      PG_SSL_MODE: 'verify-full'
       PG_POOL_MAX: '3'
       PG_IDLE_TIMEOUT_MS: '30000'
       PG_CONNECTION_TIMEOUT_MS: '8000'
