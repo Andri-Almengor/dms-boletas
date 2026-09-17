@@ -1,0 +1,62 @@
+name: Stage 1 PostgreSQL validation
+
+on:
+  push:
+    branches:
+      - feat/migrate-sheets-to-render-postgres
+    paths:
+      - '.github/workflows/bootstrap-postgres-migration.yml'
+
+permissions:
+  contents: read
+
+jobs:
+  validate:
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: feat/migrate-sheets-to-render-postgres
+          fetch-depth: 0
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '24.21.0'
+          cache: npm
+          cache-dependency-path: backend/package-lock.json
+      - name: Install backend dependencies
+        run: npm ci --prefix backend
+      - name: Verify PostgreSQL migration dependencies
+        run: npm ls pg exceljs --prefix backend
+      - name: Check modified JavaScript syntax
+        shell: bash
+        run: |
+          set -euo pipefail
+          base="$(git merge-base origin/main HEAD)"
+          mapfile -t files < <(git diff --name-only "$base"...HEAD -- 'backend/**/*.js' 'backend/**/*.mjs' | sort -u)
+          test "${#files[@]}" -gt 0
+          for file in "${files[@]}"; do
+            echo "node --check $file"
+            node --check "$file"
+          done
+      - name: Run tests that do not require PostgreSQL
+        shell: bash
+        run: |
+          set -euo pipefail
+          mapfile -t tests < <(find backend/test -maxdepth 1 -type f -name '*.test.js' \
+            ! -name 'drive-upload-flow.test.js' \
+            ! -name 'sync-change-recovery.test.js' | sort)
+          node --test "${tests[@]}" backend/test/xlsx-migration.mjs
+      - name: Verify destructive DB test requires TEST_DATABASE_URL
+        shell: bash
+        run: |
+          set -euo pipefail
+          if env -u TEST_DATABASE_URL -u DATABASE_URL npm run test:db --prefix backend > /tmp/test-db-guard.log 2>&1; then
+            echo 'test:db unexpectedly ran without TEST_DATABASE_URL' >&2
+            exit 1
+          fi
+          grep -q 'requires TEST_DATABASE_URL' /tmp/test-db-guard.log
+      - name: Verify lockfile is stable
+        run: |
+          npm install --package-lock-only --ignore-scripts --prefix backend
+          git diff --exit-code -- backend/package.json backend/package-lock.json
