@@ -1,0 +1,51 @@
+name: Render PostgreSQL Stage 3
+
+on:
+  workflow_dispatch:
+  push:
+    branches:
+      - feat/migrate-sheets-to-render-postgres
+    paths:
+      - .github/workflows/render-postgres-stage3.yml
+      - .stage3/source.xlsx.enc
+
+permissions:
+  contents: read
+
+jobs:
+  prepare-transport-key:
+    runs-on: ubuntu-24.04
+    env:
+      DATABASE_URL: ${{ secrets.RENDER_DATABASE_URL }}
+    steps:
+      - name: Require Render database secret
+        shell: bash
+        run: |
+          if [ -z "${DATABASE_URL:-}" ]; then
+            echo "::error::Configure RENDER_DATABASE_URL before Stage 3."
+            exit 1
+          fi
+      - name: Derive transport public key
+        shell: bash
+        run: |
+          node <<'NODE'
+          const crypto = require('node:crypto');
+          const secret = process.env.DATABASE_URL || '';
+          if (!secret) process.exit(1);
+          let seed = crypto.createHash('sha256')
+            .update('dms-boletas-stage3-transport-v1\0')
+            .update(secret)
+            .digest();
+          const ecdh = crypto.createECDH('secp256k1');
+          let counter = 0;
+          while (true) {
+            try {
+              ecdh.setPrivateKey(seed);
+              break;
+            } catch {
+              counter += 1;
+              seed = crypto.createHash('sha256').update(seed).update(String(counter)).digest();
+            }
+          }
+          console.log(`STAGE3_TRANSPORT_PUBLIC_KEY=${ecdh.getPublicKey('hex', 'compressed')}`);
+          NODE
