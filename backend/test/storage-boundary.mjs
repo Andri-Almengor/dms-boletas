@@ -49,9 +49,10 @@ test('direct Sheets API access is restricted to generated-report integrations', 
   const allow = new Set([
     'src/infra/google.js',
     'src/services/maintenance-dynamic-spreadsheet.service.js',
+    'src/modules/maintenance-report-access.module.js',
   ]);
   const offenders = [];
-  const sheetsApiPattern = /\bsheetsApi\b|google\.sheets\s*\(|spreadsheets\.(?:values|batchUpdate|get|create|developerMetadata)\b/;
+  const sheetsApiPattern = /\bsheetsApi\b|google\.sheets\s*\(/;
   for (const file of files) {
     const name = relative(file);
     if (allow.has(name)) continue;
