@@ -4,12 +4,10 @@ import { env } from '../config/env.js';
 import {
   appendRows,
   findById,
-  getHeaders,
-  invalidateTableCache,
-  readTable,
+  findRows,
+  updateRows,
 } from '../infra/sheets.repository.js';
 import { uploadBase64, trashFile } from '../infra/drive.repository.js';
-import { sheetsApi } from '../infra/google.js';
 import { getConfig } from './config.module.js';
 
 function clean(value, fallback = '') {
@@ -29,21 +27,6 @@ function previewUrl(row = {}) {
   if (row.PreviewURL) return row.PreviewURL;
   if (row.DriveFileID) return `https://drive.google.com/thumbnail?id=${encodeURIComponent(row.DriveFileID)}&sz=w1200`;
   return row.DriveURL || '';
-}
-
-function quote(name) {
-  return `'${String(name).replace(/'/g, "''")}'`;
-}
-
-function columnLetter(index) {
-  let result = '';
-  let value = Number(index) + 1;
-  while (value > 0) {
-    const remainder = (value - 1) % 26;
-    result = String.fromCharCode(65 + remainder) + result;
-    value = Math.floor((value - 1) / 26);
-  }
-  return result;
 }
 
 async function mapWithConcurrency(items, concurrency, worker) {
@@ -106,7 +89,11 @@ async function uploadBatch(ctx) {
   }
 
   const inputs = rawImages.map(imageInput);
-  const currentRows = (await readTable('Mantenimiento imagenes')).filter((row) => row.Activo !== false);
+  const currentRows = (await findRows(
+    'Mantenimiento imagenes',
+    { FotoDispositivoID: inputs.map((item) => item.imageId) },
+    { limit: Math.max(inputs.length, 1) },
+  )).filter((row) => row.Activo !== false);
   const existingById = new Map(currentRows.map((row) => [clean(row.FotoDispositivoID), row]));
   const skipped = [];
   const pending = [];
@@ -214,12 +201,14 @@ async function updateBatch(ctx) {
     throw badRequest(`Envíe las actualizaciones de evidencias en lotes de hasta ${env.maintenanceImageMetadataBatchMaxItems}.`);
   }
 
-  const [rows, headers] = await Promise.all([
-    readTable('Mantenimiento imagenes'),
-    getHeaders('Mantenimiento imagenes'),
-  ]);
+  const imageIds = updates
+    .map((input) => clean(pick(input, ['imageId', 'FotoDispositivoID'])))
+    .filter(Boolean);
+  const rows = imageIds.length
+    ? await findRows('Mantenimiento imagenes', { FotoDispositivoID: imageIds }, { limit: imageIds.length })
+    : [];
   const byId = new Map(rows.map((row) => [clean(row.FotoDispositivoID), row]));
-  const data = [];
+  const writes = [];
   const updated = [];
   const failed = [];
   const timestamp = nowIso();
@@ -242,29 +231,13 @@ async function updateBatch(ctx) {
       ActualizadoPor: ctx.user.UsuarioID,
       FechaActualizacion: timestamp,
     };
-
-    for (const [field, value] of Object.entries(patch)) {
-      const index = headers.indexOf(field);
-      if (index < 0) continue;
-      data.push({
-        range: `${quote('Mantenimiento imagenes')}!${columnLetter(index)}${row.__rowNumber}`,
-        values: [[value]],
-      });
-    }
+    writes.push({ idValue: imageId, patch });
     updated.push({ ...row, ...patch, __rowNumber: undefined });
   }
 
-  if (data.length) {
-    await sheetsApi.spreadsheets.values.batchUpdate({
-      spreadsheetId: env.sheetId,
-      requestBody: { valueInputOption: 'USER_ENTERED', data },
-    });
-    invalidateTableCache('Mantenimiento imagenes');
-  }
-
+  if (writes.length) await updateRows('Mantenimiento imagenes', writes, 'FotoDispositivoID');
   return { updated, failed, total: updates.length, updatedCount: updated.length, failedCount: failed.length };
 }
-
 export const maintenanceScalableImageHandlers = {
   uploadBatch,
   updateBatch,
