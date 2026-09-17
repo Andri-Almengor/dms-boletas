@@ -49,8 +49,16 @@ jobs:
         run: npm install
       - name: Install backend dependencies
         run: npm install --prefix backend
+      - name: PostgreSQL status before migrations
+        run: npm --prefix backend run db:status
       - name: Apply PostgreSQL migrations
         run: npm --prefix backend run db:migrate
+      - name: PostgreSQL status after migrations
+        run: npm --prefix backend run db:status
+      - name: Re-apply PostgreSQL migrations idempotently
+        run: npm --prefix backend run db:migrate
+      - name: Verify PostgreSQL stage 2 structure and transactions
+        run: npm --prefix backend run db:stage2:verify
       - name: PostgreSQL integration and migration tests
         run: npm --prefix backend run test:db
       - name: PostgreSQL representative query benchmark
