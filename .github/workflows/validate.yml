@@ -11,12 +11,32 @@ jobs:
   build:
     runs-on: ubuntu-latest
     timeout-minutes: 45
+    services:
+      postgres:
+        image: postgres:17-alpine
+        env:
+          POSTGRES_USER: postgres
+          POSTGRES_PASSWORD: postgres
+          POSTGRES_DB: dms_boletas_test
+        ports:
+          - 5432:5432
+        options: >-
+          --health-cmd "pg_isready -U postgres -d dms_boletas_test"
+          --health-interval 5s
+          --health-timeout 5s
+          --health-retries 10
+    env:
+      DATABASE_URL: postgresql://postgres:postgres@localhost:5432/dms_boletas_test
+      TEST_DATABASE_URL: postgresql://postgres:postgres@localhost:5432/dms_boletas_test
+      GOOGLE_SERVICE_ACCOUNT_EMAIL: ci@example.invalid
+      GOOGLE_SERVICE_ACCOUNT_PRIVATE_KEY: ci-placeholder
+      INCREMENTAL_SYNC_ENABLED: 'true'
+      SYNC_SCHEMA_VERSION: '2'
     steps:
       - name: Checkout
         uses: actions/checkout@v4
         with:
           fetch-depth: 0
-
       - name: Setup Node
         uses: actions/setup-node@v4
         with:
@@ -25,47 +45,38 @@ jobs:
           cache-dependency-path: |
             package-lock.json
             backend/package-lock.json
-
       - name: Install frontend dependencies
-        run: npm ci
-
+        run: npm install
       - name: Install backend dependencies
-        run: npm ci --prefix backend
-
+        run: npm install --prefix backend
+      - name: Apply PostgreSQL migrations
+        run: npm --prefix backend run db:migrate
+      - name: PostgreSQL integration and migration tests
+        run: npm --prefix backend run test:db
+      - name: PostgreSQL representative query benchmark
+        run: |
+          mkdir -p .artifacts
+          npm --prefix backend run db:benchmark > .artifacts/postgres-benchmark.json
       - name: Run characterization tests
         run: npm run test:characterization
-
       - name: Build frontend
         run: npm run build
-
-      - name: Check backend syntax
+      - name: Check backend syntax and unit tests
         run: |
           find backend/src -name '*.js' -print0 | xargs -0 -n1 node --check
-
+          npm run check:backend
       - name: Audit production dependencies
         run: npm run audit:security
-
-      - name: Collect final metrics and CSS audit
+      - name: Collect final metrics and validation
         run: |
           npm run baseline
           npm run report:final
           node scripts/low-memory-smoke.mjs > .artifacts/low-memory-smoke.json
-
-      - name: Run final PR validation
-        run: |
-          npm run test:characterization
-          npm run check:backend
-          npm run build
-          npm run baseline
-          npm run verify:stage0
-          npm run audit:security
-          npm run report:final
           npm run test:stress
           npm run verify:final
           node scripts/benchmark-critical-ticket-routes.mjs
           node scripts/benchmark-critical-ticket-pending.mjs
           git diff --check
-
       - name: Upload final validation report
         if: always()
         uses: actions/upload-artifact@v4
