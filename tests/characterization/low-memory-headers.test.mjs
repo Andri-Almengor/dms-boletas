@@ -96,7 +96,7 @@ const businessBaseline = {
   "backend/src/services/maintenance-evidence-permissions.patch.js": "c39ed14272d49ad648ddd4e40ecedeaf0bad22555d88df17baa53b2ae715032b",
   "backend/src/services/maintenance-device-delete-permissions.patch.js": "40cf84fbc2552b8e00b16d840d11c0f9825c71819c6bf4bcb86e630d7e359903",
   "backend/src/modules/tickets.module.js": "6f40142d4a0691e99e83cbdc869cc8871559010871c017084f4a393887b60059",
-  "backend/src/modules/agenda.module.js": "d19ad3bcbbd7b3c360855db9e5bb0e8f22cd18a5644690065c692c6f1e6fe5ca",
+  "backend/src/modules/agenda.module.js": "9b2b364f7a825cefa4c39849b9b54da5356c6882282be10450baeaddc52bd8d0",
   "backend/src/modules/crud.module.js": "9f6c25cfbeaadd8126426012ba2fd6e4d0199687b1493d291b889032f292ca21",
   "backend/src/modules/ticket-signature.module.js": "c1df58a8a8a5303d10ba236335eef7a3d7d12c643057be6f6063a60f72271ba0",
   "backend/src/modules/maintenance-signature.module.js": "607439631bfdb7b8e17cff815ca8e55fd5f716223ee764fd983fec79fa4416b6",
