@@ -1,0 +1,10 @@
+base64_bytes=80741
+base64_mod4=1
+base64_decode_status=1
+decoded_bytes=60554
+decoded_sha256=13afd53d66db43e0585d9d8cb7d513db7f1f366d8854ab14d56f1083b72a547b
+decoded_head=1f8b0800000000000003ec5c49731b47
+gzip_ok=false
+base64_error=base64: invalid input 
+gzip_error= gzip: /tmp/dms-pg-work.tar.gz: invalid compressed data--crc error  gzip: /tmp/dms-pg-work.tar.gz: invalid compressed data--length error 
+parts=part-00:7000 part-01:7000 part-02:7000 part-03:7000 part-04:7000 part-05:7000 part-06:7000 part-07:7000 part-08:7000 part-09a:3500 part-09b:3501 part-10:7000 part-11:3740 
