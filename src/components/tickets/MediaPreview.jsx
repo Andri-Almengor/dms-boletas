@@ -37,7 +37,7 @@ export default function MediaPreview({ boletaUid, evidenceId, fileId, kind = 'ev
   const canRemoveSignature = kind === 'signature' && Boolean(hasPermission?.('BOLETAS_EDITAR'));
 
   const loadProtectedMedia = useCallback(async (force = false, priority = 0) => {
-    if (signatureRemoved || !canRequestProtected || (!force && attemptedRef.current)) return '';
+    if (!canRequestProtected || (!force && attemptedRef.current)) return '';
     attemptedRef.current = true;
     loadControllerRef.current?.abort();
     const controller = new AbortController();
@@ -72,7 +72,7 @@ export default function MediaPreview({ boletaUid, evidenceId, fileId, kind = 'ev
       if (loadControllerRef.current === controller) loadControllerRef.current = null;
       if (!controller.signal.aborted) setLoading(false);
     }
-  }, [boletaUid, evidenceId, fileId, kind, sessionToken, canRequestProtected, directUrl, signatureRemoved]);
+  }, [boletaUid, evidenceId, fileId, kind, sessionToken, canRequestProtected, directUrl]);
 
   useEffect(() => {
     const node = hostRef.current;
