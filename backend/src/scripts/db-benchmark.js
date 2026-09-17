@@ -80,8 +80,8 @@ try {
   `, [migrationRun]);
 
   await client.query(`
-    INSERT INTO "Agendas" ("AgendaID","ClienteID","Fecha","Estado","Activo","__payload","__migration_run_id")
-    SELECT 'bench-agenda-'||g, 'bench-client-'||((g-1)%200+1), to_char(DATE '2026-01-01' + ((g-1)%250), 'YYYY-MM-DD'), 'PENDIENTE', 'true', jsonb_build_object('AgendaID','bench-agenda-'||g,'Fecha',to_char(DATE '2026-01-01' + ((g-1)%250), 'YYYY-MM-DD'),'Activo',true), $1::uuid
+    INSERT INTO "Agendas" ("AgendaID","ClienteID","Fecha","Estado","__payload","__migration_run_id")
+    SELECT 'bench-agenda-'||g, 'bench-client-'||((g-1)%200+1), to_char(DATE '2026-01-01' + ((g-1)%250), 'YYYY-MM-DD'), 'PENDIENTE', jsonb_build_object('AgendaID','bench-agenda-'||g,'Fecha',to_char(DATE '2026-01-01' + ((g-1)%250), 'YYYY-MM-DD'),'Estado','PENDIENTE'), $1::uuid
     FROM generate_series(1,300) g
   `, [migrationRun]);
 
