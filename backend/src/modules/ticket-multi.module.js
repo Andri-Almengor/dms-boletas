@@ -6,6 +6,7 @@ import {
   completeAgendaTicketCreation,
   prepareAgendaTicketCreation,
 } from '../services/agenda-ticket.service.js';
+import { resetTicketSignatureForReuse } from '../services/ticket-signature-reset.service.js';
 import {
   applySignatureToVisitGroup,
   ensureVisitGroupForTicket,
@@ -265,6 +266,30 @@ async function autosaveTicket(ctx) {
 
 async function uploadSharedSignature(ctx) {
   const ticketId = pick(ctx.payload, ['boletaUid', 'BoletaUID']);
+  if (ctx.payload?.reset === true || ctx.payload?.quitarFirma === true) {
+    const reset = await resetTicketSignatureForReuse({
+      ticketId,
+      origin: ctx.origin,
+      actor: ctx.user.UsuarioID,
+    });
+    await audit(ctx, 'QUITAR_FIRMA_GRUPO_BOLETAS', 'Boletas', reset.group.rootId, null, {
+      GrupoVisitaID: reset.group.id,
+      CantidadVisitas: reset.group.visits.length,
+      SolicitudFirmaID: reset.request?.id || '',
+      EnlaceReutilizado: reset.reusedLink,
+    });
+    return {
+      boleta: reset.group.root,
+      grupoVisitas: groupSummary(reset.group),
+      request: reset.request,
+      signatureReset: true,
+      reusedLink: reset.reusedLink,
+      message: reset.reusedLink
+        ? 'Firma quitada. El mismo enlace público quedó habilitado para firmar nuevamente.'
+        : 'Firma quitada. Se creó un enlace de firma porque esta boleta no tenía una solicitud pública reutilizable.',
+    };
+  }
+
   const file = await baseTicketHandlers.signatureUpload(ctx);
   const group = await applySignatureToVisitGroup(ticketId, {
     fileId: file.id,
