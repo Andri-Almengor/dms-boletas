@@ -50,6 +50,7 @@ test('direct Sheets API access is restricted to generated-report integrations', 
     'src/infra/google.js',
     'src/services/maintenance-dynamic-spreadsheet.service.js',
     'src/modules/maintenance-report-access.module.js',
+    'src/modules/maintenance.module.js', // spreadsheetReport only: generated user report, never operational persistence
   ]);
   const offenders = [];
   const sheetsApiPattern = /\bsheetsApi\b|google\.sheets\s*\(/;
