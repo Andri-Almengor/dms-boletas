@@ -391,6 +391,8 @@ function detailHarness({ optimized, count, legacy = false, permission = 'BOLETAS
     : null;
   const group = load(getSource('backend/src/services/ticket-visit-group.service.js'), {
     ...errors,
+    findById,
+    findRows,
     readTable,
     updateRow,
     nowIso: () => 'fixed-time',
@@ -423,6 +425,8 @@ function detailHarness({ optimized, count, legacy = false, permission = 'BOLETAS
   }, 'ticketAccessHandlers').ticketAccessHandlers;
   const { assertTicketPayloadAccess } = load(getSource('backend/src/services/ticket-access.service.js'), {
     ...errors,
+    findById,
+    findRows,
     readTable,
     pick,
   }, 'assertTicketPayloadAccess');
