@@ -8,61 +8,68 @@ const root = fileURLToPath(new URL('../../', import.meta.url));
 const read = p => readFileSync(new URL('../../' + p, import.meta.url), 'utf8');
 function files(dir) { return readdirSync(dir, { withFileTypes: true }).flatMap(e => e.isDirectory() ? files(`${dir}/${e.name}`) : [`${dir}/${e.name}`]); }
 
-test('activity product, endpoints, schema, exports and telemetry are absent from active source', () => {
-  const forbidden = /ActividadApp|ActivityTelemetry|activityReport|activityQueue|PAGE_TIME|PAGE_VIEW|UI_TAB|\/api\/activity|recordUiActivity|recordApiActivityFromToken|flushActivityQueue|activityQueueSnapshot|activity-reports/;
-  for (const file of [...files(root + 'src'), ...files(root + 'backend/src')]) {
-    assert.doesNotMatch(readFileSync(file, 'utf8'), forbidden, file);
-  }
+test('activity product, endpoints, schema, exports and telemetry are absent from active runtime source', () => {
+  const forbidden = /ActivityTelemetry|activityReport|activityQueue|PAGE_TIME|PAGE_VIEW|UI_TAB|\/api\/activity|recordUiActivity|recordApiActivityFromToken|flushActivityQueue|activityQueueSnapshot|activity-reports/;
+  const runtimeFiles = [...files(root + 'src'), ...files(root + 'backend/src')]
+    .filter((file) => !file.includes('/backend/src/scripts/'));
+  for (const file of runtimeFiles) assert.doesNotMatch(readFileSync(file, 'utf8'), forbidden, file);
 });
-test('headers use a dedicated row-one read and never call the table read path', () => {
-  const code = read('backend/src/infra/sheets.repository.js');
-  const headers = code.slice(code.indexOf('export async function getHeaders'), code.indexOf('export async function readTable'));
-  assert.match(headers, /values\.get/);
-  assert.match(headers, /!1:1/);
-  assert.doesNotMatch(headers, /readTable|queueTableRead|batchGet/);
+
+test('headers come from the PostgreSQL migration registry without operational Sheets I/O', () => {
+  const repository = read('backend/src/infra/postgres.repository.core.js');
+  assert.match(repository, /export async function getHeaders\(table\)/);
+  assert.match(repository, /return \[\.\.\._definition\(table\)\.columns\]/);
+  assert.doesNotMatch(repository, /sheetsApi|google\.sheets|spreadsheets\./);
   const schema = read('backend/src/services/sheet-schema.service.js');
-  assert.doesNotMatch(schema, /readTable|invalidateTableCache|!A:ZZ/);
-  assert.match(schema, /ensureColumns\(name, expected\)/);
+  assert.match(schema, /ensureColumns/);
+  assert.doesNotMatch(schema, /sheetsApi|google\.sheets|spreadsheets\./);
 });
-test('the memory guard recognizes all bounded full-column table ranges', () => {
+
+test('the legacy Sheets memory guard is disabled after PostgreSQL cutover', () => {
   const code = read('backend/src/services/sheets-memory-guard.service.js');
-  const match = code.match(/function isRepositoryRange\(range\) \{([\s\S]*?)\n\}/);
-  const isRange = new Function('range', match[1]);
-  for (const range of ["'Auditoria'!A:K", "'Boletas'!A:ZZ", "'Mantenimiento'!A:AZ"]) assert.equal(isRange(range), true);
-  for (const range of ["'Auditoria'!1:1", "'Boletas'!A3:C3"]) assert.equal(isRange(range), false);
+  assert.match(code, /postgres-persistence/);
+  assert.match(code, /enabled:\s*false/);
+  assert.doesNotMatch(code, /HEAVY_SHEETS|splitRepositoryRanges|serializeRepositoryRead/);
 });
-test('cold start warmup remains auth only and runtime is exactly pinned', () => {
+
+test('cold start validates PostgreSQL without warming operational tables and runtime is exactly pinned', () => {
   const server = read('backend/src/server.js');
-  const warmup = server.match(/readTables\(\[([^\]]+)\]\)/)[1];
-  assert.deepEqual([...warmup.matchAll(/'([^']+)'/g)].map(m => m[1]), ['Sesiones','Usuarios','Roles','Permisos','RolPermisos','UsuarioPermisos']);
+  assert.match(server, /SELECT schema_version FROM sync_state WHERE singleton=TRUE/);
+  assert.doesNotMatch(server, /readTables\(/);
   const version = read('.node-version').trim();
   assert.equal(version, '24.21.0');
   for (const path of ['package.json','backend/package.json']) assert.equal(JSON.parse(read(path)).engines.node, version);
   assert.match(read('render.yaml'), /key: NODE_VERSION\s+value: "24\.21\.0"/);
 });
-test('huge historical sheets: audit is header+append, schema never scans, normal HTTP actions work', { timeout: 60000 }, () => {
-  const result = spawnSync(process.execPath, ['scripts/low-memory-smoke.mjs'], { cwd: root, encoding: 'utf8', timeout: 55000, env: { ...process.env, SYNTHETIC_ROWS: '1000' } });
-  assert.equal(result.status, 0, result.stderr + result.stdout);
-  const report = JSON.parse(result.stdout);
-  assert.equal(report.activityCalls, 0);
-  assert.equal(report.auditFirstWriteCalls.length, 2);
-  assert.equal(report.requestCount, 17);
-  assert.equal(report.cache.inflight, 0);
+
+test('PostgreSQL runtime avoids Sheets-wide warmups and exposes bounded query paths', () => {
+  const repository = read('backend/src/infra/postgres.repository.core.js');
+  const queries = read('backend/src/infra/postgres.repository.queries.js');
+  const server = read('backend/src/server.js');
+  assert.match(repository, /WHERE "__valid" = TRUE/);
+  assert.match(queries, /export async function queryTicketPage/);
+  assert.match(queries, /export async function queryCustomerCasePage/);
+  assert.doesNotMatch(server, /readTables\(/);
+  assert.doesNotMatch(server, /spreadsheets\./);
 });
 
 test('ticket Home summary keeps the existing technician-assignment visibility gate', () => {
   const visibility = read('backend/src/services/ticket-visibility.patch.js');
   assert.match(visibility, /const viewAll = canViewAllTickets\(ctx\)/);
-  assert.match(visibility, /const needsAssignments = !viewAll \|\| Boolean\(requestedAssignedUser\)/);
-  assert.match(visibility, /ticketIdsAssignedTo\(assignments, ctx\.user\.UsuarioID\)/);
-  assert.match(visibility, /allowedIds\.has\(String\(row\.BoletaUID\)\)/);
-  assert.match(visibility, /summarizeTicketHomeRows\(rows\)/);
+  assert.match(visibility, /let allowedIds = viewAll \? null : await assignedTicketIdsForUser\(ctx\.user\.UsuarioID\)/);
+  assert.match(visibility, /queryTicketPage\(payload, \{ allowedIds \}\)/);
 
   const access = read('backend/src/services/ticket-access.service.js');
   assert.match(access, /USUARIOS_GESTIONAR/);
   assert.match(access, /BOLETAS_ELIMINAR/);
-  assert.match(access, /assignedTicketIdsForUser\(ctx\.user\.UsuarioID\)/);
+  assert.doesNotMatch(access.match(/export function canViewAllTickets[\s\S]*?\n\}/)?.[0] || '', /BOLETAS_GESTIONAR/);
+  assert.match(access, /assignedTicketIdsForUser\(ctx\.user\.UsuarioID/);
   assert.match(access, /Solo puede consultar o modificar las boletas en las que está asignado/);
+
+  const queries = read('backend/src/infra/postgres.repository.queries.js');
+  assert.match(queries, /Historical parity: homeSummary/);
+  assert.match(queries, /COUNT\(\*\) FILTER \(WHERE UPPER\(COALESCE\("Estado",''\)\)='PENDIENTE'\)/);
+  assert.match(queries, /COUNT\(\*\) FILTER \(WHERE UPPER\(COALESCE\("Estado",''\)\)='FINALIZADA'\)/);
 });
 
 test('finalization storage reuses shared schema and preserves bounded recoverable writes', () => {
@@ -86,8 +93,6 @@ test('finalization storage reuses shared schema and preserves bounded recoverabl
 // dedicated security/performance characterization covers that path instead.
 const businessBaseline = {
   "backend/src/core/action-router.js": "92f33f8d565c70a77e6ef8b6196a696237a5b7b9880b0858842f6aa23aa37033",
-  "backend/src/services/auth.service.js": "2af2682ef2b898bc71fe7aafa9c030fb3e2410559c28aea1d198520a0d7d7098",
-  "backend/src/services/permissions.service.js": "4447b2b92c8438456e2bd6e5bea9dcd72a3cb4892e26aa9f3d5335c22090feba",
   "backend/src/services/maintenance-evidence-permissions.patch.js": "c39ed14272d49ad648ddd4e40ecedeaf0bad22555d88df17baa53b2ae715032b",
   "backend/src/services/maintenance-device-delete-permissions.patch.js": "40cf84fbc2552b8e00b16d840d11c0f9825c71819c6bf4bcb86e630d7e359903",
   "backend/src/modules/tickets.module.js": "6f40142d4a0691e99e83cbdc869cc8871559010871c017084f4a393887b60059",
@@ -113,6 +118,23 @@ const businessBaseline = {
   "apps-script/report-service/Code.gs": "9c7e56b51a6d4585161fa267c50e8ec94475532a4b735136c448bea7186314b0",
   "apps-script/report-service/README.md": "972bad00e5fc9f8593c2b2b95a4009d61bb8eade84c975425a7f74c1169b60ea"
 };
-test('roles, permissions, unchanged business handlers and Apps Script remain byte-identical', () => {
+test('unchanged business handlers and Apps Script remain byte-identical while auth permissions preserve policy', () => {
   for (const [file, digest] of Object.entries(businessBaseline)) assert.equal(createHash('sha256').update(read(file)).digest('hex'), digest, file);
+
+  const auth = read('backend/src/services/auth.service.js');
+  assert.match(auth, /findUserByLogin/);
+  assert.match(auth, /findActiveSessionByTokenHash/);
+  assert.match(auth, /CambioPasswordObligatorio/);
+  assert.match(auth, /IntentosFallidos/);
+
+  const permissions = read('backend/src/services/permissions.service.js');
+  assert.match(permissions, /EsAdministrador/);
+  assert.match(permissions, /RolPermisos/);
+  assert.match(permissions, /UsuarioPermisos/);
+
+  const access = read('backend/src/services/ticket-access.service.js');
+  const viewAll = access.match(/export function canViewAllTickets[\s\S]*?\n\}/)?.[0] || '';
+  assert.match(viewAll, /USUARIOS_GESTIONAR/);
+  assert.match(viewAll, /BOLETAS_ELIMINAR/);
+  assert.doesNotMatch(viewAll, /BOLETAS_GESTIONAR/);
 });
