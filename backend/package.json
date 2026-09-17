@@ -9,7 +9,15 @@
   "scripts": {
     "dev": "node --expose-gc --import ./src/services/gemini-model-router.bootstrap.js --import ./src/services/maintenance-finalization-router.bootstrap.js --watch src/server.js",
     "start": "node --expose-gc --import ./src/services/gemini-model-router.bootstrap.js --import ./src/services/maintenance-finalization-router.bootstrap.js src/server.js",
-    "check": "node --check src/services/gemini-model-router.bootstrap.js && node --check src/services/maintenance-finalization-router.bootstrap.js && node --check src/services/sheets-memory-guard.service.js && node --check src/server.js && node --test test/*.test.js"
+    "check": "node --check src/services/gemini-model-router.bootstrap.js && node --check src/services/maintenance-finalization-router.bootstrap.js && node --check src/services/sheets-memory-guard.service.js && node --check src/server.js && node --test test/*.test.js test/storage-boundary.mjs test/xlsx-migration.mjs",
+    "test:db": "node --test test/postgres-integration.mjs",
+    "db:migrate": "node src/scripts/db-migrate.js",
+    "db:status": "node src/scripts/db-status.js",
+    "db:import:xlsx": "node src/scripts/db-import-xlsx.js",
+    "db:verify": "node src/scripts/db-verify.js",
+    "db:backup:verify": "node src/scripts/db-backup-verify.js",
+    "db:backup:restore": "node src/scripts/db-backup-restore.js",
+    "db:benchmark": "node src/scripts/db-benchmark.js"
   },
   "dependencies": {
     "compression": "^1.7.5",
@@ -18,6 +26,10 @@
     "express": "^4.21.2",
     "googleapis": "^144.0.0",
     "helmet": "^8.0.0",
-    "nodemailer": "9.1.1"
+    "nodemailer": "9.1.1",
+    "pg": "8.23.0"
+  },
+  "devDependencies": {
+    "exceljs": "4.4.0"
   }
 }

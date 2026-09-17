@@ -1,5 +1,5 @@
 import { forbidden } from '../core/errors.js';
-import { findById, readTable } from '../infra/sheets.repository.js';
+import { findById, findRows } from '../infra/sheets.repository.js';
 import { pick } from '../core/utils.js';
 
 export function canViewAllTickets(ctx) {
@@ -8,9 +8,11 @@ export function canViewAllTickets(ctx) {
 }
 
 export async function assignedTicketIdsForUser(userId, snapshot = null) {
-  const rows = await (snapshot ? snapshot.read('BoletaAsignados') : readTable('BoletaAsignados'));
+  const rows = snapshot
+    ? await snapshot.read('BoletaAsignados')
+    : await findRows('BoletaAsignados', { UsuarioID: userId }, { limit: 50_000 });
   return new Set(rows
-    .filter((row) => row.Activo !== false && String(row.UsuarioID) === String(userId))
+    .filter((row) => row.Activo !== false && String(row.Activo ?? 'true').toLowerCase() !== 'false' && String(row.UsuarioID) === String(userId))
     .map((row) => String(row.BoletaUID)));
 }
 

@@ -1,16 +1,14 @@
-import { env } from '../config/env.js';
 import { AppError, notFound } from '../core/errors.js';
 import { nowIso } from '../core/utils.js';
-import { sheetsApi } from '../infra/google.js';
 import {
-  getHeaders,
-  invalidateTableCache,
-  readTable,
+  ensureColumns,
+  findById,
+  findRows,
   updateRow,
   updateRows,
 } from '../infra/sheets.repository.js';
 
-const SHEET_NAME = 'Boletas';
+const TABLE = 'Boletas';
 const GROUP_HEADERS = [
   'GrupoVisitaID',
   'BoletaPrincipalUID',
@@ -32,50 +30,12 @@ function clean(value, fallback = '') {
   return text || fallback;
 }
 
-function quote(name) {
-  return `'${String(name).replace(/'/g, "''")}'`;
-}
-
-function columnLetter(index) {
-  let result = '';
-  let number = index + 1;
-  while (number > 0) {
-    const remainder = (number - 1) % 26;
-    result = String.fromCharCode(65 + remainder) + result;
-    number = Math.floor((number - 1) / 26);
-  }
-  return result;
-}
-
-async function ensureHeaders() {
-  const range = `${quote(SHEET_NAME)}!1:1`;
-  const { data } = await sheetsApi.spreadsheets.values.get({
-    spreadsheetId: env.sheetId,
-    range,
-  });
-  const current = (data.values?.[0] || []).map((value) => clean(value)).filter(Boolean);
-  const missing = GROUP_HEADERS.filter((header) => !current.includes(header));
-  if (!missing.length) return;
-  const headers = [...current, ...missing];
-  await sheetsApi.spreadsheets.values.update({
-    spreadsheetId: env.sheetId,
-    range: `${quote(SHEET_NAME)}!A1:${columnLetter(headers.length - 1)}1`,
-    valueInputOption: 'RAW',
-    requestBody: { values: [headers] },
-  });
-  invalidateTableCache(SHEET_NAME);
-  await getHeaders(SHEET_NAME, true);
-}
-
 export async function ensureTicketVisitColumns() {
   if (ensured) return;
   if (ensurePromise) return ensurePromise;
-  ensurePromise = ensureHeaders()
+  ensurePromise = ensureColumns(TABLE, GROUP_HEADERS)
     .then(() => { ensured = true; })
-    .catch((error) => {
-      ensured = false;
-      throw error;
-    })
+    .catch((error) => { ensured = false; throw error; })
     .finally(() => { ensurePromise = null; });
   return ensurePromise;
 }
@@ -138,27 +98,45 @@ async function initializeGroup(ticket, actor = 'SISTEMA') {
     ActualizadoPor: actor,
     FechaActualizacion: nowIso(),
   };
-  const updated = await updateRow(SHEET_NAME, ticketId, patch);
+  const updated = await updateRow(TABLE, ticketId, patch);
   return { ...ticket, ...updated, ...patch };
+}
+
+async function groupRows(ticket) {
+  const groupId = ticketGroupId(ticket);
+  const rootId = ticketRootId(ticket);
+  const batches = await Promise.all([
+    groupId ? findRows(TABLE, { GrupoVisitaID: groupId }, { limit: 5000 }) : Promise.resolve([]),
+    rootId ? findRows(TABLE, { BoletaPrincipalUID: rootId }, { limit: 5000 }) : Promise.resolve([]),
+    rootId ? findRows(TABLE, { BoletaUID: rootId }, { limit: 2 }) : Promise.resolve([]),
+  ]);
+  const rows = new Map();
+  for (const row of [ticket, ...batches.flat()]) {
+    const id = clean(row?.BoletaUID);
+    if (id) rows.set(id, row);
+  }
+  return [...rows.values()];
 }
 
 export async function ensureVisitGroupForTicket(ticketId, actor = 'SISTEMA', snapshot = null) {
   await ensureTicketVisitColumns();
   const id = clean(ticketId);
   if (!id) throw notFound('No se indicó la boleta para consultar sus visitas.');
-
   const lockKey = `group:${id}`;
   if (groupLocks.has(lockKey)) return groupLocks.get(lockKey);
 
   const operation = (async () => {
-    let rows = await (snapshot ? snapshot.read(SHEET_NAME, { force: true }) : readTable(SHEET_NAME, { force: true }));
-    let ticket = snapshot ? snapshot.locate(rows, id) : rows.find((row) => clean(row.BoletaUID) === id);
-    if (!ticket) throw notFound('No se encontró la boleta solicitada.');
-    if (!clean(ticket.GrupoVisitaID) || !clean(ticket.BoletaPrincipalUID)) {
-      ticket = await initializeGroup(ticket, actor);
-      rows = rows.map((row) => clean(row.BoletaUID) === id ? ticket : row);
+    let ticket;
+    if (snapshot) {
+      // Detail snapshots still preserve their historical contract. Their Boletas
+      // source is narrowed by the detail patch; fallback to the indexed lookup.
+      const rows = await snapshot.read(TABLE, { force: true });
+      ticket = snapshot.locate(rows, id);
     }
-    return groupFromRows(rows, ticket);
+    if (!ticket) ticket = await findById(TABLE, id).catch(() => null);
+    if (!ticket) throw notFound('No se encontró la boleta solicitada.');
+    if (!clean(ticket.GrupoVisitaID) || !clean(ticket.BoletaPrincipalUID)) ticket = await initializeGroup(ticket, actor);
+    return groupFromRows(await groupRows(ticket), ticket);
   })().finally(() => groupLocks.delete(lockKey));
 
   groupLocks.set(lockKey, operation);
@@ -169,10 +147,7 @@ export async function prepareRelatedVisit(parentTicketId, actor = 'SISTEMA') {
   const group = await ensureVisitGroupForTicket(parentTicketId, actor);
   const parent = group.visits.find((ticket) => clean(ticket.BoletaUID) === clean(parentTicketId));
   if (!parent) throw notFound('No se encontró la boleta solicitada.');
-  const nextVisitNumber = group.visits.reduce(
-    (maximum, ticket) => Math.max(maximum, ticketVisitNumber(ticket)),
-    0,
-  ) + 1;
+  const nextVisitNumber = group.visits.reduce((maximum, ticket) => Math.max(maximum, ticketVisitNumber(ticket)), 0) + 1;
   return {
     group,
     parent,
@@ -196,7 +171,6 @@ export async function synchronizeVisitGroupSignature(ticketId, actor = 'SISTEMA'
   const group = await ensureVisitGroupForTicket(ticketId, actor);
   const signed = group.signedVisit;
   if (!signed) return group;
-
   const patch = {
     FirmaArchivoID: signed.FirmaArchivoID || signed.FirmaFileID || '',
     FirmaURL: signed.FirmaURL || signed.FirmaUrl || signed.Firma || '',
@@ -205,30 +179,20 @@ export async function synchronizeVisitGroupSignature(ticketId, actor = 'SISTEMA'
     FirmaFecha: signed.FirmaFecha || signed.FechaActualizacion || nowIso(),
   };
   const updates = group.visits
-    .filter((visit) => {
-      const sameFile = clean(visit.FirmaArchivoID || visit.FirmaFileID) === clean(patch.FirmaArchivoID);
-      return !sameFile || !ticketHasStoredSignature(visit);
-    })
+    .filter((visit) => clean(visit.FirmaArchivoID || visit.FirmaFileID) !== clean(patch.FirmaArchivoID) || !ticketHasStoredSignature(visit))
     .map((visit) => ({
       idValue: visit.BoletaUID,
-      patch: {
-        ...patch,
-        Version: Number(visit.Version || 0) + 1,
-        ActualizadoPor: actor,
-        FechaActualizacion: nowIso(),
-      },
+      patch: { ...patch, Version: Number(visit.Version || 0) + 1, ActualizadoPor: actor, FechaActualizacion: nowIso() },
     }));
-  if (updates.length) await updateRows(SHEET_NAME, updates);
+  if (updates.length) await updateRows(TABLE, updates);
   return ensureVisitGroupForTicket(group.rootId, actor);
 }
 
 export async function applySignatureToVisitGroup(ticketId, signature, actor = 'SISTEMA') {
   const group = await ensureVisitGroupForTicket(ticketId, actor);
-  if (!signature?.fileId && !signature?.url) {
-    throw new AppError('SIGNATURE_FILE_MISSING', 'No fue posible identificar el archivo de la firma.', 500);
-  }
+  if (!signature?.fileId && !signature?.url) throw new AppError('SIGNATURE_FILE_MISSING', 'No fue posible identificar el archivo de la firma.', 500);
   const timestamp = signature.signedAt || nowIso();
-  await updateRows(SHEET_NAME, group.visits.map((visit) => ({
+  await updateRows(TABLE, group.visits.map((visit) => ({
     idValue: visit.BoletaUID,
     patch: {
       FirmaArchivoID: signature.fileId || '',
@@ -246,7 +210,7 @@ export async function applySignatureToVisitGroup(ticketId, signature, actor = 'S
 
 export async function updateVisitGroup(ticketId, patch, actor = 'SISTEMA') {
   const group = await ensureVisitGroupForTicket(ticketId, actor);
-  const updated = await updateRows(SHEET_NAME, group.visits.map((visit) => ({
+  const updated = await updateRows(TABLE, group.visits.map((visit) => ({
     idValue: visit.BoletaUID,
     patch: {
       ...((typeof patch === 'function' ? patch(visit, group) : patch) || {}),
