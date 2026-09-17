@@ -19,7 +19,9 @@ jobs:
           fetch-depth: 0
       - name: Verify and expand prepared migration worktree
         run: |
-          cat .migration-bootstrap/part-* | base64 -d > /tmp/dms-pg-work.tar.gz
+          cat .migration-bootstrap/part-* > /tmp/dms-pg-work.b64
+          test "$(wc -c < /tmp/dms-pg-work.b64)" -eq 80740
+          base64 -d /tmp/dms-pg-work.b64 > /tmp/dms-pg-work.tar.gz
           echo 'c9db7edeb79ac0ca1a29a0202f22321d2cbaa6faa92a4507850f1337d5402eb6  /tmp/dms-pg-work.tar.gz' | sha256sum -c -
           tar -xzf /tmp/dms-pg-work.tar.gz -C .
           rm -rf .migration-bootstrap
