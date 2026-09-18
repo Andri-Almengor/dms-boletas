@@ -36,7 +36,12 @@ function detectTechnicalProduct(message = '', previous = '') {
     [/\bCamera\s+Station\b/i, 'Camera Station'],
     [/\bAccess\s+Control\b/i, 'Access Control'],
   ];
-  return products.find(([pattern]) => pattern.test(value))?.[1] || clean(previous, 160);
+  const matched = products.find(([pattern]) => pattern.test(value))?.[1] || '';
+  const prior = clean(previous, 160);
+  const followUpResult = /\b(ya|prob[eé]|revis[eé]|reinici[eé]|verifiqu[eé]|comprob[eé]|descart[eé]|funciona|funcion[oó]|fall[óo]|est[aá] iniciado|respond[ií]o)\b/i.test(value);
+  const explicitNewIssue = /\b(nuevo|otro|ahora)\b.{0,50}\b(error|falla|problema|no responde|no funciona)\b/i.test(value);
+  if (prior && matched && matched !== prior && followUpResult && !explicitNewIssue) return prior;
+  return matched || prior;
 }
 
 function updateTroubleshootingContext(context = {}, message = '') {
