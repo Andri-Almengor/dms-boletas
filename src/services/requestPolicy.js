@@ -5,7 +5,7 @@ export function requestTimeoutMs(route) {
   if (value === 'auth.me') return 25_000;
   // Must stay above AI_AGENT_TOTAL_TIMEOUT_MS (max configured backend default: 120 s)
   // so the browser does not abandon a valid Gemini/tool loop first.
-  if (['assistant.chat','asistente.chat'].includes(value)) return 150_000;
+  if (['assistant.chat','asistente.chat'].includes(value)) return 195_000;
   if (['assistant.operations.decide','asistente.operaciones.decidir'].includes(value)) return 90_000;
   if (['customercases.public.submit','casos.cliente.public.submit'].includes(value)) return 240_000;
   if (/finaliz|report|reporte|slides|presentacion|resend|reenviar/.test(value)) return 240_000;
