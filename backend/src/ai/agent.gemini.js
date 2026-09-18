@@ -27,9 +27,10 @@ export function externalSources(interaction={}){
     if(step?.type!=='model_output') continue;
     for(const block of Array.isArray(step.content)?step.content:[]){
       for(const annotation of block?.annotations||[]){
-        if(annotation?.type!=='url_citation'||!annotation?.url||seen.has(annotation.url)) continue;
-        seen.add(annotation.url);
-        sources.push({type:'external',id:annotation.url,label:String(annotation.title||annotation.url).slice(0,300),url:annotation.url});
+        const url=String(annotation?.url||'').trim();
+        if(annotation?.type!=='url_citation'||!/^https:\/\//i.test(url)||seen.has(url)) continue;
+        seen.add(url);
+        sources.push({type:'external',id:url,label:String(annotation.title||url).slice(0,300),url});
       }
     }
   }
