@@ -141,9 +141,14 @@ async function accessibleTicket(ctx, refValue) {
             b."CreadoPor" AS "createdBy", b."ActualizadoPor" AS "updatedBy",
             b."FechaCreacion" AS "createdAt", b."FechaActualizacion" AS "updatedAt",
             b."FinalizadaEn" AS "finishedAt", b."GrupoVisitaID" AS "visitGroupId",
-            b."NumeroVisita" AS "visitNumber", b."OrigenMantenimientoID" AS "maintenanceId",
-            b."FirmaArchivoID" AS "__signatureFile", b."FirmaMimeType" AS "__signatureMime"
+            b."NumeroVisita" AS "visitNumber", b."BoletaPrincipalUID" AS "mainTicketId",
+            b."OrigenMantenimientoID" AS "maintenanceId", b."OrigenCasoID" AS "caseId",
+            b."FirmaArchivoID" AS "__signatureFile", b."FirmaMimeType" AS "__signatureMime",
+            COALESCE(NULLIF(creator."NombreCompleto",''),creator."NombreUsuario",b."CreadoPor") AS "createdByName",
+            COALESCE(NULLIF(updater."NombreCompleto",''),updater."NombreUsuario",b."ActualizadoPor") AS "updatedByName"
        FROM "Boletas" b
+       LEFT JOIN "Usuarios" creator ON creator."__valid"=TRUE AND creator."UsuarioID"=b."CreadoPor"
+       LEFT JOIN "Usuarios" updater ON updater."__valid"=TRUE AND updater."UsuarioID"=b."ActualizadoPor"
       WHERE b."__valid"=TRUE
         AND (b."BoletaUID"=$1 OR b."BoletaID"=$1)
         AND ${visibility}
@@ -158,7 +163,25 @@ async function accessibleTicket(ctx, refValue) {
 
 export async function getTicket(ctx, args = {}) {
   const row = await accessibleTicket(ctx, args.ticketId || args.number);
-  const [assignments, evidenceCount] = await Promise.all([
+  const relationPromise = row.visitGroupId ? (async () => {
+    const params = [row.visitGroupId];
+    const visibility = appendTicketVisibility(ctx, params, 'related');
+    return many(
+      `SELECT related."BoletaUID" AS uid, related."BoletaID" AS number,
+              related."Titulo" AS title, related."Estado" AS status,
+              related."Fecha" AS date, related."NumeroVisita" AS "visitNumber"
+         FROM "Boletas" related
+        WHERE related."__valid"=TRUE
+          AND related."GrupoVisitaID"=$1
+          AND ${visibility}
+        ORDER BY NULLIF(related."NumeroVisita",'')::numeric NULLS LAST, related."Fecha" ASC NULLS LAST
+        LIMIT 30`,
+      params,
+      'ai.tickets.relatedVisits',
+    );
+  })() : Promise.resolve([]);
+
+  const [assignments, evidenceCount, relatedVisits] = await Promise.all([
     many(
       `SELECT u."UsuarioID" AS id, u."NombreCompleto" AS name, u."NombreUsuario" AS username
          FROM "BoletaAsignados" ba
@@ -179,6 +202,7 @@ export async function getTicket(ctx, args = {}) {
       [row.uid],
       'ai.tickets.evidenceCount',
     ),
+    relationPromise,
   ]);
 
   const item = {
@@ -210,13 +234,25 @@ export async function getTicket(ctx, args = {}) {
     technicians: assignments.map((a) => ({ id: a.id || '', name: a.name || a.username || a.id || '' })),
     evidenceCount: Number(evidenceCount?.total || 0),
     createdBy: row.createdBy || '',
+    createdByName: row.createdByName || row.createdBy || '',
     updatedBy: row.updatedBy || '',
+    updatedByName: row.updatedByName || row.updatedBy || '',
     createdAt: row.createdAt || '',
     updatedAt: row.updatedAt || '',
     finishedAt: row.finishedAt || '',
     visitGroupId: row.visitGroupId || '',
     visitNumber: row.visitNumber || '',
+    mainTicketId: row.mainTicketId || '',
     maintenanceId: row.maintenanceId || '',
+    caseId: row.caseId || '',
+    relatedVisits: relatedVisits.map((visit) => ({
+      uid: visit.uid,
+      number: visit.number || visit.uid,
+      title: visit.title || '',
+      status: visit.status || '',
+      date: visit.date || '',
+      visitNumber: visit.visitNumber || '',
+    })),
   };
   return {
     modelData: item,
@@ -228,6 +264,7 @@ export async function getTicket(ctx, args = {}) {
       lastClientId: item.clientId,
       lastClientName: item.client,
       ...(item.maintenanceId ? { lastMaintenanceId: item.maintenanceId } : {}),
+      ...(item.caseId ? { lastCaseId: item.caseId } : {}),
     },
   };
 }
