@@ -13,9 +13,10 @@ test('assistant frontend deadline stays above backend total agent timeout', () =
 
 test('AssistantPageSecure exposes secure attachments and controlled confirmations', async () => {
   const source = await readFile(new URL('../../src/pages/assistant/AssistantPageSecure.jsx', import.meta.url), 'utf8');
-  assert.match(source, /assistant\.attachments\.init/);
-  assert.match(source, /assistant\.attachments\.chunk/);
-  assert.match(source, /assistant\.operations\.decide/);
+  assert.match(source, /assistantAction:\s*'attachment\.init'/);
+  assert.match(source, /assistantAction:\s*'attachment\.chunk'/);
+  assert.match(source, /assistantAction:\s*'operation\.decide'/);
+  assert.match(source, /apiRequest\('assistant\.chat'/);
   assert.match(source, /attachmentIds/);
   assert.match(source, /Confirmar/);
   assert.match(source, /Cancelar/);
