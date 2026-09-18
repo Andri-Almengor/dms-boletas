@@ -474,10 +474,139 @@ export async function getTechnicianActivity(ctx, args = {}) {
   };
 }
 
+
+export async function searchEvidenceActivity(ctx, args = {}) {
+  assertAiCapability(ctx, 'tickets');
+  const params = [];
+  const clauses = [
+    'e."__valid"=TRUE',
+    `LOWER(COALESCE(e."Activo",'true')) <> 'false'`,
+    'b."__valid"=TRUE',
+    `UPPER(COALESCE(b."Estado",'')) <> 'ANULADA'`,
+    appendTicketVisibility(ctx, params, 'b'),
+  ];
+
+  if (clean(args.uploaderId)) {
+    params.push(clean(args.uploaderId, 250));
+    clauses.push(`e."CreadoPor"=$${params.length}`);
+  } else if (clean(args.technicianName || args.technician)) {
+    params.push(like(args.technicianName || args.technician));
+    const p = '$' + params.length;
+    clauses.push(`(
+      uploader."NombreCompleto" ILIKE ${p} ESCAPE '\\'
+      OR uploader."NombreUsuario" ILIKE ${p} ESCAPE '\\'
+    )`);
+  }
+
+  if (clean(args.ticketId)) {
+    params.push(clean(args.ticketId, 250));
+    clauses.push(`(b."BoletaUID"=$${params.length} OR b."BoletaID"=$${params.length})`);
+  }
+
+  if (clean(args.mimeType)) {
+    params.push(like(args.mimeType));
+    clauses.push(`e."MimeType" ILIKE $${params.length} ESCAPE '\\'`);
+  }
+
+  const period = addRange(clauses, params, 'e."FechaCreacion"', args);
+  const where = clauses.join(' AND ');
+  const counted = await one(
+    `SELECT COUNT(*)::bigint AS total
+       FROM "EvidenciasBoleta" e
+       JOIN "Boletas" b ON b."BoletaUID"=e."BoletaUID"
+       LEFT JOIN "Usuarios" uploader
+         ON uploader."__valid"=TRUE AND uploader."UsuarioID"=e."CreadoPor"
+      WHERE ${where}`,
+    params,
+    'ai.evidenceActivity.count',
+  );
+
+  const queryParams = [...params, pageLimit(args.limit, 30), pageOffset(args.offset)];
+  const rows = await many(
+    `SELECT e."EvidenciaID" AS id, e."BoletaUID" AS "ticketId",
+            b."BoletaID" AS "ticketNumber", b."Titulo" AS "ticketTitle",
+            b."Cliente" AS client, e."Nombre" AS name, e."Nota" AS note,
+            e."NombreArchivo" AS "fileName", e."MimeType" AS "mimeType",
+            e."TipoMedio" AS "mediaType", e."FechaCreacion" AS "createdAt",
+            e."CreadoPor" AS "createdBy",
+            COALESCE(NULLIF(uploader."NombreCompleto",''),uploader."NombreUsuario",e."CreadoPor") AS "uploadedBy",
+            e."OrigenMantenimientoDispositivoID" AS "deviceId",
+            e."ArchivoID" AS "__file"
+       FROM "EvidenciasBoleta" e
+       JOIN "Boletas" b ON b."BoletaUID"=e."BoletaUID"
+       LEFT JOIN "Usuarios" uploader
+         ON uploader."__valid"=TRUE AND uploader."UsuarioID"=e."CreadoPor"
+      WHERE ${where}
+      ORDER BY e."FechaCreacion" DESC NULLS LAST, e."__db_id" DESC
+      LIMIT $${queryParams.length - 1} OFFSET $${queryParams.length}`,
+    queryParams,
+    'ai.evidenceActivity.items',
+  );
+
+  const items = rows.map((row) => ({
+    id: row.id,
+    ticketId: row.ticketId,
+    ticketNumber: row.ticketNumber || row.ticketId,
+    ticketTitle: row.ticketTitle || '',
+    client: row.client || '',
+    name: row.name || row.fileName || 'Evidencia',
+    note: clean(row.note, 1600),
+    fileName: row.fileName || '',
+    mimeType: row.mimeType || 'application/octet-stream',
+    mediaType: row.mediaType || '',
+    createdAt: row.createdAt || '',
+    createdBy: row.createdBy || '',
+    uploadedBy: row.uploadedBy || row.createdBy || '',
+    deviceId: row.deviceId || '',
+  }));
+
+  const attachments = rows.map((row) => protectedAttachment(ctx, {
+    fileId: row.__file,
+    mimeType: row.mimeType,
+    scopeId: row.ticketId,
+    evidenceId: row.id,
+    kind: 'evidence',
+    title: row.name || row.fileName || 'Evidencia',
+    subtitle: [
+      'Boleta #' + (row.ticketNumber || row.ticketId),
+      row.client,
+      row.uploadedBy,
+      row.createdAt,
+    ].filter(Boolean).join(' · '),
+    entityType: 'ticket',
+    entityId: row.ticketId,
+  })).filter(Boolean);
+
+  const uploaderNames = [...new Set(items.map((item) => item.uploadedBy).filter(Boolean))];
+  return {
+    modelData: {
+      total: Number(counted?.total || 0),
+      totalShown: items.length,
+      period,
+      items,
+    },
+    attachments,
+    entities: items.slice(0, 30).map((item) => entity(
+      'ticket',
+      item.ticketId,
+      'Boleta #' + item.ticketNumber,
+      '/boletas/' + encodeURIComponent(item.ticketId),
+    )),
+    sources: items.slice(0, 10).map((item) => source(
+      'ticket',
+      item.ticketId,
+      'Boleta #' + item.ticketNumber + ' · ' + item.name,
+      '/boletas/' + encodeURIComponent(item.ticketId),
+    )),
+    context: uploaderNames.length === 1 ? { lastUserName: uploaderNames[0] } : {},
+  };
+}
+
 export const ticketRepositoryTools = Object.freeze({
   search_tickets: searchTickets,
   get_ticket: getTicket,
   get_ticket_evidence: getTicketEvidence,
   get_ticket_history: getTicketHistory,
   get_technician_activity: getTechnicianActivity,
+  search_evidence_activity: searchEvidenceActivity,
 });
