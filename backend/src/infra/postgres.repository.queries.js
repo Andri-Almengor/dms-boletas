@@ -381,7 +381,7 @@ export async function findTicketByStoredFileId(fileId) {
   const requested = String(fileId || '').trim();
   if (!requested) return null;
 
-  const evidence = await query(
+  const evidenceCanonical = await query(
     `SELECT ${selectList('Boletas', 'b')}
      FROM "EvidenciasBoleta" e
      JOIN "Boletas" b
@@ -389,8 +389,26 @@ export async function findTicketByStoredFileId(fileId) {
       AND b."BoletaUID"=e."BoletaUID"
      WHERE e."__valid"=TRUE
        AND LOWER(COALESCE(e."Activo",'true')) <> 'false'
+       AND e."ArchivoID"=$1
+     ORDER BY e."__db_id" ASC, b."__db_id" ASC
+     LIMIT 1`,
+    [requested],
+    { label: 'tickets.media.lookupEvidence' },
+  );
+  if (evidenceCanonical.rows[0]) return publicRow(evidenceCanonical.rows[0]);
+
+  // Historical rows may carry one of the old aliases only inside __payload.
+  // Only consult aliases when ArchivoID is empty, matching pick() precedence.
+  const evidenceLegacy = await query(
+    `SELECT ${selectList('Boletas', 'b')}
+     FROM "EvidenciasBoleta" e
+     JOIN "Boletas" b
+       ON b."__valid"=TRUE
+      AND b."BoletaUID"=e."BoletaUID"
+     WHERE e."__valid"=TRUE
+       AND LOWER(COALESCE(e."Activo",'true')) <> 'false'
+       AND COALESCE(e."ArchivoID",'')=''
        AND COALESCE(
-         NULLIF(e."ArchivoID",''),
          NULLIF(e."__payload"->>'ArchivoFileID',''),
          NULLIF(e."__payload"->>'DriveFileID',''),
          ''
@@ -398,25 +416,34 @@ export async function findTicketByStoredFileId(fileId) {
      ORDER BY e."__db_id" ASC, b."__db_id" ASC
      LIMIT 1`,
     [requested],
-    { label: 'tickets.media.lookupEvidence' },
+    { label: 'tickets.media.lookupEvidenceLegacy' },
   );
-  if (evidence.rows[0]) return publicRow(evidence.rows[0]);
+  if (evidenceLegacy.rows[0]) return publicRow(evidenceLegacy.rows[0]);
 
-  const signature = await query(
+  const signatureCanonical = await query(
     `SELECT ${selectList('Boletas', 'b')}
      FROM "Boletas" b
      WHERE b."__valid"=TRUE
-       AND COALESCE(
-         NULLIF(b."FirmaArchivoID",''),
-         NULLIF(b."__payload"->>'FirmaFileID',''),
-         ''
-       )=$1
+       AND b."FirmaArchivoID"=$1
      ORDER BY b."__db_id" ASC
      LIMIT 1`,
     [requested],
     { label: 'tickets.media.lookupSignature' },
   );
-  return signature.rows[0] ? publicRow(signature.rows[0]) : null;
+  if (signatureCanonical.rows[0]) return publicRow(signatureCanonical.rows[0]);
+
+  const signatureLegacy = await query(
+    `SELECT ${selectList('Boletas', 'b')}
+     FROM "Boletas" b
+     WHERE b."__valid"=TRUE
+       AND COALESCE(b."FirmaArchivoID",'')=''
+       AND COALESCE(NULLIF(b."__payload"->>'FirmaFileID',''),'')=$1
+     ORDER BY b."__db_id" ASC
+     LIMIT 1`,
+    [requested],
+    { label: 'tickets.media.lookupSignatureLegacy' },
+  );
+  return signatureLegacy.rows[0] ? publicRow(signatureLegacy.rows[0]) : null;
 }
 
 export async function countRows(table, criteria = {}) {
