@@ -168,6 +168,30 @@ export async function queryTicketPage(payload = {}, { assignedUserId = '' } = {}
   return homeSummary ? { ...result, homeSummary } : result;
 }
 
+export async function queryAgendaTickets({ dates = [], ticketIds = [] } = {}) {
+  const normalizedDates = [...new Set((dates || []).map((value) => String(value || '').slice(0, 10)).filter(Boolean))];
+  const normalizedIds = [...new Set((ticketIds || []).map((value) => String(value || '').trim()).filter(Boolean))];
+  if (!normalizedDates.length && !normalizedIds.length) return [];
+  const params = [];
+  const alternatives = [];
+  if (normalizedDates.length) {
+    params.push(normalizedDates);
+    alternatives.push(`LEFT(COALESCE("Fecha",''),10)=ANY($${params.length}::text[])`);
+  }
+  if (normalizedIds.length) {
+    params.push(normalizedIds);
+    alternatives.push(`"BoletaUID"=ANY($${params.length}::text[])`);
+  }
+  const result = await query(
+    `SELECT ${selectList('Boletas')} FROM "Boletas"
+     WHERE "__valid"=TRUE AND (${alternatives.join(' OR ')})
+     ORDER BY "__db_id" ASC`,
+    params,
+    { label: 'agenda.ticketCandidates' },
+  );
+  return result.rows.map(publicRow);
+}
+
 export async function queryMaintenanceHomeSummary(payload = {}) {
   const params = [];
   const clauses = ['"__valid"=TRUE', `LOWER(COALESCE("Activo",'true')) <> 'false'`];
