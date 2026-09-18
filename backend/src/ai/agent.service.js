@@ -261,13 +261,14 @@ export async function runDmsAgent(ctx, overrides = {}){
   const contextualIds=Array.isArray(context.pendingUploadIds)?context.pendingUploadIds:[];
   const attachmentIds=payloadAttachmentIds.length?payloadAttachmentIds:contextualIds;
   const chatAttachments=await loadChatAttachments(ctx,attachmentIds);
-  const diagnosticImages=await loadDiagnosticImageInputs(chatAttachments);
+  const imageInputs=await loadDiagnosticImageInputs(chatAttachments);
+  const diagnosticImages=isTechnicalKnowledgeQuery({message,context})?imageInputs:[];
   const documentInputs=await loadChatDocumentInputs(chatAttachments);
   if(payloadAttachmentIds.length)context=sanitizeActiveContext({...context,pendingUploadIds:chatAttachments.map(item=>item.uploadId)});
 
   const history=conversationParts(ctx.payload?.history||[]);
   const knowledgeDocumentRequired=isKnowledgeDocumentQuery({message,context});
-  const knowledgeRequired=requiresKnowledgeLookup(message,context)||knowledgeDocumentRequired;
+  const knowledgeRequired=requiresKnowledgeLookup(message)||diagnosticImages.length>0||knowledgeDocumentRequired;
   let intent=classifyAiIntent({message,context,attachments:chatAttachments});
   if(knowledgeRequired&&[AI_INTENTS.GENERAL,AI_INTENTS.AMBIGUOUS].includes(intent)){
     intent=knowledgeDocumentRequired?AI_INTENTS.KNOWLEDGE_DOCUMENTS:AI_INTENTS.KNOWLEDGE;
@@ -292,7 +293,7 @@ export async function runDmsAgent(ctx, overrides = {}){
   }
   const systemInstruction=buildAgentSystemPrompt({user:ctx.user,permissions:ctx.permissions,nowIso:costaRicaNowIso()});
   const inputText=buildAgentUserInput({message,history:history.recent,context,attachments:chatAttachments,conversationSummary:history.summary});
-  let timeline=[{type:'user_input',content:[...diagnosticImages,...documentInputs,{type:'text',text:inputText}]}];
+  let timeline=[{type:'user_input',content:[...imageInputs,...documentInputs,{type:'text',text:inputText}]}];
   const ui={entities:[],attachments:[],sources:[],confirmations:[],context:{...context}};
   const toolNames=[];let modelMs=0,toolMs=0,totalInput=0,totalOutput=0,dbQueries=0,dbQueryMs=0,requestBytes=0;
   const knowledgeFlow={articleSearches:0,articleResults:0,documentSearches:0,documentsFound:0,readyDocuments:0,chunkSearches:0,chunksFound:0,errors:0};
