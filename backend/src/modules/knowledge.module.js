@@ -124,14 +124,20 @@ async function setPrimaryKnowledgeDocument(tutorialId, attachmentId, actor) {
   if (!target) throw notFound('No se encontró el documento principal solicitado.');
   const timestamp = nowIso();
   for (const row of rows) {
-    const desired = String(row.AdjuntoID) === String(attachmentId);
-    if (asBool(row.IsPrimary, false) !== desired) {
+    if (String(row.AdjuntoID) !== String(attachmentId) && asBool(row.IsPrimary, false)) {
       await updateRow('KnowledgeAttachments', row.AdjuntoID, {
-        IsPrimary: desired,
+        IsPrimary: false,
         ActualizadoPor: actor,
         FechaActualizacion: timestamp,
       });
     }
+  }
+  if (!asBool(target.IsPrimary, false)) {
+    await updateRow('KnowledgeAttachments', target.AdjuntoID, {
+      IsPrimary: true,
+      ActualizadoPor: actor,
+      FechaActualizacion: timestamp,
+    });
   }
   return publicKnowledgeAttachment(await findById('KnowledgeAttachments', attachmentId));
 }
