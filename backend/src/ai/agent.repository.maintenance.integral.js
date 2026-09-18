@@ -208,15 +208,54 @@ export async function searchMaintenanceEvidence(ctx, args = {}) {
   if (clean(args.type)) {
     params.push(like(args.type));
     const p = '$' + params.length;
-    clauses.push(`(d."TipoDispositivo" ILIKE ${p} ESCAPE '\\' OR d."Categoria" ILIKE ${p} ESCAPE '\\')`);
+    clauses.push(\`(d."TipoDispositivo" ILIKE \${p} ESCAPE '\\\\' OR d."Categoria" ILIKE \${p} ESCAPE '\\\\')\`);
   }
   if (clean(args.stage)) {
     const normalized = normalize(args.stage);
     const stage = normalized.includes('desp') ? 'Despues' : (normalized.includes('antes') ? 'Antes' : '');
     if (stage) {
       params.push(stage);
-      clauses.push('LOWER(COALESCE(mi."Tipo",\'\'))=LOWER(
-    `SELECT mi."FotoDispositivoID" AS id,mi."Nombre" AS name,mi."Nota" AS note,mi."Tipo" AS stage,
+      clauses.push('LOWER(COALESCE(mi."Tipo",\\'\\'))=LOWER($' + params.length + ')');
+    }
+  }
+  if (clean(args.query)) {
+    params.push(like(args.query));
+    const p = '$' + params.length;
+    clauses.push(\`(
+      mi."Nombre" ILIKE \${p} ESCAPE '\\\\'
+      OR mi."Nota" ILIKE \${p} ESCAPE '\\\\'
+      OR d."NombreDispositivo" ILIKE \${p} ESCAPE '\\\\'
+      OR d."TipoDispositivo" ILIKE \${p} ESCAPE '\\\\'
+      OR d."Categoria" ILIKE \${p} ESCAPE '\\\\'
+      OR d."Zona" ILIKE \${p} ESCAPE '\\\\'
+    )\`);
+  }
+
+  const mimeCategory = clean(args.mimeCategory, 40).toUpperCase();
+  if (mimeCategory === 'IMAGE') clauses.push(\`LOWER(COALESCE(mi."MimeType",'')) LIKE 'image/%'\`);
+  if (mimeCategory === 'VIDEO') clauses.push(\`LOWER(COALESCE(mi."MimeType",'')) LIKE 'video/%'\`);
+  if (mimeCategory === 'PDF') clauses.push(\`LOWER(COALESCE(mi."MimeType",''))='application/pdf'\`);
+  if (mimeCategory === 'OTHER') clauses.push(\`(
+    LOWER(COALESCE(mi."MimeType",'')) NOT LIKE 'image/%'
+    AND LOWER(COALESCE(mi."MimeType",'')) NOT LIKE 'video/%'
+    AND LOWER(COALESCE(mi."MimeType",''))<>'application/pdf'
+  )\`);
+
+  const period = addRange(clauses, params, 'mi."FechaCreacion"', args);
+  const where = clauses.join(' AND ');
+  const counted = await one(
+    \`SELECT COUNT(*)::bigint AS total
+       FROM "Mantenimiento imagenes" mi
+       JOIN "Evidencia_Mantenimientos" d
+         ON d."__valid"=TRUE AND mi."DispositivoMantenimientoRef"=d."EvidenciaMantenimientoID"
+      WHERE \${where}\`,
+    params,
+    'ai.integralMaintenance.evidence.count',
+  );
+
+  const queryParams = [...params, pageLimit(args.limit, 50), pageOffset(args.offset)];
+  const rows = await many(
+    \`SELECT mi."FotoDispositivoID" AS id,mi."Nombre" AS name,mi."Nota" AS note,mi."Tipo" AS stage,
             mi."MimeType" AS "mimeType",mi."TipoMedio" AS "mediaType",mi."FechaCreacion" AS "createdAt",
             mi."CreadoPor" AS "createdBy",
             COALESCE(NULLIF(uploader."NombreCompleto",''),uploader."NombreUsuario",mi."CreadoPor") AS "uploadedBy",
@@ -228,9 +267,9 @@ export async function searchMaintenanceEvidence(ctx, args = {}) {
          ON d."__valid"=TRUE AND mi."DispositivoMantenimientoRef"=d."EvidenciaMantenimientoID"
        LEFT JOIN "Usuarios" uploader
          ON uploader."__valid"=TRUE AND uploader."UsuarioID"=mi."CreadoPor"
-      WHERE ${where}
+      WHERE \${where}
       ORDER BY mi."FechaCreacion" DESC NULLS LAST,d."Zona" ASC NULLS LAST,d."NombreDispositivo" ASC NULLS LAST
-      LIMIT ${queryParams.length - 1} OFFSET ${queryParams.length}`,
+      LIMIT $\${queryParams.length - 1} OFFSET $\${queryParams.length}\`,
     queryParams,
     'ai.integralMaintenance.evidence',
   );
@@ -258,7 +297,7 @@ export async function searchMaintenanceEvidence(ctx, args = {}) {
     evidenceId: row.id,
     kind: 'maintenance-evidence',
     title: row.deviceName || row.name || 'Dispositivo',
-    subtitle: [row.stage, row.deviceType, row.zone, row.note].filter(Boolean).join(' · '),
+    subtitle: [row.stage, row.deviceType, row.zone, row.note, row.createdAt].filter(Boolean).join(' · '),
     entityType: 'maintenance',
     entityId: maintenance.id,
   })).filter(Boolean);
@@ -271,189 +310,6 @@ export async function searchMaintenanceEvidence(ctx, args = {}) {
       totalShown: items.length,
       period,
       mimeCategory,
-      items,
-    },
-    attachments,
-    entities: [entity('maintenance', maintenance.id, maintenance.title || 'Mantenimiento', '/mantenimientos/' + encodeURIComponent(maintenance.id))],
-    sources: [source('maintenance', maintenance.id, (maintenance.title || 'Mantenimiento') + ' · evidencias', '/mantenimientos/' + encodeURIComponent(maintenance.id))],
-    context: {
-      lastMaintenanceId: maintenance.id,
-      lastMaintenanceName: maintenance.title || '',
-      lastClientId: maintenance.clientId || '',
-      lastClientName: maintenance.client || '',
-      ...(normalizedStages.length === 1 ? { lastEvidenceStage: normalizedStages[0].includes('desp') ? 'DESPUES' : 'ANTES' } : {}),
-    },
-  };
-}
-
-export const maintenanceIntegralRepositoryTools = Object.freeze({
-  resolve_maintenance_reference: resolveMaintenanceReference,
-  resolve_maintenance_device: resolveMaintenanceDevice,
-  search_maintenance_evidence: searchMaintenanceEvidence,
-});
- + params.length + ')');
-    }
-  }
-  if (clean(args.query)) {
-    params.push(like(args.query));
-    const p = '
-    `SELECT mi."FotoDispositivoID" AS id,mi."Nombre" AS name,mi."Nota" AS note,mi."Tipo" AS stage,
-            mi."MimeType" AS "mimeType",mi."TipoMedio" AS "mediaType",mi."FechaCreacion" AS "createdAt",
-            mi."CreadoPor" AS "createdBy",
-            COALESCE(NULLIF(uploader."NombreCompleto",''),uploader."NombreUsuario",mi."CreadoPor") AS "uploadedBy",
-            mi."DriveFileID" AS "__file",
-            d."EvidenciaMantenimientoID" AS "deviceId",d."NombreDispositivo" AS "deviceName",
-            COALESCE(NULLIF(d."TipoDispositivo",''),d."Categoria") AS "deviceType",d."Zona" AS zone
-       FROM "Mantenimiento imagenes" mi
-       JOIN "Evidencia_Mantenimientos" d
-         ON d."__valid"=TRUE AND mi."DispositivoMantenimientoRef"=d."EvidenciaMantenimientoID"
-       LEFT JOIN "Usuarios" uploader
-         ON uploader."__valid"=TRUE AND uploader."UsuarioID"=mi."CreadoPor"
-      WHERE ${clauses.join(' AND ')}
-      ORDER BY d."Zona" ASC NULLS LAST,d."NombreDispositivo" ASC NULLS LAST,mi."FechaCreacion" ASC NULLS LAST
-      LIMIT $${params.length}`,
-    params,
-    'ai.integralMaintenance.evidence',
-  );
-
-  const items = rows.map((row) => ({
-    id: row.id,
-    name: row.name || 'Evidencia',
-    note: clean(row.note, 1600),
-    stage: row.stage || '',
-    mimeType: row.mimeType || 'application/octet-stream',
-    mediaType: row.mediaType || '',
-    createdAt: row.createdAt || '',
-    createdBy: row.createdBy || '',
-    uploadedBy: row.uploadedBy || row.createdBy || '',
-    deviceId: row.deviceId || '',
-    deviceName: row.deviceName || row.deviceType || 'Dispositivo',
-    deviceType: row.deviceType || '',
-    zone: row.zone || '',
-  }));
-
-  const attachments = rows.map((row) => protectedAttachment(ctx, {
-    fileId: row.__file,
-    mimeType: row.mimeType,
-    scopeId: 'maintenance:' + maintenance.id,
-    evidenceId: row.id,
-    kind: 'maintenance-evidence',
-    title: row.deviceName || row.name || 'Dispositivo',
-    subtitle: [row.stage, row.deviceType, row.zone, row.note].filter(Boolean).join(' · '),
-    entityType: 'maintenance',
-    entityId: maintenance.id,
-  })).filter(Boolean);
-
-  const normalizedStages = [...new Set(items.map((item) => normalize(item.stage)).filter(Boolean))];
-  return {
-    modelData: {
-      maintenance: { id: maintenance.id, title: maintenance.title || 'Mantenimiento', client: maintenance.client || '' },
-      totalShown: items.length,
-      items,
-    },
-    attachments,
-    entities: [entity('maintenance', maintenance.id, maintenance.title || 'Mantenimiento', '/mantenimientos/' + encodeURIComponent(maintenance.id))],
-    sources: [source('maintenance', maintenance.id, (maintenance.title || 'Mantenimiento') + ' · evidencias', '/mantenimientos/' + encodeURIComponent(maintenance.id))],
-    context: {
-      lastMaintenanceId: maintenance.id,
-      lastMaintenanceName: maintenance.title || '',
-      lastClientId: maintenance.clientId || '',
-      lastClientName: maintenance.client || '',
-      ...(normalizedStages.length === 1 ? { lastEvidenceStage: normalizedStages[0].includes('desp') ? 'DESPUES' : 'ANTES' } : {}),
-    },
-  };
-}
-
-export const maintenanceIntegralRepositoryTools = Object.freeze({
-  resolve_maintenance_reference: resolveMaintenanceReference,
-  resolve_maintenance_device: resolveMaintenanceDevice,
-  search_maintenance_evidence: searchMaintenanceEvidence,
-});
- + params.length;
-    clauses.push(`(
-      mi."Nombre" ILIKE ${p} ESCAPE '\\'
-      OR mi."Nota" ILIKE ${p} ESCAPE '\\'
-      OR d."NombreDispositivo" ILIKE ${p} ESCAPE '\\'
-      OR d."TipoDispositivo" ILIKE ${p} ESCAPE '\\'
-      OR d."Categoria" ILIKE ${p} ESCAPE '\\'
-      OR d."Zona" ILIKE ${p} ESCAPE '\\'
-    )`);
-  }
-  const mimeCategory = clean(args.mimeCategory, 40).toUpperCase();
-  if (mimeCategory === 'IMAGE') clauses.push(`LOWER(COALESCE(mi."MimeType",'')) LIKE 'image/%'`);
-  if (mimeCategory === 'VIDEO') clauses.push(`LOWER(COALESCE(mi."MimeType",'')) LIKE 'video/%'`);
-  if (mimeCategory === 'PDF') clauses.push(`LOWER(COALESCE(mi."MimeType",''))='application/pdf'`);
-  if (mimeCategory === 'OTHER') clauses.push(`(
-    LOWER(COALESCE(mi."MimeType",'')) NOT LIKE 'image/%'
-    AND LOWER(COALESCE(mi."MimeType",'')) NOT LIKE 'video/%'
-    AND LOWER(COALESCE(mi."MimeType",''))<>'application/pdf'
-  )`);
-  const period = addRange(clauses, params, 'mi."FechaCreacion"', args);
-  const where = clauses.join(' AND ');
-  const counted = await one(
-    `SELECT COUNT(*)::bigint AS total
-       FROM "Mantenimiento imagenes" mi
-       JOIN "Evidencia_Mantenimientos" d
-         ON d."__valid"=TRUE AND mi."DispositivoMantenimientoRef"=d."EvidenciaMantenimientoID"
-      WHERE ${where}`,
-    params,
-    'ai.integralMaintenance.evidence.count',
-  );
-
-  const queryParams = [...params, pageLimit(args.limit, 50), pageOffset(args.offset)];
-  const rows = await many(
-    `SELECT mi."FotoDispositivoID" AS id,mi."Nombre" AS name,mi."Nota" AS note,mi."Tipo" AS stage,
-            mi."MimeType" AS "mimeType",mi."TipoMedio" AS "mediaType",mi."FechaCreacion" AS "createdAt",
-            mi."CreadoPor" AS "createdBy",
-            COALESCE(NULLIF(uploader."NombreCompleto",''),uploader."NombreUsuario",mi."CreadoPor") AS "uploadedBy",
-            mi."DriveFileID" AS "__file",
-            d."EvidenciaMantenimientoID" AS "deviceId",d."NombreDispositivo" AS "deviceName",
-            COALESCE(NULLIF(d."TipoDispositivo",''),d."Categoria") AS "deviceType",d."Zona" AS zone
-       FROM "Mantenimiento imagenes" mi
-       JOIN "Evidencia_Mantenimientos" d
-         ON d."__valid"=TRUE AND mi."DispositivoMantenimientoRef"=d."EvidenciaMantenimientoID"
-       LEFT JOIN "Usuarios" uploader
-         ON uploader."__valid"=TRUE AND uploader."UsuarioID"=mi."CreadoPor"
-      WHERE ${clauses.join(' AND ')}
-      ORDER BY d."Zona" ASC NULLS LAST,d."NombreDispositivo" ASC NULLS LAST,mi."FechaCreacion" ASC NULLS LAST
-      LIMIT $${params.length}`,
-    params,
-    'ai.integralMaintenance.evidence',
-  );
-
-  const items = rows.map((row) => ({
-    id: row.id,
-    name: row.name || 'Evidencia',
-    note: clean(row.note, 1600),
-    stage: row.stage || '',
-    mimeType: row.mimeType || 'application/octet-stream',
-    mediaType: row.mediaType || '',
-    createdAt: row.createdAt || '',
-    createdBy: row.createdBy || '',
-    uploadedBy: row.uploadedBy || row.createdBy || '',
-    deviceId: row.deviceId || '',
-    deviceName: row.deviceName || row.deviceType || 'Dispositivo',
-    deviceType: row.deviceType || '',
-    zone: row.zone || '',
-  }));
-
-  const attachments = rows.map((row) => protectedAttachment(ctx, {
-    fileId: row.__file,
-    mimeType: row.mimeType,
-    scopeId: 'maintenance:' + maintenance.id,
-    evidenceId: row.id,
-    kind: 'maintenance-evidence',
-    title: row.deviceName || row.name || 'Dispositivo',
-    subtitle: [row.stage, row.deviceType, row.zone, row.note].filter(Boolean).join(' · '),
-    entityType: 'maintenance',
-    entityId: maintenance.id,
-  })).filter(Boolean);
-
-  const normalizedStages = [...new Set(items.map((item) => normalize(item.stage)).filter(Boolean))];
-  return {
-    modelData: {
-      maintenance: { id: maintenance.id, title: maintenance.title || 'Mantenimiento', client: maintenance.client || '' },
-      totalShown: items.length,
       items,
     },
     attachments,
