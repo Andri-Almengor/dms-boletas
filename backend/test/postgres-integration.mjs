@@ -10,7 +10,7 @@ if (!testDatabaseUrl) {
 process.env.NODE_ENV = 'test';
 process.env.DATABASE_URL = testDatabaseUrl;
 
-const { appendRow, findById, queryTicketPage, readTable, updateRow } = await import('../src/infra/postgres.repository.js');
+const { appendRow, findById, nextCustomerCaseNumber, queryTicketPage, readTable, updateRow } = await import('../src/infra/postgres.repository.js');
 const { closePostgres, query, withTransaction } = await import('../src/infra/postgres.js');
 const { appendSyncChanges, getSyncCursor, readSyncChangesAfter } = await import('../src/services/sync-change.service.js');
 const { createPortablePostgresBackupFile, cleanupPortableBackup } = await import('../src/services/postgres-backup.service.js');
@@ -55,6 +55,34 @@ test('ticket numbering is atomic in PostgreSQL and keeps full maintenance prefix
   assert.equal(testTicket.BoletaID, `PRUEBA-${suffix}`);
   await query('DELETE FROM "Boletas" WHERE "BoletaUID" LIKE $1 OR "BoletaUID" LIKE $2', [`test-${suffix}-%`, `mnt-test-${suffix}%`], { label: 'test.cleanup', write: true });
   await query("DELETE FROM runtime_sequences WHERE entity IN ('BOLETA','MANTENIMIENTO_BOLETA')", [], { label: 'test.cleanup', write: true });
+});
+
+test('customer case numbering is serialized through the same transaction as the insert', async () => {
+  const ids = [`case-number-${suffix}-a`, `case-number-${suffix}-b`];
+  const create = (caseId) => withTransaction(async () => {
+    const caseNumber = await nextCustomerCaseNumber();
+    await appendRow('CasosClientes', {
+      CasoID: caseId,
+      CasoNumero: caseNumber,
+      Estado: 'EN_ESPERA',
+      Activo: true,
+      FechaCreacion: new Date().toISOString(),
+    });
+    return caseNumber;
+  });
+
+  try {
+    const numbers = await Promise.all(ids.map(create));
+    const numeric = numbers.map((value) => Number(String(value).replace(/\D/g, '')));
+    assert.equal(new Set(numbers).size, 2);
+    assert.equal(Math.abs(numeric[0] - numeric[1]), 1);
+  } finally {
+    await query(
+      'DELETE FROM "CasosClientes" WHERE "CasoID" = ANY($1::text[])',
+      [ids],
+      { label: 'test.caseNumber.cleanup', write: true },
+    ).catch(() => {});
+  }
 });
 
 test('SyncChanges uses a monotonic database cursor', async () => {

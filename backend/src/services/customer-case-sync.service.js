@@ -1,5 +1,11 @@
 import { nowIso } from '../core/utils.js';
-import { readTables, updateRow, updateRows } from '../infra/sheets.repository.js';
+import {
+  findById,
+  findRows,
+  queryCustomerCaseReconciliationCandidates,
+  updateRow,
+  updateRows,
+} from '../infra/sheets.repository.js';
 import { ensureCustomerCaseSchema } from './customer-case-schema.service.js';
 
 function clean(value) {
@@ -18,10 +24,20 @@ export async function finalizeCustomerCaseForTicket(ticketId, actor = 'SISTEMA')
   const id = clean(ticketId);
   if (!id) return null;
   await ensureCustomerCaseSchema();
-  const { CasosClientes: cases, Boletas: tickets } = await readTables(['CasosClientes', 'Boletas'], { force: true });
-  const ticket = tickets.find((row) => clean(row.BoletaUID) === id);
+
+  // Preserve the old source-order match (first matching case) while narrowing
+  // both lookups to the affected ticket/case instead of reading both tables.
+  const ticket = await findById('Boletas', id).catch(() => null);
   const originCaseId = clean(ticket?.OrigenCasoID);
-  const match = cases.find((row) => activeCase(row) && (
+  const [directMatches, originMatches] = await Promise.all([
+    findRows('CasosClientes', { BoletaUID: id }, { limit: 50_000 }),
+    originCaseId
+      ? findRows('CasosClientes', { CasoID: originCaseId }, { limit: 50_000 })
+      : Promise.resolve([]),
+  ]);
+  const matches = [...directMatches, ...originMatches]
+    .sort((left, right) => Number(left?.__rowNumber || 0) - Number(right?.__rowNumber || 0));
+  const match = matches.find((row) => activeCase(row) && (
     clean(row.BoletaUID) === id
     || (originCaseId && clean(row.CasoID) === originCaseId)
   ));
@@ -36,7 +52,12 @@ export async function finalizeCustomerCaseForTicket(ticketId, actor = 'SISTEMA')
 
 export async function reconcileCustomerCases(actor = 'SISTEMA') {
   await ensureCustomerCaseSchema();
-  const { CasosClientes: cases, Boletas: tickets } = await readTables(['CasosClientes', 'Boletas'], { force: true });
+  const { cases, tickets } = await queryCustomerCaseReconciliationCandidates();
+  if (!cases.length || !tickets.length) return 0;
+
+  // The query helper returns both collections in historical source order.
+  // Keeping the same Map/loop mechanics preserves the previous duplicate and
+  // "last ticket by BoletaUID" behavior while eliminating global table reads.
   const ticketById = new Map(tickets.map((ticket) => [clean(ticket.BoletaUID), ticket]));
   const caseByOrigin = new Map(cases.map((item) => [clean(item.CasoID), item]));
   const updates = [];

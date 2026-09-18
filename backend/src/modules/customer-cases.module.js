@@ -10,6 +10,7 @@ import {
   nextCustomerCaseNumber,
   queryCustomerCasePage,
   updateRow,
+  withTransaction,
 } from '../infra/sheets.repository.js';
 import {
   createFolder,
@@ -388,11 +389,58 @@ async function createPublicCase(ctx, client) {
   const evidences = validateEvidences(ctx.payload.evidences || ctx.payload.evidencias || []);
 
   return withCaseCreateLock(async () => {
-    const duplicate = await findOneBy('CasosClientes', {
-      SolicitudClienteID: requestId,
-      ClienteID: clean(client.ClienteID),
+    // Serialize the visible case number and persist the case in the SAME
+    // PostgreSQL transaction. External Drive/email side effects stay below,
+    // after COMMIT, so no database transaction is held during network I/O.
+    const persisted = await withTransaction(async () => {
+      const caseNumber = await nextCustomerCaseNumber();
+      const duplicate = await findOneBy('CasosClientes', {
+        SolicitudClienteID: requestId,
+        ClienteID: clean(client.ClienteID),
+      });
+      if (duplicate) return { duplicate, caseData: null };
+
+      const timestamp = nowIso();
+      const caseData = {
+        CasoID: uuid(),
+          CasoNumero: caseNumber,
+        SolicitudClienteID: requestId,
+        ClienteID: client.ClienteID,
+        Cliente: clientName(client),
+        RazonVisita: reason,
+        Problema: problem,
+        CorreoSolicitante: email,
+        NombreSolicitante: requester,
+        Estado: 'EN_ESPERA',
+        EvidenciaCount: 0,
+        TecnicoIDsJSON: '[]',
+        TecnicoNombres: '',
+        FechaVisita: '',
+        HoraVisita: '',
+        MensajeAdministrador: '',
+        BoletaUID: '',
+        BoletaID: '',
+        AsuntoCorreoInicial: '',
+        CuerpoCorreoInicial: '',
+        AsuntoCorreoTecnicos: '',
+        CuerpoCorreoTecnicos: '',
+        EstadoNotificacionInicial: 'PENDIENTE',
+        EstadoNotificacionTecnicos: 'PENDIENTE',
+        UltimoErrorNotificacion: '',
+        FechaProceso: '',
+        FechaFinalizacion: '',
+        FechaCreacion: timestamp,
+        FechaActualizacion: timestamp,
+        CreadoPor: 'CLIENTE',
+        ActualizadoPor: 'CLIENTE',
+        Activo: true,
+      };
+      await appendRow('CasosClientes', caseData);
+      return { duplicate: null, caseData };
     });
-    if (duplicate) {
+
+    if (persisted.duplicate) {
+      const duplicate = persisted.duplicate;
       return {
         accepted: true,
         alreadyCreated: true,
@@ -404,42 +452,7 @@ async function createPublicCase(ctx, client) {
       };
     }
 
-    const timestamp = nowIso();
-    let caseData = {
-      CasoID: uuid(),
-      CasoNumero: await nextCustomerCaseNumber(),
-      SolicitudClienteID: requestId,
-      ClienteID: client.ClienteID,
-      Cliente: clientName(client),
-      RazonVisita: reason,
-      Problema: problem,
-      CorreoSolicitante: email,
-      NombreSolicitante: requester,
-      Estado: 'EN_ESPERA',
-      EvidenciaCount: 0,
-      TecnicoIDsJSON: '[]',
-      TecnicoNombres: '',
-      FechaVisita: '',
-      HoraVisita: '',
-      MensajeAdministrador: '',
-      BoletaUID: '',
-      BoletaID: '',
-      AsuntoCorreoInicial: '',
-      CuerpoCorreoInicial: '',
-      AsuntoCorreoTecnicos: '',
-      CuerpoCorreoTecnicos: '',
-      EstadoNotificacionInicial: 'PENDIENTE',
-      EstadoNotificacionTecnicos: 'PENDIENTE',
-      UltimoErrorNotificacion: '',
-      FechaProceso: '',
-      FechaFinalizacion: '',
-      FechaCreacion: timestamp,
-      FechaActualizacion: timestamp,
-      CreadoPor: 'CLIENTE',
-      ActualizadoPor: 'CLIENTE',
-      Activo: true,
-    };
-    await appendRow('CasosClientes', caseData);
+    let caseData = persisted.caseData;
 
     const uploaded = await uploadCaseEvidences({ caseData, client, evidences });
     caseData = await updateRow('CasosClientes', caseData.CasoID, {
