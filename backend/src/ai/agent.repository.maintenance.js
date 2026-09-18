@@ -60,7 +60,11 @@ async function maintenanceRow(ctx,idValue){
             m."Cliente" AS client,m."UbicacionID" AS "locationId",m."Ubicacion" AS location,
             m."Estado" AS status,m."Fecha" AS date,m."FechaFinalizacion" AS "finishedAt",
             m."Responsables" AS responsible,m."DescripcionGeneral" AS description,
-            m."CantidadesJSON" AS "expectedCounts",m."CreadoPor" AS "createdBy",
+            m."CantidadesJSON" AS "expectedCounts",
+            m."CantCámaras",m."CantPuertas",m."CantServidores",m."CantGrabadores",m."CantBocinas",
+            m."CantSensoresPerimetrales",m."CantSensoresMovimiento",m."CantSensorRuptura",
+            m."CantImpresora",m."CantGabinetes",m."CantVideoWall",
+            m."CreadoPor" AS "createdBy",
             m."FechaCreacion" AS "createdAt",m."ActualizadoPor" AS "updatedBy",
             m."FechaActualizacion" AS "updatedAt"
        FROM "Mantenimiento" m WHERE ${active('m')} AND m."MantenimientoID"=$1 LIMIT 1`,
