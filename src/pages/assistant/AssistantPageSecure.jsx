@@ -395,7 +395,8 @@ function sourceIcon(type) {
   if (type === 'ticket') return 'description';
   if (type === 'maintenance') return 'engineering';
   if (type === 'client') return 'business';
-  if (type === 'device') return 'videocam';
+  if (type === 'device' || type === 'network_device') return 'videocam';
+  if (type === 'agenda') return 'calendar_month';
   if (type === 'case' || type === 'cases') return 'support_agent';
   if (type === 'external') return 'public';
   if (type === 'surveys') return 'reviews';
