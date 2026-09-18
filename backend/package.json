@@ -24,7 +24,9 @@
     "db:backup:verify": "node src/scripts/db-backup-verify.js",
     "db:backup:restore": "node src/scripts/db-backup-restore.js",
     "db:benchmark": "node src/scripts/db-benchmark.js",
-    "db:stage5:verify": "node src/scripts/db-stage5-verify.js"
+    "db:stage5:verify": "node src/scripts/db-stage5-verify.js",
+    "db:test:reset": "node src/scripts/db-test-reset.js",
+    "test:db:safety": "node --test test/test-database-safety.mjs"
   },
   "dependencies": {
     "compression": "^1.7.5",

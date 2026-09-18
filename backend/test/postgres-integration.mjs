@@ -8,15 +8,335 @@ if (!testDatabaseUrl) {
   throw new Error('postgres-integration.mjs requires TEST_DATABASE_URL. Production DATABASE_URL is never accepted by this destructive test.');
 }
 process.env.NODE_ENV = 'test';
-process.env.DATABASE_URL = testDatabaseUrl;
 
-const { appendRow, findById, nextCustomerCaseNumber, queryTicketPage, readTable, updateRow } = await import('../src/infra/postgres.repository.js');
+const {
+  appendRow,
+  findById,
+  findRows,
+  nextCustomerCaseNumber,
+  queryCustomerCasePage,
+  queryKnowledgeArticlePage,
+  queryMaintenanceHomeSummary,
+  queryPage,
+  queryTicketPage,
+  readTable,
+  softDelete,
+  updateRow,
+} = await import('../src/infra/postgres.repository.js');
 const { closePostgres, query, withTransaction } = await import('../src/infra/postgres.js');
-const { appendSyncChanges, getSyncCursor, readSyncChangesAfter } = await import('../src/services/sync-change.service.js');
+const {
+  appendSyncChanges,
+  ensureSyncInfrastructure,
+  getSyncCursor,
+  getSyncDescriptor,
+  readSyncChangesAfter,
+} = await import('../src/services/sync-change.service.js');
 const { createPortablePostgresBackupFile, cleanupPortableBackup } = await import('../src/services/postgres-backup.service.js');
 const { reconcileCustomerCases } = await import('../src/services/customer-case-sync.service.js');
+const { login, authenticate, logout } = await import('../src/services/auth.service.js');
+const { hashPassword } = await import('../src/core/utils.js');
 
 const suffix = `${Date.now()}-${Math.random().toString(16).slice(2)}`;
+
+test('repository CRUD and rollback stay transactional on PostgreSQL', async () => {
+  const categoryId = `stage6-category-${suffix}`;
+  const rollbackId = `stage6-rollback-${suffix}`;
+  try {
+    await appendRow('Categorias', {
+      CategoriaID: categoryId,
+      Nombre: 'Stage 6 CRUD',
+      Descripcion: 'original',
+      Estado: 'ACTIVO',
+      Activo: true,
+    });
+    assert.equal((await findById('Categorias', categoryId)).Descripcion, 'original');
+    assert.equal((await findRows('Categorias', { CategoriaID: categoryId }, { limit: 2 })).length, 1);
+
+    const updated = await updateRow('Categorias', categoryId, { Descripcion: 'updated' });
+    assert.equal(updated.Descripcion, 'updated');
+
+    const deleted = await softDelete('Categorias', categoryId, 'STAGE6');
+    assert.equal(String(deleted.Activo).toLowerCase(), 'false');
+    assert.equal(deleted.Estado, 'INACTIVO');
+
+    await assert.rejects(
+      withTransaction(async () => {
+        await appendRow('Categorias', {
+          CategoriaID: rollbackId,
+          Nombre: 'Rollback',
+          Estado: 'ACTIVO',
+          Activo: true,
+        });
+        throw new Error('stage6 rollback');
+      }),
+      /stage6 rollback/,
+    );
+    await assert.rejects(findById('Categorias', rollbackId), /No se encontró/);
+  } finally {
+    await query(
+      'DELETE FROM "Categorias" WHERE "CategoriaID" = ANY($1::text[])',
+      [[categoryId, rollbackId]],
+      { label: 'test.stage6.crud.cleanup', write: true },
+    ).catch(() => {});
+  }
+});
+
+test('auth, sessions and permission overrides use direct PostgreSQL persistence', async () => {
+  const roleId = `stage6-role-${suffix}`;
+  const userId = `stage6-user-${suffix}`;
+  const username = `stage6_${suffix}`;
+  const permissionAllowId = `stage6-perm-allow-${suffix}`;
+  const permissionDenyId = `stage6-perm-deny-${suffix}`;
+  const roleLinkAllowId = `stage6-rolelink-allow-${suffix}`;
+  const roleLinkDenyId = `stage6-rolelink-deny-${suffix}`;
+  const userLinkDenyId = `stage6-userlink-deny-${suffix}`;
+  const password = 'Stage6Pass123';
+  const { salt, hash } = hashPassword(password);
+  let token = '';
+
+  try {
+    await appendRow('Roles', {
+      RolID: roleId,
+      Nombre: 'Stage 6 role',
+      EsAdministrador: false,
+      Estado: 'ACTIVO',
+    });
+    await appendRow('Permisos', {
+      PermisoID: permissionAllowId,
+      Codigo: `STAGE6_ALLOW_${suffix}`,
+      Modulo: 'TEST',
+      Accion: 'ALLOW',
+      Estado: 'ACTIVO',
+    });
+    await appendRow('Permisos', {
+      PermisoID: permissionDenyId,
+      Codigo: `STAGE6_DENY_${suffix}`,
+      Modulo: 'TEST',
+      Accion: 'DENY',
+      Estado: 'ACTIVO',
+    });
+    await appendRow('RolPermisos', {
+      RolPermisoID: roleLinkAllowId,
+      RolID: roleId,
+      PermisoID: permissionAllowId,
+      Permitido: true,
+    });
+    await appendRow('RolPermisos', {
+      RolPermisoID: roleLinkDenyId,
+      RolID: roleId,
+      PermisoID: permissionDenyId,
+      Permitido: true,
+    });
+    await appendRow('UsuarioPermisos', {
+      UsuarioPermisoID: userLinkDenyId,
+      UsuarioID: userId,
+      PermisoID: permissionDenyId,
+      Permitido: false,
+    });
+    await appendRow('Usuarios', {
+      UsuarioID: userId,
+      NombreCompleto: 'Stage 6 User',
+      NombreUsuario: username,
+      Correo: `${username}@example.invalid`,
+      PasswordHash: hash,
+      PasswordSalt: salt,
+      CambioPasswordObligatorio: false,
+      Estado: 'ACTIVO',
+      RolID: roleId,
+      IntentosFallidos: 0,
+      BloqueadoHasta: '',
+    });
+
+    const session = await login(username, password, { ip: '127.0.0.1', userAgent: 'stage6-ci' });
+    token = session.sessionToken;
+    assert.ok(token);
+    assert.deepEqual(session.permissions, [`STAGE6_ALLOW_${suffix}`]);
+    assert.equal(session.user.PasswordHash, undefined);
+    assert.equal(session.user.PasswordSalt, undefined);
+
+    const authenticated = await authenticate(token);
+    assert.equal(authenticated.user.UsuarioID, userId);
+    assert.deepEqual(authenticated.permissions, [`STAGE6_ALLOW_${suffix}`]);
+
+    const storedSessions = await findRows('Sesiones', { UsuarioID: userId }, { limit: 10 });
+    assert.equal(storedSessions.length, 1);
+    assert.equal(String(storedSessions[0].Revocada).toLowerCase(), 'false');
+
+    await logout(token);
+    await assert.rejects(authenticate(token), (error) => Number(error?.status || error?.statusCode || 0) === 401);
+  } finally {
+    await query('DELETE FROM "Sesiones" WHERE "UsuarioID"=$1', [userId], { label: 'test.stage6.auth.sessions', write: true }).catch(() => {});
+    await query('DELETE FROM "UsuarioPermisos" WHERE "UsuarioID"=$1', [userId], { label: 'test.stage6.auth.userPerms', write: true }).catch(() => {});
+    await query('DELETE FROM "RolPermisos" WHERE "RolID"=$1', [roleId], { label: 'test.stage6.auth.rolePerms', write: true }).catch(() => {});
+    await query('DELETE FROM "Usuarios" WHERE "UsuarioID"=$1', [userId], { label: 'test.stage6.auth.user', write: true }).catch(() => {});
+    await query('DELETE FROM "Permisos" WHERE "PermisoID" = ANY($1::text[])', [[permissionAllowId, permissionDenyId]], { label: 'test.stage6.auth.perms', write: true }).catch(() => {});
+    await query('DELETE FROM "Roles" WHERE "RolID"=$1', [roleId], { label: 'test.stage6.auth.role', write: true }).catch(() => {});
+  }
+});
+
+test('SyncChanges rotates generation when schema version requires reconciliation', async () => {
+  const forcedGeneration = `legacy-generation-${suffix}`;
+  await query(
+    "UPDATE sync_state SET generation=$1,schema_version=1,unsafe=FALSE,unsafe_reason='',updated_at=NOW() WHERE singleton=TRUE",
+    [forcedGeneration],
+    { label: 'test.stage6.sync.forceLegacy', write: true },
+  );
+  await ensureSyncInfrastructure();
+  const descriptor = await getSyncDescriptor({ force: true });
+  assert.equal(descriptor.schemaVersion, 2);
+  assert.notEqual(descriptor.generation.split(':r')[0], forcedGeneration);
+  const state = await query(
+    'SELECT generation,schema_version FROM sync_state WHERE singleton=TRUE',
+    [],
+    { label: 'test.stage6.sync.state' },
+  );
+  assert.equal(Number(state.rows[0]?.schema_version), 2);
+  assert.equal(String(state.rows[0]?.generation), descriptor.generation.split(':r')[0]);
+});
+
+test('critical PostgreSQL route queries return authoritative scoped data', async () => {
+  const marker = `STAGE6_ROUTE_${suffix}`;
+  const clientId = `stage6-client-${suffix}`;
+  const maintenanceId = `stage6-maint-${suffix}`;
+  const agendaId = `stage6-agenda-${suffix}`;
+  const articleId = `stage6-article-${suffix}`;
+  const caseId = `stage6-case-${suffix}`;
+  const pendingId = `stage6-ticket-p-${suffix}`;
+  const finishedId = `stage6-ticket-f-${suffix}`;
+  const assignmentId = `stage6-assignment-${suffix}`;
+  const evidenceId = `stage6-evidence-${suffix}`;
+
+  try {
+    await appendRow('Clientes', {
+      ClienteID: clientId,
+      Nombre: marker,
+      Estado: 'ACTIVO',
+      Activo: true,
+    });
+    await appendRow('Mantenimiento', {
+      MantenimientoID: maintenanceId,
+      TituloMantenimiento: marker,
+      ClienteID: clientId,
+      Cliente: marker,
+      Estado: 'PENDIENTE',
+      Fecha: '2026-09-17',
+      Activo: true,
+    });
+    await appendRow('Agendas', {
+      AgendaID: agendaId,
+      Fecha: '2026-09-17',
+      HoraInicio: '09:00',
+      Detalle: marker,
+      Estado: 'PENDIENTE',
+      ClienteID: clientId,
+      ClienteNombre: marker,
+    });
+    await appendRow('KnowledgeArticles', {
+      TutorialID: articleId,
+      Titulo: marker,
+      ProblemaResuelto: 'Stage 6',
+      Estado: 'PUBLICADO',
+      Activo: true,
+    });
+    await appendRow('CasosClientes', {
+      CasoID: caseId,
+      CasoNumero: `TEST-${suffix}`,
+      ClienteID: clientId,
+      Cliente: marker,
+      RazonVisita: marker,
+      Problema: 'Stage 6',
+      Estado: 'EN_ESPERA',
+      FechaCreacion: '2026-09-17T10:00:00.000Z',
+      Activo: true,
+    });
+    await appendRow('Boletas', {
+      BoletaUID: pendingId,
+      BoletaID: `PRUEBA-STAGE6-P-${suffix}`,
+      EsPrueba: true,
+      Titulo: marker,
+      ClienteID: clientId,
+      Cliente: marker,
+      Estado: 'PENDIENTE',
+      Fecha: '2026-09-17',
+      Activo: true,
+    });
+    await appendRow('Boletas', {
+      BoletaUID: finishedId,
+      BoletaID: `PRUEBA-STAGE6-F-${suffix}`,
+      EsPrueba: true,
+      Titulo: marker,
+      ClienteID: clientId,
+      Cliente: marker,
+      Estado: 'FINALIZADA',
+      Fecha: '2026-09-17',
+      Activo: true,
+    });
+    await appendRow('BoletaAsignados', {
+      BoletaAsignadoID: assignmentId,
+      BoletaUID: pendingId,
+      UsuarioID: `stage6-tech-${suffix}`,
+      Activo: true,
+    });
+    await appendRow('EvidenciasBoleta', {
+      EvidenciaID: evidenceId,
+      BoletaUID: pendingId,
+      Nombre: marker,
+      Orden: 1,
+      Activo: true,
+    });
+
+    const home = await queryTicketPage({ page: 1, pageSize: 20, search: marker, homeSummary: true });
+    assert.equal(home.homeSummary.pending, 1);
+    assert.equal(home.homeSummary.finished, 1);
+
+    const pending = await queryTicketPage({ page: 1, pageSize: 20, search: marker, estado: 'PENDIENTE' });
+    assert.deepEqual(pending.items.map((row) => row.BoletaUID), [pendingId]);
+
+    const finished = await queryTicketPage({ page: 1, pageSize: 20, search: marker, estado: 'FINALIZADA' });
+    assert.deepEqual(finished.items.map((row) => row.BoletaUID), [finishedId]);
+
+    assert.equal((await findById('Boletas', pendingId)).Titulo, marker);
+    assert.equal((await findRows('BoletaAsignados', { BoletaUID: pendingId }, { limit: 20 })).length, 1);
+    assert.equal((await findRows('EvidenciasBoleta', { BoletaUID: pendingId }, { limit: 20 })).length, 1);
+
+    const maintenance = await queryPage('Mantenimiento', { page: 1, pageSize: 20, search: marker }, {
+      searchFields: ['TituloMantenimiento', 'Cliente', 'Responsables', 'DescripcionGeneral', 'Ubicacion'],
+      statusNormalized: true,
+      excludeInactive: true,
+    });
+    assert.deepEqual(maintenance.items.map((row) => row.MantenimientoID), [maintenanceId]);
+    const maintenanceSummary = await queryMaintenanceHomeSummary();
+    assert.ok(maintenanceSummary.homeSummary.pending >= 1);
+
+    const clients = await queryPage('Clientes', { page: 1, pageSize: 20, search: marker }, {
+      searchFields: ['Nombre', 'RazonSocial', 'Identificacion', 'CorreoGeneral'],
+      excludeInactive: true,
+      excludeInactiveState: true,
+    });
+    assert.deepEqual(clients.items.map((row) => row.ClienteID), [clientId]);
+
+    const agenda = await queryPage('Agendas', { page: 1, pageSize: 20, search: marker }, {
+      searchFields: ['Detalle', 'ClienteNombre'],
+      defaultOrder: [['Fecha', 'ASC'], ['HoraInicio', 'ASC']],
+    });
+    assert.deepEqual(agenda.items.map((row) => row.AgendaID), [agendaId]);
+
+    const knowledge = await queryKnowledgeArticlePage({ page: 1, pageSize: 20, search: marker }, { canManage: true });
+    assert.deepEqual(knowledge.items.map((row) => row.TutorialID), [articleId]);
+
+    const cases = await queryCustomerCasePage({ page: 1, pageSize: 20, search: marker });
+    assert.deepEqual(cases.items.map((row) => row.CasoID), [caseId]);
+  } finally {
+    await query('DELETE FROM "EvidenciasBoleta" WHERE "EvidenciaID"=$1', [evidenceId], { label: 'test.stage6.routes.evidence', write: true }).catch(() => {});
+    await query('DELETE FROM "BoletaAsignados" WHERE "BoletaAsignadoID"=$1', [assignmentId], { label: 'test.stage6.routes.assignment', write: true }).catch(() => {});
+    await query('DELETE FROM "Boletas" WHERE "BoletaUID" = ANY($1::text[])', [[pendingId, finishedId]], { label: 'test.stage6.routes.tickets', write: true }).catch(() => {});
+    await query('DELETE FROM "CasosClientes" WHERE "CasoID"=$1', [caseId], { label: 'test.stage6.routes.case', write: true }).catch(() => {});
+    await query('DELETE FROM "KnowledgeArticles" WHERE "TutorialID"=$1', [articleId], { label: 'test.stage6.routes.knowledge', write: true }).catch(() => {});
+    await query('DELETE FROM "Agendas" WHERE "AgendaID"=$1', [agendaId], { label: 'test.stage6.routes.agenda', write: true }).catch(() => {});
+    await query('DELETE FROM "Mantenimiento" WHERE "MantenimientoID"=$1', [maintenanceId], { label: 'test.stage6.routes.maintenance', write: true }).catch(() => {});
+    await query('DELETE FROM "Clientes" WHERE "ClienteID"=$1', [clientId], { label: 'test.stage6.routes.client', write: true }).catch(() => {});
+  }
+});
 
 test('duplicate-tolerant repository preserves Sheets first-read / last-update semantics', async () => {
   const key = `TEST_DUP_${suffix}`;

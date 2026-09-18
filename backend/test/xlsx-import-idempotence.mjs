@@ -18,7 +18,6 @@ const env = {
   ...process.env,
   NODE_ENV: 'test',
   TEST_DATABASE_URL: testDatabaseUrl,
-  DATABASE_URL: testDatabaseUrl,
   PG_SSL_MODE: 'disable',
 };
 
@@ -46,9 +45,17 @@ test('same XLSX SHA is applied once and a second import is a no-op', async () =>
       ws.addRow(spec.columns);
     }
     const config = workbook.getWorksheet('Configuracion');
-    config.addRow(config.getRow(1).values.slice(1).map((header) => {
+    const configRow = (value) => config.getRow(1).values.slice(1).map((header) => {
       if (header === 'Clave') return 'IDEMPOTENCE_TEST';
-      if (header === 'Valor') return 'once';
+      if (header === 'Valor') return value;
+      return '';
+    });
+    config.addRow(configRow('first'));
+    config.addRow(configRow('second'));
+
+    const malformed = workbook.getWorksheet('FirmaMantenimientoSolicitudes');
+    malformed.addRow(malformed.getRow(1).values.slice(1).map((header) => {
+      if (header === 'Estado') return 'DESPLAZADO';
       return '';
     }));
     await workbook.xlsx.writeFile(file);
@@ -60,7 +67,11 @@ test('same XLSX SHA is applied once and a second import is a no-op', async () =>
       SELECT
         (SELECT COUNT(*)::int FROM migration_runs WHERE status='APPLIED') AS runs,
         (SELECT COUNT(*)::int FROM migration_sheet_rows) AS raw_rows,
-        (SELECT COUNT(*)::int FROM "Configuracion") AS config_rows
+        (SELECT COUNT(*)::int FROM "Configuracion") AS config_rows,
+        (SELECT COUNT(*)::int FROM "FirmaMantenimientoSolicitudes") AS signature_rows,
+        (SELECT COUNT(*)::int FROM "FirmaMantenimientoSolicitudes" WHERE "__valid"=FALSE) AS invalid_rows,
+        (SELECT COUNT(*)::int FROM migration_anomalies WHERE anomaly_type='DUPLICATE_ID') AS duplicate_anomalies,
+        (SELECT COUNT(*)::int FROM migration_anomalies WHERE anomaly_type='MALFORMED_ROW') AS malformed_anomalies
     `);
 
     const second = runNode(['src/scripts/db-import-xlsx.js', '--file', file, '--apply']);
@@ -70,13 +81,21 @@ test('same XLSX SHA is applied once and a second import is a no-op', async () =>
       SELECT
         (SELECT COUNT(*)::int FROM migration_runs WHERE status='APPLIED') AS runs,
         (SELECT COUNT(*)::int FROM migration_sheet_rows) AS raw_rows,
-        (SELECT COUNT(*)::int FROM "Configuracion") AS config_rows
+        (SELECT COUNT(*)::int FROM "Configuracion") AS config_rows,
+        (SELECT COUNT(*)::int FROM "FirmaMantenimientoSolicitudes") AS signature_rows,
+        (SELECT COUNT(*)::int FROM "FirmaMantenimientoSolicitudes" WHERE "__valid"=FALSE) AS invalid_rows,
+        (SELECT COUNT(*)::int FROM migration_anomalies WHERE anomaly_type='DUPLICATE_ID') AS duplicate_anomalies,
+        (SELECT COUNT(*)::int FROM migration_anomalies WHERE anomaly_type='MALFORMED_ROW') AS malformed_anomalies
     `);
 
     assert.deepEqual(after.rows[0], before.rows[0]);
     assert.equal(after.rows[0].runs, 1);
-    assert.equal(after.rows[0].raw_rows, 1);
-    assert.equal(after.rows[0].config_rows, 1);
+    assert.equal(after.rows[0].raw_rows, 3);
+    assert.equal(after.rows[0].config_rows, 2);
+    assert.equal(after.rows[0].signature_rows, 1);
+    assert.equal(after.rows[0].invalid_rows, 1);
+    assert.equal(after.rows[0].duplicate_anomalies, 1);
+    assert.equal(after.rows[0].malformed_anomalies, 1);
   } finally {
     await pool.end();
     await rm(dir, { recursive: true, force: true });
