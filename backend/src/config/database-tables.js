@@ -7,6 +7,17 @@ const catalogMatch = migrationSql.match(/\$catalog\$([\s\S]+?)\$catalog\$::jsonb
 if (!catalogMatch) throw new Error('No se pudo cargar el catálogo PostgreSQL versionado.');
 const RAW_TABLES = JSON.parse(catalogMatch[1]);
 export const RUNTIME_COLUMN_EXTENSIONS = Object.freeze({
+  KnowledgeAttachments: Object.freeze([
+    'SizeBytes',
+    'IsPrimary',
+    'ExtractionStatus',
+    'ExtractionError',
+    'IndexedAt',
+    'SearchText',
+    'Status',
+    'ActualizadoPor',
+    'FechaActualizacion',
+  ]),
   Mantenimiento: Object.freeze([
     'CarpetaDriveID',
     'CarpetaDriveURL',
