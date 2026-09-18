@@ -124,7 +124,9 @@ export const MODULE_ROUTES = {
     delete: ['knowledge.delete', 'baseConocimientos.delete', 'conocimiento.delete', 'tutorials.delete'],
     attachmentUpload: ['knowledge.attachments.upload', 'baseConocimientos.adjuntos.upload', 'conocimiento.adjuntos.upload'],
     attachmentDelete: ['knowledge.attachments.delete', 'baseConocimientos.adjuntos.delete', 'conocimiento.adjuntos.delete'],
-    mediaGet: ['knowledge.media.get', 'baseConocimientos.media.get', 'conocimiento.media.get'],
+    attachmentPrimary: ['knowledge.attachments.primary', 'knowledge.documents.primary'],
+    attachmentReindex: ['knowledge.attachments.reindex', 'knowledge.documents.reindex'],
+    mediaGet: ['knowledge.media.get', 'knowledge.documents.access', 'baseConocimientos.media.get', 'conocimiento.media.get'],
   },
   knowledgeCategories: {
     list: ['knowledge.categories.list', 'baseConocimientos.categorias.list', 'categoriasConocimiento.list'],
