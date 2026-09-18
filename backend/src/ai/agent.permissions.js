@@ -18,6 +18,7 @@ export function aiAccess(ctx = {}) {
     'MANTENIMIENTOS_CREAR',
     'MANTENIMIENTOS_EDITAR',
     'MANTENIMIENTOS_GESTIONAR',
+    'BOLETAS_VER',
   ].some((code) => has(ctx, code));
   return {
     admin,
