@@ -68,7 +68,8 @@ test('ticket Home summary keeps the existing technician-assignment visibility ga
 
   const queries = read('backend/src/infra/postgres.repository.queries.js');
   assert.match(queries, /allowedIds instanceof Set/);
-  assert.match(queries, /"BoletaUID"=ANY\(\$\$?\{?params\.length\}?::text\[\]\)/);
+  assert.match(queries, /"BoletaUID"=ANY/);
+  assert.match(queries, /String\.fromCharCode\(36\) \+ params\.length/);
   assert.match(queries, /COUNT\(\*\) FILTER \(WHERE \$\{statusSql\}='PENDIENTE'\)/);
   assert.match(queries, /COUNT\(\*\) FILTER \(WHERE \$\{statusSql\}='FINALIZADA'\)/);
 });
