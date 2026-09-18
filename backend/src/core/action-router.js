@@ -5,7 +5,7 @@ import { login, authenticate, logout, changePassword } from '../services/auth.se
 import { safeUser } from '../services/permissions.service.js';
 import { rewriteTechnicalReport } from '../services/gemini.service.js';
 import { rewriteKnowledgeTutorial } from '../services/knowledge-gemini.service.js';
-import { aiAgentHandlers as assistantOperationalReportHandlers } from '../ai/agent.module.js';
+import { assistantAgendaHandlers as assistantOperationalReportHandlers } from '../modules/assistant-agenda.module.js';
 import { agendaHandlers } from '../modules/agenda.module.js';
 import { agendaResendHandlers } from '../modules/agenda-resend.module.js';
 import { usersHandlers } from '../modules/users.module.js';
@@ -53,7 +53,6 @@ add(['agenda.resend.email','agendas.resend.email','agenda.reenviar.correo'],agen
 add(['agenda.resend.chat','agendas.resend.chat','agenda.reenviar.chat'],agendaResendHandlers.chat,'USUARIOS_GESTIONAR');
 add(['config.get','app.config.get'],getClientConfig);
 add(['assistant.chat','asistente.chat'],assistantOperationalReportHandlers.chat);
-add(['assistant.health','asistente.health'],assistantOperationalReportHandlers.health,'USUARIOS_GESTIONAR');
 add(['metrics.tickets.get','metricas.boletas.get'],metricsHandlers.tickets,'USUARIOS_GESTIONAR');
 add(['metrics.maintenance.get','metricas.mantenimientos.get'],metricsHandlers.maintenance,'USUARIOS_GESTIONAR');
 add(['legacy.tickets.preview','migracion.boletas.previsualizar'],legacyTicketImportHandlers.preview,'USUARIOS_GESTIONAR');
