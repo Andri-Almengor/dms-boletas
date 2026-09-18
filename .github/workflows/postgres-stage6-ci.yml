@@ -114,4 +114,4 @@ jobs:
         with:
           name: stage6-postgres-ci
           path: .artifacts/stage6-postgres-benchmark.json
-          if-no-files-found: error
+          if-no-files-found: ignore

@@ -20,8 +20,8 @@ function run(args) {
 }
 
 for (const [name, args] of [
-  ['postgres integration suite', ['--test', 'test/postgres-integration.mjs']],
-  ['XLSX import idempotence suite', ['--test', 'test/xlsx-import-idempotence.mjs']],
+  ['postgres integration suite', ['test/postgres-integration.mjs']],
+  ['XLSX import idempotence suite', ['test/xlsx-import-idempotence.mjs']],
   ['test database reset', ['src/scripts/db-test-reset.js']],
 ]) {
   test(`Stage 6 safety: ${name} refuses DATABASE_URL without TEST_DATABASE_URL`, () => {
