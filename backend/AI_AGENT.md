@@ -106,7 +106,7 @@ Cada petición registra métricas acumuladas de:
 - bytes de respuesta;
 - errores.
 
-`assistant.health` está disponible solo para `USUARIOS_GESTIONAR` y no forma parte del health general de DMS. Una caída de Gemini no marca `/api/health` como caído.
+`GET /api/ai/health` está disponible solo para `USUARIOS_GESTIONAR` y no forma parte del health general de DMS. Una caída de Gemini no marca `/api/health` como caído.
 
 La auditoría `AI_CHAT` guarda modelo, tools, duración y si hubo búsqueda web. No guarda prompts completos, secretos ni URLs firmadas.
 
