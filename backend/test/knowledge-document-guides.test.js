@@ -232,3 +232,28 @@ test('Troubleshooting follow-ups preserve the active product and advance instead
   assert.match(backend, /successfulTests/);
   assert.match(backend, /failedTests/);
 });
+
+
+test('Production startup applies Knowledge schema migrations before accepting document uploads', async () => {
+  const packageJson = JSON.parse(source('../package.json'));
+  assert.match(packageJson.scripts.prestart || '', /db-migrate\.js|db:migrate/);
+
+  const repairMigration = source('../migrations/014_knowledge_attachment_runtime_columns_guard.sql');
+  for (const column of [
+    'SizeBytes',
+    'IsPrimary',
+    'ExtractionStatus',
+    'ExtractionError',
+    'IndexedAt',
+    'SearchText',
+    'Status',
+    'ActualizadoPor',
+    'FechaActualizacion',
+  ]) {
+    assert.match(repairMigration, new RegExp(`"${column}"`), column);
+  }
+
+  const server = source('../src/server.js');
+  assert.match(server, /startup\.knowledge_schema/);
+  assert.match(server, /"SizeBytes","IsPrimary","ExtractionStatus","Status"/);
+});
