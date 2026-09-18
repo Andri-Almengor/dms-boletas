@@ -403,6 +403,9 @@ export async function runDmsAgent(ctx, overrides = {}){
           const toolStarted=performance.now();
           const knowledgeCall=knowledgeToolName(call.name);
           if(knowledgeCall){
+            if(call.name==='search_knowledge_base')knowledgeFlow.articleSearches+=1;
+            if(call.name==='search_knowledge_documents')knowledgeFlow.documentSearches+=1;
+            if(call.name==='search_knowledge_document_chunks')knowledgeFlow.chunkSearches+=1;
             console.info('[ai-knowledge] '+JSON.stringify({
               event:'knowledge_tool_called',domainEvent:'ai_knowledge_search_started',
               requestId:clean(ctx.requestId,120),userIdHash:hashAiUser(ctx),toolName:call.name,
@@ -423,15 +426,13 @@ export async function runDmsAgent(ctx, overrides = {}){
               const modelData=measured.result.modelData||{};
               const totalShown=Number(modelData.totalShown||0);
               const items=Array.isArray(modelData.items)?modelData.items:[];
-              if(call.name==='search_knowledge_base'){
-                knowledgeFlow.articleSearches+=1;knowledgeFlow.articleResults+=totalShown;
-              }
+              if(call.name==='search_knowledge_base')knowledgeFlow.articleResults+=totalShown;
               if(call.name==='search_knowledge_documents'){
-                knowledgeFlow.documentSearches+=1;knowledgeFlow.documentsFound+=totalShown;
+                knowledgeFlow.documentsFound+=totalShown;
                 knowledgeFlow.readyDocuments+=items.filter((item)=>['READY','INDEXED'].includes(String(item?.state||item?.extractionStatus||'').toUpperCase())).length;
               }
               if(call.name==='search_knowledge_document_chunks'){
-                knowledgeFlow.chunkSearches+=1;knowledgeFlow.chunksFound+=totalShown;knowledgeChunks+=totalShown;
+                knowledgeFlow.chunksFound+=totalShown;knowledgeChunks+=totalShown;
               }
               const state=clean(modelData.state,80)|| (totalShown?'OK':'NO_RESULTS');
               const extractionStatus=clean(modelData.document?.extractionStatus||items[0]?.extractionStatus,80);
