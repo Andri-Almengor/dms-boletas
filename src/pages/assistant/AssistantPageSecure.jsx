@@ -53,6 +53,23 @@ function pageContextFromRoute(route) {
   return { route: cleanRoute };
 }
 
+
+function imageFileToPayload(file) {
+  return new Promise((resolve, reject) => {
+    const reader = new FileReader();
+    reader.onerror = () => reject(new Error(`No se pudo leer ${file.name}.`));
+    reader.onload = () => {
+      const value = String(reader.result || '');
+      resolve({
+        name: file.name,
+        mimeType: file.type || 'image/jpeg',
+        data: value.includes(',') ? value.slice(value.indexOf(',') + 1) : value,
+      });
+    };
+    reader.readAsDataURL(file);
+  });
+}
+
 function messageId() {
   return crypto.randomUUID?.() || `${Date.now()}-${Math.random()}`;
 }
@@ -568,6 +585,7 @@ export default function AssistantPageSecure() {
   const [context, setContext] = useState(() => readJson(contextKey, {}));
   const [conversationId] = useState(() => localStorage.getItem(conversationKey) || messageId());
   const [input, setInput] = useState('');
+  const [imageFiles, setImageFiles] = useState([]);
   const [sending, setSending] = useState(false);
   const [error, setError] = useState('');
   const endRef = useRef(null);
@@ -595,18 +613,22 @@ export default function AssistantPageSecure() {
 
   async function sendQuestion(rawQuestion, contextPatch = {}) {
     const question = String(rawQuestion || '').trim();
-    if (!question || sending) return;
-    const userMessage = { id: messageId(), role: 'user', text: question, sensitive: false };
+    if ((!question && !imageFiles.length) || sending) return;
+    const selectedImages = [...imageFiles];
+    const userMessage = { id: messageId(), role: 'user', text: question || 'Analiza esta captura.', sensitive: false, imageNames: selectedImages.map((file) => file.name) };
     const nextMessages = [...messages, userMessage];
     const nextContext = { ...context, ...contextPatch, pageContext };
     setMessages(nextMessages);
     setInput('');
+    setImageFiles([]);
     setError('');
     setSending(true);
 
     try {
+      const attachments = await Promise.all(selectedImages.map(imageFileToPayload));
       const response = await apiRequest('assistant.chat', {
-        message: question,
+        message: question || 'Analiza esta captura y ayúdame a diagnosticar el problema.',
+        attachments,
         conversationId,
         history: historyForRequest(nextMessages.slice(0, -1)),
         context: nextContext,
@@ -651,9 +673,23 @@ export default function AssistantPageSecure() {
     setMessages(cleanMessages);
     setContext({});
     setInput('');
+    setImageFiles([]);
     setError('');
     localStorage.removeItem(messagesKey);
     localStorage.removeItem(contextKey);
+  }
+
+  function selectDiagnosticImages(event) {
+    const files = [...(event.target.files || [])];
+    const invalid = files.find((file) => !String(file.type || '').startsWith('image/'));
+    const tooLarge = files.find((file) => file.size > 10 * 1024 * 1024);
+    if (invalid) setError('Solo se permiten imágenes para el análisis visual del asistente.');
+    else if (tooLarge) setError('La captura supera el tamaño seguro de análisis de 10 MB.');
+    else {
+      setError('');
+      setImageFiles((current) => [...current, ...files].slice(0, 3));
+    }
+    event.target.value = '';
   }
 
   function submit(event) {
@@ -715,7 +751,9 @@ export default function AssistantPageSecure() {
 
         <form className="assistant-composer" onSubmit={submit} data-no-draft>
           {error && <span className="assistant-composer__error"><Icon name="error" />{error}</span>}
+          {imageFiles.length > 0 && <div className="assistant-image-queue">{imageFiles.map((file, index) => <span key={`${file.name}-${file.lastModified}-${index}`}><Icon name="image" />{file.name}<button type="button" onClick={() => setImageFiles((current) => current.filter((_, itemIndex) => itemIndex !== index))} aria-label={`Quitar ${file.name}`}><Icon name="close" /></button></span>)}</div>}
           <div>
+            <label className="assistant-attach-button" title="Adjuntar captura para diagnóstico"><input type="file" accept="image/*" multiple hidden onChange={selectDiagnosticImages} disabled={sending} /><Icon name="attach_file" /></label>
             <textarea
               value={input}
               onChange={(event) => setInput(event.target.value)}
@@ -726,7 +764,7 @@ export default function AssistantPageSecure() {
               disabled={sending}
               aria-label="Pregunta para el asistente"
             />
-            <button className="button button--primary" type="submit" disabled={sending || !input.trim()} aria-label="Enviar pregunta">
+            <button className="button button--primary" type="submit" disabled={sending || (!input.trim() && !imageFiles.length)} aria-label="Enviar pregunta">
               <Icon name={sending ? 'progress_activity' : 'send'} />
               <span>Enviar</span>
             </button>
