@@ -14,6 +14,7 @@ const { appendRow, findById, nextCustomerCaseNumber, queryTicketPage, readTable,
 const { closePostgres, query, withTransaction } = await import('../src/infra/postgres.js');
 const { appendSyncChanges, getSyncCursor, readSyncChangesAfter } = await import('../src/services/sync-change.service.js');
 const { createPortablePostgresBackupFile, cleanupPortableBackup } = await import('../src/services/postgres-backup.service.js');
+const { reconcileCustomerCases } = await import('../src/services/customer-case-sync.service.js');
 
 const suffix = `${Date.now()}-${Math.random().toString(16).slice(2)}`;
 
@@ -81,6 +82,73 @@ test('customer case numbering is serialized through the same transaction as the 
       'DELETE FROM "CasosClientes" WHERE "CasoID" = ANY($1::text[])',
       [ids],
       { label: 'test.caseNumber.cleanup', write: true },
+    ).catch(() => {});
+  }
+});
+
+test('customer case reconciliation keeps both historical matching paths with bounded SQL candidates', async () => {
+  const directCaseId = `reconcile-direct-${suffix}`;
+  const originCaseId = `reconcile-origin-${suffix}`;
+  const directTicketId = `reconcile-ticket-direct-${suffix}`;
+  const originTicketId = `reconcile-ticket-origin-${suffix}`;
+  const finalizedAt = '2026-09-17T18:00:00.000Z';
+
+  try {
+    await appendRow('CasosClientes', {
+      CasoID: directCaseId,
+      CasoNumero: `TEST-DIRECT-${suffix}`,
+      Estado: 'EN_PROCESO',
+      BoletaUID: directTicketId,
+      Activo: true,
+    });
+    await appendRow('CasosClientes', {
+      CasoID: originCaseId,
+      CasoNumero: `TEST-ORIGIN-${suffix}`,
+      Estado: 'EN_ESPERA',
+      BoletaUID: '',
+      BoletaID: '',
+      Activo: true,
+    });
+    await appendRow('Boletas', {
+      BoletaUID: directTicketId,
+      BoletaID: `PRUEBA-RECON-DIRECT-${suffix}`,
+      EsPrueba: true,
+      Estado: 'FINALIZADA',
+      FinalizadaEn: finalizedAt,
+      Activo: true,
+    });
+    await appendRow('Boletas', {
+      BoletaUID: originTicketId,
+      BoletaID: `PRUEBA-RECON-ORIGIN-${suffix}`,
+      EsPrueba: true,
+      Estado: 'FINALIZADA',
+      OrigenCasoID: originCaseId,
+      FinalizadaEn: finalizedAt,
+      Activo: true,
+    });
+
+    const updated = await reconcileCustomerCases('TEST');
+    assert.equal(updated, 2);
+
+    const direct = await findById('CasosClientes', directCaseId);
+    assert.equal(direct.Estado, 'FINALIZADO');
+    assert.equal(direct.FechaFinalizacion, finalizedAt);
+
+    const origin = await findById('CasosClientes', originCaseId);
+    assert.equal(origin.Estado, 'FINALIZADO');
+    assert.equal(origin.BoletaUID, originTicketId);
+    assert.equal(origin.BoletaID, `PRUEBA-RECON-ORIGIN-${suffix}`);
+    assert.equal(origin.FechaFinalizacion, finalizedAt);
+  } finally {
+    await query(
+      'DELETE FROM "Boletas" WHERE "BoletaUID" = ANY($1::text[])',
+      [[directTicketId, originTicketId]],
+      { label: 'test.caseReconcile.ticketCleanup', write: true },
+    ).catch(() => {});
+    await query(
+      'DELETE FROM "CasosClientes" WHERE "CasoID" = ANY($1::text[])',
+      [[directCaseId, originCaseId]],
+      { label: 'test.caseReconcile.caseCleanup', write: true },
     ).catch(() => {});
   }
 });
