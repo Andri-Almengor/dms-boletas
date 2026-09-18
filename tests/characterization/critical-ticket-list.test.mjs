@@ -5,12 +5,26 @@ import { selectTicketPage } from '../../backend/src/services/ticket-list-query.s
 import { referenceTicketList } from '../fixtures/ticket-list-reference.mjs';
 import { criticalTickets } from '../fixtures/critical-tickets.mjs';
 
-function loadHandler(tables, reads) {
+function loadHandler(tables, calls) {
   const source = readFileSync(new URL('../../backend/src/modules/ticket-access.module.js', import.meta.url), 'utf8')
     .replace(/^import .*;\n/gm, '').replace('export const ticketAccessHandlers', 'const ticketAccessHandlers');
-  return new Function('readTables', 'selectTicketPage', `${source}; return ticketAccessHandlers.list;`)(async names => {
-    reads.push(names); return Object.fromEntries(names.map(name => [name, tables[name]]));
-  }, selectTicketPage);
+  const queryTicketPage = async (payload, { assignedUserId = '' } = {}) => {
+    calls.push({ payload, assignedUserId });
+    const assigned = String(assignedUserId || '').trim();
+    const allowedIds = assigned
+      ? new Set((tables.BoletaAsignados || [])
+        .filter((row) => row.Activo !== false
+          && String(row.Activo ?? 'true').toLowerCase() !== 'false'
+          && String(row.UsuarioID || '').trim() === assigned)
+        .map((row) => String(row.BoletaUID || '').trim())
+        .filter(Boolean))
+      : null;
+    return selectTicketPage(tables.Boletas, payload, allowedIds);
+  };
+  return new Function('queryTicketPage', 'selectTicketPage', `${source}; return ticketAccessHandlers.list;`)(
+    queryTicketPage,
+    selectTicketPage,
+  );
 }
 for (const count of [1000, 10000]) {
   test(`listas reales: equivalencia con ${count} boletas, admin/técnico, estados y páginas`, async () => {
@@ -38,7 +52,7 @@ test('Home: resumen coincide con los dos conteos anteriores, últimas 3 con el l
       pending: referenceTicketList(tables, { ...ctx, admin, payload: { pageSize: 1, status: 'PENDIENTE', estado: 'PENDIENTE' } }).total,
       finished: referenceTicketList(tables, { ...ctx, admin, payload: { pageSize: 1, status: 'FINALIZADA', estado: 'FINALIZADA' } }).total,
     } });
-    assert.deepEqual(reads.at(-1), admin ? ['Boletas'] : ['Boletas', 'BoletaAsignados']);
+    assert.equal(reads.at(-1)?.assignedUserId, admin ? '' : 'u0');
   }
 });
 test('top K conserva empates estables, entradas históricas de paginación y snapshot original', () => {
