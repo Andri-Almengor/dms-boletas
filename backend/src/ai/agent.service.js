@@ -342,14 +342,29 @@ export async function runDmsAgent(ctx, overrides = {}){
       const calls=functionCalls(interaction);
       if(!calls.length){
         const hasInternalTool=toolNames.length>0;
-        const hasKnowledgeTool=toolNames.some(name=>/^search_knowledge_|^get_knowledge_/.test(name));
-        if(round<aiConfig.maxToolRounds-1&&((internalEvidenceRequired&&tools.length&&!hasInternalTool)||(knowledgeRequired&&tools.length&&!hasKnowledgeTool))){
-          timeline.push({
-            type:'user_input',
-            content:[{type:'text',text:knowledgeRequired&&!hasKnowledgeTool
-              ? 'Antes de responder, consulta Knowledge y sus documentos internos relevantes. No inventes un procedimiento interno.'
-              : 'Antes de responder esta pregunta sobre DMS, consulta una de las herramientas internas disponibles. No respondas datos internos desde conocimiento general.'}],
-          });
+        const hasKnowledgeTool=toolNames.some(knowledgeToolName);
+        const exposed=new Set(toolsetNames(tools));
+        const needFirstKnowledgeCall=knowledgeRequired&&exposedKnowledgeTools.length&&!hasKnowledgeTool;
+        const needArticleSearch=knowledgeDocumentRequired&&exposed.has('search_knowledge_base')&&knowledgeFlow.articleSearches===0;
+        const needDocumentSearch=knowledgeRequired&&exposed.has('search_knowledge_documents')&&knowledgeFlow.documentSearches===0;
+        const needChunkSearch=knowledgeFlow.documentsFound>0&&knowledgeFlow.readyDocuments>0
+          &&exposed.has('search_knowledge_document_chunks')&&knowledgeFlow.chunkSearches===0;
+        const retryChunkSearch=knowledgeFlow.documentsFound>0&&knowledgeFlow.readyDocuments>0
+          &&knowledgeFlow.chunkSearches>0&&knowledgeFlow.chunksFound===0&&knowledgeFlow.chunkSearches<2
+          &&exposed.has('search_knowledge_document_chunks');
+        if(round<aiConfig.maxToolRounds-1&&(needFirstKnowledgeCall||needArticleSearch||needDocumentSearch||needChunkSearch||retryChunkSearch
+          ||(internalEvidenceRequired&&tools.length&&!hasInternalTool))){
+          let instruction='Antes de responder esta pregunta sobre DMS, consulta una de las herramientas internas disponibles. No respondas datos internos desde conocimiento general.';
+          if(needFirstKnowledgeCall||needArticleSearch){
+            instruction='Antes de responder, consulta search_knowledge_base con los términos técnicos significativos. Después continúa a documentos si existe documentación relacionada.';
+          }else if(needDocumentSearch){
+            instruction='La consulta interna todavía no está completa. Usa search_knowledge_documents aunque el artículo tenga ContenidoHTML vacío; busca por producto, modelo, categoría y nombre del documento.';
+          }else if(needChunkSearch){
+            instruction='Encontraste un documento interno indexado. Antes de decir qué contiene, usa search_knowledge_document_chunks sobre el documento relevante y recupera solo fragmentos pertinentes.';
+          }else if(retryChunkSearch){
+            instruction='La primera búsqueda dentro del documento no encontró fragmentos. Reformula una vez la búsqueda con términos equivalentes técnicos del mismo tema y vuelve a usar search_knowledge_document_chunks. No cargues el documento completo.';
+          }
+          timeline.push({type:'user_input',content:[{type:'text',text:instruction}]});
           continue;
         }
         if(internalEvidenceRequired&&tools.length&&!hasInternalTool)throw new AppError('AI_INTERNAL_SOURCE_REQUIRED','No fue posible verificar la información interna solicitada. Intente nuevamente.',502);
