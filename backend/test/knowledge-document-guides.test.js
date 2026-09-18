@@ -257,3 +257,15 @@ test('Production startup applies Knowledge schema migrations before accepting do
   assert.match(server, /startup\.knowledge_schema/);
   assert.match(server, /"SizeBytes","IsPrimary","ExtractionStatus","Status"/);
 });
+
+
+test('Knowledge inline PDF stream overrides global frame denial only for same-origin DMS viewer', () => {
+  const app = source('../src/app.js');
+  const media = source('../src/services/protected-media-stream.service.js');
+
+  assert.match(app, /frameAncestors:\s*\["'none'"\]/);
+  assert.match(media, /media\.kind !== 'knowledge-document' \|\| media\.disposition !== 'inline'/);
+  assert.match(media, /frame-ancestors 'self'/);
+  assert.match(media, /X-Frame-Options', 'SAMEORIGIN'/);
+  assert.doesNotMatch(media, /frame-ancestors \*/);
+});
