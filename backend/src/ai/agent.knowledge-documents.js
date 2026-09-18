@@ -261,7 +261,7 @@ async function drainKnowledgeIndexQueue(){
 export function queueKnowledgeDocumentIndexing(row,actor=''){
   if(!aiConfig.knowledgeDocumentsEnabled||!row)return false;
   const status=String(row.ExtractionStatus||row.extractionStatus||'').toUpperCase();
-  if(['INDEXED','UNSUPPORTED','EMPTY'].includes(status))return false;
+  if(['INDEXED','UNSUPPORTED','EMPTY','FAILED'].includes(status))return false;
   const payload=indexingPayload(row,actor);
   if(!payload.documentId||!payload.articleId||!payload.fileId)return false;
   if(KNOWLEDGE_INDEX_QUEUED.has(payload.documentId))return true;
