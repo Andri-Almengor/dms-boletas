@@ -439,7 +439,14 @@ function detailHarness({ optimized, count, legacy = false, permission = 'BOLETAS
   };
   const ticketAccessHandlers = load(getSource('backend/src/modules/ticket-access.module.js'), {
     ...errors,
+    findById,
+    findRows,
+    findTicketByStoredFileId: async () => null,
+    queryTicketPage: listQueryTicketPage,
     readTable,
+    readTables,
+    ticketHandlers: {},
+    selectTicketPage,
     pick,
   }, 'ticketAccessHandlers').ticketAccessHandlers;
   const { assertTicketPayloadAccess } = load(getSource('backend/src/services/ticket-access.service.js'), {
