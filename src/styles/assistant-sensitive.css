@@ -213,13 +213,10 @@
 }
 
 .assistant-composer__row {
-  display: flex;
-  align-items: flex-end;
-  gap: 8px;
+  min-width: 0;
 }
 
 .assistant-composer__row textarea {
-  flex: 1;
   min-width: 0;
 }
 
@@ -460,10 +457,10 @@
   }
 
   .assistant-composer__row {
-    align-items: stretch;
+    align-items: end;
   }
 
   .assistant-attach-button {
-    align-self: flex-end;
+    align-self: end;
   }
 }
