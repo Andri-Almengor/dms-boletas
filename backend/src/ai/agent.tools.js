@@ -51,6 +51,7 @@ export const TOOL_DECLARATIONS=Object.freeze({
   get_maintenance:fn('get_maintenance','Obtiene resumen completo de un mantenimiento, categorías y supervisores.',{maintenanceId:{type:'string'}},['maintenanceId']),
   get_maintenance_devices:fn('get_maintenance_devices','Lista dispositivos de un mantenimiento y puede filtrar por tipo u observaciones.',{maintenanceId:{type:'string'},query:{type:'string'},type:{type:'string'},observationsOnly:{type:'boolean'},limit:{type:'integer',minimum:1,maximum:50},offset:{type:'integer',minimum:0}},['maintenanceId']),
   get_maintenance_evidence:fn('get_maintenance_evidence','Obtiene imágenes, videos o archivos de dispositivos de un mantenimiento como attachments seguros.',{maintenanceId:{type:'string'},deviceIds:{type:'array',items:{type:'string'}},type:{type:'string'},limit:{type:'integer',minimum:1,maximum:50}},['maintenanceId']),
+  get_maintenance_history:fn('get_maintenance_history','Obtiene el historial de auditoría de un mantenimiento autorizado.',{maintenanceId:{type:'string'},limit:{type:'integer',minimum:1,maximum:50}},['maintenanceId']),
   search_devices:fn('search_devices','Busca dispositivos por nombre, tipo, marca, modelo, serie, MAC, zona u observación.',{query:{type:'string'},limit:{type:'integer',minimum:1,maximum:50}},['query']),
   search_knowledge_base:fn('search_knowledge_base','Busca primero procedimientos y conocimiento interno de DMS.',{query:{type:'string'},limit:{type:'integer',minimum:1,maximum:20}},['query']),
   get_knowledge_article:fn('get_knowledge_article','Obtiene el contenido autorizado de un artículo de Knowledge Base.',{articleId:{type:'string'}},['articleId']),
@@ -69,7 +70,7 @@ function allowedNames(ctx){
   if(access.clients) names.push('search_clients','get_client');
   if(access.users) names.push('search_users');
   if(access.tickets) names.push('search_tickets','get_ticket','get_ticket_evidence','get_ticket_history','get_technician_activity','search_evidence_activity');
-  if(access.maintenance) names.push('search_maintenances','get_maintenance','get_maintenance_devices','get_maintenance_evidence','search_devices');
+  if(access.maintenance) names.push('search_maintenances','get_maintenance','get_maintenance_devices','get_maintenance_evidence','get_maintenance_history','search_devices');
   if(access.knowledge) names.push('search_knowledge_base','get_knowledge_article');
   if(access.cases) names.push('search_cases','get_case');
   if(access.admin) names.push('search_network_devices');
