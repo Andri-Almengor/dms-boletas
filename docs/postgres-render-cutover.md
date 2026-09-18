@@ -47,7 +47,7 @@ Keep the workbook outside Git. Then run:
 
 ```bash
 npm --prefix backend run db:import:xlsx -- \
-  --file './DMS_WebApp_DB (1)(2).xlsx' \
+  --file './DMS_WebApp_DB (1)(6).xlsx' \
   --dry-run
 ```
 
@@ -59,7 +59,7 @@ For the first import into an empty database:
 
 ```bash
 npm --prefix backend run db:import:xlsx -- \
-  --file './DMS_WebApp_DB (1)(2).xlsx' \
+  --file './DMS_WebApp_DB (1)(6).xlsx' \
   --apply
 ```
 
@@ -69,12 +69,12 @@ If a controlled rehearsal must be repeated against a disposable database, use `-
 
 ```bash
 npm --prefix backend run db:verify -- \
-  --file './DMS_WebApp_DB (1)(2).xlsx'
+  --file './DMS_WebApp_DB (1)(6).xlsx'
 
 npm --prefix backend run db:benchmark
 ```
 
-Verification must show that every workbook data row exists in raw migration storage. Legacy rows are preserved raw but are not reactivated as runtime tables. The two malformed maintenance-signature rows remain preserved and canonical-invalid by design.
+Verification must show that every workbook data row exists in raw migration storage. Legacy rows are preserved raw but are not reactivated as runtime tables. The two malformed maintenance-signature rows remain preserved and canonical-invalid by design. The final applied source SHA is `43ed235976eb09618369dd74555f34922dd85f8149f42f0e1ed1bc74e238395a`.
 
 ## 7. Integration tests
 
@@ -94,7 +94,7 @@ Before deployment, add these environment variables to the existing DMS web servi
 
 ```text
 DATABASE_URL=<RENDER_INTERNAL_DATABASE_URL>
-PG_POOL_MAX=4
+PG_POOL_MAX=3
 PG_IDLE_TIMEOUT_MS=30000
 PG_CONNECTION_TIMEOUT_MS=8000
 PG_STATEMENT_TIMEOUT_MS=60000
@@ -103,7 +103,7 @@ SYNC_SCHEMA_VERSION=2
 INCREMENTAL_SYNC_ENABLED=true
 ```
 
-For the 256 MB database plan, start conservatively with `PG_POOL_MAX=4`. The application does not need one connection per HTTP request and should not use an oversized pool on the initial plan.
+For the 256 MB database plan, start conservatively with `PG_POOL_MAX=3`. The application does not need one connection per HTTP request and should not use an oversized pool on the initial plan.
 
 Keep the existing Google service-account and Drive/report variables. `GOOGLE_SHEET_ID` is no longer used by operational persistence and may be removed after rollback confidence is established.
 
