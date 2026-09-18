@@ -1,6 +1,5 @@
 import { Readable } from 'node:stream';
 import { performance } from 'node:perf_hooks';
-import { driveApi } from '../infra/google.js';
 import { query, withTransaction } from '../infra/postgres.js';
 import { nowIso, uuid } from '../core/utils.js';
 import { aiConfig } from './agent.config.js';
@@ -36,7 +35,13 @@ async function collectText(stream,maxBytes=MAX_EXTRACTED_TEXT_BYTES){
   return Buffer.concat(chunks,total).toString('utf8').replace(/\u0000/g,'');
 }
 
+async function driveClient(){
+  const module=await import('../infra/google.js');
+  return module.driveApi;
+}
+
 async function sourceStream(fileId){
+  const driveApi=await driveClient();
   const response=await driveApi.files.get(
     {fileId,alt:'media',supportsAllDrives:true},
     {responseType:'stream'},
@@ -45,6 +50,7 @@ async function sourceStream(fileId){
 }
 
 async function convertAndExtract({fileId,mimeType,targetMime,exportMime}){
+  const driveApi=await driveClient();
   let tempId='';
   try{
     const input=await sourceStream(fileId);
