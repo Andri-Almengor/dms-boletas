@@ -95,3 +95,43 @@ test('AI system prompt treats retrieved prompt injection as untrusted data', () 
   assert.match(prompt, /SOLO LECTURA/i);
   assert.match(prompt, /Nunca inventes/i);
 });
+
+test('AI tool registry has no credential or password tool and cases stay admin-only', async () => {
+  const { TOOL_DECLARATIONS, declarationsForUser } = await import('../src/ai/agent.tools.js');
+  const names = Object.keys(TOOL_DECLARATIONS);
+  assert.equal(names.some((name) => /password|credential|secret|token/i.test(name)), false);
+
+  const technicianTools = declarationsForUser({
+    user: { UsuarioID: 'T1' },
+    permissions: ['BOLETAS_VER'],
+  }).filter((item) => item.type === 'function').map((item) => item.name);
+  assert.equal(technicianTools.includes('search_cases'), false);
+  assert.equal(technicianTools.includes('get_case'), false);
+  assert.equal(technicianTools.includes('search_network_devices'), false);
+  assert.equal(technicianTools.includes('search_agenda'), true);
+  assert.equal(technicianTools.includes('search_tickets'), true);
+
+  const adminTools = declarationsForUser({
+    user: { UsuarioID: 'A1' },
+    permissions: ['USUARIOS_GESTIONAR'],
+  }).filter((item) => item.type === 'function').map((item) => item.name);
+  assert.equal(adminTools.includes('search_cases'), true);
+  assert.equal(adminTools.includes('search_network_devices'), true);
+});
+
+test('AI tool results keep signed attachment URLs out of modelData', () => {
+  const result = sanitizeAiToolResult('evidence', {
+    modelData: { id: 'e1', fileId: 'SHOULD_NOT_REACH_MODEL', name: 'Foto' },
+    attachments: [{
+      type: 'image',
+      title: 'Foto',
+      url: '/api/media/stream?token=signed-value',
+      mimeType: 'image/jpeg',
+      entityType: 'ticket',
+      entityId: 't1',
+    }],
+  });
+  assert.equal(result.modelData.fileId, undefined);
+  assert.equal(JSON.stringify(result.modelData).includes('signed-value'), false);
+  assert.equal(result.ui.attachments[0].url, '/api/media/stream?token=signed-value');
+});
