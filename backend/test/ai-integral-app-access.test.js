@@ -62,7 +62,8 @@ test('Authenticated users can receive secure chat attachment reader without Driv
   assert.equal(tools.some((item)=>item.type==='function'&&item.name==='read_chat_attachment'),true);
   const declaration=tools.find((item)=>item.name==='read_chat_attachment');
   assert.deepEqual(declaration.parameters.required,['uploadId']);
-  assert.equal(JSON.stringify(declaration).toLowerCase().includes('drivefileid'),true);
+  assert.equal(Object.prototype.hasOwnProperty.call(declaration.parameters.properties,'DriveFileID'),false);
+  assert.equal(Object.keys(declaration.parameters.properties).some((key)=>key.toLowerCase()==='drivefileid'),false);
 });
 
 test('Unknown internal entity can expand toolset from search_internal to maintenance tools in one turn',async()=>{
