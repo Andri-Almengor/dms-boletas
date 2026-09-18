@@ -18,18 +18,19 @@ export async function searchNetworkDevices(ctx,args={}){
       OR d."DireccionMAC" ILIKE ${p} ESCAPE '\\'
       OR d."Fabricante" ILIKE ${p} ESCAPE '\\'
       OR d."Modelo" ILIKE ${p} ESCAPE '\\'
-      OR d."Cliente" ILIKE ${p} ESCAPE '\\'
+      OR c."Nombre" ILIKE ${p} ESCAPE '\\'
     )`);
   }
   params.push(pageLimit(args.limit,30));
   const rows=await many(
-    `SELECT d."DispositivoIntegracionID" AS id,d."ClienteID" AS "clientId",d."Cliente" AS client,
+    `SELECT d."DispositivoIntegracionID" AS id,d."ClienteID" AS "clientId",c."Nombre" AS client,
             d."SourceSystem" AS "sourceSystem",d."Tipo" AS type,
             COALESCE(NULLIF(d."NombreOperativo",''),d."NombreDetectado") AS name,
             d."DireccionIP" AS ip,d."DireccionMAC" AS mac,d."Fabricante" AS manufacturer,
             d."Modelo" AS model,d."EstadoConexion" AS "connectionStatus",d."UltimaConexion" AS "lastConnection",
             d."UbicacionCliente" AS location,d."UbicacionEquipo" AS "equipmentLocation"
        FROM "IntegracionDispositivos" d
+       LEFT JOIN "Clientes" c ON c."__valid"=TRUE AND c."ClienteID"=d."ClienteID"
       WHERE ${clauses.join(' AND ')}
       ORDER BY d."UltimaConexion" DESC NULLS LAST,d."NombreOperativo" ASC NULLS LAST
       LIMIT $${params.length}`,
