@@ -61,6 +61,8 @@ El prompt obliga a buscar internamente antes de responder preguntas que dependan
 - `search_devices`
 - `search_knowledge_base`
 - `get_knowledge_article`
+- `search_agenda`
+- `search_network_devices` (solo administradores; campos técnicos no secretos)
 - `search_cases`
 - `get_case`
 - `get_statistics`
