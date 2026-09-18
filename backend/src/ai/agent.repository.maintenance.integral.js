@@ -208,7 +208,7 @@ export async function searchMaintenanceEvidence(ctx, args = {}) {
   if (clean(args.type)) {
     params.push(like(args.type));
     const p = '$' + params.length;
-    clauses.push(`(d."TipoDispositivo" ILIKE ${p} ESCAPE '\\\' OR d."Categoria" ILIKE ${p} ESCAPE '\\\')`);
+    clauses.push(`(d."TipoDispositivo" ILIKE ${p} ESCAPE '\\' OR d."Categoria" ILIKE ${p} ESCAPE '\\')`);
   }
   if (clean(args.stage)) {
     const normalized = normalize(args.stage);
@@ -222,12 +222,12 @@ export async function searchMaintenanceEvidence(ctx, args = {}) {
     params.push(like(args.query));
     const p = '$' + params.length;
     clauses.push(`(
-      mi."Nombre" ILIKE ${p} ESCAPE '\\\'
-      OR mi."Nota" ILIKE ${p} ESCAPE '\\\'
-      OR d."NombreDispositivo" ILIKE ${p} ESCAPE '\\\'
-      OR d."TipoDispositivo" ILIKE ${p} ESCAPE '\\\'
-      OR d."Categoria" ILIKE ${p} ESCAPE '\\\'
-      OR d."Zona" ILIKE ${p} ESCAPE '\\\'
+      mi."Nombre" ILIKE ${p} ESCAPE '\\'
+      OR mi."Nota" ILIKE ${p} ESCAPE '\\'
+      OR d."NombreDispositivo" ILIKE ${p} ESCAPE '\\'
+      OR d."TipoDispositivo" ILIKE ${p} ESCAPE '\\'
+      OR d."Categoria" ILIKE ${p} ESCAPE '\\'
+      OR d."Zona" ILIKE ${p} ESCAPE '\\'
     )`);
   }
 
