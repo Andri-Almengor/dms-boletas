@@ -272,6 +272,29 @@ async function appendMaintenanceEvidence(token, file) {
   };
 }
 
+
+async function resumableOffset(token) {
+  const bearer = await accessToken();
+  const response = await fetch(token.sessionUrl, {
+    method: 'PUT',
+    signal: AbortSignal.timeout(60_000),
+    headers: {
+      Authorization: `Bearer ${bearer}`,
+      'Content-Length': '0',
+      'Content-Range': `bytes */${token.size}`,
+    },
+  });
+  if (response.status === 308) {
+    const range = response.headers.get('range') || '';
+    const match = range.match(/bytes=0-(\d+)/i);
+    return { complete: false, nextOffset: match ? Number(match[1]) + 1 : 0 };
+  }
+  if (response.ok) return { complete: true, nextOffset: token.size };
+  const existing = await findExistingEvidence(token, token.kind);
+  if (existing) return { complete: true, nextOffset: token.size, evidence: existing };
+  throw new Error(`Google Drive no pudo consultar el estado de la carga (${response.status}).`);
+}
+
 async function uploadChunk(ctx, kind) {
   const token = parseUploadToken(ctx.payload.uploadToken, kind);
   if (token.actor !== ctx.user.UsuarioID) throw badRequest('La sesión de carga pertenece a otro usuario.');
@@ -332,17 +355,25 @@ export const largeEvidenceUploadHandlers = {
 export async function transferKnowledgeAttachment(ctx, articleId, folderId) {
   if (ctx.payload.uploadPhase === 'init') {
     const size = Number(ctx.payload.size);
-    if (!Number.isSafeInteger(size) || size <= 0 || size > 50 * 1024 * 1024) throw badRequest('El tamaño del adjunto no es válido.');
+    if (!Number.isSafeInteger(size) || size <= 0) throw badRequest('El tamaño del adjunto no es válido.');
     const mimeType = clean(ctx.payload.mimeType, 'application/octet-stream');
     const fileName = clean(ctx.payload.fileName || ctx.payload.nombre, 'adjunto');
+    const requestedId = clean(ctx.payload.attachmentId);
+    const attachmentId = requestedId && validClientGeneratedId(requestedId) ? requestedId : uuid();
+    const existing = (await readTable('KnowledgeAttachments', { force: true })).find(row => clean(row.AdjuntoID) === attachmentId);
+    if (existing) {
+      if (clean(existing.TutorialID) !== clean(articleId)) throw badRequest('El identificador del documento ya pertenece a otra guía.');
+      return { complete: true, evidence: existing };
+    }
     const sessionUrl = await startDriveResumableSession({fileName, mimeType, size, folderId});
     return {complete:false,chunkBytes:LARGE_VIDEO_CHUNK_BYTES,uploadToken:createUploadToken({
-      kind:'knowledge',sessionUrl,articleId,attachmentId:uuid(),actor:ctx.user.UsuarioID,size,mimeType,fileName,
+      kind:'knowledge',sessionUrl,articleId,attachmentId,actor:ctx.user.UsuarioID,size,mimeType,fileName,
     })};
   }
   const token = parseUploadToken(ctx.payload.uploadToken, 'knowledge');
   if (token.articleId !== articleId || token.actor !== ctx.user.UsuarioID) throw badRequest('La sesión de carga no corresponde a este adjunto.');
   const existing = await findExistingEvidence(token, 'knowledge');
-  if (existing) return {complete:true,evidence:existing};
+  if (existing) return {complete:true,evidence:existing,nextOffset:token.size};
+  if (ctx.payload.uploadPhase === 'status') return resumableOffset(token);
   return uploadChunk(ctx, 'knowledge');
 }
