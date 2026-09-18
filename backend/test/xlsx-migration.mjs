@@ -4,8 +4,16 @@ import { mkdtemp, rm } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import path from 'node:path';
 import ExcelJS from 'exceljs';
-import { EXPECTED_WORKBOOK_SHEETS } from '../src/config/database-tables.js';
+import { DATABASE_TABLES, EXPECTED_WORKBOOK_SHEETS, RUNTIME_COLUMN_EXTENSIONS } from '../src/config/database-tables.js';
 import { analyzeWorkbook, publicAnalysis } from '../src/scripts/xlsx-migration.js';
+
+test('source workbook schema excludes PostgreSQL-only maintenance runtime columns', () => {
+  for (const column of RUNTIME_COLUMN_EXTENSIONS.Mantenimiento) {
+    assert.ok(DATABASE_TABLES.Mantenimiento.columns.includes(column), `runtime database column missing: ${column}`);
+    assert.equal(EXPECTED_WORKBOOK_SHEETS.Mantenimiento.columns.includes(column), false, `runtime-only column leaked into XLSX source contract: ${column}`);
+  }
+  assert.ok(EXPECTED_WORKBOOK_SHEETS.SyncChanges.columns.includes('Cursor'));
+});
 
 test('XLSX analyzer preserves all sheets and reports known anomaly classes without values', async () => {
   const dir = await mkdtemp(path.join(tmpdir(), 'dms-xlsx-test-'));
