@@ -109,7 +109,7 @@ async function endTable(record) {
   }
 
   if (current.identity) {
-    const seq = await client.query('SELECT pg_get_serial_sequence($1,$2) AS seq', [current.name, current.identity]);
+    const seq = await client.query('SELECT pg_get_serial_sequence($1,$2) AS seq', [quoted(current.name), current.identity]);
     if (seq.rows[0]?.seq) {
       const maximum = await client.query(`SELECT MAX(${quoted(current.identity)}) AS value FROM ${quoted(current.name)}`);
       const value = maximum.rows[0]?.value;
