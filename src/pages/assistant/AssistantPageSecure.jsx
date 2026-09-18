@@ -1111,7 +1111,7 @@ export default function AssistantPageSecure() {
               <span>Enviar</span>
             </button>
           </div>
-          <small>Puede adjuntar imágenes, PDF, DOCX, XLSX, CSV o TXT. Los archivos se cargan de forma privada y Gemini recibe solo referencias seguras; las respuestas respetan los permisos de la sesión.</small>
+          <small>Puede adjuntar imágenes, PDF, DOCX, XLSX, CSV o TXT. Los archivos se cargan de forma privada; para analizarlos, Gemini recibe de forma transitoria la imagen o texto extraído, nunca el DriveFileID, tokens ni credenciales. Las respuestas respetan los permisos de la sesión.</small>
         </form>
       </section>
     </div>
