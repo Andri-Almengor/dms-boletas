@@ -67,9 +67,10 @@ test('ticket Home summary keeps the existing technician-assignment visibility ga
   assert.match(access, /Solo puede consultar o modificar las boletas en las que está asignado/);
 
   const queries = read('backend/src/infra/postgres.repository.queries.js');
-  assert.match(queries, /Historical parity: homeSummary/);
-  assert.match(queries, /COUNT\(\*\) FILTER \(WHERE UPPER\(COALESCE\("Estado",''\)\)='PENDIENTE'\)/);
-  assert.match(queries, /COUNT\(\*\) FILTER \(WHERE UPPER\(COALESCE\("Estado",''\)\)='FINALIZADA'\)/);
+  assert.match(queries, /allowedIds instanceof Set/);
+  assert.match(queries, /"BoletaUID"=ANY\(\$\$?\{?params\.length\}?::text\[\]\)/);
+  assert.match(queries, /COUNT\(\*\) FILTER \(WHERE \$\{statusSql\}='PENDIENTE'\)/);
+  assert.match(queries, /COUNT\(\*\) FILTER \(WHERE \$\{statusSql\}='FINALIZADA'\)/);
 });
 
 test('finalization storage reuses shared schema and preserves bounded recoverable writes', () => {
@@ -97,7 +98,7 @@ const businessBaseline = {
   "backend/src/services/maintenance-device-delete-permissions.patch.js": "40cf84fbc2552b8e00b16d840d11c0f9825c71819c6bf4bcb86e630d7e359903",
   "backend/src/modules/tickets.module.js": "6f40142d4a0691e99e83cbdc869cc8871559010871c017084f4a393887b60059",
   "backend/src/modules/agenda.module.js": "9b2b364f7a825cefa4c39849b9b54da5356c6882282be10450baeaddc52bd8d0",
-  "backend/src/modules/crud.module.js": "9f6c25cfbeaadd8126426012ba2fd6e4d0199687b1493d291b889032f292ca21",
+  "backend/src/modules/crud.module.js": "d34442574321a7f1596bffacd1d7fecead757ad73557251449f8322590b6f27b",
   "backend/src/modules/ticket-signature.module.js": "c1df58a8a8a5303d10ba236335eef7a3d7d12c643057be6f6063a60f72271ba0",
   "backend/src/modules/maintenance-signature.module.js": "607439631bfdb7b8e17cff815ca8e55fd5f716223ee764fd983fec79fa4416b6",
   "backend/src/services/maintenance-finalization-resume.patch.js": "0f9dca7d2a8110451d52dbe152bb6b8df654579e190dfb44046eef2f775478e6",
