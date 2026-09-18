@@ -1,7 +1,7 @@
 import { badRequest, notFound } from '../core/errors.js';
 import { assertAiCapability } from './agent.permissions.js';
 import {
-  active, aliasQuery, clean, entity, like, many, one, pageLimit, protectedAttachment, source,
+  active, addRange, aliasQuery, clean, entity, like, many, one, pageLimit, pageOffset, protectedAttachment, source,
 } from './agent.repository.shared.js';
 
 function normalize(value) {
@@ -218,8 +218,49 @@ export async function searchMaintenanceEvidence(ctx, args = {}) {
       clauses.push('LOWER(COALESCE(mi."Tipo",\'\'))=LOWER($' + params.length + ')');
     }
   }
+  if (clean(args.query)) {
+    params.push(like(args.query));
+    const p = '$' + params.length;
+    clauses.push(`(
+      mi."Nombre" ILIKE ${p} ESCAPE '\\'
+      OR mi."Nota" ILIKE ${p} ESCAPE '\\'
+      OR d."NombreDispositivo" ILIKE ${p} ESCAPE '\\'
+      OR d."TipoDispositivo" ILIKE ${p} ESCAPE '\\'
+      OR d."Categoria" ILIKE ${p} ESCAPE '\\'
+      OR d."Zona" ILIKE ${p} ESCAPE '\\'
+    )`);
+  }
+  if (clean(args.uploaderId)) {
+    params.push(clean(args.uploaderId,250));
+    clauses.push('mi."CreadoPor"=$' + params.length);
+  } else if (clean(args.uploaderName)) {
+    params.push(like(args.uploaderName));
+    const p='$'+params.length;
+    clauses.push(`(uploader."NombreCompleto" ILIKE ${p} ESCAPE '\\' OR uploader."NombreUsuario" ILIKE ${p} ESCAPE '\\')`);
+  }
+  const mimeCategory=clean(args.mimeCategory,40).toUpperCase();
+  if (mimeCategory==='IMAGE') clauses.push(`LOWER(COALESCE(mi."MimeType",'')) LIKE 'image/%'`);
+  else if (mimeCategory==='VIDEO') clauses.push(`LOWER(COALESCE(mi."MimeType",'')) LIKE 'video/%'`);
+  else if (mimeCategory==='PDF') clauses.push(`LOWER(COALESCE(mi."MimeType",''))='application/pdf'`);
+  const period=addRange(clauses,params,'mi."FechaCreacion"',args);
 
-  params.push(pageLimit(args.limit, 50));
+  const counted=await one(
+    `SELECT COUNT(*)::bigint AS total,
+            COUNT(*) FILTER (WHERE LOWER(COALESCE(mi."MimeType",'')) LIKE 'image/%')::bigint AS images,
+            COUNT(*) FILTER (WHERE LOWER(COALESCE(mi."MimeType",'')) LIKE 'video/%')::bigint AS videos,
+            COUNT(*) FILTER (WHERE LOWER(COALESCE(mi."Tipo",''))='antes')::bigint AS before_count,
+            COUNT(*) FILTER (WHERE LOWER(COALESCE(mi."Tipo",''))='despues')::bigint AS after_count
+       FROM "Mantenimiento imagenes" mi
+       JOIN "Evidencia_Mantenimientos" d
+         ON d."__valid"=TRUE AND mi."DispositivoMantenimientoRef"=d."EvidenciaMantenimientoID"
+       LEFT JOIN "Usuarios" uploader
+         ON uploader."__valid"=TRUE AND uploader."UsuarioID"=mi."CreadoPor"
+      WHERE ${clauses.join(' AND ')}`,
+    params,
+    'ai.integralMaintenance.evidence.count',
+  );
+
+  const queryParams=[...params,pageLimit(args.limit,50),pageOffset(args.offset)];
   const rows = await many(
     `SELECT mi."FotoDispositivoID" AS id,mi."Nombre" AS name,mi."Nota" AS note,mi."Tipo" AS stage,
             mi."MimeType" AS "mimeType",mi."TipoMedio" AS "mediaType",mi."FechaCreacion" AS "createdAt",
@@ -235,8 +276,8 @@ export async function searchMaintenanceEvidence(ctx, args = {}) {
          ON uploader."__valid"=TRUE AND uploader."UsuarioID"=mi."CreadoPor"
       WHERE ${clauses.join(' AND ')}
       ORDER BY d."Zona" ASC NULLS LAST,d."NombreDispositivo" ASC NULLS LAST,mi."FechaCreacion" ASC NULLS LAST
-      LIMIT $${params.length}`,
-    params,
+      LIMIT ${queryParams.length-1} OFFSET ${queryParams.length}`,
+    queryParams,
     'ai.integralMaintenance.evidence',
   );
 
@@ -272,7 +313,14 @@ export async function searchMaintenanceEvidence(ctx, args = {}) {
   return {
     modelData: {
       maintenance: { id: maintenance.id, title: maintenance.title || 'Mantenimiento', client: maintenance.client || '' },
+      total: Number(counted?.total||0),
       totalShown: items.length,
+      imageCount: Number(counted?.images||0),
+      videoCount: Number(counted?.videos||0),
+      beforeCount: Number(counted?.before_count||0),
+      afterCount: Number(counted?.after_count||0),
+      mimeCategory,
+      period,
       items,
     },
     attachments,
