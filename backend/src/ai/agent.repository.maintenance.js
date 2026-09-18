@@ -68,66 +68,7 @@ async function maintenanceRow(ctx,idValue){
   return row;
 }
 
-function normalizeText(value){
-  return String(value||'').normalize('NFD').replace(/[\u0300-\u036f]/g,'').toLowerCase().replace(/\s+/g,' ').trim();
-}
-
-export async function resolveMaintenanceReference(ctx,args={}){
-  assertAiCapability(ctx,'maintenance');
-  const explicit=clean(args.maintenanceId,250);
-  if(explicit){
-    const row=await maintenanceRow(ctx,explicit);
-    return {
-      modelData:{resolved:true,maintenance:row,candidates:[row]},
-      entities:[entity('maintenance',row.id,row.title||'Mantenimiento','/mantenimientos/'+encodeURIComponent(row.id))],
-      context:{lastMaintenanceId:row.id,lastMaintenanceName:row.title||'',lastClientId:row.clientId||'',lastClientName:row.client||''},
-    };
-  }
-  const reference=aliasQuery(args.reference||args.query);
-  if(!reference) throw badRequest('Indique el mantenimiento o cliente de referencia.');
-  const rows=await many(
-    `SELECT m."MantenimientoID" AS id,m."TituloMantenimiento" AS title,m."ClienteID" AS "clientId",
-            m."Cliente" AS client,m."Ubicacion" AS location,m."Estado" AS status,m."Fecha" AS date,
-            m."FechaFinalizacion" AS "finishedAt"
-       FROM "Mantenimiento" m
-      WHERE ${active('m')} AND (
-        m."MantenimientoID"=$1 OR m."TituloMantenimiento" ILIKE $2 ESCAPE '\\'
-        OR m."Cliente" ILIKE $2 ESCAPE '\\' OR m."Ubicacion" ILIKE $2 ESCAPE '\\'
-      )
-      ORDER BY CASE WHEN LOWER(COALESCE(m."TituloMantenimiento",''))=LOWER($1) THEN 0
-                    WHEN LOWER(COALESCE(m."Cliente",''))=LOWER($1) THEN 1 ELSE 2 END,
-               COALESCE(NULLIF(m."FechaFinalizacion",''),m."Fecha",m."FechaCreacion") DESC NULLS LAST
-      LIMIT 8`,
-    [reference,like(reference)],'ai.maintenance.resolve',
-  );
-  if(!rows.length)return{modelData:{resolved:false,ambiguous:false,candidates:[],message:'No se encontró un mantenimiento coincidente.'}};
-  const latest=args.latest===true||/\b(ultimo|último|mas reciente|más reciente|reciente)\b/i.test(String(args.reference||args.query||''));
-  const exact=rows.filter(row=>normalizeText(row.title)===normalizeText(reference)||normalizeText(row.id)===normalizeText(reference));
-  const chosen=latest?rows[0]:(exact.length===1?exact[0]:(rows.length===1?rows[0]:null));
-  const candidates=rows.map(row=>({
-    id:row.id,title:row.title||'Mantenimiento',clientId:row.clientId||'',client:row.client||'',
-    location:row.location||'',status:row.status||'',date:row.date||'',finishedAt:row.finishedAt||'',
-  }));
-  if(!chosen)return{
-    modelData:{resolved:false,ambiguous:true,candidates,message:'Hay varios mantenimientos que coinciden. Solicite una aclaración.'},
-    entities:candidates.map(row=>entity('maintenance',row.id,row.title,'/mantenimientos/'+encodeURIComponent(row.id))),
-  };
-  const selected=candidates.find(row=>row.id===chosen.id);
-  return{
-    modelData:{resolved:true,maintenance:selected,candidates},
-    entities:[entity('maintenance',chosen.id,chosen.title||'Mantenimiento','/mantenimientos/'+encodeURIComponent(chosen.id))],
-    context:{lastMaintenanceId:chosen.id,lastMaintenanceName:chosen.title||'',lastClientId:chosen.clientId||'',lastClientName:chosen.client||''},
-  };
-}
-
-export async function resolveMaintenanceDevice(ctx,args={}){
-  const maintenance=await maintenanceRow(ctx,args.maintenanceId);
-  const explicit=clean(args.deviceId,250),reference=clean(args.reference||args.query,300);
-  if(!explicit&&!reference)throw badRequest('Indique el dispositivo a resolver.');
-  const params=[maintenance.id],clauses=[active('d'),'d."MantenimientoRef"=$1'];
-  if(explicit){params.push(explicit);clauses.push(`d."EvidenciaMantenimientoID"=${params.length}`);}
-  else{
-    params.push(like(reference));const p='
+export async function getMaintenance(ctx,args={}){
   const row=await maintenanceRow(ctx,args.maintenanceId);
   const [categories,supervisors]=await Promise.all([
     many(
@@ -269,18 +210,10 @@ export async function getMaintenanceEvidence(ctx,args={}){
     params.push(args.deviceIds.map(x=>clean(x,250)).filter(Boolean));
     clauses.push(`d."EvidenciaMantenimientoID"=ANY($${params.length}::text[])`);
   }
-  if(clean(args.type)){
-    params.push(like(args.type));const p='$'+params.length;
-    clauses.push(`(d."TipoDispositivo" ILIKE ${p} ESCAPE '\\' OR d."Categoria" ILIKE ${p} ESCAPE '\\')`);
-  }
-  if(clean(args.stage)){
-    const normalized=normalizeText(args.stage);
-    const stage=normalized.includes('desp')?'Despues':normalized.includes('antes')?'Antes':'';
-    if(stage){params.push(stage);clauses.push(`LOWER(COALESCE(mi."Tipo",''))=LOWER($${params.length})`);}
-  }
+  if(clean(args.type)){params.push(like(args.type));const p='$'+params.length;clauses.push(`(d."TipoDispositivo" ILIKE ${p} ESCAPE '\\' OR d."Categoria" ILIKE ${p} ESCAPE '\\')`);}
   params.push(pageLimit(args.limit,50));
   const rows=await many(
-    `SELECT mi."FotoDispositivoID" AS id,mi."Nombre" AS name,mi."Nota" AS note,mi."Tipo" AS stage,
+    `SELECT mi."FotoDispositivoID" AS id,mi."Nombre" AS name,mi."Nota" AS note,
             mi."MimeType" AS "mimeType",mi."TipoMedio" AS "mediaType",mi."FechaCreacion" AS "createdAt",
             mi."CreadoPor" AS "createdBy",COALESCE(NULLIF(uploader."NombreCompleto",''),uploader."NombreUsuario",mi."CreadoPor") AS "uploadedBy",
             mi."DriveFileID" AS "__file",
@@ -295,28 +228,21 @@ export async function getMaintenanceEvidence(ctx,args={}){
       LIMIT $${params.length}`,
     params,'ai.maintenance.evidence');
   const items=rows.map(row=>({
-    id:row.id,name:row.name||'Evidencia',note:clean(row.note,1600),stage:row.stage||'',
-    mimeType:row.mimeType||'application/octet-stream',mediaType:row.mediaType||'',createdAt:row.createdAt||'',
-    createdBy:row.createdBy||'',uploadedBy:row.uploadedBy||row.createdBy||'',deviceId:row.deviceId||'',
+    id:row.id,name:row.name||'Evidencia',note:clean(row.note,1600),mimeType:row.mimeType||'application/octet-stream',
+    mediaType:row.mediaType||'',createdAt:row.createdAt||'',createdBy:row.createdBy||'',uploadedBy:row.uploadedBy||row.createdBy||'',deviceId:row.deviceId||'',
     deviceName:row.deviceName||row.deviceType||'Dispositivo',deviceType:row.deviceType||'',zone:row.zone||'',
   }));
   const attachments=rows.map(row=>protectedAttachment(ctx,{
     fileId:row.__file,mimeType:row.mimeType,scopeId:'maintenance:'+maintenance.id,evidenceId:row.id,kind:'maintenance-evidence',
-    title:row.deviceName||row.name||'Dispositivo',
-    subtitle:[row.stage,row.deviceType,row.zone,row.note].filter(Boolean).join(' · '),
+    title:row.deviceName||row.name||'Dispositivo',subtitle:[row.deviceType,row.zone,row.note].filter(Boolean).join(' · '),
     entityType:'maintenance',entityId:maintenance.id,
   })).filter(Boolean);
-  const uniqueStages=[...new Set(items.map(item=>normalizeText(item.stage)).filter(Boolean))];
   return {
     modelData:{maintenance:{id:maintenance.id,title:maintenance.title||'Mantenimiento',client:maintenance.client||''},totalShown:items.length,items},
     attachments,
     entities:[entity('maintenance',maintenance.id,maintenance.title||'Mantenimiento','/mantenimientos/'+encodeURIComponent(maintenance.id))],
     sources:[source('maintenance',maintenance.id,(maintenance.title||'Mantenimiento')+' · evidencias','/mantenimientos/'+encodeURIComponent(maintenance.id))],
-    context:{
-      lastMaintenanceId:maintenance.id,lastMaintenanceName:maintenance.title||'',
-      lastClientId:maintenance.clientId||'',lastClientName:maintenance.client||'',
-      ...(uniqueStages.length===1?{lastEvidenceStage:uniqueStages[0].includes('desp')?'DESPUES':'ANTES'}:{}),
-    },
+    context:{lastMaintenanceId:maintenance.id,lastMaintenanceName:maintenance.title||'',lastClientId:maintenance.clientId||'',lastClientName:maintenance.client||''},
   };
 }
 
@@ -378,8 +304,6 @@ export async function getMaintenanceHistory(ctx,args={}){
 }
 
 export const maintenanceRepositoryTools=Object.freeze({
-  resolve_maintenance_reference:resolveMaintenanceReference,
-  resolve_maintenance_device:resolveMaintenanceDevice,
   search_maintenances:searchMaintenances,
   get_maintenance:getMaintenance,
   get_maintenance_devices:getMaintenanceDevices,
