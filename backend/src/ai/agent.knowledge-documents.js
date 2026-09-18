@@ -1,5 +1,5 @@
 import { Readable } from 'node:stream';
-import { driveApi } from '../infra/google.js';
+import { performance } from 'node:perf_hooks';
 import { query, withTransaction } from '../infra/postgres.js';
 import { nowIso, uuid } from '../core/utils.js';
 import { aiConfig } from './agent.config.js';
@@ -35,7 +35,13 @@ async function collectText(stream,maxBytes=MAX_EXTRACTED_TEXT_BYTES){
   return Buffer.concat(chunks,total).toString('utf8').replace(/\u0000/g,'');
 }
 
+async function driveClient(){
+  const module=await import('../infra/google.js');
+  return module.driveApi;
+}
+
 async function sourceStream(fileId){
+  const driveApi=await driveClient();
   const response=await driveApi.files.get(
     {fileId,alt:'media',supportsAllDrives:true},
     {responseType:'stream'},
@@ -44,6 +50,7 @@ async function sourceStream(fileId){
 }
 
 async function convertAndExtract({fileId,mimeType,targetMime,exportMime}){
+  const driveApi=await driveClient();
   let tempId='';
   try{
     const input=await sourceStream(fileId);
@@ -154,17 +161,25 @@ async function updateAttachment(documentId,patch){
   await query(`UPDATE "KnowledgeAttachments" SET ${sets.join(', ')} WHERE "__valid"=TRUE AND "AdjuntoID"=$1`,params,{label:'ai.knowledgeDocument.update',write:true});
 }
 
-export async function indexKnowledgeDocument({documentId,articleId,fileId,mimeType,actor=''}) {
+export async function indexKnowledgeDocument(input = {}, actorOverride = '') {
   if(!aiConfig.knowledgeDocumentsEnabled) return {indexed:false,disabled:true};
+  const documentId=input.documentId||input.AdjuntoID||input.id;
+  const articleId=input.articleId||input.TutorialID;
+  const fileId=input.fileId||input.DriveFileID||input.__file;
+  const mimeType=input.mimeType||input.MimeType;
+  const actor=input.actor||actorOverride||input.ActualizadoPor||input.CreadoPor||'';
+  const startedAt=performance.now();
   const id=clean(documentId,250); const article=clean(articleId,250);
   if(!id||!article||!fileId) return {indexed:false,skipped:true};
   if(!supportsKnowledgeExtraction(mimeType)){
-    await updateAttachment(id,{ExtractionStatus:'UNSUPPORTED',ExtractionError:'Formato sin extracción de texto.',FechaActualizacion:nowIso(),ActualizadoPor:actor});
+    await updateAttachment(id,{ExtractionStatus:'UNSUPPORTED',Status:'UNSUPPORTED',ExtractionError:'Formato sin extracción de texto.',FechaActualizacion:nowIso(),ActualizadoPor:actor});
     return {indexed:false,unsupported:true};
   }
-  await updateAttachment(id,{ExtractionStatus:'PROCESSING',ExtractionError:'',FechaActualizacion:nowIso(),ActualizadoPor:actor});
+  await updateAttachment(id,{ExtractionStatus:'PROCESSING',Status:'PROCESSING',ExtractionError:'',FechaActualizacion:nowIso(),ActualizadoPor:actor});
   try{
+    const extractionStartedAt=performance.now();
     const raw=await extractDriveDocumentText({fileId,mimeType});
+    const extractionMs=Math.round(performance.now()-extractionStartedAt);
     const normalized=String(raw||'').replace(/\s+/g,' ').trim();
     const chunks=chunkKnowledgeText(raw);
     const indexedAt=nowIso();
@@ -181,6 +196,7 @@ export async function indexKnowledgeDocument({documentId,articleId,fileId,mimeTy
       }
       await updateAttachment(id,{
         ExtractionStatus:chunks.length?'INDEXED':'EMPTY',
+        Status:chunks.length?'READY':'READY',
         IndexedAt:indexedAt,
         ExtractionError:'',
         SearchText:clean(normalized,120000),
@@ -188,14 +204,17 @@ export async function indexKnowledgeDocument({documentId,articleId,fileId,mimeTy
         ActualizadoPor:actor,
       });
     });
-    return {indexed:true,chunks:chunks.length,indexedAt};
+    console.info('[knowledge-document] '+JSON.stringify({event:'indexed',documentId:id,articleId:article,mimeType:normalizeMime(mimeType),extractionMs,indexingMs:Math.max(0,Math.round(performance.now()-startedAt)-extractionMs),chunkCount:chunks.length,status:chunks.length?'READY':'READY'}));
+    return {indexed:true,chunks:chunks.length,indexedAt,extractionMs};
   }catch(error){
     await updateAttachment(id,{
       ExtractionStatus:'FAILED',
+      Status:'FAILED',
       ExtractionError:clean(error?.message||'No se pudo extraer el documento.',800),
       FechaActualizacion:nowIso(),
       ActualizadoPor:actor,
     }).catch(()=>{});
+    console.warn('[knowledge-document] '+JSON.stringify({event:'index_failed',documentId:id,articleId:article,mimeType:normalizeMime(mimeType),indexingMs:Math.round(performance.now()-startedAt),status:'FAILED'}));
     return {indexed:false,error:clean(error?.message,500)};
   }
 }

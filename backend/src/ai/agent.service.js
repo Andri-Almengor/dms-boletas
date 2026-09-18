@@ -18,6 +18,96 @@ const REQUESTS=new Map();
 
 function clean(value,max=4000){return String(value??'').trim().slice(0,max);}
 function uniqueBy(items,key){const seen=new Set();return items.filter(item=>{const value=key(item);if(!value||seen.has(value))return false;seen.add(value);return true;});}
+
+function uniqueStrings(values = [], limit = 24) {
+  return [...new Set(values.map((value) => clean(value, 300)).filter(Boolean))].slice(-limit);
+}
+function detectTechnicalProduct(message = '', previous = '') {
+  const value = String(message || '');
+  const products = [
+    [/\bOnGuard\b/i, 'OnGuard'],
+    [/\bLenelS2\b|\bLenel\b/i, 'LenelS2'],
+    [/\bXProtect\b/i, 'Milestone XProtect'],
+    [/\bMilestone\b/i, 'Milestone'],
+    [/\bAxis\b/i, 'Axis'],
+    [/\bBarco(?:\s+CTRL)?\b/i, 'Barco CTRL'],
+    [/\bFaceMe\b/i, 'FaceMe'],
+    [/\bWindows\s+Server\b/i, 'Windows Server'],
+    [/\bSQL\s+Server\b/i, 'SQL Server'],
+    [/\bPostgreSQL\b/i, 'PostgreSQL'],
+    [/\bODBC\b/i, 'ODBC'],
+    [/\bCamera\s+Station\b/i, 'Camera Station'],
+    [/\bAccess\s+Control\b/i, 'Access Control'],
+  ];
+  const matched = products.find(([pattern]) => pattern.test(value))?.[1] || '';
+  const prior = clean(previous, 160);
+  const followUpResult = /\b(ya|prob[eé]|revis[eé]|reinici[eé]|verifiqu[eé]|comprob[eé]|descart[eé]|funciona|funcion[oó]|fall[óo]|est[aá] iniciado|respond[ií]o)\b/i.test(value);
+  const explicitNewIssue = /\b(nuevo|otro|ahora)\b.{0,50}\b(error|falla|problema|no responde|no funciona)\b/i.test(value);
+  if (prior && matched && matched !== prior && followUpResult && !explicitNewIssue) return prior;
+  return matched || prior;
+}
+function updateTroubleshootingContext(context = {}, message = '') {
+  const previous = context.currentTechnicalIssue && typeof context.currentTechnicalIssue === 'object'
+    ? context.currentTechnicalIssue : {};
+  const product = detectTechnicalProduct(message, previous.product || context.lastTechnicalProduct);
+  const technical = Boolean(product) || /\b(error|falla|problema|no responde|no funciona|troubleshoot|diagn[oó]stic)\b/i.test(message);
+  if (!technical && !Object.keys(previous).length) return context;
+  const sentences = String(message || '').split(/(?:\r?\n|(?<=[.!?])\s+)/).map((item) => clean(item, 300)).filter(Boolean);
+  const attempted = sentences.filter((item) => /\b(ya|prob[eé]|revis[eé]|reinici[eé]|verifiqu[eé]|comprob[eé]|intent[eé]|descart[eé]|funciona|fall[óo]|no funciona|est[aá] iniciado|respond[ií]o)\b/i.test(item));
+  const successful = attempted.filter((item) => /\b(funciona|funcion[oó]|correcto|correctamente|respond[ií]o|est[aá] iniciado|est[aá] activo|conexi[oó]n.*bien)\b/i.test(item) && !/\b(no funciona|fall[óo]|error)\b/i.test(item));
+  const failed = attempted.filter((item) => /\b(no funciona|no funcion[oó]|fall[óo]|sigue|mismo error|sin respuesta)\b/i.test(item));
+  const issueSentence = sentences.find((item) => /\b(error|falla|problema|no responde|no funciona)\b/i.test(item));
+  const errorCodes = String(message || '').match(/\b(?:0x[0-9a-f]+|ERR(?:OR)?[_ -]?[A-Z0-9-]{2,}|E[0-9]{3,})\b/gi) || [];
+  const issue = {
+    product,
+    problem: clean(previous.problem || issueSentence || context.lastTechnicalIssue, 500),
+    errorCodes: uniqueStrings([...(previous.errorCodes || []), ...errorCodes]),
+    confirmedFacts: uniqueStrings([...(previous.confirmedFacts || []), ...successful]),
+    attemptedSteps: uniqueStrings([...(previous.attemptedSteps || []), ...attempted]),
+    ruledOutCauses: uniqueStrings([...(previous.ruledOutCauses || []), ...successful]),
+    successfulTests: uniqueStrings([...(previous.successfulTests || []), ...successful]),
+    failedTests: uniqueStrings([...(previous.failedTests || []), ...failed]),
+  };
+  return {
+    ...context,
+    currentTechnicalIssue: issue,
+    ...(product ? { lastTechnicalProduct: product } : {}),
+    ...(issue.problem ? { lastTechnicalIssue: issue.problem } : {}),
+  };
+}
+
+const MAX_DIAGNOSTIC_IMAGE_BYTES = 10 * 1024 * 1024;
+const DIAGNOSTIC_IMAGE_MIME = /^image\/(?:png|jpe?g|webp|gif)$/i;
+async function loadDiagnosticImageInputs(attachments = []) {
+  const candidates = (Array.isArray(attachments) ? attachments : [])
+    .filter((item) => DIAGNOSTIC_IMAGE_MIME.test(String(item?.mimeType || '')))
+    .slice(0, 3);
+  if (!candidates.length) return [];
+  const { driveApi } = await import('../infra/google.js');
+  const output = [];
+  for (const item of candidates) {
+    const size = Number(item?.size || 0);
+    if (!item?.__file || !Number.isFinite(size) || size <= 0 || size > MAX_DIAGNOSTIC_IMAGE_BYTES) continue;
+    try {
+      const response = await driveApi.files.get(
+        { fileId: item.__file, alt: 'media', supportsAllDrives: true },
+        { responseType: 'arraybuffer' },
+      );
+      const buffer = Buffer.from(response.data);
+      if (!buffer.length || buffer.length > MAX_DIAGNOSTIC_IMAGE_BYTES) continue;
+      output.push({
+        type: 'image',
+        data: buffer.toString('base64'),
+        mime_type: String(item.mimeType || 'image/jpeg').toLowerCase(),
+        resolution: 'high',
+      });
+    } catch {
+      // El archivo sigue disponible por metadata; una falla visual no expone Drive ni rompe toda la conversación.
+    }
+  }
+  return output;
+}
+
 function sessionFingerprint(sessionToken){return crypto.createHash('sha256').update(clean(sessionToken,12000)).digest('base64url');}
 function requiresInternalEvidence(message,context={}){
   const text=String(message||'');
@@ -27,8 +117,8 @@ function requiresInternalEvidence(message,context={}){
   return /\b(dms|boleta|boletas|mantenimiento|mantenimientos|cliente|clientes|técnico|tecnico|supervisor|evidencia|evidencias|dispositivo|dispositivos|cámara|camara|caso|casos|agenda|pendiente|finalizada|finalizó|finalizo|subió|subio|base de conocimiento|knowledge)\b/i.test(text);
 }
 function requiresKnowledgeLookup(message){
-  return /\b(axis|onguard|lenel|milestone|xprotect|barco|faceme|morphomanager)\b/i.test(String(message||''))
-    && /\b(error|falla|problema|solucion|solución|solucionar|resolver|configurar|instalar|procedimiento|manual|como|cómo)\b/i.test(String(message||''));
+  return /\b(axis|onguard|lenel|lenels2|milestone|xprotect|barco|faceme|morphomanager|windows server|sql server|postgresql|odbc|camera station|access control)\b/i.test(String(message||''))
+    && /\b(error|falla|problema|solucion|solución|solucionar|resolver|configurar|instalar|procedimiento|manual|diagnosticar|diagnóstico|como|cómo)\b/i.test(String(message||''));
 }
 function externalRequested(message){
   const text=String(message||'');
@@ -82,7 +172,7 @@ async function loadChatAttachments(ctx,ids=[]){
   if(!requested.length)return[];
   const result=await query(
     `SELECT "UploadID" AS "uploadId","NombreArchivo" AS name,"MimeType" AS "mimeType","SizeBytes" AS size,
-            "Status" AS status,"ExpiresAt" AS "expiresAt"
+            "DriveFileID" AS "__file","Status" AS status,"ExpiresAt" AS "expiresAt"
        FROM "AiChatUploads"
       WHERE "__valid"=TRUE AND "UploadID"=ANY($1::text[]) AND "UserID"=$2 AND "SessionHash"=$3
         AND "Status" IN ('AVAILABLE','CONSUMED')`,
@@ -92,7 +182,14 @@ async function loadChatAttachments(ctx,ids=[]){
   const byId=new Map(result.rows.map(row=>[row.uploadId,row]));
   const ordered=requested.map(id=>byId.get(id)).filter(Boolean);
   if(ordered.length!==requested.length)throw badRequest('Uno o más adjuntos ya no están disponibles o pertenecen a otra sesión.');
-  return ordered.map(row=>({uploadId:row.uploadId,name:row.name||'Archivo',mimeType:row.mimeType||'application/octet-stream',size:Number(row.size||0),status:row.status||'AVAILABLE'}));
+  return ordered.map(row=>({
+    uploadId:row.uploadId,
+    name:row.name||'Archivo',
+    mimeType:row.mimeType||'application/octet-stream',
+    size:Number(row.size||0),
+    status:row.status||'AVAILABLE',
+    __file:clean(row.__file,300),
+  }));
 }
 
 export function modelFallbackChain(){
@@ -107,14 +204,16 @@ export async function runDmsAgent(ctx){
   if(!message)throw badRequest('Escriba una pregunta para el asistente.');
 
   let context=sanitizeActiveContext(ctx.payload?.context||{});
+  context=updateTroubleshootingContext(context,message);
   const payloadAttachmentIds=Array.isArray(ctx.payload?.attachmentIds)?ctx.payload.attachmentIds:[];
   const contextualIds=Array.isArray(context.pendingUploadIds)?context.pendingUploadIds:[];
   const attachmentIds=payloadAttachmentIds.length?payloadAttachmentIds:contextualIds;
   const chatAttachments=await loadChatAttachments(ctx,attachmentIds);
+  const diagnosticImages=await loadDiagnosticImageInputs(chatAttachments);
   if(payloadAttachmentIds.length)context=sanitizeActiveContext({...context,pendingUploadIds:chatAttachments.map(item=>item.uploadId)});
 
   const history=conversationParts(ctx.payload?.history||[]);
-  const knowledgeRequired=requiresKnowledgeLookup(message);
+  const knowledgeRequired=requiresKnowledgeLookup(message)||diagnosticImages.length>0;
   let intent=classifyAiIntent({message,context,attachments:chatAttachments});
   if(knowledgeRequired&&intent===AI_INTENTS.GENERAL)intent=AI_INTENTS.KNOWLEDGE;
   const internalEvidenceRequired=requiresInternalEvidence(message,context)||intent!==AI_INTENTS.GENERAL&&intent!==AI_INTENTS.WEB;
@@ -127,7 +226,7 @@ export async function runDmsAgent(ctx){
   let tools=declarationsForUser(ctx,{includeWeb:webEnabledForTurn,intent,selectedNames});
   const systemInstruction=buildAgentSystemPrompt({user:ctx.user,permissions:ctx.permissions,nowIso:costaRicaNowIso()});
   const inputText=buildAgentUserInput({message,history:history.recent,context,attachments:chatAttachments,conversationSummary:history.summary});
-  let timeline=[{type:'user_input',content:[{type:'text',text:inputText}]}];
+  let timeline=[{type:'user_input',content:[...diagnosticImages,{type:'text',text:inputText}]}];
   const ui={entities:[],attachments:[],sources:[],confirmations:[],context:{...context}};
   const toolNames=[];let modelMs=0,toolMs=0,totalInput=0,totalOutput=0,dbQueries=0,dbQueryMs=0,requestBytes=0;
   let knowledgeChunks=0,initialModel='',finalModel='',fallbackCount=0,fallbackReason='',modelIndex=0,compacted=false;
@@ -257,7 +356,8 @@ export async function runDmsAgent(ctx){
             dbQueries+=Number(measured.metrics?.queries||0);dbQueryMs+=Number(measured.metrics?.queryMs||0);
             mergeUi(ui,measured.result.ui);
             if(call.name==='search_knowledge_document_chunks')knowledgeChunks+=Number(measured.result.modelData?.totalShown||0);
-            if(call.name==='search_knowledge_base'&&Number(measured.result.modelData?.totalShown||0)===0&&aiConfig.webSearchEnabled&&!webEnabledForTurn){
+            if(['search_knowledge_base','search_knowledge_documents','search_knowledge_document_chunks'].includes(call.name)
+              && Number(measured.result.modelData?.totalShown||0)===0&&aiConfig.webSearchEnabled&&!webEnabledForTurn){
               webEnabledForTurn=true;
               tools=declarationsForUser(ctx,{includeWeb:true,intent,selectedNames});
             }

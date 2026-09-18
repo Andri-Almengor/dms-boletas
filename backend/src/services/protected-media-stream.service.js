@@ -67,6 +67,8 @@ export function createProtectedMediaStreamUrl({
   kind = 'evidence',
   userId = '',
   sessionToken = '',
+  disposition = 'inline',
+  fileName = '',
 }) {
   const scopedTicket = clean(boletaUid);
   const scopedUser = clean(userId);
@@ -86,6 +88,8 @@ export function createProtectedMediaStreamUrl({
     kind: clean(kind) || 'evidence',
     userId: scopedUser,
     sessionHash: sessionFingerprint(scopedSession),
+    disposition: clean(disposition).toLowerCase() === 'attachment' ? 'attachment' : 'inline',
+    fileName: clean(fileName).replace(/[\r\n"\\]/g, '_').slice(0, 180),
     exp,
   };
 
@@ -116,7 +120,7 @@ function parseToken(token) {
   }
 
   const grant = grants.get(clean(payload.grantId));
-  const fields = ['fileId', 'mimeType', 'boletaUid', 'evidenceId', 'kind', 'userId', 'sessionHash'];
+  const fields = ['fileId', 'mimeType', 'boletaUid', 'evidenceId', 'kind', 'userId', 'sessionHash', 'disposition', 'fileName'];
   if (!grant || fields.some((field) => clean(grant[field]) !== clean(payload[field])) || Number(grant.exp) !== Number(payload.exp)) {
     throw new AppError('MEDIA_GRANT_INVALID', 'La autorización temporal de la evidencia ya no está disponible.', 401);
   }
@@ -177,7 +181,9 @@ export async function streamProtectedMedia(req, res, next) {
     res.setHeader('Content-Type', upstream.headers.get('content-type') || media.mimeType);
     res.setHeader('Accept-Ranges', upstream.headers.get('accept-ranges') || 'bytes');
     res.setHeader('Cache-Control', 'private, no-store');
-    res.setHeader('Content-Disposition', 'inline');
+    const disposition = media.disposition === 'attachment' ? 'attachment' : 'inline';
+    const safeName = clean(media.fileName).replace(/[\r\n"\\]/g, '_').slice(0, 180);
+    res.setHeader('Content-Disposition', safeName ? `${disposition}; filename="${safeName}"` : disposition);
     res.setHeader('X-Content-Type-Options', 'nosniff');
     copyHeader(upstream, res, 'content-length');
     copyHeader(upstream, res, 'content-range');
