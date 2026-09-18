@@ -73,7 +73,7 @@ export function toolNamesForIntent(intent){
     case AI_INTENTS.TICKET_EVIDENCE: return ['search_tickets','get_ticket','search_ticket_evidence','get_ticket_evidence','get_ticket_history'];
     case AI_INTENTS.MAINTENANCE: return ['resolve_maintenance_reference','search_maintenances','get_maintenance','get_maintenance_history'];
     case AI_INTENTS.MAINTENANCE_DEVICES: return ['resolve_maintenance_reference','resolve_maintenance_device','search_maintenances','get_maintenance','get_maintenance_devices','search_devices'];
-    case AI_INTENTS.MAINTENANCE_EVIDENCE: return ['resolve_maintenance_reference','resolve_maintenance_device','search_maintenances','get_maintenance','get_maintenance_devices','get_maintenance_evidence'];
+    case AI_INTENTS.MAINTENANCE_EVIDENCE: return ['resolve_maintenance_reference','resolve_maintenance_device','search_maintenances','get_maintenance','get_maintenance_devices','search_maintenance_evidence'];
     case AI_INTENTS.CLIENTS: return ['search_clients','get_client'];
     case AI_INTENTS.USERS: return ['search_users','get_technician_activity','search_tickets'];
     case AI_INTENTS.KNOWLEDGE: return ['search_knowledge_base','get_knowledge_article','search_knowledge_documents','search_knowledge_document_chunks'];
