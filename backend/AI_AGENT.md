@@ -77,7 +77,7 @@ El loop Gemini usa Interactions API en modo `store:false`. Los `steps` y `functi
 
 - `GEMINI_API_KEY`: secreto exclusivo de backend.
 - `GEMINI_MODEL`: modelo centralizado.
-- `AI_CHAT_ENABLED`: habilita el agente; si es `false`, `assistant.chat` usa el motor anterior.
+- `AI_CHAT_ENABLED`: habilita el agente; si es `false`, solo el chatbot queda temporalmente deshabilitado. El resto de DMS continúa funcionando.
 - `AI_WEB_SEARCH_ENABLED`: habilita Google Search externo.
 - `AI_GEMINI_TIMEOUT_MS`
 - `AI_TOOL_TIMEOUT_MS`
