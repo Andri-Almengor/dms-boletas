@@ -71,6 +71,103 @@ function messageId() {
   return crypto.randomUUID?.() || `${Date.now()}-${Math.random()}`;
 }
 
+function assistantFileAllowed(file) {
+  const mime = String(file?.type || '').toLowerCase();
+  if (mime.startsWith('image/')) return true;
+  const name = String(file?.name || '');
+  const extension = name.includes('.') ? name.split('.').pop().toLowerCase() : '';
+  return ASSISTANT_FILE_EXTENSIONS.has(extension);
+}
+
+function assistantFileMime(file) {
+  const supplied = String(file?.type || '').trim().toLowerCase();
+  if (supplied && supplied !== 'application/octet-stream') return supplied;
+  const extension = String(file?.name || '').toLowerCase().split('.').pop();
+  const map = {
+    pdf: 'application/pdf',
+    doc: 'application/msword',
+    docx: 'application/vnd.openxmlformats-officedocument.wordprocessingml.document',
+    xls: 'application/vnd.ms-excel',
+    xlsx: 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet',
+    csv: 'text/csv',
+    txt: 'text/plain',
+    jpg: 'image/jpeg',
+    jpeg: 'image/jpeg',
+    png: 'image/png',
+    gif: 'image/gif',
+    webp: 'image/webp',
+    bmp: 'image/bmp',
+    heic: 'image/heic',
+    heif: 'image/heif',
+  };
+  return map[extension] || supplied || 'application/octet-stream';
+}
+
+function humanFileSize(value) {
+  const bytes = Number(value || 0);
+  if (!bytes) return '0 B';
+  if (bytes < 1024) return `${bytes} B`;
+  if (bytes < 1024 * 1024) return `${(bytes / 1024).toFixed(1)} KB`;
+  return `${(bytes / (1024 * 1024)).toFixed(1)} MB`;
+}
+
+async function blobBase64(blob) {
+  const bytes = new Uint8Array(await blob.arrayBuffer());
+  let binary = '';
+  const block = 32 * 1024;
+  for (let offset = 0; offset < bytes.length; offset += block) {
+    binary += String.fromCharCode(...bytes.subarray(offset, Math.min(bytes.length, offset + block)));
+  }
+  return btoa(binary);
+}
+
+async function uploadAssistantAttachment(item, sessionToken) {
+  const initialized = await apiRequest('assistant.attachments.init', {
+    uploadId: item.id,
+    fileName: item.file.name,
+    mimeType: assistantFileMime(item.file),
+    size: item.file.size,
+  }, sessionToken);
+
+  const existing = initialized?.uploadId || initialized?.evidence?.uploadId;
+  if (initialized?.complete && existing) {
+    return {
+      uploadId: existing,
+      name: initialized.name || initialized.evidence?.name || item.file.name,
+      mimeType: initialized.mimeType || initialized.evidence?.mimeType || assistantFileMime(item.file),
+      size: Number(initialized.size || initialized.evidence?.size || item.file.size),
+    };
+  }
+
+  const uploadToken = initialized?.uploadToken;
+  const chunkBytes = Math.max(256 * 1024, Number(initialized?.chunkBytes || 4 * 1024 * 1024));
+  if (!uploadToken) throw new Error('No se pudo iniciar la carga segura del adjunto.');
+
+  let offset = 0;
+  while (offset < item.file.size) {
+    const end = Math.min(item.file.size, offset + chunkBytes);
+    const base64 = await blobBase64(item.file.slice(offset, end));
+    const result = await apiRequest('assistant.attachments.chunk', {
+      uploadToken,
+      offset,
+      base64,
+    }, sessionToken);
+    const completedId = result?.uploadId || result?.evidence?.uploadId;
+    if (result?.complete && completedId) {
+      return {
+        uploadId: completedId,
+        name: result.name || result.evidence?.name || item.file.name,
+        mimeType: result.mimeType || result.evidence?.mimeType || assistantFileMime(item.file),
+        size: Number(result.size || result.evidence?.size || item.file.size),
+      };
+    }
+    const nextOffset = Number(result?.nextOffset);
+    offset = Number.isFinite(nextOffset) && nextOffset > offset ? nextOffset : end;
+  }
+
+  throw new Error(`No se pudo completar la carga de ${item.file.name}.`);
+}
+
 function text(value, fallback = '—') {
   const clean = String(value ?? '').trim();
   return clean || fallback;
