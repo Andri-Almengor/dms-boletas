@@ -38,10 +38,7 @@ export function aliasQuery(value) {
 }
 
 export function like(value) {
-  return '%' + clean(value, 300).replace(/[\\%_]/g, '\\export function like(value) {
   return '%' + clean(value, 300).replace(/[\\%_]/g, '\\$&') + '%';
-}
-') + '%';
 }
 
 const SEARCH_STOPWORDS=new Set([
