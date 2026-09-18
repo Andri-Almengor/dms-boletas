@@ -399,6 +399,20 @@ export async function runDmsAgent(ctx, overrides = {}){
           knowledgeFlow.documentsFound===0
           ||(knowledgeFlow.readyDocuments>0&&knowledgeFlow.chunkSearches>0&&knowledgeFlow.chunksFound===0&&!retryChunkSearch)
         );
+        const maintenanceResolved=Boolean(ui.context.lastMaintenanceId||context.lastMaintenanceId);
+        const ticketResolved=Boolean(ui.context.lastTicketId||context.lastTicketId);
+        const needMaintenanceDevices=maintenanceResolved
+          &&[AI_INTENTS.MAINTENANCE_DEVICES,AI_INTENTS.MAINTENANCE_EVIDENCE].includes(intent)
+          &&exposed.has('get_maintenance_devices')
+          &&!toolNames.includes('get_maintenance_devices');
+        const needMaintenanceEvidence=maintenanceResolved
+          &&intent===AI_INTENTS.MAINTENANCE_EVIDENCE
+          &&(exposed.has('search_maintenance_evidence')||exposed.has('get_maintenance_evidence'))
+          &&!toolNames.some((name)=>['search_maintenance_evidence','get_maintenance_evidence'].includes(name));
+        const needTicketEvidence=ticketResolved
+          &&intent===AI_INTENTS.TICKET_EVIDENCE
+          &&(exposed.has('search_ticket_evidence')||exposed.has('get_ticket_evidence'))
+          &&!toolNames.some((name)=>['search_ticket_evidence','get_ticket_evidence'].includes(name));
         if(round<aiConfig.maxToolRounds-1&&aiConfig.webSearchEnabled&&!webEnabledForTurn
           &&knowledgeRequired&&externalRequested(message)&&internalKnowledgeExhausted){
           webEnabledForTurn=true;
@@ -410,6 +424,7 @@ export async function runDmsAgent(ctx, overrides = {}){
           continue;
         }
         if(round<aiConfig.maxToolRounds-1&&(needFirstKnowledgeCall||needArticleSearch||needDocumentSearch||needChunkSearch||retryChunkSearch
+          ||needMaintenanceDevices||needMaintenanceEvidence||needTicketEvidence
           ||(internalEvidenceRequired&&tools.length&&!hasInternalTool))){
           let instruction='Antes de responder esta pregunta sobre DMS, consulta una de las herramientas internas disponibles. No respondas datos internos desde conocimiento general.';
           if(needFirstKnowledgeCall||needArticleSearch){
@@ -420,6 +435,12 @@ export async function runDmsAgent(ctx, overrides = {}){
             instruction='Encontraste un documento interno indexado. Antes de decir qué contiene, usa search_knowledge_document_chunks sobre el documento relevante y recupera solo fragmentos pertinentes.';
           }else if(retryChunkSearch){
             instruction='La primera búsqueda dentro del documento no encontró fragmentos. Reformula una vez la búsqueda con términos equivalentes técnicos del mismo tema y vuelve a usar search_knowledge_document_chunks. No cargues el documento completo.';
+          }else if(needMaintenanceDevices){
+            instruction='Ya resolviste el mantenimiento solicitado. Antes de responder, usa get_maintenance_devices con ese maintenanceId para obtener la lista autoritativa, zonas, estados, operatividad, fechas y conteos de evidencias.';
+          }else if(needMaintenanceEvidence){
+            instruction='Ya resolviste el mantenimiento. La pregunta solicita evidencias o imágenes: usa search_maintenance_evidence (o get_maintenance_evidence si corresponde) con el maintenanceId resuelto y los filtros solicitados. No afirmes que no tienes acceso.';
+          }else if(needTicketEvidence){
+            instruction='Ya resolviste la boleta. La pregunta solicita evidencias o imágenes: usa search_ticket_evidence o get_ticket_evidence con la boleta resuelta antes de responder.';
           }
           timeline.push({type:'user_input',content:[{type:'text',text:instruction}]});
           continue;
