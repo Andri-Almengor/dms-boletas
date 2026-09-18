@@ -20,6 +20,8 @@ BEGIN
     EXECUTE 'CREATE INDEX IF NOT EXISTS ix_ai_device_model_trgm ON "Evidencia_Mantenimientos" USING GIN ((LOWER(COALESCE("Modelo",''''))) gin_trgm_ops) WHERE "__valid"=TRUE';
     EXECUTE 'CREATE INDEX IF NOT EXISTS ix_ai_knowledge_title_trgm ON "KnowledgeArticles" USING GIN ((LOWER(COALESCE("Titulo",''''))) gin_trgm_ops) WHERE "__valid"=TRUE';
     EXECUTE 'CREATE INDEX IF NOT EXISTS ix_ai_case_problem_trgm ON "CasosClientes" USING GIN ((LOWER(COALESCE("Problema",''''))) gin_trgm_ops) WHERE "__valid"=TRUE';
+    EXECUTE 'CREATE INDEX IF NOT EXISTS ix_ai_integration_ip_trgm ON "IntegracionDispositivos" USING GIN ((LOWER(COALESCE("DireccionIP",''''))) gin_trgm_ops) WHERE "__valid"=TRUE';
+    EXECUTE 'CREATE INDEX IF NOT EXISTS ix_ai_integration_mac_trgm ON "IntegracionDispositivos" USING GIN ((LOWER(COALESCE("DireccionMAC",''''))) gin_trgm_ops) WHERE "__valid"=TRUE';
   END IF;
 END
 $ai_search$;
