@@ -5,6 +5,7 @@ import { env } from '../config/env.js';
 import { googleAuth } from '../infra/google.js';
 import { appendRow, findById, readTable } from '../infra/sheets.repository.js';
 import { query } from '../infra/postgres.js';
+import { aiConfig } from '../ai/agent.config.js';
 import { getConfig } from '../modules/config.module.js';
 import { ensureSheetColumns } from './sheet-columns.service.js';
 import { validateEvidenceMediaPayload } from './evidence-media-policy.service.js';
@@ -200,6 +201,7 @@ function validatedVideoMetadata(payload, allowDocuments = false) {
 }
 
 async function initAssistant(ctx) {
+  if (!aiConfig.enabled) throw badRequest('El asistente inteligente está deshabilitado temporalmente.');
   const uploadId = clean(pick(ctx.payload, ['uploadId', 'UploadID'], uuid()));
   if (!validClientGeneratedId(uploadId)) throw badRequest('El identificador local del adjunto no es válido.');
   const size = Number(ctx.payload.size);
