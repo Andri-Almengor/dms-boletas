@@ -14,7 +14,7 @@ export async function queryPage(table, payload = {}, { searchFields = [], allowe
   const clauses = ['"__valid" = TRUE'];
   if (excludeInactive && meta.columns.includes('Activo') && payload.activo === undefined) clauses.push(`LOWER(COALESCE("Activo",'true')) <> 'false'`);
   if (excludeInactiveState && meta.columns.includes('Estado')) clauses.push(`UPPER(COALESCE("Estado",'ACTIVO')) <> 'INACTIVO'`);
-  const eq = [['clienteId','ClienteID'],['categoriaId','CategoriaID'],['tipoDispositivoId','TipoDispositivoID'],['fabricanteId','FabricanteID'],['modeloId','ModeloID']];
+  const eq = [['clienteId','ClienteID'],['ubicacionId','UbicacionID'],['ubicacionEquipoId','UbicacionEquipoID'],['categoriaId','CategoriaID'],['tipoDispositivoId','TipoDispositivoID'],['fabricanteId','FabricanteID'],['modeloId','ModeloID']];
   for (const [key,col] of eq) if (payload[key] && meta.columns.includes(col)) { params.push(String(payload[key])); clauses.push(`${qi(col)}=$${params.length}`); }
   if (payload.activo !== undefined && meta.columns.includes('Activo')) { params.push(String(payload.activo).toLowerCase()); clauses.push(`LOWER(COALESCE("Activo",''))=$${params.length}`); }
   if ((payload.estado || payload.status) && meta.columns.includes('Estado')) {
