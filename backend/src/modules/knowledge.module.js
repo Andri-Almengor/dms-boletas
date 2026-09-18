@@ -1,6 +1,9 @@
 import { transferKnowledgeAttachment } from '../services/large-evidence-upload.service.js';
 import { appendRow, filterRows, findById, findRows, queryKnowledgeArticlePage, readTable, readTables, softDelete, updateRow } from '../infra/sheets.repository.js';
-import { uploadBase64, downloadAsDataUrl, trashFile } from '../infra/drive.repository.js';
+import { uploadBase64, trashFile } from '../infra/drive.repository.js';
+import { query } from '../infra/postgres.js';
+import { createProtectedMediaStreamUrl } from '../services/protected-media-stream.service.js';
+import { indexKnowledgeDocument } from '../ai/agent.knowledge-documents.js';
 import { getConfig } from './config.module.js';
 import { asBool, nowIso, pick, uuid } from '../core/utils.js';
 import { badRequest, forbidden, notFound } from '../core/errors.js';
@@ -89,6 +92,68 @@ function normalizeUploadPayload(payload = {}) {
   return { mimeType: payload.mimeType || 'application/octet-stream', base64: payload.base64 || dataUrl };
 }
 
+
+function publicKnowledgeAttachment(row = {}) {
+  return {
+    AdjuntoID: row.AdjuntoID || '',
+    TutorialID: row.TutorialID || '',
+    Nombre: row.Nombre || 'Documento',
+    MimeType: row.MimeType || 'application/octet-stream',
+    Size: row.Size || row.SizeBytes || '',
+    SizeBytes: Number(row.SizeBytes || row.Size || 0) || 0,
+    IsPrimary: asBool(row.IsPrimary, false),
+    ExtractionStatus: row.ExtractionStatus || row.Status || 'UPLOADED',
+    ExtractionError: row.ExtractionError || '',
+    IndexedAt: row.IndexedAt || '',
+    Status: row.Status || 'UPLOADED',
+    FechaCreacion: row.FechaCreacion || '',
+    FechaActualizacion: row.FechaActualizacion || '',
+    Activo: row.Activo !== false,
+  };
+}
+
+function textFromHtml(value = '') {
+  return String(value || '').replace(/<script[\s\S]*?<\/script>/gi, ' ').replace(/<style[\s\S]*?<\/style>/gi, ' ').replace(/<[^>]+>/g, ' ').replace(/&nbsp;/gi, ' ').replace(/\s+/g, ' ').trim();
+}
+
+function hasArticleContribution(payload = {}, existingAttachments = []) {
+  const content = pick(payload, ['ContenidoHTML', 'contenidoHtml', 'Contenido', 'contenido'], '');
+  const videos = parseArray(payload.videos || payload.VideosJSON || payload.VideoURL);
+  const pendingDocuments = Number(payload.pendingDocumentsCount || payload.PendingDocumentsCount || 0);
+  return Boolean(textFromHtml(content) || videos.length || pendingDocuments > 0 || existingAttachments.length);
+}
+
+async function activeKnowledgeAttachments(tutorialId) {
+  const rows = await findRows('KnowledgeAttachments', { TutorialID: [String(tutorialId)] }, { limit: 50_000 });
+  return rows.filter((row) => row.__valid !== false && row.Activo !== false);
+}
+
+async function setPrimaryKnowledgeDocument(tutorialId, attachmentId, actor) {
+  const rows = await activeKnowledgeAttachments(tutorialId);
+  const target = rows.find((row) => String(row.AdjuntoID) === String(attachmentId));
+  if (!target) throw notFound('No se encontró el documento principal solicitado.');
+  const timestamp = nowIso();
+  for (const row of rows) {
+    const desired = String(row.AdjuntoID) === String(attachmentId);
+    if (asBool(row.IsPrimary, false) !== desired) {
+      await updateRow('KnowledgeAttachments', row.AdjuntoID, {
+        IsPrimary: desired,
+        ActualizadoPor: actor,
+        FechaActualizacion: timestamp,
+      });
+    }
+  }
+  return publicKnowledgeAttachment(await findById('KnowledgeAttachments', attachmentId));
+}
+
+async function invalidateDocumentChunks(documentId) {
+  await query(
+    'UPDATE "KnowledgeDocumentChunks" SET "__valid"=FALSE WHERE "DocumentID"=$1 AND "__valid"=TRUE',
+    [String(documentId)],
+    { label: 'knowledge.documents.invalidateChunks', write: true },
+  ).catch(() => {});
+}
+
 function canManageKnowledge(ctx) {
   return ctx.permissions?.includes('CONOCIMIENTO_GESTIONAR') || ctx.permissions?.includes('USUARIOS_GESTIONAR');
 }
@@ -154,9 +219,9 @@ function enrichArticle(article, attachments, categories, users = [], relations =
     CategoriasNombres: categoryNames.join(' + '),
     AutorNombre: article.AutorNombre || author?.NombreCompleto || author?.Nombre || author?.NombreUsuario || '',
     Videos: parseArray(article.VideosJSON || article.Videos || article.VideoURL),
-    Adjuntos: relatedAttachments,
-    Attachments: relatedAttachments,
-    attachments: relatedAttachments,
+    Adjuntos: relatedAttachments.map(publicKnowledgeAttachment),
+    Attachments: relatedAttachments.map(publicKnowledgeAttachment),
+    attachments: relatedAttachments.map(publicKnowledgeAttachment),
   };
   return {
     TutorialID: tutorialId,
@@ -164,8 +229,8 @@ function enrichArticle(article, attachments, categories, users = [], relations =
     item,
     article: item,
     articulo: item,
-    attachments: relatedAttachments,
-    adjuntos: relatedAttachments,
+    attachments: relatedAttachments.map(publicKnowledgeAttachment),
+    adjuntos: relatedAttachments.map(publicKnowledgeAttachment),
   };
 }
 
@@ -312,6 +377,7 @@ export const knowledgeHandlers = {
     await validateCategoryIds(categoryIds);
     const title = pick(payload, ['Titulo', 'titulo']);
     if (!String(title || '').trim()) throw badRequest('El título del tutorial es obligatorio.');
+    if (!hasArticleContribution(payload)) throw badRequest('Agregue contenido, un documento o un video para crear la guía.');
     const row = {
       TutorialID: uuid(),
       Titulo: title,
@@ -340,6 +406,13 @@ export const knowledgeHandlers = {
     const categoriesSupplied = hasCategoryPayload(payload);
     const categoryIds = categoriesSupplied ? categoryIdsFromPayload(payload) : null;
     if (categoryIds) await validateCategoryIds(categoryIds);
+    const existingAttachments = await activeKnowledgeAttachments(id);
+    const prospective = {
+      ...payload,
+      ContenidoHTML: pick(payload, ['ContenidoHTML', 'contenidoHtml', 'Contenido', 'contenido'], before.ContenidoHTML),
+      VideosJSON: payload.videos || payload.VideosJSON || before.VideosJSON,
+    };
+    if (!hasArticleContribution(prospective, existingAttachments)) throw badRequest('La guía debe conservar contenido, al menos un documento o un video.');
     const row = await updateRow('KnowledgeArticles', id, {
       Titulo: pick(payload, ['Titulo', 'titulo'], before.Titulo),
       CategoriaConocimientoID: categoryIds ? categoryIds[0] : before.CategoriaConocimientoID,
@@ -366,6 +439,9 @@ export const knowledgeHandlers = {
   attachmentUpload: async (ctx) => {
     const article = await findById('KnowledgeArticles', tutorialIdFrom(ctx.payload), 'TutorialID');
     assertArticleWrite(ctx, article);
+    const replaceAttachmentId = String(pick(ctx.payload, ['replaceAttachmentId', 'ReplaceAttachmentID'], '') || '').trim();
+    const replacing = replaceAttachmentId ? await findById('KnowledgeAttachments', replaceAttachmentId) : null;
+    if (replacing && String(replacing.TutorialID) !== String(article.TutorialID)) throw badRequest('El documento a reemplazar no pertenece a esta guía.');
     const cfg = await getConfig();
     const transfer = ctx.payload.uploadPhase
       ? await transferKnowledgeAttachment(ctx, article.TutorialID, cfg.ROOT_FOLDER_ID) : null;
@@ -377,34 +453,109 @@ export const knowledgeHandlers = {
       fileName: ctx.payload.fileName || ctx.payload.nombre,
       folderId: cfg.ROOT_FOLDER_ID,
     });
+    const existing = await activeKnowledgeAttachments(article.TutorialID);
+    const requestedPrimary = asBool(ctx.payload.isPrimary ?? ctx.payload.IsPrimary, false);
+    const isPrimary = requestedPrimary || existing.length === 0 || asBool(replacing?.IsPrimary, false);
+    if (isPrimary) {
+      for (const item of existing) {
+        if (asBool(item.IsPrimary, false)) await updateRow('KnowledgeAttachments', item.AdjuntoID, {
+          IsPrimary: false,
+          ActualizadoPor: ctx.user.UsuarioID,
+          FechaActualizacion: nowIso(),
+        });
+      }
+    }
+    const timestamp = nowIso();
     const row = {
       AdjuntoID: transfer?.token?.attachmentId || uuid(),
       TutorialID: article.TutorialID,
       Nombre: pick(ctx.payload, ['nombre', 'Nombre'], file.name),
-      MimeType: file.mimeType,
-      Size: ctx.payload.size || file.size || '',
+      MimeType: file.mimeType || upload.mimeType,
+      Size: String(ctx.payload.size || file.size || ''),
+      SizeBytes: Number(ctx.payload.size || file.size || 0) || 0,
       DriveFileID: file.id,
       DriveURL: file.webViewLink,
+      IsPrimary: isPrimary,
+      ExtractionStatus: 'UPLOADED',
+      ExtractionError: '',
+      IndexedAt: '',
+      SearchText: '',
+      Status: 'UPLOADED',
       Activo: true,
       CreadoPor: ctx.user.UsuarioID,
-      FechaCreacion: nowIso(),
+      FechaCreacion: timestamp,
+      ActualizadoPor: ctx.user.UsuarioID,
+      FechaActualizacion: timestamp,
     };
     await appendRow('KnowledgeAttachments', row);
-    return transfer ? {complete:true,evidence:row} : row;
+    if (replacing) {
+      await invalidateDocumentChunks(replacing.AdjuntoID);
+      await trashFile(replacing.DriveFileID).catch(() => {});
+      await softDelete('KnowledgeAttachments', replacing.AdjuntoID, ctx.user.UsuarioID);
+    }
+    void indexKnowledgeDocument(row, ctx.user.UsuarioID).catch(() => {});
+    const safeRow = publicKnowledgeAttachment(row);
+    return transfer ? {complete:true,evidence:safeRow} : safeRow;
   },
 
   attachmentDelete: async (ctx) => {
     const row = await findById('KnowledgeAttachments', attachmentIdFrom(ctx.payload));
     const article = await findArticleByAttachment(row);
     assertArticleWrite(ctx, article);
+    const wasPrimary = asBool(row.IsPrimary, false);
+    await invalidateDocumentChunks(row.AdjuntoID);
     await trashFile(row.DriveFileID).catch(() => {});
-    return softDelete('KnowledgeAttachments', row.AdjuntoID, ctx.user.UsuarioID);
+    const deleted = await softDelete('KnowledgeAttachments', row.AdjuntoID, ctx.user.UsuarioID);
+    if (wasPrimary) {
+      const remaining = await activeKnowledgeAttachments(article.TutorialID);
+      if (remaining[0]) await setPrimaryKnowledgeDocument(article.TutorialID, remaining[0].AdjuntoID, ctx.user.UsuarioID);
+    }
+    return deleted;
+  },
+
+  attachmentPrimary: async (ctx) => {
+    const row = await findById('KnowledgeAttachments', attachmentIdFrom(ctx.payload));
+    const article = await findArticleByAttachment(row);
+    assertArticleWrite(ctx, article);
+    return setPrimaryKnowledgeDocument(article.TutorialID, row.AdjuntoID, ctx.user.UsuarioID);
+  },
+
+  attachmentReindex: async (ctx) => {
+    const row = await findById('KnowledgeAttachments', attachmentIdFrom(ctx.payload));
+    const article = await findArticleByAttachment(row);
+    assertArticleWrite(ctx, article);
+    await updateRow('KnowledgeAttachments', row.AdjuntoID, {
+      ExtractionStatus: 'UPLOADED',
+      ExtractionError: '',
+      IndexedAt: '',
+      ActualizadoPor: ctx.user.UsuarioID,
+      FechaActualizacion: nowIso(),
+    });
+    void indexKnowledgeDocument({ ...row, ExtractionStatus: 'UPLOADED' }, ctx.user.UsuarioID).catch(() => {});
+    return { ok: true, AdjuntoID: row.AdjuntoID, ExtractionStatus: 'PROCESSING' };
   },
 
   mediaGet: async (ctx) => {
     const row = await findById('KnowledgeAttachments', attachmentIdFrom(ctx.payload));
     const article = await findArticleByAttachment(row);
     assertArticleRead(ctx, article);
-    return { AdjuntoID: row.AdjuntoID, ...await downloadAsDataUrl(row.DriveFileID, row.MimeType) };
+    const common = {
+      fileId: row.DriveFileID,
+      mimeType: row.MimeType || 'application/octet-stream',
+      boletaUid: 'knowledge:' + article.TutorialID,
+      evidenceId: row.AdjuntoID,
+      kind: 'knowledge-document',
+      userId: ctx.user.UsuarioID,
+      sessionToken: ctx.sessionToken,
+      fileName: row.Nombre || 'documento',
+    };
+    const inlineUrl = createProtectedMediaStreamUrl({ ...common, disposition: 'inline' });
+    const downloadUrl = createProtectedMediaStreamUrl({ ...common, disposition: 'attachment' });
+    return {
+      ...publicKnowledgeAttachment(row),
+      inlineUrl,
+      downloadUrl,
+      url: inlineUrl,
+    };
   },
 };
