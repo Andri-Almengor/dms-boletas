@@ -11,7 +11,7 @@ process.env.NODE_ENV = 'test';
 process.env.DATABASE_URL = testDatabaseUrl;
 
 const { appendRow, findById, queryTicketPage, readTable, updateRow } = await import('../src/infra/postgres.repository.js');
-const { closePostgres, query } = await import('../src/infra/postgres.js');
+const { closePostgres, query, withTransaction } = await import('../src/infra/postgres.js');
 const { appendSyncChanges, getSyncCursor, readSyncChangesAfter } = await import('../src/services/sync-change.service.js');
 const { createPortablePostgresBackupFile, cleanupPortableBackup } = await import('../src/services/postgres-backup.service.js');
 
@@ -71,6 +71,28 @@ test('SyncChanges uses a monotonic database cursor', async () => {
 });
 
 
+
+test('SyncChanges participates atomically in an ambient PostgreSQL transaction', async () => {
+  const entityId = `sync-rollback-${suffix}`;
+  const before = await getSyncCursor();
+  await assert.rejects(
+    withTransaction(async () => {
+      await appendSyncChanges([
+        { resource: 'ticket', entityId, operation: 'UPSERT', sourceRoute: 'test.rollback' },
+      ]);
+      throw new Error('force rollback');
+    }),
+    /force rollback/,
+  );
+  const after = await getSyncCursor();
+  assert.equal(after, before);
+  const persisted = await query(
+    'SELECT COUNT(*)::int AS total FROM "SyncChanges" WHERE "__valid"=TRUE AND "EntityID"=$1',
+    [entityId],
+    { label: 'test.sync.rollback.verify' },
+  );
+  assert.equal(Number(persisted.rows[0]?.total || 0), 0);
+});
 
 test('ticket SQL paging preserves allowedIds authorization and home summary scope', async () => {
   const firstId = `authz-${suffix}-pending`;
