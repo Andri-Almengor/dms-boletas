@@ -36,6 +36,29 @@ const ASSISTANT_ALLOWED_MIMES = new Set([
   'text/csv',
   'text/tab-separated-values',
 ]);
+const ASSISTANT_EXTENSION_MIMES = Object.freeze({
+  pdf: 'application/pdf',
+  doc: 'application/msword',
+  docx: 'application/vnd.openxmlformats-officedocument.wordprocessingml.document',
+  xls: 'application/vnd.ms-excel',
+  xlsx: 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet',
+  csv: 'text/csv',
+  txt: 'text/plain',
+  jpg: 'image/jpeg',
+  jpeg: 'image/jpeg',
+  png: 'image/png',
+  gif: 'image/gif',
+  webp: 'image/webp',
+  bmp: 'image/bmp',
+  heic: 'image/heic',
+  heif: 'image/heif',
+});
+function assistantMimeType(value, fileName = '') {
+  const supplied = clean(value).toLowerCase().split(';')[0];
+  if (supplied && supplied !== 'application/octet-stream') return supplied;
+  const extension = clean(fileName).toLowerCase().split('.').pop();
+  return ASSISTANT_EXTENSION_MIMES[extension] || supplied || 'application/octet-stream';
+}
 function assistantMimeAllowed(value) {
   const mime = clean(value).toLowerCase().split(';')[0];
   return mime.startsWith('image/') || ASSISTANT_ALLOWED_MIMES.has(mime);
@@ -134,11 +157,16 @@ function existingMaintenanceEvidence(rows, imageId, deviceId) {
 }
 
 async function findExistingAssistantUpload(token) {
+  const actor = clean(token?.actor);
+  const fingerprint = clean(token?.sessionHash);
+  if (!actor || !fingerprint) return null;
   const result = await query(
     `SELECT "UploadID" AS id,"NombreArchivo" AS name,"MimeType" AS "mimeType","SizeBytes" AS size,
             "Status" AS status,"ExpiresAt" AS "expiresAt"
-       FROM "AiChatUploads" WHERE "__valid"=TRUE AND "UploadID"=$1 LIMIT 1`,
-    [token.uploadId],
+       FROM "AiChatUploads"
+      WHERE "__valid"=TRUE AND "UploadID"=$1 AND "UserID"=$2 AND "SessionHash"=$3
+      LIMIT 1`,
+    [token.uploadId, actor, fingerprint],
     { label: 'ai.upload.existing' },
   );
   const row = result.rows[0];
@@ -178,16 +206,18 @@ async function initAssistant(ctx) {
   if (!Number.isSafeInteger(size) || size <= 0 || size > 50 * 1024 * 1024) {
     throw badRequest('El adjunto debe tener un tamaño válido de hasta 50 MB.');
   }
-  const mimeType = clean(ctx.payload.mimeType, 'application/octet-stream').toLowerCase().split(';')[0];
+  const fileName = clean(ctx.payload.fileName || ctx.payload.nombre, 'adjunto');
+  const mimeType = assistantMimeType(ctx.payload.mimeType, fileName);
   if (!assistantMimeAllowed(mimeType)) {
     throw badRequest('El formato adjunto no está permitido en el asistente. Use imágenes, PDF, DOCX, XLSX, CSV o TXT.');
   }
 
-  const existing = await findExistingAssistantUpload({ uploadId });
+  const actor = ctx.user.UsuarioID;
+  const fingerprint = sessionFingerprint(ctx.sessionToken);
+  const existing = await findExistingAssistantUpload({ uploadId, actor, sessionHash: fingerprint });
   if (existing) return { complete: true, ...existing };
 
   const cfg = await getConfig();
-  const fileName = clean(ctx.payload.fileName || ctx.payload.nombre, 'adjunto');
   const sessionUrl = await startDriveResumableSession({
     fileName,
     mimeType,
@@ -202,8 +232,8 @@ async function initAssistant(ctx) {
       kind: 'assistant',
       sessionUrl,
       uploadId,
-      actor: ctx.user.UsuarioID,
-      sessionHash: sessionFingerprint(ctx.sessionToken),
+      actor,
+      sessionHash: fingerprint,
       fileName,
       mimeType,
       size,
@@ -417,7 +447,10 @@ async function uploadChunk(ctx, kind) {
   }
   if (!response.ok) {
     const existing = await findExistingEvidence(token, kind);
-    if (existing) return { complete: true, evidence: existing, nextOffset: token.size };
+    if (existing) {
+      if (kind === 'assistant') return { complete: true, ...existing, nextOffset: token.size };
+      return { complete: true, evidence: existing, nextOffset: token.size };
+    }
     const message = await response.text().catch(() => '');
     throw new Error(`Google Drive no pudo recibir un bloque del video (${response.status}). ${message.slice(0, 300)}`.trim());
   }
