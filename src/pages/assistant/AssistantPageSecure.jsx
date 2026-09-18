@@ -498,8 +498,9 @@ function AssistantAttachments({ attachments = [] }) {
 
 function AssistantSourceLink({ source }) {
   const content = <><Icon name={sourceIcon(source.type)} /><span>{source.label}</span><Icon name="chevron_right" /></>;
-  if (/^https?:\/\//i.test(source.url || '')) return <a href={source.url} target="_blank" rel="noreferrer">{content}</a>;
-  return <Link to={source.url || '#'}>{content}</Link>;
+  if (/^https:\/\//i.test(source.url || '')) return <a href={source.url} target="_blank" rel="noreferrer">{content}</a>;
+  if (String(source.url || '').startsWith('/')) return <Link to={source.url}>{content}</Link>;
+  return <span className="assistant-source-static">{content}</span>;
 }
 
 function AssistantMessage({ message, onSuggestion, onOption }) {
