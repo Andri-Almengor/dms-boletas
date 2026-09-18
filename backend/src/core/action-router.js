@@ -29,6 +29,7 @@ import { legacyTicketImportHandlers } from '../modules/legacy-ticket-import.modu
 import { getClientConfig } from '../modules/config.module.js';
 import { propagateEquipmentLocationName } from '../services/equipment-location-propagation.service.js';
 import { largeEvidenceUploadHandlers } from '../services/large-evidence-upload.service.js';
+import { decideAiOperation } from '../ai/agent.repository.operations.js';
 
 const c = Object.fromEntries(Object.keys({clients:1,clientLocations:1,equipmentLocations:1,contacts:1,categories:1,deviceTypes:1,manufacturers:1,models:1,failureTypes:1,deviceManufacturers:1,knowledgeCategories:1}).map((key)=>[key,crudHandlers(key)]));
 const routes = new Map();
@@ -53,6 +54,9 @@ add(['agenda.resend.email','agendas.resend.email','agenda.reenviar.correo'],agen
 add(['agenda.resend.chat','agendas.resend.chat','agenda.reenviar.chat'],agendaResendHandlers.chat,'USUARIOS_GESTIONAR');
 add(['config.get','app.config.get'],getClientConfig);
 add(['assistant.chat','asistente.chat'],assistantOperationalReportHandlers.chat);
+add(['assistant.attachments.init','asistente.adjuntos.iniciar'], largeEvidenceUploadHandlers.assistantInit);
+add(['assistant.attachments.chunk','asistente.adjuntos.bloque'], largeEvidenceUploadHandlers.assistantChunk);
+add(['assistant.operations.decide','asistente.operaciones.decidir'], decideAiOperation);
 add(['metrics.tickets.get','metricas.boletas.get'],metricsHandlers.tickets,'USUARIOS_GESTIONAR');
 add(['metrics.maintenance.get','metricas.mantenimientos.get'],metricsHandlers.maintenance,'USUARIOS_GESTIONAR');
 add(['legacy.tickets.preview','migracion.boletas.previsualizar'],legacyTicketImportHandlers.preview,'USUARIOS_GESTIONAR');
