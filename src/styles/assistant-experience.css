@@ -270,13 +270,15 @@
   backdrop-filter: blur(16px);
 }
 
-.app-shell--assistant .assistant-composer > div {
+.app-shell--assistant .assistant-composer__row {
+  display: grid;
+  grid-template-columns: 42px minmax(0, 1fr) auto;
+  align-items: end;
+  gap: 8px;
   padding: 6px;
   border: 1px solid var(--outline-soft);
   border-radius: 16px;
   background: var(--surface-low);
-  grid-template-columns: minmax(0, 1fr) 48px;
-  align-items: end;
 }
 
 .app-shell--assistant .assistant-composer textarea {
@@ -295,17 +297,19 @@
 }
 
 .app-shell--assistant .assistant-composer .button {
-  width: 46px;
-  min-width: 46px;
+  width: auto;
+  min-width: 96px;
   min-height: 46px;
-  padding: 0;
+  padding: 0 16px;
   border-radius: 12px;
-  display: grid;
-  place-items: center;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 7px;
 }
 
 .app-shell--assistant .assistant-composer .button span {
-  display: none;
+  display: inline;
 }
 
 .app-shell--assistant .assistant-composer small {
@@ -419,6 +423,36 @@
 
   .app-shell--assistant .assistant-composer {
     padding: 9px 10px calc(9px + env(safe-area-inset-bottom));
+  }
+
+  .app-shell--assistant .assistant-composer__row {
+    grid-template-columns: 40px minmax(0, 1fr) 46px;
+    gap: 6px;
+    padding: 5px;
+  }
+
+  .app-shell--assistant .assistant-composer textarea {
+    min-height: 44px;
+    max-height: 110px;
+    padding: 10px 11px;
+  }
+
+  .app-shell--assistant .assistant-composer .button {
+    width: 46px;
+    min-width: 46px;
+    padding: 0;
+    display: grid;
+    place-items: center;
+  }
+
+  .app-shell--assistant .assistant-composer .button span {
+    display: none;
+  }
+
+  .app-shell--assistant .assistant-attach-button {
+    width: 40px;
+    height: 44px;
+    flex-basis: 40px;
   }
 
   .app-shell--assistant .assistant-composer small {
