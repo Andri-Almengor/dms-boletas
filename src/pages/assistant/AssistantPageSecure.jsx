@@ -688,7 +688,7 @@ export default function AssistantPageSecure() {
         <Icon name="verified_user" />
         <div>
           <strong>Respuestas basadas en datos internos y permisos</strong>
-          <span>El backend aplica su sesión y permisos antes de consultar PostgreSQL o Drive. Gemini nunca recibe contraseñas, tokens ni credenciales técnicas. {isAdmin ? 'Como administrador, también puede consultar casos y estadísticas autorizadas.' : 'Solo se mostrarán los datos que ya puede consultar desde DMS.'}</span>
+          <span>El backend aplica su sesión y permisos antes de consultar PostgreSQL o Drive; los secretos no se envían a Gemini. El agente nunca recibe contraseñas, tokens ni credenciales técnicas. {isAdmin ? 'Como administrador, también puede consultar casos y estadísticas autorizadas.' : 'Solo se mostrarán los datos que ya puede consultar desde DMS.'}</span>
         </div>
       </section>
 
