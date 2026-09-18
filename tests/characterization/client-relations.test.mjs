@@ -66,6 +66,9 @@ test('Clientes usa paginación compartida y una sola carga relacionada', () => {
   assert.doesNotMatch(page, /requestSequence/);
   assert.match(service, /clients\.relations\.get/);
   assert.match(service, /loadLegacyRelations/);
-  assert.match(module, /readTables\(\[/);
+  assert.match(module, /findRows\('ClienteUbicaciones', \{ ClienteID: clientId \}/);
+  assert.match(module, /findRows\('ClienteContactos', \{ ClienteID: clientId \}/);
+  assert.match(module, /findRows\('ClienteUbicacionesEquipo', \{ UbicacionID: locationIds \}/);
+  assert.doesNotMatch(module, /readTables\(|readTable\(/);
   assert.match(router, /clients\.relations\.get/);
 });
