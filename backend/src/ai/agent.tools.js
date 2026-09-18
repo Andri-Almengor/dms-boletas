@@ -43,6 +43,7 @@ export const TOOL_DECLARATIONS=Object.freeze({
   get_ticket:fn('get_ticket','Obtiene detalle de una boleta visible para el usuario.',{ticketId:{type:'string'},number:{type:'string'}}),
   get_ticket_evidence:fn('get_ticket_evidence','Obtiene metadata de evidencias y attachments seguros de una boleta.',{ticketId:{type:'string'},number:{type:'string'},limit:{type:'integer',minimum:1,maximum:50},includeSignature:{type:'boolean'}}),
   get_ticket_history:fn('get_ticket_history','Obtiene historial de auditoría de una boleta visible.',{ticketId:{type:'string'},number:{type:'string'},limit:{type:'integer',minimum:1,maximum:50}}),
+  search_evidence_activity:fn('search_evidence_activity','Busca archivos/evidencias subidos a boletas por técnico, fecha o boleta. Útil para preguntas como "qué subió Francisco ayer". Si el nombre es ambiguo, resuelve primero el usuario.',{uploaderId:{type:'string'},technician:{type:'string'},technicianName:{type:'string'},ticketId:{type:'string'},mimeType:{type:'string'},limit:{type:'integer',minimum:1,maximum:50},offset:{type:'integer',minimum:0},...COMMON_DATE_PROPERTIES}),
   search_maintenances:fn('search_maintenances','Busca mantenimientos por cliente, nombre, ubicación, responsable o descripción.',{query:{type:'string'},clientId:{type:'string'},status:{type:'string'},limit:{type:'integer',minimum:1,maximum:50},offset:{type:'integer',minimum:0},...COMMON_DATE_PROPERTIES}),
   get_maintenance:fn('get_maintenance','Obtiene resumen completo de un mantenimiento, categorías y supervisores.',{maintenanceId:{type:'string'}},['maintenanceId']),
   get_maintenance_devices:fn('get_maintenance_devices','Lista dispositivos de un mantenimiento y puede filtrar por tipo u observaciones.',{maintenanceId:{type:'string'},query:{type:'string'},type:{type:'string'},observationsOnly:{type:'boolean'},limit:{type:'integer',minimum:1,maximum:50},offset:{type:'integer',minimum:0}},['maintenanceId']),
@@ -64,7 +65,7 @@ function allowedNames(ctx){
   const access=aiAccess(ctx); const names=['search_internal','search_agenda'];
   if(access.clients) names.push('search_clients','get_client');
   if(access.users) names.push('search_users');
-  if(access.tickets) names.push('search_tickets','get_ticket','get_ticket_evidence','get_ticket_history','get_technician_activity');
+  if(access.tickets) names.push('search_tickets','get_ticket','get_ticket_evidence','get_ticket_history','get_technician_activity','search_evidence_activity');
   if(access.maintenance) names.push('search_maintenances','get_maintenance','get_maintenance_devices','get_maintenance_evidence','search_devices');
   if(access.knowledge) names.push('search_knowledge_base','get_knowledge_article');
   if(access.cases) names.push('search_cases','get_case');
