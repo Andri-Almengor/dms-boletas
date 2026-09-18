@@ -14,6 +14,7 @@ import { agendaRepositoryTools } from './agent.repository.agenda.js';
 import { integrationRepositoryTools } from './agent.repository.integrations.js';
 import { helpRepositoryTools } from './agent.repository.help.js';
 import { operationRepositoryTools } from './agent.repository.operations.js';
+import { attachmentRepositoryTools } from './agent.repository.attachments.js';
 import { toolNamesForIntent } from './agent.intent.js';
 
 const TOOL_IMPL=Object.freeze({
@@ -29,6 +30,7 @@ const TOOL_IMPL=Object.freeze({
   ...integrationRepositoryTools,
   ...helpRepositoryTools,
   ...operationRepositoryTools,
+  ...attachmentRepositoryTools,
 });
 
 const COMMON_DATE_PROPERTIES={
@@ -47,6 +49,9 @@ export const TOOL_DECLARATIONS=Object.freeze({
   search_internal:fn('search_internal','Busca entidades internas por texto sin requerir IDs técnicos.',{
     query:{type:'string'},entityTypes:{type:'array',items:{type:'string',enum:['client','maintenance','ticket','user','device','network_device','knowledge','case','agenda']}},limit:{type:'integer',minimum:1,maximum:20},
   },['query']),
+  read_chat_attachment:fn('read_chat_attachment','Lee de forma segura un PDF, DOCX, XLSX, CSV o TXT adjunto al chat. Use uploadId de la metadata del mensaje; nunca recibe DriveFileID.',{
+    uploadId:{type:'string'},query:{type:'string',description:'Tema concreto a recuperar dentro del archivo. Si se omite, devuelve una vista textual acotada.'},maxChars:{type:'integer',minimum:2000,maximum:40000},
+  },['uploadId']),
   search_clients:fn('search_clients','Busca clientes DMS por nombre, razón social o identificación.',{query:{type:'string'},limit:{type:'integer',minimum:1,maximum:20}}),
   get_client:fn('get_client','Obtiene información autorizada de un cliente y sus supervisores.',{clientId:{type:'string'}},['clientId']),
   search_users:fn('search_users','Resuelve usuarios o técnicos por nombre.',{query:{type:'string'},limit:{type:'integer',minimum:1,maximum:20}},['query']),
@@ -106,6 +111,7 @@ function maintenanceWriteAllowed(ctx){
 
 function allowedNames(ctx){
   const access=aiAccess(ctx); const names=['search_internal','search_agenda','get_app_help'];
+  if(access.attachments) names.push('read_chat_attachment');
   if(access.clients) names.push('search_clients','get_client');
   if(access.users) names.push('search_users');
   if(access.tickets) names.push('search_tickets','get_ticket','get_ticket_evidence','search_ticket_evidence','get_ticket_history','get_technician_activity','search_evidence_activity');
