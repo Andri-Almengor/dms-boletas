@@ -589,4 +589,121 @@ test('portable PostgreSQL backup verifies and restores a controlled mutation', a
   }
 });
 
+
+test('AI repositories enforce ticket assignment visibility before returning PostgreSQL rows', async () => {
+  const userVisible = `ai-visible-${suffix}`;
+  const userOther = `ai-other-${suffix}`;
+  const visibleTicket = `ai-ticket-visible-${suffix}`;
+  const hiddenTicket = `ai-ticket-hidden-${suffix}`;
+  const assignmentVisible = `ai-assignment-visible-${suffix}`;
+  const assignmentHidden = `ai-assignment-hidden-${suffix}`;
+  const clientId = `ai-client-${suffix}`;
+  const maintenanceId = `ai-maintenance-${suffix}`;
+  const deviceId = `ai-device-${suffix}`;
+
+  try {
+    await appendRow('Usuarios', {
+      UsuarioID: userVisible,
+      NombreCompleto: 'AI Visible Technician',
+      NombreUsuario: userVisible,
+      Estado: 'ACTIVO',
+    });
+    await appendRow('Usuarios', {
+      UsuarioID: userOther,
+      NombreCompleto: 'AI Hidden Technician',
+      NombreUsuario: userOther,
+      Estado: 'ACTIVO',
+    });
+    await appendRow('Clientes', {
+      ClienteID: clientId,
+      Nombre: 'AI Test Client',
+      Estado: 'ACTIVO',
+      Activo: true,
+    });
+    await appendRow('Boletas', {
+      BoletaUID: visibleTicket,
+      BoletaID: `PRUEBA-AI-VISIBLE-${suffix}`,
+      EsPrueba: true,
+      Titulo: 'AI visible ticket',
+      ClienteID: clientId,
+      Cliente: 'AI Test Client',
+      Estado: 'PENDIENTE',
+      Fecha: '2026-09-17',
+    });
+    await appendRow('Boletas', {
+      BoletaUID: hiddenTicket,
+      BoletaID: `PRUEBA-AI-HIDDEN-${suffix}`,
+      EsPrueba: true,
+      Titulo: 'AI hidden ticket',
+      ClienteID: clientId,
+      Cliente: 'AI Test Client',
+      Estado: 'PENDIENTE',
+      Fecha: '2026-09-17',
+    });
+    await appendRow('BoletaAsignados', {
+      BoletaAsignadoID: assignmentVisible,
+      BoletaUID: visibleTicket,
+      UsuarioID: userVisible,
+      Activo: true,
+    });
+    await appendRow('BoletaAsignados', {
+      BoletaAsignadoID: assignmentHidden,
+      BoletaUID: hiddenTicket,
+      UsuarioID: userOther,
+      Activo: true,
+    });
+    await appendRow('Mantenimiento', {
+      MantenimientoID: maintenanceId,
+      TituloMantenimiento: 'AI Maintenance Test',
+      ClienteID: clientId,
+      Cliente: 'AI Test Client',
+      Estado: 'PENDIENTE',
+      Fecha: '2026-09-17',
+      Activo: true,
+    });
+    await appendRow('Evidencia_Mantenimientos', {
+      EvidenciaMantenimientoID: deviceId,
+      MantenimientoRef: maintenanceId,
+      NombreDispositivo: 'AI Camera',
+      TipoDispositivo: 'Cámara',
+      Estado: 'OPERATIVO',
+      Activo: true,
+    });
+
+    const [{ searchTickets }, { getStatistics }, { searchMaintenances, getMaintenanceDevices }] = await Promise.all([
+      import('../src/ai/agent.repository.tickets.js'),
+      import('../src/ai/agent.repository.statistics.js'),
+      import('../src/ai/agent.repository.maintenance.js'),
+    ]);
+    const ctx = {
+      user: { UsuarioID: userVisible, NombreCompleto: 'AI Visible Technician' },
+      permissions: ['BOLETAS_VER'],
+      sessionToken: 'test-session',
+    };
+
+    const tickets = await searchTickets(ctx, { status: 'PENDIENTE', dateFrom: '2026-09-17', dateTo: '2026-09-17' });
+    assert.equal(tickets.modelData.total, 1);
+    assert.deepEqual(tickets.modelData.items.map((item) => item.uid), [visibleTicket]);
+
+    const stats = await getStatistics(ctx, { metric: 'ticket_count', dateFrom: '2026-09-17', dateTo: '2026-09-17' });
+    assert.equal(stats.modelData.total, 1);
+    assert.equal(stats.modelData.pending, 1);
+
+    const maintenance = await searchMaintenances(ctx, { query: 'AI Maintenance Test' });
+    assert.equal(maintenance.modelData.total, 1);
+    assert.equal(maintenance.modelData.items[0]?.id, maintenanceId);
+
+    const devices = await getMaintenanceDevices(ctx, { maintenanceId, type: 'cámara' });
+    assert.equal(devices.modelData.total, 1);
+    assert.equal(devices.modelData.items[0]?.id, deviceId);
+  } finally {
+    await query('DELETE FROM "Evidencia_Mantenimientos" WHERE "EvidenciaMantenimientoID"=$1', [deviceId], { label: 'test.ai.deviceCleanup', write: true }).catch(() => {});
+    await query('DELETE FROM "Mantenimiento" WHERE "MantenimientoID"=$1', [maintenanceId], { label: 'test.ai.maintenanceCleanup', write: true }).catch(() => {});
+    await query('DELETE FROM "BoletaAsignados" WHERE "BoletaAsignadoID" = ANY($1::text[])', [[assignmentVisible, assignmentHidden]], { label: 'test.ai.assignmentCleanup', write: true }).catch(() => {});
+    await query('DELETE FROM "Boletas" WHERE "BoletaUID" = ANY($1::text[])', [[visibleTicket, hiddenTicket]], { label: 'test.ai.ticketCleanup', write: true }).catch(() => {});
+    await query('DELETE FROM "Clientes" WHERE "ClienteID"=$1', [clientId], { label: 'test.ai.clientCleanup', write: true }).catch(() => {});
+    await query('DELETE FROM "Usuarios" WHERE "UsuarioID" = ANY($1::text[])', [[userVisible, userOther]], { label: 'test.ai.userCleanup', write: true }).catch(() => {});
+  }
+});
+
 test.after(async () => { await closePostgres(); });

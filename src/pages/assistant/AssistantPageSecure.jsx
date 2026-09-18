@@ -6,11 +6,11 @@ import Icon from '../../components/common/Icon';
 import '../../styles/assistant-sensitive.css';
 
 const STARTER_QUESTIONS = [
-  '¿Qué pasó esta semana en RN?',
-  '¿Cuál fue la última boleta de Asamblea?',
-  'Dame las credenciales de cámaras de Asamblea',
-  '¿Cuántos casos activos quedan sin asignar?',
-  '¿Cómo se instala MorphoManager?',
+  '¿Cuántas boletas hay pendientes?',
+  '¿Cuántas boletas hizo Francisco este mes?',
+  'Dame el mantenimiento de Banco Central',
+  '¿Qué dice la base de conocimiento sobre OnGuard?',
+  '¿Qué sabes de Milestone XProtect?',
 ];
 
 function storageKey(userId, suffix) {
@@ -21,7 +21,7 @@ function initialMessage() {
   return {
     id: 'welcome',
     role: 'assistant',
-    text: 'Puede preguntarme por boletas, mantenimientos, dispositivos, clientes, casos, tutoriales y credenciales autorizadas. También entiendo abreviaciones como RN, Asamblea, BCR o AFZ. Cuando una consulta sea ambigua, le pediré el dato que falta.',
+    text: 'Puede preguntarme libremente por boletas, mantenimientos, dispositivos, clientes, técnicos, casos y la base de conocimiento. También puedo ayudar con preguntas generales y, cuando esté habilitado, buscar información externa. Los datos internos siempre se consultan bajo sus permisos.',
     sources: [],
     options: [],
     suggestions: STARTER_QUESTIONS,
@@ -393,11 +393,114 @@ function AssistantStats({ stats }) {
 function sourceIcon(type) {
   if (type === 'knowledge') return 'menu_book';
   if (type === 'ticket') return 'description';
+  if (type === 'maintenance') return 'engineering';
+  if (type === 'client') return 'business';
+  if (type === 'device' || type === 'network_device') return 'videocam';
+  if (type === 'agenda') return 'calendar_month';
+  if (type === 'case' || type === 'cases') return 'support_agent';
+  if (type === 'external') return 'public';
   if (type === 'surveys') return 'reviews';
   if (type === 'catalog') return 'inventory_2';
-  if (type === 'credentials') return 'shield_lock';
-  if (type === 'cases') return 'support_agent';
   return 'engineering';
+}
+
+function inlineMarkdown(value, keyPrefix = 'inline') {
+  const parts = String(value || '').split(/(\*\*[^*]+\*\*|\`[^\`]+\`)/g).filter(Boolean);
+  return parts.map((part, index) => {
+    if (part.startsWith('**') && part.endsWith('**')) return <strong key={`${keyPrefix}-${index}`}>{part.slice(2, -2)}</strong>;
+    if (part.startsWith('`') && part.endsWith('`')) return <code key={`${keyPrefix}-${index}`}>{part.slice(1, -1)}</code>;
+    return <React.Fragment key={`${keyPrefix}-${index}`}>{part}</React.Fragment>;
+  });
+}
+
+function AssistantMarkdown({ value, messageId: currentMessageId }) {
+  const lines = String(value || '').replace(/\r/g, '').split('\n');
+  const blocks = [];
+  let index = 0;
+  while (index < lines.length) {
+    const line = lines[index].trim();
+    if (!line) { index += 1; continue; }
+    if (line.startsWith('|')) {
+      const tableLines = [];
+      while (index < lines.length && lines[index].trim().startsWith('|')) {
+        tableLines.push(lines[index].trim());
+        index += 1;
+      }
+      const parsed = tableLines.map((row) => row.replace(/^\||\|$/g, '').split('|').map((cell) => cell.trim()));
+      const hasHeader = parsed.length >= 2 && parsed[1].every((cell) => /^:?-{3,}:?$/.test(cell));
+      const header = hasHeader ? parsed[0] : null;
+      const rows = hasHeader ? parsed.slice(2) : parsed;
+      blocks.push(
+        <div className="assistant-markdown-table-wrap" key={`${currentMessageId}-table-${index}`}>
+          <table className="assistant-markdown-table">
+            {header && <thead><tr>{header.map((cell, cellIndex) => <th key={cellIndex}>{inlineMarkdown(cell, `h-${index}-${cellIndex}`)}</th>)}</tr></thead>}
+            <tbody>{rows.map((row, rowIndex) => <tr key={rowIndex}>{row.map((cell, cellIndex) => <td key={cellIndex}>{inlineMarkdown(cell, `c-${index}-${rowIndex}-${cellIndex}`)}</td>)}</tr>)}</tbody>
+          </table>
+        </div>,
+      );
+      continue;
+    }
+    const heading = line.match(/^(#{1,3})\s+(.+)$/);
+    if (heading) {
+      const Tag = heading[1].length === 1 ? 'h3' : 'h4';
+      blocks.push(<Tag key={`${currentMessageId}-heading-${index}`}>{inlineMarkdown(heading[2], `heading-${index}`)}</Tag>);
+      index += 1;
+      continue;
+    }
+    const bullet = line.match(/^[-*]\s+(.+)$/);
+    if (bullet) {
+      blocks.push(<div className="assistant-markdown-list-item" key={`${currentMessageId}-bullet-${index}`}>• <span>{inlineMarkdown(bullet[1], `bullet-${index}`)}</span></div>);
+      index += 1;
+      continue;
+    }
+    const ordered = line.match(/^\d+[.)]\s+(.+)$/);
+    if (ordered) {
+      blocks.push(<div className="assistant-markdown-list-item" key={`${currentMessageId}-ordered-${index}`}><span className="assistant-markdown-list-number">{line.match(/^\d+/)?.[0]}.</span><span>{inlineMarkdown(ordered[1], `ordered-${index}`)}</span></div>);
+      index += 1;
+      continue;
+    }
+    blocks.push(<p key={`${currentMessageId}-p-${index}`}>{inlineMarkdown(line, `p-${index}`)}</p>);
+    index += 1;
+  }
+  return blocks;
+}
+
+function AssistantEntities({ entities = [] }) {
+  if (!entities.length) return null;
+  return (
+    <div className="assistant-entity-grid">
+      {entities.slice(0, 12).map((item) => (
+        <Link className="assistant-entity-card" key={`${item.type}-${item.id}`} to={item.route || '#'}>
+          <Icon name={sourceIcon(item.type)} />
+          <span><small>{item.type}</small><strong>{item.label}</strong></span>
+          <Icon name="chevron_right" />
+        </Link>
+      ))}
+    </div>
+  );
+}
+
+function AssistantAttachments({ attachments = [] }) {
+  if (!attachments.length) return null;
+  return (
+    <div className="assistant-attachment-grid">
+      {attachments.slice(0, 50).map((item, index) => (
+        <article className="assistant-attachment-card" key={`${item.entityId || 'file'}-${index}-${item.title}`}>
+          <header><strong>{item.title || 'Archivo'}</strong>{item.subtitle && <span>{item.subtitle}</span>}</header>
+          {item.type === 'image' && <a href={item.url} target="_blank" rel="noreferrer"><img loading="lazy" src={item.url} alt={item.title || 'Evidencia'} /></a>}
+          {item.type === 'video' && <video controls preload="metadata" src={item.url} />}
+          {(item.type === 'pdf' || item.type === 'file') && <a className="assistant-attachment-link" href={item.url} target="_blank" rel="noreferrer"><Icon name={item.type === 'pdf' ? 'picture_as_pdf' : 'attach_file'} /> Abrir {item.type === 'pdf' ? 'PDF' : 'archivo'}</a>}
+        </article>
+      ))}
+    </div>
+  );
+}
+
+function AssistantSourceLink({ source }) {
+  const content = <><Icon name={sourceIcon(source.type)} /><span>{source.label}</span><Icon name="chevron_right" /></>;
+  if (/^https:\/\//i.test(source.url || '')) return <a href={source.url} target="_blank" rel="noreferrer">{content}</a>;
+  if (String(source.url || '').startsWith('/')) return <Link to={source.url}>{content}</Link>;
+  return <span className="assistant-source-static">{content}</span>;
 }
 
 function AssistantMessage({ message, onSuggestion, onOption }) {
@@ -407,7 +510,7 @@ function AssistantMessage({ message, onSuggestion, onOption }) {
       <div className="assistant-message__avatar"><Icon name={assistant ? 'smart_toy' : 'person'} /></div>
       <div className="assistant-message__content">
         <div className="assistant-message__bubble">
-          {String(message.text || '').split(/\n+/).filter(Boolean).map((paragraph, index) => <p key={`${message.id}-${index}`}>{paragraph}</p>)}
+          <AssistantMarkdown value={message.text} messageId={message.id} />
         </div>
 
         {message.sensitive && <div className="assistant-sensitive-notice"><Icon name="shield_lock" /><span>Esta respuesta contiene información sensible. No se guardará en el historial local del navegador. Oculte la pantalla antes de compartir o proyectar el dispositivo.</span></div>}
@@ -425,17 +528,15 @@ function AssistantMessage({ message, onSuggestion, onOption }) {
 
         <AssistantStats stats={message.stats} />
         {message.tables?.map((table) => <AssistantDataTable key={table.id} table={table} />)}
+        <AssistantEntities entities={message.entities || []} />
+        <AssistantAttachments attachments={message.attachments || []} />
 
         {message.sources?.length > 0 && (
           <div className="assistant-sources">
             <span className="assistant-sources__title"><Icon name="source" /> Fuentes consultadas</span>
             <div>
               {message.sources.map((source) => (
-                <Link key={`${source.type}-${source.id}-${source.url}`} to={source.url}>
-                  <Icon name={sourceIcon(source.type)} />
-                  <span>{source.label}</span>
-                  <Icon name="chevron_right" />
-                </Link>
+                <AssistantSourceLink key={`${source.type}-${source.id}-${source.url}`} source={source} />
               ))}
             </div>
           </div>
@@ -476,7 +577,10 @@ export default function AssistantPageSecure() {
 
   useEffect(() => { localStorage.setItem(conversationKey, conversationId); }, [conversationId, conversationKey]);
   useEffect(() => {
-    const persistableMessages = messages.filter((item) => !item.sensitive).slice(-40);
+    const safeMessages = messages.filter((item) => !item.sensitive);
+    const persistableMessages = safeMessages
+      .slice(-40)
+      .map((item) => ({ ...item, attachments: [] }));
     localStorage.setItem(messagesKey, JSON.stringify(persistableMessages));
   }, [messages, messagesKey]);
   useEffect(() => { localStorage.setItem(contextKey, JSON.stringify(context)); }, [context, contextKey]);
@@ -514,6 +618,8 @@ export default function AssistantPageSecure() {
         text: response.answer || response.message || 'No se recibió una respuesta.',
         type: response.type || 'answer',
         sources: Array.isArray(response.sources) ? response.sources : [],
+        entities: Array.isArray(response.entities) ? response.entities : [],
+        attachments: Array.isArray(response.attachments) ? response.attachments : [],
         options: Array.isArray(response.options) ? response.options : [],
         suggestions: Array.isArray(response.suggestions) ? response.suggestions : [],
         resumeQuestion: response.resumeQuestion || question,
@@ -526,7 +632,7 @@ export default function AssistantPageSecure() {
     } catch (requestError) {
       const message = requestError?.message || 'No se pudo consultar el asistente.';
       setError(message);
-      setMessages((current) => [...current, { id: messageId(), role: 'assistant', text: message, sources: [], options: [], suggestions: [], tables: [], stats: [], sensitive: false }]);
+      setMessages((current) => [...current, { id: messageId(), role: 'assistant', text: message, sources: [], entities: [], attachments: [], options: [], suggestions: [], tables: [], stats: [], sensitive: false }]);
     } finally {
       setSending(false);
     }
@@ -570,7 +676,7 @@ export default function AssistantPageSecure() {
           <div>
             <span className="eyebrow">Consulta interna con IA</span>
             <h1>Asistente DMS</h1>
-            <p>Consulta boletas, mantenimientos, clientes, casos, credenciales autorizadas y la base de conocimientos usando lenguaje natural.</p>
+            <p>Consulta boletas, mantenimientos, dispositivos, clientes, técnicos, casos y conocimiento interno usando lenguaje natural.</p>
           </div>
         </div>
         <button className="button button--secondary button--compact" type="button" onClick={clearConversation} disabled={sending}>
@@ -582,7 +688,7 @@ export default function AssistantPageSecure() {
         <Icon name="verified_user" />
         <div>
           <strong>Respuestas basadas en datos internos y permisos</strong>
-          <span>Las consultas de contraseñas se resuelven directamente en el servidor: los secretos no se envían a Gemini y las respuestas sensibles no se guardan en el historial local. {isAdmin ? 'Como administrador, también puede consultar resúmenes de casos y encuestas.' : 'Las funciones administrativas permanecen restringidas.'}</span>
+          <span>El backend aplica su sesión y permisos antes de consultar PostgreSQL o Drive; los secretos no se envían a Gemini. El agente nunca recibe contraseñas, tokens ni credenciales técnicas. {isAdmin ? 'Como administrador, también puede consultar casos y estadísticas autorizadas.' : 'Solo se mostrarán los datos que ya puede consultar desde DMS.'}</span>
         </div>
       </section>
 
