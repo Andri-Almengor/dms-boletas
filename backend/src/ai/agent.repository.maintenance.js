@@ -70,7 +70,7 @@ async function maintenanceRow(ctx,idValue){
 
 export async function getMaintenance(ctx,args={}){
   const row=await maintenanceRow(ctx,args.maintenanceId);
-  const [categories,supervisors]=await Promise.all([
+  const [categories,supervisors,evidenceSummary]=await Promise.all([
     many(
       `SELECT COALESCE(NULLIF(d."TipoDispositivo",''),NULLIF(d."Categoria",''),'Sin categoría') AS category,
               COUNT(*)::bigint AS total,
@@ -89,6 +89,19 @@ export async function getMaintenance(ctx,args={}){
           AND LOWER(COALESCE(cc."EsSupervisor",'false'))='true'
         ORDER BY cc."Nombre" ASC LIMIT 20`,
       [row.clientId],'ai.maintenance.supervisors'):Promise.resolve([]),
+    one(
+      `SELECT COUNT(mi.*)::bigint AS total,
+              COUNT(mi.*) FILTER (WHERE LOWER(COALESCE(mi."MimeType",'')) LIKE 'image/%')::bigint AS images,
+              COUNT(mi.*) FILTER (WHERE LOWER(COALESCE(mi."MimeType",'')) LIKE 'video/%')::bigint AS videos,
+              COUNT(mi.*) FILTER (WHERE LOWER(COALESCE(mi."Tipo",''))='antes')::bigint AS before_count,
+              COUNT(mi.*) FILTER (WHERE LOWER(COALESCE(mi."Tipo",''))='despues')::bigint AS after_count
+         FROM "Evidencia_Mantenimientos" d
+         LEFT JOIN "Mantenimiento imagenes" mi
+           ON mi."__valid"=TRUE
+          AND LOWER(COALESCE(mi."Activo",'true'))<>'false'
+          AND mi."DispositivoMantenimientoRef"=d."EvidenciaMantenimientoID"
+        WHERE ${active('d')} AND d."MantenimientoRef"=$1`,
+      [row.id],'ai.maintenance.evidenceSummary'),
   ]);
   let relatedTickets = [];
   let relatedTicketCount = null;
@@ -127,6 +140,12 @@ export async function getMaintenance(ctx,args={}){
     finishedAt:row.finishedAt||'',responsible:row.responsible||'',description:clean(row.description,4200),
     expectedCounts:clean(row.expectedCounts,3200),
     deviceCount:categories.reduce((sum,x)=>sum+Number(x.total||0),0),
+    devicesWithObservations:categories.reduce((sum,x)=>sum+Number(x.withObservations||0),0),
+    evidenceCount:Number(evidenceSummary?.total||0),
+    imageCount:Number(evidenceSummary?.images||0),
+    videoCount:Number(evidenceSummary?.videos||0),
+    beforeEvidenceCount:Number(evidenceSummary?.before_count||0),
+    afterEvidenceCount:Number(evidenceSummary?.after_count||0),
     categories:categories.map(x=>({category:x.category,total:Number(x.total||0),withObservations:Number(x.withObservations||0)})),
     supervisors,
     relatedTicketCount,
@@ -181,7 +200,8 @@ export async function getMaintenanceDevices(ctx,args={}){
             d."Zona" AS zone,d."Fabricante" AS manufacturer,d."Modelo" AS model,d."Serie" AS serial,
             d."DireccionMAC" AS mac,d."Funcionamiento" AS functioning,d."EnUso" AS "inUse",
             d."Estado" AS status,d."Observacion" AS observation,d."FechaTrabajo" AS "workDate",
-            d."Tecnicos" AS technicians,
+            d."Tecnicos" AS technicians,d."CreadoPor" AS "createdBy",d."FechaCreacion" AS "createdAt",
+            d."ActualizadoPor" AS "updatedBy",d."FechaActualizacion" AS "updatedAt",
             (SELECT COUNT(*) FROM "Mantenimiento imagenes" mi
              WHERE ${active('mi')} AND mi."DispositivoMantenimientoRef"=d."EvidenciaMantenimientoID")::bigint AS "evidenceCount"
        FROM "Evidencia_Mantenimientos" d WHERE ${where}
@@ -192,7 +212,8 @@ export async function getMaintenanceDevices(ctx,args={}){
     id:row.id,name:row.name||row.type||'Dispositivo',type:row.type||'',category:row.category||'',
     zone:row.zone||'',manufacturer:row.manufacturer||'',model:row.model||'',serial:row.serial||'',mac:row.mac||'',
     functioning:row.functioning||'',inUse:row.inUse||'',status:row.status||'',observation:clean(row.observation,2200),
-    workDate:row.workDate||'',technicians:row.technicians||'',evidenceCount:Number(row.evidenceCount||0),
+    workDate:row.workDate||'',technicians:row.technicians||'',createdBy:row.createdBy||'',createdAt:row.createdAt||'',
+    updatedBy:row.updatedBy||'',updatedAt:row.updatedAt||'',evidenceCount:Number(row.evidenceCount||0),
   }));
   return {
     modelData:{maintenance:{id:maintenance.id,title:maintenance.title||'Mantenimiento',client:maintenance.client||''},total:Number(counted?.total||0),totalShown:items.length,items},
@@ -211,6 +232,17 @@ export async function getMaintenanceEvidence(ctx,args={}){
     clauses.push(`d."EvidenciaMantenimientoID"=ANY($${params.length}::text[])`);
   }
   if(clean(args.type)){params.push(like(args.type));const p='$'+params.length;clauses.push(`(d."TipoDispositivo" ILIKE ${p} ESCAPE '\\' OR d."Categoria" ILIKE ${p} ESCAPE '\\')`);}
+  const counted=await one(
+    `SELECT COUNT(*)::bigint AS total,
+            COUNT(*) FILTER (WHERE LOWER(COALESCE(mi."MimeType",'')) LIKE 'image/%')::bigint AS images,
+            COUNT(*) FILTER (WHERE LOWER(COALESCE(mi."MimeType",'')) LIKE 'video/%')::bigint AS videos,
+            COUNT(*) FILTER (WHERE LOWER(COALESCE(mi."Tipo",''))='antes')::bigint AS before_count,
+            COUNT(*) FILTER (WHERE LOWER(COALESCE(mi."Tipo",''))='despues')::bigint AS after_count
+       FROM "Mantenimiento imagenes" mi
+       JOIN "Evidencia_Mantenimientos" d
+         ON d."__valid"=TRUE AND mi."DispositivoMantenimientoRef"=d."EvidenciaMantenimientoID"
+      WHERE ${clauses.join(' AND ')}`,
+    params,'ai.maintenance.evidence.count');
   params.push(pageLimit(args.limit,50));
   const rows=await many(
     `SELECT mi."FotoDispositivoID" AS id,mi."Nombre" AS name,mi."Nota" AS note,
@@ -238,7 +270,13 @@ export async function getMaintenanceEvidence(ctx,args={}){
     entityType:'maintenance',entityId:maintenance.id,
   })).filter(Boolean);
   return {
-    modelData:{maintenance:{id:maintenance.id,title:maintenance.title||'Mantenimiento',client:maintenance.client||''},totalShown:items.length,items},
+    modelData:{
+      maintenance:{id:maintenance.id,title:maintenance.title||'Mantenimiento',client:maintenance.client||''},
+      total:Number(counted?.total||0),totalShown:items.length,
+      imageCount:Number(counted?.images||0),videoCount:Number(counted?.videos||0),
+      beforeCount:Number(counted?.before_count||0),afterCount:Number(counted?.after_count||0),
+      items,
+    },
     attachments,
     entities:[entity('maintenance',maintenance.id,maintenance.title||'Mantenimiento','/mantenimientos/'+encodeURIComponent(maintenance.id))],
     sources:[source('maintenance',maintenance.id,(maintenance.title||'Mantenimiento')+' · evidencias','/mantenimientos/'+encodeURIComponent(maintenance.id))],
@@ -253,7 +291,9 @@ export async function searchDevices(ctx,args={}){
     `SELECT d."EvidenciaMantenimientoID" AS id,d."NombreDispositivo" AS name,
             COALESCE(NULLIF(d."TipoDispositivo",''),d."Categoria") AS type,d."Fabricante" AS manufacturer,
             d."Modelo" AS model,d."Serie" AS serial,d."DireccionMAC" AS mac,d."Zona" AS zone,
-            d."Estado" AS status,d."Observacion" AS observation,m."MantenimientoID" AS "maintenanceId",
+            d."Estado" AS status,d."Observacion" AS observation,d."CreadoPor" AS "createdBy",
+            d."FechaCreacion" AS "createdAt",d."ActualizadoPor" AS "updatedBy",d."FechaActualizacion" AS "updatedAt",
+            m."MantenimientoID" AS "maintenanceId",
             m."TituloMantenimiento" AS maintenance,m."ClienteID" AS "clientId",m."Cliente" AS client
        FROM "Evidencia_Mantenimientos" d
        JOIN "Mantenimiento" m ON ${active('m')} AND m."MantenimientoID"=d."MantenimientoRef"
