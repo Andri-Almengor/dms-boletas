@@ -342,11 +342,18 @@ async function caseAnswer(ctx, question) {
   };
 }
 
+export async function tryPasswordVaultAssistant(ctx) {
+  const question = clean(ctx.payload?.message || ctx.payload?.question, 1200);
+  if (!credentialIntent(question)) return null;
+  return credentialAnswer(ctx, question);
+}
+
 if (!assistantDynamicMaintenanceQuestionHandlers[INSTALL_FLAG]) {
   const originalChat = assistantDynamicMaintenanceQuestionHandlers.chat;
   assistantDynamicMaintenanceQuestionHandlers.chat = async (ctx) => {
     const question = clean(ctx.payload?.message || ctx.payload?.question, 1200);
-    if (credentialIntent(question)) return credentialAnswer(ctx, question);
+    const credentialResult = await tryPasswordVaultAssistant(ctx);
+    if (credentialResult) return credentialResult;
     if (caseIntent(question)) return caseAnswer(ctx, question);
     return originalChat(ctx);
   };
