@@ -408,7 +408,7 @@ function AssistantStats({ stats }) {
 }
 
 function sourceIcon(type) {
-  if (type === 'knowledge') return 'menu_book';
+  if (String(type || '').startsWith('knowledge')) return 'menu_book';
   if (type === 'ticket') return 'description';
   if (type === 'maintenance') return 'engineering';
   if (type === 'client') return 'business';
