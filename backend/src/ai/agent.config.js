@@ -17,7 +17,6 @@ function intEnv(name, fallback, min, max) {
 export const aiConfig = Object.freeze({
   enabled: boolEnv('AI_CHAT_ENABLED', true),
   webSearchEnabled: boolEnv('AI_WEB_SEARCH_ENABLED', false),
-  geminiStoreInteractions: boolEnv('AI_GEMINI_STORE_INTERACTIONS', true),
   model: clean(process.env.GEMINI_MODEL || 'gemini-3.5-flash', 120),
   timezone: 'America/Costa_Rica',
   requestTimeoutMs: intEnv('AI_GEMINI_TIMEOUT_MS', 35_000, 5_000, 90_000),
