@@ -1,4 +1,4 @@
-import { appendRow, filterRows, readTable, softDelete, updateRow } from '../infra/sheets.repository.js';
+import { appendRow, filterRows, findById, queryPage, readTable, softDelete, updateRow } from '../infra/sheets.repository.js';
 import { audit } from '../services/audit.service.js';
 import { asBool, nowIso, pick, uuid } from '../core/utils.js';
 import { badRequest } from '../core/errors.js';
@@ -206,11 +206,30 @@ export function crudHandlers(definitionKey) {
   return {
     list: async (ctx) => {
       const { payload } = ctx;
-      let rows = await readTable(def.table);
       const includeInactive = asBool(payload.includeInactive, false) && canIncludeInactive(ctx, definitionKey);
-      if (!includeInactive) {
-        rows = rows.filter((row) => isActiveRecord(row));
+      if (['clients', 'clientLocations', 'equipmentLocations', 'contacts'].includes(definitionKey)) {
+        const request = { ...listFilterPayload(definitionKey, payload, includeInactive) };
+        if (def.parent) {
+          const parentValue = payload[def.parent]
+            ?? payload[def.parent.charAt(0).toLowerCase() + def.parent.slice(1)]
+            ?? payload.clienteId
+            ?? payload.ubicacionId;
+          if (parentValue !== undefined && parentValue !== null && String(parentValue).trim()) {
+            if (def.parent === 'ClienteID') request.clienteId = parentValue;
+            if (def.parent === 'UbicacionID') request.ubicacionId = parentValue;
+          }
+        }
+        const result = await queryPage(def.table, request, {
+          searchFields: def.search,
+          excludeInactive: !includeInactive,
+          excludeInactiveState: !includeInactive,
+        });
+        if (definitionKey === 'clients') result.items = result.items.map((row) => sanitizeClientRow(row, ctx));
+        return result;
       }
+
+      let rows = await readTable(def.table);
+      if (!includeInactive) rows = rows.filter((row) => isActiveRecord(row));
       if (def.parent) {
         const parentValue = payload[def.parent] ?? payload[def.parent.charAt(0).toLowerCase() + def.parent.slice(1)] ?? payload.clienteId ?? payload.ubicacionId;
         if (parentValue) rows = rows.filter((row) => String(row[def.parent]) === String(parentValue));
@@ -221,14 +240,19 @@ export function crudHandlers(definitionKey) {
         if (typeId) rows = rows.filter((row) => String(row.TipoDispositivoID) === String(typeId));
         if (manufacturerId) rows = rows.filter((row) => String(row.FabricanteID) === String(manufacturerId));
       }
-      const result = filterRows(rows, listFilterPayload(definitionKey, payload, includeInactive), def.search);
-      if (definitionKey === 'clients') result.items = result.items.map((row) => sanitizeClientRow(row, ctx));
-      return result;
+      return filterRows(rows, listFilterPayload(definitionKey, payload, includeInactive), def.search);
     },
     get: async (ctx) => {
       const { payload } = ctx;
-      const rows = await readTable(def.table); const id = pick(payload, idAliases);
-      const row = rows.find((item) => String(item[def.id]) === String(id)); if (!row) throw badRequest('No se encontró el registro.');
+      const id = pick(payload, idAliases);
+      let row;
+      if (['clients', 'clientLocations', 'equipmentLocations', 'contacts'].includes(definitionKey)) {
+        row = await findById(def.table, id).catch(() => null);
+      } else {
+        const rows = await readTable(def.table);
+        row = rows.find((item) => String(item[def.id]) === String(id));
+      }
+      if (!row) throw badRequest('No se encontró el registro.');
       return definitionKey === 'clients' ? sanitizeClientRow(row, ctx) : row;
     },
     create: async (ctx) => {
@@ -247,7 +271,9 @@ export function crudHandlers(definitionKey) {
     },
     update: async (ctx) => {
       const id = pick(ctx.payload, idAliases); if (!id) throw badRequest('Falta el identificador.');
-      const before = (await readTable(def.table)).find((row) => String(row[def.id]) === String(id));
+      const before = ['clients', 'clientLocations', 'equipmentLocations', 'contacts'].includes(definitionKey)
+        ? await findById(def.table, id).catch(() => null)
+        : (await readTable(def.table)).find((row) => String(row[def.id]) === String(id));
       if (!before) throw badRequest('No se encontró el registro.');
       const mapped = mappedUpdatePatch(definitionKey, def, ctx.payload);
 
@@ -270,7 +296,9 @@ export function crudHandlers(definitionKey) {
     delete: async (ctx) => {
       const id = pick(ctx.payload, idAliases);
       if (!id) throw badRequest('Falta el identificador.');
-      const before = (await readTable(def.table)).find((row) => String(row[def.id]) === String(id));
+      const before = ['clients', 'clientLocations', 'equipmentLocations', 'contacts'].includes(definitionKey)
+        ? await findById(def.table, id).catch(() => null)
+        : (await readTable(def.table)).find((row) => String(row[def.id]) === String(id));
       if (!before) throw badRequest('No se encontró el registro.');
       const after = await softDelete(def.table, id, ctx.user.UsuarioID);
       await audit(ctx, `ELIMINAR_${def.table.toUpperCase()}`, def.table, id, before, after);
