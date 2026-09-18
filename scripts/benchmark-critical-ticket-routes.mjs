@@ -53,13 +53,28 @@ const listReadTables = async names => {
   return Object.fromEntries(names.map(name => [name, activeListTables?.[name] || []]));
 };
 
+const listQueryTicketPage = async (payload = {}, { assignedUserId = '' } = {}) => {
+  const assigned = String(assignedUserId || '').trim();
+  let allowedIds = null;
+  if (assigned) {
+    allowedIds = new Set();
+    for (const row of activeListTables?.BoletaAsignados || []) {
+      if (String(row?.UsuarioID || '').trim() !== assigned) continue;
+      if (row?.Activo === false || String(row?.Activo ?? 'true').toLowerCase() === 'false') continue;
+      const id = String(row?.BoletaUID || '').trim();
+      if (id) allowedIds.add(id);
+    }
+  }
+  return selectTicketPage(activeListTables?.Boletas || [], payload, allowedIds);
+};
+
 function loadListHandler(source, filterRows) {
   const code = source
     .replace(/^import .*;\n/gm, '')
     .replace('export const ticketAccessHandlers', 'const ticketAccessHandlers');
   const error = message => new Error(message);
   return new Function(
-    'forbidden', 'notFound', 'pick', 'filterRows', 'findById', 'readTable', 'readTables', 'ticketHandlers', 'selectTicketPage',
+    'forbidden', 'notFound', 'pick', 'filterRows', 'findById', 'findRows', 'readTable', 'readTables', 'queryTicketPage', 'ticketHandlers', 'selectTicketPage',
     `${code}; return ticketAccessHandlers.list;`,
   )(
     error,
@@ -68,7 +83,9 @@ function loadListHandler(source, filterRows) {
     filterRows,
     async () => null,
     async () => [],
+    async () => [],
     listReadTables,
+    listQueryTicketPage,
     {},
     selectTicketPage,
   );
