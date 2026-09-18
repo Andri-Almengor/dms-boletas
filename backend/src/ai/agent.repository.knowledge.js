@@ -1,6 +1,6 @@
 import { badRequest, notFound } from '../core/errors.js';
 import { appendKnowledgeVisibility, assertAiCapability } from './agent.permissions.js';
-import { active, addRange, aliasQuery, clean, entity, like, many, one, pageLimit, source } from './agent.repository.shared.js';
+import { active, addRange, aliasQuery, clean, entity, like, many, one, pageLimit, protectedAttachment, source } from './agent.repository.shared.js';
 
 export async function searchKnowledgeBase(ctx,args={}){
   assertAiCapability(ctx,'knowledge');
@@ -17,10 +17,25 @@ export async function getKnowledgeArticle(ctx,args={}){
   const params=[id];const visible=appendKnowledgeVisibility(ctx,params,'a');
   const row=await one(`SELECT a."TutorialID" AS id,a."Titulo" AS title,a."ProblemaResuelto" AS problem,a."ContenidoHTML" AS content,a."Estado" AS status,a."FechaCreacion" AS "createdAt",a."FechaActualizacion" AS "updatedAt" FROM "KnowledgeArticles" a WHERE ${active('a')} AND a."TutorialID"=$1 AND ${visible} LIMIT 1`,params,'ai.knowledge.get');
   if(!row) throw notFound('No se encontró el artículo o no puede consultar ese borrador.');
-  const parts=await many(`SELECT kc."Parte" AS part,kc."Contenido" AS content FROM "KnowledgeArticleContent" kc WHERE ${active('kc')} AND kc."TutorialID"=$1 ORDER BY kc."Parte" ASC,kc."__db_id" ASC LIMIT 50`,[id],'ai.knowledge.parts');
+  const [parts,attachmentRows]=await Promise.all([
+    many(`SELECT kc."Parte" AS part,kc."Contenido" AS content FROM "KnowledgeArticleContent" kc WHERE ${active('kc')} AND kc."TutorialID"=$1 ORDER BY kc."Parte" ASC,kc."__db_id" ASC LIMIT 50`,[id],'ai.knowledge.parts'),
+    many(`SELECT ka."AdjuntoID" AS id,ka."Nombre" AS name,ka."MimeType" AS "mimeType",ka."Size" AS size,ka."FechaCreacion" AS "createdAt",ka."DriveFileID" AS "__file" FROM "KnowledgeAttachments" ka WHERE ${active('ka')} AND ka."TutorialID"=$1 ORDER BY ka."FechaCreacion" ASC NULLS LAST LIMIT 30`,[id],'ai.knowledge.attachments'),
+  ]);
   const text=[row.content,...parts.map(x=>x.content)].filter(Boolean).join('\n').replace(/<script[\s\S]*?<\/script>/gi,' ').replace(/<style[\s\S]*?<\/style>/gi,' ').replace(/<[^>]+>/g,' ').replace(/\s+/g,' ').trim().slice(0,16000);
-  const item={id:row.id,title:row.title||'Artículo',problem:clean(row.problem,2200),content:text,status:row.status||'',createdAt:row.createdAt||'',updatedAt:row.updatedAt||''};
-  return {modelData:item,entities:[entity('knowledge',item.id,item.title,'/conocimiento/'+encodeURIComponent(item.id))],sources:[source('knowledge',item.id,item.title,'/conocimiento/'+encodeURIComponent(item.id))],context:{lastKnowledgeId:item.id}};
+  const item={
+    id:row.id,title:row.title||'Artículo',problem:clean(row.problem,2200),content:text,status:row.status||'',
+    createdAt:row.createdAt||'',updatedAt:row.updatedAt||'',
+    attachments:attachmentRows.map((attachment)=>({
+      id:attachment.id,name:attachment.name||'Adjunto',mimeType:attachment.mimeType||'application/octet-stream',
+      size:attachment.size||'',createdAt:attachment.createdAt||'',
+    })),
+  };
+  const attachments=attachmentRows.map((attachment)=>protectedAttachment(ctx,{
+    fileId:attachment.__file,mimeType:attachment.mimeType,scopeId:'knowledge:'+id,evidenceId:attachment.id,
+    kind:'knowledge-attachment',title:attachment.name||'Adjunto de conocimiento',subtitle:item.title,
+    entityType:'knowledge',entityId:id,
+  })).filter(Boolean);
+  return {modelData:item,attachments,entities:[entity('knowledge',item.id,item.title,'/conocimiento/'+encodeURIComponent(item.id))],sources:[source('knowledge',item.id,item.title,'/conocimiento/'+encodeURIComponent(item.id))],context:{lastKnowledgeId:item.id}};
 }
 
 export async function searchCases(ctx,args={}){
