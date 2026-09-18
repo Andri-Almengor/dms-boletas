@@ -164,7 +164,7 @@ export async function getMaintenance(ctx,args={}){
   }
 
   const progress=buildMaintenanceProgress({
-    maintenance:row,
+    maintenance:{...row,CantidadesJSON:row.expectedCounts},
     devices:progressDevices,
     deviceTypes,
   });
