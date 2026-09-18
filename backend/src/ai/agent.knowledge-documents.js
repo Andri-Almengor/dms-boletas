@@ -219,15 +219,107 @@ export async function indexKnowledgeDocument(input = {}, actorOverride = '') {
   }
 }
 
-export async function ensureKnowledgeDocumentIndexed(row,actor=''){
-  if(!row||String(row.ExtractionStatus||'').toUpperCase()==='INDEXED') return {indexed:true,existing:true};
-  return indexKnowledgeDocument({
-    documentId:row.id||row.AdjuntoID,
-    articleId:row.articleId||row.TutorialID,
-    fileId:row.__file||row.DriveFileID,
-    mimeType:row.mimeType||row.MimeType,
-    actor,
+const KNOWLEDGE_INDEX_QUEUE=[];
+const KNOWLEDGE_INDEX_QUEUED=new Set();
+let knowledgeIndexQueueRunning=false;
+let knowledgeRecoveryTimer=null;
+
+function indexingPayload(row={},actor=''){
+  return {
+    documentId:clean(row.id||row.AdjuntoID,250),
+    articleId:clean(row.articleId||row.TutorialID,250),
+    fileId:row.__file||row.DriveFileID||'',
+    mimeType:row.mimeType||row.MimeType||'',
+    actor:actor||row.actor||row.ActualizadoPor||row.CreadoPor||'',
+  };
+}
+
+async function drainKnowledgeIndexQueue(){
+  if(knowledgeIndexQueueRunning)return;
+  knowledgeIndexQueueRunning=true;
+  try{
+    while(KNOWLEDGE_INDEX_QUEUE.length){
+      const task=KNOWLEDGE_INDEX_QUEUE.shift();
+      try{
+        await indexKnowledgeDocument(task.payload);
+      }catch(error){
+        console.warn('[ai-knowledge] '+JSON.stringify({
+          event:'knowledge_document_search_failed',
+          documentId:task.payload.documentId,
+          articleId:task.payload.articleId,
+          reason:clean(error?.code||error?.name||'INDEX_ERROR',80),
+        }));
+      }finally{
+        KNOWLEDGE_INDEX_QUEUED.delete(task.payload.documentId);
+      }
+    }
+  }finally{
+    knowledgeIndexQueueRunning=false;
+  }
+}
+
+export function queueKnowledgeDocumentIndexing(row,actor=''){
+  if(!aiConfig.knowledgeDocumentsEnabled||!row)return false;
+  const status=String(row.ExtractionStatus||row.extractionStatus||'').toUpperCase();
+  if(['INDEXED','UNSUPPORTED','EMPTY','FAILED'].includes(status))return false;
+  const payload=indexingPayload(row,actor);
+  if(!payload.documentId||!payload.articleId||!payload.fileId)return false;
+  if(KNOWLEDGE_INDEX_QUEUED.has(payload.documentId))return true;
+  KNOWLEDGE_INDEX_QUEUED.add(payload.documentId);
+  KNOWLEDGE_INDEX_QUEUE.push({payload});
+  queueMicrotask(()=>{void drainKnowledgeIndexQueue();});
+  return true;
+}
+
+export async function recoverKnowledgeDocumentIndexing({limit=aiConfig.knowledgeRecoveryBatch}={}){
+  if(!aiConfig.knowledgeDocumentsEnabled)return {queued:0,disabled:true};
+  const safeLimit=Math.min(5,Math.max(1,Number(limit)||2));
+  const result=await query(
+    `SELECT "AdjuntoID","TutorialID","DriveFileID","MimeType","ExtractionStatus","ActualizadoPor","CreadoPor"
+       FROM "KnowledgeAttachments"
+      WHERE "__valid"=TRUE
+        AND LOWER(COALESCE("Activo",'true')) <> 'false'
+        AND UPPER(COALESCE("ExtractionStatus",'UPLOADED')) IN ('UPLOADED','PROCESSING')
+      ORDER BY "FechaActualizacion" ASC NULLS FIRST,"FechaCreacion" ASC NULLS FIRST
+      LIMIT $1`,
+    [safeLimit],
+    {label:'ai.knowledgeDocuments.recover'},
+  );
+  let queued=0;
+  for(const row of result.rows){
+    if(queueKnowledgeDocumentIndexing(row,row.ActualizadoPor||row.CreadoPor||''))queued+=1;
+  }
+  if(result.rows.length){
+    console.info('[ai-knowledge] '+JSON.stringify({
+      event:'knowledge_document_recovery_scan',
+      candidates:result.rows.length,
+      queued,
+    }));
+  }
+  return {queued,candidates:result.rows.length};
+}
+
+export function startKnowledgeDocumentRecoveryScheduler(){
+  if(knowledgeRecoveryTimer||!aiConfig.knowledgeDocumentsEnabled)return;
+  const run=()=>recoverKnowledgeDocumentIndexing().catch((error)=>{
+    console.warn('[ai-knowledge] '+JSON.stringify({
+      event:'knowledge_document_recovery_failed',
+      reason:clean(error?.code||error?.name||'RECOVERY_ERROR',80),
+    }));
   });
+  const first=setTimeout(run,2_000);first.unref?.();
+  knowledgeRecoveryTimer=setInterval(run,aiConfig.knowledgeRecoveryIntervalMs);
+  knowledgeRecoveryTimer.unref?.();
+}
+
+export function stopKnowledgeDocumentRecoveryScheduler(){
+  if(knowledgeRecoveryTimer)clearInterval(knowledgeRecoveryTimer);
+  knowledgeRecoveryTimer=null;
+}
+
+export async function ensureKnowledgeDocumentIndexed(row,actor=''){
+  if(!row||String(row.ExtractionStatus||row.extractionStatus||'').toUpperCase()==='INDEXED') return {indexed:true,existing:true};
+  return indexKnowledgeDocument(indexingPayload(row,actor));
 }
 
 export const KNOWLEDGE_DOCUMENT_POLICY=Object.freeze({

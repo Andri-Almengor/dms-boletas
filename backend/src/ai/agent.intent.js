@@ -1,4 +1,10 @@
-const INTERNAL_HINT = /\b(dms|boleta|boletas|mantenimiento|mantenimientos|cliente|clientes|técnico|tecnico|supervisor|evidencia|evidencias|dispositivo|dispositivos|cámara|camara|caso|casos|agenda|knowledge|conocimiento|procedimiento interno|manual interno)\b/i;
+const INTERNAL_HINT = /\b(dms|boleta|boletas|mantenimiento|mantenimientos|cliente|clientes|técnico|tecnico|supervisor|evidencia|evidencias|dispositivo|dispositivos|cámara|camara|caso|casos|agenda|knowledge|conocimiento|procedimiento interno|manual interno|gu[ií]a interna)\b/i;
+const KNOWLEDGE_HINT = /\b(knowledge|conocimiento|base de conocimiento|procedimiento interno|tutorial|documentaci[oó]n interna|nuestro manual|nuestra gu[ií]a)\b/i;
+const DOCUMENT_HINT = /\b(manual|manuales|gu[ií]a|gu[ií]as|guide|documento|documentos|pdf|docx|archivo adjunto|adjunto|adjuntos|p[aá]gina|p[aá]ginas|secci[oó]n|secciones|documentaci[oó]n)\b/i;
+const TECHNICAL_KNOWLEDGE_HINT = /\b(axis|onguard|lenel|lenels2|milestone|xprotect|barco|faceme|morphomanager|onvif|rtsp|poe|sip|audio manager|camera station|access control|windows server|sql server|postgresql|odbc|cctv|vms|nvr)\b/i;
+const TECHNICAL_ACTION_HINT = /\b(error|falla|problema|soluci[oó]n|solucionar|resolver|configurar|configuraci[oó]n|instalar|procedimiento|manual|gu[ií]a|diagnosticar|diagn[oó]stico|integrar|integraci[oó]n|firmware|compatibilidad|puerto|poe|sip|multicast|qu[eé] dice|explica|explicar|buscar|busca|c[oó]mo|no funciona|no responde|no env[ií]a|no transmite|no conecta|sin audio|sin video|sin se[nñ]al)\b/i;
+const MODEL_TOKEN = /\b(?:[A-Z]{1,8}[- ]?)?[A-Z]*\d{3,}[A-Z0-9-]*\b/i;
+const KNOWLEDGE_FOLLOWUP = /\b(ese|esa|este|esta|manual|pdf|gu[ií]a|documento|p[aá]gina|secci[oó]n|qu[eé] m[aá]s|qu[eé] dice|dice algo|sobre|poe|audio|integraci[oó]n|configuraci[oó]n|y del|y sobre)\b/i;
 
 export const AI_INTENTS = Object.freeze({
   GENERAL:'GENERAL',
@@ -21,6 +27,24 @@ export const AI_INTENTS = Object.freeze({
 
 function text(value){return String(value||'').trim();}
 function hasActive(context={},key){return Boolean(text(context?.[key]));}
+function hasKnowledgeContext(context={}){return hasActive(context,'lastKnowledgeArticleId')||hasActive(context,'lastKnowledgeDocumentId')||hasActive(context,'lastKnowledgeDocumentName');}
+function hasCompetingInternalDomain(value=''){return /\b(boleta|boletas|mantenimiento|mantenimientos|cliente|clientes|t[eé]cnico|t[eé]cnicos|agenda|caso|casos)\b/i.test(value);}
+
+export function isKnowledgeDocumentQuery({message='',context={}}={}){
+  const value=text(message);
+  if(!value) return false;
+  const active=hasKnowledgeContext(context);
+  if(active&&!hasCompetingInternalDomain(value)&&(KNOWLEDGE_FOLLOWUP.test(value)||DOCUMENT_HINT.test(value)||MODEL_TOKEN.test(value)||value.length<=120)) return true;
+  return DOCUMENT_HINT.test(value)&&(KNOWLEDGE_HINT.test(value)||TECHNICAL_KNOWLEDGE_HINT.test(value)||MODEL_TOKEN.test(value)||active);
+}
+
+export function isTechnicalKnowledgeQuery({message='',context={}}={}){
+  const value=text(message);
+  if(!value) return false;
+  if(isKnowledgeDocumentQuery({message:value,context})) return true;
+  if(KNOWLEDGE_HINT.test(value)) return true;
+  return (TECHNICAL_KNOWLEDGE_HINT.test(value)||MODEL_TOKEN.test(value))&&TECHNICAL_ACTION_HINT.test(value);
+}
 
 export function classifyAiIntent({message='',context={},attachments=[]}={}){
   const value=text(message);
@@ -35,11 +59,9 @@ export function classifyAiIntent({message='',context={},attachments=[]}={}){
   if(wantsWrite && (maintenanceWord||deviceWord||hasFiles)) return AI_INTENTS.WRITE_MAINTENANCE;
   if(/\b(internet|web|google|buscar en internet|busca en internet|buscar en la web|busca en la web)\b/i.test(value)) return AI_INTENTS.WEB;
 
-  if(/\b(manual|manuales|documento|documentos|pdf|docx|archivo adjunto|adjunto|adjuntos|página|pagina|diagrama)\b/i.test(value)
-    && (/\b(knowledge|conocimiento|base de conocimiento)\b/i.test(value)||hasActive(context,'lastKnowledgeArticleId')||hasActive(context,'lastKnowledgeDocumentId'))) {
-    return AI_INTENTS.KNOWLEDGE_DOCUMENTS;
-  }
-  if(/\b(knowledge|conocimiento|base de conocimiento|procedimiento interno|tutorial)\b/i.test(value)) return AI_INTENTS.KNOWLEDGE;
+  if(isKnowledgeDocumentQuery({message:value,context})) return AI_INTENTS.KNOWLEDGE_DOCUMENTS;
+  if(KNOWLEDGE_HINT.test(value)) return AI_INTENTS.KNOWLEDGE;
+  if(isTechnicalKnowledgeQuery({message:value,context})) return AI_INTENTS.KNOWLEDGE;
 
   if(/\b(boleta|boletas|visita anterior|visitas?)\b/i.test(value)||hasActive(context,'lastTicketId')){
     if(evidenceWord||/\bsubi[oó]|subió|uploader|archivo\b/i.test(value)) return AI_INTENTS.TICKET_EVIDENCE;
@@ -76,7 +98,7 @@ export function toolNamesForIntent(intent){
     case AI_INTENTS.MAINTENANCE_EVIDENCE: return ['resolve_maintenance_reference','resolve_maintenance_device','search_maintenances','get_maintenance','get_maintenance_devices','search_maintenance_evidence'];
     case AI_INTENTS.CLIENTS: return ['search_clients','get_client'];
     case AI_INTENTS.USERS: return ['search_users','get_technician_activity','search_tickets'];
-    case AI_INTENTS.KNOWLEDGE: return ['search_knowledge_base','get_knowledge_article','search_knowledge_documents','search_knowledge_document_chunks'];
+    case AI_INTENTS.KNOWLEDGE: return ['search_knowledge_base','get_knowledge_article','search_knowledge_documents','get_knowledge_document','search_knowledge_document_chunks'];
     case AI_INTENTS.KNOWLEDGE_DOCUMENTS: return ['search_knowledge_base','get_knowledge_article','search_knowledge_documents','get_knowledge_document','search_knowledge_document_chunks'];
     case AI_INTENTS.AGENDA: return ['search_agenda'];
     case AI_INTENTS.CASES: return ['search_cases','get_case'];

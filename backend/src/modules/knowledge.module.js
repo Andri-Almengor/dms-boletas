@@ -3,7 +3,7 @@ import { appendRow, filterRows, findById, findRows, queryKnowledgeArticlePage, r
 import { uploadBase64, trashFile } from '../infra/drive.repository.js';
 import { query } from '../infra/postgres.js';
 import { createProtectedMediaStreamUrl } from '../services/protected-media-stream.service.js';
-import { indexKnowledgeDocument } from '../ai/agent.knowledge-documents.js';
+import { queueKnowledgeDocumentIndexing } from '../ai/agent.knowledge-documents.js';
 import { hasKnowledgeGuideContribution } from '../services/knowledge-document-policy.service.js';
 import { getConfig } from './config.module.js';
 import { asBool, nowIso, pick, uuid } from '../core/utils.js';
@@ -418,7 +418,7 @@ export const knowledgeHandlers = {
         ActualizadoPor: ctx.user.UsuarioID,
         FechaActualizacion: nowIso(),
       });
-      void indexKnowledgeDocument({ ...attachment, ExtractionStatus: 'UPLOADED', Status: 'UPLOADED' }, ctx.user.UsuarioID).catch(() => {});
+      queueKnowledgeDocumentIndexing({ ...attachment, ExtractionStatus: 'UPLOADED', Status: 'UPLOADED' }, ctx.user.UsuarioID);
       return { ok: true, AdjuntoID: attachment.AdjuntoID, ExtractionStatus: 'PROCESSING' };
     }
     const categoriesSupplied = hasCategoryPayload(payload);
@@ -516,7 +516,7 @@ export const knowledgeHandlers = {
       await trashFile(replacing.DriveFileID).catch(() => {});
       await softDelete('KnowledgeAttachments', replacing.AdjuntoID, ctx.user.UsuarioID);
     }
-    void indexKnowledgeDocument(row, ctx.user.UsuarioID).catch(() => {});
+    queueKnowledgeDocumentIndexing(row, ctx.user.UsuarioID);
     const safeRow = publicKnowledgeAttachment(row);
     return transfer ? {complete:true,evidence:safeRow} : safeRow;
   },
@@ -554,7 +554,7 @@ export const knowledgeHandlers = {
       ActualizadoPor: ctx.user.UsuarioID,
       FechaActualizacion: nowIso(),
     });
-    void indexKnowledgeDocument({ ...row, ExtractionStatus: 'UPLOADED' }, ctx.user.UsuarioID).catch(() => {});
+    queueKnowledgeDocumentIndexing({ ...row, ExtractionStatus: 'UPLOADED' }, ctx.user.UsuarioID);
     return { ok: true, AdjuntoID: row.AdjuntoID, ExtractionStatus: 'PROCESSING' };
   },
 

@@ -23,7 +23,7 @@ const fallbackModel = modelEnv('GEMINI_FALLBACK_MODEL');
 const lastResortModel = modelEnv('GEMINI_LAST_RESORT_MODEL');
 
 export const aiConfig = Object.freeze({
-  enabled: boolEnv('AI_CHAT_ENABLED', true),
+  enabled: boolEnv('AI_AGENT_ENABLED', boolEnv('AI_CHAT_ENABLED', true)),
   webSearchEnabled: boolEnv('AI_WEB_SEARCH_ENABLED', false),
 
   // GEMINI_MODEL remains a compatibility alias; no concrete model name is hardcoded.
@@ -56,6 +56,8 @@ export const aiConfig = Object.freeze({
   knowledgeDocumentsEnabled: boolEnv('AI_KNOWLEDGE_DOCUMENTS_ENABLED', true),
   knowledgeMaxChunks: intEnv('AI_KNOWLEDGE_MAX_CHUNKS', 8, 1, 20),
   knowledgeMaxChunkBytes: intEnv('AI_KNOWLEDGE_MAX_CHUNK_BYTES', 12_000, 2_000, 32_000),
+  knowledgeRecoveryBatch: intEnv('AI_KNOWLEDGE_RECOVERY_BATCH', 2, 1, 5),
+  knowledgeRecoveryIntervalMs: intEnv('AI_KNOWLEDGE_RECOVERY_INTERVAL_MS', 300_000, 60_000, 3_600_000),
 });
 
 export function configuredModels() {

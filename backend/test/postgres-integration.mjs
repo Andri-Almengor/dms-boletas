@@ -35,6 +35,11 @@ const { createPortablePostgresBackupFile, cleanupPortableBackup } = await import
 const { reconcileCustomerCases } = await import('../src/services/customer-case-sync.service.js');
 const { login, authenticate, logout } = await import('../src/services/auth.service.js');
 const { hashPassword } = await import('../src/core/utils.js');
+const {
+  getKnowledgeDocument,
+  searchKnowledgeDocuments,
+  searchKnowledgeDocumentChunks,
+} = await import('../src/ai/agent.repository.knowledge-documents.js');
 
 const suffix = `${Date.now()}-${Math.random().toString(16).slice(2)}`;
 
@@ -170,6 +175,102 @@ test('auth, sessions and permission overrides use direct PostgreSQL persistence'
     await query('DELETE FROM "Usuarios" WHERE "UsuarioID"=$1', [userId], { label: 'test.stage6.auth.user', write: true }).catch(() => {});
     await query('DELETE FROM "Permisos" WHERE "PermisoID" = ANY($1::text[])', [[permissionAllowId, permissionDenyId]], { label: 'test.stage6.auth.perms', write: true }).catch(() => {});
     await query('DELETE FROM "Roles" WHERE "RolID"=$1', [roleId], { label: 'test.stage6.auth.role', write: true }).catch(() => {});
+  }
+});
+
+test('Knowledge document repositories enforce parent article visibility in PostgreSQL', async () => {
+  const marker = `AXISKNOWLEDGE${Date.now()}${Math.random().toString(16).slice(2)}`;
+  const readerId = `stage6-knowledge-reader-${suffix}`;
+  const otherId = `stage6-knowledge-other-${suffix}`;
+  const publicArticle = `stage6-knowledge-public-${suffix}`;
+  const ownDraft = `stage6-knowledge-own-${suffix}`;
+  const foreignDraft = `stage6-knowledge-foreign-${suffix}`;
+  const publicDocument = `stage6-document-public-${suffix}`;
+  const ownDocument = `stage6-document-own-${suffix}`;
+  const foreignDocument = `stage6-document-foreign-${suffix}`;
+  const now = new Date().toISOString();
+  const ctx = { user: { UsuarioID: readerId }, permissions: ['BOLETAS_VER'], sessionToken: 'stage6-session' };
+
+  try {
+    for (const row of [
+      { TutorialID: publicArticle, Titulo: `${marker} Axis C1410 + C8110`, Estado: 'PUBLICADO', AutorUsuarioID: otherId },
+      { TutorialID: ownDraft, Titulo: `${marker} Draft propio`, Estado: 'BORRADOR', AutorUsuarioID: readerId },
+      { TutorialID: foreignDraft, Titulo: `${marker} Draft ajeno`, Estado: 'BORRADOR', AutorUsuarioID: otherId },
+    ]) {
+      await appendRow('KnowledgeArticles', { ...row, ProblemaResuelto: '', ContenidoHTML: '', Activo: true, FechaCreacion: now, FechaActualizacion: now });
+    }
+
+    for (const row of [
+      { AdjuntoID: publicDocument, TutorialID: publicArticle, Nombre: `Guia Axis C1410 + C8110 ${marker}.pdf` },
+      { AdjuntoID: ownDocument, TutorialID: ownDraft, Nombre: `Manual propio ${marker}.pdf` },
+      { AdjuntoID: foreignDocument, TutorialID: foreignDraft, Nombre: `Manual ajeno ${marker}.pdf` },
+    ]) {
+      await appendRow('KnowledgeAttachments', {
+        ...row,
+        MimeType: 'application/pdf',
+        Size: '100',
+        SizeBytes: 100,
+        DriveFileID: '',
+        DriveURL: '',
+        IsPrimary: true,
+        ExtractionStatus: 'INDEXED',
+        ExtractionError: '',
+        IndexedAt: now,
+        SearchText: `${marker} Axis C1410 C8110 network audio bridge speaker PoE`,
+        Status: 'READY',
+        Activo: true,
+        CreadoPor: readerId,
+        FechaCreacion: now,
+        ActualizadoPor: readerId,
+        FechaActualizacion: now,
+      });
+    }
+
+    for (const [chunkId, documentId, articleId, text] of [
+      [`chunk-public-${suffix}`, publicDocument, publicArticle, `${marker} PoE integración de audio C8110 C1410`],
+      [`chunk-own-${suffix}`, ownDocument, ownDraft, `${marker} draft propio autorizado`],
+      [`chunk-foreign-${suffix}`, foreignDocument, foreignDraft, `${marker} draft ajeno privado`],
+    ]) {
+      await query(
+        `INSERT INTO "KnowledgeDocumentChunks"
+          ("ChunkID","DocumentID","ArticleID","ChunkIndex","PageNumber","SectionTitle","Content","SearchText","CreatedAt","__valid")
+         VALUES ($1,$2,$3,0,NULL,'Audio',$4,$4,$5,TRUE)`,
+        [chunkId, documentId, articleId, text, now],
+        { label: 'test.stage6.knowledge.chunk', write: true },
+      );
+    }
+
+    const visible = await searchKnowledgeDocuments(ctx, { query: `${marker} Axis C1410 C8110`, limit: 10 });
+    const visibleIds = new Set(visible.modelData.items.map((item) => item.id));
+    assert.equal(visibleIds.has(publicDocument), true);
+    assert.equal(visibleIds.has(ownDocument), true);
+    assert.equal(visibleIds.has(foreignDocument), false);
+
+    const own = await searchKnowledgeDocuments(ctx, { articleId: ownDraft, limit: 10 });
+    assert.equal(own.modelData.items.some((item) => item.id === ownDocument), true);
+
+    const hidden = await searchKnowledgeDocuments(ctx, { articleId: foreignDraft, limit: 10 });
+    assert.equal(hidden.modelData.totalShown, 0);
+    await assert.rejects(getKnowledgeDocument(ctx, { documentId: foreignDocument }), /no puede consultar/i);
+    await assert.rejects(
+      searchKnowledgeDocumentChunks(ctx, { documentId: foreignDocument, query: marker }),
+      /no puede consultar/i,
+    );
+
+    const chunks = await searchKnowledgeDocumentChunks(ctx, { documentId: publicDocument, query: `PoE ${marker}`, limit: 10 });
+    assert.equal(chunks.modelData.totalShown, 1);
+    assert.equal(chunks.modelData.items[0].documentId, publicDocument);
+    assert.equal(chunks.modelData.items[0].pageNumber, null);
+
+    const admin = await searchKnowledgeDocuments(
+      { user: { UsuarioID: 'ADMIN-STAGE6' }, permissions: ['CONOCIMIENTO_GESTIONAR'], sessionToken: 'stage6-admin-session' },
+      { articleId: foreignDraft, limit: 10 },
+    );
+    assert.equal(admin.modelData.items.some((item) => item.id === foreignDocument), true);
+  } finally {
+    await query('DELETE FROM "KnowledgeDocumentChunks" WHERE "ArticleID" = ANY($1::text[])', [[publicArticle, ownDraft, foreignDraft]], { label: 'test.stage6.knowledge.chunks.cleanup', write: true }).catch(() => {});
+    await query('DELETE FROM "KnowledgeAttachments" WHERE "TutorialID" = ANY($1::text[])', [[publicArticle, ownDraft, foreignDraft]], { label: 'test.stage6.knowledge.documents.cleanup', write: true }).catch(() => {});
+    await query('DELETE FROM "KnowledgeArticles" WHERE "TutorialID" = ANY($1::text[])', [[publicArticle, ownDraft, foreignDraft]], { label: 'test.stage6.knowledge.articles.cleanup', write: true }).catch(() => {});
   }
 });
 

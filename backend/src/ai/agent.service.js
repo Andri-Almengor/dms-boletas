@@ -8,7 +8,7 @@ import { costaRicaNowIso } from './agent.dates.js';
 import {
   createInteraction, externalSources, fallbackCompatible, functionCalls, outputText, outputTruncated, usage,
 } from './agent.gemini.js';
-import { AI_INTENTS, classifyAiIntent, toolNamesForIntent } from './agent.intent.js';
+import { AI_INTENTS, classifyAiIntent, isKnowledgeDocumentQuery, isTechnicalKnowledgeQuery, toolNamesForIntent } from './agent.intent.js';
 import { recordAiMetrics } from './agent.metrics.js';
 import { buildAgentSystemPrompt, buildAgentUserInput } from './agent.prompt.js';
 import { sanitizeActiveContext } from './agent.sanitize.js';
@@ -116,9 +116,16 @@ function requiresInternalEvidence(message,context={}){
   if(context?.pageContext?.route&&/\b(esta sección|esta seccion|esta pantalla|aquí|aqui|qué hace|que hace)\b/i.test(text)) return true;
   return /\b(dms|boleta|boletas|mantenimiento|mantenimientos|cliente|clientes|técnico|tecnico|supervisor|evidencia|evidencias|dispositivo|dispositivos|cámara|camara|caso|casos|agenda|pendiente|finalizada|finalizó|finalizo|subió|subio|base de conocimiento|knowledge)\b/i.test(text);
 }
-function requiresKnowledgeLookup(message){
-  return /\b(axis|onguard|lenel|lenels2|milestone|xprotect|barco|faceme|morphomanager|windows server|sql server|postgresql|odbc|camera station|access control)\b/i.test(String(message||''))
-    && /\b(error|falla|problema|solucion|solución|solucionar|resolver|configurar|instalar|procedimiento|manual|diagnosticar|diagnóstico|como|cómo)\b/i.test(String(message||''));
+function requiresKnowledgeLookup(message,context={}){
+  return isTechnicalKnowledgeQuery({message,context});
+}
+function knowledgeToolName(name=''){return /^search_knowledge_|^get_knowledge_/.test(String(name||''));}
+function hashAiUser(ctx){
+  const value=clean(ctx?.user?.UsuarioID||'',250);
+  return value?crypto.createHash('sha256').update(value).digest('hex').slice(0,16):'';
+}
+function toolsetNames(toolset=[]){
+  return toolset.filter((item)=>item?.type==='function'&&item?.name).map((item)=>item.name);
 }
 function externalRequested(message){
   const text=String(message||'');
@@ -197,8 +204,11 @@ export function modelFallbackChain(){
   return aiConfig.modelFallbackEnabled?models.slice(0,1+aiConfig.maxModelFallbacks):models.slice(0,1);
 }
 
-export async function runDmsAgent(ctx){
+export async function runDmsAgent(ctx, overrides = {}){
   assertRateLimit(ctx);
+  const createInteractionFn=overrides.createInteraction||createInteraction;
+  const executeAiToolFn=overrides.executeAiTool||executeAiTool;
+  const auditFn=overrides.audit||audit;
   const started=performance.now(),deadline=started+aiConfig.totalTimeoutMs;
   const message=clean(ctx.payload?.message||ctx.payload?.question,aiConfig.maxMessageChars);
   if(!message)throw badRequest('Escriba una pregunta para el asistente.');
@@ -213,24 +223,38 @@ export async function runDmsAgent(ctx){
   if(payloadAttachmentIds.length)context=sanitizeActiveContext({...context,pendingUploadIds:chatAttachments.map(item=>item.uploadId)});
 
   const history=conversationParts(ctx.payload?.history||[]);
-  const knowledgeRequired=requiresKnowledgeLookup(message)||diagnosticImages.length>0;
+  const knowledgeDocumentRequired=isKnowledgeDocumentQuery({message,context})||diagnosticImages.length>0;
+  const knowledgeRequired=requiresKnowledgeLookup(message)||diagnosticImages.length>0||knowledgeDocumentRequired;
   let intent=classifyAiIntent({message,context,attachments:chatAttachments});
-  if(knowledgeRequired&&intent===AI_INTENTS.GENERAL)intent=AI_INTENTS.KNOWLEDGE;
+  if(knowledgeRequired&&[AI_INTENTS.GENERAL,AI_INTENTS.AMBIGUOUS].includes(intent)){
+    intent=knowledgeDocumentRequired?AI_INTENTS.KNOWLEDGE_DOCUMENTS:AI_INTENTS.KNOWLEDGE;
+  }
   const internalEvidenceRequired=requiresInternalEvidence(message,context)||intent!==AI_INTENTS.GENERAL&&intent!==AI_INTENTS.WEB;
   let selectedNames=toolNamesForIntent(intent);
   if(context?.pageContext?.route&&/\b(esta sección|esta seccion|esta pantalla|qué hace|que hace)\b/i.test(message)){
     selectedNames=[...selectedNames,'get_app_help'];
   }
 
-  let webEnabledForTurn=aiConfig.webSearchEnabled&&(externalRequested(message)||intent===AI_INTENTS.WEB);
+  let webEnabledForTurn=aiConfig.webSearchEnabled&&(intent===AI_INTENTS.WEB||(externalRequested(message)&&!knowledgeRequired));
   let tools=declarationsForUser(ctx,{includeWeb:webEnabledForTurn,intent,selectedNames});
+  const exposedKnowledgeTools=toolsetNames(tools).filter(knowledgeToolName);
+  if(knowledgeRequired&&!exposedKnowledgeTools.length){
+    console.warn('[ai-knowledge] '+JSON.stringify({
+      event:'knowledge_tool_not_exposed',
+      domainEvent:'ai_knowledge_error',
+      requestId:clean(ctx.requestId,120),
+      userIdHash:hashAiUser(ctx),
+      intent,
+    }));
+  }
   const systemInstruction=buildAgentSystemPrompt({user:ctx.user,permissions:ctx.permissions,nowIso:costaRicaNowIso()});
   const inputText=buildAgentUserInput({message,history:history.recent,context,attachments:chatAttachments,conversationSummary:history.summary});
   let timeline=[{type:'user_input',content:[...diagnosticImages,{type:'text',text:inputText}]}];
   const ui={entities:[],attachments:[],sources:[],confirmations:[],context:{...context}};
   const toolNames=[];let modelMs=0,toolMs=0,totalInput=0,totalOutput=0,dbQueries=0,dbQueryMs=0,requestBytes=0;
+  const knowledgeFlow={articleSearches:0,articleResults:0,documentSearches:0,documentsFound:0,readyDocuments:0,chunkSearches:0,chunksFound:0,errors:0};
   let knowledgeChunks=0,initialModel='',finalModel='',fallbackCount=0,fallbackReason='',modelIndex=0,compacted=false;
-  const models=modelFallbackChain();
+  const models=Array.isArray(overrides.models)&&overrides.models.length?[...overrides.models]:modelFallbackChain();
   if(!models.length)throw new AppError('GEMINI_MODEL_NOT_CONFIGURED','Configure GEMINI_PRIMARY_MODEL o GEMINI_MODEL en el servidor.',503);
   initialModel=models[0];finalModel=models[0];
   const maxOutputTokens=outputBudget(intent,message);
@@ -249,7 +273,7 @@ export async function runDmsAgent(ctx){
       const timeoutMs=Math.max(250,Math.min(aiConfig.requestTimeoutMs,Math.floor(remaining())));
       const modelStarted=performance.now();
       try{
-        const interaction=await createInteraction({
+        const interaction=await createInteractionFn({
           systemInstruction,input:localInput,tools:noTools?[]:toolset,model,timeoutMs,maxOutputTokens,
         });
         modelMs+=performance.now()-modelStarted;
@@ -303,7 +327,7 @@ export async function runDmsAgent(ctx){
       requestBytes,responseBytes,knowledgeChunks,attachments:response.attachments.length,status:'ok',
     };
     console.info('[ai-agent] '+JSON.stringify(telemetry));
-    await audit(ctx,'AI_CHAT','Asistente',clean(ctx.payload?.conversationId,250)||'chat',null,{
+    await auditFn(ctx,'AI_CHAT','Asistente',clean(ctx.payload?.conversationId,250)||'chat',null,{
       ModelInitial:initialModel,ModelFinal:finalModel,FallbackCount:fallbackCount,FallbackReason:fallbackReason,
       Intent:intent,Herramientas:[...new Set(toolNames)],DuracionMs:durationMs,BusquedaWeb:response.agent.webSearch,
     }).catch(()=>{});
@@ -318,14 +342,43 @@ export async function runDmsAgent(ctx){
       const calls=functionCalls(interaction);
       if(!calls.length){
         const hasInternalTool=toolNames.length>0;
-        const hasKnowledgeTool=toolNames.some(name=>/^search_knowledge_|^get_knowledge_/.test(name));
-        if(round<aiConfig.maxToolRounds-1&&((internalEvidenceRequired&&tools.length&&!hasInternalTool)||(knowledgeRequired&&tools.length&&!hasKnowledgeTool))){
+        const hasKnowledgeTool=toolNames.some(knowledgeToolName);
+        const exposed=new Set(toolsetNames(tools));
+        const needFirstKnowledgeCall=knowledgeRequired&&exposedKnowledgeTools.length&&!hasKnowledgeTool;
+        const needArticleSearch=knowledgeDocumentRequired&&exposed.has('search_knowledge_base')&&knowledgeFlow.articleSearches===0;
+        const needDocumentSearch=knowledgeRequired&&exposed.has('search_knowledge_documents')&&knowledgeFlow.documentSearches===0;
+        const needChunkSearch=knowledgeFlow.documentsFound>0&&knowledgeFlow.readyDocuments>0
+          &&exposed.has('search_knowledge_document_chunks')&&knowledgeFlow.chunkSearches===0;
+        const retryChunkSearch=knowledgeFlow.documentsFound>0&&knowledgeFlow.readyDocuments>0
+          &&knowledgeFlow.chunkSearches>0&&knowledgeFlow.chunksFound===0&&knowledgeFlow.chunkSearches<2
+          &&exposed.has('search_knowledge_document_chunks');
+        const internalKnowledgeExhausted=knowledgeFlow.documentSearches>0&&(
+          knowledgeFlow.documentsFound===0
+          ||(knowledgeFlow.readyDocuments>0&&knowledgeFlow.chunkSearches>0&&knowledgeFlow.chunksFound===0&&!retryChunkSearch)
+        );
+        if(round<aiConfig.maxToolRounds-1&&aiConfig.webSearchEnabled&&!webEnabledForTurn
+          &&knowledgeRequired&&externalRequested(message)&&internalKnowledgeExhausted){
+          webEnabledForTurn=true;
+          tools=declarationsForUser(ctx,{includeWeb:true,intent,selectedNames});
           timeline.push({
             type:'user_input',
-            content:[{type:'text',text:knowledgeRequired&&!hasKnowledgeTool
-              ? 'Antes de responder, consulta Knowledge y sus documentos internos relevantes. No inventes un procedimiento interno.'
-              : 'Antes de responder esta pregunta sobre DMS, consulta una de las herramientas internas disponibles. No respondas datos internos desde conocimiento general.'}],
+            content:[{type:'text',text:'La recuperación interna razonable ya fue agotada y no cubrió este punto. Ahora puedes consultar web si resulta necesario; prioriza documentación oficial del fabricante y separa claramente web de Knowledge.'}],
           });
+          continue;
+        }
+        if(round<aiConfig.maxToolRounds-1&&(needFirstKnowledgeCall||needArticleSearch||needDocumentSearch||needChunkSearch||retryChunkSearch
+          ||(internalEvidenceRequired&&tools.length&&!hasInternalTool))){
+          let instruction='Antes de responder esta pregunta sobre DMS, consulta una de las herramientas internas disponibles. No respondas datos internos desde conocimiento general.';
+          if(needFirstKnowledgeCall||needArticleSearch){
+            instruction='Antes de responder, consulta search_knowledge_base con los términos técnicos significativos. Después continúa a documentos si existe documentación relacionada.';
+          }else if(needDocumentSearch){
+            instruction='La consulta interna todavía no está completa. Usa search_knowledge_documents aunque el artículo tenga ContenidoHTML vacío; busca por producto, modelo, categoría y nombre del documento.';
+          }else if(needChunkSearch){
+            instruction='Encontraste un documento interno indexado. Antes de decir qué contiene, usa search_knowledge_document_chunks sobre el documento relevante y recupera solo fragmentos pertinentes.';
+          }else if(retryChunkSearch){
+            instruction='La primera búsqueda dentro del documento no encontró fragmentos. Reformula una vez la búsqueda con términos equivalentes técnicos del mismo tema y vuelve a usar search_knowledge_document_chunks. No cargues el documento completo.';
+          }
+          timeline.push({type:'user_input',content:[{type:'text',text:instruction}]});
           continue;
         }
         if(internalEvidenceRequired&&tools.length&&!hasInternalTool)throw new AppError('AI_INTERNAL_SOURCE_REQUIRED','No fue posible verificar la información interna solicitada. Intente nuevamente.',502);
@@ -348,18 +401,56 @@ export async function runDmsAgent(ctx){
         const executions=await Promise.all(batch.map(async call=>{
           toolNames.push(call.name);
           const toolStarted=performance.now();
+          const knowledgeCall=knowledgeToolName(call.name);
+          if(knowledgeCall){
+            if(call.name==='search_knowledge_base')knowledgeFlow.articleSearches+=1;
+            if(call.name==='search_knowledge_documents')knowledgeFlow.documentSearches+=1;
+            if(call.name==='search_knowledge_document_chunks')knowledgeFlow.chunkSearches+=1;
+            console.info('[ai-knowledge] '+JSON.stringify({
+              event:'knowledge_tool_called',domainEvent:'ai_knowledge_search_started',
+              requestId:clean(ctx.requestId,120),userIdHash:hashAiUser(ctx),toolName:call.name,
+              queryLength:clean(call.arguments?.query,2000).length,
+              articleId:clean(call.arguments?.articleId,250)||undefined,
+              documentId:clean(call.arguments?.documentId,250)||undefined,
+              toolRound:round+1,
+            }));
+          }
           try{
             const measured=await withTimeout(
-              withDbRequestMetrics(()=>executeAiTool(ctx,call.name,call.arguments||{})),
+              withDbRequestMetrics(()=>executeAiToolFn(ctx,call.name,call.arguments||{})),
               Math.max(1,Math.min(aiConfig.toolTimeoutMs,Math.floor(remaining()))),call.name,
             );
             dbQueries+=Number(measured.metrics?.queries||0);dbQueryMs+=Number(measured.metrics?.queryMs||0);
             mergeUi(ui,measured.result.ui);
-            if(call.name==='search_knowledge_document_chunks')knowledgeChunks+=Number(measured.result.modelData?.totalShown||0);
-            if(['search_knowledge_base','search_knowledge_documents','search_knowledge_document_chunks'].includes(call.name)
-              && Number(measured.result.modelData?.totalShown||0)===0&&aiConfig.webSearchEnabled&&!webEnabledForTurn){
-              webEnabledForTurn=true;
-              tools=declarationsForUser(ctx,{includeWeb:true,intent,selectedNames});
+            if(knowledgeCall){
+              const modelData=measured.result.modelData||{};
+              const totalShown=Number(modelData.totalShown||0);
+              const items=Array.isArray(modelData.items)?modelData.items:[];
+              if(call.name==='search_knowledge_base')knowledgeFlow.articleResults+=totalShown;
+              if(call.name==='search_knowledge_documents'){
+                knowledgeFlow.documentsFound+=totalShown;
+                knowledgeFlow.readyDocuments+=items.filter((item)=>['READY','INDEXED'].includes(String(item?.state||item?.extractionStatus||'').toUpperCase())).length;
+              }
+              if(call.name==='search_knowledge_document_chunks'){
+                knowledgeFlow.chunksFound+=totalShown;knowledgeChunks+=totalShown;
+              }
+              const state=clean(modelData.state,80)|| (totalShown?'OK':'NO_RESULTS');
+              const extractionStatus=clean(modelData.document?.extractionStatus||items[0]?.extractionStatus,80);
+              let event=totalShown?'knowledge_tool_result':'knowledge_tool_empty';
+              let domainEvent=totalShown?'ai_knowledge_search_result':'ai_knowledge_empty';
+              if(call.name==='search_knowledge_documents'&&totalShown){event='knowledge_tool_result';domainEvent='ai_knowledge_document_found';}
+              if(call.name==='search_knowledge_document_chunks'&&totalShown){event='knowledge_tool_result';domainEvent='ai_knowledge_chunks_found';}
+              if(['PROCESSING','UPLOADED','PENDING'].includes(String(state||extractionStatus).toUpperCase())){event='knowledge_document_not_indexed';domainEvent='ai_knowledge_not_indexed';}
+              if(state==='EXTRACTION_FAILED'||String(extractionStatus).toUpperCase()==='FAILED'){event='knowledge_document_not_indexed';domainEvent='ai_knowledge_error';}
+              console.info('[ai-knowledge] '+JSON.stringify({
+                event,domainEvent,requestId:clean(ctx.requestId,120),userIdHash:hashAiUser(ctx),
+                toolName:call.name,queryLength:clean(call.arguments?.query,2000).length,
+                articleId:clean(call.arguments?.articleId||modelData.document?.articleId||items[0]?.articleId,250)||undefined,
+                documentId:clean(call.arguments?.documentId||modelData.document?.id||items[0]?.documentId||items[0]?.id,250)||undefined,
+                searchMs:Math.round(performance.now()-toolStarted),chunksReturned:call.name==='search_knowledge_document_chunks'?totalShown:undefined,
+                extractionStatus:extractionStatus||undefined,sourceType:call.name==='search_knowledge_document_chunks'?'knowledge_document_chunk':call.name==='search_knowledge_documents'?'knowledge_document':'knowledge',
+                state,toolRound:round+1,
+              }));
             }
             if(/^(search_|get_statistics$|get_technician_activity$)/.test(call.name)){
               ui.context={
@@ -373,6 +464,17 @@ export async function runDmsAgent(ctx){
             }
             return functionResult(call,{ok:true,data:measured.result.modelData});
           }catch(error){
+            if(knowledgeCall){
+              knowledgeFlow.errors+=1;
+              console.warn('[ai-knowledge] '+JSON.stringify({
+                event:error?.status===403?'knowledge_tool_permission_denied':'knowledge_document_search_failed',
+                domainEvent:'ai_knowledge_error',requestId:clean(ctx.requestId,120),userIdHash:hashAiUser(ctx),
+                toolName:call.name,queryLength:clean(call.arguments?.query,2000).length,
+                articleId:clean(call.arguments?.articleId,250)||undefined,documentId:clean(call.arguments?.documentId,250)||undefined,
+                searchMs:Math.round(performance.now()-toolStarted),toolRound:round+1,
+                reason:clean(error?.code||error?.name||'AI_TOOL_ERROR',80),
+              }));
+            }
             return functionResult(call,{ok:false,error:{
               code:clean(error?.code||'AI_TOOL_ERROR',80),
               message:clean(error?.status===403?'No autorizado para consultar esa información.':error?.message||'No se pudo completar la consulta.',400),

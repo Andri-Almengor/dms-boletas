@@ -1,14 +1,77 @@
 import { badRequest, notFound } from '../core/errors.js';
 import { appendKnowledgeVisibility, assertAiCapability } from './agent.permissions.js';
-import { active, addRange, aliasQuery, clean, entity, like, many, one, pageLimit, protectedAttachment, source } from './agent.repository.shared.js';
+import { active, addRange, aliasQuery, clean, entity, like, many, one, pageLimit, protectedAttachment, searchTerms, source } from './agent.repository.shared.js';
 
-export async function searchKnowledgeBase(ctx,args={}){
-  assertAiCapability(ctx,'knowledge');
-  const q=clean(args.query,500); if(!q) throw badRequest('Indique el tema a buscar en la base de conocimiento.');
-  const params=[];const visible=appendKnowledgeVisibility(ctx,params,'a');params.push(like(q));const p='$'+params.length;params.push(pageLimit(args.limit,10));
-  const rows=await many(`SELECT a."TutorialID" AS id,a."Titulo" AS title,a."ProblemaResuelto" AS problem,a."Estado" AS status,a."FechaActualizacion" AS "updatedAt",LEFT(COALESCE(NULLIF(a."ContenidoHTML",''),''),5000) AS content FROM "KnowledgeArticles" a WHERE ${active('a')} AND ${visible} AND (a."Titulo" ILIKE ${p} ESCAPE '\\' OR a."ProblemaResuelto" ILIKE ${p} ESCAPE '\\' OR a."ContenidoHTML" ILIKE ${p} ESCAPE '\\' OR EXISTS(SELECT 1 FROM "KnowledgeArticleContent" kc WHERE ${active('kc')} AND kc."TutorialID"=a."TutorialID" AND kc."Contenido" ILIKE ${p} ESCAPE '\\')) ORDER BY a."FechaActualizacion" DESC NULLS LAST,a."Titulo" ASC LIMIT $${params.length}`,params,'ai.knowledge.search');
-  const items=rows.map(r=>({id:r.id,title:r.title||'Artículo',problem:clean(r.problem,1600),status:r.status||'',updatedAt:r.updatedAt||'',excerpt:clean(String(r.content||'').replace(/<[^>]+>/g,' '),2600)}));
-  return {modelData:{totalShown:items.length,items},entities:items.map(i=>entity('knowledge',i.id,i.title,'/conocimiento/'+encodeURIComponent(i.id))),sources:items.map(i=>source('knowledge',i.id,i.title,'/conocimiento/'+encodeURIComponent(i.id))),context:items.length===1?{lastKnowledgeId:items[0].id}:{}};
+export async function searchKnowledgeBase(ctx, args = {}) {
+  assertAiCapability(ctx, 'knowledge');
+  const q = clean(args.query, 500);
+  if (!q) throw badRequest('Indique el tema a buscar en la base de conocimiento.');
+  const params = [];
+  const visible = appendKnowledgeVisibility(ctx, params, 'a');
+  const clauses = [active('a'), visible];
+  const terms = searchTerms(q);
+  for (const term of terms.length ? terms : [q]) {
+    params.push(like(term));
+    const p = '$' + params.length;
+    clauses.push(`(
+      a."Titulo" ILIKE ${p} ESCAPE '\\'
+      OR a."ProblemaResuelto" ILIKE ${p} ESCAPE '\\'
+      OR a."ContenidoHTML" ILIKE ${p} ESCAPE '\\'
+      OR EXISTS (
+        SELECT 1 FROM "KnowledgeArticleContent" kc
+         WHERE ${active('kc')} AND kc."TutorialID"=a."TutorialID" AND kc."Contenido" ILIKE ${p} ESCAPE '\\'
+      )
+      OR EXISTS (
+        SELECT 1 FROM "KnowledgeArticleCategories" rel
+        JOIN "KnowledgeCategories" cat ON cat."__valid"=TRUE AND cat."CategoriaConocimientoID"=rel."CategoriaConocimientoID"
+        WHERE rel."__valid"=TRUE AND rel."TutorialID"=a."TutorialID"
+          AND LOWER(COALESCE(rel."Activo",'true')) <> 'false'
+          AND cat."Nombre" ILIKE ${p} ESCAPE '\\'
+      )
+      OR EXISTS (
+        SELECT 1 FROM "KnowledgeAttachments" ka
+        WHERE ${active('ka')} AND ka."TutorialID"=a."TutorialID"
+          AND (
+            ka."Nombre" ILIKE ${p} ESCAPE '\\'
+            OR COALESCE(ka."SearchText",'') ILIKE ${p} ESCAPE '\\'
+            OR EXISTS (
+              SELECT 1 FROM "KnowledgeDocumentChunks" kdc
+               WHERE kdc."__valid"=TRUE AND kdc."DocumentID"=ka."AdjuntoID"
+                 AND (
+                   kdc."SearchText" ILIKE ${p} ESCAPE '\\'
+                   OR kdc."Content" ILIKE ${p} ESCAPE '\\'
+                   OR kdc."SectionTitle" ILIKE ${p} ESCAPE '\\'
+                 )
+            )
+          )
+      )
+    )`);
+  }
+  params.push(pageLimit(args.limit, 10));
+  const rows = await many(
+    `SELECT a."TutorialID" AS id,a."Titulo" AS title,a."ProblemaResuelto" AS problem,a."Estado" AS status,
+            a."FechaActualizacion" AS "updatedAt",LEFT(COALESCE(NULLIF(a."ContenidoHTML",''),''),5000) AS content
+       FROM "KnowledgeArticles" a
+      WHERE ${clauses.join(' AND ')}
+      ORDER BY a."FechaActualizacion" DESC NULLS LAST,a."Titulo" ASC
+      LIMIT $${params.length}`,
+    params,
+    'ai.knowledge.search',
+  );
+  const items = rows.map((r) => ({
+    id: r.id,
+    title: r.title || 'Artículo',
+    problem: clean(r.problem, 1600),
+    status: r.status || '',
+    updatedAt: r.updatedAt || '',
+    excerpt: clean(String(r.content || '').replace(/<[^>]+>/g, ' '), 2600),
+  }));
+  return {
+    modelData: { state: items.length ? 'OK' : 'NO_RESULTS', totalShown: items.length, items },
+    entities: items.map((item) => entity('knowledge', item.id, item.title, '/conocimiento/' + encodeURIComponent(item.id))),
+    sources: items.map((item) => source('knowledge', item.id, item.title, '/conocimiento/' + encodeURIComponent(item.id), { articleId: item.id, articleTitle: item.title })),
+    context: items.length === 1 ? { lastKnowledgeId: items[0].id, lastKnowledgeArticleId: items[0].id } : {},
+  };
 }
 
 export async function getKnowledgeArticle(ctx,args={}){

@@ -41,6 +41,25 @@ export function like(value) {
   return '%' + clean(value, 300).replace(/[\\%_]/g, '\\$&') + '%';
 }
 
+const SEARCH_STOPWORDS=new Set([
+  'a','al','algo','como','con','cual','cuál','de','del','dice','diga','documento','documentos',
+  'el','en','esa','ese','esta','este','guia','guía','la','las','lo','los','manual','manuales',
+  'me','mi','nuestra','nuestro','para','pdf','por','que','qué','se','segun','según','sobre','un','una','y',
+]);
+
+export function searchTerms(value,{limit=8}={}){
+  const raw=clean(value,500).normalize('NFKC');
+  const tokens=raw.match(/[\p{L}\p{N}][\p{L}\p{N}._+-]*/gu)||[];
+  const normalized=[];
+  for(const token of tokens){
+    const lower=token.toLowerCase();
+    if(lower.length<2||SEARCH_STOPWORDS.has(lower))continue;
+    if(!normalized.includes(lower))normalized.push(lower);
+    if(normalized.length>=Math.max(1,Number(limit)||8))break;
+  }
+  return normalized;
+}
+
 export function addRange(clauses, params, column, input = {}) {
   const range = resolveDateRange(input);
   if (range.from) {
@@ -54,8 +73,8 @@ export function addRange(clauses, params, column, input = {}) {
   return range;
 }
 
-export function source(type, id, label, url = '') {
-  return { type, id: clean(id, 250), label: clean(label, 300), url: clean(url, 1000) };
+export function source(type, id, label, url = '', meta = {}) {
+  return { ...meta, type, id: clean(id, 250), label: clean(label, 300), url: clean(url, 4000) };
 }
 
 export function entity(type, id, label, route, meta = {}) {

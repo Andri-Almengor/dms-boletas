@@ -12,6 +12,7 @@ import { actionConcurrencySnapshot } from './services/action-concurrency.service
 import { agendaNotificationQueueSnapshot, drainAgendaNotificationQueue } from './services/agenda-notification-queue.service.js';
 import { startMaintenanceProgressScheduler, stopMaintenanceProgressScheduler } from './services/maintenance-progress-chat.service.js';
 import { startWeeklyBackupScheduler, stopWeeklyBackupScheduler } from './services/weekly-backup.service.js';
+import { startKnowledgeDocumentRecoveryScheduler, stopKnowledgeDocumentRecoveryScheduler } from './ai/agent.knowledge-documents.js';
 
 function mb(value) { return Math.round((Number(value || 0) / 1024 / 1024) * 10) / 10; }
 
@@ -83,6 +84,7 @@ server.listen(env.port, '0.0.0.0', () => {
   if (!shuttingDown) {
     startMaintenanceProgressScheduler();
     startWeeklyBackupScheduler();
+    startKnowledgeDocumentRecoveryScheduler();
   }
 });
 
@@ -99,6 +101,7 @@ function shutdown(signal, exitCode = 0) {
   stopDiagnostics();
   stopMaintenanceProgressScheduler();
   stopWeeklyBackupScheduler();
+  stopKnowledgeDocumentRecoveryScheduler();
   server.close(async () => {
     const queueWaitMs = Math.max(1_000, Math.min(10_000, env.shutdownGraceMs - 1_000));
     const notificationsDrained = await drainAgendaNotificationQueue(queueWaitMs).catch(() => false);
