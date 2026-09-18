@@ -220,9 +220,12 @@ export async function runDmsAgent(ctx){
   if(payloadAttachmentIds.length)context=sanitizeActiveContext({...context,pendingUploadIds:chatAttachments.map(item=>item.uploadId)});
 
   const history=conversationParts(ctx.payload?.history||[]);
-  const knowledgeRequired=requiresKnowledgeLookup(message)||diagnosticImages.length>0;
+  const knowledgeDocumentRequired=isKnowledgeDocumentQuery({message,context})||diagnosticImages.length>0;
+  const knowledgeRequired=requiresKnowledgeLookup(message,context)||knowledgeDocumentRequired;
   let intent=classifyAiIntent({message,context,attachments:chatAttachments});
-  if(knowledgeRequired&&intent===AI_INTENTS.GENERAL)intent=AI_INTENTS.KNOWLEDGE;
+  if(knowledgeRequired&&[AI_INTENTS.GENERAL,AI_INTENTS.AMBIGUOUS].includes(intent)){
+    intent=knowledgeDocumentRequired?AI_INTENTS.KNOWLEDGE_DOCUMENTS:AI_INTENTS.KNOWLEDGE;
+  }
   const internalEvidenceRequired=requiresInternalEvidence(message,context)||intent!==AI_INTENTS.GENERAL&&intent!==AI_INTENTS.WEB;
   let selectedNames=toolNamesForIntent(intent);
   if(context?.pageContext?.route&&/\b(esta sección|esta seccion|esta pantalla|qué hace|que hace)\b/i.test(message)){
@@ -231,11 +234,22 @@ export async function runDmsAgent(ctx){
 
   let webEnabledForTurn=aiConfig.webSearchEnabled&&(externalRequested(message)||intent===AI_INTENTS.WEB);
   let tools=declarationsForUser(ctx,{includeWeb:webEnabledForTurn,intent,selectedNames});
+  const exposedKnowledgeTools=toolsetNames(tools).filter(knowledgeToolName);
+  if(knowledgeRequired&&!exposedKnowledgeTools.length){
+    console.warn('[ai-knowledge] '+JSON.stringify({
+      event:'knowledge_tool_not_exposed',
+      domainEvent:'ai_knowledge_error',
+      requestId:clean(ctx.requestId,120),
+      userIdHash:hashAiUser(ctx),
+      intent,
+    }));
+  }
   const systemInstruction=buildAgentSystemPrompt({user:ctx.user,permissions:ctx.permissions,nowIso:costaRicaNowIso()});
   const inputText=buildAgentUserInput({message,history:history.recent,context,attachments:chatAttachments,conversationSummary:history.summary});
   let timeline=[{type:'user_input',content:[...diagnosticImages,{type:'text',text:inputText}]}];
   const ui={entities:[],attachments:[],sources:[],confirmations:[],context:{...context}};
   const toolNames=[];let modelMs=0,toolMs=0,totalInput=0,totalOutput=0,dbQueries=0,dbQueryMs=0,requestBytes=0;
+  const knowledgeFlow={articleSearches:0,articleResults:0,documentSearches:0,documentsFound:0,readyDocuments:0,chunkSearches:0,chunksFound:0,errors:0};
   let knowledgeChunks=0,initialModel='',finalModel='',fallbackCount=0,fallbackReason='',modelIndex=0,compacted=false;
   const models=modelFallbackChain();
   if(!models.length)throw new AppError('GEMINI_MODEL_NOT_CONFIGURED','Configure GEMINI_PRIMARY_MODEL o GEMINI_MODEL en el servidor.',503);
