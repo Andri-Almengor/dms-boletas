@@ -329,6 +329,23 @@ export async function queryMaintenanceHomeSummary(payload = {}) {
   };
 }
 
+export async function nextCustomerCaseNumber() {
+  const result = await query(
+    `SELECT COALESCE(MAX(
+      CASE
+        WHEN regexp_replace(COALESCE("CasoNumero",''),'[^0-9]','','g') ~ '^[0-9]+$'
+        THEN regexp_replace("CasoNumero",'[^0-9]','','g')::bigint
+        ELSE 0
+      END
+    ),0)+1 AS value
+    FROM "CasosClientes"
+    WHERE "__valid"=TRUE`,
+    [],
+    { label: 'cases.nextNumber' },
+  );
+  return `CAS-${String(Number(result.rows[0]?.value || 1)).padStart(6, '0')}`;
+}
+
 export async function queryCustomerCasePage(payload = {}) {
   const page = Math.max(1, Number(payload.page || 1));
   const pageSize = Math.min(200, Math.max(1, Number(payload.pageSize || 60)));
