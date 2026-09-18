@@ -1,6 +1,6 @@
 import { badRequest } from '../core/errors.js';
 import { asBool, pick } from '../core/utils.js';
-import { readTables } from '../infra/sheets.repository.js';
+import { findRows } from '../infra/sheets.repository.js';
 import { buildClientRelations } from '../services/client-relations.service.js';
 
 function canIncludeInactive(ctx) {
@@ -13,17 +13,20 @@ export const clientRelationsHandlers = {
     if (!clientId) throw badRequest('Falta el identificador del cliente.');
 
     const includeInactive = asBool(ctx.payload.includeInactive, false) && canIncludeInactive(ctx);
-    const tables = await readTables([
-      'ClienteUbicaciones',
-      'ClienteUbicacionesEquipo',
-      'ClienteContactos',
+    const [locations, contacts] = await Promise.all([
+      findRows('ClienteUbicaciones', { ClienteID: clientId }, { limit: 50_000 }),
+      findRows('ClienteContactos', { ClienteID: clientId }, { limit: 50_000 }),
     ]);
+    const locationIds = locations.map((row) => String(row.UbicacionID || '')).filter(Boolean);
+    const equipment = locationIds.length
+      ? await findRows('ClienteUbicacionesEquipo', { UbicacionID: locationIds }, { limit: 50_000 })
+      : [];
 
     return buildClientRelations({
       clientId,
-      locations: tables.ClienteUbicaciones,
-      equipment: tables.ClienteUbicacionesEquipo,
-      contacts: tables.ClienteContactos,
+      locations,
+      equipment,
+      contacts,
       includeInactive,
     });
   },
