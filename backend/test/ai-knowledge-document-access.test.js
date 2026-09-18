@@ -39,6 +39,7 @@ test('Axis guide queries and natural document follow-ups route to Knowledge', ()
   assert.equal(classifyAiIntent({ message: '¿Qué dice nuestra guía del Axis C1410 y C8110?' }), AI_INTENTS.KNOWLEDGE_DOCUMENTS);
   assert.equal(classifyAiIntent({ message: 'Busca la guía Axis C1410 + C8110.pdf' }), AI_INTENTS.KNOWLEDGE_DOCUMENTS);
   assert.equal(isTechnicalKnowledgeQuery({ message: '¿Cómo configuro el C8110 con Axis?' }), true);
+  assert.equal(isTechnicalKnowledgeQuery({ message: 'El C8110 no envía audio al C1410.' }), true);
   assert.equal(isKnowledgeDocumentQuery({
     message: '¿qué dice sobre PoE?',
     context: { lastKnowledgeDocumentId: 'DOC-1', lastKnowledgeDocumentName: 'Guia Axis.pdf' },
