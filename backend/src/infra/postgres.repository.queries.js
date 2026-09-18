@@ -6,13 +6,14 @@ function normalizeStatusSql(expr) {
   return `CASE WHEN UPPER(COALESCE(${expr},'')) LIKE '%FINAL%' THEN 'FINALIZADA' WHEN UPPER(COALESCE(${expr},'')) LIKE '%PEND%' THEN 'PENDIENTE' WHEN UPPER(COALESCE(${expr},'')) LIKE '%ANUL%' THEN 'ANULADA' ELSE UPPER(COALESCE(${expr},'')) END`;
 }
 
-export async function queryPage(table, payload = {}, { searchFields = [], allowedIds = null, statusNormalized = false, defaultOrder = [], excludeInactive = false } = {}) {
+export async function queryPage(table, payload = {}, { searchFields = [], allowedIds = null, statusNormalized = false, defaultOrder = [], excludeInactive = false, excludeInactiveState = false } = {}) {
   const meta = definition(table);
   const page = Math.max(1, Number(payload.page || 1));
   const pageSize = Math.min(1000, Math.max(1, Number(payload.pageSize || 100)));
   const params = [];
   const clauses = ['"__valid" = TRUE'];
   if (excludeInactive && meta.columns.includes('Activo') && payload.activo === undefined) clauses.push(`LOWER(COALESCE("Activo",'true')) <> 'false'`);
+  if (excludeInactiveState && meta.columns.includes('Estado')) clauses.push(`UPPER(COALESCE("Estado",'ACTIVO')) <> 'INACTIVO'`);
   const eq = [['clienteId','ClienteID'],['categoriaId','CategoriaID'],['tipoDispositivoId','TipoDispositivoID'],['fabricanteId','FabricanteID'],['modeloId','ModeloID']];
   for (const [key,col] of eq) if (payload[key] && meta.columns.includes(col)) { params.push(String(payload[key])); clauses.push(`${qi(col)}=$${params.length}`); }
   if (payload.activo !== undefined && meta.columns.includes('Activo')) { params.push(String(payload.activo).toLowerCase()); clauses.push(`LOWER(COALESCE("Activo",''))=$${params.length}`); }
@@ -165,6 +166,36 @@ export async function queryTicketPage(payload = {}, { assignedUserId = '' } = {}
     pageSize,
   };
   return homeSummary ? { ...result, homeSummary } : result;
+}
+
+export async function queryMaintenanceHomeSummary(payload = {}) {
+  const params = [];
+  const clauses = ['"__valid"=TRUE', `LOWER(COALESCE("Activo",'true')) <> 'false'`];
+  if (payload.activo !== undefined) {
+    params.push(String(payload.activo).toLowerCase());
+    clauses.push(`LOWER(COALESCE("Activo",''))=$${params.length}`);
+  }
+  const result = await query(
+    `SELECT
+      COUNT(*)::bigint AS total,
+      COUNT(*) FILTER (WHERE UPPER(COALESCE("Estado",''))='PENDIENTE')::bigint AS pending,
+      COUNT(*) FILTER (WHERE UPPER(COALESCE("Estado",''))='FINALIZADO')::bigint AS finished
+     FROM "Mantenimiento"
+     WHERE ${clauses.join(' AND ')}`,
+    params,
+    { label: 'maintenance.homeSummary' },
+  );
+  const row = result.rows[0] || {};
+  return {
+    items: [],
+    total: Number(row.total || 0),
+    page: 1,
+    pageSize: 0,
+    homeSummary: {
+      pending: Number(row.pending || 0),
+      finished: Number(row.finished || 0),
+    },
+  };
 }
 
 export async function queryCustomerCasePage(payload = {}) {
