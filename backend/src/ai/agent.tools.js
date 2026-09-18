@@ -9,6 +9,7 @@ import { knowledgeRepositoryTools } from './agent.repository.knowledge.js';
 import { statisticsRepositoryTools } from './agent.repository.statistics.js';
 import { agendaRepositoryTools } from './agent.repository.agenda.js';
 import { integrationRepositoryTools } from './agent.repository.integrations.js';
+import { helpRepositoryTools } from './agent.repository.help.js';
 
 const TOOL_IMPL=Object.freeze({
   ...directoryRepositoryTools,
@@ -18,6 +19,7 @@ const TOOL_IMPL=Object.freeze({
   ...statisticsRepositoryTools,
   ...agendaRepositoryTools,
   ...integrationRepositoryTools,
+  ...helpRepositoryTools,
 });
 
 const COMMON_DATE_PROPERTIES={
@@ -32,6 +34,7 @@ function fn(name,description,properties={},required=[]){
 }
 
 export const TOOL_DECLARATIONS=Object.freeze({
+  get_app_help:fn('get_app_help','Explica de forma autoritativa qué hace una sección de DMS a partir de su ruta interna.',{route:{type:'string'},section:{type:'string'}}),
   search_internal:fn('search_internal','Busca entidades internas por texto sin requerir IDs técnicos.',{
     query:{type:'string'},entityTypes:{type:'array',items:{type:'string',enum:['client','maintenance','ticket','user','device','network_device','knowledge','case','agenda']}},limit:{type:'integer',minimum:1,maximum:20},
   },['query']),
@@ -62,7 +65,7 @@ export const TOOL_DECLARATIONS=Object.freeze({
 });
 
 function allowedNames(ctx){
-  const access=aiAccess(ctx); const names=['search_internal','search_agenda'];
+  const access=aiAccess(ctx); const names=['search_internal','search_agenda','get_app_help'];
   if(access.clients) names.push('search_clients','get_client');
   if(access.users) names.push('search_users');
   if(access.tickets) names.push('search_tickets','get_ticket','get_ticket_evidence','get_ticket_history','get_technician_activity','search_evidence_activity');
