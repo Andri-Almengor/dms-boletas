@@ -35,6 +35,8 @@ import { dispatchActionWithIncrementalSync } from './services/incremental-sync-d
 import { env } from './config/env.js';
 import { dispatchAction } from './core/action-router.js';
 import { AppError } from './core/errors.js';
+import { authenticate } from './services/auth.service.js';
+import { aiAgentHandlers } from './ai/agent.module.js';
 import {
   dispatchPasswordVaultAction,
   isPasswordVaultRoute,
@@ -105,6 +107,20 @@ app.use('/api/maintenance-finalization', maintenanceFinalizationWorkerRouter);
 app.get('/api/health', (_req, res) => {
   res.setHeader('Cache-Control', 'no-store');
   res.json({ ok: true, service: 'dms-boletas-backend', time: new Date().toISOString() });
+});
+
+app.get('/api/ai/health', async (req, res, next) => {
+  try {
+    const sessionToken = String(req.headers.authorization || '').replace(/^Bearer\s+/i, '').trim();
+    const auth = await authenticate(sessionToken);
+    if (!auth.permissions.includes('USUARIOS_GESTIONAR')) {
+      throw new AppError('FORBIDDEN', 'No cuenta con permiso para consultar el diagnóstico del asistente.', 403);
+    }
+    res.setHeader('Cache-Control', 'no-store');
+    res.json({ ok: true, data: await aiAgentHandlers.health() });
+  } catch (error) {
+    next(error);
+  }
 });
 
 app.get('/api/media/stream', async (req, res, next) => {
