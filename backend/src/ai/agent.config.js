@@ -58,7 +58,6 @@ export const aiConfig = Object.freeze({
   knowledgeMaxChunkBytes: intEnv('AI_KNOWLEDGE_MAX_CHUNK_BYTES', 12_000, 2_000, 32_000),
   knowledgeRecoveryBatch: intEnv('AI_KNOWLEDGE_RECOVERY_BATCH', 2, 1, 5),
   knowledgeRecoveryIntervalMs: intEnv('AI_KNOWLEDGE_RECOVERY_INTERVAL_MS', 300_000, 60_000, 3_600_000),
-  knowledgeProcessingStaleMinutes: intEnv('AI_KNOWLEDGE_PROCESSING_STALE_MINUTES', 10, 2, 120),
 });
 
 export function configuredModels() {
