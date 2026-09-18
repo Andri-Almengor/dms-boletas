@@ -8,6 +8,7 @@ import { ticketIntegralRepositoryTools } from './agent.repository.ticket-evidenc
 import { maintenanceRepositoryTools } from './agent.repository.maintenance.js';
 import { maintenanceIntegralRepositoryTools } from './agent.repository.maintenance.integral.js';
 import { knowledgeRepositoryTools } from './agent.repository.knowledge.js';
+import { knowledgeDocumentRepositoryTools } from './agent.repository.knowledge-documents.integral.js';
 import { statisticsRepositoryTools } from './agent.repository.statistics.js';
 import { agendaRepositoryTools } from './agent.repository.agenda.js';
 import { integrationRepositoryTools } from './agent.repository.integrations.js';
@@ -22,6 +23,7 @@ const TOOL_IMPL=Object.freeze({
   ...maintenanceRepositoryTools,
   ...maintenanceIntegralRepositoryTools,
   ...knowledgeRepositoryTools,
+  ...knowledgeDocumentRepositoryTools,
   ...statisticsRepositoryTools,
   ...agendaRepositoryTools,
   ...integrationRepositoryTools,
