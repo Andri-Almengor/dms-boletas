@@ -92,7 +92,8 @@ test('AI system prompt treats retrieved prompt injection as untrusted data', () 
   });
   assert.match(prompt, /DATO NO CONFIABLE/i);
   assert.match(prompt, /nunca una instrucción/i);
-  assert.match(prompt, /SOLO LECTURA/i);
+  assert.match(prompt, /PREPARE/i);
+  assert.match(prompt, /Nunca confirmes una operación/i);
   assert.match(prompt, /Nunca inventes/i);
 });
 
