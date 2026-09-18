@@ -201,3 +201,60 @@
   .assistant-attachment-card img,
   .assistant-attachment-card video { max-height: 260px; }
 }
+
+
+.assistant-image-queue {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+  margin: 0 0 9px;
+}
+
+.assistant-image-queue > span {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  max-width: 100%;
+  padding: 6px 8px;
+  border: 1px solid var(--border, #dce0e6);
+  border-radius: 9px;
+  background: var(--card, #fff);
+  font-size: .78rem;
+}
+
+.assistant-image-queue > span > button {
+  display: grid;
+  place-items: center;
+  border: 0;
+  background: transparent;
+  color: inherit;
+  cursor: pointer;
+  padding: 0;
+}
+
+.assistant-image-queue .material-symbols-outlined { font-size: 17px; }
+
+.assistant-attach-button {
+  display: grid;
+  place-items: center;
+  width: 42px;
+  min-width: 42px;
+  height: 42px;
+  border: 1px solid var(--border, #dce0e6);
+  border-radius: 11px;
+  background: var(--card, #fff);
+  color: inherit;
+  cursor: pointer;
+}
+
+.assistant-attach-button:hover { border-color: currentColor; }
+
+[data-theme='dark'] .assistant-image-queue > span,
+[data-theme='dark'] .assistant-attach-button {
+  border-color: #454950;
+  background: #201e21;
+}
+
+@media (max-width: 720px) {
+  .assistant-attach-button { width: 40px; min-width: 40px; height: 40px; }
+}
