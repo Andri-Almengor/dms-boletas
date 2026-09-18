@@ -8,6 +8,8 @@ import { ensureAgendaSchema } from '../services/agenda-schema.service.js';
 import { getAgendaTicketExceptions } from '../services/agenda-ticket-exceptions.service.js';
 import { assistantDynamicMaintenanceQuestionHandlers } from './assistant-dynamic-maintenance-questions.module.js';
 import { aiAgentHandlers } from '../ai/agent.module.js';
+import { decideAiOperation } from '../ai/agent.repository.operations.js';
+import { largeEvidenceUploadHandlers } from '../services/large-evidence-upload.service.js';
 
 function clean(value, fallback = '') {
   const text = String(value ?? '').trim();
@@ -313,6 +315,10 @@ async function answerAgendaQuestion(ctx, question) {
 }
 
 async function chat(ctx) {
+  const action = String(ctx.payload?.assistantAction || '').trim().toLowerCase();
+  if (action === 'attachment.init') return largeEvidenceUploadHandlers.assistantInit(ctx);
+  if (action === 'attachment.chunk') return largeEvidenceUploadHandlers.assistantChunk(ctx);
+  if (action === 'operation.decide') return decideAiOperation(ctx);
   return aiAgentHandlers.chat(ctx);
 }
 
