@@ -4,6 +4,7 @@ import { uploadBase64, trashFile } from '../infra/drive.repository.js';
 import { query } from '../infra/postgres.js';
 import { createProtectedMediaStreamUrl } from '../services/protected-media-stream.service.js';
 import { indexKnowledgeDocument } from '../ai/agent.knowledge-documents.js';
+import { hasKnowledgeGuideContribution } from '../services/knowledge-document-policy.service.js';
 import { getConfig } from './config.module.js';
 import { asBool, nowIso, pick, uuid } from '../core/utils.js';
 import { badRequest, forbidden, notFound } from '../core/errors.js';
@@ -110,17 +111,6 @@ function publicKnowledgeAttachment(row = {}) {
     FechaActualizacion: row.FechaActualizacion || '',
     Activo: row.Activo !== false,
   };
-}
-
-function textFromHtml(value = '') {
-  return String(value || '').replace(/<script[\s\S]*?<\/script>/gi, ' ').replace(/<style[\s\S]*?<\/style>/gi, ' ').replace(/<[^>]+>/g, ' ').replace(/&nbsp;/gi, ' ').replace(/\s+/g, ' ').trim();
-}
-
-function hasArticleContribution(payload = {}, existingAttachments = []) {
-  const content = pick(payload, ['ContenidoHTML', 'contenidoHtml', 'Contenido', 'contenido'], '');
-  const videos = parseArray(payload.videos || payload.VideosJSON || payload.VideoURL);
-  const pendingDocuments = Number(payload.pendingDocumentsCount || payload.PendingDocumentsCount || 0);
-  return Boolean(textFromHtml(content) || videos.length || pendingDocuments > 0 || existingAttachments.length);
 }
 
 async function activeKnowledgeAttachments(tutorialId) {
@@ -377,7 +367,11 @@ export const knowledgeHandlers = {
     await validateCategoryIds(categoryIds);
     const title = pick(payload, ['Titulo', 'titulo']);
     if (!String(title || '').trim()) throw badRequest('El título del tutorial es obligatorio.');
-    if (!hasArticleContribution(payload)) throw badRequest('Agregue contenido, un documento o un video para crear la guía.');
+    if (!hasKnowledgeGuideContribution({
+      contentHtml: pick(payload, ['ContenidoHTML', 'contenidoHtml', 'Contenido', 'contenido'], ''),
+      videos: parseArray(payload.videos || payload.VideosJSON || payload.VideoURL),
+      pendingDocumentsCount: Number(payload.pendingDocumentsCount || payload.PendingDocumentsCount || 0),
+    })) throw badRequest('Agregue contenido, un documento o un video para crear la guía.');
     const row = {
       TutorialID: uuid(),
       Titulo: title,
@@ -412,7 +406,12 @@ export const knowledgeHandlers = {
       ContenidoHTML: pick(payload, ['ContenidoHTML', 'contenidoHtml', 'Contenido', 'contenido'], before.ContenidoHTML),
       VideosJSON: payload.videos || payload.VideosJSON || before.VideosJSON,
     };
-    if (!hasArticleContribution(prospective, existingAttachments)) throw badRequest('La guía debe conservar contenido, al menos un documento o un video.');
+    if (!hasKnowledgeGuideContribution({
+      contentHtml: prospective.ContenidoHTML,
+      videos: parseArray(prospective.VideosJSON),
+      pendingDocumentsCount: Number(payload.pendingDocumentsCount || payload.PendingDocumentsCount || 0),
+      existingDocumentCount: existingAttachments.length,
+    })) throw badRequest('La guía debe conservar contenido, al menos un documento o un video.');
     const row = await updateRow('KnowledgeArticles', id, {
       Titulo: pick(payload, ['Titulo', 'titulo'], before.Titulo),
       CategoriaConocimientoID: categoryIds ? categoryIds[0] : before.CategoriaConocimientoID,
