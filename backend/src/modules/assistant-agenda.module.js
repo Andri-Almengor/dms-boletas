@@ -10,6 +10,10 @@ import { assistantDynamicMaintenanceQuestionHandlers } from './assistant-dynamic
 import { aiAgentHandlers } from '../ai/agent.module.js';
 import { decideAiOperation } from '../ai/agent.repository.operations.js';
 import { largeEvidenceUploadHandlers } from '../services/large-evidence-upload.service.js';
+import {
+  answerPasswordVaultAssistantQuestion,
+  isPasswordVaultAssistantQuestion,
+} from '../services/password-vault-assistant.patch.js';
 
 function clean(value, fallback = '') {
   const text = String(value ?? '').trim();
@@ -319,6 +323,14 @@ async function chat(ctx) {
   if (action === 'attachment.init') return largeEvidenceUploadHandlers.assistantInit(ctx);
   if (action === 'attachment.chunk') return largeEvidenceUploadHandlers.assistantChunk(ctx);
   if (action === 'operation.decide') return decideAiOperation(ctx);
+
+  const question = clean(ctx.payload?.message || ctx.payload?.question);
+  // Las contraseñas nunca entran al prompt ni al tool loop de Gemini.
+  // Se resuelven en backend con los permisos existentes del Password Vault y
+  // se devuelven únicamente como tabla sensible de la interfaz.
+  if (isPasswordVaultAssistantQuestion(question)) {
+    return answerPasswordVaultAssistantQuestion(ctx, question);
+  }
   return aiAgentHandlers.chat(ctx);
 }
 
