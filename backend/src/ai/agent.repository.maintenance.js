@@ -90,11 +90,11 @@ export async function getMaintenance(ctx,args={}){
         ORDER BY cc."Nombre" ASC LIMIT 20`,
       [row.clientId],'ai.maintenance.supervisors'):Promise.resolve([]),
     one(
-      `SELECT COUNT(mi.*)::bigint AS total,
-              COUNT(mi.*) FILTER (WHERE LOWER(COALESCE(mi."MimeType",'')) LIKE 'image/%')::bigint AS images,
-              COUNT(mi.*) FILTER (WHERE LOWER(COALESCE(mi."MimeType",'')) LIKE 'video/%')::bigint AS videos,
-              COUNT(mi.*) FILTER (WHERE LOWER(COALESCE(mi."Tipo",''))='antes')::bigint AS before_count,
-              COUNT(mi.*) FILTER (WHERE LOWER(COALESCE(mi."Tipo",''))='despues')::bigint AS after_count
+      `SELECT COUNT(mi."FotoDispositivoID")::bigint AS total,
+              COUNT(mi."FotoDispositivoID") FILTER (WHERE LOWER(COALESCE(mi."MimeType",'')) LIKE 'image/%')::bigint AS images,
+              COUNT(mi."FotoDispositivoID") FILTER (WHERE LOWER(COALESCE(mi."MimeType",'')) LIKE 'video/%')::bigint AS videos,
+              COUNT(mi."FotoDispositivoID") FILTER (WHERE LOWER(COALESCE(mi."Tipo",''))='antes')::bigint AS before_count,
+              COUNT(mi."FotoDispositivoID") FILTER (WHERE LOWER(COALESCE(mi."Tipo",''))='despues')::bigint AS after_count
          FROM "Evidencia_Mantenimientos" d
          LEFT JOIN "Mantenimiento imagenes" mi
            ON mi."__valid"=TRUE
