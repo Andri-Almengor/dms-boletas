@@ -42,12 +42,10 @@ test('Operational questions override stale Knowledge context',()=>{
   );
 });
 
-test('General and ambiguous turns keep secure internal discovery and attachment tools',()=>{
-  for(const intent of [AI_INTENTS.GENERAL,AI_INTENTS.AMBIGUOUS,AI_INTENTS.WEB]){
-    const names=toolNamesForIntent(intent);
-    assert.equal(names.includes('search_internal'),true);
-    assert.equal(names.includes('read_chat_attachment'),true);
-  }
+test('Pure general/web turns keep zero DMS tools while ambiguous internal turns can discover entities',()=>{
+  assert.deepEqual(toolNamesForIntent(AI_INTENTS.GENERAL),[]);
+  assert.deepEqual(toolNamesForIntent(AI_INTENTS.WEB),[]);
+  assert.equal(toolNamesForIntent(AI_INTENTS.AMBIGUOUS).includes('search_internal'),true);
   const discovered=toolNamesForEntityTypes(['maintenance','device']);
   for(const name of ['resolve_maintenance_reference','get_maintenance','get_maintenance_devices','get_maintenance_evidence','search_maintenance_evidence']){
     assert.equal(discovered.includes(name),true,name);
