@@ -28,7 +28,28 @@ export async function getClient(ctx,args={}){
 export async function searchUsers(ctx,args={}){
   assertAiCapability(ctx,'users');
   const q=clean(args.query,250); const params=[]; const clauses=['u."__valid"=TRUE',`UPPER(COALESCE(u."Estado",'ACTIVO'))='ACTIVO'`];
-  if(q){params.push(like(q));const p='$'+params.length;clauses.push(`(u."NombreCompleto" ILIKE ${p} ESCAPE '\\' OR u."NombreUsuario" ILIKE ${p} ESCAPE '\\')`);}
+  if(q){params.push(like(q));const p='
+  const rows=await many(`SELECT u."UsuarioID" AS id,u."NombreCompleto" AS name,u."NombreUsuario" AS username,r."Nombre" AS role FROM "Usuarios" u LEFT JOIN "Roles" r ON r."__valid"=TRUE AND r."RolID"=u."RolID" WHERE ${clauses.join(' AND ')} ORDER BY u."NombreCompleto" ASC NULLS LAST LIMIT $${params.length}`,params,'ai.users.search');
+  const items=rows.map(r=>({id:r.id,name:r.name||r.username||r.id,username:r.username||'',role:r.role||''}));
+  return {modelData:{totalShown:items.length,items},entities:items.map(i=>entity('user',i.id,i.name,'/usuarios/'+encodeURIComponent(i.id))),sources:[],context:items.length===1?{lastUserId:items[0].id,lastUserName:items[0].name}:{}};
+}
+
+export const directoryRepositoryTools=Object.freeze({search_clients:searchClients,get_client:getClient,search_users:searchUsers});
++params.length;clauses.push(`(u."NombreCompleto" ILIKE ${p} ESCAPE '\\' OR u."NombreUsuario" ILIKE ${p} ESCAPE '\\')`);}
+  const unrestricted=ctx.permissions?.includes('USUARIOS_GESTIONAR')||ctx.permissions?.includes('USUARIOS_VER');
+  if(!unrestricted){
+    const visibility=appendTicketVisibility(ctx,params,'b_scope');
+    clauses.push(`EXISTS (
+      SELECT 1
+        FROM "BoletaAsignados" ba_target
+        JOIN "Boletas" b_scope
+          ON b_scope."__valid"=TRUE AND b_scope."BoletaUID"=ba_target."BoletaUID"
+       WHERE ba_target."__valid"=TRUE
+         AND LOWER(COALESCE(ba_target."Activo",'true'))<>'false'
+         AND ba_target."UsuarioID"=u."UsuarioID"
+         AND ${visibility}
+    )`);
+  }
   params.push(pageLimit(args.limit,10));
   const rows=await many(`SELECT u."UsuarioID" AS id,u."NombreCompleto" AS name,u."NombreUsuario" AS username,r."Nombre" AS role FROM "Usuarios" u LEFT JOIN "Roles" r ON r."__valid"=TRUE AND r."RolID"=u."RolID" WHERE ${clauses.join(' AND ')} ORDER BY u."NombreCompleto" ASC NULLS LAST LIMIT $${params.length}`,params,'ai.users.search');
   const items=rows.map(r=>({id:r.id,name:r.name||r.username||r.id,username:r.username||'',role:r.role||''}));
