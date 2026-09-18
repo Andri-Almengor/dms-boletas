@@ -239,9 +239,11 @@ export async function getTicketEvidence(ctx, args = {}) {
             e."NombreArchivo" AS "fileName", e."MimeType" AS "mimeType",
             e."TipoMedio" AS "mediaType", e."TamanoBytes" AS size,
             e."FechaCreacion" AS "createdAt", e."CreadoPor" AS "createdBy",
+            COALESCE(NULLIF(uploader."NombreCompleto",''),uploader."NombreUsuario",e."CreadoPor") AS "uploadedBy",
             e."OrigenMantenimientoDispositivoID" AS "deviceId",
             e."ArchivoID" AS "__file"
        FROM "EvidenciasBoleta" e
+       LEFT JOIN "Usuarios" uploader ON uploader."__valid"=TRUE AND uploader."UsuarioID"=e."CreadoPor"
       WHERE e."__valid"=TRUE
         AND LOWER(COALESCE(e."Activo",'true')) <> 'false'
         AND e."BoletaUID"=$1
@@ -260,6 +262,7 @@ export async function getTicketEvidence(ctx, args = {}) {
     size: row.size || '',
     createdAt: row.createdAt || '',
     createdBy: row.createdBy || '',
+    uploadedBy: row.uploadedBy || row.createdBy || '',
     deviceId: row.deviceId || '',
   }));
   const attachments = rows.map((row) => protectedAttachment(ctx, {
