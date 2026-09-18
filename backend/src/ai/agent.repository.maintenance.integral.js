@@ -208,54 +208,54 @@ export async function searchMaintenanceEvidence(ctx, args = {}) {
   if (clean(args.type)) {
     params.push(like(args.type));
     const p = '$' + params.length;
-    clauses.push(\`(d."TipoDispositivo" ILIKE \${p} ESCAPE '\\\\' OR d."Categoria" ILIKE \${p} ESCAPE '\\\\')\`);
+    clauses.push(`(d."TipoDispositivo" ILIKE ${p} ESCAPE '\\\' OR d."Categoria" ILIKE ${p} ESCAPE '\\\')`);
   }
   if (clean(args.stage)) {
     const normalized = normalize(args.stage);
     const stage = normalized.includes('desp') ? 'Despues' : (normalized.includes('antes') ? 'Antes' : '');
     if (stage) {
       params.push(stage);
-      clauses.push('LOWER(COALESCE(mi."Tipo",\\'\\'))=LOWER($' + params.length + ')');
+      clauses.push('LOWER(COALESCE(mi."Tipo",\'\'))=LOWER($' + params.length + ')');
     }
   }
   if (clean(args.query)) {
     params.push(like(args.query));
     const p = '$' + params.length;
-    clauses.push(\`(
-      mi."Nombre" ILIKE \${p} ESCAPE '\\\\'
-      OR mi."Nota" ILIKE \${p} ESCAPE '\\\\'
-      OR d."NombreDispositivo" ILIKE \${p} ESCAPE '\\\\'
-      OR d."TipoDispositivo" ILIKE \${p} ESCAPE '\\\\'
-      OR d."Categoria" ILIKE \${p} ESCAPE '\\\\'
-      OR d."Zona" ILIKE \${p} ESCAPE '\\\\'
-    )\`);
+    clauses.push(`(
+      mi."Nombre" ILIKE ${p} ESCAPE '\\\'
+      OR mi."Nota" ILIKE ${p} ESCAPE '\\\'
+      OR d."NombreDispositivo" ILIKE ${p} ESCAPE '\\\'
+      OR d."TipoDispositivo" ILIKE ${p} ESCAPE '\\\'
+      OR d."Categoria" ILIKE ${p} ESCAPE '\\\'
+      OR d."Zona" ILIKE ${p} ESCAPE '\\\'
+    )`);
   }
 
   const mimeCategory = clean(args.mimeCategory, 40).toUpperCase();
-  if (mimeCategory === 'IMAGE') clauses.push(\`LOWER(COALESCE(mi."MimeType",'')) LIKE 'image/%'\`);
-  if (mimeCategory === 'VIDEO') clauses.push(\`LOWER(COALESCE(mi."MimeType",'')) LIKE 'video/%'\`);
-  if (mimeCategory === 'PDF') clauses.push(\`LOWER(COALESCE(mi."MimeType",''))='application/pdf'\`);
-  if (mimeCategory === 'OTHER') clauses.push(\`(
+  if (mimeCategory === 'IMAGE') clauses.push(`LOWER(COALESCE(mi."MimeType",'')) LIKE 'image/%'`);
+  if (mimeCategory === 'VIDEO') clauses.push(`LOWER(COALESCE(mi."MimeType",'')) LIKE 'video/%'`);
+  if (mimeCategory === 'PDF') clauses.push(`LOWER(COALESCE(mi."MimeType",''))='application/pdf'`);
+  if (mimeCategory === 'OTHER') clauses.push(`(
     LOWER(COALESCE(mi."MimeType",'')) NOT LIKE 'image/%'
     AND LOWER(COALESCE(mi."MimeType",'')) NOT LIKE 'video/%'
     AND LOWER(COALESCE(mi."MimeType",''))<>'application/pdf'
-  )\`);
+  )`);
 
   const period = addRange(clauses, params, 'mi."FechaCreacion"', args);
   const where = clauses.join(' AND ');
   const counted = await one(
-    \`SELECT COUNT(*)::bigint AS total
+    `SELECT COUNT(*)::bigint AS total
        FROM "Mantenimiento imagenes" mi
        JOIN "Evidencia_Mantenimientos" d
          ON d."__valid"=TRUE AND mi."DispositivoMantenimientoRef"=d."EvidenciaMantenimientoID"
-      WHERE \${where}\`,
+      WHERE ${where}`,
     params,
     'ai.integralMaintenance.evidence.count',
   );
 
   const queryParams = [...params, pageLimit(args.limit, 50), pageOffset(args.offset)];
   const rows = await many(
-    \`SELECT mi."FotoDispositivoID" AS id,mi."Nombre" AS name,mi."Nota" AS note,mi."Tipo" AS stage,
+    `SELECT mi."FotoDispositivoID" AS id,mi."Nombre" AS name,mi."Nota" AS note,mi."Tipo" AS stage,
             mi."MimeType" AS "mimeType",mi."TipoMedio" AS "mediaType",mi."FechaCreacion" AS "createdAt",
             mi."CreadoPor" AS "createdBy",
             COALESCE(NULLIF(uploader."NombreCompleto",''),uploader."NombreUsuario",mi."CreadoPor") AS "uploadedBy",
@@ -267,9 +267,9 @@ export async function searchMaintenanceEvidence(ctx, args = {}) {
          ON d."__valid"=TRUE AND mi."DispositivoMantenimientoRef"=d."EvidenciaMantenimientoID"
        LEFT JOIN "Usuarios" uploader
          ON uploader."__valid"=TRUE AND uploader."UsuarioID"=mi."CreadoPor"
-      WHERE \${where}
+      WHERE ${where}
       ORDER BY mi."FechaCreacion" DESC NULLS LAST,d."Zona" ASC NULLS LAST,d."NombreDispositivo" ASC NULLS LAST
-      LIMIT $\${queryParams.length - 1} OFFSET $\${queryParams.length}\`,
+      LIMIT $${queryParams.length - 1} OFFSET $${queryParams.length}`,
     queryParams,
     'ai.integralMaintenance.evidence',
   );
