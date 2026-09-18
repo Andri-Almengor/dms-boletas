@@ -39,8 +39,8 @@ export function externalSources(interaction={}){
 export function usage(interaction={}){
   const raw=interaction.usage||interaction.usage_metadata||{};
   return {
-    inputTokens:Number(raw.input_tokens||raw.prompt_token_count||raw.inputTokenCount||0)||0,
-    outputTokens:Number(raw.output_tokens||raw.candidates_token_count||raw.outputTokenCount||0)||0,
+    inputTokens:Number(raw.total_input_tokens||raw.input_tokens||raw.prompt_token_count||raw.inputTokenCount||0)||0,
+    outputTokens:Number(raw.total_output_tokens||raw.output_tokens||raw.candidates_token_count||raw.outputTokenCount||0)||0,
     totalTokens:Number(raw.total_tokens||raw.total_token_count||raw.totalTokenCount||0)||0,
   };
 }
