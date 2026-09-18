@@ -1,12 +1,12 @@
 import { pick } from '../core/utils.js';
 import { maintenancePlannedCountsChanged } from '../core/maintenance-progress.js';
-import { summarizeMaintenanceHomeRows } from '../core/home-summary.js';
-import { readTable, findById } from '../infra/sheets.repository.js';
+import { findById, findRows, queryMaintenanceHomeSummary, queryPage } from '../infra/sheets.repository.js';
 import {
   maintenanceDynamicQuestionHandlers as baseMaintenanceHandlers,
   maintenanceQuestionHandlers,
 } from './maintenance-question-ready.module.js';
 import { queueMaintenanceProgressNotification } from '../services/maintenance-progress-chat.service.js';
+import { addVisibleMaintenanceDeviceCounts } from '../services/maintenance-list-domain.js';
 
 function clean(value) {
   return String(value ?? '').trim();
@@ -23,30 +23,22 @@ function canUseHomeSummary(payload = {}) {
 }
 
 async function list(ctx) {
-  if (!canUseHomeSummary(ctx.payload)) return baseMaintenanceHandlers.list(ctx);
+  if (canUseHomeSummary(ctx.payload)) return queryMaintenanceHomeSummary(ctx.payload);
 
-  let rows = (await readTable('Mantenimiento'))
-    .filter((row) => row.Activo !== false);
-  if (ctx.payload.activo !== undefined) {
-    rows = rows.filter((row) => (
-      String(row.Activo).toLowerCase() === String(ctx.payload.activo).toLowerCase()
-    ));
-  }
-
-  return {
-    items: [],
-    total: rows.length,
-    page: 1,
-    pageSize: 0,
-    homeSummary: summarizeMaintenanceHomeRows(rows),
-  };
+  const page = await queryPage('Mantenimiento', ctx.payload || {}, {
+    searchFields: ['TituloMantenimiento', 'Cliente', 'Responsables', 'DescripcionGeneral', 'Ubicacion'],
+    excludeInactive: true,
+  });
+  if (!page.items.length) return page;
+  const ids = page.items.map((row) => clean(row.MantenimientoID)).filter(Boolean);
+  const devices = await findRows('Evidencia_Mantenimientos', { MantenimientoRef: ids }, { limit: 50_000 });
+  return { ...page, items: addVisibleMaintenanceDeviceCounts(page.items, devices) };
 }
 
 async function requestedMaintenanceAlreadyExists(ctx) {
   const requestedId = clean(pick(ctx.payload, ['maintenanceId', 'MantenimientoID'], ''));
   if (!requestedId) return false;
-  const rows = await readTable('Mantenimiento');
-  return rows.some((row) => clean(row.MantenimientoID) === requestedId);
+  return Boolean(await findById('Mantenimiento', requestedId).catch(() => null));
 }
 
 async function create(ctx) {
