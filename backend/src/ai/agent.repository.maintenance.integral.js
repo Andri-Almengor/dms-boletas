@@ -276,7 +276,7 @@ export async function searchMaintenanceEvidence(ctx, args = {}) {
          ON uploader."__valid"=TRUE AND uploader."UsuarioID"=mi."CreadoPor"
       WHERE ${clauses.join(' AND ')}
       ORDER BY d."Zona" ASC NULLS LAST,d."NombreDispositivo" ASC NULLS LAST,mi."FechaCreacion" ASC NULLS LAST
-      LIMIT ${queryParams.length-1} OFFSET ${queryParams.length}`,
+      LIMIT $${queryParams.length-1} OFFSET $${queryParams.length}`,
     queryParams,
     'ai.integralMaintenance.evidence',
   );
