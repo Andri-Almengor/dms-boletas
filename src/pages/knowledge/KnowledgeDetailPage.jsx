@@ -36,10 +36,10 @@ export default function KnowledgeDetailPage() {
 
   useEffect(() => { load(); }, [tutorialId, sessionToken]);
 
-  async function documentAction(route, attachment, confirmation = '') {
+  async function documentAction(route, attachment, confirmation = '', documentOperation = '') {
     if (confirmation && !window.confirm(confirmation)) return;
     try {
-      await requestAvailable(route, { tutorialId, adjuntoId: getAttachmentId(attachment) }, sessionToken);
+      await requestAvailable(route, { tutorialId, adjuntoId: getAttachmentId(attachment), ...(documentOperation ? { documentOperation } : {}) }, sessionToken);
       await load();
     } catch (err) {
       setError(err.message);
@@ -88,8 +88,8 @@ export default function KnowledgeDetailPage() {
         attachment={primaryDocument}
         sessionToken={sessionToken}
         canEdit={canEdit}
-        onSetPrimary={(attachment) => documentAction(MODULE_ROUTES.knowledge.attachmentPrimary, attachment)}
-        onReindex={(attachment) => documentAction(MODULE_ROUTES.knowledge.attachmentReindex, attachment)}
+        onSetPrimary={(attachment) => documentAction(MODULE_ROUTES.knowledge.attachmentPrimary, attachment, '', 'PRIMARY')}
+        onReindex={(attachment) => documentAction(MODULE_ROUTES.knowledge.attachmentReindex, attachment, '', 'REINDEX')}
         onDelete={(attachment) => documentAction(MODULE_ROUTES.knowledge.attachmentDelete, attachment, '¿Eliminar este documento de la guía?')}
         onReplace={() => navigate(`/conocimiento/${encodeURIComponent(item.id)}/editar`)}
       />
@@ -117,8 +117,8 @@ export default function KnowledgeDetailPage() {
           attachment={attachment}
           sessionToken={sessionToken}
           canEdit={canEdit}
-          onSetPrimary={(document) => documentAction(MODULE_ROUTES.knowledge.attachmentPrimary, document)}
-          onReindex={(document) => documentAction(MODULE_ROUTES.knowledge.attachmentReindex, document)}
+          onSetPrimary={(document) => documentAction(MODULE_ROUTES.knowledge.attachmentPrimary, document, '', 'PRIMARY')}
+          onReindex={(document) => documentAction(MODULE_ROUTES.knowledge.attachmentReindex, document, '', 'REINDEX')}
           onDelete={(document) => documentAction(MODULE_ROUTES.knowledge.attachmentDelete, document, '¿Eliminar este documento de la guía?')}
           onReplace={() => navigate(`/conocimiento/${encodeURIComponent(item.id)}/editar`)}
         />)}
