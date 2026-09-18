@@ -1,4 +1,4 @@
-import { shouldUseLargeEvidenceUpload, uploadLargeKnowledgeAttachment } from '../../services/largeEvidenceUpload';
+import { uploadLargeKnowledgeAttachment } from '../../services/largeEvidenceUpload';
 import React, { useEffect, useMemo, useState } from 'react';
 import { Navigate, useNavigate, useParams } from 'react-router-dom';
 import { useAuth } from '../../AuthContext';
@@ -6,17 +6,16 @@ import Icon from '../../components/common/Icon';
 import KnowledgeCategoryMultiSelect from '../../components/knowledge/KnowledgeCategoryMultiSelect';
 import RichTextEditor from '../../components/knowledge/RichTextEditor';
 import { MODULE_ROUTES, normalizeItems, pick, requestAvailable } from '../../services/moduleApi';
-import { fileToDataUrl, getAttachmentId, getAttachmentName, normalizeKnowledge, stripHtml } from '../../utils/knowledge';
+import { getAttachmentId, getAttachmentName, normalizeKnowledge, stripHtml } from '../../utils/knowledge';
 
 const EMPTY_FORM = {
   title: '',
   categoryIds: [],
   problem: '',
-  content: '<h2>Objetivo</h2><p></p><h2>Procedimiento paso a paso</h2><ol><li></li></ol><h2>Validación final</h2><p></p>',
+  content: '',
   status: 'BORRADOR',
   videos: [''],
 };
-const MAX_FILE_SIZE = 20 * 1024 * 1024;
 const KNOWLEDGE_AI_ROUTES = ['ai.knowledgeRewrite', 'gemini.knowledgeRewrite', 'knowledge.ai.rewrite', 'baseConocimientos.ai.rewrite'];
 const SAFE_AI_TAGS = new Set(['H1', 'H2', 'H3', 'P', 'OL', 'UL', 'LI', 'STRONG', 'B', 'EM', 'I', 'U', 'BLOCKQUOTE', 'PRE', 'CODE', 'A', 'BR', 'SPAN', 'DIV']);
 
@@ -91,6 +90,9 @@ export default function KnowledgeEditorPage({ mode }) {
   const [categories, setCategories] = useState([]);
   const [existingAttachments, setExistingAttachments] = useState([]);
   const [newFiles, setNewFiles] = useState([]);
+  const [replacements, setReplacements] = useState({});
+  const [primarySelection, setPrimarySelection] = useState('');
+  const [uploadProgress, setUploadProgress] = useState({});
   const [loading, setLoading] = useState(isEdit);
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState('');
@@ -132,6 +134,8 @@ export default function KnowledgeEditorPage({ mode }) {
           videos: item.videos.length ? item.videos.map((video) => typeof video === 'string' ? video : pick(video, ['URL', 'url'])) : [''],
         });
         setExistingAttachments(item.attachments);
+        const primary = item.attachments.find((attachment) => Boolean(pick(attachment, ['IsPrimary', 'isPrimary'], false)));
+        setPrimarySelection(getAttachmentId(primary || item.attachments[0] || {}));
       })
       .catch((err) => setLoadError(err.message))
       .finally(() => setLoading(false));
@@ -167,23 +171,56 @@ export default function KnowledgeEditorPage({ mode }) {
   }
 
   function selectFiles(event) {
-    const files = [...event.target.files];
-    const tooLarge = files.find((file) => file.size > MAX_FILE_SIZE);
-    if (tooLarge) {
-      setError(`${tooLarge.name} supera 20 MB. Para videos grandes utiliza un enlace de YouTube, Vimeo o Drive.`);
-      event.target.value = '';
-      return;
-    }
+    const files = [...event.target.files].filter((file) => file.size > 0);
+    const wrapped = files.map((file) => ({
+      id: crypto.randomUUID?.() || `knowledge-${Date.now()}-${Math.random().toString(16).slice(2)}`,
+      file,
+    }));
     setError('');
-    setNewFiles((current) => [...current, ...files]);
+    setNewFiles((current) => [...current, ...wrapped]);
+    if (!primarySelection && !existingAttachments.length && wrapped[0]) setPrimarySelection(wrapped[0].id);
     event.target.value = '';
+  }
+
+  function chooseReplacement(attachment, event) {
+    const file = event.target.files?.[0];
+    if (!file) return;
+    const id = getAttachmentId(attachment);
+    setReplacements((current) => ({
+      ...current,
+      [id]: {
+        id: crypto.randomUUID?.() || `knowledge-${Date.now()}-${Math.random().toString(16).slice(2)}`,
+        file,
+      },
+    }));
+    event.target.value = '';
+  }
+
+  async function setExistingPrimary(attachment) {
+    try {
+      await requestAvailable(MODULE_ROUTES.knowledge.attachmentPrimary, { tutorialId, adjuntoId: getAttachmentId(attachment) }, sessionToken);
+      const id = getAttachmentId(attachment);
+      setPrimarySelection(id);
+      setExistingAttachments((current) => current.map((item) => ({ ...item, IsPrimary: getAttachmentId(item) === id })));
+    } catch (err) { setError(err.message); }
+  }
+
+  async function reindexAttachment(attachment) {
+    try {
+      await requestAvailable(MODULE_ROUTES.knowledge.attachmentReindex, { tutorialId, adjuntoId: getAttachmentId(attachment) }, sessionToken);
+      setExistingAttachments((current) => current.map((item) => getAttachmentId(item) === getAttachmentId(attachment)
+        ? { ...item, ExtractionStatus: 'PROCESSING', ExtractionError: '' }
+        : item));
+    } catch (err) { setError(err.message); }
   }
 
   async function deleteExistingAttachment(attachment) {
     if (!window.confirm(`¿Eliminar ${getAttachmentName(attachment)}?`)) return;
     try {
       await requestAvailable(MODULE_ROUTES.knowledge.attachmentDelete, { tutorialId, adjuntoId: getAttachmentId(attachment) }, sessionToken);
-      setExistingAttachments((current) => current.filter((item) => getAttachmentId(item) !== getAttachmentId(attachment)));
+      const deletedId = getAttachmentId(attachment);
+      setExistingAttachments((current) => current.filter((item) => getAttachmentId(item) !== deletedId));
+      if (primarySelection === deletedId) setPrimarySelection('');
     } catch (err) { setError(err.message); }
   }
 
@@ -255,8 +292,10 @@ export default function KnowledgeEditorPage({ mode }) {
   async function save(event, forcedStatus = form.status) {
     event?.preventDefault();
     setError('');
-    if (!form.title.trim() || !form.categoryIds.length || !form.problem.trim() || !stripHtml(form.content)) {
-      setError('Completa el título, selecciona al menos una categoría, describe el problema y agrega el contenido del tutorial.');
+    const videos = form.videos.map((item) => item.trim()).filter(Boolean);
+    const hasContribution = Boolean(stripHtml(form.content).trim() || videos.length || existingAttachments.length || newFiles.length || Object.keys(replacements).length);
+    if (!form.title.trim() || !form.categoryIds.length || !hasContribution) {
+      setError('Indique el título, seleccione al menos una categoría y agregue contenido, un documento o un video.');
       return;
     }
     setSaving(true);
@@ -275,21 +314,43 @@ export default function KnowledgeEditorPage({ mode }) {
         ProblemaResuelto: form.problem.trim(),
         contenidoHtml: form.content,
         ContenidoHTML: form.content,
-        videos: form.videos.map((item) => item.trim()).filter(Boolean),
+        videos,
+        pendingDocumentsCount: newFiles.length + Object.keys(replacements).length,
         estado: forcedStatus,
         Estado: forcedStatus,
       };
       const response = await requestAvailable(isEdit ? MODULE_ROUTES.knowledge.update : MODULE_ROUTES.knowledge.create, payload, sessionToken);
       const savedId = String(pick(response, ['TutorialID', 'tutorialId', 'id'], tutorialId));
       if (!savedId) throw new Error('El backend guardó el tutorial pero no devolvió su identificador.');
-      for (const file of [...newFiles]) {
-        if (shouldUseLargeEvidenceUpload({file})) {
-          await uploadLargeKnowledgeAttachment({tutorialId:savedId,file,sessionToken});
-        } else {
-        const dataUrl = await fileToDataUrl(file);
-        await requestAvailable(MODULE_ROUTES.knowledge.attachmentUpload, { tutorialId: savedId, nombre: file.name, mimeType: file.type || 'application/octet-stream', size: file.size, dataUrl }, sessionToken);
-        }
-        setNewFiles((current) => current.filter((item) => item !== file));
+      for (const entry of [...newFiles]) {
+        await uploadLargeKnowledgeAttachment({
+          tutorialId: savedId,
+          file: entry.file,
+          sessionToken,
+          attachmentId: entry.id,
+          isPrimary: primarySelection === entry.id,
+          onProgress: (value) => setUploadProgress((current) => ({ ...current, [entry.id]: value })),
+        });
+        setNewFiles((current) => current.filter((item) => item.id !== entry.id));
+      }
+      for (const [replaceAttachmentId, entry] of Object.entries(replacements)) {
+        await uploadLargeKnowledgeAttachment({
+          tutorialId: savedId,
+          file: entry.file,
+          sessionToken,
+          attachmentId: entry.id,
+          replaceAttachmentId,
+          isPrimary: primarySelection === replaceAttachmentId,
+          onProgress: (value) => setUploadProgress((current) => ({ ...current, [entry.id]: value })),
+        });
+        setReplacements((current) => {
+          const next = { ...current };
+          delete next[replaceAttachmentId];
+          return next;
+        });
+      }
+      if (primarySelection && existingAttachments.some((attachment) => getAttachmentId(attachment) === primarySelection)) {
+        await requestAvailable(MODULE_ROUTES.knowledge.attachmentPrimary, { tutorialId: savedId, adjuntoId: primarySelection }, sessionToken);
       }
       try { localStorage.removeItem(draftKey); } catch { /* El guardado del servidor ya terminó. */ }
       navigate(`/conocimiento/${encodeURIComponent(savedId)}`, { replace: true });
@@ -309,7 +370,7 @@ export default function KnowledgeEditorPage({ mode }) {
   return <div className="page knowledge-editor-page">
     <div className="page-header knowledge-editor-header">
       <button className="icon-button" type="button" onClick={() => navigate(isEdit ? `/conocimiento/${tutorialId}` : '/conocimiento')} aria-label="Volver"><Icon name="arrow_back" /></button>
-      <div><span className="eyebrow">Base de conocimientos</span><h1>{isEdit ? 'Editar tutorial' : 'Nuevo tutorial'}</h1></div>
+      <div><span className="eyebrow">Base de conocimientos</span><h1>{isEdit ? 'Editar guía' : 'Nueva guía'}</h1></div>
       <span className={`autosave-indicator${savedLocally ? ' autosave-indicator--local' : ''}`}><Icon name={savedLocally ? 'cloud_done' : 'cloud'} /> {savedLocally ? 'Borrador guardado' : 'Autoguardado local'}</span>
     </div>
 
@@ -330,15 +391,15 @@ export default function KnowledgeEditorPage({ mode }) {
             <KnowledgeCategoryMultiSelect options={categoryOptions} selectedIds={form.categoryIds} onChange={(value) => setField('categoryIds', value)} disabled={aiDisabled} />
           </div>
           <div className="field-group is-wide">
-            <div className="field-label-row knowledge-ai-field-label"><label className="field-label" htmlFor="knowledge-problem">Descripción del problema que resuelve *</label><button className="knowledge-ai-inline-button" type="button" onClick={() => improveWithGemini('PROBLEM_ONLY')} disabled={aiDisabled}><Icon name={aiBusy === 'PROBLEM_ONLY' ? 'progress_activity' : 'auto_awesome'} /> {aiBusy === 'PROBLEM_ONLY' ? 'Generando...' : 'Generar descripción con Gemini'}</button></div>
-            <textarea id="knowledge-problem" className="form-control ticket-textarea" rows="4" value={form.problem} onChange={(event) => setField('problem', event.target.value)} placeholder="Gemini puede generar esta descripción a partir del documento paso a paso." required disabled={aiDisabled} />
+            <div className="field-label-row knowledge-ai-field-label"><label className="field-label" htmlFor="knowledge-problem">Descripción del problema que resuelve (opcional)</label><button className="knowledge-ai-inline-button" type="button" onClick={() => improveWithGemini('PROBLEM_ONLY')} disabled={aiDisabled}><Icon name={aiBusy === 'PROBLEM_ONLY' ? 'progress_activity' : 'auto_awesome'} /> {aiBusy === 'PROBLEM_ONLY' ? 'Generando...' : 'Generar descripción con Gemini'}</button></div>
+            <textarea id="knowledge-problem" className="form-control ticket-textarea" rows="4" value={form.problem} onChange={(event) => setField('problem', event.target.value)} placeholder="Gemini puede generar esta descripción a partir del documento paso a paso." disabled={aiDisabled} />
             <small className="field-hint">Describe qué necesidad, error o situación resuelve el procedimiento y cuándo debe utilizarse.</small>
           </div>
         </div>
       </section>
 
       <section className="form-card knowledge-document-card">
-        <div className="form-card__heading knowledge-ai-document-heading"><span className="section-marker" /><div><h2>Documento paso a paso</h2><p>Gemini puede ordenar los pasos y generar automáticamente el título y la descripción del problema sin inventar información.</p></div><div className="knowledge-ai-actions"><button className="button button--secondary button--compact" type="button" onClick={() => improveWithGemini('FULL')} disabled={aiDisabled}><Icon name={aiBusy === 'FULL' ? 'progress_activity' : 'auto_awesome'} /> {aiBusy === 'FULL' ? 'Mejorando...' : 'Mejorar documento, título y descripción'}</button>{aiSnapshot && <button className="button button--ghost button--compact" type="button" onClick={undoGemini} disabled={aiDisabled}><Icon name="undo" /> Deshacer mejora</button>}</div></div>
+        <div className="form-card__heading knowledge-ai-document-heading"><span className="section-marker" /><div><h2>Contenido escrito (opcional)</h2><p>Puede dejarlo vacío cuando el contenido principal de la guía sea uno o varios documentos.</p></div><div className="knowledge-ai-actions"><button className="button button--secondary button--compact" type="button" onClick={() => improveWithGemini('FULL')} disabled={aiDisabled}><Icon name={aiBusy === 'FULL' ? 'progress_activity' : 'auto_awesome'} /> {aiBusy === 'FULL' ? 'Mejorando...' : 'Mejorar documento, título y descripción'}</button>{aiSnapshot && <button className="button button--ghost button--compact" type="button" onClick={undoGemini} disabled={aiDisabled}><Icon name="undo" /> Deshacer mejora</button>}</div></div>
         <RichTextEditor value={form.content} onChange={(value) => setField('content', value)} disabled={aiDisabled} />
         <div className="knowledge-ai-help"><Icon name="verified_user" /><p>Gemini conserva las imágenes, enlaces, direcciones IP, comandos, marcas, modelos y valores técnicos escritos. También usa el contexto del procedimiento para completar la descripción del problema. Revise siempre el resultado antes de publicarlo.</p></div>
       </section>
@@ -350,11 +411,26 @@ export default function KnowledgeEditorPage({ mode }) {
       </section>
 
       <section className="form-card">
-        <div className="form-card__heading"><span className="section-marker" /><div><h2>Documentos y archivos</h2><p>Adjunta PDF, Word, Excel, imágenes o videos de hasta 20 MB por archivo.</p></div></div>
+        <div className="form-card__heading"><span className="section-marker" /><div><h2>Documentos y archivos</h2><p>Adjunta PDF, DOCX, TXT, CSV, XLSX, imágenes u otros archivos técnicos. Knowledge no impone un límite pequeño artificial; la carga usa sesiones resumibles privadas de Drive.</p></div></div>
         <label className="knowledge-file-drop"><input type="file" multiple accept=".pdf,.doc,.docx,.xls,.xlsx,.ppt,.pptx,.txt,.csv,image/*,video/*" onChange={selectFiles} disabled={saving} /><Icon name="upload_file" /><strong>Seleccionar documentos o videos</strong><span>Puede seleccionar varios archivos desde el explorador.</span></label>
         {(existingAttachments.length > 0 || newFiles.length > 0) && <div className="knowledge-file-list">
-          {existingAttachments.map((attachment, index) => <article key={getAttachmentId(attachment) || index}><Icon name="description" /><div><strong>{getAttachmentName(attachment)}</strong><small>Archivo guardado</small></div><button type="button" className="icon-button" onClick={() => deleteExistingAttachment(attachment)} aria-label={`Eliminar ${getAttachmentName(attachment)}`} disabled={saving}><Icon name="delete" /></button></article>)}
-          {newFiles.map((file, index) => <article key={`${file.name}-${file.lastModified}-${index}`}><Icon name={file.type.startsWith('video/') ? 'movie' : 'draft'} /><div><strong>{file.name}</strong><small>{(file.size / 1024 / 1024).toFixed(2)} MB · Pendiente de subir</small></div><button type="button" className="icon-button" onClick={() => setNewFiles((current) => current.filter((_, itemIndex) => itemIndex !== index))} aria-label={`Quitar ${file.name}`} disabled={saving}><Icon name="close" /></button></article>)}
+          {existingAttachments.map((attachment, index) => {
+            const id = getAttachmentId(attachment);
+            const replacement = replacements[id];
+            const status = String(pick(attachment, ['ExtractionStatus', 'Status'], 'UPLOADED')).toUpperCase();
+            return <article key={id || index}>
+              <button type="button" className="icon-button" onClick={() => setExistingPrimary(attachment)} title="Documento principal" disabled={saving}><Icon name={primarySelection === id ? 'star' : 'star_outline'} /></button>
+              <div><strong>{getAttachmentName(attachment)}</strong><small>{primarySelection === id ? 'Documento principal · ' : ''}{status === 'FAILED' ? 'Error de indexación' : status === 'INDEXED' ? 'Indexado para Gemini' : 'Procesando/indexación pendiente'}{replacement ? ` · Reemplazo: ${replacement.file.name}` : ''}</small></div>
+              {status === 'FAILED' && <button type="button" className="icon-button" onClick={() => reindexAttachment(attachment)} title="Reintentar indexación" disabled={saving}><Icon name="refresh" /></button>}
+              <label className="icon-button icon-button--outlined" title="Reemplazar documento"><input type="file" hidden onChange={(event) => chooseReplacement(attachment, event)} disabled={saving} /><Icon name="swap_horiz" /></label>
+              <button type="button" className="icon-button" onClick={() => deleteExistingAttachment(attachment)} aria-label={`Eliminar ${getAttachmentName(attachment)}`} disabled={saving}><Icon name="delete" /></button>
+            </article>;
+          })}
+          {newFiles.map((entry) => <article key={entry.id}>
+            <button type="button" className="icon-button" onClick={() => setPrimarySelection(entry.id)} title="Documento principal" disabled={saving}><Icon name={primarySelection === entry.id ? 'star' : 'star_outline'} /></button>
+            <div><strong>{entry.file.name}</strong><small>{(entry.file.size / 1024 / 1024).toFixed(2)} MB · {uploadProgress[entry.id] ? `Subiendo ${uploadProgress[entry.id]}%` : 'Pendiente de subir'}</small></div>
+            <button type="button" className="icon-button" onClick={() => setNewFiles((current) => current.filter((item) => item.id !== entry.id))} aria-label={`Quitar ${entry.file.name}`} disabled={saving}><Icon name="close" /></button>
+          </article>)}
         </div>}
       </section>
 
