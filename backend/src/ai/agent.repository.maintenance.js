@@ -105,7 +105,7 @@ export async function getMaintenance(ctx,args={}){
       'ai.maintenance.relatedTickets.count',
     );
     relatedTicketCount = Number(count?.total || 0);
-    const itemParams = [...ticketParams, 20];
+    const itemParams = [...ticketParams];
     relatedTickets = await many(
       `SELECT b."BoletaUID" AS uid,b."BoletaID" AS number,b."Titulo" AS title,
               b."Estado" AS status,b."Fecha" AS date,b."FinalizadaEn" AS "finishedAt"
@@ -115,7 +115,7 @@ export async function getMaintenance(ctx,args={}){
           AND UPPER(COALESCE(b."Estado",''))<>'ANULADA'
           AND ${visibility}
         ORDER BY COALESCE(NULLIF(b."FinalizadaEn",''),b."Fecha",b."FechaCreacion") DESC NULLS LAST
-        LIMIT ${itemParams.length}`,
+        LIMIT 20`,
       itemParams,
       'ai.maintenance.relatedTickets.items',
     );
