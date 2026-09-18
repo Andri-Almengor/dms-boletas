@@ -75,7 +75,7 @@ export async function runDmsAgent(ctx){
           sources:uniqueBy(ui.sources,item=>(item.type||'')+':'+(item.id||item.url||item.label)).slice(0,20),
           suggestions:[],
           context:sanitizeActiveContext({...context,...ui.context}),
-          agent:{model:aiConfig.model,toolCalls:toolNames.length,tools:[...new Set(toolNames)],webSearch:externalSources(interaction).length>0},
+          agent:{model:aiConfig.model,toolCalls:toolNames.length,tools:[...new Set(toolNames)],webSearch:ui.sources.some((item)=>item.type==='external')},
         };
         const durationMs=Math.round(performance.now()-started);
         const responseBytes=Buffer.byteLength(JSON.stringify(response),'utf8');
@@ -132,7 +132,7 @@ export async function runDmsAgent(ctx){
     const answer=outputText(finalInteraction);
     if(!answer) throw new AppError('AI_TOOL_LOOP_LIMIT','El asistente alcanzó el límite de consultas sin poder completar la respuesta.',502);
     ui.sources.push(...externalSources(finalInteraction));
-    const response={type:'answer',answer,entities:uniqueBy(ui.entities,x=>x.type+':'+x.id).slice(0,50),attachments:uniqueBy(ui.attachments,x=>x.url).slice(0,50),sources:uniqueBy(ui.sources,x=>(x.type||'')+':'+(x.id||x.url||x.label)).slice(0,20),suggestions:[],context:sanitizeActiveContext({...context,...ui.context}),agent:{model:aiConfig.model,toolCalls:toolNames.length,tools:[...new Set(toolNames)],webSearch:externalSources(finalInteraction).length>0,limited:true}};
+    const response={type:'answer',answer,entities:uniqueBy(ui.entities,x=>x.type+':'+x.id).slice(0,50),attachments:uniqueBy(ui.attachments,x=>x.url).slice(0,50),sources:uniqueBy(ui.sources,x=>(x.type||'')+':'+(x.id||x.url||x.label)).slice(0,20),suggestions:[],context:sanitizeActiveContext({...context,...ui.context}),agent:{model:aiConfig.model,toolCalls:toolNames.length,tools:[...new Set(toolNames)],webSearch:ui.sources.some((item)=>item.type==='external'),limited:true}};
     const durationMs=Math.round(performance.now()-started);recordAiMetrics({durationMs,modelDurationMs:modelMs,toolCalls:toolNames.length,toolDurationMs:toolMs,dbQueries,dbQueryMs,inputTokens:totalInput,outputTokens:totalOutput,responseBytes:Buffer.byteLength(JSON.stringify(response),'utf8')});
     return response;
   }catch(error){
