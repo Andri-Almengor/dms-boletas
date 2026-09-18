@@ -235,7 +235,7 @@ export async function runDmsAgent(ctx, overrides = {}){
     selectedNames=[...selectedNames,'get_app_help'];
   }
 
-  let webEnabledForTurn=aiConfig.webSearchEnabled&&(externalRequested(message)||intent===AI_INTENTS.WEB);
+  let webEnabledForTurn=aiConfig.webSearchEnabled&&(intent===AI_INTENTS.WEB||(externalRequested(message)&&!knowledgeRequired));
   let tools=declarationsForUser(ctx,{includeWeb:webEnabledForTurn,intent,selectedNames});
   const exposedKnowledgeTools=toolsetNames(tools).filter(knowledgeToolName);
   if(knowledgeRequired&&!exposedKnowledgeTools.length){
@@ -352,6 +352,20 @@ export async function runDmsAgent(ctx, overrides = {}){
         const retryChunkSearch=knowledgeFlow.documentsFound>0&&knowledgeFlow.readyDocuments>0
           &&knowledgeFlow.chunkSearches>0&&knowledgeFlow.chunksFound===0&&knowledgeFlow.chunkSearches<2
           &&exposed.has('search_knowledge_document_chunks');
+        const internalKnowledgeExhausted=knowledgeFlow.documentSearches>0&&(
+          knowledgeFlow.documentsFound===0
+          ||(knowledgeFlow.readyDocuments>0&&knowledgeFlow.chunkSearches>0&&knowledgeFlow.chunksFound===0&&!retryChunkSearch)
+        );
+        if(round<aiConfig.maxToolRounds-1&&aiConfig.webSearchEnabled&&!webEnabledForTurn
+          &&knowledgeRequired&&externalRequested(message)&&internalKnowledgeExhausted){
+          webEnabledForTurn=true;
+          tools=declarationsForUser(ctx,{includeWeb:true,intent,selectedNames});
+          timeline.push({
+            type:'user_input',
+            content:[{type:'text',text:'La recuperación interna razonable ya fue agotada y no cubrió este punto. Ahora puedes consultar web si resulta necesario; prioriza documentación oficial del fabricante y separa claramente web de Knowledge.'}],
+          });
+          continue;
+        }
         if(round<aiConfig.maxToolRounds-1&&(needFirstKnowledgeCall||needArticleSearch||needDocumentSearch||needChunkSearch||retryChunkSearch
           ||(internalEvidenceRequired&&tools.length&&!hasInternalTool))){
           let instruction='Antes de responder esta pregunta sobre DMS, consulta una de las herramientas internas disponibles. No respondas datos internos desde conocimiento general.';
