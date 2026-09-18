@@ -144,6 +144,14 @@ function copyHeader(upstream, res, name) {
   if (value) res.setHeader(name, value);
 }
 
+function applyProtectedMediaEmbeddingPolicy(res, media) {
+  if (media.kind !== 'knowledge-document' || media.disposition !== 'inline') return;
+  // Helmet denies framing globally. The Knowledge inline viewer is the only
+  // protected response allowed to be embedded, and only by this same DMS origin.
+  res.setHeader('Content-Security-Policy', "default-src 'none'; frame-ancestors 'self'");
+  res.setHeader('X-Frame-Options', 'SAMEORIGIN');
+}
+
 function driveMediaError(status) {
   if (status === 404) return new AppError('DRIVE_FILE_NOT_FOUND', 'La evidencia ya no existe en Google Drive.', 404, { googleStatus: 404 });
   if (status === 403) return new AppError('DRIVE_FILE_FORBIDDEN', 'Google Drive no permitió acceder a esta evidencia.', 502, { googleStatus: 403 });
@@ -185,6 +193,7 @@ export async function streamProtectedMedia(req, res, next) {
     const safeName = clean(media.fileName).replace(/[\r\n"\\]/g, '_').slice(0, 180);
     res.setHeader('Content-Disposition', safeName ? `${disposition}; filename="${safeName}"` : disposition);
     res.setHeader('X-Content-Type-Options', 'nosniff');
+    applyProtectedMediaEmbeddingPolicy(res, media);
     copyHeader(upstream, res, 'content-length');
     copyHeader(upstream, res, 'content-range');
     copyHeader(upstream, res, 'etag');
