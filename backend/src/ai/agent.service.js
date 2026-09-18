@@ -14,7 +14,13 @@ const REQUESTS=new Map();
 
 function clean(value,max=4000){return String(value??'').trim().slice(0,max);}
 function uniqueBy(items,key){const seen=new Set();return items.filter(item=>{const value=key(item);if(!value||seen.has(value))return false;seen.add(value);return true;});}
-function externalRequested(message){return /\b(internet|web|google|en linea|en línea|actual(?:izado|izada|es)?|hoy en dia|hoy en día|latest|reciente)\b/i.test(message);}
+function externalRequested(message){
+  const text=String(message||'');
+  const explicit=/\b(internet|web|google|buscar en internet|busca en internet|búscalo en internet|buscar en la web|busca en la web)\b/i.test(text);
+  if(explicit) return true;
+  const internal=/\b(dms|boleta|boletas|mantenimiento|mantenimientos|cliente|clientes|técnico|tecnico|supervisor|evidencia|evidencias|dispositivo|dispositivos|cámara|camara|caso|casos|agenda|pendiente|finalizada)\b/i.test(text);
+  return !internal && /\b(actual(?:izado|izada|es)?|hoy en día|hoy en dia|latest|reciente)\b/i.test(text);
+}
 function assertRateLimit(ctx){
   const key=clean(ctx?.user?.UsuarioID||ctx?.sessionToken,250)||'anonymous';
   const now=Date.now();const recent=(REQUESTS.get(key)||[]).filter(ts=>now-ts<60000);
