@@ -28,6 +28,9 @@ export const aiConfig = Object.freeze({
   maxHistoryMessages: intEnv('AI_MAX_HISTORY_MESSAGES', 10, 2, 20),
   maxMessageChars: intEnv('AI_MAX_MESSAGE_CHARS', 2_500, 500, 8_000),
   rateLimitPerMinute: intEnv('AI_RATE_LIMIT_PER_MINUTE', 12, 2, 60),
+  knowledgeDocumentsEnabled: boolEnv('AI_KNOWLEDGE_DOCUMENTS_ENABLED', true),
+  knowledgeMaxChunks: intEnv('AI_KNOWLEDGE_MAX_CHUNKS', 8, 1, 20),
+  knowledgeMaxChunkBytes: intEnv('AI_KNOWLEDGE_MAX_CHUNK_BYTES', 12_000, 2_000, 32_000),
 });
 
 export function geminiApiKey() {
