@@ -1,5 +1,7 @@
 import assert from 'node:assert/strict';
 import test from 'node:test';
+import { execFileSync } from 'node:child_process';
+import { fileURLToPath } from 'node:url';
 
 const testDatabaseUrl = String(process.env.TEST_DATABASE_URL || '').trim();
 if (!testDatabaseUrl) {
@@ -8,9 +10,10 @@ if (!testDatabaseUrl) {
 process.env.NODE_ENV = 'test';
 process.env.DATABASE_URL = testDatabaseUrl;
 
-const { appendRow, findById, readTable, updateRow } = await import('../src/infra/postgres.repository.js');
+const { appendRow, findById, queryTicketPage, readTable, updateRow } = await import('../src/infra/postgres.repository.js');
 const { closePostgres, query } = await import('../src/infra/postgres.js');
 const { appendSyncChanges, getSyncCursor, readSyncChangesAfter } = await import('../src/services/sync-change.service.js');
+const { createPortablePostgresBackupFile, cleanupPortableBackup } = await import('../src/services/postgres-backup.service.js');
 
 const suffix = `${Date.now()}-${Math.random().toString(16).slice(2)}`;
 
@@ -65,6 +68,88 @@ test('SyncChanges uses a monotonic database cursor', async () => {
   const delta = await readSyncChangesAfter(before, { limit: 10 });
   assert.equal(delta.invalidCursor, false);
   assert.ok(delta.events.some((event) => event.EntityID === `sync-${suffix}-1`));
+});
+
+
+
+test('ticket SQL paging preserves allowedIds authorization and home summary scope', async () => {
+  const firstId = `authz-${suffix}-pending`;
+  const secondId = `authz-${suffix}-finished`;
+  try {
+    await appendRow('Boletas', {
+      BoletaUID: firstId,
+      BoletaID: `PRUEBA-AUTHZ-${suffix}-1`,
+      EsPrueba: true,
+      Titulo: 'Visible',
+      Estado: 'PENDIENTE',
+      Activo: true,
+      Fecha: '2026-09-17',
+    });
+    await appendRow('Boletas', {
+      BoletaUID: secondId,
+      BoletaID: `PRUEBA-AUTHZ-${suffix}-2`,
+      EsPrueba: true,
+      Titulo: 'Oculta',
+      Estado: 'FINALIZADA',
+      Activo: true,
+      Fecha: '2026-09-17',
+    });
+
+    const visible = await queryTicketPage(
+      { page: 1, pageSize: 20, homeSummary: true },
+      { allowedIds: new Set([firstId]) },
+    );
+    assert.equal(visible.total, 1);
+    assert.deepEqual(visible.items.map((row) => row.BoletaUID), [firstId]);
+    assert.deepEqual(visible.homeSummary, { pending: 1, finished: 0 });
+
+    const none = await queryTicketPage(
+      { page: 1, pageSize: 20, homeSummary: true },
+      { allowedIds: new Set() },
+    );
+    assert.deepEqual(none, {
+      items: [],
+      total: 0,
+      page: 1,
+      pageSize: 20,
+      homeSummary: { pending: 0, finished: 0 },
+    });
+  } finally {
+    await query('DELETE FROM "Boletas" WHERE "BoletaUID" = ANY($1::text[])', [[firstId, secondId]], { label: 'test.authz.cleanup', write: true });
+  }
+});
+
+test('portable PostgreSQL backup verifies and restores a controlled mutation', async () => {
+  const key = `BACKUP_RESTORE_TEST_${suffix}`;
+  const verifyScript = fileURLToPath(new URL('../src/scripts/db-backup-verify.js', import.meta.url));
+  const restoreScript = fileURLToPath(new URL('../src/scripts/db-backup-restore.js', import.meta.url));
+  let backup;
+  try {
+    await appendRow('Configuracion', { Clave: key, Valor: 'before-backup', Descripcion: 'integration restore test' });
+    backup = await createPortablePostgresBackupFile();
+
+    const verifyOutput = execFileSync(process.execPath, [verifyScript, '--file', backup.outputPath], {
+      env: process.env,
+      encoding: 'utf8',
+    });
+    assert.equal(JSON.parse(verifyOutput).ok, true);
+
+    await updateRow('Configuracion', key, { Valor: 'after-backup' });
+    assert.equal((await findById('Configuracion', key)).Valor, 'after-backup');
+
+    const restoreOutput = execFileSync(process.execPath, [restoreScript, '--file', backup.outputPath, '--apply', '--replace'], {
+      env: process.env,
+      encoding: 'utf8',
+    });
+    const restored = JSON.parse(restoreOutput);
+    assert.equal(restored.ok, true);
+    assert.ok(restored.tables > 0);
+    assert.ok(restored.rows >= 1);
+    assert.equal((await findById('Configuracion', key)).Valor, 'before-backup');
+  } finally {
+    await query('DELETE FROM "Configuracion" WHERE "Clave"=$1', [key], { label: 'test.backup.cleanup', write: true }).catch(() => {});
+    await cleanupPortableBackup(backup).catch(() => {});
+  }
 });
 
 test.after(async () => { await closePostgres(); });
