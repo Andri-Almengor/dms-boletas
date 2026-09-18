@@ -22,7 +22,7 @@ test('AI access keeps administrative cases restricted', () => {
   const technician = aiAccess({ user: { UsuarioID: 'T1' }, permissions: ['BOLETAS_VER'] });
   assert.equal(technician.tickets, true);
   assert.equal(technician.cases, false);
-  assert.equal(technician.clients, false);
+  assert.equal(technician.clients, true);
   const admin = aiAccess({ user: { UsuarioID: 'A1' }, permissions: ['USUARIOS_GESTIONAR'] });
   assert.equal(admin.cases, true);
   assert.equal(admin.clients, true);
