@@ -5,6 +5,19 @@ import { useAuth } from '../../AuthContext';
 import Icon from '../../components/common/Icon';
 import '../../styles/assistant-sensitive.css';
 
+const ASSISTANT_PROGRESS_STATES = [
+  'Analizando solicitud…',
+  'Consultando DMS…',
+  'Buscando evidencias…',
+  'Consultando Base de Conocimiento…',
+  'Revisando documentación…',
+  'Preparando respuesta…',
+];
+
+const ASSISTANT_FILE_EXTENSIONS = new Set(['pdf', 'doc', 'docx', 'xls', 'xlsx', 'csv', 'txt']);
+const MAX_ASSISTANT_FILES = 50;
+const MAX_ASSISTANT_FILE_BYTES = 50 * 1024 * 1024;
+
 const STARTER_QUESTIONS = [
   '¿Cuántas boletas hay pendientes?',
   '¿Cuántas boletas hizo Francisco este mes?',
@@ -25,6 +38,7 @@ function initialMessage() {
     sources: [],
     options: [],
     suggestions: STARTER_QUESTIONS,
+    confirmations: [],
     tables: [],
     stats: [],
     sensitive: false,
@@ -55,6 +69,105 @@ function pageContextFromRoute(route) {
 
 function messageId() {
   return crypto.randomUUID?.() || `${Date.now()}-${Math.random()}`;
+}
+
+function assistantFileAllowed(file) {
+  const mime = String(file?.type || '').toLowerCase();
+  if (mime.startsWith('image/')) return true;
+  const name = String(file?.name || '');
+  const extension = name.includes('.') ? name.split('.').pop().toLowerCase() : '';
+  return ASSISTANT_FILE_EXTENSIONS.has(extension);
+}
+
+function assistantFileMime(file) {
+  const supplied = String(file?.type || '').trim().toLowerCase();
+  if (supplied && supplied !== 'application/octet-stream') return supplied;
+  const extension = String(file?.name || '').toLowerCase().split('.').pop();
+  const map = {
+    pdf: 'application/pdf',
+    doc: 'application/msword',
+    docx: 'application/vnd.openxmlformats-officedocument.wordprocessingml.document',
+    xls: 'application/vnd.ms-excel',
+    xlsx: 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet',
+    csv: 'text/csv',
+    txt: 'text/plain',
+    jpg: 'image/jpeg',
+    jpeg: 'image/jpeg',
+    png: 'image/png',
+    gif: 'image/gif',
+    webp: 'image/webp',
+    bmp: 'image/bmp',
+    heic: 'image/heic',
+    heif: 'image/heif',
+  };
+  return map[extension] || supplied || 'application/octet-stream';
+}
+
+function humanFileSize(value) {
+  const bytes = Number(value || 0);
+  if (!bytes) return '0 B';
+  if (bytes < 1024) return `${bytes} B`;
+  if (bytes < 1024 * 1024) return `${(bytes / 1024).toFixed(1)} KB`;
+  return `${(bytes / (1024 * 1024)).toFixed(1)} MB`;
+}
+
+async function blobBase64(blob) {
+  const bytes = new Uint8Array(await blob.arrayBuffer());
+  let binary = '';
+  const block = 32 * 1024;
+  for (let offset = 0; offset < bytes.length; offset += block) {
+    binary += String.fromCharCode(...bytes.subarray(offset, Math.min(bytes.length, offset + block)));
+  }
+  return btoa(binary);
+}
+
+async function uploadAssistantAttachment(item, sessionToken) {
+  const initialized = await apiRequest('assistant.chat', {
+    assistantAction: 'attachment.init',
+    uploadId: item.id,
+    fileName: item.file.name,
+    mimeType: assistantFileMime(item.file),
+    size: item.file.size,
+  }, sessionToken, { cache: 'no-store' });
+
+  const existing = initialized?.uploadId || initialized?.evidence?.uploadId;
+  if (initialized?.complete && existing) {
+    return {
+      uploadId: existing,
+      name: initialized.name || initialized.evidence?.name || item.file.name,
+      mimeType: initialized.mimeType || initialized.evidence?.mimeType || assistantFileMime(item.file),
+      size: Number(initialized.size || initialized.evidence?.size || item.file.size),
+    };
+  }
+
+  const uploadToken = initialized?.uploadToken;
+  const chunkBytes = Math.max(256 * 1024, Number(initialized?.chunkBytes || 4 * 1024 * 1024));
+  if (!uploadToken) throw new Error('No se pudo iniciar la carga segura del adjunto.');
+
+  let offset = 0;
+  while (offset < item.file.size) {
+    const end = Math.min(item.file.size, offset + chunkBytes);
+    const base64 = await blobBase64(item.file.slice(offset, end));
+    const result = await apiRequest('assistant.chat', {
+      assistantAction: 'attachment.chunk',
+      uploadToken,
+      offset,
+      base64,
+    }, sessionToken, { cache: 'no-store' });
+    const completedId = result?.uploadId || result?.evidence?.uploadId;
+    if (result?.complete && completedId) {
+      return {
+        uploadId: completedId,
+        name: result.name || result.evidence?.name || item.file.name,
+        mimeType: result.mimeType || result.evidence?.mimeType || assistantFileMime(item.file),
+        size: Number(result.size || result.evidence?.size || item.file.size),
+      };
+    }
+    const nextOffset = Number(result?.nextOffset);
+    offset = Number.isFinite(nextOffset) && nextOffset > offset ? nextOffset : end;
+  }
+
+  throw new Error(`No se pudo completar la carga de ${item.file.name}.`);
 }
 
 function text(value, fallback = '—') {
@@ -496,6 +609,85 @@ function AssistantAttachments({ attachments = [] }) {
   );
 }
 
+function AssistantUserFiles({ files = [] }) {
+  if (!files.length) return null;
+  return (
+    <div className="assistant-user-files">
+      {files.map((file) => (
+        <span key={file.uploadId || file.name} className="assistant-user-file">
+          <Icon name={String(file.mimeType || '').startsWith('image/') ? 'image' : 'attach_file'} />
+          <span><strong>{file.name}</strong><small>{humanFileSize(file.size)}</small></span>
+        </span>
+      ))}
+    </div>
+  );
+}
+
+function AssistantConfirmations({ confirmations = [], busyOperationId, onDecision }) {
+  if (!confirmations.length) return null;
+  return (
+    <div className="assistant-confirmation-list">
+      {confirmations.map((item) => {
+        const status = String(item.status || 'PENDING').toUpperCase();
+        const busy = busyOperationId === item.operationId;
+        const result = item.result || {};
+        const partial = status === 'PARTIAL';
+        const terminal = ['COMMITTED', 'CANCELLED', 'EXPIRED', 'FAILED'].includes(status);
+        return (
+          <section className="assistant-confirmation-card" key={item.operationId}>
+            <header>
+              <span><Icon name={status === 'COMMITTED' ? 'check_circle' : partial ? 'warning' : 'fact_check'} /> Operación controlada</span>
+              <strong>{item.title || 'Confirmación requerida'}</strong>
+              {item.summary && <p>{item.summary}</p>}
+            </header>
+            {Array.isArray(item.items) && item.items.length > 0 && (
+              <div className="assistant-confirmation-items">
+                {item.items.slice(0, 12).map((row, index) => (
+                  <div key={`${item.operationId}-${index}`}>
+                    <strong>{row.name || row.title || `Elemento ${index + 1}`}</strong>
+                    <span>{[row.type, row.zone, row.mimeType].filter(Boolean).join(' · ')}</span>
+                  </div>
+                ))}
+                {item.items.length > 12 && <small>+ {item.items.length - 12} elementos adicionales</small>}
+              </div>
+            )}
+            {terminal || partial ? (
+              <div className={`assistant-operation-status ${partial ? 'is-partial' : status === 'COMMITTED' ? 'is-success' : 'is-neutral'}`}>
+                <Icon name={partial ? 'warning' : status === 'COMMITTED' ? 'check_circle' : 'info'} />
+                <span>
+                  {status === 'COMMITTED' && 'Operación completada.'}
+                  {status === 'CANCELLED' && 'Operación cancelada.'}
+                  {status === 'EXPIRED' && 'La confirmación expiró.'}
+                  {status === 'FAILED' && 'La operación falló.'}
+                  {partial && `Resultado parcial: ${Number(result.createdCount ?? result.uploadedCount ?? 0)} correctos, ${Number(result.failedCount ?? 0)} pendientes.`}
+                </span>
+              </div>
+            ) : null}
+            <footer>
+              {!terminal && !partial && (
+                <>
+                  <button className="button button--primary button--compact" type="button" disabled={busy} onClick={() => onDecision(item, 'confirm')}>
+                    <Icon name={busy ? 'progress_activity' : 'check'} /> {item.confirmLabel || 'Confirmar'}
+                  </button>
+                  <button className="button button--secondary button--compact" type="button" disabled={busy} onClick={() => onDecision(item, 'cancel')}>
+                    <Icon name="close" /> {item.cancelLabel || 'Cancelar'}
+                  </button>
+                </>
+              )}
+              {partial && (
+                <button className="button button--secondary button--compact" type="button" disabled={busy} onClick={() => onDecision(item, 'retry')}>
+                  <Icon name={busy ? 'progress_activity' : 'refresh'} /> Reintentar pendientes
+                </button>
+              )}
+              {item.expiresAt && !terminal && <small>Confirmación temporal y ligada a esta sesión.</small>}
+            </footer>
+          </section>
+        );
+      })}
+    </div>
+  );
+}
+
 function AssistantSourceLink({ source }) {
   const content = <><Icon name={sourceIcon(source.type)} /><span>{source.label}</span><Icon name="chevron_right" /></>;
   if (/^https:\/\//i.test(source.url || '')) return <a href={source.url} target="_blank" rel="noreferrer">{content}</a>;
@@ -503,7 +695,7 @@ function AssistantSourceLink({ source }) {
   return <span className="assistant-source-static">{content}</span>;
 }
 
-function AssistantMessage({ message, onSuggestion, onOption }) {
+function AssistantMessage({ message, onSuggestion, onOption, onDecision, busyOperationId }) {
   const assistant = message.role === 'assistant';
   return (
     <article className={`assistant-message assistant-message--${message.role}`}>
@@ -528,8 +720,10 @@ function AssistantMessage({ message, onSuggestion, onOption }) {
 
         <AssistantStats stats={message.stats} />
         {message.tables?.map((table) => <AssistantDataTable key={table.id} table={table} />)}
+        <AssistantUserFiles files={message.userFiles || []} />
         <AssistantEntities entities={message.entities || []} />
         <AssistantAttachments attachments={message.attachments || []} />
+        <AssistantConfirmations confirmations={message.confirmations || []} busyOperationId={busyOperationId} onDecision={onDecision} />
 
         {message.sources?.length > 0 && (
           <div className="assistant-sources">
@@ -570,7 +764,11 @@ export default function AssistantPageSecure() {
   const [input, setInput] = useState('');
   const [sending, setSending] = useState(false);
   const [error, setError] = useState('');
+  const [pendingFiles, setPendingFiles] = useState([]);
+  const [progressLabel, setProgressLabel] = useState(ASSISTANT_PROGRESS_STATES[0]);
+  const [busyOperationId, setBusyOperationId] = useState('');
   const endRef = useRef(null);
+  const fileInputRef = useRef(null);
   const fromRoute = searchParams.get('from') || '';
   const pageContext = useMemo(() => pageContextFromRoute(fromRoute), [fromRoute]);
   const isAdmin = hasPermission('USUARIOS_GESTIONAR');
@@ -585,6 +783,24 @@ export default function AssistantPageSecure() {
   }, [messages, messagesKey]);
   useEffect(() => { localStorage.setItem(contextKey, JSON.stringify(context)); }, [context, contextKey]);
   useEffect(() => { endRef.current?.scrollIntoView({ behavior: 'smooth', block: 'end' }); }, [messages, sending]);
+  useEffect(() => {
+    if (!sending) {
+      setProgressLabel(ASSISTANT_PROGRESS_STATES[0]);
+      return undefined;
+    }
+    let index = 0;
+    setProgressLabel(ASSISTANT_PROGRESS_STATES[0]);
+    const timer = window.setInterval(() => {
+      index = Math.min(index + 1, ASSISTANT_PROGRESS_STATES.length - 1);
+      setProgressLabel(ASSISTANT_PROGRESS_STATES[index]);
+    }, 2600);
+    return () => window.clearInterval(timer);
+  }, [sending]);
+  useEffect(() => () => {
+    pendingFiles.forEach((item) => {
+      if (item.previewUrl) URL.revokeObjectURL(item.previewUrl);
+    });
+  }, []);
 
   function historyForRequest(nextMessages) {
     return nextMessages
@@ -593,24 +809,43 @@ export default function AssistantPageSecure() {
       .map((item) => ({ role: item.role, text: item.text }));
   }
 
-  async function sendQuestion(rawQuestion, contextPatch = {}) {
-    const question = String(rawQuestion || '').trim();
+  async function sendQuestion(rawQuestion, contextPatch = {}, options = {}) {
+    const includePendingFiles = options.includePendingFiles === true;
+    const files = includePendingFiles ? pendingFiles : [];
+    const typedQuestion = String(rawQuestion || '').trim();
+    const question = typedQuestion || (files.length ? 'Analiza los archivos adjuntos.' : '');
     if (!question || sending) return;
-    const userMessage = { id: messageId(), role: 'user', text: question, sensitive: false };
-    const nextMessages = [...messages, userMessage];
+
     const nextContext = { ...context, ...contextPatch, pageContext };
-    setMessages(nextMessages);
     setInput('');
     setError('');
     setSending(true);
 
     try {
+      const uploadedFiles = [];
+      for (const item of files) {
+        setProgressLabel(`Cargando ${item.file.name}…`);
+        uploadedFiles.push(await uploadAssistantAttachment(item, sessionToken));
+      }
+
+      const userMessage = {
+        id: messageId(),
+        role: 'user',
+        text: question,
+        userFiles: uploadedFiles,
+        sensitive: false,
+      };
+      const nextMessages = [...messages, userMessage];
+      setMessages(nextMessages);
+      setProgressLabel('Analizando solicitud…');
+
       const response = await apiRequest('assistant.chat', {
         message: question,
         conversationId,
         history: historyForRequest(nextMessages.slice(0, -1)),
         context: nextContext,
-      }, sessionToken);
+        attachmentIds: uploadedFiles.map((item) => item.uploadId),
+      }, sessionToken, { cache: 'no-store' });
       const presentation = buildPresentation(response.facts || {});
       const assistantMessage = {
         id: messageId(),
@@ -622,19 +857,111 @@ export default function AssistantPageSecure() {
         attachments: Array.isArray(response.attachments) ? response.attachments : [],
         options: Array.isArray(response.options) ? response.options : [],
         suggestions: Array.isArray(response.suggestions) ? response.suggestions : [],
+        confirmations: Array.isArray(response.confirmations) ? response.confirmations : [],
         resumeQuestion: response.resumeQuestion || question,
         tables: presentation.tables,
         stats: presentation.stats,
         sensitive: Boolean(response.sensitive),
       };
       setMessages((current) => [...current, assistantMessage]);
+      if (files.length) {
+        files.forEach((item) => {
+          if (item.previewUrl) URL.revokeObjectURL(item.previewUrl);
+        });
+        setPendingFiles([]);
+      }
       if (response.context && typeof response.context === 'object') setContext(response.context);
     } catch (requestError) {
       const message = requestError?.message || 'No se pudo consultar el asistente.';
       setError(message);
-      setMessages((current) => [...current, { id: messageId(), role: 'assistant', text: message, sources: [], entities: [], attachments: [], options: [], suggestions: [], tables: [], stats: [], sensitive: false }]);
+      setMessages((current) => [...current, { id: messageId(), role: 'assistant', text: message, sources: [], entities: [], attachments: [], confirmations: [], options: [], suggestions: [], tables: [], stats: [], sensitive: false }]);
     } finally {
       setSending(false);
+    }
+  }
+
+  function addPendingFiles(fileList) {
+    const incoming = Array.from(fileList || []);
+    if (!incoming.length) return;
+    const available = Math.max(0, MAX_ASSISTANT_FILES - pendingFiles.length);
+    const accepted = [];
+    const rejected = [];
+    for (const file of incoming.slice(0, available)) {
+      if (!assistantFileAllowed(file)) {
+        rejected.push(`${file.name}: formato no permitido`);
+        continue;
+      }
+      if (file.size <= 0 || file.size > MAX_ASSISTANT_FILE_BYTES) {
+        rejected.push(`${file.name}: debe pesar entre 1 byte y 50 MB`);
+        continue;
+      }
+      accepted.push({
+        id: messageId(),
+        file,
+        previewUrl: String(file.type || '').startsWith('image/') ? URL.createObjectURL(file) : '',
+      });
+    }
+    if (incoming.length > available) rejected.push(`Solo se permiten ${MAX_ASSISTANT_FILES} adjuntos por mensaje.`);
+    setPendingFiles((current) => [...current, ...accepted]);
+    if (rejected.length) setError(rejected.join(' · '));
+    else setError('');
+    if (fileInputRef.current) fileInputRef.current.value = '';
+  }
+
+  function removePendingFile(id) {
+    setPendingFiles((current) => {
+      const target = current.find((item) => item.id === id);
+      if (target?.previewUrl) URL.revokeObjectURL(target.previewUrl);
+      return current.filter((item) => item.id !== id);
+    });
+  }
+
+  async function decideOperation(item, decision) {
+    if (!item?.operationId || busyOperationId) return;
+    setBusyOperationId(item.operationId);
+    setError('');
+    try {
+      const response = await apiRequest('assistant.chat', {
+        assistantAction: 'operation.decide',
+        operationId: item.operationId,
+        decision,
+      }, sessionToken, { cache: 'no-store' });
+      const updated = { ...item, ...response, preview: response?.preview || item.preview, result: response?.result || {} };
+      setMessages((current) => current.map((message) => ({
+        ...message,
+        confirmations: Array.isArray(message.confirmations)
+          ? message.confirmations.map((confirmation) => confirmation.operationId === item.operationId ? updated : confirmation)
+          : message.confirmations,
+      })));
+      setContext((current) => ({ ...current, pendingOperationId: item.operationId }));
+      const status = String(response?.status || '').toUpperCase();
+      if (status === 'COMMITTED') {
+        setMessages((current) => [...current, {
+          id: messageId(),
+          role: 'assistant',
+          text: 'Operación confirmada y completada por el backend de DMS.',
+          sources: [], entities: [], attachments: [], confirmations: [], options: [], suggestions: [], tables: [], stats: [], sensitive: false,
+        }]);
+      } else if (status === 'PARTIAL') {
+        const result = response?.result || {};
+        setMessages((current) => [...current, {
+          id: messageId(),
+          role: 'assistant',
+          text: `La operación quedó parcial: ${Number(result.createdCount ?? result.uploadedCount ?? 0)} elementos correctos y ${Number(result.failedCount ?? 0)} pendientes. Puede usar “Reintentar pendientes”.`,
+          sources: [], entities: [], attachments: [], confirmations: [], options: [], suggestions: [], tables: [], stats: [], sensitive: false,
+        }]);
+      } else if (status === 'CANCELLED') {
+        setMessages((current) => [...current, {
+          id: messageId(),
+          role: 'assistant',
+          text: 'Operación cancelada. No se aplicaron nuevos cambios desde esta confirmación.',
+          sources: [], entities: [], attachments: [], confirmations: [], options: [], suggestions: [], tables: [], stats: [], sensitive: false,
+        }]);
+      }
+    } catch (operationError) {
+      setError(operationError?.message || 'No se pudo confirmar la operación.');
+    } finally {
+      setBusyOperationId('');
     }
   }
 
@@ -651,6 +978,10 @@ export default function AssistantPageSecure() {
     setMessages(cleanMessages);
     setContext({});
     setInput('');
+    pendingFiles.forEach((item) => {
+      if (item.previewUrl) URL.revokeObjectURL(item.previewUrl);
+    });
+    setPendingFiles([]);
     setError('');
     localStorage.removeItem(messagesKey);
     localStorage.removeItem(contextKey);
@@ -658,13 +989,13 @@ export default function AssistantPageSecure() {
 
   function submit(event) {
     event.preventDefault();
-    sendQuestion(input);
+    sendQuestion(input, {}, { includePendingFiles: true });
   }
 
   function handleKeyDown(event) {
     if (event.key === 'Enter' && !event.shiftKey) {
       event.preventDefault();
-      sendQuestion(input);
+      sendQuestion(input, {}, { includePendingFiles: true });
     }
   }
 
@@ -702,12 +1033,12 @@ export default function AssistantPageSecure() {
       <section className="assistant-chat" aria-live="polite">
         <div className="assistant-chat__messages">
           {messages.map((message) => (
-            <AssistantMessage key={message.id} message={message} onSuggestion={sendQuestion} onOption={chooseOption} />
+            <AssistantMessage key={message.id} message={message} onSuggestion={sendQuestion} onOption={chooseOption} onDecision={decideOperation} busyOperationId={busyOperationId} />
           ))}
           {sending && (
             <article className="assistant-message assistant-message--assistant assistant-message--typing">
               <div className="assistant-message__avatar"><Icon name="smart_toy" /></div>
-              <div className="assistant-message__content"><div className="assistant-message__bubble"><Icon name="progress_activity" /><span>Consultando la información disponible...</span></div></div>
+              <div className="assistant-message__content"><div className="assistant-message__bubble"><Icon name="progress_activity" /><span>{progressLabel}</span></div></div>
             </article>
           )}
           <div ref={endRef} />
@@ -715,23 +1046,46 @@ export default function AssistantPageSecure() {
 
         <form className="assistant-composer" onSubmit={submit} data-no-draft>
           {error && <span className="assistant-composer__error"><Icon name="error" />{error}</span>}
-          <div>
+          {pendingFiles.length > 0 && (
+            <div className="assistant-pending-files">
+              {pendingFiles.map((item) => (
+                <article key={item.id}>
+                  {item.previewUrl ? <img src={item.previewUrl} alt="" /> : <Icon name="draft" />}
+                  <span><strong>{item.file.name}</strong><small>{humanFileSize(item.file.size)} · {item.file.type || 'archivo'}</small></span>
+                  <button type="button" onClick={() => removePendingFile(item.id)} disabled={sending} aria-label={`Eliminar ${item.file.name}`}><Icon name="close" /></button>
+                </article>
+              ))}
+            </div>
+          )}
+          <input
+            ref={fileInputRef}
+            className="assistant-file-input"
+            type="file"
+            multiple
+            accept="image/*,.pdf,.doc,.docx,.xls,.xlsx,.csv,.txt"
+            onChange={(event) => addPendingFiles(event.target.files)}
+            disabled={sending}
+          />
+          <div className="assistant-composer__row">
+            <button className="assistant-attach-button" type="button" disabled={sending || pendingFiles.length >= MAX_ASSISTANT_FILES} onClick={() => fileInputRef.current?.click()} title="Adjuntar imágenes o documentos">
+              <Icon name="attach_file" />
+            </button>
             <textarea
               value={input}
               onChange={(event) => setInput(event.target.value)}
               onKeyDown={handleKeyDown}
               placeholder="Ej. Dame las credenciales de cámaras de Asamblea o ¿cuántos casos quedan sin asignar?"
               rows="2"
-              maxLength="1200"
+              maxLength="5000"
               disabled={sending}
               aria-label="Pregunta para el asistente"
             />
-            <button className="button button--primary" type="submit" disabled={sending || !input.trim()} aria-label="Enviar pregunta">
+            <button className="button button--primary" type="submit" disabled={sending || (!input.trim() && !pendingFiles.length)} aria-label="Enviar pregunta">
               <Icon name={sending ? 'progress_activity' : 'send'} />
               <span>Enviar</span>
             </button>
           </div>
-          <small>Las respuestas respetan los permisos de la sesión. Las contraseñas permanecen ocultas hasta que las revele.</small>
+          <small>Puede adjuntar imágenes, PDF, DOCX, XLSX, CSV o TXT. Los archivos se cargan de forma privada y Gemini recibe solo referencias seguras; las respuestas respetan los permisos de la sesión.</small>
         </form>
       </section>
     </div>

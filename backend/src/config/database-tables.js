@@ -19,6 +19,14 @@ export const RUNTIME_COLUMN_EXTENSIONS = Object.freeze({
     'ImagenesYaExistentes',
     'ErroresCopia',
   ]),
+  KnowledgeAttachments: Object.freeze([
+    'ExtractionStatus',
+    'IndexedAt',
+    'ExtractionError',
+    'SearchText',
+    'FechaActualizacion',
+    'ActualizadoPor',
+  ]),
 });
 export const DATABASE_TABLES = Object.freeze(Object.fromEntries(Object.entries(RAW_TABLES).map(([name,meta])=>[
   name,

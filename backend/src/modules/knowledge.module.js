@@ -1,4 +1,5 @@
 import { transferKnowledgeAttachment } from '../services/large-evidence-upload.service.js';
+import { indexKnowledgeDocument } from '../ai/agent.knowledge-documents.js';
 import { appendRow, filterRows, findById, findRows, queryKnowledgeArticlePage, readTable, readTables, softDelete, updateRow } from '../infra/sheets.repository.js';
 import { uploadBase64, downloadAsDataUrl, trashFile } from '../infra/drive.repository.js';
 import { getConfig } from './config.module.js';
@@ -388,8 +389,20 @@ export const knowledgeHandlers = {
       Activo: true,
       CreadoPor: ctx.user.UsuarioID,
       FechaCreacion: nowIso(),
+      ActualizadoPor: ctx.user.UsuarioID,
+      FechaActualizacion: nowIso(),
+      ExtractionStatus: 'PENDING',
+      IndexedAt: '',
+      ExtractionError: '',
     };
     await appendRow('KnowledgeAttachments', row);
+    void indexKnowledgeDocument({
+      documentId: row.AdjuntoID,
+      articleId: row.TutorialID,
+      fileId: row.DriveFileID,
+      mimeType: row.MimeType,
+      actor: ctx.user.UsuarioID,
+    }).catch(() => {});
     return transfer ? {complete:true,evidence:row} : row;
   },
 
