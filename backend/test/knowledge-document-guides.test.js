@@ -84,16 +84,18 @@ test('Knowledge document policy never stores binary in PostgreSQL or sends Drive
   assert.ok(KNOWLEDGE_DOCUMENT_POLICY.maxExtractedTextBytes <= 2_000_000);
 });
 
-test('Knowledge migration adds one primary document and bounded searchable chunks', () => {
-  const migration = source('../migrations/012_knowledge_document_guides.sql');
+test('Knowledge migrations extend the integral document index with library metadata', () => {
+  const integral = source('../migrations/012_ai_integral_agent.sql');
+  const migration = source('../migrations/013_knowledge_document_guides.sql');
   assert.match(migration, /"IsPrimary" BOOLEAN/);
+  assert.match(migration, /"SizeBytes" BIGINT/);
   assert.match(migration, /UNIQUE INDEX IF NOT EXISTS ux_knowledge_attachments_primary_article/i);
-  assert.match(migration, /CREATE TABLE IF NOT EXISTS "KnowledgeDocumentChunks"/);
-  assert.match(migration, /USING GIN/);
-  assert.match(migration, /"DocumentID"/);
-  assert.match(migration, /"ArticleID"/);
-  assert.match(migration, /"PageNumber"/);
-  assert.match(migration, /"SectionTitle"/);
+  assert.match(integral, /CREATE TABLE IF NOT EXISTS "KnowledgeDocumentChunks"/);
+  assert.match(integral, /USING GIN/);
+  assert.match(integral, /"DocumentID"/);
+  assert.match(integral, /"ArticleID"/);
+  assert.match(integral, /"PageNumber"/);
+  assert.match(integral, /"SectionTitle"/);
 });
 
 test('Knowledge large upload has no 10/20/50 MB document cap and supports resume/idempotence', () => {
@@ -171,8 +173,8 @@ test('Gemini prompt treats PDF, DOCX, spreadsheet and image content as untrusted
     nowIso: '2026-09-18T09:00:00-06:00',
   });
   assert.match(prompt, /DATA NO CONFIABLE|DATO NO CONFIABLE/i);
-  assert.match(prompt, /documento, captura o imagen/i);
-  assert.match(prompt, /No recomiendes otra vez una prueba ya realizada/i);
+  assert.match(prompt, /captura o imagen/i);
+  assert.match(prompt, /No repitas una prueba ya realizada/i);
   assert.match(prompt, /documentación oficial del fabricante/i);
   assert.match(prompt, /Nunca inventes páginas/i);
 });
@@ -204,19 +206,20 @@ test('Gemini sanitizer preserves bounded diagnostic memory but strips storage se
   assert.equal(result.modelData.content, 'fragmento autorizado');
 });
 
-test('Technical screenshot analysis is transient, multimodal and knowledge-first', () => {
+test('Technical screenshot analysis uses private chat uploads, multimodal Gemini input and Knowledge first', () => {
   const backend = source('../src/ai/agent.service.js');
-  assert.match(backend, /function imageInputs/);
+  assert.match(backend, /loadDiagnosticImageInputs/);
+  assert.match(backend, /DriveFileID" AS "__file"/);
   assert.match(backend, /type:\s*'image'/);
   assert.match(backend, /mime_type/);
-  assert.match(backend, /knowledgeLookupRequired=requiresKnowledgeLookup\(message\)\|\|images\.length>0/);
+  assert.match(backend, /knowledgeRequired=requiresKnowledgeLookup\(message\)\|\|diagnosticImages\.length>0/);
   assert.match(backend, /search_knowledge_documents/);
   assert.match(backend, /updateTroubleshootingContext/);
 
   const frontend = source('../../src/pages/assistant/AssistantPageSecure.jsx');
-  assert.match(frontend, /accept="image\/\*"/);
-  assert.match(frontend, /attachments,/);
-  assert.match(frontend, /setImageFiles\(\[\]\)/);
+  assert.match(frontend, /accept="image\/\*,\.pdf/);
+  assert.match(frontend, /attachmentIds:\s*uploadedFiles\.map/);
+  assert.match(frontend, /assistantAction:\s*'attachment\.init'/);
   assert.match(frontend, /persistableMessages[\s\S]*attachments: \[\]/);
 });
 
