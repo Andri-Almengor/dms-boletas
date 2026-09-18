@@ -2,7 +2,7 @@ const INTERNAL_HINT = /\b(dms|boleta|boletas|mantenimiento|mantenimientos|client
 const KNOWLEDGE_HINT = /\b(knowledge|conocimiento|base de conocimiento|procedimiento interno|tutorial|documentaci[oó]n interna|nuestro manual|nuestra gu[ií]a)\b/i;
 const DOCUMENT_HINT = /\b(manual|manuales|gu[ií]a|gu[ií]as|guide|documento|documentos|pdf|docx|archivo adjunto|adjunto|adjuntos|p[aá]gina|p[aá]ginas|secci[oó]n|secciones|documentaci[oó]n)\b/i;
 const TECHNICAL_KNOWLEDGE_HINT = /\b(axis|onguard|lenel|lenels2|milestone|xprotect|barco|faceme|morphomanager|onvif|rtsp|poe|sip|audio manager|camera station|access control|windows server|sql server|postgresql|odbc|cctv|vms|nvr)\b/i;
-const TECHNICAL_ACTION_HINT = /\b(error|falla|problema|soluci[oó]n|solucionar|resolver|configurar|instalar|procedimiento|manual|gu[ií]a|diagnosticar|diagn[oó]stico|integrar|integraci[oó]n|qu[eé] dice|explica|explicar|buscar|busca|c[oó]mo|qu[eé] es)\b/i;
+const TECHNICAL_ACTION_HINT = /\b(error|falla|problema|soluci[oó]n|solucionar|resolver|configurar|configuraci[oó]n|instalar|procedimiento|manual|gu[ií]a|diagnosticar|diagn[oó]stico|integrar|integraci[oó]n|firmware|compatibilidad|puerto|poe|sip|multicast|qu[eé] dice|explica|explicar|buscar|busca|c[oó]mo|qu[eé] es|no funciona|no responde|no env[ií]a|no transmite|no conecta|sin audio|sin video|sin se[nñ]al)\b/i;
 const MODEL_TOKEN = /\b(?:[A-Z]{1,8}[- ]?)?[A-Z]*\d{3,}[A-Z0-9-]*\b/i;
 const KNOWLEDGE_FOLLOWUP = /\b(ese|esa|este|esta|manual|pdf|gu[ií]a|documento|p[aá]gina|secci[oó]n|qu[eé] m[aá]s|qu[eé] dice|dice algo|sobre|poe|audio|integraci[oó]n|configuraci[oó]n|y del|y sobre)\b/i;
 
