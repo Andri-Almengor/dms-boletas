@@ -87,6 +87,17 @@ export async function runDmsAgent(ctx){
             const measured=await withTimeout(withDbRequestMetrics(()=>executeAiTool(ctx,call.name,call.arguments||{})),aiConfig.toolTimeoutMs,call.name);
             dbQueries+=Number(measured.metrics?.queries||0);dbQueryMs+=Number(measured.metrics?.queryMs||0);
             mergeUi(ui,measured.result.ui);
+            if (/^(search_|get_statistics$|get_technician_activity$)/.test(call.name)) {
+              ui.context = {
+                ...ui.context,
+                lastSearchTool: call.name,
+                lastSearchQuery: clean(call.arguments?.query || call.arguments?.technician || call.arguments?.technicianName, 300),
+                lastSearchOffset: String(Number(call.arguments?.offset || 0)),
+                lastSearchLimit: String(Number(call.arguments?.limit || aiConfig.maxToolResultRows)),
+                lastSearchStatus: clean(call.arguments?.status, 80),
+                lastSearchPeriod: clean(call.arguments?.period || call.arguments?.month || '', 80),
+              };
+            }
             return functionResult(call,{ok:true,data:measured.result.modelData});
           }catch(error){
             return functionResult(call,{ok:false,error:{code:clean(error?.code||'AI_TOOL_ERROR',80),message:clean(error?.status===403?'No autorizado para consultar esa información.':error?.message||'No se pudo completar la consulta.',400)}});
