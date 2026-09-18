@@ -18,6 +18,7 @@ function requiresInternalEvidence(message,context={}){
   const text=String(message||'');
   if(Object.keys(context||{}).some((key)=>/^last(Client|Maintenance|Ticket|Knowledge|Case|User|Device)/.test(key))) return true;
   if(context?.pageContext?.entityId||context?.pageContext?.maintenanceId||context?.pageContext?.ticketId) return true;
+  if(context?.pageContext?.route && /\b(esta sección|esta seccion|esta pantalla|aquí|aqui|qué hace|que hace)\b/i.test(text)) return true;
   return /\b(dms|boleta|boletas|mantenimiento|mantenimientos|cliente|clientes|técnico|tecnico|supervisor|evidencia|evidencias|dispositivo|dispositivos|cámara|camara|caso|casos|agenda|pendiente|finalizada|finalizó|finalizo|subió|subio|base de conocimiento)\b/i.test(text);
 }
 
