@@ -1,0 +1,64 @@
+name: Render PostgreSQL Stage 5
+
+on:
+  workflow_dispatch:
+  push:
+    branches:
+      - feat/migrate-sheets-to-render-postgres
+    paths:
+      - .github/workflows/render-postgres-stage5.yml
+      - backend/migrations/009_stage5_access_media_indexes.sql
+      - backend/migrations/010_stage5_auth_permission_indexes.sql
+      - backend/src/scripts/db-stage5-verify.js
+
+permissions:
+  contents: read
+
+jobs:
+  verify-stage5:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 20
+    env:
+      DATABASE_URL: ${{ secrets.RENDER_DATABASE_URL }}
+      PG_SSL_MODE: verify-full
+      PG_POOL_MAX: 3
+      PG_IDLE_TIMEOUT_MS: 30000
+      PG_CONNECTION_TIMEOUT_MS: 8000
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Setup Node
+        uses: actions/setup-node@v4
+        with:
+          node-version-file: .node-version
+          cache: npm
+          cache-dependency-path: backend/package-lock.json
+
+      - name: Require Render database secret
+        shell: bash
+        run: test -n "${DATABASE_URL:-}" || { echo "::error::RENDER_DATABASE_URL is missing"; exit 1; }
+
+      - name: Install backend dependencies
+        run: npm --prefix backend ci
+
+      - name: Apply pending Stage 5 indexes
+        run: |
+          npm --prefix backend run db:migrate
+          npm --prefix backend run db:status
+
+      - name: Reconcile imported database invariants
+        run: npm --prefix backend run db:stage3:final-audit
+
+      - name: Measure Stage 5 hot paths read-only
+        run: |
+          mkdir -p .artifacts
+          npm --prefix backend run db:stage5:verify > .artifacts/render-stage5-verification.json
+
+      - name: Upload Stage 5 verification
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: render-stage5-verification
+          path: .artifacts/render-stage5-verification.json
+          if-no-files-found: error
