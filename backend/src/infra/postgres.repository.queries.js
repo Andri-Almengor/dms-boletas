@@ -43,15 +43,16 @@ export async function queryPage(table, payload = {}, { searchFields = [], allowe
 }
 
 export async function queryTicketPage(payload = {}, { assignedUserId = '', allowedIds = null } = {}) {
+  const meta = definition('Boletas');
   const page = Math.max(1, Number(payload.page || 1));
   const pageSize = Math.min(1000, Math.max(1, Number(payload.pageSize || 100)));
   const params = [];
   const statusSql = normalizeStatusSql('"Estado"');
   const clauses = [
     '"__valid" = TRUE',
-    `LOWER(COALESCE("Activo", 'true')) <> 'false'`,
     `${statusSql} <> 'ANULADA'`,
   ];
+  if (meta.columns.includes('Activo')) clauses.push(`LOWER(COALESCE("Activo", 'true')) <> 'false'`);
 
   // allowedIds is the authorization gate used by ticket-visibility.patch.js.
   // Keep it in SQL so technicians never materialize or filter the full ticket set.
@@ -97,9 +98,9 @@ export async function queryTicketPage(payload = {}, { assignedUserId = '', allow
   }
 
   const active = payload.activo === undefined ? null : String(payload.activo).toLowerCase();
-  if (active !== null) {
+  if (active !== null && meta.columns.includes('Activo')) {
     params.push(active);
-    clauses.push(`LOWER(COALESCE("Activo",''))=$${params.length}`);
+    clauses.push(`LOWER(COALESCE("Activo",''))=${params.length}`);
   }
   if (payload.dateFrom) {
     params.push(String(payload.dateFrom));
