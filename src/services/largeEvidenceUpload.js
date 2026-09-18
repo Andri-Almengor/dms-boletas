@@ -117,12 +117,149 @@ export function uploadLargeMaintenanceEvidence({ maintenanceId, deviceId, imageI
   });
 }
 
-export function uploadLargeKnowledgeAttachment({ tutorialId, file, sessionToken, signal }) {
-  const routes = ['knowledge.attachments.upload', 'baseConocimientos.adjuntos.upload', 'conocimiento.adjuntos.upload'];
-  return uploadByChunks({initRoutes:routes,chunkRoutes:routes,file,sessionToken,signal,
-    initPayload:{tutorialId,uploadPhase:'init',fileName:file.name,nombre:file.name,mimeType:file.type || 'application/octet-stream',size:file.size},
-    chunkPayload:{tutorialId,uploadPhase:'chunk'},
+function knowledgeUploadStorageKey(tutorialId, attachmentId) {
+  return `dms_knowledge_upload_${tutorialId}_${attachmentId}`;
+}
+
+function sleep(ms, signal) {
+  return new Promise((resolve, reject) => {
+    const timer = window.setTimeout(resolve, ms);
+    signal?.addEventListener('abort', () => {
+      window.clearTimeout(timer);
+      const error = new Error('La carga fue cancelada.');
+      error.name = 'AbortError';
+      reject(error);
+    }, { once: true });
   });
+}
+
+export async function uploadLargeKnowledgeAttachment({
+  tutorialId,
+  file,
+  sessionToken,
+  signal,
+  onProgress,
+  attachmentId,
+  isPrimary = false,
+  replaceAttachmentId = '',
+}) {
+  const routes = ['knowledge.attachments.upload', 'baseConocimientos.adjuntos.upload', 'conocimiento.adjuntos.upload'];
+  const stableId = attachmentId || crypto.randomUUID?.() || `knowledge-${Date.now()}-${Math.random().toString(16).slice(2)}`;
+  const storageKey = knowledgeUploadStorageKey(tutorialId, stableId);
+  let saved = null;
+  try { saved = JSON.parse(sessionStorage.getItem(storageKey) || 'null'); } catch { saved = null; }
+
+  let uploadToken = saved?.uploadToken || '';
+  let chunkBytes = Number(saved?.chunkBytes || 0);
+  let offset = 0;
+
+  if (!uploadToken) {
+    const init = await requestAvailable(routes, {
+      tutorialId,
+      uploadPhase: 'init',
+      attachmentId: stableId,
+      replaceAttachmentId,
+      fileName: file.name,
+      nombre: file.name,
+      mimeType: file.type || 'application/octet-stream',
+      size: file.size,
+      isPrimary,
+    }, sessionToken, requestOptions(signal));
+    if (init?.complete) {
+      onProgress?.(100);
+      return init.evidence || init;
+    }
+    uploadToken = String(init?.uploadToken || '');
+    chunkBytes = Number(init?.chunkBytes || 256 * 1024);
+    if (!uploadToken) throw new Error('El servidor no devolvió una sesión resumible para el documento.');
+    sessionStorage.setItem(storageKey, JSON.stringify({ uploadToken, chunkBytes }));
+  } else {
+    const status = await requestAvailable(routes, {
+      tutorialId,
+      uploadPhase: 'status',
+      uploadToken,
+      replaceAttachmentId,
+      isPrimary,
+    }, sessionToken, requestOptions(signal));
+    if (status?.complete && status?.evidence) {
+      sessionStorage.removeItem(storageKey);
+      onProgress?.(100);
+      return status.evidence;
+    }
+    offset = Number(status?.nextOffset || 0);
+    onProgress?.(Math.min(99, Math.round((offset / file.size) * 100)));
+  }
+
+  while (offset < file.size) {
+    if (signal?.aborted) {
+      const error = new Error('La carga fue cancelada.');
+      error.name = 'AbortError';
+      throw error;
+    }
+    assertOnline();
+    const end = Math.min(file.size, offset + Math.max(256 * 1024, chunkBytes || 256 * 1024));
+    const chunk = file.slice(offset, end, file.type || 'application/octet-stream');
+    let base64 = await fileToBase64(chunk, { signal });
+    let completed = null;
+    try {
+      for (let attempt = 0; attempt < 3; attempt += 1) {
+        try {
+          const result = await requestAvailable(routes, {
+            tutorialId,
+            uploadPhase: 'chunk',
+            uploadToken,
+            offset,
+            base64,
+            replaceAttachmentId,
+            isPrimary,
+          }, sessionToken, requestOptions(signal));
+          if (result?.complete) {
+            completed = result.evidence || result;
+            break;
+          }
+          const nextOffset = Number(result?.nextOffset);
+          if (!Number.isSafeInteger(nextOffset) || nextOffset <= offset || nextOffset > file.size) {
+            throw new Error('El servidor no confirmó el siguiente bloque del documento.');
+          }
+          offset = nextOffset;
+          onProgress?.(Math.min(99, Math.round((offset / file.size) * 100)));
+          break;
+        } catch (error) {
+          if (signal?.aborted || error?.name === 'AbortError') throw error;
+          if (attempt >= 2) throw error;
+          await sleep(300 * (2 ** attempt), signal);
+          const status = await requestAvailable(routes, {
+            tutorialId,
+            uploadPhase: 'status',
+            uploadToken,
+            replaceAttachmentId,
+            isPrimary,
+          }, sessionToken, requestOptions(signal));
+          if (status?.complete && status?.evidence) {
+            completed = status.evidence;
+            break;
+          }
+          const recoveredOffset = Number(status?.nextOffset || offset);
+          if (Number.isSafeInteger(recoveredOffset) && recoveredOffset >= 0 && recoveredOffset <= file.size) {
+            offset = recoveredOffset;
+            if (offset !== end - chunk.size) {
+              base64 = '';
+              break;
+            }
+          }
+        }
+      }
+    } finally {
+      base64 = '';
+    }
+    if (completed) {
+      sessionStorage.removeItem(storageKey);
+      onProgress?.(100);
+      return completed;
+    }
+  }
+
+  throw new Error('La carga terminó sin confirmación de Google Drive.');
 }
 
 export function uploadCustomerCaseFile({token,requestId,item,signal,onProgress}) {
