@@ -5,10 +5,10 @@ import { readFile } from 'node:fs/promises';
 import { requestTimeoutMs } from '../../src/services/requestPolicy.js';
 
 test('assistant frontend deadline stays above backend total agent timeout', () => {
-  assert.equal(requestTimeoutMs('assistant.chat'), 150_000);
-  assert.equal(requestTimeoutMs('asistente.chat'), 150_000);
+  assert.equal(requestTimeoutMs('assistant.chat'), 195_000);
+  assert.equal(requestTimeoutMs('asistente.chat'), 195_000);
   assert.equal(requestTimeoutMs('assistant.operations.decide'), 90_000);
-  assert.ok(requestTimeoutMs('assistant.chat') > 120_000);
+  assert.ok(requestTimeoutMs('assistant.chat') > 180_000);
 });
 
 test('AssistantPageSecure exposes secure attachments and controlled confirmations', async () => {
