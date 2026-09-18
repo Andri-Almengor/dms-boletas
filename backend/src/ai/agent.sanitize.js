@@ -9,6 +9,12 @@ const SAFE_CONTEXT_KEYS = new Set([
   'lastTicketId',
   'lastTicketNumber',
   'lastKnowledgeId',
+  'lastKnowledgeArticleId',
+  'lastKnowledgeDocumentId',
+  'lastKnowledgeDocumentName',
+  'lastKnowledgePage',
+  'lastTechnicalProduct',
+  'lastTechnicalIssue',
   'lastCaseId',
   'lastUserId',
   'lastUserName',
@@ -92,12 +98,34 @@ export function sanitizeAiToolResult(toolName, result = {}) {
   };
 }
 
+
+function sanitizeTechnicalIssue(value = {}) {
+  if (!value || typeof value !== 'object' || Array.isArray(value)) return undefined;
+  const list = (key) => Array.isArray(value[key])
+    ? value[key].slice(0, 24).map((item) => cleanString(item, 300)).filter(Boolean)
+    : [];
+  const output = {
+    product: cleanString(value.product, 160),
+    problem: cleanString(value.problem, 500),
+    errorCodes: list('errorCodes'),
+    confirmedFacts: list('confirmedFacts'),
+    attemptedSteps: list('attemptedSteps'),
+    ruledOutCauses: list('ruledOutCauses'),
+    successfulTests: list('successfulTests'),
+    failedTests: list('failedTests'),
+  };
+  return Object.values(output).some((item) => Array.isArray(item) ? item.length : Boolean(item)) ? output : undefined;
+}
+
 export function sanitizeActiveContext(raw = {}) {
   const output = {};
   for (const key of SAFE_CONTEXT_KEYS) {
     if (raw[key] === undefined || raw[key] === null || raw[key] === '') continue;
     output[key] = cleanString(raw[key], 300);
   }
+
+  const technicalIssue = sanitizeTechnicalIssue(raw.currentTechnicalIssue);
+  if (technicalIssue) output.currentTechnicalIssue = technicalIssue;
 
   const page = raw.pageContext;
   if (page && typeof page === 'object') {
