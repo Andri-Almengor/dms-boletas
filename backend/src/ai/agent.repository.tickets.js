@@ -337,247 +337,54 @@ export async function getTechnicianActivity(ctx, args = {}) {
   const params = [];
   const ownScope = appendTicketVisibility(ctx, params, 'b_scope');
   params.push(queryText);
-  const exactParam = '
-        AND EXISTS (
-          SELECT 1 FROM "BoletaAsignados" ba_scope
-          JOIN "Boletas" b_scope ON b_scope."__valid"=TRUE AND b_scope."BoletaUID"=ba_scope."BoletaUID"
-          WHERE ba_scope."__valid"=TRUE
-            AND LOWER(COALESCE(ba_scope."Activo",'true')) <> 'false'
-            AND ba_scope."UsuarioID"=u."UsuarioID"
-            AND ${ownScope}
-        )
-      ORDER BY u."NombreCompleto" ASC
-      LIMIT 5`,
-    params,
-    'ai.technician.resolve',
-  );
-  let technician = candidates.find((item) => item.id === queryText);
-  if (!technician && candidates.length === 1) technician = candidates[0];
-  if (!technician) {
-    return {
-      modelData: {
-        ambiguous: candidates.length > 1,
-        message: candidates.length ? 'Hay varias personas que coinciden.' : 'No se encontró el técnico dentro de su alcance.',
-        candidates,
-      },
-      entities: candidates.map((item) => entity('user', item.id, item.name || item.username || item.id, '/usuarios/' + encodeURIComponent(item.id))),
-    };
-  }
-
-  const statParams = [technician.id];
-  const clauses = [
-    'b."__valid"=TRUE',
-    `UPPER(COALESCE(b."Estado",'')) <> 'ANULADA'`,
-    `EXISTS (
-      SELECT 1 FROM "BoletaAsignados" ba_target
-      WHERE ba_target."__valid"=TRUE
-        AND LOWER(COALESCE(ba_target."Activo",'true')) <> 'false'
-        AND ba_target."BoletaUID"=b."BoletaUID"
-        AND ba_target."UsuarioID"=$1
-    )`,
-  ];
-  clauses.push(appendTicketVisibility(ctx, statParams, 'b'));
-  const range = addRange(clauses, statParams, ticketDateColumn('b'), args);
-  const where = clauses.join(' AND ');
-
-  const summary = await one(
-    `SELECT COUNT(*)::bigint AS total,
-            COUNT(*) FILTER (WHERE UPPER(COALESCE(b."Estado",''))='FINALIZADA')::bigint AS finished,
-            COUNT(*) FILTER (WHERE UPPER(COALESCE(b."Estado",''))='PENDIENTE')::bigint AS pending,
-            COUNT(DISTINCT NULLIF(b."ClienteID",''))::bigint AS clients
-       FROM "Boletas" b WHERE ${where}`,
-    statParams,
-    'ai.technician.summary',
-  );
-  const queryParams = [...statParams, pageLimit(args.limit, 30)];
-  const rows = await many(
-    `SELECT b."BoletaUID" AS uid, b."BoletaID" AS number, b."Titulo" AS title,
-            b."Estado" AS status, b."Fecha" AS date, b."FinalizadaEn" AS "finishedAt",
-            b."Cliente" AS client, b."RazonVisita" AS reason,
-            b."Descripcion" AS description, b."Resultado" AS result
-       FROM "Boletas" b
-      WHERE ${where}
-      ORDER BY ${ticketDateColumn('b')} DESC NULLS LAST, b."BoletaID" DESC NULLS LAST
-      LIMIT $${queryParams.length}`,
-    queryParams,
-    'ai.technician.items',
-  );
-  const items = rows.map((row) => ({
-    uid: row.uid,
-    number: row.number || row.uid,
-    title: row.title || 'Boleta de servicio',
-    status: row.status || '',
-    date: row.date || '',
-    finishedAt: row.finishedAt || '',
-    client: row.client || '',
-    reason: clean(row.reason, 1200),
-    description: clean(row.description, 2200),
-    result: clean(row.result, 1800),
-  }));
-  return {
-    modelData: {
-      technician: { id: technician.id, name: technician.name || technician.username || technician.id },
-      period: range,
-      total: Number(summary?.total || 0),
-      finished: Number(summary?.finished || 0),
-      pending: Number(summary?.pending || 0),
-      clients: Number(summary?.clients || 0),
-      totalShown: items.length,
-      items,
-    },
-    entities: [
-      entity('user', technician.id, technician.name || technician.username || technician.id, '/usuarios/' + encodeURIComponent(technician.id)),
-      ...items.map((item) => entity('ticket', item.uid, 'Boleta #' + item.number, '/boletas/' + encodeURIComponent(item.uid))),
-    ],
-    sources: items.slice(0, 8).map((item) => source('ticket', item.uid, 'Boleta #' + item.number + ' · ' + item.title, '/boletas/' + encodeURIComponent(item.uid))),
-    context: { lastUserId: technician.id, lastUserName: technician.name || technician.username || technician.id },
-  };
-}
-
-export const ticketRepositoryTools = Object.freeze({
-  search_tickets: searchTickets,
-  get_ticket: getTicket,
-  get_ticket_evidence: getTicketEvidence,
-  get_ticket_history: getTicketHistory,
-  get_technician_activity: getTechnicianActivity,
-});
- + params.length;
+  const exactParam = '$' + params.length;
   params.push(like(queryText));
-  const nameParam = '
-        AND EXISTS (
-          SELECT 1 FROM "BoletaAsignados" ba_scope
-          JOIN "Boletas" b_scope ON b_scope."__valid"=TRUE AND b_scope."BoletaUID"=ba_scope."BoletaUID"
-          WHERE ba_scope."__valid"=TRUE
-            AND LOWER(COALESCE(ba_scope."Activo",'true')) <> 'false'
-            AND ba_scope."UsuarioID"=u."UsuarioID"
-            AND ${ownScope}
-        )
-      ORDER BY u."NombreCompleto" ASC
-      LIMIT 5`,
-    params,
-    'ai.technician.resolve',
-  );
-  let technician = candidates.find((item) => item.id === queryText);
-  if (!technician && candidates.length === 1) technician = candidates[0];
-  if (!technician) {
-    return {
-      modelData: {
-        ambiguous: candidates.length > 1,
-        message: candidates.length ? 'Hay varias personas que coinciden.' : 'No se encontró el técnico dentro de su alcance.',
-        candidates,
-      },
-      entities: candidates.map((item) => entity('user', item.id, item.name || item.username || item.id, '/usuarios/' + encodeURIComponent(item.id))),
-    };
-  }
+  const nameParam = '$' + params.length;
 
-  const statParams = [technician.id];
-  const clauses = [
-    'b."__valid"=TRUE',
-    `UPPER(COALESCE(b."Estado",'')) <> 'ANULADA'`,
-    `EXISTS (
-      SELECT 1 FROM "BoletaAsignados" ba_target
-      WHERE ba_target."__valid"=TRUE
-        AND LOWER(COALESCE(ba_target."Activo",'true')) <> 'false'
-        AND ba_target."BoletaUID"=b."BoletaUID"
-        AND ba_target."UsuarioID"=$1
-    )`,
-  ];
-  clauses.push(appendTicketVisibility(ctx, statParams, 'b'));
-  const range = addRange(clauses, statParams, ticketDateColumn('b'), args);
-  const where = clauses.join(' AND ');
-
-  const summary = await one(
-    `SELECT COUNT(*)::bigint AS total,
-            COUNT(*) FILTER (WHERE UPPER(COALESCE(b."Estado",''))='FINALIZADA')::bigint AS finished,
-            COUNT(*) FILTER (WHERE UPPER(COALESCE(b."Estado",''))='PENDIENTE')::bigint AS pending,
-            COUNT(DISTINCT NULLIF(b."ClienteID",''))::bigint AS clients
-       FROM "Boletas" b WHERE ${where}`,
-    statParams,
-    'ai.technician.summary',
-  );
-  const queryParams = [...statParams, pageLimit(args.limit, 30)];
-  const rows = await many(
-    `SELECT b."BoletaUID" AS uid, b."BoletaID" AS number, b."Titulo" AS title,
-            b."Estado" AS status, b."Fecha" AS date, b."FinalizadaEn" AS "finishedAt",
-            b."Cliente" AS client, b."RazonVisita" AS reason,
-            b."Descripcion" AS description, b."Resultado" AS result
-       FROM "Boletas" b
-      WHERE ${where}
-      ORDER BY ${ticketDateColumn('b')} DESC NULLS LAST, b."BoletaID" DESC NULLS LAST
-      LIMIT $${queryParams.length}`,
-    queryParams,
-    'ai.technician.items',
-  );
-  const items = rows.map((row) => ({
-    uid: row.uid,
-    number: row.number || row.uid,
-    title: row.title || 'Boleta de servicio',
-    status: row.status || '',
-    date: row.date || '',
-    finishedAt: row.finishedAt || '',
-    client: row.client || '',
-    reason: clean(row.reason, 1200),
-    description: clean(row.description, 2200),
-    result: clean(row.result, 1800),
-  }));
-  return {
-    modelData: {
-      technician: { id: technician.id, name: technician.name || technician.username || technician.id },
-      period: range,
-      total: Number(summary?.total || 0),
-      finished: Number(summary?.finished || 0),
-      pending: Number(summary?.pending || 0),
-      clients: Number(summary?.clients || 0),
-      totalShown: items.length,
-      items,
-    },
-    entities: [
-      entity('user', technician.id, technician.name || technician.username || technician.id, '/usuarios/' + encodeURIComponent(technician.id)),
-      ...items.map((item) => entity('ticket', item.uid, 'Boleta #' + item.number, '/boletas/' + encodeURIComponent(item.uid))),
-    ],
-    sources: items.slice(0, 8).map((item) => source('ticket', item.uid, 'Boleta #' + item.number + ' · ' + item.title, '/boletas/' + encodeURIComponent(item.uid))),
-    context: { lastUserId: technician.id, lastUserName: technician.name || technician.username || technician.id },
-  };
-}
-
-export const ticketRepositoryTools = Object.freeze({
-  search_tickets: searchTickets,
-  get_ticket: getTicket,
-  get_ticket_evidence: getTicketEvidence,
-  get_ticket_history: getTicketHistory,
-  get_technician_activity: getTechnicianActivity,
-});
- + params.length;
   const candidates = await many(
     `SELECT DISTINCT u."UsuarioID" AS id, u."NombreCompleto" AS name, u."NombreUsuario" AS username
        FROM "Usuarios" u
       WHERE u."__valid"=TRUE
         AND UPPER(COALESCE(u."Estado",'ACTIVO'))='ACTIVO'
-        AND (u."UsuarioID"=${exactParam} OR u."NombreCompleto" ILIKE ${nameParam} ESCAPE '\\'
-          OR u."NombreUsuario" ILIKE ${nameParam} ESCAPE '\\')
+        AND (
+          u."UsuarioID"=${exactParam}
+          OR u."NombreCompleto" ILIKE ${nameParam} ESCAPE '\\'
+          OR u."NombreUsuario" ILIKE ${nameParam} ESCAPE '\\'
+        )
         AND EXISTS (
-          SELECT 1 FROM "BoletaAsignados" ba_scope
-          JOIN "Boletas" b_scope ON b_scope."__valid"=TRUE AND b_scope."BoletaUID"=ba_scope."BoletaUID"
-          WHERE ba_scope."__valid"=TRUE
-            AND LOWER(COALESCE(ba_scope."Activo",'true')) <> 'false'
-            AND ba_scope."UsuarioID"=u."UsuarioID"
-            AND ${ownScope}
+          SELECT 1
+            FROM "BoletaAsignados" ba_scope
+            JOIN "Boletas" b_scope
+              ON b_scope."__valid"=TRUE
+             AND b_scope."BoletaUID"=ba_scope."BoletaUID"
+           WHERE ba_scope."__valid"=TRUE
+             AND LOWER(COALESCE(ba_scope."Activo",'true')) <> 'false'
+             AND ba_scope."UsuarioID"=u."UsuarioID"
+             AND ${ownScope}
         )
       ORDER BY u."NombreCompleto" ASC
       LIMIT 5`,
     params,
     'ai.technician.resolve',
   );
+
   let technician = candidates.find((item) => item.id === queryText);
   if (!technician && candidates.length === 1) technician = candidates[0];
   if (!technician) {
     return {
       modelData: {
         ambiguous: candidates.length > 1,
-        message: candidates.length ? 'Hay varias personas que coinciden.' : 'No se encontró el técnico dentro de su alcance.',
+        message: candidates.length
+          ? 'Hay varias personas que coinciden.'
+          : 'No se encontró el técnico dentro de su alcance.',
         candidates,
       },
-      entities: candidates.map((item) => entity('user', item.id, item.name || item.username || item.id, '/usuarios/' + encodeURIComponent(item.id))),
+      entities: candidates.map((item) => entity(
+        'user',
+        item.id,
+        item.name || item.username || item.id,
+        '/usuarios/' + encodeURIComponent(item.id),
+      )),
     };
   }
 
@@ -586,11 +393,12 @@ export const ticketRepositoryTools = Object.freeze({
     'b."__valid"=TRUE',
     `UPPER(COALESCE(b."Estado",'')) <> 'ANULADA'`,
     `EXISTS (
-      SELECT 1 FROM "BoletaAsignados" ba_target
-      WHERE ba_target."__valid"=TRUE
-        AND LOWER(COALESCE(ba_target."Activo",'true')) <> 'false'
-        AND ba_target."BoletaUID"=b."BoletaUID"
-        AND ba_target."UsuarioID"=$1
+      SELECT 1
+        FROM "BoletaAsignados" ba_target
+       WHERE ba_target."__valid"=TRUE
+         AND LOWER(COALESCE(ba_target."Activo",'true')) <> 'false'
+         AND ba_target."BoletaUID"=b."BoletaUID"
+         AND ba_target."UsuarioID"=$1
     )`,
   ];
   clauses.push(appendTicketVisibility(ctx, statParams, 'b'));
@@ -602,10 +410,12 @@ export const ticketRepositoryTools = Object.freeze({
             COUNT(*) FILTER (WHERE UPPER(COALESCE(b."Estado",''))='FINALIZADA')::bigint AS finished,
             COUNT(*) FILTER (WHERE UPPER(COALESCE(b."Estado",''))='PENDIENTE')::bigint AS pending,
             COUNT(DISTINCT NULLIF(b."ClienteID",''))::bigint AS clients
-       FROM "Boletas" b WHERE ${where}`,
+       FROM "Boletas" b
+      WHERE ${where}`,
     statParams,
     'ai.technician.summary',
   );
+
   const queryParams = [...statParams, pageLimit(args.limit, 30)];
   const rows = await many(
     `SELECT b."BoletaUID" AS uid, b."BoletaID" AS number, b."Titulo" AS title,
@@ -619,6 +429,7 @@ export const ticketRepositoryTools = Object.freeze({
     queryParams,
     'ai.technician.items',
   );
+
   const items = rows.map((row) => ({
     uid: row.uid,
     number: row.number || row.uid,
@@ -631,6 +442,7 @@ export const ticketRepositoryTools = Object.freeze({
     description: clean(row.description, 2200),
     result: clean(row.result, 1800),
   }));
+
   return {
     modelData: {
       technician: { id: technician.id, name: technician.name || technician.username || technician.id },
@@ -646,8 +458,16 @@ export const ticketRepositoryTools = Object.freeze({
       entity('user', technician.id, technician.name || technician.username || technician.id, '/usuarios/' + encodeURIComponent(technician.id)),
       ...items.map((item) => entity('ticket', item.uid, 'Boleta #' + item.number, '/boletas/' + encodeURIComponent(item.uid))),
     ],
-    sources: items.slice(0, 8).map((item) => source('ticket', item.uid, 'Boleta #' + item.number + ' · ' + item.title, '/boletas/' + encodeURIComponent(item.uid))),
-    context: { lastUserId: technician.id, lastUserName: technician.name || technician.username || technician.id },
+    sources: items.slice(0, 8).map((item) => source(
+      'ticket',
+      item.uid,
+      'Boleta #' + item.number + ' · ' + item.title,
+      '/boletas/' + encodeURIComponent(item.uid),
+    )),
+    context: {
+      lastUserId: technician.id,
+      lastUserName: technician.name || technician.username || technician.id,
+    },
   };
 }
 
