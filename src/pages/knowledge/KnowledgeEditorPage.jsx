@@ -1,5 +1,5 @@
 import { uploadLargeKnowledgeAttachment } from '../../services/largeEvidenceUpload';
-import React, { useEffect, useMemo, useState } from 'react';
+import React, { useEffect, useMemo, useRef, useState } from 'react';
 import { Navigate, useNavigate, useParams } from 'react-router-dom';
 import { useAuth } from '../../AuthContext';
 import Icon from '../../components/common/Icon';
@@ -93,6 +93,9 @@ export default function KnowledgeEditorPage({ mode }) {
   const [replacements, setReplacements] = useState({});
   const [primarySelection, setPrimarySelection] = useState('');
   const [uploadProgress, setUploadProgress] = useState({});
+  const [uploading, setUploading] = useState(false);
+  const [persistedTutorialId, setPersistedTutorialId] = useState(isEdit ? tutorialId : '');
+  const uploadControllerRef = useRef(null);
   const [loading, setLoading] = useState(isEdit);
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState('');
@@ -301,9 +304,11 @@ export default function KnowledgeEditorPage({ mode }) {
     setSaving(true);
     try {
       const primaryCategoryId = form.categoryIds[0];
+      const effectiveTutorialId = persistedTutorialId || tutorialId;
+      const hasPendingUploads = newFiles.length > 0 || Object.keys(replacements).length > 0;
       const payload = {
-        tutorialId,
-        TutorialID: tutorialId,
+        tutorialId: effectiveTutorialId,
+        TutorialID: effectiveTutorialId,
         titulo: form.title.trim(),
         Titulo: form.title.trim(),
         categoriaIds: form.categoryIds,
@@ -316,17 +321,22 @@ export default function KnowledgeEditorPage({ mode }) {
         ContenidoHTML: form.content,
         videos,
         pendingDocumentsCount: newFiles.length + Object.keys(replacements).length,
-        estado: forcedStatus,
-        Estado: forcedStatus,
+        estado: (!persistedTutorialId && !isEdit && hasPendingUploads) ? 'BORRADOR' : forcedStatus,
+        Estado: (!persistedTutorialId && !isEdit && hasPendingUploads) ? 'BORRADOR' : forcedStatus,
       };
-      const response = await requestAvailable(isEdit ? MODULE_ROUTES.knowledge.update : MODULE_ROUTES.knowledge.create, payload, sessionToken);
+      const response = await requestAvailable((isEdit || persistedTutorialId) ? MODULE_ROUTES.knowledge.update : MODULE_ROUTES.knowledge.create, payload, sessionToken);
       const savedId = String(pick(response, ['TutorialID', 'tutorialId', 'id'], tutorialId));
       if (!savedId) throw new Error('El backend guardó el tutorial pero no devolvió su identificador.');
+      setPersistedTutorialId(savedId);
+      const uploadController = hasPendingUploads ? new AbortController() : null;
+      uploadControllerRef.current = uploadController;
+      setUploading(Boolean(uploadController));
       for (const entry of [...newFiles]) {
         await uploadLargeKnowledgeAttachment({
           tutorialId: savedId,
           file: entry.file,
           sessionToken,
+          signal: uploadController?.signal,
           attachmentId: entry.id,
           isPrimary: primarySelection === entry.id,
           onProgress: (value) => setUploadProgress((current) => ({ ...current, [entry.id]: value })),
@@ -338,6 +348,7 @@ export default function KnowledgeEditorPage({ mode }) {
           tutorialId: savedId,
           file: entry.file,
           sessionToken,
+          signal: uploadController?.signal,
           attachmentId: entry.id,
           replaceAttachmentId,
           isPrimary: primarySelection === replaceAttachmentId,
@@ -352,13 +363,22 @@ export default function KnowledgeEditorPage({ mode }) {
       if (primarySelection && existingAttachments.some((attachment) => getAttachmentId(attachment) === primarySelection)) {
         await requestAvailable(MODULE_ROUTES.knowledge.attachmentPrimary, { tutorialId: savedId, adjuntoId: primarySelection }, sessionToken);
       }
+      if (hasPendingUploads) {
+        await requestAvailable(MODULE_ROUTES.knowledge.update, { ...payload, tutorialId: savedId, TutorialID: savedId, estado: forcedStatus, Estado: forcedStatus, pendingDocumentsCount: 0 }, sessionToken);
+      }
       try { localStorage.removeItem(draftKey); } catch { /* El guardado del servidor ya terminó. */ }
       navigate(`/conocimiento/${encodeURIComponent(savedId)}`, { replace: true });
     } catch (err) {
-      setError(err.message);
+      setError(err?.name === 'AbortError' ? 'Carga cancelada. La sesión resumible se conservó y continuará desde el último bloque confirmado al guardar nuevamente.' : err.message);
     } finally {
+      uploadControllerRef.current = null;
+      setUploading(false);
       setSaving(false);
     }
+  }
+
+  function cancelUpload() {
+    uploadControllerRef.current?.abort();
   }
 
   if (!isEdit && !canCreate) return <Navigate to="/conocimiento" replace />;
@@ -435,6 +455,7 @@ export default function KnowledgeEditorPage({ mode }) {
       </section>
 
       <div className="knowledge-editor-actions">
+        {uploading && <button type="button" className="button button--secondary" onClick={cancelUpload}><Icon name="stop_circle" /> Cancelar carga</button>}
         <button type="button" className="button button--secondary" disabled={saving || Boolean(aiBusy)} onClick={(event) => save(event, 'BORRADOR')}><Icon name="save" /> Guardar borrador</button>
         <button type="button" className="button button--primary" disabled={saving || Boolean(aiBusy)} onClick={(event) => save(event, 'PUBLICADO')}><Icon name="publish" /> {saving ? 'Guardando...' : 'Publicar tutorial'}</button>
       </div>
