@@ -25,7 +25,9 @@ test('Etapa 4: Agenda conserva el alcance técnico y la vista administrativa del
   assert.match(agendaSource, /function isAdmin\(ctx = \{\}\)/);
   assert.match(agendaSource, /visibleAgendaIdsForUser\(tables\.AgendaAsignados \|\| \[\], ctx\.user\?\.UsuarioID\)/);
   assert.match(agendaSource, /requestedUserId && isAdmin\(ctx\)/);
-  assert.match(optimizationSource, /if \(!isAdmin\(ctx\)\) \{\s*const visibleIds = visibleAgendaIdsForUser/);
+  assert.match(optimizationSource, /if \(isAdmin\(ctx\)\) return readTable\('Agendas'\)/);
+  assert.match(optimizationSource, /findRows\('AgendaAsignados', \{ UsuarioID: clean\(ctx\.user\?\.UsuarioID\) \}/);
+  assert.match(optimizationSource, /const visibleIds = visibleAgendaIdsForUser/);
   assert.match(optimizationSource, /if \(requestedUserId && isAdmin\(ctx\)\)/);
 });
 
@@ -132,7 +134,7 @@ test('Etapa 4: los cuatro índices relacionados se construyen en una sola pasada
 });
 
 test('Etapa 4: list preserva autorización y matching de alcance completo antes de enriquecer candidatos', () => {
-  const authorizationIndex = optimizationSource.indexOf('if (!isAdmin(ctx))');
+  const authorizationIndex = optimizationSource.indexOf('async function visibleAgendas(ctx)');
   const indexBuild = optimizationSource.indexOf('const requestIndex = buildAgendaRequestIndex');
   const resolveMatches = optimizationSource.indexOf('const ticketMatches = resolveAgendaTicketMatches');
   const filterCandidates = optimizationSource.indexOf('const candidates = filterAgendaCandidates');
@@ -143,11 +145,15 @@ test('Etapa 4: list preserva autorización y matching de alcance completo antes 
   assert.ok(filterCandidates < buildViews);
 });
 
-test('Etapa 4: agenda.get usa un bundle específico y evita tablas de boletas cuando no son necesarias', () => {
-  assert.match(optimizationSource, /readTables\(\['Agendas', 'AgendaAsignados', 'Usuarios'\]\)/);
+test('Etapa 4: agenda.get usa búsquedas acotadas y evita materializar tablas completas', () => {
+  assert.match(optimizationSource, /findRows\('Agendas', \{ AgendaID: agendaId \}, \{ limit: 2 \}\)/);
+  assert.match(optimizationSource, /findRows\('AgendaAsignados', \{ AgendaID: agendaId \}/);
+  assert.match(optimizationSource, /findRows\('Usuarios', \{ UsuarioID: userIds \}/);
   assert.match(optimizationSource, /const hasExplicitTicket = Boolean\(clean\(agenda\.BoletaUID\)\)/);
   assert.match(optimizationSource, /if \(hasExplicitTicket \|\| canAutoMatchTicket\)/);
-  assert.match(optimizationSource, /const names = canAutoMatchTicket \? \['Boletas', 'BoletaAsignados'\] : \['Boletas'\]/);
+  assert.match(optimizationSource, /queryAgendaTickets\(\{/);
+  assert.match(optimizationSource, /findRows\('BoletaAsignados', \{ BoletaUID: ticketIds \}/);
+  assert.doesNotMatch(optimizationSource, /readTables\(\['Agendas', 'AgendaAsignados', 'Usuarios'\]\)/);
 });
 
 test('Etapa 4: boletas válidas heredadas sin UID siguen participando en el matching automático', () => {
