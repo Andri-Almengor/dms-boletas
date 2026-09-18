@@ -50,7 +50,8 @@ export async function runDmsAgent(ctx){
   const history=Array.isArray(ctx.payload?.history)?ctx.payload.history:[];
   const systemInstruction=buildAgentSystemPrompt({user:ctx.user,permissions:ctx.permissions,nowIso:costaRicaNowIso()});
   const inputText=buildAgentUserInput({message,history,context});
-  const tools=declarationsForUser(ctx,{includeWeb:externalRequested(message)});
+  let webEnabledForTurn=externalRequested(message);
+  let tools=declarationsForUser(ctx,{includeWeb:webEnabledForTurn});
   const timeline=[{type:'user_input',content:[{type:'text',text:inputText}]}];
   const ui={entities:[],attachments:[],sources:[],context:{...context}};
   const toolNames=[];let modelMs=0,toolMs=0,lastInteraction=null,totalInput=0,totalOutput=0;
@@ -62,11 +63,11 @@ export async function runDmsAgent(ctx){
       modelMs+=performance.now()-modelStarted;lastInteraction=interaction;
       const u=usage(interaction);totalInput+=u.inputTokens;totalOutput+=u.outputTokens;
       timeline.push(...(interaction.steps||[]));
+      ui.sources.push(...externalSources(interaction));
       const calls=functionCalls(interaction);
       if(!calls.length){
         const answer=outputText(interaction);
         if(!answer) throw new AppError('AI_EMPTY_RESPONSE','Gemini no devolvió una respuesta utilizable.',502);
-        ui.sources.push(...externalSources(interaction));
         const response={
           type:'answer',answer,
           entities:uniqueBy(ui.entities,item=>item.type+':'+item.id).slice(0,50),
@@ -93,6 +94,13 @@ export async function runDmsAgent(ctx){
             const measured=await withTimeout(withDbRequestMetrics(()=>executeAiTool(ctx,call.name,call.arguments||{})),aiConfig.toolTimeoutMs,call.name);
             dbQueries+=Number(measured.metrics?.queries||0);dbQueryMs+=Number(measured.metrics?.queryMs||0);
             mergeUi(ui,measured.result.ui);
+            if (call.name === 'search_knowledge_base'
+              && Number(measured.result.modelData?.totalShown || 0) === 0
+              && aiConfig.webSearchEnabled
+              && !webEnabledForTurn) {
+              webEnabledForTurn = true;
+              tools = declarationsForUser(ctx, { includeWeb: true });
+            }
             if (/^(search_|get_statistics$|get_technician_activity$)/.test(call.name)) {
               ui.context = {
                 ...ui.context,
