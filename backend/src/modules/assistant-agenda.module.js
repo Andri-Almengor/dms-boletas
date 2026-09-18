@@ -10,6 +10,8 @@ import { assistantDynamicMaintenanceQuestionHandlers } from './assistant-dynamic
 import { aiAgentHandlers } from '../ai/agent.module.js';
 import { decideAiOperation } from '../ai/agent.repository.operations.js';
 import { largeEvidenceUploadHandlers } from '../services/large-evidence-upload.service.js';
+import { tryPasswordVaultAssistant } from '../services/password-vault-assistant.patch.js';
+import { tryPasswordVaultSystemAssistant } from '../services/password-vault-system-assistant.patch.js';
 
 function clean(value, fallback = '') {
   const text = String(value ?? '').trim();
@@ -319,6 +321,14 @@ async function chat(ctx) {
   if (action === 'attachment.init') return largeEvidenceUploadHandlers.assistantInit(ctx);
   if (action === 'attachment.chunk') return largeEvidenceUploadHandlers.assistantChunk(ctx);
   if (action === 'operation.decide') return decideAiOperation(ctx);
+
+  // Las credenciales autorizadas se resuelven enteramente en backend y se renderizan
+  // como respuesta sensible. Nunca se incluyen en el prompt ni en tool results de Gemini.
+  const systemCredentialResult = await tryPasswordVaultSystemAssistant(ctx);
+  if (systemCredentialResult) return systemCredentialResult;
+  const credentialResult = await tryPasswordVaultAssistant(ctx);
+  if (credentialResult) return credentialResult;
+
   return aiAgentHandlers.chat(ctx);
 }
 
