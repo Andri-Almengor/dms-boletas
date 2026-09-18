@@ -14,6 +14,18 @@ const REQUESTS=new Map();
 
 function clean(value,max=4000){return String(value??'').trim().slice(0,max);}
 function uniqueBy(items,key){const seen=new Set();return items.filter(item=>{const value=key(item);if(!value||seen.has(value))return false;seen.add(value);return true;});}
+function requiresInternalEvidence(message,context={}){
+  const text=String(message||'');
+  if(Object.keys(context||{}).some((key)=>/^last(Client|Maintenance|Ticket|Knowledge|Case|User|Device)/.test(key))) return true;
+  if(context?.pageContext?.entityId||context?.pageContext?.maintenanceId||context?.pageContext?.ticketId) return true;
+  return /\b(dms|boleta|boletas|mantenimiento|mantenimientos|cliente|clientes|técnico|tecnico|supervisor|evidencia|evidencias|dispositivo|dispositivos|cámara|camara|caso|casos|agenda|pendiente|finalizada|finalizó|finalizo|subió|subio|base de conocimiento)\b/i.test(text);
+}
+
+function requiresKnowledgeLookup(message){
+  return /\b(axis|onguard|lenel|milestone|xprotect|barco|faceme|morphomanager)\b/i.test(String(message||''))
+    && /\b(error|falla|problema|solucion|solución|solucionar|resolver|configurar|instalar|procedimiento|como|cómo)\b/i.test(String(message||''));
+}
+
 function externalRequested(message){
   const text=String(message||'');
   const explicit=/\b(internet|web|google|buscar en internet|busca en internet|búscalo en internet|buscar en la web|busca en la web)\b/i.test(text);
@@ -50,6 +62,8 @@ export async function runDmsAgent(ctx){
   const history=Array.isArray(ctx.payload?.history)?ctx.payload.history:[];
   const systemInstruction=buildAgentSystemPrompt({user:ctx.user,permissions:ctx.permissions,nowIso:costaRicaNowIso()});
   const inputText=buildAgentUserInput({message,history,context});
+  const internalEvidenceRequired=requiresInternalEvidence(message,context);
+  const knowledgeLookupRequired=requiresKnowledgeLookup(message);
   let webEnabledForTurn=externalRequested(message);
   let tools=declarationsForUser(ctx,{includeWeb:webEnabledForTurn});
   const timeline=[{type:'user_input',content:[{type:'text',text:inputText}]}];
@@ -66,6 +80,21 @@ export async function runDmsAgent(ctx){
       ui.sources.push(...externalSources(interaction));
       const calls=functionCalls(interaction);
       if(!calls.length){
+        const hasInternalTool=toolNames.length>0;
+        const hasKnowledgeTool=toolNames.includes('search_knowledge_base')||toolNames.includes('get_knowledge_article');
+        if(round<aiConfig.maxToolRounds-1
+          && ((internalEvidenceRequired&&!hasInternalTool)||(knowledgeLookupRequired&&!hasKnowledgeTool))){
+          timeline.push({
+            type:'user_input',
+            content:[{type:'text',text:knowledgeLookupRequired&&!hasKnowledgeTool
+              ? 'Antes de responder, consulta la base de conocimiento interna de DMS con search_knowledge_base. No inventes una solución interna.'
+              : 'Antes de responder esta pregunta sobre DMS, consulta una o más herramientas internas apropiadas. No respondas datos internos desde conocimiento general.'}],
+          });
+          continue;
+        }
+        if(internalEvidenceRequired&&!hasInternalTool){
+          throw new AppError('AI_INTERNAL_SOURCE_REQUIRED','No fue posible verificar la información interna solicitada. Intente nuevamente.',502);
+        }
         const answer=outputText(interaction);
         if(!answer) throw new AppError('AI_EMPTY_RESPONSE','Gemini no devolvió una respuesta utilizable.',502);
         const response={
