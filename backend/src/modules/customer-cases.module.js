@@ -8,8 +8,7 @@ import {
   findOneBy,
   findRows,
   nextCustomerCaseNumber,
-  readTable,
-  readTables,
+  queryCustomerCasePage,
   updateRow,
 } from '../infra/sheets.repository.js';
 import {
@@ -553,29 +552,10 @@ export const customerCaseHandlers = {
     await reconcileCustomerCases(ctx.user.UsuarioID).catch((error) => {
       console.warn(`[customer-cases] No se pudo reconciliar el cierre: ${error.message}`);
     });
-    let rows = (await readTable('CasosClientes')).filter((row) => row.Activo !== false).map(caseView);
-    const state = clean(pick(ctx.payload, ['status', 'estado']), 50);
-    const clientId = clean(pick(ctx.payload, ['clientId', 'ClienteID']), 200);
-    const search = clean(pick(ctx.payload, ['search', 'q']), 300).toLowerCase();
-    if (state) rows = rows.filter((row) => normalizeState(row.Estado) === normalizeState(state));
-    if (clientId) rows = rows.filter((row) => clean(row.ClienteID) === clientId);
-    if (search) rows = rows.filter((row) => `${row.CasoNumero} ${row.Cliente} ${row.RazonVisita} ${row.Problema} ${row.NombreSolicitante} ${row.CorreoSolicitante}`.toLowerCase().includes(search));
-    rows.sort((a, b) => clean(b.FechaCreacion).localeCompare(clean(a.FechaCreacion)));
-    const all = (await readTable('CasosClientes')).filter((row) => row.Activo !== false).map(caseView);
-    const counts = {
-      EN_ESPERA: all.filter((row) => row.Estado === 'EN_ESPERA').length,
-      EN_PROCESO: all.filter((row) => row.Estado === 'EN_PROCESO').length,
-      FINALIZADO: all.filter((row) => row.Estado === 'FINALIZADO').length,
-      TOTAL: all.length,
-    };
-    const page = Math.max(1, Number(ctx.payload.page || 1));
-    const pageSize = Math.min(200, Math.max(1, Number(ctx.payload.pageSize || 60)));
+    const result = await queryCustomerCasePage(ctx.payload || {});
     return {
-      items: rows.slice((page - 1) * pageSize, page * pageSize),
-      total: rows.length,
-      page,
-      pageSize,
-      counts,
+      ...result,
+      items: result.items.map(caseView),
     };
   },
 
