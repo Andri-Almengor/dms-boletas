@@ -1,5 +1,5 @@
 import { badRequest, notFound } from '../core/errors.js';
-import { assertAiCapability } from './agent.permissions.js';
+import { aiAccess, appendTicketVisibility, assertAiCapability } from './agent.permissions.js';
 import {
   active, addRange, aliasQuery, clean, entity, like, many, one,
   pageLimit, pageOffset, protectedAttachment, source,
@@ -90,6 +90,37 @@ export async function getMaintenance(ctx,args={}){
         ORDER BY cc."Nombre" ASC LIMIT 20`,
       [row.clientId],'ai.maintenance.supervisors'):Promise.resolve([]),
   ]);
+  let relatedTickets = [];
+  let relatedTicketCount = null;
+  if (aiAccess(ctx).tickets) {
+    const ticketParams = [row.id];
+    const visibility = appendTicketVisibility(ctx, ticketParams, 'b');
+    const count = await one(
+      `SELECT COUNT(*)::bigint AS total FROM "Boletas" b
+        WHERE b."__valid"=TRUE
+          AND b."OrigenMantenimientoID"=$1
+          AND UPPER(COALESCE(b."Estado",''))<>'ANULADA'
+          AND ${visibility}`,
+      ticketParams,
+      'ai.maintenance.relatedTickets.count',
+    );
+    relatedTicketCount = Number(count?.total || 0);
+    const itemParams = [...ticketParams, 20];
+    relatedTickets = await many(
+      `SELECT b."BoletaUID" AS uid,b."BoletaID" AS number,b."Titulo" AS title,
+              b."Estado" AS status,b."Fecha" AS date,b."FinalizadaEn" AS "finishedAt"
+         FROM "Boletas" b
+        WHERE b."__valid"=TRUE
+          AND b."OrigenMantenimientoID"=$1
+          AND UPPER(COALESCE(b."Estado",''))<>'ANULADA'
+          AND ${visibility}
+        ORDER BY COALESCE(NULLIF(b."FinalizadaEn",''),b."Fecha",b."FechaCreacion") DESC NULLS LAST
+        LIMIT ${itemParams.length}`,
+      itemParams,
+      'ai.maintenance.relatedTickets.items',
+    );
+  }
+
   const item={
     id:row.id,title:row.title||'Mantenimiento',clientId:row.clientId||'',client:row.client||'',
     locationId:row.locationId||'',location:row.location||'',status:row.status||'',date:row.date||'',
@@ -97,7 +128,13 @@ export async function getMaintenance(ctx,args={}){
     expectedCounts:clean(row.expectedCounts,3200),
     deviceCount:categories.reduce((sum,x)=>sum+Number(x.total||0),0),
     categories:categories.map(x=>({category:x.category,total:Number(x.total||0),withObservations:Number(x.withObservations||0)})),
-    supervisors,createdBy:row.createdBy||'',createdAt:row.createdAt||'',updatedBy:row.updatedBy||'',updatedAt:row.updatedAt||'',
+    supervisors,
+    relatedTicketCount,
+    relatedTickets:relatedTickets.map((ticket)=>({
+      uid:ticket.uid,number:ticket.number||ticket.uid,title:ticket.title||'',status:ticket.status||'',
+      date:ticket.date||'',finishedAt:ticket.finishedAt||'',
+    })),
+    createdBy:row.createdBy||'',createdAt:row.createdAt||'',updatedBy:row.updatedBy||'',updatedAt:row.updatedAt||'',
   };
   return {
     modelData:item,
@@ -242,10 +279,35 @@ export async function searchDevices(ctx,args={}){
   };
 }
 
+
+export async function getMaintenanceHistory(ctx,args={}){
+  const maintenance=await maintenanceRow(ctx,args.maintenanceId);
+  const rows=await many(
+    `SELECT a."Accion" AS action,a."UsuarioID" AS "userId",a."UsuarioNombre" AS "userName",a."Fecha" AS date
+       FROM "Auditoria" a
+      WHERE a."__valid"=TRUE AND a."EntidadID"=$1
+      ORDER BY a."Fecha" DESC NULLS LAST
+      LIMIT $2`,
+    [maintenance.id,pageLimit(args.limit,30)],
+    'ai.maintenance.history',
+  );
+  return {
+    modelData:{
+      maintenance:{id:maintenance.id,title:maintenance.title||'Mantenimiento',client:maintenance.client||''},
+      createdAt:maintenance.createdAt||'',updatedAt:maintenance.updatedAt||'',finishedAt:maintenance.finishedAt||'',
+      events:rows,
+    },
+    entities:[entity('maintenance',maintenance.id,maintenance.title||'Mantenimiento','/mantenimientos/'+encodeURIComponent(maintenance.id))],
+    sources:[source('maintenance',maintenance.id,(maintenance.title||'Mantenimiento')+' · historial','/mantenimientos/'+encodeURIComponent(maintenance.id))],
+    context:{lastMaintenanceId:maintenance.id,lastMaintenanceName:maintenance.title||'',lastClientId:maintenance.clientId||'',lastClientName:maintenance.client||''},
+  };
+}
+
 export const maintenanceRepositoryTools=Object.freeze({
   search_maintenances:searchMaintenances,
   get_maintenance:getMaintenance,
   get_maintenance_devices:getMaintenanceDevices,
   get_maintenance_evidence:getMaintenanceEvidence,
+  get_maintenance_history:getMaintenanceHistory,
   search_devices:searchDevices,
 });
