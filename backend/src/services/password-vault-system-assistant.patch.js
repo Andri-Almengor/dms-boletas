@@ -253,16 +253,28 @@ async function systemCredentialAnswer(ctx, question, tables) {
   };
 }
 
+export async function tryPasswordVaultSystemAssistant(ctx) {
+  const question = clean(ctx.payload?.message || ctx.payload?.question, 1200);
+  if (!likelyCredentialQuestion(question)) return null;
+
+  const tables = await readTables(['Clientes', 'CategoriasCredenciales', 'CredencialesClientes']);
+  const categoriesById = new Map(
+    (tables.CategoriasCredenciales || []).map((category) => [
+      clean(category.CategoriaCredencialID, 220),
+      category,
+    ]),
+  );
+  if (!credentialSystemRequestIntent(question, tables.CredencialesClientes || [], categoriesById)) return null;
+  return systemCredentialAnswer(ctx, question, tables);
+}
+
 if (!assistantDynamicMaintenanceQuestionHandlers[INSTALL_FLAG]) {
   const originalChat = assistantDynamicMaintenanceQuestionHandlers.chat;
   assistantDynamicMaintenanceQuestionHandlers.chat = async (ctx) => {
     const question = clean(ctx.payload?.message || ctx.payload?.question, 1200);
-    if (!likelyCredentialQuestion(question)) return originalChat(ctx);
-
-    const tables = await readTables(['Clientes', 'CategoriasCredenciales', 'CredencialesClientes']);
-    const categoriesById = new Map((tables.CategoriasCredenciales || []).map((category) => [clean(category.CategoriaCredencialID, 220), category]));
-    if (!credentialSystemRequestIntent(question, tables.CredencialesClientes || [], categoriesById)) return originalChat(ctx);
-    return systemCredentialAnswer(ctx, question, tables);
+    const result = await tryPasswordVaultSystemAssistant(ctx);
+    if (result) return result;
+    return originalChat(ctx);
   };
   assistantDynamicMaintenanceQuestionHandlers[INSTALL_FLAG] = true;
 }
