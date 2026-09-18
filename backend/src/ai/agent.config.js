@@ -24,7 +24,7 @@ const lastResortModel = modelEnv('GEMINI_LAST_RESORT_MODEL');
 
 export const aiConfig = Object.freeze({
   enabled: boolEnv('AI_AGENT_ENABLED', boolEnv('AI_CHAT_ENABLED', true)),
-  webSearchEnabled: boolEnv('AI_WEB_SEARCH_ENABLED', false),
+  webSearchEnabled: boolEnv('AI_WEB_SEARCH_ENABLED', true),
 
   // GEMINI_MODEL remains a compatibility alias; no concrete model name is hardcoded.
   primaryModel,

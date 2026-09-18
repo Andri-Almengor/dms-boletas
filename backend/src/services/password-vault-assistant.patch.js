@@ -112,7 +112,7 @@ function clarification(question, message, clients, context = {}) {
 function credentialIntent(question) {
   const value = normalized(question);
   return /\b(contrasena|contrasenas|password|passwords|credencial|credenciales|clave|claves)\b/.test(value)
-    && /\b(usuario|usuarios|sistema|sistemas|camara|camaras|acceso|accesos|lista|listar|dame|mostrar|muestrame|cual|cuales)\b/.test(value);
+    && /\b(usuario|usuarios|sistema|sistemas|camara|camaras|acceso|accesos|cliente|clientes|lista|listar|dame|mostrar|muestrame|cual|cuales)\b/.test(value);
 }
 
 function caseIntent(question) {
@@ -148,6 +148,10 @@ function remainingCredentialSearch(question, client, category) {
     .split(' ')
     .filter((token) => token.length > 2 && !ignored.has(token))
     .join(' ');
+}
+
+export function isPasswordVaultAssistantQuestion(question) {
+  return credentialIntent(question);
 }
 
 async function credentialAnswer(ctx, question) {
@@ -221,6 +225,10 @@ async function credentialAnswer(ctx, question) {
       lastIntent: 'credential_search',
     },
   };
+}
+
+export async function answerPasswordVaultAssistantQuestion(ctx, question) {
+  return credentialAnswer(ctx, question);
 }
 
 function parseIds(value) {
