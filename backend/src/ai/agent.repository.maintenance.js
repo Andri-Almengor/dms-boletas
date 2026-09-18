@@ -1,4 +1,5 @@
 import { badRequest, notFound } from '../core/errors.js';
+import { buildMaintenanceProgress } from '../core/maintenance-progress.js';
 import { aiAccess, appendTicketVisibility, assertAiCapability } from './agent.permissions.js';
 import {
   active, addRange, aliasQuery, clean, entity, like, many, one,
@@ -70,7 +71,7 @@ async function maintenanceRow(ctx,idValue){
 
 export async function getMaintenance(ctx,args={}){
   const row=await maintenanceRow(ctx,args.maintenanceId);
-  const [categories,supervisors]=await Promise.all([
+  const [categories,supervisors,progressDevices,deviceTypes,zones,evidenceSummaryRow]=await Promise.all([
     many(
       `SELECT COALESCE(NULLIF(d."TipoDispositivo",''),NULLIF(d."Categoria",''),'Sin categoría') AS category,
               COUNT(*)::bigint AS total,
@@ -89,6 +90,43 @@ export async function getMaintenance(ctx,args={}){
           AND LOWER(COALESCE(cc."EsSupervisor",'false'))='true'
         ORDER BY cc."Nombre" ASC LIMIT 20`,
       [row.clientId],'ai.maintenance.supervisors'):Promise.resolve([]),
+    many(
+      `SELECT d."TipoDispositivoID",d."TipoDispositivo",d."Categoria",d."Activo"
+         FROM "Evidencia_Mantenimientos" d
+        WHERE d."__valid"=TRUE AND d."MantenimientoRef"=$1`,
+      [row.id],'ai.maintenance.progressDevices'),
+    many(
+      `SELECT td."TipoDispositivoID",td."Nombre"
+         FROM "TiposDispositivo" td
+        WHERE ${active('td')}
+        ORDER BY td."Nombre" ASC`,
+      [],'ai.maintenance.deviceTypes'),
+    many(
+      `SELECT COALESCE(NULLIF(d."Zona",''),'Sin zona') AS zone,
+              COUNT(*)::bigint AS total,
+              COUNT(*) FILTER (
+                WHERE COALESCE(NULLIF(d."Observacion",''),'')<>''
+                   OR UPPER(COALESCE(d."Estado",'')) LIKE '%FALL%'
+                   OR UPPER(COALESCE(d."Estado",'')) LIKE '%MAL%'
+                   OR UPPER(COALESCE(d."Estado",'')) LIKE '%ATEN%'
+                   OR LOWER(COALESCE(d."Funcionamiento",'')) IN ('no','mal','false')
+              )::bigint AS "withAttention"
+         FROM "Evidencia_Mantenimientos" d
+        WHERE ${active('d')} AND d."MantenimientoRef"=$1
+        GROUP BY 1 ORDER BY zone ASC`,
+      [row.id],'ai.maintenance.zones'),
+    one(
+      `SELECT COUNT(*)::bigint AS total,
+              COUNT(*) FILTER (WHERE LOWER(COALESCE(mi."MimeType",'')) LIKE 'image/%')::bigint AS images,
+              COUNT(*) FILTER (WHERE LOWER(COALESCE(mi."MimeType",'')) LIKE 'video/%')::bigint AS videos,
+              COUNT(*) FILTER (WHERE LOWER(COALESCE(mi."Tipo",''))='antes')::bigint AS before,
+              COUNT(*) FILTER (WHERE LOWER(COALESCE(mi."Tipo",'')) IN ('despues','después'))::bigint AS after
+         FROM "Mantenimiento imagenes" mi
+         JOIN "Evidencia_Mantenimientos" d
+           ON d."__valid"=TRUE AND LOWER(COALESCE(d."Activo",'true'))<>'false'
+          AND d."EvidenciaMantenimientoID"=mi."DispositivoMantenimientoRef"
+        WHERE ${active('mi')} AND d."MantenimientoRef"=$1`,
+      [row.id],'ai.maintenance.evidenceSummary'),
   ]);
   let relatedTickets = [];
   let relatedTicketCount = null;
@@ -121,6 +159,18 @@ export async function getMaintenance(ctx,args={}){
     );
   }
 
+  const progress=buildMaintenanceProgress({
+    maintenance:row,
+    devices:progressDevices,
+    deviceTypes,
+  });
+  const evidenceSummary={
+    total:Number(evidenceSummaryRow?.total||0),
+    images:Number(evidenceSummaryRow?.images||0),
+    videos:Number(evidenceSummaryRow?.videos||0),
+    before:Number(evidenceSummaryRow?.before||0),
+    after:Number(evidenceSummaryRow?.after||0),
+  };
   const item={
     id:row.id,title:row.title||'Mantenimiento',clientId:row.clientId||'',client:row.client||'',
     locationId:row.locationId||'',location:row.location||'',status:row.status||'',date:row.date||'',
@@ -128,6 +178,9 @@ export async function getMaintenance(ctx,args={}){
     expectedCounts:clean(row.expectedCounts,3200),
     deviceCount:categories.reduce((sum,x)=>sum+Number(x.total||0),0),
     categories:categories.map(x=>({category:x.category,total:Number(x.total||0),withObservations:Number(x.withObservations||0)})),
+    zones:zones.map(x=>({zone:x.zone,total:Number(x.total||0),withAttention:Number(x.withAttention||0)})),
+    progress,
+    evidenceSummary,
     supervisors,
     relatedTicketCount,
     relatedTickets:relatedTickets.map((ticket)=>({
@@ -181,9 +234,16 @@ export async function getMaintenanceDevices(ctx,args={}){
             d."Zona" AS zone,d."Fabricante" AS manufacturer,d."Modelo" AS model,d."Serie" AS serial,
             d."DireccionMAC" AS mac,d."Funcionamiento" AS functioning,d."EnUso" AS "inUse",
             d."Estado" AS status,d."Observacion" AS observation,d."FechaTrabajo" AS "workDate",
-            d."Tecnicos" AS technicians,
+            d."Tecnicos" AS technicians,d."CreadoPor" AS "createdBy",d."FechaCreacion" AS "createdAt",
+            d."ActualizadoPor" AS "updatedBy",d."FechaActualizacion" AS "updatedAt",
             (SELECT COUNT(*) FROM "Mantenimiento imagenes" mi
-             WHERE ${active('mi')} AND mi."DispositivoMantenimientoRef"=d."EvidenciaMantenimientoID")::bigint AS "evidenceCount"
+             WHERE ${active('mi')} AND mi."DispositivoMantenimientoRef"=d."EvidenciaMantenimientoID")::bigint AS "evidenceCount",
+            (SELECT COUNT(*) FROM "Mantenimiento imagenes" mi
+             WHERE ${active('mi')} AND mi."DispositivoMantenimientoRef"=d."EvidenciaMantenimientoID"
+               AND LOWER(COALESCE(mi."Tipo",''))='antes')::bigint AS "beforeEvidenceCount",
+            (SELECT COUNT(*) FROM "Mantenimiento imagenes" mi
+             WHERE ${active('mi')} AND mi."DispositivoMantenimientoRef"=d."EvidenciaMantenimientoID"
+               AND LOWER(COALESCE(mi."Tipo",'')) IN ('despues','después'))::bigint AS "afterEvidenceCount"
        FROM "Evidencia_Mantenimientos" d WHERE ${where}
       ORDER BY COALESCE(NULLIF(d."Zona",''),'') ASC,COALESCE(NULLIF(d."NombreDispositivo",''),d."TipoDispositivo") ASC
       LIMIT $${queryParams.length-1} OFFSET $${queryParams.length}`,
@@ -192,7 +252,11 @@ export async function getMaintenanceDevices(ctx,args={}){
     id:row.id,name:row.name||row.type||'Dispositivo',type:row.type||'',category:row.category||'',
     zone:row.zone||'',manufacturer:row.manufacturer||'',model:row.model||'',serial:row.serial||'',mac:row.mac||'',
     functioning:row.functioning||'',inUse:row.inUse||'',status:row.status||'',observation:clean(row.observation,2200),
-    workDate:row.workDate||'',technicians:row.technicians||'',evidenceCount:Number(row.evidenceCount||0),
+    workDate:row.workDate||'',technicians:row.technicians||'',
+    createdBy:row.createdBy||'',createdAt:row.createdAt||'',updatedBy:row.updatedBy||'',updatedAt:row.updatedAt||'',
+    evidenceCount:Number(row.evidenceCount||0),
+    beforeEvidenceCount:Number(row.beforeEvidenceCount||0),
+    afterEvidenceCount:Number(row.afterEvidenceCount||0),
   }));
   return {
     modelData:{maintenance:{id:maintenance.id,title:maintenance.title||'Mantenimiento',client:maintenance.client||''},total:Number(counted?.total||0),totalShown:items.length,items},
