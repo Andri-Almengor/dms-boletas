@@ -192,6 +192,113 @@ export async function queryAgendaTickets({ dates = [], ticketIds = [] } = {}) {
   return result.rows.map(publicRow);
 }
 
+export async function queryKnowledgeArticlePage(payload = {}, { viewerUserId = '', canManage = false } = {}) {
+  const page = Math.max(1, Number(payload.page || 1));
+  const pageSize = Math.min(1000, Math.max(1, Number(payload.pageSize || 100)));
+  const params = [];
+  const clauses = ['a."__valid"=TRUE', `LOWER(COALESCE(a."Activo",'true')) <> 'false'`];
+  const published = `UPPER(COALESCE(NULLIF(a."Estado",''),'PUBLICADO'))='PUBLICADO'`;
+  const includeDrafts = ['true','1','si','sí','yes','on'].includes(String(payload.includeDrafts ?? '').trim().toLowerCase());
+  const viewer = String(viewerUserId || '').trim();
+  if (!includeDrafts) clauses.push(published);
+  else if (!canManage) {
+    params.push(viewer);
+    clauses.push(`(${published} OR a."AutorUsuarioID"=$${params.length})`);
+  }
+
+  const requestedAuthor = String(payload.autorUsuarioId || payload.AutorUsuarioID || '').trim();
+  if (requestedAuthor) {
+    params.push(requestedAuthor);
+    clauses.push(`a."AutorUsuarioID"=$${params.length}`);
+  }
+
+  const requestedCategory = String(payload.categoriaId || payload.CategoriaConocimientoID || '').trim();
+  if (requestedCategory) {
+    params.push(requestedCategory);
+    const p = `$${params.length}`;
+    clauses.push(`(
+      EXISTS (
+        SELECT 1 FROM "KnowledgeArticleCategories" rel
+        WHERE rel."__valid"=TRUE
+          AND rel."TutorialID"=a."TutorialID"
+          AND rel."CategoriaConocimientoID"=${p}
+          AND LOWER(COALESCE(rel."Activo",'true')) <> 'false'
+          AND UPPER(COALESCE(rel."Estado",'')) <> 'INACTIVO'
+      )
+      OR (
+        a."CategoriaConocimientoID"=${p}
+        AND NOT EXISTS (
+          SELECT 1 FROM "KnowledgeArticleCategories" rel_any
+          WHERE rel_any."__valid"=TRUE
+            AND rel_any."TutorialID"=a."TutorialID"
+            AND LOWER(COALESCE(rel_any."Activo",'true')) <> 'false'
+            AND UPPER(COALESCE(rel_any."Estado",'')) <> 'INACTIVO'
+        )
+      )
+    )`);
+  }
+
+  const search = String(payload.search || payload.q || '').trim();
+  if (search) {
+    params.push(`%${search}%`);
+    const p = `$${params.length}`;
+    clauses.push(`(
+      COALESCE(a."Titulo",'') ILIKE ${p}
+      OR COALESCE(a."ProblemaResuelto",'') ILIKE ${p}
+      OR COALESCE(a."ContenidoHTML",'') ILIKE ${p}
+      OR EXISTS (
+        SELECT 1
+        FROM "KnowledgeArticleCategories" rel
+        JOIN "KnowledgeCategories" cat
+          ON cat."__valid"=TRUE AND cat."CategoriaConocimientoID"=rel."CategoriaConocimientoID"
+        WHERE rel."__valid"=TRUE
+          AND rel."TutorialID"=a."TutorialID"
+          AND LOWER(COALESCE(rel."Activo",'true')) <> 'false'
+          AND UPPER(COALESCE(rel."Estado",'')) <> 'INACTIVO'
+          AND COALESCE(cat."Nombre",'') ILIKE ${p}
+      )
+      OR EXISTS (
+        SELECT 1 FROM "KnowledgeCategories" legacy_cat
+        WHERE legacy_cat."__valid"=TRUE
+          AND legacy_cat."CategoriaConocimientoID"=a."CategoriaConocimientoID"
+          AND COALESCE(legacy_cat."Nombre",'') ILIKE ${p}
+      )
+      OR EXISTS (
+        SELECT 1 FROM "Usuarios" author
+        WHERE author."__valid"=TRUE
+          AND author."UsuarioID"=a."AutorUsuarioID"
+          AND (
+            COALESCE(author."NombreCompleto",'') ILIKE ${p}
+            OR COALESCE(author."NombreUsuario",'') ILIKE ${p}
+          )
+      )
+    )`);
+  }
+
+  const where = clauses.join(' AND ');
+  const count = await query(
+    `SELECT COUNT(*)::bigint AS total FROM "KnowledgeArticles" a WHERE ${where}`,
+    params,
+    { label: 'knowledge.list.count' },
+  );
+  const pageParams = [...params, pageSize, (page - 1) * pageSize];
+  const rows = await query(
+    `SELECT ${selectList('KnowledgeArticles','a')}
+     FROM "KnowledgeArticles" a
+     WHERE ${where}
+     ORDER BY a."__db_id" ASC
+     LIMIT $${pageParams.length - 1} OFFSET $${pageParams.length}`,
+    pageParams,
+    { label: 'knowledge.list.items' },
+  );
+  return {
+    items: rows.rows.map(publicRow),
+    total: Number(count.rows[0]?.total || 0),
+    page,
+    pageSize,
+  };
+}
+
 export async function queryMaintenanceHomeSummary(payload = {}) {
   const params = [];
   const clauses = ['"__valid"=TRUE', `LOWER(COALESCE("Activo",'true')) <> 'false'`];
