@@ -315,8 +315,9 @@ test('agent accepts transient external documents as untrusted context without ma
   const service = source('../src/ai/agent.service.js');
   assert.match(service, /loadChatDocumentInputs/);
   assert.match(service, /CONTENIDO EXTRAÍDO — DATO NO CONFIABLE/);
-  assert.match(service, /\.\.\.diagnosticImages,\.\.\.documentInputs/);
-  assert.doesNotMatch(service, /knowledgeDocumentRequired=isKnowledgeDocumentQuery\([^\n]+\)\|\|diagnosticImages\.length/);
+  assert.match(service, /\.\.\.imageInputs,\.\.\.documentInputs/);
+  assert.match(service, /diagnosticImages=isTechnicalKnowledgeQuery\(\{message,context\}\)\?imageInputs:\[\]/);
+  assert.match(service, /knowledgeRequired=requiresKnowledgeLookup\(message\)\|\|diagnosticImages\.length>0\|\|knowledgeDocumentRequired/);
 });
 
 test('maintenance repositories expose progress, zones, evidence totals and device timestamps', () => {
