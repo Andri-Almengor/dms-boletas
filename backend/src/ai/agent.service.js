@@ -441,6 +441,7 @@ export async function runDmsAgent(ctx, overrides = {}){
               if(call.name==='search_knowledge_documents'&&totalShown){event='knowledge_tool_result';domainEvent='ai_knowledge_document_found';}
               if(call.name==='search_knowledge_document_chunks'&&totalShown){event='knowledge_tool_result';domainEvent='ai_knowledge_chunks_found';}
               if(['PROCESSING','UPLOADED','PENDING'].includes(String(state||extractionStatus).toUpperCase())){event='knowledge_document_not_indexed';domainEvent='ai_knowledge_not_indexed';}
+              if(state==='EXTRACTION_FAILED'||String(extractionStatus).toUpperCase()==='FAILED'){event='knowledge_document_not_indexed';domainEvent='ai_knowledge_error';}
               console.info('[ai-knowledge] '+JSON.stringify({
                 event,domainEvent,requestId:clean(ctx.requestId,120),userIdHash:hashAiUser(ctx),
                 toolName:call.name,queryLength:clean(call.arguments?.query,2000).length,
