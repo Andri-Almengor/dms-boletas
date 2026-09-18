@@ -178,19 +178,21 @@ export async function getMaintenanceEvidence(ctx,args={}){
   const rows=await many(
     `SELECT mi."FotoDispositivoID" AS id,mi."Nombre" AS name,mi."Nota" AS note,
             mi."MimeType" AS "mimeType",mi."TipoMedio" AS "mediaType",mi."FechaCreacion" AS "createdAt",
-            mi."CreadoPor" AS "createdBy",mi."DriveFileID" AS "__file",
+            mi."CreadoPor" AS "createdBy",COALESCE(NULLIF(uploader."NombreCompleto",''),uploader."NombreUsuario",mi."CreadoPor") AS "uploadedBy",
+            mi."DriveFileID" AS "__file",
             d."EvidenciaMantenimientoID" AS "deviceId",d."NombreDispositivo" AS "deviceName",
             COALESCE(NULLIF(d."TipoDispositivo",''),d."Categoria") AS "deviceType",d."Zona" AS zone
        FROM "Mantenimiento imagenes" mi
        JOIN "Evidencia_Mantenimientos" d
          ON d."__valid"=TRUE AND mi."DispositivoMantenimientoRef"=d."EvidenciaMantenimientoID"
+       LEFT JOIN "Usuarios" uploader ON uploader."__valid"=TRUE AND uploader."UsuarioID"=mi."CreadoPor"
       WHERE ${clauses.join(' AND ')}
       ORDER BY d."Zona" ASC NULLS LAST,d."NombreDispositivo" ASC NULLS LAST,mi."FechaCreacion" ASC NULLS LAST
       LIMIT $${params.length}`,
     params,'ai.maintenance.evidence');
   const items=rows.map(row=>({
     id:row.id,name:row.name||'Evidencia',note:clean(row.note,1600),mimeType:row.mimeType||'application/octet-stream',
-    mediaType:row.mediaType||'',createdAt:row.createdAt||'',createdBy:row.createdBy||'',deviceId:row.deviceId||'',
+    mediaType:row.mediaType||'',createdAt:row.createdAt||'',createdBy:row.createdBy||'',uploadedBy:row.uploadedBy||row.createdBy||'',deviceId:row.deviceId||'',
     deviceName:row.deviceName||row.deviceType||'Dispositivo',deviceType:row.deviceType||'',zone:row.zone||'',
   }));
   const attachments=rows.map(row=>protectedAttachment(ctx,{
