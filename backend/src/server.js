@@ -64,6 +64,11 @@ let shuttingDown = false;
 const startupRss = process.memoryUsage().rss;
 try {
   await query('SELECT schema_version FROM sync_state WHERE singleton=TRUE', [], { label: 'startup.health' });
+  await query(
+    'SELECT "SizeBytes","IsPrimary","ExtractionStatus","Status" FROM "KnowledgeAttachments" LIMIT 0',
+    [],
+    { label: 'startup.knowledge_schema' },
+  );
   logRuntime('postgres_ready', {}, { rssDeltaBytes: process.memoryUsage().rss - startupRss });
 } catch (error) {
   logRuntime('postgres_failed', {}, { error: safeError(error) });

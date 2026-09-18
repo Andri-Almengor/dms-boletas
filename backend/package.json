@@ -8,6 +8,7 @@
   },
   "scripts": {
     "dev": "node --expose-gc --import ./src/services/gemini-model-router.bootstrap.js --import ./src/services/maintenance-finalization-router.bootstrap.js --watch src/server.js",
+    "prestart": "node src/scripts/db-migrate.js",
     "start": "node --expose-gc --import ./src/services/gemini-model-router.bootstrap.js --import ./src/services/maintenance-finalization-router.bootstrap.js src/server.js",
     "check": "for f in src/ai/*.js; do node --check \"$f\" || exit 1; done && node --check src/services/gemini-model-router.bootstrap.js && node --check src/services/maintenance-finalization-router.bootstrap.js && node --check src/services/sheets-memory-guard.service.js && node --check src/server.js && node --test test/*.test.js test/storage-boundary.mjs test/xlsx-migration.mjs",
     "test:db": "node --test test/postgres-integration.mjs",

@@ -63,7 +63,7 @@ startCommand: npm --prefix backend start
 healthCheckPath: /api/health
 ```
 
-El backend valida PostgreSQL/migraciones antes de iniciar el servicio HTTP y schedulers.
+Antes de ejecutar `start`, npm ejecuta automáticamente `prestart`, que aplica todas las migraciones PostgreSQL pendientes con `backend/src/scripts/db-migrate.js`. Después, el backend valida tanto PostgreSQL como las columnas críticas de Knowledge antes de abrir el servicio HTTP y los schedulers. Si una migración falla, el servicio no inicia con un esquema parcialmente incompatible.
 
 ## 5. Snapshot autoritativo cargado
 
