@@ -103,7 +103,7 @@ export function sanitizeActiveContext(raw = {}) {
   if (page && typeof page === 'object') {
     const route = cleanString(page.route, 500);
     output.pageContext = {
-      route: route.startsWith('/') ? route : '',
+      ...(route.startsWith('/') ? { route } : {}),
       entityType: cleanString(page.entityType, 80),
       entityId: cleanString(page.entityId, 250),
       clientId: cleanString(page.clientId, 250),
