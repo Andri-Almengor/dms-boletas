@@ -1,3 +1,4 @@
+import { performance } from 'node:perf_hooks';
 import { badRequest, notFound } from '../core/errors.js';
 import { appendKnowledgeVisibility, assertAiCapability } from './agent.permissions.js';
 import { aiConfig } from './agent.config.js';
@@ -65,6 +66,16 @@ export async function searchKnowledgeDocuments(ctx, args = {}) {
       OR COALESCE(ka."SearchText",'') ILIKE ${p} ESCAPE '\\'
       OR a."Titulo" ILIKE ${p} ESCAPE '\\'
       OR a."ProblemaResuelto" ILIKE ${p} ESCAPE '\\'
+      OR EXISTS (
+        SELECT 1
+          FROM "KnowledgeArticleCategories" rel
+          JOIN "KnowledgeCategories" cat
+            ON cat."__valid"=TRUE AND cat."CategoriaConocimientoID"=rel."CategoriaConocimientoID"
+         WHERE rel."__valid"=TRUE
+           AND rel."TutorialID"=a."TutorialID"
+           AND LOWER(COALESCE(rel."Activo",'true')) <> 'false'
+           AND cat."Nombre" ILIKE ${p} ESCAPE '\\'
+      )
       OR EXISTS (
         SELECT 1
           FROM "KnowledgeDocumentChunks" kdc
@@ -183,6 +194,7 @@ export async function getKnowledgeDocument(ctx, args = {}) {
 }
 
 export async function searchKnowledgeDocumentChunks(ctx, args = {}) {
+  const searchStarted = performance.now();
   assertAiCapability(ctx, 'knowledge');
   if (!aiConfig.knowledgeDocumentsEnabled) {
     return { modelData: { disabled: true, totalShown: 0, items: [] } };
@@ -279,6 +291,8 @@ export async function searchKnowledgeDocumentChunks(ctx, args = {}) {
     mimeType: row.mimeType || '',
   }));
 
+  console.info('[ai-knowledge-search] '+JSON.stringify({searchMs:Math.round(performance.now()-searchStarted),chunksReturned:items.length,sourceType:'knowledge_document_chunk',documentScoped:Boolean(documentId),articleScoped:Boolean(articleId)}));
+
   return {
     modelData: { totalShown: items.length, query: q, items },
     entities: items.slice(0, 1).map((item) => entity(
@@ -300,6 +314,7 @@ export async function searchKnowledgeDocumentChunks(ctx, args = {}) {
       lastKnowledgeArticleId: items[0].articleId,
       lastKnowledgeDocumentId: items[0].documentId,
       lastKnowledgeDocumentName: items[0].documentName,
+      ...(items[0].pageNumber !== null ? { lastKnowledgePage: String(items[0].pageNumber) } : {}),
     } : {},
   };
 }
