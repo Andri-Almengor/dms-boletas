@@ -2,6 +2,7 @@ import crypto from 'node:crypto';
 import { AppError, badRequest, forbidden, notFound } from '../core/errors.js';
 import { nowIso, uuid } from '../core/utils.js';
 import { query } from '../infra/postgres.js';
+import { appendRow } from '../infra/sheets.repository.js';
 import { audit } from '../services/audit.service.js';
 import { maintenanceProgressChatHandlers } from '../modules/maintenance-progress-chat.module.js';
 import { aiConfig } from './agent.config.js';
@@ -417,14 +418,24 @@ async function commitEvidence(ctx,op){
       }
       const upload=await chatUpload(ctx,item.uploadId);
       const timestamp=nowIso();
-      await query(
-        `INSERT INTO "Mantenimiento imagenes"
-          ("FotoDispositivoID","DispositivoMantenimientoRef","Tipo","Nombre","MimeType","Size","DriveFileID","DriveURL",
-           "Activo","CreadoPor","FechaCreacion","ActualizadoPor","FechaActualizacion","TipoMedio","__valid")
-         VALUES ($1,$2,$3,$4,$5,$6,$7,$8,'true',$9,$10,$9,$10,'IMAGE',TRUE)`,
-        [item.imageId,args.deviceId,args.stage==='DESPUES'?'Despues':'Antes',upload.name,upload.mimeType,String(upload.size||''),upload.__file,upload.__url||'',clean(ctx.user?.UsuarioID,250),timestamp],
-        {label:'ai.operation.evidence.insert',write:true},
-      );
+      await appendRow('Mantenimiento imagenes',{
+        FotoDispositivoID:item.imageId,
+        DispositivoMantenimientoRef:args.deviceId,
+        Tipo:args.stage==='DESPUES'?'Despues':'Antes',
+        Nombre:upload.name,
+        Nota:'',
+        MimeType:upload.mimeType,
+        Size:String(upload.size||''),
+        TipoMedio:'IMAGE',
+        DuracionSegundos:'',
+        DriveFileID:upload.__file,
+        DriveURL:upload.__url||'',
+        Activo:true,
+        CreadoPor:clean(ctx.user?.UsuarioID,250),
+        FechaCreacion:timestamp,
+        ActualizadoPor:clean(ctx.user?.UsuarioID,250),
+        FechaActualizacion:timestamp,
+      });
       await query(
         `UPDATE "AiChatUploads" SET "Status"='CONSUMED',"ConsumedAt"=$2,"OperationID"=$3
           WHERE "UploadID"=$1 AND "__valid"=TRUE`,
