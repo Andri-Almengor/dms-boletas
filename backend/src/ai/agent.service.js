@@ -14,6 +14,76 @@ const REQUESTS=new Map();
 
 function clean(value,max=4000){return String(value??'').trim().slice(0,max);}
 function uniqueBy(items,key){const seen=new Set();return items.filter(item=>{const value=key(item);if(!value||seen.has(value))return false;seen.add(value);return true;});}
+
+function uniqueStrings(values = [], limit = 24) {
+  return [...new Set(values.map((value) => clean(value, 300)).filter(Boolean))].slice(-limit);
+}
+
+function detectTechnicalProduct(message = '', previous = '') {
+  const value = String(message || '');
+  const products = [
+    [/\bOnGuard\b/i, 'OnGuard'],
+    [/\bLenelS2\b|\bLenel\b/i, 'LenelS2'],
+    [/\bXProtect\b/i, 'Milestone XProtect'],
+    [/\bMilestone\b/i, 'Milestone'],
+    [/\bAxis\b/i, 'Axis'],
+    [/\bBarco(?:\s+CTRL)?\b/i, 'Barco CTRL'],
+    [/\bFaceMe\b/i, 'FaceMe'],
+    [/\bWindows\s+Server\b/i, 'Windows Server'],
+    [/\bSQL\s+Server\b/i, 'SQL Server'],
+    [/\bPostgreSQL\b/i, 'PostgreSQL'],
+    [/\bODBC\b/i, 'ODBC'],
+    [/\bCamera\s+Station\b/i, 'Camera Station'],
+    [/\bAccess\s+Control\b/i, 'Access Control'],
+  ];
+  return products.find(([pattern]) => pattern.test(value))?.[1] || clean(previous, 160);
+}
+
+function updateTroubleshootingContext(context = {}, message = '') {
+  const previous = context.currentTechnicalIssue && typeof context.currentTechnicalIssue === 'object'
+    ? context.currentTechnicalIssue
+    : {};
+  const product = detectTechnicalProduct(message, previous.product || context.lastTechnicalProduct);
+  const technical = Boolean(product) || /\b(error|falla|problema|no responde|no funciona|troubleshoot|diagn[oó]stic)\b/i.test(message);
+  if (!technical && !Object.keys(previous).length) return context;
+
+  const sentences = String(message || '').split(/(?:\r?\n|(?<=[.!?])\s+)/).map((item) => clean(item, 300)).filter(Boolean);
+  const attempted = sentences.filter((item) => /\b(ya|prob[eé]|revis[eé]|reinici[eé]|verifiqu[eé]|comprob[eé]|intent[eé]|descart[eé]|funciona|fall[óo]|no funciona|est[aá] iniciado|respond[ií]o)\b/i.test(item));
+  const successful = attempted.filter((item) => /\b(funciona|funcion[oó]|correcto|correctamente|respond[ií]o|est[aá] iniciado|est[aá] activo|conexi[oó]n.*bien)\b/i.test(item) && !/\b(no funciona|fall[óo]|error)\b/i.test(item));
+  const failed = attempted.filter((item) => /\b(no funciona|no funcion[oó]|fall[óo]|sigue|mismo error|sin respuesta)\b/i.test(item));
+  const issueSentence = sentences.find((item) => /\b(error|falla|problema|no responde|no funciona)\b/i.test(item));
+  const errorCodes = String(message || '').match(/\b(?:0x[0-9a-f]+|ERR(?:OR)?[_ -]?[A-Z0-9-]{2,}|E[0-9]{3,})\b/gi) || [];
+
+  const issue = {
+    product,
+    problem: clean(previous.problem || issueSentence || context.lastTechnicalIssue, 500),
+    errorCodes: uniqueStrings([...(previous.errorCodes || []), ...errorCodes]),
+    confirmedFacts: uniqueStrings([...(previous.confirmedFacts || []), ...successful]),
+    attemptedSteps: uniqueStrings([...(previous.attemptedSteps || []), ...attempted]),
+    ruledOutCauses: uniqueStrings([...(previous.ruledOutCauses || []), ...successful]),
+    successfulTests: uniqueStrings([...(previous.successfulTests || []), ...successful]),
+    failedTests: uniqueStrings([...(previous.failedTests || []), ...failed]),
+  };
+
+  return {
+    ...context,
+    currentTechnicalIssue: issue,
+    ...(product ? { lastTechnicalProduct: product } : {}),
+    ...(issue.problem ? { lastTechnicalIssue: issue.problem } : {}),
+  };
+}
+
+function imageInputs(raw = []) {
+  const items = Array.isArray(raw) ? raw.slice(0, 3) : [];
+  return items.map((item) => {
+    const mimeType = clean(item?.mimeType, 120).toLowerCase();
+    const data = String(item?.data || item?.base64 || '').replace(/^data:[^;,]+;base64,/i, '').replace(/\s+/g, '');
+    if (!/^image\/(?:png|jpe?g|webp|gif|bmp|tiff|heic|heif)$/.test(mimeType)) throw badRequest('El asistente solo admite imágenes en los adjuntos de diagnóstico.');
+    if (!data || data.length > 14_000_000 || !/^[A-Za-z0-9+/=]+$/.test(data)) throw badRequest('La imagen adjunta no es válida o supera el tamaño seguro para análisis.');
+    return { type: 'image', data, mime_type: mimeType, resolution: 'high' };
+  });
+}
+
 function requiresInternalEvidence(message,context={}){
   const text=String(message||'');
   if(Object.keys(context||{}).some((key)=>/^last(Client|Maintenance|Ticket|Knowledge|Case|User|Device)/.test(key))) return true;
@@ -23,8 +93,8 @@ function requiresInternalEvidence(message,context={}){
 }
 
 function requiresKnowledgeLookup(message){
-  return /\b(axis|onguard|lenel|milestone|xprotect|barco|faceme|morphomanager)\b/i.test(String(message||''))
-    && /\b(error|falla|problema|solucion|solución|solucionar|resolver|configurar|instalar|procedimiento|como|cómo)\b/i.test(String(message||''));
+  return /\b(axis|onguard|lenel|lenels2|milestone|xprotect|barco|faceme|morphomanager|windows server|sql server|postgresql|odbc|camera station|access control)\b/i.test(String(message||''))
+    && /\b(error|falla|problema|solucion|solución|solucionar|resolver|configurar|instalar|procedimiento|manual|diagnosticar|diagnóstico|como|cómo)\b/i.test(String(message||''));
 }
 
 function externalRequested(message){
@@ -59,15 +129,17 @@ export async function runDmsAgent(ctx){
   const started=performance.now();
   const message=clean(ctx.payload?.message||ctx.payload?.question,aiConfig.maxMessageChars);
   if(!message) throw badRequest('Escriba una pregunta para el asistente.');
-  const context=sanitizeActiveContext(ctx.payload?.context||{});
+  let context=sanitizeActiveContext(ctx.payload?.context||{});
+  context=updateTroubleshootingContext(context,message);
+  const images=imageInputs(ctx.payload?.attachments||ctx.payload?.images||[]);
   const history=Array.isArray(ctx.payload?.history)?ctx.payload.history:[];
   const systemInstruction=buildAgentSystemPrompt({user:ctx.user,permissions:ctx.permissions,nowIso:costaRicaNowIso()});
   const inputText=buildAgentUserInput({message,history,context});
   const internalEvidenceRequired=requiresInternalEvidence(message,context);
-  const knowledgeLookupRequired=requiresKnowledgeLookup(message);
+  const knowledgeLookupRequired=requiresKnowledgeLookup(message)||images.length>0;
   let webEnabledForTurn=externalRequested(message);
   let tools=declarationsForUser(ctx,{includeWeb:webEnabledForTurn});
-  const timeline=[{type:'user_input',content:[{type:'text',text:inputText}]}];
+  const timeline=[{type:'user_input',content:[...images,{type:'text',text:inputText}]}];
   const ui={entities:[],attachments:[],sources:[],context:{...context}};
   const toolNames=[];let modelMs=0,toolMs=0,lastInteraction=null,totalInput=0,totalOutput=0;
   let dbQueries=0,dbQueryMs=0,errorFlag=false;
@@ -82,13 +154,13 @@ export async function runDmsAgent(ctx){
       const calls=functionCalls(interaction);
       if(!calls.length){
         const hasInternalTool=toolNames.length>0;
-        const hasKnowledgeTool=toolNames.includes('search_knowledge_base')||toolNames.includes('get_knowledge_article');
+        const hasKnowledgeTool=toolNames.includes('search_knowledge_document_chunks')||toolNames.includes('search_knowledge_documents');
         if(round<aiConfig.maxToolRounds-1
           && ((internalEvidenceRequired&&!hasInternalTool)||(knowledgeLookupRequired&&!hasKnowledgeTool))){
           timeline.push({
             type:'user_input',
             content:[{type:'text',text:knowledgeLookupRequired&&!hasKnowledgeTool
-              ? 'Antes de responder, consulta la base de conocimiento interna de DMS con search_knowledge_base. No inventes una solución interna.'
+              ? 'Antes de responder, consulta Knowledge y la documentación interna: usa search_knowledge_base y search_knowledge_documents; recupera chunks relevantes si encuentras manuales. No inventes una solución interna.'
               : 'Antes de responder esta pregunta sobre DMS, consulta una o más herramientas internas apropiadas. No respondas datos internos desde conocimiento general.'}],
           });
           continue;
@@ -124,7 +196,7 @@ export async function runDmsAgent(ctx){
             const measured=await withTimeout(withDbRequestMetrics(()=>executeAiTool(ctx,call.name,call.arguments||{})),aiConfig.toolTimeoutMs,call.name);
             dbQueries+=Number(measured.metrics?.queries||0);dbQueryMs+=Number(measured.metrics?.queryMs||0);
             mergeUi(ui,measured.result.ui);
-            if (call.name === 'search_knowledge_base'
+            if (['search_knowledge_base','search_knowledge_documents','search_knowledge_document_chunks'].includes(call.name)
               && Number(measured.result.modelData?.totalShown || 0) === 0
               && aiConfig.webSearchEnabled
               && !webEnabledForTurn) {
