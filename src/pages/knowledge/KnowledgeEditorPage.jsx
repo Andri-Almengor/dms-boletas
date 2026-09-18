@@ -201,7 +201,7 @@ export default function KnowledgeEditorPage({ mode }) {
 
   async function setExistingPrimary(attachment) {
     try {
-      await requestAvailable(MODULE_ROUTES.knowledge.attachmentPrimary, { tutorialId, adjuntoId: getAttachmentId(attachment) }, sessionToken);
+      await requestAvailable(MODULE_ROUTES.knowledge.attachmentPrimary, { tutorialId, adjuntoId: getAttachmentId(attachment), documentOperation: 'PRIMARY' }, sessionToken);
       const id = getAttachmentId(attachment);
       setPrimarySelection(id);
       setExistingAttachments((current) => current.map((item) => ({ ...item, IsPrimary: getAttachmentId(item) === id })));
@@ -210,7 +210,7 @@ export default function KnowledgeEditorPage({ mode }) {
 
   async function reindexAttachment(attachment) {
     try {
-      await requestAvailable(MODULE_ROUTES.knowledge.attachmentReindex, { tutorialId, adjuntoId: getAttachmentId(attachment) }, sessionToken);
+      await requestAvailable(MODULE_ROUTES.knowledge.attachmentReindex, { tutorialId, adjuntoId: getAttachmentId(attachment), documentOperation: 'REINDEX' }, sessionToken);
       setExistingAttachments((current) => current.map((item) => getAttachmentId(item) === getAttachmentId(attachment)
         ? { ...item, ExtractionStatus: 'PROCESSING', ExtractionError: '' }
         : item));
@@ -361,7 +361,7 @@ export default function KnowledgeEditorPage({ mode }) {
         });
       }
       if (primarySelection && existingAttachments.some((attachment) => getAttachmentId(attachment) === primarySelection)) {
-        await requestAvailable(MODULE_ROUTES.knowledge.attachmentPrimary, { tutorialId: savedId, adjuntoId: primarySelection }, sessionToken);
+        await requestAvailable(MODULE_ROUTES.knowledge.attachmentPrimary, { tutorialId: savedId, adjuntoId: primarySelection, documentOperation: 'PRIMARY' }, sessionToken);
       }
       if (hasPendingUploads) {
         await requestAvailable(MODULE_ROUTES.knowledge.update, { ...payload, tutorialId: savedId, TutorialID: savedId, estado: forcedStatus, Estado: forcedStatus, pendingDocumentsCount: 0 }, sessionToken);
