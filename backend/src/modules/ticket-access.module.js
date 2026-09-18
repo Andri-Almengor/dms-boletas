@@ -1,7 +1,7 @@
 import { selectTicketPage } from '../services/ticket-list-query.service.js';
 import { forbidden, notFound } from '../core/errors.js';
 import { pick } from '../core/utils.js';
-import { filterRows, findById, readTable, readTables } from '../infra/sheets.repository.js';
+import { filterRows, findById, queryTicketPage, readTable, readTables } from '../infra/sheets.repository.js';
 import { ticketMultiHandlers as ticketHandlers } from './ticket-multi.module.js';
 
 function normalizeStatus(value) {
@@ -186,10 +186,7 @@ export const ticketAccessHandlers = {
     const { payload } = ctx;
     const admin = isAdministrator(ctx);
     const selectedTechnician = admin ? String(payload.asignadoUsuarioId || '').trim() : userId(ctx);
-    const needsAssignments = !admin || Boolean(selectedTechnician);
-    const tables = await readTables(needsAssignments ? ['Boletas', 'BoletaAsignados'] : ['Boletas']);
-    const allowedIds = needsAssignments ? assignedTicketIds(tables.BoletaAsignados, selectedTechnician) : null;
-    return selectTicketPage(tables.Boletas, payload, allowedIds);
+    return queryTicketPage(payload, { assignedUserId: selectedTechnician });
   },
 
   get: async (ctx) => {
