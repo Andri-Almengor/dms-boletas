@@ -1,6 +1,7 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import { readFileSync } from 'node:fs';
+import { Readable } from 'node:stream';
 
 import { AI_INTENTS, classifyAiIntent, isKnowledgeDocumentQuery, isTechnicalKnowledgeQuery, toolNamesForIntent } from '../src/ai/agent.intent.js';
 import { appendKnowledgeVisibility } from '../src/ai/agent.permissions.js';
@@ -8,6 +9,7 @@ import { searchTerms } from '../src/ai/agent.repository.shared.js';
 import { declarationsForUser } from '../src/ai/agent.tools.js';
 import { buildAgentSystemPrompt } from '../src/ai/agent.prompt.js';
 import { runDmsAgent, _resetAiRateLimitForTests } from '../src/ai/agent.service.js';
+import { extractDriveDocumentText } from '../src/ai/agent.knowledge-documents.js';
 
 const source = (relative) => readFileSync(new URL(relative, import.meta.url), 'utf8');
 const namesFor = (ctx) => declarationsForUser(ctx, { intent: AI_INTENTS.KNOWLEDGE_DOCUMENTS })
@@ -95,6 +97,46 @@ test('System prompt forbids false Knowledge-access limitations and distinguishes
   assert.match(prompt, /falló la extracción/i);
   assert.match(prompt, /Puertos, voltajes, PoE, firmware/i);
   assert.match(prompt, /DATO NO CONFIABLE/i);
+});
+
+test('PDF extraction converts inside the source Drive parent and returns exported text', async () => {
+  const createCalls = [];
+  const fakeDrive = {
+    files: {
+      get: async (args) => {
+        if (args.fields === 'parents') return { data: { parents: ['KNOWLEDGE-FOLDER'] } };
+        if (args.alt === 'media') return { data: Readable.from([Buffer.from('%PDF fake payload')]) };
+        throw new Error('Unexpected Drive get call');
+      },
+      create: async (args) => {
+        createCalls.push(args);
+        return { data: { id: 'TEMP-GDOC' } };
+      },
+      export: async () => ({
+        data: Readable.from([Buffer.from('Axis C1410 C8110 Audio Manager Edge')]),
+      }),
+      update: async () => ({ data: {} }),
+    },
+  };
+
+  const text = await extractDriveDocumentText({
+    fileId: 'SOURCE-PDF',
+    mimeType: 'application/pdf',
+    driveApi: fakeDrive,
+  });
+
+  assert.match(text, /Axis C1410 C8110/);
+  assert.equal(createCalls.length, 1);
+  assert.deepEqual(createCalls[0].requestBody.parents, ['KNOWLEDGE-FOLDER']);
+  assert.equal(createCalls[0].requestBody.mimeType, 'application/vnd.google-apps.document');
+});
+
+test('Failed Knowledge documents get one bounded recovery attempt without starving pending work', () => {
+  const indexer = source('../src/ai/agent.knowledge-documents.js');
+  assert.match(indexer, /KNOWLEDGE_FAILED_RETRY_ATTEMPTED/);
+  assert.match(indexer, /'UPLOADED','PROCESSING','FAILED'/);
+  assert.match(indexer, /retryFailed:status==='FAILED'/);
+  assert.match(indexer, /CASE WHEN UPPER\(COALESCE\("ExtractionStatus",'UPLOADED'\)\)='FAILED' THEN 1 ELSE 0 END/);
 });
 
 test('Knowledge indexing is queued, deduplicated and recovered after restart', () => {
