@@ -159,9 +159,7 @@ export async function searchKnowledgeDocuments(ctx, args = {}) {
   );
 
   for (const row of rows.slice(0, 2)) {
-    if (!['INDEXED', 'UNSUPPORTED', 'EMPTY'].includes(String(row.extractionStatus || '').toUpperCase())) {
-      await ensureKnowledgeDocumentIndexed(row, ctx.user?.UsuarioID || '').catch(() => {});
-    }
+    queueKnowledgeDocumentIndexing(row, ctx.user?.UsuarioID || '');
   }
 
   if (rows.length) {
@@ -186,32 +184,26 @@ export async function searchKnowledgeDocuments(ctx, args = {}) {
     extractionStatus: row.extractionStatus || 'PENDING',
     indexedAt: row.indexedAt || '',
     articleTitle: row.articleTitle || 'Artículo',
+    state: extractionState(row.extractionStatus),
+    canRetryIndexing: extractionState(row.extractionStatus) === 'EXTRACTION_FAILED' && canRetryIndexing(ctx, row),
   }));
 
   return {
-    modelData: { totalShown: items.length, items },
+    modelData: { state: items.length ? 'OK' : 'NO_RESULTS', totalShown: items.length, items },
     entities: items.map((item) => entity(
       'knowledge',
       item.articleId,
       item.articleTitle,
       '/conocimiento/' + encodeURIComponent(item.articleId),
     )),
-    sources: items.map((item) => source(
-      'knowledge_document',
-      item.id,
-      item.name + ' · ' + item.articleTitle,
-      '/conocimiento/' + encodeURIComponent(item.articleId),
-    )),
+    sources: rows.map((row) => knowledgeDocumentSource(ctx, row)),
     context: items.length === 1 ? documentContext(items[0]) : {},
   };
 }
 
 export async function getKnowledgeDocument(ctx, args = {}) {
-  let row = await visibleDocument(ctx, args.documentId);
-  if (!['INDEXED', 'UNSUPPORTED', 'EMPTY'].includes(String(row.extractionStatus || '').toUpperCase())) {
-    await ensureKnowledgeDocumentIndexed(row, ctx.user?.UsuarioID || '').catch(() => {});
-    row = await visibleDocument(ctx, args.documentId);
-  }
+  const row = await visibleDocument(ctx, args.documentId);
+  queueKnowledgeDocumentIndexing(row, ctx.user?.UsuarioID || '');
 
   const attachment = protectedAttachment(ctx, {
     fileId: row.__file,
@@ -235,13 +227,15 @@ export async function getKnowledgeDocument(ctx, args = {}) {
     extractionStatus: row.extractionStatus || 'PENDING',
     indexedAt: row.indexedAt || '',
     articleTitle: row.articleTitle || 'Artículo',
+    state: extractionState(row.extractionStatus),
+    canRetryIndexing: extractionState(row.extractionStatus) === 'EXTRACTION_FAILED' && canRetryIndexing(ctx, row),
   };
 
   return {
     modelData: item,
     attachments: attachment ? [attachment] : [],
     entities: [entity('knowledge', row.articleId, row.articleTitle || 'Artículo', '/conocimiento/' + encodeURIComponent(row.articleId))],
-    sources: [source('knowledge_document', row.id, item.name + ' · ' + item.articleTitle, '/conocimiento/' + encodeURIComponent(row.articleId))],
+    sources: [knowledgeDocumentSource(ctx, row)],
     context: documentContext(item),
   };
 }
