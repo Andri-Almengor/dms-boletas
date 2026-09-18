@@ -397,6 +397,24 @@ export const knowledgeHandlers = {
     const id = tutorialIdFrom(payload);
     const before = await findById('KnowledgeArticles', id, 'TutorialID');
     assertArticleWrite(ctx, before);
+    const documentOperation = String(pick(payload, ['documentOperation', 'DocumentOperation'], '') || '').trim().toUpperCase();
+    if (documentOperation === 'PRIMARY' || documentOperation === 'REINDEX') {
+      const attachment = await findById('KnowledgeAttachments', attachmentIdFrom(payload));
+      if (String(attachment.TutorialID || '') !== String(id)) throw badRequest('El documento no pertenece a esta guía.');
+      if (documentOperation === 'PRIMARY') {
+        return setPrimaryKnowledgeDocument(id, attachment.AdjuntoID, ctx.user.UsuarioID);
+      }
+      await updateRow('KnowledgeAttachments', attachment.AdjuntoID, {
+        ExtractionStatus: 'UPLOADED',
+        Status: 'UPLOADED',
+        ExtractionError: '',
+        IndexedAt: '',
+        ActualizadoPor: ctx.user.UsuarioID,
+        FechaActualizacion: nowIso(),
+      });
+      void indexKnowledgeDocument({ ...attachment, ExtractionStatus: 'UPLOADED', Status: 'UPLOADED' }, ctx.user.UsuarioID).catch(() => {});
+      return { ok: true, AdjuntoID: attachment.AdjuntoID, ExtractionStatus: 'PROCESSING' };
+    }
     const categoriesSupplied = hasCategoryPayload(payload);
     const categoryIds = categoriesSupplied ? categoryIdsFromPayload(payload) : null;
     if (categoryIds) await validateCategoryIds(categoryIds);
