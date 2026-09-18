@@ -1,5 +1,5 @@
 import { AppError } from '../core/errors.js';
-import { aiConfig } from './agent.config.js';
+import { aiConfig, configuredModels } from './agent.config.js';
 import { aiMetricsSnapshot } from './agent.metrics.js';
 import { runDmsAgent } from './agent.service.js';
 
@@ -17,8 +17,13 @@ async function chat(ctx) {
 async function health() {
   return {
     enabled: aiConfig.enabled,
-    model: aiConfig.model,
+    model: aiConfig.primaryModel,
+    modelsConfigured: configuredModels().length,
+    modelFallbackEnabled: aiConfig.modelFallbackEnabled,
     webSearchEnabled: aiConfig.webSearchEnabled,
+    writeEnabled: aiConfig.writeEnabled,
+    maintenanceWriteEnabled: aiConfig.maintenanceWriteEnabled,
+    knowledgeDocumentsEnabled: aiConfig.knowledgeDocumentsEnabled,
     stateless: true,
     metrics: aiMetricsSnapshot(),
   };
