@@ -56,6 +56,12 @@ function canRetryIndexing(ctx, row = {}) {
     || String(row.authorUserId || '') === String(ctx?.user?.UsuarioID || '');
 }
 
+function knowledgeChunkLabel(item = {}) {
+  return (item.documentName || 'Documento')
+    + (item.pageNumber !== null ? ' · Página ' + item.pageNumber : '')
+    + (item.sectionTitle ? ' · ' + item.sectionTitle : '');
+}
+
 function knowledgeDocumentSource(ctx, row = {}) {
   const route = '/conocimiento/' + encodeURIComponent(row.articleId || '');
   const attachment = protectedAttachment(ctx, {
@@ -381,33 +387,32 @@ export async function searchKnowledgeDocumentChunks(ctx, args = {}) {
       item.articleTitle,
       '/conocimiento/' + encodeURIComponent(item.articleId),
     )),
-    sources: rows.map((row) => {
+    sources: items.map((item, index) => {
+      const row = rows[index] || {};
       const attachment = protectedAttachment(ctx, {
         fileId: row.__file,
-        mimeType: row.mimeType,
-        scopeId: 'knowledge:' + row.articleId,
-        evidenceId: row.documentId,
+        mimeType: item.mimeType,
+        scopeId: 'knowledge:' + item.articleId,
+        evidenceId: item.documentId,
         kind: 'knowledge-document',
-        title: row.documentName || 'Documento',
-        subtitle: row.articleTitle || 'Base de Conocimiento',
+        title: item.documentName || 'Documento',
+        subtitle: item.articleTitle || 'Base de Conocimiento',
         entityType: 'knowledge',
-        entityId: row.articleId,
+        entityId: item.articleId,
       });
       return source(
         'knowledge_document_chunk',
-        row.id,
-        (row.documentName || 'Documento')
-          + (row.pageNumber !== null && row.pageNumber !== undefined && row.pageNumber !== '' ? ' · Página ' + row.pageNumber : '')
-          + (row.sectionTitle ? ' · ' + row.sectionTitle : ''),
-        attachment?.url || ('/conocimiento/' + encodeURIComponent(row.articleId)),
+        item.id,
+        knowledgeChunkLabel(item),
+        attachment?.url || ('/conocimiento/' + encodeURIComponent(item.articleId)),
         {
-          articleId: clean(row.articleId, 250),
-          articleTitle: clean(row.articleTitle, 300),
-          documentId: clean(row.documentId, 250),
-          documentName: clean(row.documentName || 'Documento', 300),
-          mimeType: clean(row.mimeType, 150),
-          pageNumber: row.pageNumber === null || row.pageNumber === undefined || row.pageNumber === '' ? null : Number(row.pageNumber),
-          sectionTitle: clean(row.sectionTitle, 300),
+          articleId: clean(item.articleId, 250),
+          articleTitle: clean(item.articleTitle, 300),
+          documentId: clean(item.documentId, 250),
+          documentName: clean(item.documentName || 'Documento', 300),
+          mimeType: clean(item.mimeType, 150),
+          pageNumber: item.pageNumber,
+          sectionTitle: clean(item.sectionTitle, 300),
         },
       );
     }),
