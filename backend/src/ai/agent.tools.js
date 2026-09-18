@@ -4,6 +4,7 @@ import { aiAccess } from './agent.permissions.js';
 import { sanitizeAiToolResult } from './agent.sanitize.js';
 import { directoryRepositoryTools } from './agent.repository.directory.js';
 import { ticketRepositoryTools } from './agent.repository.tickets.js';
+import { ticketIntegralRepositoryTools } from './agent.repository.ticket-evidence.integral.js';
 import { maintenanceRepositoryTools } from './agent.repository.maintenance.js';
 import { maintenanceIntegralRepositoryTools } from './agent.repository.maintenance.integral.js';
 import { knowledgeRepositoryTools } from './agent.repository.knowledge.js';
@@ -17,6 +18,7 @@ import { toolNamesForIntent } from './agent.intent.js';
 const TOOL_IMPL=Object.freeze({
   ...directoryRepositoryTools,
   ...ticketRepositoryTools,
+  ...ticketIntegralRepositoryTools,
   ...maintenanceRepositoryTools,
   ...maintenanceIntegralRepositoryTools,
   ...knowledgeRepositoryTools,
