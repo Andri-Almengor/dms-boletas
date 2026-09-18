@@ -54,6 +54,7 @@ El prompt obliga a buscar internamente antes de responder preguntas que dependan
 - `get_ticket`
 - `get_ticket_evidence`
 - `get_ticket_history`
+- `search_evidence_activity`
 - `search_maintenances`
 - `get_maintenance`
 - `get_maintenance_devices`
