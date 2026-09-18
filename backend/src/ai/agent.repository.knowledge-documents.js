@@ -2,9 +2,9 @@ import { performance } from 'node:perf_hooks';
 import { badRequest, notFound } from '../core/errors.js';
 import { appendKnowledgeVisibility, assertAiCapability } from './agent.permissions.js';
 import { aiConfig } from './agent.config.js';
-import { ensureKnowledgeDocumentIndexed } from './agent.knowledge-documents.js';
+import { queueKnowledgeDocumentIndexing } from './agent.knowledge-documents.js';
 import {
-  active, clean, entity, like, many, one, pageLimit, protectedAttachment, source,
+  active, clean, entity, like, many, one, pageLimit, protectedAttachment, searchTerms, source,
 } from './agent.repository.shared.js';
 
 async function visibleDocument(ctx, documentId) {
@@ -18,7 +18,7 @@ async function visibleDocument(ctx, documentId) {
             ka."MimeType" AS "mimeType",ka."Size" AS size,ka."FechaCreacion" AS "createdAt",
             ka."ExtractionStatus" AS "extractionStatus",ka."IndexedAt" AS "indexedAt",
             ka."ExtractionError" AS "extractionError",ka."DriveFileID" AS "__file",
-            a."Titulo" AS "articleTitle",a."Estado" AS "articleStatus"
+            a."Titulo" AS "articleTitle",a."Estado" AS "articleStatus",a."AutorUsuarioID" AS "authorUserId"
        FROM "KnowledgeAttachments" ka
        JOIN "KnowledgeArticles" a
          ON a."__valid"=TRUE AND a."TutorialID"=ka."TutorialID"
@@ -38,6 +38,53 @@ function documentContext(item) {
     lastKnowledgeDocumentId: item.id,
     lastKnowledgeDocumentName: item.name || '',
   };
+}
+function extractionState(status = '') {
+  const value = String(status || '').toUpperCase();
+  if (value === 'FAILED') return 'EXTRACTION_FAILED';
+  if (['UPLOADED', 'PROCESSING', 'PENDING', ''].includes(value)) return 'PROCESSING';
+  if (value === 'UNSUPPORTED') return 'UNSUPPORTED';
+  if (value === 'EMPTY') return 'EMPTY';
+  if (value === 'INDEXED' || value === 'READY') return 'READY';
+  return value || 'PROCESSING';
+}
+
+function canRetryIndexing(ctx, row = {}) {
+  const permissions = Array.isArray(ctx?.permissions) ? ctx.permissions : [];
+  return permissions.includes('USUARIOS_GESTIONAR')
+    || permissions.includes('CONOCIMIENTO_GESTIONAR')
+    || String(row.authorUserId || '') === String(ctx?.user?.UsuarioID || '');
+}
+
+function knowledgeDocumentSource(ctx, row = {}) {
+  const route = '/conocimiento/' + encodeURIComponent(row.articleId || '');
+  const attachment = protectedAttachment(ctx, {
+    fileId: row.__file,
+    mimeType: row.mimeType,
+    scopeId: 'knowledge:' + (row.articleId || ''),
+    evidenceId: row.id,
+    kind: 'knowledge-document',
+    title: row.name || 'Documento',
+    subtitle: row.articleTitle || 'Base de Conocimiento',
+    entityType: 'knowledge',
+    entityId: row.articleId || '',
+  });
+  return source(
+    'knowledge_document',
+    row.id,
+    (row.name || 'Documento') + ' · ' + (row.articleTitle || 'Artículo'),
+    attachment?.url || route,
+    {
+      articleId: clean(row.articleId, 250),
+      articleTitle: clean(row.articleTitle, 300),
+      documentId: clean(row.id, 250),
+      documentName: clean(row.name || 'Documento', 300),
+      mimeType: clean(row.mimeType, 150),
+      extractionStatus: clean(row.extractionStatus, 80),
+      pageNumber: null,
+      sectionTitle: '',
+    },
+  );
 }
 
 export async function searchKnowledgeDocuments(ctx, args = {}) {
