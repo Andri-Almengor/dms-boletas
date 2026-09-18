@@ -24,7 +24,7 @@ export function aiAccess(ctx = {}) {
     admin,
     tickets,
     maintenance,
-    clients: admin || has(ctx, 'CLIENTES_VER'),
+    clients: Boolean(ctx?.user?.UsuarioID),
     users: admin || has(ctx, 'USUARIOS_VER') || tickets,
     knowledge: true,
     cases: admin,
