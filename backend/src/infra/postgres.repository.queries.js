@@ -41,66 +41,129 @@ export async function queryPage(table, payload = {}, { searchFields = [], allowe
   return { items: rows.rows.map(publicRow), total: Number(countResult.rows[0]?.total || 0), page, pageSize };
 }
 
-export async function queryTicketPage(payload = {}, { allowedIds = null } = {}) {
+export async function queryTicketPage(payload = {}, { assignedUserId = '' } = {}) {
   const page = Math.max(1, Number(payload.page || 1));
   const pageSize = Math.min(1000, Math.max(1, Number(payload.pageSize || 100)));
   const params = [];
+  const statusSql = normalizeStatusSql('"Estado"');
   const clauses = [
     '"__valid" = TRUE',
     `LOWER(COALESCE("Activo", 'true')) <> 'false'`,
-    `UPPER(COALESCE("Estado", '')) <> 'ANULADA'`,
+    `${statusSql} <> 'ANULADA'`,
   ];
+
+  const assigned = String(assignedUserId || '').trim();
+  if (assigned) {
+    params.push(assigned);
+    clauses.push(`EXISTS (
+      SELECT 1
+      FROM "BoletaAsignados" ba
+      WHERE ba."__valid"=TRUE
+        AND ba."BoletaUID"="Boletas"."BoletaUID"
+        AND ba."UsuarioID"=$${params.length}
+        AND LOWER(COALESCE(ba."Activo",'true')) <> 'false'
+    )`);
+  }
+
   const exact = [
     ['clienteId', 'ClienteID'], ['categoriaId', 'CategoriaID'],
     ['tipoDispositivoId', 'TipoDispositivoID'], ['fabricanteId', 'FabricanteID'], ['modeloId', 'ModeloID'],
   ];
   for (const [key, field] of exact) {
-    if (!payload[key]) continue;
-    params.push(String(payload[key])); clauses.push(`${qi(field)}=$${params.length}`);
+    const expected = String(payload[key] || '').trim();
+    if (!expected) continue;
+    params.push(expected);
+    clauses.push(`BTRIM(COALESCE(${qi(field)},''))=$${params.length}`);
+    // Historical selectTicketPage applies the original untrimmed ClienteID check twice.
+    if (key === 'clienteId') {
+      params.push(String(payload[key]));
+      clauses.push(`COALESCE("ClienteID",'')=$${params.length}`);
+    }
   }
-  if (payload.dateFrom) { params.push(String(payload.dateFrom)); clauses.push(`LEFT(COALESCE("Fecha",''),10) >= $${params.length}`); }
-  if (payload.dateTo) { params.push(String(payload.dateTo)); clauses.push(`LEFT(COALESCE("Fecha",''),10) <= $${params.length}`); }
-  if (allowedIds) {
-    if (!allowedIds.size) return { items: [], total: 0, page, pageSize, ...(payload.homeSummary ? { homeSummary: { pending: 0, finished: 0 } } : {}) };
-    params.push([...allowedIds].map(String)); clauses.push(`"BoletaUID"=ANY($${params.length}::text[])`);
+
+  const active = payload.activo === undefined ? null : String(payload.activo).toLowerCase();
+  if (active !== null) {
+    params.push(active);
+    clauses.push(`LOWER(COALESCE("Activo",''))=$${params.length}`);
   }
-  // Historical parity: homeSummary is computed after visibility/date/catalog
-  // filters, but before the list's status and text-search filters.
-  const summaryClauses = [...clauses];
-  const summaryParams = [...params];
-  let homeSummary = null;
-  if (payload.homeSummary) {
-    const summaryWhere = summaryClauses.join(' AND ');
-    const summary = await query(
-      `SELECT COUNT(*) FILTER (WHERE UPPER(COALESCE("Estado",''))='PENDIENTE')::bigint AS pending, COUNT(*) FILTER (WHERE UPPER(COALESCE("Estado",''))='FINALIZADA')::bigint AS finished FROM "Boletas" WHERE ${summaryWhere}`,
-      summaryParams, { label: 'tickets.homeSummary' },
-    );
-    homeSummary = { pending: Number(summary.rows[0]?.pending || 0), finished: Number(summary.rows[0]?.finished || 0) };
+  if (payload.dateFrom) {
+    params.push(String(payload.dateFrom));
+    clauses.push(`LEFT(COALESCE("Fecha",''),10) >= $${params.length}`);
   }
+  if (payload.dateTo) {
+    params.push(String(payload.dateTo));
+    clauses.push(`LEFT(COALESCE("Fecha",''),10) <= $${params.length}`);
+  }
+
   const search = String(payload.search || payload.q || '').trim();
   if (search) {
     params.push(`%${search}%`);
-    const fields = ['Titulo','Cliente','Ubicacion','Categoria','TipoDispositivo','Modelo','BoletaID'];
+    const fields = ['Titulo','Cliente','Ubicacion','Categoria','TipoDispositivo','Fabricante','Modelo','BoletaID'];
     clauses.push(`(${fields.map((field) => `COALESCE(${qi(field)},'') ILIKE $${params.length}`).join(' OR ')})`);
   }
-  const itemClauses = [...clauses];
+
+  // Home summary is calculated after visibility/date/catalog/search filters and
+  // before the requested status, matching selectTicketPage exactly.
+  let homeSummary = null;
+  if (payload.homeSummary) {
+    const summaryWhere = clauses.join(' AND ');
+    const summary = await query(
+      `SELECT
+        COUNT(*) FILTER (WHERE ${statusSql}='PENDIENTE')::bigint AS pending,
+        COUNT(*) FILTER (WHERE ${statusSql}='FINALIZADA')::bigint AS finished
+       FROM "Boletas" WHERE ${summaryWhere}`,
+      params,
+      { label: 'tickets.homeSummary' },
+    );
+    homeSummary = {
+      pending: Number(summary.rows[0]?.pending || 0),
+      finished: Number(summary.rows[0]?.finished || 0),
+    };
+  }
+
+  const requestedStatus = String(payload.status || payload.estado || '').trim().toUpperCase();
   const itemParams = [...params];
-  if (payload.status || payload.estado) {
-    itemParams.push(String(payload.status || payload.estado).toUpperCase());
-    itemClauses.push(`UPPER(COALESCE("Estado",''))=$${itemParams.length}`);
+  const itemClauses = [...clauses];
+  if (requestedStatus) {
+    const normalized = requestedStatus.includes('FINAL') ? 'FINALIZADA'
+      : requestedStatus.includes('PEND') ? 'PENDIENTE'
+        : requestedStatus.includes('ANUL') ? 'ANULADA'
+          : requestedStatus;
+    itemParams.push(normalized);
+    itemClauses.push(`${statusSql}=$${itemParams.length}`);
   }
+
   const where = itemClauses.join(' AND ');
-  const count = await query(`SELECT COUNT(*)::bigint AS total FROM "Boletas" WHERE ${where}`, itemParams, { label: 'tickets.list.count' });
-  let order = '"__db_id" ASC';
-  if (payload.sortBy && definition('Boletas').columns.includes(String(payload.sortBy))) {
-    order = `${qi(payload.sortBy)} ${String(payload.sortDir).toLowerCase() === 'desc' ? 'DESC' : 'ASC'} NULLS LAST, "__db_id" ASC`;
-  }
+  const count = await query(
+    `SELECT COUNT(*)::bigint AS total FROM "Boletas" WHERE ${where}`,
+    itemParams,
+    { label: 'tickets.list.count' },
+  );
+
+  // Preserve selectTicketPage ordering: date desc, numeric ticket number desc,
+  // creation/update timestamp desc, then original source order.
+  const order = [
+    `LEFT(COALESCE(NULLIF("Fecha",''),NULLIF("FechaCreacion",''),''),10) DESC`,
+    `CASE WHEN "BoletaID" ~ '^-?[0-9]+(?:\\.[0-9]+)?$' THEN "BoletaID"::numeric ELSE 0 END DESC`,
+    `COALESCE(NULLIF("FechaCreacion",''),NULLIF("FechaActualizacion",''),'') DESC`,
+    `COALESCE("__source_row_number","__db_id") ASC`,
+  ].join(', ');
+
   const pageParams = [...itemParams, pageSize, (page - 1) * pageSize];
   const rows = await query(
-    `SELECT ${selectList('Boletas')} FROM "Boletas" WHERE ${where} ORDER BY ${order} LIMIT $${pageParams.length - 1} OFFSET $${pageParams.length}`,
-    pageParams, { label: 'tickets.list.items' },
+    `SELECT ${selectList('Boletas')} FROM "Boletas"
+     WHERE ${where}
+     ORDER BY ${order}
+     LIMIT $${pageParams.length - 1} OFFSET $${pageParams.length}`,
+    pageParams,
+    { label: 'tickets.list.items' },
   );
-  const result = { items: rows.rows.map(publicRow), total: Number(count.rows[0]?.total || 0), page, pageSize };
+  const result = {
+    items: rows.rows.map(publicRow),
+    total: Number(count.rows[0]?.total || 0),
+    page,
+    pageSize,
+  };
   return homeSummary ? { ...result, homeSummary } : result;
 }
 
