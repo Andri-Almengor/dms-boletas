@@ -130,11 +130,11 @@ export function classifyAiIntent({message='',context={},attachments=[]}={}){
   return AI_INTENTS.GENERAL;
 }
 
-const DISCOVERY_TOOLS=Object.freeze(['search_internal','read_chat_attachment']);
+const DISCOVERY_TOOLS=Object.freeze(['search_internal']);
 
 export function toolNamesForIntent(intent){
   switch(intent){
-    case AI_INTENTS.GENERAL: return [...DISCOVERY_TOOLS];
+    case AI_INTENTS.GENERAL: return [];
     case AI_INTENTS.TICKETS: return ['search_tickets','get_ticket','get_ticket_history','get_ticket_evidence','search_ticket_evidence'];
     case AI_INTENTS.TICKET_EVIDENCE: return ['search_tickets','get_ticket','search_ticket_evidence','get_ticket_evidence','get_ticket_history'];
     case AI_INTENTS.MAINTENANCE: return ['resolve_maintenance_reference','search_maintenances','get_maintenance','get_maintenance_history','get_maintenance_devices','get_maintenance_evidence'];
@@ -157,7 +157,7 @@ export function toolNamesForIntent(intent){
       'parse_device_import_file','prepare_maintenance_device_bulk_create','prepare_maintenance_evidence_upload','get_ai_operation_status',
       'read_chat_attachment',
     ];
-    case AI_INTENTS.WEB: return [...DISCOVERY_TOOLS];
+    case AI_INTENTS.WEB: return [];
     case AI_INTENTS.AMBIGUOUS: return [...DISCOVERY_TOOLS];
     default:return [...DISCOVERY_TOOLS];
   }
