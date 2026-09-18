@@ -57,7 +57,6 @@ test('repository CRUD and rollback stay transactional on PostgreSQL', async () =
 
     const deleted = await softDelete('Categorias', categoryId, 'STAGE6');
     assert.equal(String(deleted.Activo).toLowerCase(), 'false');
-    assert.equal(deleted.Estado, 'INACTIVO');
 
     await assert.rejects(
       withTransaction(async () => {

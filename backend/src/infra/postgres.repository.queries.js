@@ -238,7 +238,6 @@ export async function queryKnowledgeArticlePage(payload = {}, { viewerUserId = '
           AND rel."TutorialID"=a."TutorialID"
           AND rel."CategoriaConocimientoID"=${p}
           AND LOWER(COALESCE(rel."Activo",'true')) <> 'false'
-          AND UPPER(COALESCE(rel."Estado",'')) <> 'INACTIVO'
       )
       OR (
         a."CategoriaConocimientoID"=${p}
@@ -247,7 +246,6 @@ export async function queryKnowledgeArticlePage(payload = {}, { viewerUserId = '
           WHERE rel_any."__valid"=TRUE
             AND rel_any."TutorialID"=a."TutorialID"
             AND LOWER(COALESCE(rel_any."Activo",'true')) <> 'false'
-            AND UPPER(COALESCE(rel_any."Estado",'')) <> 'INACTIVO'
         )
       )
     )`);
@@ -269,7 +267,6 @@ export async function queryKnowledgeArticlePage(payload = {}, { viewerUserId = '
         WHERE rel."__valid"=TRUE
           AND rel."TutorialID"=a."TutorialID"
           AND LOWER(COALESCE(rel."Activo",'true')) <> 'false'
-          AND UPPER(COALESCE(rel."Estado",'')) <> 'INACTIVO'
           AND COALESCE(cat."Nombre",'') ILIKE ${p}
       )
       OR EXISTS (
