@@ -106,34 +106,39 @@ export async function searchKnowledgeDocuments(ctx, args = {}) {
     clauses.push('ka."TutorialID"=$' + params.length);
   }
   if (q) {
-    params.push(like(q));
-    const p = '$' + params.length;
-    clauses.push(`(
-      ka."Nombre" ILIKE ${p} ESCAPE '\\'
-      OR COALESCE(ka."SearchText",'') ILIKE ${p} ESCAPE '\\'
-      OR a."Titulo" ILIKE ${p} ESCAPE '\\'
-      OR a."ProblemaResuelto" ILIKE ${p} ESCAPE '\\'
-      OR EXISTS (
-        SELECT 1
-          FROM "KnowledgeArticleCategories" rel
-          JOIN "KnowledgeCategories" cat
-            ON cat."__valid"=TRUE AND cat."CategoriaConocimientoID"=rel."CategoriaConocimientoID"
-         WHERE rel."__valid"=TRUE
-           AND rel."TutorialID"=a."TutorialID"
-           AND LOWER(COALESCE(rel."Activo",'true')) <> 'false'
-           AND cat."Nombre" ILIKE ${p} ESCAPE '\\'
-      )
-      OR EXISTS (
-        SELECT 1
-          FROM "KnowledgeDocumentChunks" kdc
-         WHERE kdc."__valid"=TRUE
-           AND kdc."DocumentID"=ka."AdjuntoID"
-           AND (
-             kdc."Content" ILIKE ${p} ESCAPE '\\'
-             OR kdc."SectionTitle" ILIKE ${p} ESCAPE '\\'
-           )
-      )
-    )`);
+    const terms = searchTerms(q);
+    const effectiveTerms = terms.length ? terms : [q];
+    for (const term of effectiveTerms) {
+      params.push(like(term));
+      const p = '$' + params.length;
+      clauses.push(`(
+        ka."Nombre" ILIKE ${p} ESCAPE '\\'
+        OR COALESCE(ka."SearchText",'') ILIKE ${p} ESCAPE '\\'
+        OR a."Titulo" ILIKE ${p} ESCAPE '\\'
+        OR a."ProblemaResuelto" ILIKE ${p} ESCAPE '\\'
+        OR EXISTS (
+          SELECT 1
+            FROM "KnowledgeArticleCategories" rel
+            JOIN "KnowledgeCategories" cat
+              ON cat."__valid"=TRUE AND cat."CategoriaConocimientoID"=rel."CategoriaConocimientoID"
+           WHERE rel."__valid"=TRUE
+             AND rel."TutorialID"=a."TutorialID"
+             AND LOWER(COALESCE(rel."Activo",'true')) <> 'false'
+             AND cat."Nombre" ILIKE ${p} ESCAPE '\\'
+        )
+        OR EXISTS (
+          SELECT 1
+            FROM "KnowledgeDocumentChunks" kdc
+           WHERE kdc."__valid"=TRUE
+             AND kdc."DocumentID"=ka."AdjuntoID"
+             AND (
+               kdc."SearchText" ILIKE ${p} ESCAPE '\\'
+               OR kdc."Content" ILIKE ${p} ESCAPE '\\'
+               OR kdc."SectionTitle" ILIKE ${p} ESCAPE '\\'
+             )
+        )
+      )`);
+    }
   }
 
   params.push(pageLimit(args.limit, 10));
@@ -141,7 +146,8 @@ export async function searchKnowledgeDocuments(ctx, args = {}) {
     `SELECT ka."AdjuntoID" AS id,ka."TutorialID" AS "articleId",ka."Nombre" AS name,
             ka."MimeType" AS "mimeType",ka."Size" AS size,ka."FechaCreacion" AS "createdAt",
             ka."ExtractionStatus" AS "extractionStatus",ka."IndexedAt" AS "indexedAt",
-            ka."DriveFileID" AS "__file",a."Titulo" AS "articleTitle",a."Estado" AS "articleStatus"
+            ka."DriveFileID" AS "__file",a."Titulo" AS "articleTitle",a."Estado" AS "articleStatus",
+            a."AutorUsuarioID" AS "authorUserId"
        FROM "KnowledgeAttachments" ka
        JOIN "KnowledgeArticles" a
          ON a."__valid"=TRUE AND a."TutorialID"=ka."TutorialID"
