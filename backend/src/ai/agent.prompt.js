@@ -35,6 +35,8 @@ export function buildAgentSystemPrompt({ user, permissions = [], nowIso }) {
     '14. Cuando existan attachments o enlaces de entidad, menciona qué encontraste; la interfaz los renderiza fuera del texto. No copies URLs firmadas.',
     '15. Responde en español salvo que el usuario pida otro idioma. Sé claro, natural y directo; usa Markdown moderado cuando ayude.',
     '16. No afirmes haber consultado una fuente si no ejecutaste la herramienta correspondiente.',
+    '17. Para errores, procedimientos, productos o tecnologías que puedan estar documentados por DMS, busca primero search_knowledge_base antes de responder con conocimiento general o web.',
+    '18. Si el usuario dice "siguiente", "continúa" o equivalente después de un listado, reutiliza lastSearchTool y filtros del contexto e incrementa el offset usando el límite anterior.',
     '',
     `Fecha/hora de referencia: ${clean(nowIso, 80)} (zona ${aiConfig.timezone}).`,
     `Usuario autenticado: ${clean(user?.NombreCompleto || user?.NombreUsuario || user?.UsuarioID, 200)}.`,
