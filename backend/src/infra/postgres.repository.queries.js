@@ -42,7 +42,7 @@ export async function queryPage(table, payload = {}, { searchFields = [], allowe
   return { items: rows.rows.map(publicRow), total: Number(countResult.rows[0]?.total || 0), page, pageSize };
 }
 
-export async function queryTicketPage(payload = {}, { assignedUserId = '' } = {}) {
+export async function queryTicketPage(payload = {}, { assignedUserId = '', allowedIds = null } = {}) {
   const page = Math.max(1, Number(payload.page || 1));
   const pageSize = Math.min(1000, Math.max(1, Number(payload.pageSize || 100)));
   const params = [];
@@ -52,6 +52,20 @@ export async function queryTicketPage(payload = {}, { assignedUserId = '' } = {}
     `LOWER(COALESCE("Activo", 'true')) <> 'false'`,
     `${statusSql} <> 'ANULADA'`,
   ];
+
+  // allowedIds is the authorization gate used by ticket-visibility.patch.js.
+  // Keep it in SQL so technicians never materialize or filter the full ticket set.
+  if (allowedIds instanceof Set) {
+    if (!allowedIds.size) return {
+      items: [],
+      total: 0,
+      page,
+      pageSize,
+      ...(payload.homeSummary ? { homeSummary: { pending: 0, finished: 0 } } : {}),
+    };
+    params.push([...allowedIds].map(String));
+    clauses.push(`"BoletaUID"=ANY(${params.length}::text[])`);
+  }
 
   const assigned = String(assignedUserId || '').trim();
   if (assigned) {
