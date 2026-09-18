@@ -224,7 +224,7 @@ export async function runDmsAgent(ctx, overrides = {}){
 
   const history=conversationParts(ctx.payload?.history||[]);
   const knowledgeDocumentRequired=isKnowledgeDocumentQuery({message,context})||diagnosticImages.length>0;
-  const knowledgeRequired=requiresKnowledgeLookup(message,context)||knowledgeDocumentRequired;
+  const knowledgeRequired=requiresKnowledgeLookup(message)||diagnosticImages.length>0||knowledgeDocumentRequired;
   let intent=classifyAiIntent({message,context,attachments:chatAttachments});
   if(knowledgeRequired&&[AI_INTENTS.GENERAL,AI_INTENTS.AMBIGUOUS].includes(intent)){
     intent=knowledgeDocumentRequired?AI_INTENTS.KNOWLEDGE_DOCUMENTS:AI_INTENTS.KNOWLEDGE;
