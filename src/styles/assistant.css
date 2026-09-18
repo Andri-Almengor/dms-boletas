@@ -477,17 +477,17 @@
   background: var(--surface);
 }
 
-.assistant-composer > div {
+.assistant-composer__row {
   display: grid;
-  grid-template-columns: minmax(0, 1fr) auto;
-  gap: 9px;
+  grid-template-columns: 42px minmax(0, 1fr) auto;
+  gap: 8px;
   align-items: end;
 }
 
 .assistant-composer textarea {
   width: 100%;
-  min-height: 54px;
-  max-height: 150px;
+  min-height: 52px;
+  max-height: 140px;
   padding: 13px 14px;
   border: 1px solid var(--outline);
   border-radius: 14px;
@@ -495,7 +495,7 @@
   color: var(--text);
   font: inherit;
   line-height: 1.4;
-  resize: vertical;
+  resize: none;
 }
 
 .assistant-composer textarea:focus {
@@ -505,7 +505,8 @@
 
 .assistant-composer .button {
   min-height: 52px;
-  padding-inline: 19px;
+  padding-inline: 16px;
+  white-space: nowrap;
 }
 
 .assistant-composer small {
@@ -758,8 +759,9 @@ body:has(.app-shell--form):has(.form-recovery-status) .assistant-fab {
     padding: 10px;
   }
 
-  .assistant-composer > div {
-    grid-template-columns: minmax(0, 1fr) 50px;
+  .assistant-composer__row {
+    grid-template-columns: 42px minmax(0, 1fr) 50px;
+    gap: 7px;
   }
 
   .assistant-composer textarea {
