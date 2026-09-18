@@ -505,6 +505,7 @@ function AssistantStats({ stats }) {
 
 function sourceIcon(type) {
   if (type === 'knowledge') return 'menu_book';
+  if (type === 'knowledge_document' || type === 'knowledge_document_chunk') return 'description';
   if (type === 'ticket') return 'description';
   if (type === 'maintenance') return 'engineering';
   if (type === 'client') return 'business';
@@ -689,8 +690,20 @@ function AssistantConfirmations({ confirmations = [], busyOperationId, onDecisio
 }
 
 function AssistantSourceLink({ source }) {
-  const content = <><Icon name={sourceIcon(source.type)} /><span>{source.label}</span><Icon name="chevron_right" /></>;
-  if (/^https:\/\//i.test(source.url || '')) return <a href={source.url} target="_blank" rel="noreferrer">{content}</a>;
+  const documentSource = /^knowledge_document(?:_chunk)?$/.test(String(source.type || ''));
+  const content = (
+    <>
+      <Icon name={sourceIcon(source.type)} />
+      <span>
+        {source.label}
+        {documentSource && <small>Documento interno DMS · Abrir documento</small>}
+      </span>
+      <Icon name="chevron_right" />
+    </>
+  );
+  if (/^https:\/\//i.test(source.url || '') || String(source.url || '').startsWith('/api/')) {
+    return <a href={source.url} target="_blank" rel="noreferrer">{content}</a>;
+  }
   if (String(source.url || '').startsWith('/')) return <Link to={source.url}>{content}</Link>;
   return <span className="assistant-source-static">{content}</span>;
 }
@@ -778,7 +791,20 @@ export default function AssistantPageSecure() {
     const safeMessages = messages.filter((item) => !item.sensitive);
     const persistableMessages = safeMessages
       .slice(-40)
-      .map((item) => ({ ...item, attachments: [] }));
+      .map((item) => ({
+        ...item,
+        attachments: [],
+        sources: Array.isArray(item.sources)
+          ? item.sources.map((source) => (
+            /^knowledge_document(?:_chunk)?$/.test(String(source?.type || ''))
+              ? {
+                ...source,
+                url: source.articleId ? `/conocimiento/${encodeURIComponent(source.articleId)}` : '',
+              }
+              : source
+          ))
+          : [],
+      }));
     localStorage.setItem(messagesKey, JSON.stringify(persistableMessages));
   }, [messages, messagesKey]);
   useEffect(() => { localStorage.setItem(contextKey, JSON.stringify(context)); }, [context, contextKey]);
