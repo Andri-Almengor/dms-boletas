@@ -65,7 +65,7 @@ export async function queryTicketPage(payload = {}, { assignedUserId = '', allow
       ...(payload.homeSummary ? { homeSummary: { pending: 0, finished: 0 } } : {}),
     };
     params.push([...allowedIds].map(String));
-    clauses.push('"BoletaUID"=ANY(
+    clauses.push('"BoletaUID"=ANY(' + String.fromCharCode(36) + params.length + '::text[])');
   }
 
   const assigned = String(assignedUserId || '').trim();
@@ -100,7 +100,7 @@ export async function queryTicketPage(payload = {}, { assignedUserId = '', allow
   const active = payload.activo === undefined ? null : String(payload.activo).toLowerCase();
   if (active !== null && meta.columns.includes('Activo')) {
     params.push(active);
-    clauses.push('LOWER(COALESCE("Activo",\'\'))=
+    clauses.push('LOWER(COALESCE("Activo",\'\'))=' + String.fromCharCode(36) + params.length);
   }
   if (payload.dateFrom) {
     params.push(String(payload.dateFrom));
