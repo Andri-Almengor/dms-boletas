@@ -122,12 +122,13 @@ async function blobBase64(blob) {
 }
 
 async function uploadAssistantAttachment(item, sessionToken) {
-  const initialized = await apiRequest('assistant.attachments.init', {
+  const initialized = await apiRequest('assistant.chat', {
+    assistantAction: 'attachment.init',
     uploadId: item.id,
     fileName: item.file.name,
     mimeType: assistantFileMime(item.file),
     size: item.file.size,
-  }, sessionToken);
+  }, sessionToken, { cache: 'no-store' });
 
   const existing = initialized?.uploadId || initialized?.evidence?.uploadId;
   if (initialized?.complete && existing) {
@@ -147,11 +148,12 @@ async function uploadAssistantAttachment(item, sessionToken) {
   while (offset < item.file.size) {
     const end = Math.min(item.file.size, offset + chunkBytes);
     const base64 = await blobBase64(item.file.slice(offset, end));
-    const result = await apiRequest('assistant.attachments.chunk', {
+    const result = await apiRequest('assistant.chat', {
+      assistantAction: 'attachment.chunk',
       uploadToken,
       offset,
       base64,
-    }, sessionToken);
+    }, sessionToken, { cache: 'no-store' });
     const completedId = result?.uploadId || result?.evidence?.uploadId;
     if (result?.complete && completedId) {
       return {
@@ -919,10 +921,11 @@ export default function AssistantPageSecure() {
     setBusyOperationId(item.operationId);
     setError('');
     try {
-      const response = await apiRequest('assistant.operations.decide', {
+      const response = await apiRequest('assistant.chat', {
+        assistantAction: 'operation.decide',
         operationId: item.operationId,
         decision,
-      }, sessionToken);
+      }, sessionToken, { cache: 'no-store' });
       const updated = { ...item, ...response, preview: response?.preview || item.preview, result: response?.result || {} };
       setMessages((current) => current.map((message) => ({
         ...message,
