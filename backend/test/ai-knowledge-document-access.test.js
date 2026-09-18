@@ -2,7 +2,7 @@ import test from 'node:test';
 import assert from 'node:assert/strict';
 import { readFileSync } from 'node:fs';
 
-import { AI_INTENTS, classifyAiIntent, isKnowledgeDocumentQuery, isTechnicalKnowledgeQuery } from '../src/ai/agent.intent.js';
+import { AI_INTENTS, classifyAiIntent, isKnowledgeDocumentQuery, isTechnicalKnowledgeQuery, toolNamesForIntent } from '../src/ai/agent.intent.js';
 import { appendKnowledgeVisibility } from '../src/ai/agent.permissions.js';
 import { searchTerms } from '../src/ai/agent.repository.shared.js';
 import { declarationsForUser } from '../src/ai/agent.tools.js';
@@ -33,6 +33,14 @@ test('Knowledge visibility follows the parent article published-or-author rule',
   assert.match(sql, /"AutorUsuarioID"=\$1/);
   const managerParams = [];
   assert.equal(appendKnowledgeVisibility({ user: { UsuarioID: 'ADMIN-1' }, permissions: ['CONOCIMIENTO_GESTIONAR'] }, managerParams, 'a'), 'TRUE');
+});
+
+test('Technical Knowledge intents expose the complete read-only document toolset', () => {
+  const names = toolNamesForIntent(AI_INTENTS.KNOWLEDGE);
+  assert.equal(names.includes('search_knowledge_base'), true);
+  assert.equal(names.includes('search_knowledge_documents'), true);
+  assert.equal(names.includes('get_knowledge_document'), true);
+  assert.equal(names.includes('search_knowledge_document_chunks'), true);
 });
 
 test('Axis guide queries and natural document follow-ups route to Knowledge', () => {
@@ -210,4 +218,15 @@ test('Agent does not enable web immediately after one empty Knowledge result', (
   assert.match(service, /knowledge_document_search_failed/);
   assert.match(service, /knowledge_tool_not_exposed/);
   assert.match(service, /knowledge_tool_permission_denied/);
+  assert.match(service, /internalKnowledgeExhausted/);
+  assert.match(service, /includeWeb:true/);
+  assert.match(service, /EXTRACTION_FAILED/);
+});
+
+test('Assistant UI does not persist protected Knowledge document stream URLs', () => {
+  const frontend = source('../../src/pages/assistant/AssistantPageSecure.jsx');
+  assert.match(frontend, /knowledge_document\(\?:_chunk\)\?/);
+  assert.match(frontend, /url: source\.articleId \? \`\/conocimiento\//);
+  assert.match(frontend, /Documento interno DMS · Abrir documento/);
+  assert.match(frontend, /startsWith\('\/api\/'\)/);
 });
