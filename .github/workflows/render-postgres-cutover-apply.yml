@@ -12,26 +12,23 @@ permissions:
   contents: read
 
 jobs:
-  replace-snapshot:
+  replace-authoritative-snapshot:
     runs-on: ubuntu-24.04
-    timeout-minutes: 45
+    timeout-minutes: 35
     env:
       DATABASE_URL: ${{ secrets.RENDER_DATABASE_URL }}
       PG_SSL_MODE: verify-full
       PG_POOL_MAX: 3
       PG_IDLE_TIMEOUT_MS: 30000
       PG_CONNECTION_TIMEOUT_MS: 8000
-      CUTOVER_SOURCE_URL: 'https://sdmntprcentralus.oaiusercontent.com/files/00000000-4f3c-81f5-ba84-eb77b0121292/raw?se=2026-09-18T02%3A04%3A51Z&sp=r&sv=2026-02-06&sr=b&scid=8988a811-671a-593a-b829-65442eff38a9&skoid=77636ecc-ad8d-44df-baa7-163b524a0261&sktid=a48cca56-e6da-484e-a814-9c849652bcb3&skt=2026-09-17T18%3A14%3A50Z&ske=2026-09-18T18%3A14%3A50Z&sks=b&skv=2026-02-06&sig=4VS7/pOhbf3W%2BmrM/9/PPR9YuRZWN7Ph3baTXYEPZXo%3D'
+      CUTOVER_SOURCE_URL: 'https://sdmntprcentralus.oaiusercontent.com/files/00000000-61d4-81f5-8f7e-454250dd6ed3/raw?se=2026-09-18T02%3A03%3A00Z&sp=r&sv=2026-02-06&sr=b&scid=9f29cc1a-7fc8-5a0b-8e03-b5cfd65f6434&skoid=77636ecc-ad8d-44df-baa7-163b524a0261&sktid=a48cca56-e6da-484e-a814-9c849652bcb3&skt=2026-09-17T18%3A08%3A12Z&ske=2026-09-18T18%3A08%3A12Z&sks=b&skv=2026-02-06&sig=mNAAZMOw45SKgomeJXYtmFNfN6IhEepGxszcju08Pss%3D'
       CUTOVER_ENCRYPTED_SHA: '46ccf961c8fb5a675f0f72cae933a31298ed57aa0c12ee404ac1334e50265fea'
       CUTOVER_SOURCE_SHA: '43ed235976eb09618369dd74555f34922dd85f8149f42f0e1ed1bc74e238395a'
       CURRENT_SOURCE_SHA: '20c811d40231e7c2627fedeb32fcd748056aa77c0ebf5db037e360951e694512'
 
     steps:
-      - name: Checkout
-        uses: actions/checkout@v4
-
-      - name: Setup Node
-        uses: actions/setup-node@v4
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
         with:
           node-version-file: .node-version
           cache: npm
@@ -43,13 +40,13 @@ jobs:
           test -n "${DATABASE_URL:-}" || { echo "::error::RENDER_DATABASE_URL is missing"; exit 1; }
           test -n "${CUTOVER_SOURCE_URL:-}" || { echo "::error::CUTOVER_SOURCE_URL is missing"; exit 1; }
 
-      - name: Download encrypted current workbook
+      - name: Download encrypted authoritative workbook
         shell: bash
         run: |
           curl --fail --silent --show-error --location "$CUTOVER_SOURCE_URL" --output /tmp/source.xlsx.enc
           echo "$CUTOVER_ENCRYPTED_SHA  /tmp/source.xlsx.enc" | sha256sum --check --strict
 
-      - name: Decrypt and verify workbook
+      - name: Decrypt and verify authoritative workbook
         shell: bash
         run: |
           node <<'NODE'
@@ -85,82 +82,47 @@ jobs:
       - name: Install backend dependencies
         run: npm --prefix backend ci
 
-      - name: Confirm latest migrations
+      - name: Confirm migrations
         run: |
           npm --prefix backend run db:migrate
           npm --prefix backend run db:status
 
-      - name: Reconfirm safe replacement gate
+      - name: Re-check no PostgreSQL writes occurred after prior snapshot
         run: npm --prefix backend run db:cutover:preflight -- --current-source-sha "$CURRENT_SOURCE_SHA" --next-source-sha "$CUTOVER_SOURCE_SHA"
 
-      - name: Reconfirm source analysis before write
+      - name: Re-analyze authoritative workbook without writes
         run: npm --prefix backend run db:import:xlsx -- --file /tmp/DMS_WebApp_DB_current.xlsx --dry-run
 
-      - name: Create portable pre-cutover PostgreSQL backup
-        run: npm --prefix backend run db:cutover:backup -- --out /tmp/dms-boletas-precutover.ndjson.gz
-
-      - name: Verify portable pre-cutover backup
-        run: npm --prefix backend run db:backup:verify -- --file /tmp/dms-boletas-precutover.ndjson.gz
-
-      - name: Encrypt pre-cutover backup for artifact retention
-        shell: bash
+      - name: Backup current PostgreSQL before replacement
         run: |
-          node <<'NODE'
-          const fs = require('node:fs');
-          const crypto = require('node:crypto');
-          const secret = process.env.DATABASE_URL || '';
-          if (!secret) throw new Error('Missing DATABASE_URL');
-          const plain = fs.readFileSync('/tmp/dms-boletas-precutover.ndjson.gz');
-          const salt = crypto.randomBytes(16);
-          const iv = crypto.randomBytes(12);
-          const key = Buffer.from(crypto.hkdfSync('sha256', Buffer.from(secret), salt, Buffer.from('dms-boletas-cutover-backup-v1'), 32));
-          const cipher = crypto.createCipheriv('aes-256-gcm', key, iv);
-          const ciphertext = Buffer.concat([cipher.update(plain), cipher.final()]);
-          const tag = cipher.getAuthTag();
-          const out = Buffer.concat([Buffer.from('DMSBKUP1'), salt, iv, tag, ciphertext]);
-          fs.writeFileSync('/tmp/dms-boletas-precutover.ndjson.gz.enc', out, { mode: 0o600 });
-          console.log(JSON.stringify({
-            step: 'backup-encryption',
-            ok: true,
-            plaintextSha256: crypto.createHash('sha256').update(plain).digest('hex'),
-            encryptedSha256: crypto.createHash('sha256').update(out).digest('hex'),
-            plaintextBytes: plain.length,
-            encryptedBytes: out.length,
-          }));
-          NODE
-          rm -f /tmp/dms-boletas-precutover.ndjson.gz
+          mkdir -p .artifacts
+          npm --prefix backend run db:cutover:backup -- --out "$GITHUB_WORKSPACE/.artifacts/pre-cutover-postgres.ndjson.gz"
+          sha256sum .artifacts/pre-cutover-postgres.ndjson.gz > .artifacts/pre-cutover-postgres.ndjson.gz.sha256
 
-      - name: Replace operational snapshot transactionally
+      - name: Replace operational snapshot atomically
         run: npm --prefix backend run db:import:xlsx -- --file /tmp/DMS_WebApp_DB_current.xlsx --apply --replace
 
-      - name: Verify new source and canonical checksums
-        run: npm --prefix backend run db:verify -- --file /tmp/DMS_WebApp_DB_current.xlsx
-
-      - name: Verify new reconciliation and sequence continuity
-        run: npm --prefix backend run db:stage3:verify -- --file /tmp/DMS_WebApp_DB_current.xlsx
-
       - name: Verify exact new snapshot and duplicate safety
-        run: npm --prefix backend run db:cutover:verify -- --source-sha "$CUTOVER_SOURCE_SHA"
+        run: |
+          npm --prefix backend run db:cutover:verify -- --source-sha "$CUTOVER_SOURCE_SHA"
+          npm --prefix backend run db:stage3:final-audit
+          npm --prefix backend run db:benchmark > .artifacts/post-cutover-benchmark.json
 
-      - name: Reverify database structure and transactions
-        run: npm --prefix backend run db:stage2:verify
+      - name: Backup new PostgreSQL snapshot
+        run: |
+          npm --prefix backend run db:cutover:backup -- --out "$GITHUB_WORKSPACE/.artifacts/post-cutover-postgres.ndjson.gz"
+          sha256sum .artifacts/post-cutover-postgres.ndjson.gz > .artifacts/post-cutover-postgres.ndjson.gz.sha256
 
-      - name: Prove same SHA is idempotent
-        run: npm --prefix backend run db:import:xlsx -- --file /tmp/DMS_WebApp_DB_current.xlsx --apply
-
-      - name: Reverify exact snapshot after idempotence probe
-        run: npm --prefix backend run db:cutover:verify -- --source-sha "$CUTOVER_SOURCE_SHA"
-
-      - name: Upload encrypted pre-cutover backup
+      - name: Upload cutover backups and benchmark
         if: always()
         uses: actions/upload-artifact@v4
         with:
-          name: render-precutover-postgres-backup
-          path: /tmp/dms-boletas-precutover.ndjson.gz.enc
-          if-no-files-found: ignore
-          retention-days: 30
+          name: render-postgres-cutover-43ed235976eb
+          path: .artifacts/
+          if-no-files-found: warn
+          retention-days: 14
 
-      - name: Cleanup sensitive temporary files
+      - name: Cleanup decrypted workbook
         if: always()
         shell: bash
-        run: rm -f /tmp/DMS_WebApp_DB_current.xlsx /tmp/source.xlsx.enc /tmp/dms-boletas-precutover.ndjson.gz /tmp/dms-boletas-precutover.ndjson.gz.enc
+        run: rm -f /tmp/DMS_WebApp_DB_current.xlsx /tmp/source.xlsx.enc
