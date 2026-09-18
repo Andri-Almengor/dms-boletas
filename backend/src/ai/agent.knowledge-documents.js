@@ -40,8 +40,8 @@ async function driveClient(){
   return module.driveApi;
 }
 
-async function sourceStream(fileId){
-  const driveApi=await driveClient();
+async function sourceStream(fileId,driveApiOverride=null){
+  const driveApi=driveApiOverride||await driveClient();
   const response=await driveApi.files.get(
     {fileId,alt:'media',supportsAllDrives:true},
     {responseType:'stream'},
@@ -49,13 +49,38 @@ async function sourceStream(fileId){
   return response.data;
 }
 
-async function convertAndExtract({fileId,mimeType,targetMime,exportMime}){
-  const driveApi=await driveClient();
+async function sourceParents(fileId,driveApiOverride=null){
+  const driveApi=driveApiOverride||await driveClient();
+  try{
+    const response=await driveApi.files.get({
+      fileId,
+      fields:'parents',
+      supportsAllDrives:true,
+    });
+    return Array.isArray(response?.data?.parents)
+      ? response.data.parents.map(value=>clean(value,300)).filter(Boolean).slice(0,1)
+      : [];
+  }catch{
+    // Descargar el archivo sigue siendo suficiente para intentar la extracción.
+    // La ausencia de metadata de parents no debe convertir por sí sola el documento en FAILED.
+    return [];
+  }
+}
+
+async function convertAndExtract({fileId,mimeType,targetMime,exportMime,driveApi:driveApiOverride=null}){
+  const driveApi=driveApiOverride||await driveClient();
   let tempId='';
   try{
-    const input=await sourceStream(fileId);
+    const [input,sourceParentIds]=await Promise.all([
+      sourceStream(fileId,driveApi),
+      sourceParents(fileId,driveApi),
+    ]);
     const created=await driveApi.files.create({
-      requestBody:{name:`dms-ai-extract-${Date.now()}`,mimeType:targetMime},
+      requestBody:{
+        name:`dms-ai-extract-${Date.now()}`,
+        mimeType:targetMime,
+        parents:sourceParentIds.length?sourceParentIds:undefined,
+      },
       media:{mimeType,body:input},
       fields:'id',
       supportsAllDrives:true,
@@ -74,17 +99,18 @@ export function supportsKnowledgeExtraction(mimeType){
   return TEXT_MIMES.has(mime)||DOC_MIMES.has(mime)||SHEET_MIMES.has(mime)||IMAGE_MIME.test(mime);
 }
 
-export async function extractDriveDocumentText({fileId,mimeType}){
+export async function extractDriveDocumentText({fileId,mimeType,driveApi:driveApiOverride=null}){
   const mime=normalizeMime(mimeType);
   if(!fileId) throw new Error('El documento no tiene referencia de almacenamiento.');
   if(TEXT_MIMES.has(mime)){
-    return collectText(await sourceStream(fileId));
+    return collectText(await sourceStream(fileId,driveApiOverride));
   }
   if(SHEET_MIMES.has(mime)){
     return convertAndExtract({
       fileId,mimeType:mime,
       targetMime:'application/vnd.google-apps.spreadsheet',
       exportMime:'text/csv',
+      driveApi:driveApiOverride,
     });
   }
   if(DOC_MIMES.has(mime)||IMAGE_MIME.test(mime)){
@@ -92,6 +118,7 @@ export async function extractDriveDocumentText({fileId,mimeType}){
       fileId,mimeType:mime,
       targetMime:'application/vnd.google-apps.document',
       exportMime:'text/plain',
+      driveApi:driveApiOverride,
     });
   }
   throw new Error('El formato del documento todavía no admite extracción de texto.');
@@ -214,13 +241,28 @@ export async function indexKnowledgeDocument(input = {}, actorOverride = '') {
       FechaActualizacion:nowIso(),
       ActualizadoPor:actor,
     }).catch(()=>{});
-    console.warn('[knowledge-document] '+JSON.stringify({event:'index_failed',documentId:id,articleId:article,mimeType:normalizeMime(mimeType),indexingMs:Math.round(performance.now()-startedAt),status:'FAILED'}));
+    const errorStatus=Number(error?.response?.status||error?.status||0)||undefined;
+    const errorCode=clean(error?.response?.data?.error?.status||error?.code||error?.name||'EXTRACTION_ERROR',80);
+    const errorReason=clean(error?.message||'No se pudo extraer el documento.',240)
+      .replace(/[A-Za-z0-9_-]{20,}/g,'[redacted]');
+    console.warn('[knowledge-document] '+JSON.stringify({
+      event:'index_failed',
+      documentId:id,
+      articleId:article,
+      mimeType:normalizeMime(mimeType),
+      indexingMs:Math.round(performance.now()-startedAt),
+      status:'FAILED',
+      errorStatus,
+      errorCode,
+      errorReason,
+    }));
     return {indexed:false,error:clean(error?.message,500)};
   }
 }
 
 const KNOWLEDGE_INDEX_QUEUE=[];
 const KNOWLEDGE_INDEX_QUEUED=new Set();
+const KNOWLEDGE_FAILED_RETRY_ATTEMPTED=new Set();
 let knowledgeIndexQueueRunning=false;
 let knowledgeRecoveryTimer=null;
 
@@ -258,12 +300,16 @@ async function drainKnowledgeIndexQueue(){
   }
 }
 
-export function queueKnowledgeDocumentIndexing(row,actor=''){
+export function queueKnowledgeDocumentIndexing(row,actor='',options={}){
   if(!aiConfig.knowledgeDocumentsEnabled||!row)return false;
   const status=String(row.ExtractionStatus||row.extractionStatus||'').toUpperCase();
-  if(['INDEXED','UNSUPPORTED','EMPTY','FAILED'].includes(status))return false;
   const payload=indexingPayload(row,actor);
   if(!payload.documentId||!payload.articleId||!payload.fileId)return false;
+  if(['INDEXED','UNSUPPORTED','EMPTY'].includes(status))return false;
+  if(status==='FAILED'){
+    if(!options.retryFailed||KNOWLEDGE_FAILED_RETRY_ATTEMPTED.has(payload.documentId))return false;
+    KNOWLEDGE_FAILED_RETRY_ATTEMPTED.add(payload.documentId);
+  }
   if(KNOWLEDGE_INDEX_QUEUED.has(payload.documentId))return true;
   KNOWLEDGE_INDEX_QUEUED.add(payload.documentId);
   KNOWLEDGE_INDEX_QUEUE.push({payload});
@@ -279,15 +325,21 @@ export async function recoverKnowledgeDocumentIndexing({limit=aiConfig.knowledge
        FROM "KnowledgeAttachments"
       WHERE "__valid"=TRUE
         AND LOWER(COALESCE("Activo",'true')) <> 'false'
-        AND UPPER(COALESCE("ExtractionStatus",'UPLOADED')) IN ('UPLOADED','PROCESSING')
-      ORDER BY "FechaActualizacion" ASC NULLS FIRST,"FechaCreacion" ASC NULLS FIRST
+        AND UPPER(COALESCE("ExtractionStatus",'UPLOADED')) IN ('UPLOADED','PROCESSING','FAILED')
+      ORDER BY CASE WHEN UPPER(COALESCE("ExtractionStatus",'UPLOADED'))='FAILED' THEN 1 ELSE 0 END,
+               "FechaActualizacion" ASC NULLS FIRST,"FechaCreacion" ASC NULLS FIRST
       LIMIT $1`,
     [safeLimit],
     {label:'ai.knowledgeDocuments.recover'},
   );
   let queued=0;
   for(const row of result.rows){
-    if(queueKnowledgeDocumentIndexing(row,row.ActualizadoPor||row.CreadoPor||''))queued+=1;
+    const status=String(row.ExtractionStatus||'').toUpperCase();
+    if(queueKnowledgeDocumentIndexing(
+      row,
+      row.ActualizadoPor||row.CreadoPor||'',
+      {retryFailed:status==='FAILED'},
+    ))queued+=1;
   }
   if(result.rows.length){
     console.info('[ai-knowledge] '+JSON.stringify({
