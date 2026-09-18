@@ -7,6 +7,7 @@ import {
 import { ensureAgendaSchema } from '../services/agenda-schema.service.js';
 import { getAgendaTicketExceptions } from '../services/agenda-ticket-exceptions.service.js';
 import { assistantDynamicMaintenanceQuestionHandlers } from './assistant-dynamic-maintenance-questions.module.js';
+import { aiAgentHandlers } from '../ai/agent.module.js';
 
 function clean(value, fallback = '') {
   const text = String(value ?? '').trim();
@@ -312,9 +313,7 @@ async function answerAgendaQuestion(ctx, question) {
 }
 
 async function chat(ctx) {
-  const question = clean(ctx.payload?.message || ctx.payload?.question);
-  if (agendaIntent(question)) return answerAgendaQuestion(ctx, question);
-  return assistantDynamicMaintenanceQuestionHandlers.chat(ctx);
+  return aiAgentHandlers.chat(ctx);
 }
 
 export const assistantAgendaHandlers = {
