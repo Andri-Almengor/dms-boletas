@@ -76,8 +76,8 @@ export function addRange(clauses, params, column, input = {}) {
   return range;
 }
 
-export function source(type, id, label, url = '') {
-  return { type, id: clean(id, 250), label: clean(label, 300), url: clean(url, 1000) };
+export function source(type, id, label, url = '', meta = {}) {
+  return { type, id: clean(id, 250), label: clean(label, 300), url: clean(url, 4000), ...meta };
 }
 
 export function entity(type, id, label, route, meta = {}) {
