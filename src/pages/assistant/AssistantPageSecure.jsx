@@ -575,8 +575,8 @@ export default function AssistantPageSecure() {
 
   useEffect(() => { localStorage.setItem(conversationKey, conversationId); }, [conversationId, conversationKey]);
   useEffect(() => {
-    const persistableMessages = messages
-      .filter((item) => !item.sensitive)
+    const safeMessages = messages.filter((item) => !item.sensitive);
+    const persistableMessages = safeMessages
       .slice(-40)
       .map((item) => ({ ...item, attachments: [] }));
     localStorage.setItem(messagesKey, JSON.stringify(persistableMessages));
