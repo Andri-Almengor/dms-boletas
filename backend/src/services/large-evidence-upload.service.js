@@ -289,7 +289,12 @@ async function resumableOffset(token) {
     const match = range.match(/bytes=0-(\d+)/i);
     return { complete: false, nextOffset: match ? Number(match[1]) + 1 : 0 };
   }
-  if (response.ok) return { complete: true, nextOffset: token.size };
+  if (response.ok) {
+    const file = await response.json().catch(() => null);
+    if (file?.id) return { complete: true, nextOffset: token.size, file, token };
+    const existing = await findExistingEvidence(token, token.kind);
+    if (existing) return { complete: true, nextOffset: token.size, evidence: existing };
+  }
   const existing = await findExistingEvidence(token, token.kind);
   if (existing) return { complete: true, nextOffset: token.size, evidence: existing };
   throw new Error(`Google Drive no pudo consultar el estado de la carga (${response.status}).`);
