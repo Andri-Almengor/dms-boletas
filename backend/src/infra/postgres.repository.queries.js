@@ -377,6 +377,48 @@ export async function queryCustomerCasePage(payload = {}) {
   const c=countResult.rows[0]||{}; return {items:rows.rows.map(publicRow),total:Number(total.rows[0]?.total||0),page,pageSize,counts:{EN_ESPERA:Number(c.espera||0),EN_PROCESO:Number(c.proceso||0),FINALIZADO:Number(c.finalizado||0),TOTAL:Number(c.total||0)}};
 }
 
+export async function findTicketByStoredFileId(fileId) {
+  const requested = String(fileId || '').trim();
+  if (!requested) return null;
+
+  const evidence = await query(
+    `SELECT ${selectList('Boletas', 'b')}
+     FROM "EvidenciasBoleta" e
+     JOIN "Boletas" b
+       ON b."__valid"=TRUE
+      AND b."BoletaUID"=e."BoletaUID"
+     WHERE e."__valid"=TRUE
+       AND LOWER(COALESCE(e."Activo",'true')) <> 'false'
+       AND COALESCE(
+         NULLIF(e."ArchivoID",''),
+         NULLIF(e."__payload"->>'ArchivoFileID',''),
+         NULLIF(e."__payload"->>'DriveFileID',''),
+         ''
+       )=$1
+     ORDER BY e."__db_id" ASC, b."__db_id" ASC
+     LIMIT 1`,
+    [requested],
+    { label: 'tickets.media.lookupEvidence' },
+  );
+  if (evidence.rows[0]) return publicRow(evidence.rows[0]);
+
+  const signature = await query(
+    `SELECT ${selectList('Boletas', 'b')}
+     FROM "Boletas" b
+     WHERE b."__valid"=TRUE
+       AND COALESCE(
+         NULLIF(b."FirmaArchivoID",''),
+         NULLIF(b."__payload"->>'FirmaFileID',''),
+         ''
+       )=$1
+     ORDER BY b."__db_id" ASC
+     LIMIT 1`,
+    [requested],
+    { label: 'tickets.media.lookupSignature' },
+  );
+  return signature.rows[0] ? publicRow(signature.rows[0]) : null;
+}
+
 export async function countRows(table, criteria = {}) {
   const params=[]; const clauses=['"__valid"=TRUE'];
   for (const [key,value] of Object.entries(criteria)) { column(table,key); params.push(writableValue(value)); clauses.push(`${qi(key)}=$${params.length}`); }
