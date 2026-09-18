@@ -5,6 +5,7 @@ import { sanitizeAiToolResult } from './agent.sanitize.js';
 import { directoryRepositoryTools } from './agent.repository.directory.js';
 import { ticketRepositoryTools } from './agent.repository.tickets.js';
 import { maintenanceRepositoryTools } from './agent.repository.maintenance.js';
+import { maintenanceIntegralRepositoryTools } from './agent.repository.maintenance.integral.js';
 import { knowledgeRepositoryTools } from './agent.repository.knowledge.js';
 import { statisticsRepositoryTools } from './agent.repository.statistics.js';
 import { agendaRepositoryTools } from './agent.repository.agenda.js';
@@ -17,6 +18,7 @@ const TOOL_IMPL=Object.freeze({
   ...directoryRepositoryTools,
   ...ticketRepositoryTools,
   ...maintenanceRepositoryTools,
+  ...maintenanceIntegralRepositoryTools,
   ...knowledgeRepositoryTools,
   ...statisticsRepositoryTools,
   ...agendaRepositoryTools,
@@ -60,7 +62,8 @@ export const TOOL_DECLARATIONS=Object.freeze({
   search_maintenances:fn('search_maintenances','Busca mantenimientos por cliente, nombre, ubicación, responsable o descripción.',{query:{type:'string'},clientId:{type:'string'},status:{type:'string'},limit:{type:'integer',minimum:1,maximum:50},offset:{type:'integer',minimum:0},...COMMON_DATE_PROPERTIES}),
   get_maintenance:fn('get_maintenance','Obtiene resumen completo de un mantenimiento, categorías y supervisores.',{maintenanceId:{type:'string'}},['maintenanceId']),
   get_maintenance_devices:fn('get_maintenance_devices','Lista dispositivos de un mantenimiento y puede filtrar por tipo u observaciones.',{maintenanceId:{type:'string'},query:{type:'string'},type:{type:'string'},observationsOnly:{type:'boolean'},limit:{type:'integer',minimum:1,maximum:50},offset:{type:'integer',minimum:0}},['maintenanceId']),
-  get_maintenance_evidence:fn('get_maintenance_evidence','Obtiene imágenes, videos o archivos de dispositivos de un mantenimiento como attachments seguros. Puede filtrar ANTES/DESPUÉS sin confundir esa clasificación con Zona.',{maintenanceId:{type:'string'},deviceIds:{type:'array',items:{type:'string'}},type:{type:'string'},stage:{type:'string',enum:['ANTES','DESPUES']},limit:{type:'integer',minimum:1,maximum:50}},['maintenanceId']),
+  get_maintenance_evidence:fn('get_maintenance_evidence','Obtiene imágenes, videos o archivos de dispositivos de un mantenimiento como attachments seguros.',{maintenanceId:{type:'string'},deviceIds:{type:'array',items:{type:'string'}},type:{type:'string'},limit:{type:'integer',minimum:1,maximum:50}},['maintenanceId']),
+  search_maintenance_evidence:fn('search_maintenance_evidence','Obtiene evidencias de mantenimiento con filtro opcional ANTES/DESPUÉS sin confundir clasificación con Zona.',{maintenanceId:{type:'string'},deviceIds:{type:'array',items:{type:'string'}},type:{type:'string'},stage:{type:'string',enum:['ANTES','DESPUES']},limit:{type:'integer',minimum:1,maximum:50}},['maintenanceId']),
   get_maintenance_history:fn('get_maintenance_history','Obtiene el historial de auditoría de un mantenimiento autorizado.',{maintenanceId:{type:'string'},limit:{type:'integer',minimum:1,maximum:50}},['maintenanceId']),
   search_devices:fn('search_devices','Busca dispositivos por nombre, tipo, marca, modelo, serie, MAC, zona u observación.',{query:{type:'string'},limit:{type:'integer',minimum:1,maximum:50}},['query']),
   search_knowledge_base:fn('search_knowledge_base','Busca primero procedimientos y conocimiento interno de DMS.',{query:{type:'string'},limit:{type:'integer',minimum:1,maximum:20}},['query']),
@@ -102,7 +105,7 @@ function allowedNames(ctx){
   if(access.clients) names.push('search_clients','get_client');
   if(access.users) names.push('search_users');
   if(access.tickets) names.push('search_tickets','get_ticket','get_ticket_evidence','search_ticket_evidence','get_ticket_history','get_technician_activity','search_evidence_activity');
-  if(access.maintenance) names.push('resolve_maintenance_reference','resolve_maintenance_device','search_maintenances','get_maintenance','get_maintenance_devices','get_maintenance_evidence','get_maintenance_history','search_devices');
+  if(access.maintenance) names.push('resolve_maintenance_reference','resolve_maintenance_device','search_maintenances','get_maintenance','get_maintenance_devices','get_maintenance_evidence','search_maintenance_evidence','get_maintenance_history','search_devices');
   if(access.knowledge) names.push('search_knowledge_base','get_knowledge_article','search_knowledge_documents','get_knowledge_document','search_knowledge_document_chunks');
   if(access.cases) names.push('search_cases','get_case');
   if(access.admin) names.push('search_network_devices');
