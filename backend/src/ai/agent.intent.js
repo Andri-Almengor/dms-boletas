@@ -37,7 +37,12 @@ export const AI_INTENTS = Object.freeze({
 
 function text(value){return String(value||'').trim();}
 function hasActive(context={},key){return Boolean(text(context?.[key]));}
-function hasKnowledgeContext(context={}){return hasActive(context,'lastKnowledgeArticleId')||hasActive(context,'lastKnowledgeDocumentId')||hasActive(context,'lastKnowledgeDocumentName');}
+function hasKnowledgeContext(context={}){
+  return hasActive(context,'lastKnowledgeArticleId')
+    ||hasActive(context,'lastKnowledgeDocumentId')
+    ||hasActive(context,'lastKnowledgeDocumentName')
+    ||String(context?.pageContext?.entityType||'').toLowerCase()==='knowledge';
+}
 function hasCompetingInternalDomain(value=''){
   return TICKET_HINT.test(value)||MAINTENANCE_HINT.test(value)||DEVICE_HINT.test(value)||EVIDENCE_HINT.test(value)
     ||CLIENT_HINT.test(value)||USER_HINT.test(value)||AGENDA_HINT.test(value)||CASE_HINT.test(value);
@@ -69,8 +74,13 @@ export function classifyAiIntent({message='',context={},attachments=[]}={}){
   const explicitMaintenance=MAINTENANCE_HINT.test(value);
   const explicitDevice=DEVICE_HINT.test(value);
   const explicitEvidence=EVIDENCE_HINT.test(value);
-  const ticketContext=hasActive(context,'lastTicketId');
-  const maintenanceContext=hasActive(context,'lastMaintenanceId');
+  const pageEntity=String(context?.pageContext?.entityType||'').toLowerCase();
+  const ticketContext=hasActive(context,'lastTicketId')
+    ||hasActive(context?.pageContext,'ticketId')
+    ||(pageEntity==='ticket'&&hasActive(context?.pageContext,'entityId'));
+  const maintenanceContext=hasActive(context,'lastMaintenanceId')
+    ||hasActive(context?.pageContext,'maintenanceId')
+    ||(pageEntity==='maintenance'&&hasActive(context?.pageContext,'entityId'));
   const deviceContext=hasActive(context,'lastDeviceId');
 
   if(wantsWrite&&(explicitMaintenance||maintenanceContext||explicitDevice||deviceContext||hasFiles)) return AI_INTENTS.WRITE_MAINTENANCE;
