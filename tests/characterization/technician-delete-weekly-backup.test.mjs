@@ -56,8 +56,9 @@ test('el selector de técnicos muestra los nombres también en la vista de escri
   assert.match(editor, /TechnicianMultiSelect/);
 });
 
-test('el respaldo semanal copia el libro maestro completo y evita duplicar la misma semana', () => {
+test('el respaldo semanal genera un backup PostgreSQL portable en Drive y evita duplicar la misma semana', () => {
   const backups = source('backend/src/services/weekly-backup.service.js');
+  const portable = source('backend/src/services/postgres-backup.service.js');
   const config = source('backend/src/modules/config.module.js');
   const server = source('backend/src/server.js');
   const more = source('src/pages/MorePage.jsx');
@@ -66,9 +67,13 @@ test('el respaldo semanal copia el libro maestro completo y evita duplicar la mi
   assert.match(backups, /BACKUP_WEEKLY_ENABLED/);
   assert.match(backups, /BACKUP_LAST_SLOT/);
   assert.match(backups, /America\/Costa_Rica/);
-  assert.match(backups, /copyDriveFile/);
-  assert.match(backups, /fileId:\s*env\.sheetId/);
-  assert.match(backups, /settings\.lastSlot === slot && settings\.lastStatus === 'COMPLETADO'/);
+  assert.match(backups, /createPortablePostgresBackupFile/);
+  assert.match(backups, /uploadDriveStream/);
+  assert.match(backups, /mimeType:'application\/gzip'/);
+  assert.match(backups, /DMS Boletas - PostgreSQL/);
+  assert.match(backups, /settings\.autoSlot===slot\|\|\(settings\.lastSlot===slot&&settings\.lastStatus==='COMPLETADO'\)/);
+  assert.doesNotMatch(backups, /copyDriveFile|env\.sheetId/);
+  assert.match(portable, /ndjson|NDJSON|gzip/i);
   assert.match(backups, /startWeeklyBackupScheduler/);
   assert.match(backups, /stopWeeklyBackupScheduler/);
   assert.match(config, /BACKUP_SECTION = 'BACKUPS'/);

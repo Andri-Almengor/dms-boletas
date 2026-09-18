@@ -1,4 +1,4 @@
-import { readTables } from '../infra/sheets.repository.js';
+import { findRows, readTable } from '../infra/postgres.repository.js';
 import { asBool } from '../core/utils.js';
 
 export const PERMISSION_TABLE_NAMES = ['Roles', 'Permisos', 'RolPermisos', 'UsuarioPermisos'];
@@ -17,8 +17,25 @@ export function calculateUserPermissions(user, tables) {
   return activePermissions.filter((item) => allowedIds.has(String(item.PermisoID))).map((item) => item.Codigo).filter(Boolean);
 }
 
+export async function getPermissionTablesForUser(user) {
+  const roleId = String(user?.RolID || '').trim();
+  const userId = String(user?.UsuarioID || '').trim();
+  const [roles, permissions, roleLinks, userLinks] = await Promise.all([
+    roleId ? findRows('Roles', { RolID: roleId }, { limit: 2 }) : Promise.resolve([]),
+    readTable('Permisos'),
+    roleId ? findRows('RolPermisos', { RolID: roleId }, { limit: 50_000 }) : Promise.resolve([]),
+    userId ? findRows('UsuarioPermisos', { UsuarioID: userId }, { limit: 50_000 }) : Promise.resolve([]),
+  ]);
+  return {
+    Roles: roles,
+    Permisos: permissions,
+    RolPermisos: roleLinks,
+    UsuarioPermisos: userLinks,
+  };
+}
+
 export async function getUserPermissions(user, prefetchedTables = null) {
-  const tables = prefetchedTables || await readTables(PERMISSION_TABLE_NAMES);
+  const tables = prefetchedTables || await getPermissionTablesForUser(user);
   return calculateUserPermissions(user, tables);
 }
 

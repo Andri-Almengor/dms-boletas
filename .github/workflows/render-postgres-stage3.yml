@@ -1,0 +1,94 @@
+name: Render PostgreSQL Stage 3
+
+on:
+  workflow_dispatch:
+  push:
+    branches:
+      - feat/migrate-sheets-to-render-postgres
+    paths:
+      - .github/workflows/render-postgres-stage3.yml
+
+permissions:
+  contents: read
+
+jobs:
+  verify-render-import:
+    runs-on: ubuntu-24.04
+    env:
+      DATABASE_URL: ${{ secrets.RENDER_DATABASE_URL }}
+      PG_SSL_MODE: verify-full
+      PG_POOL_MAX: 3
+      PG_IDLE_TIMEOUT_MS: 30000
+      PG_CONNECTION_TIMEOUT_MS: 8000
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Setup Node
+        uses: actions/setup-node@v4
+        with:
+          node-version-file: .node-version
+          cache: npm
+          cache-dependency-path: backend/package-lock.json
+
+      - name: Require Render database secret
+        shell: bash
+        run: test -n "${DATABASE_URL:-}" || { echo "::error::RENDER_DATABASE_URL is missing"; exit 1; }
+
+      - name: Install backend dependencies
+        run: npm --prefix backend ci
+
+      - name: Confirm migrations are idempotent
+        run: |
+          npm --prefix backend run db:migrate
+          npm --prefix backend run db:status
+
+      - name: Audit imported workbook state and same-SHA guard
+        run: npm --prefix backend run db:stage3:final-audit
+
+      - name: Reverify Stage 2 database structure
+        run: npm --prefix backend run db:stage2:verify
+
+  verify-importer-idempotence:
+    runs-on: ubuntu-24.04
+    services:
+      postgres:
+        image: postgres:17-alpine
+        env:
+          POSTGRES_USER: postgres
+          POSTGRES_PASSWORD: postgres
+          POSTGRES_DB: dms_boletas_stage3_test
+        ports:
+          - 5432:5432
+        options: >-
+          --health-cmd "pg_isready -U postgres -d dms_boletas_stage3_test"
+          --health-interval 5s
+          --health-timeout 5s
+          --health-retries 10
+    env:
+      NODE_ENV: test
+      DATABASE_URL: postgresql://postgres:postgres@localhost:5432/dms_boletas_stage3_test
+      TEST_DATABASE_URL: postgresql://postgres:postgres@localhost:5432/dms_boletas_stage3_test
+      PG_SSL_MODE: disable
+      PG_POOL_MAX: 3
+      PG_IDLE_TIMEOUT_MS: 30000
+      PG_CONNECTION_TIMEOUT_MS: 8000
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Setup Node
+        uses: actions/setup-node@v4
+        with:
+          node-version-file: .node-version
+          cache: npm
+          cache-dependency-path: backend/package-lock.json
+
+      - name: Install backend dependencies
+        run: npm --prefix backend ci
+
+      - name: Import the same XLSX fixture twice
+        run: npm --prefix backend run test:xlsx-import-idempotence
+
+      - name: Verify migrated PostgreSQL structure
+        run: npm --prefix backend run db:stage2:verify

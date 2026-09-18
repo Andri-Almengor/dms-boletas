@@ -1,0 +1,51 @@
+name: Render PostgreSQL Stage 2
+
+on:
+  workflow_dispatch:
+  push:
+    branches:
+      - feat/migrate-sheets-to-render-postgres
+    paths:
+      - '.github/workflows/render-postgres-stage2.yml'
+
+permissions:
+  contents: read
+
+jobs:
+  verify-render-postgres:
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    env:
+      DATABASE_URL: ${{ secrets.RENDER_DATABASE_URL }}
+      PG_SSL_MODE: 'verify-full'
+      PG_POOL_MAX: '3'
+      PG_IDLE_TIMEOUT_MS: '30000'
+      PG_CONNECTION_TIMEOUT_MS: '8000'
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+      - name: Setup Node
+        uses: actions/setup-node@v4
+        with:
+          node-version-file: '.node-version'
+          cache: npm
+          cache-dependency-path: backend/package-lock.json
+      - name: Require Render database secret
+        shell: bash
+        run: |
+          if [ -z "${DATABASE_URL:-}" ]; then
+            echo "::error::Configure the repository secret RENDER_DATABASE_URL before running this workflow."
+            exit 1
+          fi
+      - name: Install backend dependencies
+        run: npm --prefix backend ci
+      - name: Status before migrations
+        run: npm --prefix backend run db:status
+      - name: Apply migrations
+        run: npm --prefix backend run db:migrate
+      - name: Status after migrations
+        run: npm --prefix backend run db:status
+      - name: Verify migration idempotence
+        run: npm --prefix backend run db:migrate
+      - name: Verify Stage 2 schema transactions and pool
+        run: npm --prefix backend run db:stage2:verify

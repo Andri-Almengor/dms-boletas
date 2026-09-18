@@ -32,12 +32,13 @@ test('sync Casos: finalizar una boleta vinculada propaga el caso finalizado', ()
   assert.match(derivedSource, /syncClassification\('customerCase', caseId, route, 'ticketFinalization'\)/);
 });
 
-test('sync Casos: el delta materializa solo casos cambiados y calcula contadores con una lectura fuente', () => {
-  assert.equal((materializerSource.match(/readTable\('CasosClientes'\)/g) || []).length, 1);
+test('sync Casos: el delta consulta solo IDs cambiados y calcula contadores en PostgreSQL', () => {
+  assert.match(materializerSource, /COUNT\(\*\)::bigint AS total/);
+  assert.match(materializerSource, /"CasoID"=ANY\(\$1::text\[\]\)/);
+  assert.match(materializerSource, /label:'sync\.cases\.counts'/);
+  assert.match(materializerSource, /label:'sync\.cases\.changed'/);
   assert.match(materializerSource, /customerCaseView\(row\)/);
-  assert.match(materializerSource, /counts\.TOTAL \+= 1/);
-  assert.match(materializerSource, /counts\[state\] = Number\(counts\[state\] \|\| 0\) \+ 1/);
-  assert.doesNotMatch(materializerSource, /readTable\('EvidenciasCasosClientes'\)/);
+  assert.doesNotMatch(materializerSource, /readTable\(/);
 });
 
 test('sync Casos: el detalle incremental conserva el handler autoritativo completo', () => {

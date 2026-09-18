@@ -1,12 +1,9 @@
-import { env } from '../config/env.js';
 import {
   appendRows,
-  getHeaders,
-  invalidateTableCache,
-  readTable,
+  ensureColumns,
+  findRows,
   updateRows,
 } from '../infra/sheets.repository.js';
-import { sheetsApi } from '../infra/google.js';
 import { nowIso, uuid } from '../core/utils.js';
 import { joinKnowledgeContentChunks, splitKnowledgeContent } from './knowledge-content-chunks.js';
 
@@ -27,50 +24,10 @@ const WRITE_BATCH_SIZE = 20;
 let ensurePromise = null;
 let ensured = false;
 
-function quote(name) {
-  return `'${String(name).replace(/'/g, "''")}'`;
-}
-
-function columnLetter(index) {
-  let result = '';
-  let number = index + 1;
-  while (number > 0) {
-    const remainder = (number - 1) % 26;
-    result = String.fromCharCode(65 + remainder) + result;
-    number = Math.floor((number - 1) / 26);
-  }
-  return result;
-}
-
 function isActive(row) {
   return row?.Activo !== false
     && String(row?.Activo ?? 'true').toLowerCase() !== 'false'
     && String(row?.Estado || '').toUpperCase() !== 'INACTIVO';
-}
-
-async function ensureHeaders() {
-  const range = `${quote(KNOWLEDGE_CONTENT_SHEET)}!1:1`;
-  const { data } = await sheetsApi.spreadsheets.values.get({
-    spreadsheetId: env.sheetId,
-    range,
-  });
-  const current = (data.values?.[0] || [])
-    .map((value) => String(value || '').trim())
-    .filter(Boolean);
-  const missing = KNOWLEDGE_CONTENT_HEADERS.filter((header) => !current.includes(header));
-  const headers = current.length ? [...current, ...missing] : [...KNOWLEDGE_CONTENT_HEADERS];
-
-  if (!current.length || missing.length) {
-    await sheetsApi.spreadsheets.values.update({
-      spreadsheetId: env.sheetId,
-      range: `${quote(KNOWLEDGE_CONTENT_SHEET)}!A1:${columnLetter(headers.length - 1)}1`,
-      valueInputOption: 'RAW',
-      requestBody: { values: [headers] },
-    });
-  }
-
-  invalidateTableCache(KNOWLEDGE_CONTENT_SHEET);
-  await getHeaders(KNOWLEDGE_CONTENT_SHEET, true);
 }
 
 async function writeUpdatesInBatches(updates = []) {
@@ -87,27 +44,12 @@ export async function ensureKnowledgeLongContentStorage() {
   if (ensured) return;
   if (ensurePromise) return ensurePromise;
 
-  ensurePromise = (async () => {
-    const { data } = await sheetsApi.spreadsheets.get({
-      spreadsheetId: env.sheetId,
-      fields: 'sheets.properties.title',
-    });
-    const exists = (data.sheets || []).some(
-      (sheet) => sheet.properties?.title === KNOWLEDGE_CONTENT_SHEET,
-    );
-
-    if (!exists) {
-      await sheetsApi.spreadsheets.batchUpdate({
-        spreadsheetId: env.sheetId,
-        requestBody: {
-          requests: [{ addSheet: { properties: { title: KNOWLEDGE_CONTENT_SHEET } } }],
-        },
-      });
-    }
-
-    await ensureHeaders();
+  ensurePromise = ensureColumns(
+    KNOWLEDGE_CONTENT_SHEET,
+    KNOWLEDGE_CONTENT_HEADERS,
+  ).then(() => {
     ensured = true;
-  })().catch((error) => {
+  }).catch((error) => {
     ensured = false;
     throw error;
   }).finally(() => {
@@ -123,7 +65,7 @@ export async function readKnowledgeArticleContents(tutorialIds = []) {
 
   await ensureKnowledgeLongContentStorage();
   const wanted = new Set(ids);
-  const rows = await readTable(KNOWLEDGE_CONTENT_SHEET);
+  const rows = await findRows(KNOWLEDGE_CONTENT_SHEET, { TutorialID: ids }, { limit: 50_000 });
   const grouped = new Map();
 
   rows.forEach((row) => {
@@ -152,9 +94,7 @@ export async function replaceKnowledgeArticleContent(tutorialId, content, actor 
 
   await ensureKnowledgeLongContentStorage();
   const chunks = splitKnowledgeContent(content);
-  const rows = await readTable(KNOWLEDGE_CONTENT_SHEET, { force: true });
-  const related = rows
-    .filter((row) => String(row.TutorialID || '') === id)
+  const related = (await findRows(KNOWLEDGE_CONTENT_SHEET, { TutorialID: id }, { limit: 50_000 }))
     .sort((a, b) => Number(a.Parte || 0) - Number(b.Parte || 0));
   const timestamp = nowIso();
   const updates = [];
@@ -213,10 +153,10 @@ export async function deactivateKnowledgeArticleContent(tutorialId, actor = '') 
   if (!id) return;
 
   await ensureKnowledgeLongContentStorage();
-  const rows = await readTable(KNOWLEDGE_CONTENT_SHEET, { force: true });
+  const rows = await findRows(KNOWLEDGE_CONTENT_SHEET, { TutorialID: id }, { limit: 50_000 });
   const timestamp = nowIso();
   const updates = rows
-    .filter((row) => String(row.TutorialID || '') === id && isActive(row) && row.ContenidoParteID)
+    .filter((row) => isActive(row) && row.ContenidoParteID)
     .map((row) => ({
       idValue: row.ContenidoParteID,
       patch: {

@@ -1,0 +1,109 @@
+name: Render PostgreSQL Cutover Dry Run
+
+on:
+  push:
+    branches:
+      - feat/migrate-sheets-to-render-postgres
+    paths:
+      - .github/workflows/render-postgres-cutover-dry-run.yml
+      - backend/src/scripts/db-cutover-preflight.js
+      - backend/src/scripts/db-cutover-verify.js
+      - backend/src/scripts/db-cutover-backup.js
+      - backend/package.json
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  analyze-current-snapshot:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 25
+    env:
+      DATABASE_URL: ${{ secrets.RENDER_DATABASE_URL }}
+      PG_SSL_MODE: verify-full
+      PG_POOL_MAX: 3
+      PG_IDLE_TIMEOUT_MS: 30000
+      PG_CONNECTION_TIMEOUT_MS: 8000
+      CUTOVER_SOURCE_URL: 'https://sdmntprcentralus.oaiusercontent.com/files/00000000-61d4-81f5-8f7e-454250dd6ed3/raw?se=2026-09-18T02%3A03%3A00Z&sp=r&sv=2026-02-06&sr=b&scid=9f29cc1a-7fc8-5a0b-8e03-b5cfd65f6434&skoid=77636ecc-ad8d-44df-baa7-163b524a0261&sktid=a48cca56-e6da-484e-a814-9c849652bcb3&skt=2026-09-17T18%3A08%3A12Z&ske=2026-09-18T18%3A08%3A12Z&sks=b&skv=2026-02-06&sig=mNAAZMOw45SKgomeJXYtmFNfN6IhEepGxszcju08Pss%3D'
+      CUTOVER_ENCRYPTED_SHA: '46ccf961c8fb5a675f0f72cae933a31298ed57aa0c12ee404ac1334e50265fea'
+      CUTOVER_SOURCE_SHA: '43ed235976eb09618369dd74555f34922dd85f8149f42f0e1ed1bc74e238395a'
+      CURRENT_SOURCE_SHA: '20c811d40231e7c2627fedeb32fcd748056aa77c0ebf5db037e360951e694512'
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version-file: .node-version
+          cache: npm
+          cache-dependency-path: backend/package-lock.json
+
+      - name: Require cutover inputs
+        shell: bash
+        run: |
+          test -n "${DATABASE_URL:-}" || { echo "::error::RENDER_DATABASE_URL is missing"; exit 1; }
+          test -n "${CUTOVER_SOURCE_URL:-}" || { echo "::error::CUTOVER_SOURCE_URL is missing"; exit 1; }
+
+      - name: Download encrypted current workbook
+        shell: bash
+        run: |
+          curl --fail --silent --show-error --location "$CUTOVER_SOURCE_URL" --output /tmp/source.xlsx.enc
+          echo "$CUTOVER_ENCRYPTED_SHA  /tmp/source.xlsx.enc" | sha256sum --check --strict
+
+      - name: Decrypt and verify workbook
+        shell: bash
+        run: |
+          node <<'NODE'
+          const fs = require('node:fs');
+          const crypto = require('node:crypto');
+          const encrypted = fs.readFileSync('/tmp/source.xlsx.enc');
+          if (encrypted.subarray(0, 8).toString() !== 'DMS3ENC1') throw new Error('Invalid cutover source header');
+          const peerPublic = encrypted.subarray(8, 41);
+          const salt = encrypted.subarray(41, 57);
+          const iv = encrypted.subarray(57, 69);
+          const tag = encrypted.subarray(69, 85);
+          const ciphertext = encrypted.subarray(85);
+          const secret = process.env.DATABASE_URL || '';
+          let seed = crypto.createHash('sha256').update('dms-boletas-stage3-transport-v1\0').update(secret).digest();
+          const ecdh = crypto.createECDH('secp256k1');
+          let counter = 0;
+          while (true) {
+            try { ecdh.setPrivateKey(seed); break; }
+            catch { counter += 1; seed = crypto.createHash('sha256').update(seed).update(String(counter)).digest(); }
+          }
+          const shared = ecdh.computeSecret(peerPublic);
+          const key = Buffer.from(crypto.hkdfSync('sha256', shared, salt, Buffer.from('dms-boletas-stage3-xlsx-v1'), 32));
+          const decipher = crypto.createDecipheriv('aes-256-gcm', key, iv);
+          decipher.setAuthTag(tag);
+          const plain = Buffer.concat([decipher.update(ciphertext), decipher.final()]);
+          const sha = crypto.createHash('sha256').update(plain).digest('hex');
+          if (sha !== process.env.CUTOVER_SOURCE_SHA) throw new Error('Unexpected workbook SHA-256: ' + sha);
+          fs.writeFileSync('/tmp/DMS_WebApp_DB_current.xlsx', plain, { mode: 0o600 });
+          console.log(JSON.stringify({ step: 'source-integrity', ok: true, bytes: plain.length, sha256: sha }));
+          NODE
+          rm -f /tmp/source.xlsx.enc
+
+      - name: Install backend dependencies
+        run: npm --prefix backend ci
+
+      - name: Confirm latest migrations
+        run: |
+          npm --prefix backend run db:migrate
+          npm --prefix backend run db:status
+
+      - name: Audit previous imported snapshot
+        run: npm --prefix backend run db:stage3:final-audit
+
+      - name: Prove Render has no post-import operational writes
+        run: npm --prefix backend run db:cutover:preflight -- --current-source-sha "$CURRENT_SOURCE_SHA" --next-source-sha "$CUTOVER_SOURCE_SHA"
+
+      - name: Analyze new XLSX without writes
+        run: npm --prefix backend run db:import:xlsx -- --file /tmp/DMS_WebApp_DB_current.xlsx --dry-run
+
+      - name: Classify new XLSX anomalies
+        run: npm --prefix backend run db:stage3:analyze -- --file /tmp/DMS_WebApp_DB_current.xlsx
+
+      - name: Cleanup decrypted workbook
+        if: always()
+        shell: bash
+        run: rm -f /tmp/DMS_WebApp_DB_current.xlsx /tmp/source.xlsx.enc

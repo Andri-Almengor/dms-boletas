@@ -1,5 +1,5 @@
 import { badRequest, forbidden, notFound } from '../core/errors.js';
-import { readTables } from '../infra/sheets.repository.js';
+import { findRows, queryAgendaTickets, readTable } from '../infra/sheets.repository.js';
 import { agendaHandlers } from '../modules/agenda.module.js';
 import {
   agendaDate,
@@ -125,55 +125,70 @@ function filterAgendaCandidates(agendas, payload = {}, ctx = {}, requestIndex) {
   return result;
 }
 
+async function agendaSupportRows(agendas = []) {
+  const agendaIds = agendas.map((row) => clean(row.AgendaID)).filter(Boolean);
+  const agendaAssignments = agendaIds.length
+    ? await findRows('AgendaAsignados', { AgendaID: agendaIds }, { limit: 50_000 })
+    : [];
+  const userIds = [...new Set(agendaAssignments.map((row) => clean(row.UsuarioID)).filter(Boolean))];
+  const users = userIds.length
+    ? await findRows('Usuarios', { UsuarioID: userIds }, { limit: 50_000 })
+    : [];
+
+  const dates = [...new Set(agendas.map((agenda) => agendaDate(agenda.Fecha)).filter(Boolean))];
+  const explicitTicketIds = [...new Set(agendas.map((agenda) => clean(agenda.BoletaUID)).filter(Boolean))];
+  const tickets = await queryAgendaTickets({ dates, ticketIds: explicitTicketIds });
+  const ticketIds = tickets.map((row) => clean(row.BoletaUID)).filter(Boolean);
+  const ticketAssignments = ticketIds.length
+    ? await findRows('BoletaAsignados', { BoletaUID: ticketIds }, { limit: 50_000 })
+    : [];
+
+  return { Agendas: agendas, AgendaAsignados: agendaAssignments, Usuarios: users, Boletas: tickets, BoletaAsignados: ticketAssignments };
+}
+
+async function visibleAgendas(ctx) {
+  if (isAdmin(ctx)) return readTable('Agendas');
+  const assignments = await findRows('AgendaAsignados', { UsuarioID: clean(ctx.user?.UsuarioID) }, { limit: 50_000 });
+  const visibleIds = visibleAgendaIdsForUser(assignments, ctx.user?.UsuarioID);
+  if (!visibleIds.size) return [];
+  return findRows('Agendas', { AgendaID: [...visibleIds] }, { limit: 50_000 });
+}
+
 async function list(ctx) {
   await ensureAgendaSchema();
-  const [tables, ticketExceptions] = await Promise.all([
-    readTables(['Agendas', 'AgendaAsignados', 'Usuarios', 'Boletas', 'BoletaAsignados']),
+  const [agendas, ticketExceptions] = await Promise.all([
+    visibleAgendas(ctx),
     getAgendaTicketExceptions(),
   ]);
-  let agendas = tables.Agendas || [];
-
-  // Autorización/alcance antes de cualquier índice de optimización, usando la
-  // misma semántica exacta del handler protegido por Etapa 0.
-  if (!isAdmin(ctx)) {
-    const visibleIds = visibleAgendaIdsForUser(tables.AgendaAsignados || [], ctx.user?.UsuarioID);
-    agendas = agendas.filter((agenda) => visibleIds.has(clean(agenda.AgendaID)));
-  }
+  const tables = await agendaSupportRows(agendas);
 
   const requestIndex = buildAgendaRequestIndex({
     agendas,
-    agendaAssignments: tables.AgendaAsignados || [],
-    users: tables.Usuarios || [],
-    tickets: tables.Boletas || [],
-    ticketAssignments: tables.BoletaAsignados || [],
+    agendaAssignments: tables.AgendaAsignados,
+    users: tables.Usuarios,
+    tickets: tables.Boletas,
+    ticketAssignments: tables.BoletaAsignados,
   });
-
-  // El matching conserva el alcance visible histórico completo antes de aplicar
-  // filtros. Una agenda fuera del rango puede reservar una boleta explícita o
-  // heurísticamente y no debe alterar qué boleta recibe otra agenda.
   const ticketMatches = resolveAgendaTicketMatches({
     agendas,
-    agendaAssignments: tables.AgendaAsignados || [],
-    users: tables.Usuarios || [],
-    tickets: tables.Boletas || [],
-    ticketAssignments: tables.BoletaAsignados || [],
+    agendaAssignments: tables.AgendaAsignados,
+    users: tables.Usuarios,
+    tickets: tables.Boletas,
+    ticketAssignments: tables.BoletaAsignados,
     ticketExceptions,
     requestIndex,
   });
   const candidates = filterAgendaCandidates(agendas, ctx.payload || {}, ctx, requestIndex);
   const views = buildAgendaViews({
     agendas: candidates,
-    agendaAssignments: tables.AgendaAsignados || [],
-    users: tables.Usuarios || [],
-    tickets: tables.Boletas || [],
-    ticketAssignments: tables.BoletaAsignados || [],
+    agendaAssignments: tables.AgendaAsignados,
+    users: tables.Usuarios,
+    tickets: tables.Boletas,
+    ticketAssignments: tables.BoletaAsignados,
     ticketExceptions,
     requestIndex,
     ticketMatches,
   });
-
-  // Verificación final barata con el filtro histórico exacto. Evita que una
-  // futura diferencia de normalización cambie los resultados visibles.
   const items = filterViews(views, ctx.payload || {}, ctx);
   return { items, total: items.length };
 }
@@ -183,40 +198,47 @@ async function get(ctx) {
   if (!agendaId) throw badRequest('Debe indicar la agenda.');
   await ensureAgendaSchema();
 
-  const [baseTables, ticketExceptions] = await Promise.all([
-    readTables(['Agendas', 'AgendaAsignados', 'Usuarios']),
+  const [agenda, ticketExceptions] = await Promise.all([
+    findRows('Agendas', { AgendaID: agendaId }, { limit: 2 }).then((rows) => rows[0] || null),
     getAgendaTicketExceptions(),
   ]);
-  const agenda = (baseTables.Agendas || []).find((row) => clean(row.AgendaID) === agendaId);
   if (!agenda) throw notFound('No se encontró la agenda solicitada.');
 
+  const assignments = await findRows('AgendaAsignados', { AgendaID: agendaId }, { limit: 50_000 });
   if (!isAdmin(ctx)) {
-    const assigned = assignmentIds(baseTables.AgendaAsignados || [], agendaId);
+    const assigned = assignmentIds(assignments, agendaId);
     if (!assigned.includes(clean(ctx.user?.UsuarioID))) throw forbidden();
   }
+  const userIds = [...new Set(assignments.map((row) => clean(row.UsuarioID)).filter(Boolean))];
+  const users = userIds.length ? await findRows('Usuarios', { UsuarioID: userIds }, { limit: 50_000 }) : [];
 
   const hasExplicitTicket = Boolean(clean(agenda.BoletaUID));
   const canAutoMatchTicket = normalizeAgendaText(agenda.Estado) !== 'cancelada'
     && agendaRequiresTicket(agenda.Detalle, ticketExceptions);
-  let ticketTables = { Boletas: [], BoletaAsignados: [] };
+  let tickets = [];
+  let ticketAssignments = [];
   if (hasExplicitTicket || canAutoMatchTicket) {
-    const names = canAutoMatchTicket ? ['Boletas', 'BoletaAsignados'] : ['Boletas'];
-    ticketTables = await readTables(names);
+    tickets = await queryAgendaTickets({
+      dates: canAutoMatchTicket ? [agendaDate(agenda.Fecha)] : [],
+      ticketIds: hasExplicitTicket ? [clean(agenda.BoletaUID)] : [],
+    });
+    const ticketIds = tickets.map((row) => clean(row.BoletaUID)).filter(Boolean);
+    if (ticketIds.length) ticketAssignments = await findRows('BoletaAsignados', { BoletaUID: ticketIds }, { limit: 50_000 });
   }
 
   const requestIndex = buildAgendaRequestIndex({
     agendas: [agenda],
-    agendaAssignments: baseTables.AgendaAsignados || [],
-    users: baseTables.Usuarios || [],
-    tickets: ticketTables.Boletas || [],
-    ticketAssignments: ticketTables.BoletaAsignados || [],
+    agendaAssignments: assignments,
+    users,
+    tickets,
+    ticketAssignments,
   });
   const item = buildAgendaViews({
     agendas: [agenda],
-    agendaAssignments: baseTables.AgendaAsignados || [],
-    users: baseTables.Usuarios || [],
-    tickets: ticketTables.Boletas || [],
-    ticketAssignments: ticketTables.BoletaAsignados || [],
+    agendaAssignments: assignments,
+    users,
+    tickets,
+    ticketAssignments,
     ticketExceptions,
     requestIndex,
   })[0];

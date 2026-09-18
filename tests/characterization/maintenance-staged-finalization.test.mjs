@@ -10,8 +10,8 @@ const source = (relativePath) => readFileSync(path.join(ROOT, relativePath), 'ut
 test('la finalización escalonada usa almacenamiento persistente por job e item', () => {
   const tables = source('backend/src/config/tables.js');
   const storage = source('backend/src/services/maintenance-finalization-job.storage.js');
-  assert.match(tables, /MaintenanceFinalizationJobs:\s*\{ id: 'JobID' \}/);
-  assert.match(tables, /MaintenanceFinalizationItems:\s*\{ id: 'ItemID' \}/);
+  assert.match(tables, /["']?MaintenanceFinalizationJobs["']?\s*:\s*\{\s*id:\s*["']JobID["']\s*\}/);
+  assert.match(tables, /["']?MaintenanceFinalizationItems["']?\s*:\s*\{\s*id:\s*["']ItemID["']\s*\}/);
   assert.match(storage, /export const FINALIZATION_JOB_SHEET = 'MaintenanceFinalizationJobs'/);
   assert.match(storage, /export const FINALIZATION_ITEM_SHEET = 'MaintenanceFinalizationItems'/);
   assert.match(storage, /createFinalizationItemId\(jobId, type, referenceId, part = 1\)/);

@@ -1,15 +1,12 @@
 import crypto from 'node:crypto';
-import { env } from '../config/env.js';
 import { AppError, badRequest, notFound } from '../core/errors.js';
 import { nowIso, pick, uuid } from '../core/utils.js';
 import { uploadBase64 } from '../infra/drive.repository.js';
-import { sheetsApi } from '../infra/google.js';
 import {
   appendRow,
+  ensureColumns,
   findById,
-  getHeaders,
-  invalidateTableCache,
-  readTable,
+  findRows,
   updateRow,
 } from '../infra/sheets.repository.js';
 import { getConfig } from '../modules/config.module.js';
@@ -57,61 +54,12 @@ function asBoolean(value) {
   return ['true', '1', 'si', 'sí', 'yes'].includes(clean(value).toLowerCase());
 }
 
-function quote(name) {
-  return `'${String(name).replace(/'/g, "''")}'`;
-}
-
-function columnLetter(index) {
-  let result = '';
-  let number = index + 1;
-  while (number > 0) {
-    const remainder = (number - 1) % 26;
-    result = String.fromCharCode(65 + remainder) + result;
-    number = Math.floor((number - 1) / 26);
-  }
-  return result;
-}
-
-async function ensureHeaders() {
-  const range = `${quote(SHEET_NAME)}!1:1`;
-  const { data } = await sheetsApi.spreadsheets.values.get({
-    spreadsheetId: env.sheetId,
-    range,
-  });
-  const current = (data.values?.[0] || []).map((value) => clean(value)).filter(Boolean);
-  const missing = HEADERS.filter((header) => !current.includes(header));
-  const headers = current.length ? [...current, ...missing] : [...HEADERS];
-
-  if (!current.length || missing.length) {
-    await sheetsApi.spreadsheets.values.update({
-      spreadsheetId: env.sheetId,
-      range: `${quote(SHEET_NAME)}!A1:${columnLetter(headers.length - 1)}1`,
-      valueInputOption: 'RAW',
-      requestBody: { values: [headers] },
-    });
-  }
-
-  invalidateTableCache(SHEET_NAME);
-  await getHeaders(SHEET_NAME, true);
-}
-
 export async function ensureMaintenanceSignatureStorage() {
   if (ensured) return;
   if (ensurePromise) return ensurePromise;
 
   ensurePromise = (async () => {
-    const { data } = await sheetsApi.spreadsheets.get({
-      spreadsheetId: env.sheetId,
-      fields: 'sheets.properties.title',
-    });
-    const exists = (data.sheets || []).some((sheet) => sheet.properties?.title === SHEET_NAME);
-    if (!exists) {
-      await sheetsApi.spreadsheets.batchUpdate({
-        spreadsheetId: env.sheetId,
-        requestBody: { requests: [{ addSheet: { properties: { title: SHEET_NAME } } }] },
-      });
-    }
-    await ensureHeaders();
+    await ensureColumns(SHEET_NAME, HEADERS);
     await ensureSheetColumns('Mantenimiento', MAINTENANCE_SIGNATURE_COLUMNS);
     ensured = true;
   })().catch((error) => {
@@ -242,12 +190,12 @@ export async function ensureMaintenanceSignatureRequest({
     };
   }
 
-  const requests = await readTable(SHEET_NAME, { force: true });
-  const candidates = requests
-    .filter((row) => (
-      clean(row.MantenimientoID) === clean(maintenance.MantenimientoID)
-      && asBoolean(row.ModoPrueba) === Boolean(testMode)
-    ))
+  const candidates = (await findRows(
+    SHEET_NAME,
+    { MantenimientoID: maintenance.MantenimientoID },
+    { limit: 5000 },
+  ))
+    .filter((row) => asBoolean(row.ModoPrueba) === Boolean(testMode))
     .sort((left, right) => String(right.FechaCreacion || '').localeCompare(String(left.FechaCreacion || '')));
 
   for (const candidate of candidates) {
@@ -290,8 +238,7 @@ export async function findMaintenanceSignatureRequestByToken(token) {
   if (!normalized || !normalized.startsWith('mntsig_')) {
     throw notFound('El enlace de firma del mantenimiento no existe o ya no es válido.');
   }
-  const row = (await readTable(SHEET_NAME, { force: true }))
-    .find((item) => clean(item.Token) === normalized);
+  const row = (await findRows(SHEET_NAME, { Token: normalized }, { limit: 2 }))[0];
   if (!row) throw notFound('El enlace de firma del mantenimiento no existe o ya no es válido.');
   return expireIfNeeded(row);
 }
@@ -323,9 +270,12 @@ export async function synchronizeMaintenanceSignatureToTickets(
   const patch = maintenanceSignaturePatch(signatureSource);
   if (!Object.keys(patch).length) return { updated: 0, ticketIds: [] };
 
-  const tickets = (await readTable('Boletas', { force: true })).filter((ticket) => (
-    clean(ticket.OrigenMantenimientoID) === clean(maintenanceId)
-    && ticket.Activo !== false
+  const tickets = (await findRows(
+    'Boletas',
+    { OrigenMantenimientoID: maintenanceId },
+    { limit: 50_000 },
+  )).filter((ticket) => (
+    ticket.Activo !== false
     && String(ticket.Activo ?? 'true').toLowerCase() !== 'false'
   ));
   const ticketIds = [];

@@ -35,19 +35,20 @@ test('los índices agrupan, cuentan y filtran filas sin alterar el orden', () =>
   assert.equal(indexed.has('2'), false);
 });
 
-test('el repositorio expone una actualización múltiple y updateRow delega en ella', () => {
-  const repository = source('backend/src/infra/sheets.repository.js');
+test('el repositorio PostgreSQL expone actualización múltiple transaccional y updateRow delega en ella', () => {
+  const repository = source('backend/src/infra/postgres.repository.core.js');
   assert.match(repository, /export async function updateRows/);
-  assert.match(repository, /spreadsheets\.values\.batchUpdate/);
-  assert.match(repository, /return \(await updateRows\(sheetName, \[\{ idValue, patch \}\], idColumn\)\)\[0\]/);
-  assert.match(repository, /patchCachedRows/);
+  assert.match(repository, /return withTransaction\(async \(\) =>/);
+  assert.match(repository, /FOR UPDATE/);
+  assert.match(repository, /export async function updateRow[\s\S]*?updateRows\(table, \[\{ idValue, patch \}\], idColumn\)/);
+  assert.doesNotMatch(repository, /spreadsheets\.|sheetsApi/);
 });
 
 test('los grupos de visitas y asignados usan escrituras agrupadas', () => {
   const visits = source('backend/src/services/ticket-visit-group.service.js');
   const tickets = source('backend/src/modules/tickets.module.js');
 
-  assert.match(visits, /updateRows\(SHEET_NAME/);
+  assert.match(visits, /updateRows\(TABLE/);
   assert.doesNotMatch(visits, /for \(const visit of group\.visits\) \{\s*await updateRow/s);
   assert.match(tickets, /appendRows\('BoletaAsignados'/);
   assert.match(tickets, /updateRows\('BoletaAsignados'/);

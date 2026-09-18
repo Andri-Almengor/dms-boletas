@@ -119,26 +119,27 @@ test('Etapa 5: listado de Casos conserva filtros, contadores globales, orden, to
   assert.deepEqual(ordered.items.map((row) => row.CasoID), ['C2', 'C1', 'C3']);
 });
 
-test('Etapa 5: Casos recorre la tabla fuente una sola vez y el handler la lee una sola vez', () => {
+test('Etapa 5: Casos conserva resultados y delega paginación/contadores a PostgreSQL', () => {
   const counter = { rows: 0 };
   const result = buildCustomerCaseList(counted(CASE_ROWS, counter, 'rows'), { page: 1, pageSize: 60 });
   assert.equal(counter.rows, CASE_ROWS.length);
   assert.equal(result.counts.TOTAL, 3);
 
-  const listPatch = functionSource(casePatchSource, '  customerCaseHandlers.list = async (ctx) => {', '\n  };\n\n  customerCaseHandlers.get');
-  assert.equal((listPatch.match(/readTable\('CasosClientes'\)/g) || []).length, 1);
-  assert.doesNotMatch(listPatch, /\.filter\([^\n]+\)\.map\(caseView\)/);
+  assert.match(casePatchSource, /customerCaseHandlers\.list\s*=\s*async/);
+  assert.match(casePatchSource, /queryCustomerCasePage\(ctx\.payload\s*\|\|\s*\{\}\)/);
+  assert.doesNotMatch(casePatchSource, /readTable\('CasosClientes'\)/);
 });
 
-test('Etapa 5: detalle de Caso conserva forma y evita Usuarios/Boletas cuando no existen relaciones', () => {
-  assert.match(casePatchSource, /case:\s*item/);
+test('Etapa 5: detalle de Caso conserva forma y usa búsquedas acotadas para relaciones', () => {
+  assert.match(casePatchSource, /case:item/);
   assert.match(casePatchSource, /evidences/);
   assert.match(casePatchSource, /technicians/);
   assert.match(casePatchSource, /ticket/);
   assert.match(casePatchSource, /ticketUrl:/);
-  assert.match(casePatchSource, /technicianIds\.size \? readTable\('Usuarios'\) : Promise\.resolve\(\[\]\)/);
-  assert.match(casePatchSource, /relatedTicketId \? readTable\('Boletas'\) : Promise\.resolve\(\[\]\)/);
-  assert.match(casePatchSource, /users[\s\S]*\.filter\(\(user\) => technicianIds\.has\(clean\(user\.UsuarioID\)\)\)/);
+  assert.match(casePatchSource, /technicianIds\.size\?findRows\('Usuarios',\{UsuarioID:\[\.\.\.technicianIds\]\}/);
+  assert.match(casePatchSource, /relatedTicketId\?findById\('Boletas',relatedTicketId\)/);
+  assert.match(casePatchSource, /users\.filter\(\(user\)=>technicianIds\.has\(clean\(user\.UsuarioID\)\)\)/);
+  assert.doesNotMatch(casePatchSource, /readTable\('Usuarios'\)|readTable\('Boletas'\)/);
 });
 
 test('Etapa 5: permisos de Casos permanecen administrativos y las rutas públicas siguen separadas', () => {
@@ -234,10 +235,9 @@ test('Etapa 5: los adaptadores se instalan antes de action-router y no alteran p
   const routerAt = appSource.indexOf("import { dispatchAction } from './core/action-router.js';");
   assert.ok(casePatchAt >= 0 && casePatchAt < routerAt);
   assert.ok(metricsPatchAt >= 0 && metricsPatchAt < routerAt);
-  assert.match(casePatchSource, /customerCaseHandlers\.list = async/);
-  assert.match(casePatchSource, /customerCaseHandlers\.get = async/);
+  assert.match(casePatchSource, /customerCaseHandlers\.list\s*=\s*async/);
+  assert.match(casePatchSource, /customerCaseHandlers\.get\s*=\s*async/);
 });
-
 
 test('métricas: horas completas reutilizan un recorrido y el índice de asignados', () => {
   for (const payload of [{}, { cliente: 'Acme' }, { tecnico: 'Bob' }, { estado: 'finalizado' }, { tecnico: 'Sin asignar' }]) {

@@ -133,7 +133,6 @@ async function notifyPendingAgendaTicket({ agenda, ticket, users }) {
 
   try {
     const result = await sendAppsScriptAction('agenda.notification.send', {
-      dataSpreadsheetId: env.sheetId,
       appUrl: env.appPublicUrl,
       mode: 'TICKET_CREATED_PENDING',
       deliveries,

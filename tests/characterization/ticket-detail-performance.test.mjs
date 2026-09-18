@@ -131,9 +131,10 @@ test('tickets.get evita el enriquecimiento base duplicado y conserva ambas valid
   assert.match(app, /ticket-detail-read-optimization\.patch/);
 });
 
-test('tickets.get reutiliza la tabla Boletas coherente en vez de forzar una descarga completa', () => {
-  assert.match(detailPatch, /const tickets = await snapshot\.read\('Boletas'\);/);
-  assert.doesNotMatch(detailPatch, /snapshot\.read\('Boletas',\s*\{\s*force:\s*true\s*\}\)/);
+test('tickets.get obtiene la boleta por ID sin descargar la tabla completa', () => {
+  assert.match(detailPatch, /findById\('Boletas', ticketId\)/);
+  assert.doesNotMatch(detailPatch, /readTable\('Boletas'\)|snapshot\.read\('Boletas',\s*\{\s*force:\s*true\s*\}\)/);
+  assert.match(detailPatch, /createTicketDetailSnapshot\(ticket\)/);
 });
 
 test('detalle con referencias completas no relee cuatro catálogos solo para confirmar etiquetas', () => {

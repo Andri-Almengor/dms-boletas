@@ -13,12 +13,35 @@ services:
         value: "24.21.0"
       - key: NODE_ENV
         value: production
-      - key: GOOGLE_SHEET_ID
-        value: 11u44CTxL2KWqwezF_p3Kkc4OoB71BKsQwIh-NLRFgm4
+
+      # Persistencia operacional PostgreSQL. Configure en Render la INTERNAL DATABASE URL
+      # del recurso dms-boletas-postgres. Nunca guarde la URL real en Git.
+      - key: DATABASE_URL
+        sync: false
+      - key: PG_POOL_MAX
+        value: "3"
+      - key: PG_IDLE_TIMEOUT_MS
+        value: "30000"
+      - key: PG_CONNECTION_TIMEOUT_MS
+        value: "8000"
+      - key: PG_STATEMENT_TIMEOUT_MS
+        value: "60000"
+      - key: PG_SLOW_QUERY_MS
+        value: "1000"
+
+      # Sincronización incremental PostgreSQL <-> IndexedDB.
+      - key: INCREMENTAL_SYNC_ENABLED
+        value: "true"
+      - key: SYNC_SCHEMA_VERSION
+        value: "2"
+
+      # Google permanece para Drive, Docs y spreadsheets/reportes generados.
+      # GOOGLE_SHEET_ID ya no forma parte de la persistencia operacional.
       - key: GOOGLE_SERVICE_ACCOUNT_EMAIL
         sync: false
       - key: GOOGLE_SERVICE_ACCOUNT_PRIVATE_KEY
         sync: false
+
       - key: MEMORY_BUDGET_MB
         value: "512"
       - key: HTTP_MAX_CONCURRENT_REQUESTS

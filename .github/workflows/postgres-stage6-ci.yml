@@ -1,0 +1,117 @@
+name: PostgreSQL Stage 6 CI
+
+on:
+  pull_request:
+  workflow_dispatch:
+  push:
+    branches:
+      - feat/migrate-sheets-to-render-postgres
+    paths:
+      - .github/workflows/postgres-stage6-ci.yml
+      - backend/migrations/**
+      - backend/src/infra/postgres*
+      - backend/src/scripts/db-*
+      - backend/src/services/auth.service.js
+      - backend/src/services/permissions.service.js
+      - backend/src/services/sync-change.service.js
+      - backend/src/services/postgres-backup.service.js
+      - backend/test/**
+      - backend/package.json
+      - backend/package-lock.json
+
+permissions:
+  contents: read
+
+jobs:
+  postgres-contracts:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 30
+    services:
+      postgres:
+        image: postgres:17-alpine
+        env:
+          POSTGRES_USER: postgres
+          POSTGRES_PASSWORD: postgres
+          POSTGRES_DB: dms_boletas_stage6_test
+        ports:
+          - 5432:5432
+        options: >-
+          --health-cmd "pg_isready -U postgres -d dms_boletas_stage6_test"
+          --health-interval 5s
+          --health-timeout 5s
+          --health-retries 10
+    env:
+      NODE_ENV: test
+      TEST_DATABASE_URL: postgresql://postgres:postgres@localhost:5432/dms_boletas_stage6_test
+      PG_SSL_MODE: disable
+      PG_POOL_MAX: 3
+      PG_IDLE_TIMEOUT_MS: 30000
+      PG_CONNECTION_TIMEOUT_MS: 8000
+      INCREMENTAL_SYNC_ENABLED: 'true'
+      SYNC_SCHEMA_VERSION: '2'
+      GOOGLE_SERVICE_ACCOUNT_EMAIL: ci@example.invalid
+      GOOGLE_SERVICE_ACCOUNT_PRIVATE_KEY: ci-placeholder
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Setup Node
+        uses: actions/setup-node@v4
+        with:
+          node-version-file: .node-version
+          cache: npm
+          cache-dependency-path: backend/package-lock.json
+
+      - name: Assert production database variable is absent
+        shell: bash
+        run: test -z "${DATABASE_URL:-}" || { echo "::error::DATABASE_URL must not exist in destructive Stage 6 CI"; exit 1; }
+
+      - name: Install backend dependencies
+        run: npm --prefix backend ci
+
+      - name: Prove destructive tools refuse DATABASE_URL fallback
+        run: npm --prefix backend run test:db:safety
+
+      - name: Start from a clean test schema
+        run: npm --prefix backend run db:test:reset
+
+      - name: Migrate PostgreSQL from zero
+        run: npm --prefix backend run db:migrate
+
+      - name: Verify first migration pass
+        run: |
+          npm --prefix backend run db:status
+          npm --prefix backend run db:stage2:verify
+
+      - name: Re-run migrations idempotently
+        run: |
+          npm --prefix backend run db:migrate
+          npm --prefix backend run db:status
+
+      - name: Repository, auth, sync, backup and critical route integration
+        run: npm --prefix backend run test:db
+
+      - name: Reset before importer tests
+        run: npm --prefix backend run db:test:reset
+
+      - name: Import duplicate and invalid XLSX rows idempotently
+        run: npm --prefix backend run test:xlsx-import-idempotence
+
+      - name: Validate XLSX analyzer anomaly contracts
+        run: node --test backend/test/xlsx-migration.mjs
+
+      - name: Reset and benchmark migrated schema
+        run: |
+          npm --prefix backend run db:test:reset
+          npm --prefix backend run db:migrate
+          mkdir -p .artifacts
+          npm --prefix backend run db:benchmark > .artifacts/stage6-postgres-benchmark.json
+
+      - name: Upload Stage 6 database benchmark
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: stage6-postgres-ci
+          path: .artifacts/stage6-postgres-benchmark.json
+          if-no-files-found: ignore

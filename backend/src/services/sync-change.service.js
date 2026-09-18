@@ -1,459 +1,95 @@
-import { syncUnloggedRevision } from '../core/sync-write-observer.js';
 import { performance } from 'node:perf_hooks';
+import { syncUnloggedRevision } from '../core/sync-write-observer.js';
 import { env } from '../config/env.js';
 import { AppError } from '../core/errors.js';
 import { nowIso, uuid } from '../core/utils.js';
-import { sheetsApi } from '../infra/google.js';
-import { appendRow, readTable, updateRow } from '../infra/sheets.repository.js';
+import { query, withTransaction } from '../infra/postgres.js';
 import { mutationIdFrom, SYNC_MUTATION_CLASS } from './sync-resource-registry.js';
 
 export const SYNC_SHEET = 'SyncChanges';
-export const SYNC_SCHEMA_VERSION = Math.max(1, Number(env.syncSchemaVersion || 1));
-export const SYNC_CHANGE_HEADERS = Object.freeze([
-  'ChangeID',
-  'Resource',
-  'EntityID',
-  'Operation',
-  'ParentID',
-  'ChangedAt',
-  'ActorUserID',
-  'SourceRoute',
-  'MutationID',
-  'SchemaVersion',
-  'Metadata',
-]);
-
-// A process can die between a business write and its changelog sidecar. A new
-// process must never accept the previous process's cursor as complete.
-// This backend is a single-writer deployment; overlapping writers are unsupported.
-const PROCESS_GENERATION = uuid();
-const generationForProcess = (value) => `${value}:${PROCESS_GENERATION}`;
-
-const GENERATION_KEY = 'INCREMENTAL_SYNC_GENERATION';
-const UNSAFE_KEY = 'INCREMENTAL_SYNC_UNSAFE';
-const CONFIG_DESCRIPTION = 'Estado interno del motor de sincronización incremental. No editar manualmente.';
+export const SYNC_SCHEMA_VERSION = Math.max(2, Number(env.syncSchemaVersion || 2));
+export const SYNC_CHANGE_HEADERS = Object.freeze(['ChangeID','Resource','EntityID','Operation','ParentID','ChangedAt','ActorUserID','SourceRoute','MutationID','SchemaVersion','Metadata']);
 const MAX_METADATA_CHARS = 1200;
-const CURSOR_LABEL_CELL = 'L1';
-const CURSOR_VALUE_CELL = 'L2';
-let infrastructurePromise = null;
-let descriptorPromise = null;
 let cachedDescriptor = null;
-let currentCursor = null;
-let syncRowCapacity = 0;
 let unsafeReason = '';
-let eventWriteTail = Promise.resolve();
 
-function quote(name) {
-  return `'${String(name).replace(/'/g, "''")}'`;
+function clean(value,maxLength=240){return String(value??'').trim().slice(0,maxLength);}
+export function sanitizeSyncMetadata(metadata=null){
+  if(!metadata||typeof metadata!=='object'||Array.isArray(metadata))return '';
+  const blocked=/(password|token|secret|base64|blob|file|image|video|firma|signature|webhook|private)/i; const sanitized={};
+  for(const [key,value] of Object.entries(metadata)){if(blocked.test(String(key)))continue;if(value===null||['string','number','boolean'].includes(typeof value))sanitized[clean(key,80)]=typeof value==='string'?clean(value,240):value;}
+  const serialized=JSON.stringify(sanitized); return serialized.length<=MAX_METADATA_CHARS?serialized:JSON.stringify({truncated:true});
 }
 
-function clean(value, maxLength = 240) {
-  return String(value ?? '').trim().slice(0, maxLength);
-}
-
-function rowValuesToChange(values = [], rowNumber = 0) {
-  if (!Array.isArray(values) || !values.some((value) => value !== '' && value !== null && value !== undefined)) return null;
-  const record = { __rowNumber: Number(rowNumber || 0) };
-  SYNC_CHANGE_HEADERS.forEach((header, index) => { record[header] = values[index] ?? ''; });
-  record.SchemaVersion = Number(record.SchemaVersion || 0);
-  if (record.Metadata) {
-    try { record.Metadata = JSON.parse(String(record.Metadata)); } catch { record.Metadata = {}; }
-  } else {
-    record.Metadata = {};
+export async function ensureSyncInfrastructure(){
+  if(!env.incrementalSyncEnabled)return {enabled:false};
+  await query(`INSERT INTO sync_state(singleton,generation,schema_version,unsafe,unsafe_reason) VALUES(TRUE,$1,$2,FALSE,'') ON CONFLICT(singleton) DO NOTHING`,[uuid(),SYNC_SCHEMA_VERSION],{label:'sync.ensure',write:true});
+  const state=await query('SELECT generation,schema_version,unsafe,unsafe_reason FROM sync_state WHERE singleton=TRUE',[],{label:'sync.state'});
+  const row=state.rows[0];
+  if(!row)throw new AppError('SYNC_STATE_MISSING','No se pudo inicializar la sincronización incremental.',503);
+  if(Number(row.schema_version)!==SYNC_SCHEMA_VERSION){
+    await query('UPDATE sync_state SET generation=$1,schema_version=$2,unsafe=FALSE,unsafe_reason=\'\',updated_at=NOW() WHERE singleton=TRUE',[uuid(),SYNC_SCHEMA_VERSION],{label:'sync.schema.rotate',write:true});
   }
-  return record;
+  return {enabled:true};
 }
 
-export function sanitizeSyncMetadata(metadata = null) {
-  if (!metadata || typeof metadata !== 'object' || Array.isArray(metadata)) return '';
-  const blocked = /(password|token|secret|base64|blob|file|image|video|firma|signature|webhook|private)/i;
-  const sanitized = {};
-  for (const [key, value] of Object.entries(metadata)) {
-    if (blocked.test(String(key))) continue;
-    if (value === null || ['string', 'number', 'boolean'].includes(typeof value)) {
-      sanitized[clean(key, 80)] = typeof value === 'string' ? clean(value, 240) : value;
-    }
-  }
-  const serialized = JSON.stringify(sanitized);
-  return serialized.length <= MAX_METADATA_CHARS ? serialized : JSON.stringify({ truncated: true });
-}
-
-async function sheetProperties(title) {
-  const response = await sheetsApi.spreadsheets.get({
-    spreadsheetId: env.sheetId,
-    fields: 'sheets(properties(sheetId,title,gridProperties(rowCount,columnCount)))',
-  });
-  return (response.data.sheets || []).find((sheet) => sheet.properties?.title === title)?.properties || null;
-}
-
-async function ensureSyncInfrastructureInternal() {
-  let properties = await sheetProperties(SYNC_SHEET);
-  if (!properties) {
-    const response = await sheetsApi.spreadsheets.batchUpdate({
-      spreadsheetId: env.sheetId,
-      requestBody: {
-        requests: [{
-          addSheet: {
-            properties: {
-              title: SYNC_SHEET,
-              gridProperties: { rowCount: 1000, columnCount: 12 },
-            },
-          },
-        }],
-      },
-    });
-    properties = response.data.replies?.[0]?.addSheet?.properties || await sheetProperties(SYNC_SHEET);
-  } else if (Number(properties.gridProperties?.columnCount || 0) < 12) {
-    await sheetsApi.spreadsheets.batchUpdate({
-      spreadsheetId: env.sheetId,
-      requestBody: {
-        requests: [{
-          appendDimension: {
-            sheetId: properties.sheetId,
-            dimension: 'COLUMNS',
-            length: 12 - Number(properties.gridProperties?.columnCount || 0),
-          },
-        }],
-      },
-    });
-  }
-  syncRowCapacity = Math.max(2, Number(properties?.gridProperties?.rowCount || 1000));
-
-  const [headerResponse, cursorResponse] = await Promise.all([
-    sheetsApi.spreadsheets.values.get({
-      spreadsheetId: env.sheetId,
-      range: `${quote(SYNC_SHEET)}!1:1`,
-      valueRenderOption: 'UNFORMATTED_VALUE',
-    }),
-    sheetsApi.spreadsheets.values.get({
-      spreadsheetId: env.sheetId,
-      range: `${quote(SYNC_SHEET)}!${CURSOR_LABEL_CELL}:${CURSOR_VALUE_CELL}`,
-      valueRenderOption: 'UNFORMATTED_VALUE',
-    }),
-  ]);
-  const currentHeaders = (headerResponse.data.values?.[0] || []).slice(0, SYNC_CHANGE_HEADERS.length).map(String);
-  const compatible = SYNC_CHANGE_HEADERS.every((header, index) => currentHeaders[index] === header);
-  if (!compatible) {
-    if (currentHeaders.some(Boolean)) {
-      throw new AppError(
-        'SYNC_SCHEMA_INCOMPATIBLE',
-        'La hoja SyncChanges existe con un esquema incompatible. Se requiere reconciliación completa.',
-        503,
-      );
-    }
-    await sheetsApi.spreadsheets.values.update({
-      spreadsheetId: env.sheetId,
-      range: `${quote(SYNC_SHEET)}!A1:K1`,
-      valueInputOption: 'RAW',
-      requestBody: { values: [SYNC_CHANGE_HEADERS] },
-    });
-  }
-
-  const cursorValues = cursorResponse.data.values || [];
-  const label = clean(cursorValues?.[0]?.[0]);
-  const storedCursor = Number(cursorValues?.[1]?.[0]);
-  if (label !== 'Cursor' || !Number.isInteger(storedCursor) || storedCursor < 1) {
-    if (compatible) {
-      // Never rewind a physical log: that would overwrite already committed events.
-      throw new AppError('SYNC_CURSOR_CORRUPT', 'El cursor persistido requiere reparación; use las lecturas completas.', 503);
-    }
-    await sheetsApi.spreadsheets.values.batchUpdate({
-      spreadsheetId: env.sheetId,
-      requestBody: {
-        valueInputOption: 'RAW',
-        data: [
-          { range: `${quote(SYNC_SHEET)}!${CURSOR_LABEL_CELL}`, values: [['Cursor']] },
-          { range: `${quote(SYNC_SHEET)}!${CURSOR_VALUE_CELL}`, values: [[1]] },
-        ],
-      },
-    });
-    currentCursor = 1;
-  } else {
-    currentCursor = storedCursor;
-  }
-
-  return { sheetId: properties?.sheetId ?? null };
-}
-
-export function ensureSyncInfrastructure() {
-  if (!env.incrementalSyncEnabled) return Promise.resolve({ enabled: false });
-  if (!infrastructurePromise) {
-    infrastructurePromise = ensureSyncInfrastructureInternal().catch((error) => {
-      infrastructurePromise = null;
-      throw error;
-    });
-  }
-  return infrastructurePromise;
-}
-
-async function ensureRowCapacity(requiredRow) {
-  if (requiredRow <= syncRowCapacity) return;
-  const properties = await sheetProperties(SYNC_SHEET);
-  if (!properties) throw new AppError('SYNC_SHEET_MISSING', 'No se encontró la hoja SyncChanges.', 503);
-  const current = Math.max(2, Number(properties.gridProperties?.rowCount || 0));
-  if (requiredRow <= current) {
-    syncRowCapacity = current;
-    return;
-  }
-  const target = Math.ceil(requiredRow / 1000) * 1000;
-  await sheetsApi.spreadsheets.batchUpdate({
-    spreadsheetId: env.sheetId,
-    requestBody: {
-      requests: [{
-        appendDimension: {
-          sheetId: properties.sheetId,
-          dimension: 'ROWS',
-          length: target - current,
-        },
-      }],
-    },
-  });
-  syncRowCapacity = target;
-}
-
-async function writeConfigValue(key, value) {
-  const rows = await readTable('Configuracion');
-  const existing = rows.find((row) => String(row.Clave || '') === key);
-  if (existing) {
-    return updateRow('Configuracion', key, { Valor: String(value), Descripcion: existing.Descripcion || CONFIG_DESCRIPTION });
-  }
-  return appendRow('Configuracion', { Clave: key, Valor: String(value), Descripcion: CONFIG_DESCRIPTION });
-}
-
-async function rotateGeneration(reason = '') {
-  const nextGeneration = uuid();
-  await writeConfigValue(GENERATION_KEY, nextGeneration);
-  try { await writeConfigValue(UNSAFE_KEY, ''); } catch { /* generation mismatch is already safe */ }
-  unsafeReason = '';
-  cachedDescriptor = {
-    enabled: Boolean(env.incrementalSyncEnabled),
-    generation: generationForProcess(nextGeneration),
-    schemaVersion: SYNC_SCHEMA_VERSION,
-    unsafe: false,
-    unsafeReason: '',
-    lastReconcileReason: clean(reason, 240),
-  };
-  return cachedDescriptor;
-}
-
-async function readDescriptorInternal() {
+function descriptorWithWriteRevision(descriptor){return {...descriptor,generation:`${descriptor.generation}:r${syncUnloggedRevision()}`};}
+export async function getSyncDescriptor({force=false}={}){
+  if(!env.incrementalSyncEnabled)return {enabled:false,generation:'',schemaVersion:SYNC_SCHEMA_VERSION,unsafe:false,unsafeReason:''};
+  if(!force&&cachedDescriptor)return descriptorWithWriteRevision({...cachedDescriptor,unsafe:Boolean(unsafeReason),unsafeReason});
   await ensureSyncInfrastructure();
-  const rows = await readTable('Configuracion');
-  let generation = clean(rows.find((row) => String(row.Clave || '') === GENERATION_KEY)?.Valor, 160);
-  const persistedUnsafe = clean(rows.find((row) => String(row.Clave || '') === UNSAFE_KEY)?.Valor, 600);
-  if (!generation) {
-    generation = uuid();
-    await writeConfigValue(GENERATION_KEY, generation);
-  }
-  if (persistedUnsafe) {
-    unsafeReason = persistedUnsafe;
-    try { return await rotateGeneration(persistedUnsafe); } catch { /* keep unsafe below */ }
-  }
-  cachedDescriptor = {
-    enabled: Boolean(env.incrementalSyncEnabled),
-    generation: generationForProcess(generation),
-    schemaVersion: SYNC_SCHEMA_VERSION,
-    unsafe: Boolean(unsafeReason),
-    unsafeReason,
-  };
-  return cachedDescriptor;
+  const result=await query('SELECT generation,schema_version,unsafe,unsafe_reason FROM sync_state WHERE singleton=TRUE',[],{label:'sync.descriptor'});
+  const row=result.rows[0]; unsafeReason=clean(row?.unsafe_reason,600);
+  cachedDescriptor={enabled:true,generation:clean(row?.generation,200),schemaVersion:Number(row?.schema_version||SYNC_SCHEMA_VERSION),unsafe:Boolean(row?.unsafe),unsafeReason};
+  return descriptorWithWriteRevision(cachedDescriptor);
 }
 
-function descriptorWithWriteRevision(descriptor) {
-  return { ...descriptor, generation: `${descriptor.generation}:r${syncUnloggedRevision()}` };
+export async function getSyncCursor(){
+  if(!env.incrementalSyncEnabled)return 0;
+  const result=await query('SELECT COALESCE(MAX(cursor),0)::bigint AS cursor FROM "SyncChanges" WHERE "__valid"=TRUE',[],{label:'sync.cursor'});
+  return Number(result.rows[0]?.cursor||0);
 }
 
-export async function getSyncDescriptor({ force = false } = {}) {
-  if (!env.incrementalSyncEnabled) {
-    return { enabled: false, generation: '', schemaVersion: SYNC_SCHEMA_VERSION, unsafe: false, unsafeReason: '' };
-  }
-  if (!force && cachedDescriptor) return descriptorWithWriteRevision({ ...cachedDescriptor, unsafe: Boolean(unsafeReason), unsafeReason });
-  if (!descriptorPromise || force) {
-    descriptorPromise = readDescriptorInternal().finally(() => { descriptorPromise = null; });
-  }
-  return descriptorWithWriteRevision(await descriptorPromise);
+function dbRowToChange(row){
+  let metadata={}; if(row.Metadata){try{metadata=JSON.parse(String(row.Metadata));}catch{metadata={};}}
+  return {ChangeID:row.ChangeID,Resource:row.Resource,EntityID:row.EntityID,Operation:row.Operation,ParentID:row.ParentID||'',ChangedAt:row.ChangedAt,ActorUserID:row.ActorUserID||'',SourceRoute:row.SourceRoute||'',MutationID:row.MutationID||'',SchemaVersion:Number(row.SchemaVersion||0),Metadata:metadata,cursor:Number(row.cursor)};
+}
+export async function readSyncChangesAfter(fromCursor,{limit=env.syncDeltaMaxEvents}={}){
+  await ensureSyncInfrastructure(); const tail=await getSyncCursor(); const cursor=Number(fromCursor||0); const maxEvents=Math.max(1,Math.min(Number(limit||env.syncDeltaMaxEvents),env.syncDeltaMaxEvents));
+  if(!Number.isInteger(cursor)||cursor<0||cursor>tail)return {invalidCursor:true,fromCursor:cursor,cursor:tail,hasMore:false,events:[],eventsScanned:0};
+  if(cursor===tail)return {invalidCursor:false,fromCursor:cursor,cursor,hasMore:false,events:[],eventsScanned:0};
+  const result=await query('SELECT "ChangeID","Resource","EntityID","Operation","ParentID","ChangedAt","ActorUserID","SourceRoute","MutationID","SchemaVersion","Metadata",cursor FROM "SyncChanges" WHERE "__valid"=TRUE AND cursor>$1 ORDER BY cursor ASC LIMIT $2',[cursor,maxEvents],{label:'sync.delta'});
+  const events=result.rows.map(dbRowToChange); const end=events.length?events[events.length-1].cursor:cursor;
+  return {invalidCursor:false,fromCursor:cursor,cursor:end,hasMore:end<tail,events,eventsScanned:events.length};
 }
 
-async function initializeCursor() {
-  if (Number.isInteger(currentCursor)) return currentCursor;
-  await ensureSyncInfrastructure();
-  return Number.isInteger(currentCursor) ? currentCursor : 1;
+function buildEvent({resource,entityId,operation='UPSERT',parentId='',actorUserId='',sourceRoute='',mutationId='',metadata=null}={}){
+  const normalizedResource=clean(resource,80); const normalizedEntity=clean(entityId,180);
+  if(!normalizedResource||!normalizedEntity)throw new AppError('SYNC_EVENT_INVALID','No se pudo identificar el recurso modificado para sincronización.',500);
+  return {ChangeID:uuid(),Resource:normalizedResource,EntityID:normalizedEntity,Operation:['UPSERT','DELETE','INVALIDATE'].includes(operation)?operation:'UPSERT',ParentID:clean(parentId,180),ChangedAt:nowIso(),ActorUserID:clean(actorUserId,180),SourceRoute:clean(sourceRoute,160),MutationID:clean(mutationId,160),SchemaVersion:SYNC_SCHEMA_VERSION,Metadata:sanitizeSyncMetadata(metadata)};
 }
-
-export async function getSyncCursor() {
-  return initializeCursor();
-}
-
-export async function readSyncChangesAfter(fromCursor, { limit = env.syncDeltaMaxEvents } = {}) {
-  await ensureSyncInfrastructure();
-  const tail = await initializeCursor();
-  const cursor = Number(fromCursor || 1);
-  const maxEvents = Math.max(1, Math.min(Number(limit || env.syncDeltaMaxEvents), env.syncDeltaMaxEvents));
-  if (!Number.isInteger(cursor) || cursor < 1 || cursor > tail) {
-    return { invalidCursor: true, fromCursor: cursor, cursor: tail, hasMore: false, events: [], eventsScanned: 0 };
-  }
-  if (cursor === tail) {
-    return { invalidCursor: false, fromCursor: cursor, cursor, hasMore: false, events: [], eventsScanned: 0 };
-  }
-
-  const endRow = Math.min(tail, cursor + maxEvents);
-  const response = await sheetsApi.spreadsheets.values.get({
-    spreadsheetId: env.sheetId,
-    range: `${quote(SYNC_SHEET)}!A${cursor + 1}:K${endRow}`,
-    valueRenderOption: 'UNFORMATTED_VALUE',
+export async function appendSyncChanges(changes=[]){
+  if(!env.incrementalSyncEnabled||!Array.isArray(changes)||!changes.length)return [];
+  return withTransaction(async()=>{
+    const output=[];
+    for(const change of changes){const event=buildEvent(change); const payload={...event,Metadata:event.Metadata}; const result=await query(`INSERT INTO "SyncChanges" ("ChangeID","Resource","EntityID","Operation","ParentID","ChangedAt","ActorUserID","SourceRoute","MutationID","SchemaVersion","Metadata","__payload") VALUES($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12::jsonb) RETURNING cursor`,[event.ChangeID,event.Resource,event.EntityID,event.Operation,event.ParentID,event.ChangedAt,event.ActorUserID,event.SourceRoute,event.MutationID,String(event.SchemaVersion),event.Metadata,JSON.stringify(payload)],{label:'sync.append',write:true}); output.push({...event,cursor:Number(result.rows[0].cursor)});}
+    return output;
   });
-  const rows = response.data.values || [];
-  const events = [];
-  if (rows.length !== endRow - cursor) {
-    return { invalidCursor: true, reason: 'changelog_gap', fromCursor: cursor, cursor: tail, hasMore: false, events: [], eventsScanned: rows.length };
-  }
-  for (let index = 0; index < rows.length; index += 1) {
-    const change = rowValuesToChange(rows[index], cursor + 1 + index);
-    if (!change || !change.ChangeID || !change.Resource || !change.EntityID
-      || !['UPSERT', 'DELETE', 'INVALIDATE'].includes(change.Operation)) {
-      return { invalidCursor: true, reason: 'changelog_gap', fromCursor: cursor, cursor: tail, hasMore: false, events: [], eventsScanned: rows.length };
-    }
-    events.push(change);
-  }
-  return {
-    invalidCursor: false,
-    fromCursor: cursor,
-    cursor: endRow,
-    hasMore: endRow < tail,
-    events,
-    eventsScanned: Math.max(0, endRow - cursor),
-  };
 }
+export async function appendSyncChange(change={}){return (await appendSyncChanges([change]))[0]||null;}
 
-function buildEvent({
-  resource,
-  entityId,
-  operation = 'UPSERT',
-  parentId = '',
-  actorUserId = '',
-  sourceRoute = '',
-  mutationId = '',
-  metadata = null,
-} = {}) {
-  const normalizedResource = clean(resource, 80);
-  const normalizedEntity = clean(entityId, 180);
-  if (!normalizedResource || !normalizedEntity) {
-    throw new AppError('SYNC_EVENT_INVALID', 'No se pudo identificar el recurso modificado para sincronización.', 500);
-  }
-  return {
-    ChangeID: uuid(),
-    Resource: normalizedResource,
-    EntityID: normalizedEntity,
-    Operation: ['UPSERT', 'DELETE', 'INVALIDATE'].includes(operation) ? operation : 'UPSERT',
-    ParentID: clean(parentId, 180),
-    ChangedAt: nowIso(),
-    ActorUserID: clean(actorUserId, 180),
-    SourceRoute: clean(sourceRoute, 160),
-    MutationID: clean(mutationId, 160),
-    SchemaVersion: SYNC_SCHEMA_VERSION,
-    Metadata: sanitizeSyncMetadata(metadata),
-  };
+export async function markSyncUnsafe(reason='changelog_write_failed'){
+  unsafeReason=clean(reason,600)||'changelog_write_failed'; const generation=uuid();
+  await query('UPDATE sync_state SET generation=$1,schema_version=$2,unsafe=TRUE,unsafe_reason=$3,updated_at=NOW() WHERE singleton=TRUE',[generation,SYNC_SCHEMA_VERSION,unsafeReason],{label:'sync.unsafe',write:true});
+  cachedDescriptor={enabled:true,generation,schemaVersion:SYNC_SCHEMA_VERSION,unsafe:true,unsafeReason}; return cachedDescriptor;
 }
+export async function clearSyncUnsafeAfterReconciliation(){unsafeReason='';await query("UPDATE sync_state SET unsafe=FALSE,unsafe_reason='',updated_at=NOW() WHERE singleton=TRUE",[],{label:'sync.clearUnsafe',write:true});if(cachedDescriptor)cachedDescriptor={...cachedDescriptor,unsafe:false,unsafeReason:''};return true;}
 
-export async function appendSyncChanges(changes = []) {
-  if (!env.incrementalSyncEnabled || !Array.isArray(changes) || !changes.length) return [];
-  const operation = async () => {
-    await ensureSyncInfrastructure();
-    const events = changes.map(buildEvent);
-    const startCursor = (await initializeCursor()) + 1;
-    const endCursor = startCursor + events.length - 1;
-    await ensureRowCapacity(endCursor);
-    const values = events.map((event) => SYNC_CHANGE_HEADERS.map((header) => event[header] ?? ''));
-    await sheetsApi.spreadsheets.values.batchUpdate({
-      spreadsheetId: env.sheetId,
-      requestBody: {
-        valueInputOption: 'RAW',
-        data: [
-          { range: `${quote(SYNC_SHEET)}!A${startCursor}:K${endCursor}`, values },
-          { range: `${quote(SYNC_SHEET)}!${CURSOR_VALUE_CELL}`, values: [[endCursor]] },
-        ],
-      },
-    });
-    currentCursor = endCursor;
-    return events.map((event, index) => ({ ...event, cursor: startCursor + index }));
-  };
-  const current = eventWriteTail.then(operation, operation);
-  eventWriteTail = current.catch(() => {});
-  return current;
+export async function recordClassifiedSyncChanges(classifications=[],ctx={}){
+  if(!env.incrementalSyncEnabled)return null; const startedAt=performance.now(); const changes=new Map();
+  for(const classification of classifications){if(!classification||classification.classification===SYNC_MUTATION_CLASS.NO_SYNC_REQUIRED)continue; const entityIds=(classification.entityIds?.length?classification.entityIds:[classification.entityId]).map((value)=>clean(value,180)).filter(Boolean); for(const entityId of entityIds.length?entityIds:['*']){const change={resource:classification.resource,entityId,operation:entityId==='*'?'INVALIDATE':classification.operation,parentId:classification.parentId,actorUserId:ctx.user?.UsuarioID||'',sourceRoute:ctx.route||'',mutationId:mutationIdFrom(ctx.payload),metadata:classification.metadata};changes.set(`${change.resource}:${entityId}`,change);}}
+  if(!changes.size)return null;
+  try{return await appendSyncChanges([...changes.values()]);}catch(error){await markSyncUnsafe(`${ctx.route||'unknown'}:${error?.code||error?.message||'sync_change_failed'}`);console.warn(`[sync-change][${ctx.route||'unknown'}] negocio confirmado; changelog marcado para reconciliación code=${clean(error?.code||'DATABASE_ERROR',80)}`);return {unsafe:true,reconcileRequired:true,handlerMs:Math.round((performance.now()-startedAt)*100)/100};}
 }
-
-export async function appendSyncChange(change = {}) {
-  const events = await appendSyncChanges([change]);
-  return events[0] || null;
-}
-
-export async function markSyncUnsafe(reason = 'changelog_write_failed') {
-  unsafeReason = clean(reason, 600) || 'changelog_write_failed';
-  cachedDescriptor = cachedDescriptor ? { ...cachedDescriptor, unsafe: true, unsafeReason } : null;
-  try {
-    await writeConfigValue(UNSAFE_KEY, unsafeReason);
-    return await rotateGeneration(unsafeReason);
-  } catch {
-    // Keep the process unsafe if the generation cannot be rotated. On the
-    // next descriptor read the persisted unsafe marker retries the rotation.
-    return cachedDescriptor;
-  }
-}
-
-export async function clearSyncUnsafeAfterReconciliation() {
-  unsafeReason = '';
-  try { await writeConfigValue(UNSAFE_KEY, ''); } catch { return false; }
-  if (cachedDescriptor) cachedDescriptor = { ...cachedDescriptor, unsafe: false, unsafeReason: '' };
-  return true;
-}
-
-export async function recordClassifiedSyncChanges(classifications = [], ctx = {}) {
-  if (!env.incrementalSyncEnabled) return null;
-  const startedAt = performance.now();
-  const changes = new Map();
-  for (const classification of classifications) {
-    if (!classification || classification.classification === SYNC_MUTATION_CLASS.NO_SYNC_REQUIRED) continue;
-    const entityIds = (classification.entityIds?.length ? classification.entityIds : [classification.entityId])
-      .map((value) => clean(value, 180)).filter(Boolean);
-    // An unresolved identity is an invalidation, never an invisible confirmed write.
-    for (const entityId of entityIds.length ? entityIds : ['*']) {
-      const change = {
-        resource: classification.resource,
-        entityId,
-        operation: entityId === '*' ? 'INVALIDATE' : classification.operation,
-        parentId: classification.parentId,
-        actorUserId: ctx.user?.UsuarioID || '',
-        sourceRoute: ctx.route || '',
-        mutationId: mutationIdFrom(ctx.payload),
-        metadata: classification.metadata,
-      };
-      changes.set(`${change.resource}:${entityId}`, change);
-    }
-  }
-  if (!changes.size) return null;
-  try {
-    return await appendSyncChanges([...changes.values()]);
-  } catch (error) {
-    await markSyncUnsafe(`${ctx.route || 'unknown'}:${error?.code || error?.message || 'sync_change_failed'}`);
-    console.warn(`[sync-change][${ctx.route || 'unknown'}] negocio confirmado; changelog inseguro: ${error?.code || error?.message || error}`);
-    return {
-      unsafe: true,
-      reconcileRequired: true,
-      handlerMs: Math.round((performance.now() - startedAt) * 100) / 100,
-    };
-  }
-}
-
-export function syncChangeServiceSnapshot() {
-  return {
-    enabled: Boolean(env.incrementalSyncEnabled),
-    schemaVersion: SYNC_SCHEMA_VERSION,
-    cursor: currentCursor,
-    unsafe: Boolean(unsafeReason),
-    unsafeReason,
-  };
-}
-
-export function recordClassifiedSyncChange(classification, ctx = {}) {
-  return recordClassifiedSyncChanges([classification], ctx);
-}
+export function recordClassifiedSyncChange(classification,ctx={}){return recordClassifiedSyncChanges([classification],ctx);}
+export function syncChangeServiceSnapshot(){return {enabled:Boolean(env.incrementalSyncEnabled),schemaVersion:SYNC_SCHEMA_VERSION,unsafe:Boolean(unsafeReason),unsafeReason};}

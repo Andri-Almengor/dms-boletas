@@ -7,40 +7,34 @@ import path from 'node:path';
 const ROOT = fileURLToPath(new URL('../../', import.meta.url));
 const source = (relativePath) => readFileSync(path.join(ROOT, relativePath), 'utf8');
 
-test('el asistente y las lecturas de credenciales usan una caché de Sheets aislada por ruta', () => {
+test('el adaptador histórico de caché de Sheets queda desactivado con PostgreSQL', () => {
   const app = source('backend/src/app.js');
   const cache = source('backend/src/services/sheets-route-read-cache.patch.js');
 
   assert.match(app, /runWithSheetsRouteReadCache/);
-  assert.match(app, /runWithSheetsRouteReadCache\(envelope\.route/);
-  assert.match(cache, /AsyncLocalStorage/);
-  assert.match(cache, /assistant\.chat/);
-  assert.match(cache, /passwordVault\.dashboard\.get/);
-  assert.match(cache, /passwordVault\.credentials\.reveal/);
-  assert.match(cache, /requestCache:\s*new Map\(\)/);
-  assert.match(cache, /inflightReads/);
-  assert.match(cache, /ASSISTANT_OPERATIONAL_TTL_MS\s*=\s*60_000/);
-  assert.match(cache, /ASSISTANT_CATALOG_TTL_MS\s*=\s*10 \* 60_000/);
-  assert.match(cache, /PASSWORD_VAULT_TTL_MS\s*=\s*5 \* 60_000/);
+  assert.match(cache, /return operation\(\)/);
+  assert.match(cache, /enabled:\s*false/);
+  assert.match(cache, /postgres-persistence/);
+  assert.doesNotMatch(cache, /AsyncLocalStorage|inflightReads|responseCache|PASSWORD_VAULT_TTL_MS|ASSISTANT_OPERATIONAL_TTL_MS/);
 });
 
-test('las escrituras invalidan únicamente las hojas afectadas y una auditoría no vacía todo el caché', () => {
+test('las lecturas operativas del asistente y password vault no acceden directamente a Google Sheets', () => {
   const cache = source('backend/src/services/sheets-route-read-cache.patch.js');
+  const vault = source('backend/src/modules/password-vault.module.js');
+  const assistant = source('backend/src/services/password-vault-assistant.patch.js');
 
-  assert.match(cache, /writeSheetNames/);
-  assert.match(cache, /intersects\(entry\.sheetNames, sheetNames\)/);
-  assert.match(cache, /invalidateReadCache\(writeSheetNames\(method, args\)\)/);
-  assert.match(cache, /selectiveInvalidations/);
-  assert.doesNotMatch(cache, /owner\[property\][\s\S]*responseCache\.clear\(\)[\s\S]*return result/);
+  assert.doesNotMatch(cache, /sheetsApi|google\.sheets|spreadsheets\./);
+  assert.doesNotMatch(vault, /sheetsApi|google\.sheets|spreadsheets\./);
+  assert.doesNotMatch(assistant, /sheetsApi|google\.sheets|spreadsheets\./);
+  assert.match(vault, /sheets\.repository\.js|postgres\.repository\.js/);
 });
 
-test('la caché de contraseñas conserva únicamente filas cifradas y nunca respuestas descifradas', () => {
+test('ninguna caché de ruta conserva respuestas descifradas de credenciales', () => {
   const cache = source('backend/src/services/sheets-route-read-cache.patch.js');
+  const vault = source('backend/src/modules/password-vault.module.js');
 
-  assert.match(cache, /CredencialesClientes/);
-  assert.match(cache, /encryptedRowsOnly:\s*true/);
-  assert.match(cache, /passwordVaultWritesCached:\s*false/);
-  assert.match(cache, /completedAssistantResponsesCached:\s*false/);
   assert.doesNotMatch(cache, /decryptVaultSecret|PasswordCiphertext\s*:/);
-  assert.doesNotMatch(cache, /PASSWORD_VAULT_PREFIXES/);
+  assert.doesNotMatch(cache, /requestCache|completedAssistantResponsesCached|passwordVaultWritesCached/);
+  assert.match(vault, /decryptVaultSecret/);
+  assert.match(vault, /passwordMasked:\s*'••••••••••••'/);
 });

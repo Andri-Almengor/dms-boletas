@@ -1,15 +1,12 @@
 import { createHash } from 'node:crypto';
 import { badRequest } from '../core/errors.js';
 import { nowIso } from '../core/utils.js';
-import { env } from '../config/env.js';
 import {
   appendRows,
   ensureColumns,
-  getHeaders,
-  invalidateTableCache,
   readTables,
+  updateRows,
 } from '../infra/sheets.repository.js';
-import { sheetsApi } from '../infra/google.js';
 import { audit } from '../services/audit.service.js';
 
 const MAX_TICKETS = 1000;
@@ -312,60 +309,19 @@ async function preview(ctx) {
   return previewData(source, tables);
 }
 
-function quote(name) {
-  return `'${String(name).replace(/'/g, "''")}'`;
-}
-
-function columnLetter(index) {
-  let result = '';
-  let value = index + 1;
-  while (value > 0) {
-    const remainder = (value - 1) % 26;
-    result = String.fromCharCode(65 + remainder) + result;
-    value = Math.floor((value - 1) / 26);
-  }
-  return result;
-}
-
-function writable(value) {
-  if (value === undefined || value === null) return '';
-  if (typeof value === 'object') return JSON.stringify(value);
-  return value;
-}
-
 async function batchPatchRows(sheetName, rows, changes, idColumn) {
   if (!changes.length) return 0;
-  const headers = await getHeaders(sheetName, true);
-  const rowById = new Map(rows.map((row) => [clean(row[idColumn]), row]));
-  const data = [];
+  const existingIds = new Set(rows.map((row) => clean(row[idColumn])).filter(Boolean));
+  const updates = changes
+    .filter(({ id }) => existingIds.has(clean(id)))
+    .map(({ id, patch }) => ({ idValue: id, patch }));
 
-  changes.forEach(({ id, patch }) => {
-    const current = rowById.get(clean(id));
-    if (!current?.__rowNumber) return;
-    Object.entries(patch || {}).forEach(([header, value]) => {
-      const columnIndex = headers.indexOf(header);
-      if (columnIndex < 0) return;
-      data.push({
-        range: `${quote(sheetName)}!${columnLetter(columnIndex)}${current.__rowNumber}`,
-        values: [[writable(value)]],
-      });
-    });
-  });
-
-  const chunkSize = 450;
-  for (let offset = 0; offset < data.length; offset += chunkSize) {
-    await sheetsApi.spreadsheets.values.batchUpdate({
-      spreadsheetId: env.sheetId,
-      requestBody: {
-        valueInputOption: 'USER_ENTERED',
-        data: data.slice(offset, offset + chunkSize),
-      },
-    });
+  const chunkSize = 200;
+  for (let offset = 0; offset < updates.length; offset += chunkSize) {
+    await updateRows(sheetName, updates.slice(offset, offset + chunkSize), idColumn);
   }
-  invalidateTableCache(sheetName);
   return changes.length;
 }
-
 async function commitInternal(ctx) {
   const source = payload(ctx);
   await ensureColumns('Boletas', LEGACY_TICKET_COLUMNS);

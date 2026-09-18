@@ -1,5 +1,5 @@
 import { transferKnowledgeAttachment } from '../services/large-evidence-upload.service.js';
-import { appendRow, filterRows, findById, readTable, readTables, softDelete, updateRow } from '../infra/sheets.repository.js';
+import { appendRow, filterRows, findById, findRows, queryKnowledgeArticlePage, readTable, readTables, softDelete, updateRow } from '../infra/sheets.repository.js';
 import { uploadBase64, downloadAsDataUrl, trashFile } from '../infra/drive.repository.js';
 import { getConfig } from './config.module.js';
 import { asBool, nowIso, pick, uuid } from '../core/utils.js';
@@ -264,39 +264,39 @@ export const knowledgeHandlers = {
   list: async (ctx) => {
     const { payload = {} } = ctx;
     await ensureKnowledgeCategoryStorage();
-    const tables = await readTables(['KnowledgeArticles', 'KnowledgeAttachments', 'KnowledgeCategories', 'KnowledgeArticleCategories', 'Usuarios']);
-    const enrichmentIndex = buildKnowledgeEnrichmentIndex({
-      attachments: tables.KnowledgeAttachments,
-      categories: tables.KnowledgeCategories,
-      users: tables.Usuarios,
-      relations: tables.KnowledgeArticleCategories,
-    });
-    const includeDrafts = asBool(payload.includeDrafts, false);
-    const requestedAuthor = String(payload.autorUsuarioId || payload.AutorUsuarioID || '').trim();
-    const requestedCategory = String(payload.categoriaId || payload.CategoriaConocimientoID || '').trim();
     const manager = canManageKnowledge(ctx);
+    const page = await queryKnowledgeArticlePage(payload, {
+      viewerUserId: ctx.user?.UsuarioID || '',
+      canManage: manager,
+    });
+    if (!page.items.length) return page;
 
-    let rows = tables.KnowledgeArticles
-      .filter((article) => article.Activo !== false)
-      .filter((article) => {
-        if (isPublished(article)) return true;
-        return includeDrafts && (manager || isAuthor(ctx, article));
-      });
-
-    if (requestedAuthor) rows = rows.filter((article) => String(article.AutorUsuarioID || '') === requestedAuthor);
-    if (requestedCategory) {
-      rows = rows.filter((article) => articleCategoryIds(article, tables.KnowledgeArticleCategories, enrichmentIndex).includes(requestedCategory));
-    }
-
-    rows = rows.map((article) => enrichArticle(
-      article,
-      tables.KnowledgeAttachments,
-      tables.KnowledgeCategories,
-      tables.Usuarios,
-      tables.KnowledgeArticleCategories,
-      enrichmentIndex,
-    ).item);
-    return filterRows(rows, payload, ['Titulo', 'ProblemaResuelto', 'ContenidoHTML', 'CategoriaNombre', 'CategoriasNombres', 'AutorNombre']);
+    const tutorialIds = page.items.map((article) => String(article.TutorialID || '')).filter(Boolean);
+    const authorIds = [...new Set(page.items.map((article) => String(article.AutorUsuarioID || '')).filter(Boolean))];
+    const [attachments, relations, users] = await Promise.all([
+      findRows('KnowledgeAttachments', { TutorialID: tutorialIds }, { limit: 50_000 }),
+      findRows('KnowledgeArticleCategories', { TutorialID: tutorialIds }, { limit: 50_000 }),
+      authorIds.length ? findRows('Usuarios', { UsuarioID: authorIds }, { limit: 50_000 }) : Promise.resolve([]),
+    ]);
+    const categoryIds = [...new Set([
+      ...page.items.map((article) => String(article.CategoriaConocimientoID || '')).filter(Boolean),
+      ...relations.map((row) => String(row.CategoriaConocimientoID || '')).filter(Boolean),
+    ])];
+    const categories = categoryIds.length
+      ? await findRows('KnowledgeCategories', { CategoriaConocimientoID: categoryIds }, { limit: 50_000 })
+      : [];
+    const enrichmentIndex = buildKnowledgeEnrichmentIndex({ attachments, categories, users, relations });
+    return {
+      ...page,
+      items: page.items.map((article) => enrichArticle(
+        article,
+        attachments,
+        categories,
+        users,
+        relations,
+        enrichmentIndex,
+      ).item),
+    };
   },
 
   get: async (ctx) => {

@@ -8,6 +8,7 @@ import {
 } from '../../backend/src/services/knowledge-enrichment-index.js';
 
 const knowledgeModuleSource = readFileSync(new URL('../../backend/src/modules/knowledge.module.js', import.meta.url), 'utf8');
+const postgresQuerySource = readFileSync(new URL('../../backend/src/infra/postgres.repository.queries.js', import.meta.url), 'utf8');
 const longContentPatchSource = readFileSync(new URL('../../backend/src/services/knowledge-long-content.patch.js', import.meta.url), 'utf8');
 const knowledgeListPageSource = readFileSync(new URL('../../src/pages/knowledge/KnowledgeListPage.jsx', import.meta.url), 'utf8');
 const knowledgeCardSource = readFileSync(new URL('../../src/components/knowledge/KnowledgeCard.jsx', import.meta.url), 'utf8');
@@ -33,36 +34,23 @@ function counted(values, counter, key) {
   };
 }
 
-test('Etapa 3: la lista de Knowledge conserva visibilidad, filtros y campos de búsqueda antes de paginar', () => {
+test('Etapa 3: la lista de Knowledge conserva visibilidad y filtros delegados a PostgreSQL antes de enriquecer', () => {
   const source = handlerSource('list', 'get');
 
-  for (const table of [
-    'KnowledgeArticles',
-    'KnowledgeAttachments',
-    'KnowledgeCategories',
-    'KnowledgeArticleCategories',
-    'Usuarios',
-  ]) {
-    assert.ok(source.includes(`'${table}'`), `La lista debe seguir leyendo ${table}`);
+  assert.match(source, /queryKnowledgeArticlePage\(payload,/);
+  assert.match(source, /viewerUserId: ctx\.user\?\.UsuarioID \|\| ''/);
+  assert.match(source, /canManage: manager/);
+  assert.doesNotMatch(source, /readTable\('KnowledgeArticles'\)|filterRows\(/);
+
+  for (const field of ['Titulo', 'ProblemaResuelto', 'ContenidoHTML']) {
+    assert.ok(postgresQuerySource.includes(`COALESCE(a."${field}",'') ILIKE`), `El campo de búsqueda ${field} debe conservarse en SQL.`);
   }
-
-  assert.match(source, /article\.Activo !== false/);
-  assert.match(source, /if \(isPublished\(article\)\) return true/);
-  assert.match(source, /includeDrafts && \(manager \|\| isAuthor\(ctx, article\)\)/);
-  assert.match(source, /AutorUsuarioID/);
-  assert.match(source, /CategoriaConocimientoID/);
-
-  const visibilityIndex = source.indexOf('.filter((article) => {');
-  const enrichmentIndex = source.indexOf('enrichArticle(');
-  const paginationIndex = source.indexOf('filterRows(');
-  assert.ok(visibilityIndex >= 0 && enrichmentIndex > visibilityIndex, 'La visibilidad debe resolverse antes del enriquecimiento.');
-  assert.ok(paginationIndex > enrichmentIndex, 'La búsqueda/orden/paginación debe conservar el contrato actual sobre filas enriquecidas.');
-
-  for (const field of ['Titulo', 'ProblemaResuelto', 'ContenidoHTML', 'CategoriaNombre', 'CategoriasNombres', 'AutorNombre']) {
-    assert.ok(source.includes(`'${field}'`), `El campo de búsqueda ${field} debe conservarse.`);
-  }
+  assert.match(postgresQuerySource, /KnowledgeArticleCategories/);
+  assert.match(postgresQuerySource, /KnowledgeCategories/);
+  assert.match(postgresQuerySource, /AutorUsuarioID/);
+  assert.match(postgresQuerySource, /includeDrafts/);
+  assert.match(postgresQuerySource, /PUBLICADO/);
 });
-
 test('Etapa 3: el contenido largo de Knowledge se hidrata después del resultado paginado', () => {
   assert.match(
     longContentPatchSource,
@@ -133,10 +121,15 @@ test('Etapa 3: los índices de Knowledge recorren cada tabla relacionada una sol
   assert.equal(isActiveKnowledgeRelation({ Activo: true }), true);
 });
 
-test('Etapa 3: knowledge.list reutiliza un único índice por petición sin cambiar el filtro/paginación compartido', () => {
+test('Etapa 3: knowledge.list enriquece únicamente la página SQL con consultas relacionadas acotadas', () => {
   const source = handlerSource('list', 'get');
-  assert.match(source, /const enrichmentIndex = buildKnowledgeEnrichmentIndex\(\{/);
-  assert.match(source, /articleCategoryIds\(article, tables\.KnowledgeArticleCategories, enrichmentIndex\)/);
-  assert.match(source, /tables\.KnowledgeArticleCategories,\s+enrichmentIndex,\s+\)\.item/s);
-  assert.match(source, /return filterRows\(rows, payload,/);
+  assert.match(source, /const page = await queryKnowledgeArticlePage/);
+  assert.match(source, /const tutorialIds = page\.items\.map/);
+  assert.match(source, /findRows\('KnowledgeAttachments', \{ TutorialID: tutorialIds \}/);
+  assert.match(source, /findRows\('KnowledgeArticleCategories', \{ TutorialID: tutorialIds \}/);
+  assert.match(source, /findRows\('Usuarios', \{ UsuarioID: authorIds \}/);
+  assert.match(source, /findRows\('KnowledgeCategories', \{ CategoriaConocimientoID: categoryIds \}/);
+  assert.match(source, /const enrichmentIndex = buildKnowledgeEnrichmentIndex\(\{ attachments, categories, users, relations \}\)/);
+  assert.match(source, /items: page\.items\.map\(\(article\) => enrichArticle/);
+  assert.doesNotMatch(source, /readTables\(|readTable\('KnowledgeAttachments'\)|readTable\('KnowledgeCategories'\)/);
 });

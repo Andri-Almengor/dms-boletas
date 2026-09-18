@@ -78,17 +78,14 @@ test('el Chat de finalización solo anuncia el cierre y entrega el enlace del ex
   assert.doesNotMatch(delivery, /Evidencias copiadas:/);
 });
 
-test('la finalización no obliga a ampliar Mantenimiento con columnas administrativas', () => {
+test('la finalización no muta dinámicamente Mantenimiento y conserva tablas persistentes de jobs', () => {
   const columns = source('backend/src/services/sheet-columns.service.js');
-  includesAll(columns, [
-    'OPTIONAL_MAINTENANCE_FINALIZATION_COLUMNS',
-    "sheetName === 'Mantenimiento'",
-    'maintenanceColumnsAreOptional(sheetName, missing)',
-    'missing.forEach((column) => currentKnown.add(column))',
-    'MaintenanceFinalizationJobs / MaintenanceFinalizationItems',
-  ]);
+  const tables = source('backend/src/config/tables.js');
+  assert.match(columns, /ensureColumns\(tableName, columns\)/);
+  assert.doesNotMatch(columns, /sheetsApi|spreadsheets\.|appendDimension|updateCells/);
+  assert.match(tables, /["']?MaintenanceFinalizationJobs["']?\s*:\s*\{\s*id:\s*["']JobID["']/);
+  assert.match(tables, /["']?MaintenanceFinalizationItems["']?\s*:\s*\{\s*id:\s*["']ItemID["']/);
 });
-
 test('el parche de archivo se instala antes del worker escalonado y el descubrimiento después', () => {
   const resume = source('backend/src/services/maintenance-finalization-resume.patch.js');
   const archive = resume.indexOf("await import('./maintenance-ticket-archive-only.patch.js')");

@@ -1,7 +1,7 @@
 import { selectTicketPage } from '../services/ticket-list-query.service.js';
 import { forbidden, notFound } from '../core/errors.js';
 import { pick } from '../core/utils.js';
-import { filterRows, findById, readTable, readTables } from '../infra/sheets.repository.js';
+import { filterRows, findById, findRows, findTicketByStoredFileId, queryTicketPage } from '../infra/sheets.repository.js';
 import { ticketMultiHandlers as ticketHandlers } from './ticket-multi.module.js';
 
 function normalizeStatus(value) {
@@ -103,7 +103,10 @@ function sortNewestFirst(rows) {
 async function assertTicketAccess(ctx, ticket, action = 'consultar', snapshot = null) {
   if (isAdministrator(ctx)) return ticket;
   const technicianId = userId(ctx);
-  const assignments = await (snapshot ? snapshot.read('BoletaAsignados') : readTable('BoletaAsignados'));
+  const ticketId = String(ticket?.BoletaUID || '').trim();
+  const assignments = snapshot
+    ? await snapshot.read('BoletaAsignados')
+    : await findRows('BoletaAsignados', { BoletaUID: ticketId, UsuarioID: technicianId }, { limit: 5000 });
   const assignedIds = assignedTicketIds(assignments, technicianId);
   if (!technicianIsAssigned(ticket, assignedIds)) {
     throw forbidden(`Solo puede ${action} boletas en las que está asignado.`);
@@ -121,19 +124,8 @@ async function ticketForMedia(payload = {}) {
   }
   const requestedFileId = String(pick(payload, ['fileId', 'ArchivoID', 'ArchivoFileID', 'DriveFileID']) || '').trim();
   if (!requestedFileId) throw notFound('No fue posible identificar la boleta del archivo solicitado.');
-  const tables = await readTables(['Boletas', 'EvidenciasBoleta']);
-  const evidence = tables.EvidenciasBoleta.find((row) => (
-    isActive(row)
-    && String(pick(row, ['ArchivoID', 'ArchivoFileID', 'DriveFileID']) || '').trim() === requestedFileId
-  ));
-  if (evidence) {
-    const ticket = tables.Boletas.find((row) => String(row.BoletaUID) === String(evidence.BoletaUID));
-    if (ticket) return ticket;
-  }
-  const signatureTicket = tables.Boletas.find((row) => (
-    String(pick(row, ['FirmaArchivoID', 'FirmaFileID']) || '').trim() === requestedFileId
-  ));
-  if (signatureTicket) return signatureTicket;
+  const ticket = await findTicketByStoredFileId(requestedFileId);
+  if (ticket) return ticket;
   throw notFound('No se encontró la boleta relacionada con el archivo solicitado.');
 }
 
@@ -186,10 +178,7 @@ export const ticketAccessHandlers = {
     const { payload } = ctx;
     const admin = isAdministrator(ctx);
     const selectedTechnician = admin ? String(payload.asignadoUsuarioId || '').trim() : userId(ctx);
-    const needsAssignments = !admin || Boolean(selectedTechnician);
-    const tables = await readTables(needsAssignments ? ['Boletas', 'BoletaAsignados'] : ['Boletas']);
-    const allowedIds = needsAssignments ? assignedTicketIds(tables.BoletaAsignados, selectedTechnician) : null;
-    return selectTicketPage(tables.Boletas, payload, allowedIds);
+    return queryTicketPage(payload, { assignedUserId: selectedTechnician });
   },
 
   get: async (ctx) => {

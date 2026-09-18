@@ -1,8 +1,12 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import { readFileSync } from 'node:fs';
-const source = readFileSync(new URL('../../backend/src/infra/sheets.repository.js', import.meta.url), 'utf8');
-const filterRows = new Function(`${source.slice(source.indexOf('export function filterRows('), source.indexOf('export function sheetsRepositorySnapshot')).replace('export ', '')}; return filterRows;`)();
+
+const source = readFileSync(new URL('../../backend/src/infra/postgres.repository.queries.js', import.meta.url), 'utf8');
+const filterStart = source.indexOf('export function filterRows(');
+assert.ok(filterStart >= 0, 'filterRows debe existir en postgres.repository.queries.js');
+const filterRows = new Function(`${source.slice(filterStart).replace('export ', '')}; return filterRows;`)();
+
 function referenceFilterRows(rows, payload = {}, searchFields = []) {
   const search = String(payload.search || payload.q || '').trim().toLowerCase();
   let result = rows.filter((row) => {

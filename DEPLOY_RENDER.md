@@ -1,76 +1,122 @@
 # Despliegue de DMS Boletas en Render
 
-El repositorio funciona como un monorepo:
+DMS Boletas funciona como monorepo:
 
 - React/Vite se compila en `dist`.
 - Express vive en `backend`.
 - El backend sirve el frontend y expone `POST /api/action`.
-- Google Sheets sigue siendo la base de datos.
-- Google Drive conserva evidencias, firmas y documentos.
+- **PostgreSQL es la base de datos operacional.**
+- Google Drive conserva evidencias, firmas, archivos y documentos.
+- Google Sheets se usa únicamente para spreadsheets/reportes generados para el usuario.
 
-## 1. Preparar Google Cloud
+## 1. PostgreSQL
 
-1. Cree o seleccione un proyecto de Google Cloud.
-2. Active Google Sheets API, Google Drive API, Google Docs API y Google Slides API.
-3. Cree una cuenta de servicio y genere una clave privada.
-4. Comparta como **Editor** con el correo de la cuenta de servicio:
-   - El Sheet `11u44CTxL2KWqwezF_p3Kkc4OoB71BKsQwIh-NLRFgm4`.
-   - La carpeta principal y las carpetas configuradas en la hoja `Configuracion`.
-5. No suba el JSON de la cuenta de servicio al repositorio.
+Use el recurso PostgreSQL de Render ya creado:
 
-## 2. Crear el Blueprint
+- servicio lógico: `dms-boletas-postgres`
+- base: `dms_boletas`
+- usuario: `dms_boletas_app`
+- región: Oregon, igual que el Web Service
 
-En Render seleccione **New → Blueprint** y conecte este repositorio. Render detectará `render.yaml` y creará el servicio `dms-boletas`.
+En el Web Service configure **la Internal Database URL** en:
 
-Durante la creación, complete:
+```text
+DATABASE_URL=<RENDER INTERNAL DATABASE URL>
+```
 
-- `GOOGLE_SERVICE_ACCOUNT_EMAIL`.
-- `GOOGLE_SERVICE_ACCOUNT_PRIVATE_KEY`, incluyendo `-----BEGIN PRIVATE KEY-----` y los saltos de línea como `\n`.
-- `APP_PUBLIC_URL` puede dejarse vacío inicialmente y actualizarse con la URL final.
-- Las variables SMTP para enviar correos de credenciales.
-- `GOOGLE_CHAT_WEBHOOK` cuando se requieran notificaciones de Google Chat.
+No coloque URLs de PostgreSQL en GitHub, archivos del repositorio, screenshots ni documentación pública.
 
-## 3. Verificar
+## 2. Variables PostgreSQL del Web Service
 
-- Salud: `https://SU-SERVICIO.onrender.com/api/health`
-- Aplicación: `https://SU-SERVICIO.onrender.com`
+Valores iniciales validados:
 
-El frontend usa `/api/action` en producción, por lo que no necesita una URL separada ni CORS entre dos servicios.
+```text
+PG_POOL_MAX=3
+PG_IDLE_TIMEOUT_MS=30000
+PG_CONNECTION_TIMEOUT_MS=8000
+PG_STATEMENT_TIMEOUT_MS=60000
+PG_SLOW_QUERY_MS=1000
+INCREMENTAL_SYNC_ENABLED=true
+SYNC_SCHEMA_VERSION=2
+```
 
-## 4. Desarrollo local
+No aumente el pool o la concurrencia sin medición.
 
-Terminal 1:
+## 3. Google Cloud
+
+La cuenta de servicio sigue siendo necesaria para Drive, Docs y reportes/spreadsheets generados.
+
+Mantenga en Render:
+
+- `GOOGLE_SERVICE_ACCOUNT_EMAIL`
+- `GOOGLE_SERVICE_ACCOUNT_PRIVATE_KEY`
+
+`GOOGLE_SHEET_ID` ya no es necesario para persistencia operacional y no debe volver a introducirse como almacenamiento auxiliar.
+
+## 4. Build y start
+
+Render usa:
+
+```text
+buildCommand: npm ci && npm run build && npm ci --prefix backend
+startCommand: npm --prefix backend start
+healthCheckPath: /api/health
+```
+
+El backend valida PostgreSQL/migraciones antes de iniciar el servicio HTTP y schedulers.
+
+## 5. Snapshot autoritativo cargado
+
+El cutover de datos se realizó con:
+
+- archivo: `DMS_WebApp_DB (1)(6).xlsx`
+- SHA-256: `43ed235976eb09618369dd74555f34922dd85f8149f42f0e1ed1bc74e238395a`
+- hojas: 66
+- RAW: 31,366
+- canonical: 15,979
+- canonical válidas: 15,977
+- legacy/raw-only: 15,387
+- migration run: `209c99d3-6852-4f9e-8ebf-04a144a159ea`
+
+La verificación final confirmó:
+
+- `duplicateFreeOperationalTables=true`
+- `exactNewSnapshotOnly=true`
+- `sync_state.schema_version=2`
+- `sync_state.unsafe=false`
+- reimportar el mismo SHA es un no-op
+
+Las 20 duplicidades históricas conocidas pertenecen únicamente a tablas declaradas duplicate-tolerant y se preservan porque existen en la fuente; el cutover no introdujo duplicados nuevos.
+
+## 6. Deploy productivo
+
+Antes de desplegar:
+
+1. confirme que `DATABASE_URL` contiene la **Internal Database URL**;
+2. confirme las variables PostgreSQL anteriores;
+3. despliegue el commit aprobado de la rama/PR de migración;
+4. espere `/api/health` saludable;
+5. haga smoke tests de login, Home, pendientes/finalizadas, detalle/evidencias, mantenimientos, clientes, Agenda, Knowledge, Cases, firma, PDF/correos/Drive y sync/offline;
+6. confirme que no existe I/O operacional hacia Google Sheets.
+
+## 7. Rollback
+
+Existe un backup PostgreSQL cifrado previo al reemplazo, generado y verificado durante el cutover.
+
+Si ocurre un fallo **antes** de nuevas escrituras PostgreSQL productivas, puede volver al deployment anterior conservando la base para diagnóstico.
+
+Si ya existen nuevas escrituras PostgreSQL, no vuelva ciegamente a Sheets: detenga escrituras, cree un backup, identifique cambios mediante PostgreSQL/SyncChanges y reconcilie antes de cualquier rollback.
+
+## 8. Desarrollo local
+
+Use una PostgreSQL local o de desarrollo:
 
 ```bash
+export DATABASE_URL='postgresql://...'
 npm install
+npm --prefix backend install
+npm --prefix backend run db:migrate
 npm run dev
 ```
 
-Terminal 2:
-
-```bash
-npm --prefix backend install
-cp backend/.env.example backend/.env
-npm run dev:backend
-```
-
-En Windows PowerShell puede usar:
-
-```powershell
-Copy-Item backend/.env.example backend/.env
-```
-
-Vite redirige `/api` a `http://localhost:10000`.
-
-## 5. Seguridad
-
-- Mantenga la cuenta de servicio y SMTP únicamente en variables secretas de Render.
-- Comparta el Sheet solo con la cuenta de servicio necesaria.
-- El backend devuelve usuarios saneados y no expone hashes ni salts.
-- Las sesiones se registran en la pestaña `Sesiones` mediante hashes del token.
-
-## 6. Compatibilidad durante la migración
-
-El frontend conserva compatibilidad con Google Apps Script cuando `VITE_API_URL` contiene una URL de `script.google.com`. En producción, Render usa el backend Node por la ruta relativa `/api/action`.
-
-Las operaciones principales ya están estructuradas en Node: autenticación, permisos, usuarios, clientes, catálogos, boletas, mantenimientos, evidencias, archivos y base de conocimientos. Los reportes avanzados que dependan de plantillas específicas deben compararse con las plantillas actuales antes de retirar definitivamente Apps Script.
+Para pruebas destructivas use exclusivamente `TEST_DATABASE_URL`; los tests rechazan `DATABASE_URL` como sustituto.

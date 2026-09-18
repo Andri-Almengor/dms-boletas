@@ -50,13 +50,15 @@ const readTables = async names => {
   return Object.fromEntries(names.map(name => [name, activeTables?.[name] || []]));
 };
 
+const queryTicketPage = async (request = {}) => selectTicketPage(activeTables?.Boletas || [], request, null);
+
 function loadListHandler(source) {
   const code = source
     .replace(/^import .*;\n/gm, '')
     .replace('export const ticketAccessHandlers', 'const ticketAccessHandlers');
   const error = message => new Error(message);
   return new Function(
-    'forbidden', 'notFound', 'pick', 'filterRows', 'findById', 'readTable', 'readTables', 'ticketHandlers', 'selectTicketPage',
+    'forbidden', 'notFound', 'pick', 'filterRows', 'findById', 'readTable', 'readTables', 'queryTicketPage', 'ticketHandlers', 'selectTicketPage',
     `${code}; return ticketAccessHandlers.list;`,
   )(
     error,
@@ -66,6 +68,7 @@ function loadListHandler(source) {
     async () => null,
     async () => [],
     readTables,
+    queryTicketPage,
     {},
     selectTicketPage,
   );

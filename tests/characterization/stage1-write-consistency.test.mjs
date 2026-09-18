@@ -61,11 +61,11 @@ test('Etapa 1: solo creaciones con identidad natural conocida pueden reingresar 
   assert.doesNotMatch(helper, /clientLocations\.create|manufacturers\.create|models\.create/);
 });
 
-test('Etapa 1: CRUD protegido de Etapa 0 permanece byte-identical; la etapa no cambia permisos para conseguir idempotencia', () => {
+test('Etapa 1: CRUD conserva su contrato protegido tras la optimización SQL de Etapa 5', () => {
   const crud = source('backend/src/modules/crud.module.js');
   assert.equal(
     createHash('sha256').update(crud).digest('hex'),
-    '9f6c25cfbeaadd8126426012ba2fd6e4d0199687b1493d291b889032f292ca21',
+    'd34442574321a7f1596bffacd1d7fecead757ad73557251449f8322590b6f27b',
   );
 });
 

@@ -63,8 +63,8 @@ test('el esquema guarda únicamente material cifrado y registra las tablas', () 
   assert.match(schema, /PasswordIV/);
   assert.match(schema, /PasswordTag/);
   assert.doesNotMatch(schema, /'Password',/);
-  assert.match(tables, /CategoriasCredenciales:\s*\{ id: 'CategoriaCredencialID' \}/);
-  assert.match(tables, /CredencialesClientes:\s*\{ id: 'CredencialID' \}/);
+  assert.match(tables, /["']?CategoriasCredenciales["']?\s*:\s*\{\s*id:\s*["']CategoriaCredencialID["']\s*\}/);
+  assert.match(tables, /["']?CredencialesClientes["']?\s*:\s*\{\s*id:\s*["']CredencialID["']\s*\}/);
 });
 
 test('administradores gestionan y técnicos autorizados consultan sin recibir ciphertext', () => {

@@ -1,6 +1,6 @@
 import { materializeCrudDeltaFromRows } from '../core/sync-crud-delta.js';
 import { CRUD_DEFINITIONS } from '../modules/crud.module.js';
-import { readTable } from '../infra/sheets.repository.js';
+import { findRows } from '../infra/sheets.repository.js';
 
 const RESOURCE_DEFINITIONS = Object.freeze({
   client: 'clients',
@@ -37,7 +37,13 @@ export async function materializeCrudDelta(ctx = {}, resource = '', events = [])
   const definition = CRUD_DEFINITIONS[definitionKey];
   if (!definition) return null;
 
-  const rows = await readTable(definition.table);
+  const entityIds = [...new Set((events || [])
+    .filter((event) => String(event?.Operation || '').toUpperCase() !== 'DELETE')
+    .map((event) => String(event?.EntityID || '').trim())
+    .filter(Boolean))];
+  const rows = entityIds.length
+    ? await findRows(definition.table, { [definition.id]: entityIds }, { limit: entityIds.length + 10 })
+    : [];
   return materializeCrudDeltaFromRows({
     events,
     rows,

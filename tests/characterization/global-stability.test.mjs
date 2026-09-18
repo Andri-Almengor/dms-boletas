@@ -14,19 +14,21 @@ async function coldBackup(state) {
   globalThis.__backupFixture = state;
   let code = readFileSync(new URL('../../backend/src/services/weekly-backup.service.js', import.meta.url), 'utf8');
   code = code.replace(/import[\s\S]*?from ['"][^'"]+['"];\n/g, '');
-  code = `const {env, readTable, appendRows, updateRows, copyDriveFile, createFolder, getDriveFile} = globalThis.__backupFixture;\n${code}\nexport { schedulerTick };`;
+  code = `const {readTable, appendRows, updateRows, createFolder, getDriveFile, createPortablePostgresBackupFile, cleanupPortableBackup, uploadDriveStream} = globalThis.__backupFixture;\n${code}\nexport { schedulerTick };`;
   return import(`data:text/javascript;base64,${Buffer.from(code + '\n//' + Math.random()).toString('base64')}`);
 }
 function fixture() {
   const values = { BACKUP_WEEKLY_ENABLED: 'true', BACKUP_FOLDER_ID: 'folder', BACKUP_LAST_STATUS: 'SIN_RESPALDO' };
   const state = {
-    values, copies: 0, env: {sheetId: 'fixture'},
+    values, copies: 0,
     readTable: async () => Object.entries(values).map(([Clave,Valor])=>({Clave,Valor})),
     appendRows: async (_table, rows) => rows.forEach(row => {values[row.Clave] = sheetsUserEntered(row.Valor);}),
     updateRows: async (_table, rows) => rows.forEach(row => {values[row.idValue] = sheetsUserEntered(row.patch.Valor);}),
     getDriveFile: async () => ({id:'folder', mimeType:'application/vnd.google-apps.folder'}),
     createFolder: async () => ({id:'folder'}),
-    copyDriveFile: async ({name}) => ({id:`copy-${++state.copies}`,name}),
+    createPortablePostgresBackupFile: async () => ({stream: () => ({fixture:true}), folder:'fixture-temp'}),
+    cleanupPortableBackup: async () => {},
+    uploadDriveStream: async ({fileName}) => ({id:`backup-${++state.copies}`,name:fileName,webViewLink:`https://drive.invalid/backup-${state.copies}`}),
   };
   return state;
 }
@@ -95,7 +97,7 @@ test('real health handler stays independent of external services under mixed loa
   const result=JSON.parse(stdout);assert.equal(result.healthRequests,40);assert.equal(result.peakUploads,1);
 });
 test('failed/ambiguous backup never automatically copies again after a cold start', async () => {
-  const state=fixture();state.copyDriveFile=async()=>{state.copies++;throw new Error('connection lost after remote copy');};
+  const state=fixture();state.uploadDriveStream=async()=>{state.copies++;throw new Error('connection lost after remote upload');};
   await (await coldBackup(state)).schedulerTick();
   await (await coldBackup(state)).schedulerTick();
   assert.equal(state.copies,1);

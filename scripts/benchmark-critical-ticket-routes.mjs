@@ -53,13 +53,28 @@ const listReadTables = async names => {
   return Object.fromEntries(names.map(name => [name, activeListTables?.[name] || []]));
 };
 
+const listQueryTicketPage = async (payload = {}, { assignedUserId = '' } = {}) => {
+  const assigned = String(assignedUserId || '').trim();
+  let allowedIds = null;
+  if (assigned) {
+    allowedIds = new Set();
+    for (const row of activeListTables?.BoletaAsignados || []) {
+      if (String(row?.UsuarioID || '').trim() !== assigned) continue;
+      if (row?.Activo === false || String(row?.Activo ?? 'true').toLowerCase() === 'false') continue;
+      const id = String(row?.BoletaUID || '').trim();
+      if (id) allowedIds.add(id);
+    }
+  }
+  return selectTicketPage(activeListTables?.Boletas || [], payload, allowedIds);
+};
+
 function loadListHandler(source, filterRows) {
   const code = source
     .replace(/^import .*;\n/gm, '')
     .replace('export const ticketAccessHandlers', 'const ticketAccessHandlers');
   const error = message => new Error(message);
   return new Function(
-    'forbidden', 'notFound', 'pick', 'filterRows', 'findById', 'readTable', 'readTables', 'ticketHandlers', 'selectTicketPage',
+    'forbidden', 'notFound', 'pick', 'filterRows', 'findById', 'findRows', 'readTable', 'readTables', 'queryTicketPage', 'ticketHandlers', 'selectTicketPage',
     `${code}; return ticketAccessHandlers.list;`,
   )(
     error,
@@ -68,7 +83,9 @@ function loadListHandler(source, filterRows) {
     filterRows,
     async () => null,
     async () => [],
+    async () => [],
     listReadTables,
+    listQueryTicketPage,
     {},
     selectTicketPage,
   );
@@ -342,6 +359,28 @@ function detailHarness({ optimized, count, legacy = false, permission = 'BOLETAS
     return tables[name] || [];
   };
   const readTables = async names => Object.fromEntries(await Promise.all(names.map(async name => [name, await readTable(name)])));
+  const primaryKey = name => ({
+    Boletas: 'BoletaUID',
+    BoletaAsignados: 'BoletaAsignadoID',
+    EvidenciasBoleta: 'EvidenciaID',
+    Usuarios: 'UsuarioID',
+  }[name] || 'ID');
+  const findById = async (name, id) => {
+    reads.push(name);
+    const key = primaryKey(name);
+    const row = (tables[name] || []).find(item => String(item?.[key] ?? '') === String(id ?? ''));
+    if (!row) throw new Error(`No se encontró el registro en ${name}.`);
+    return row;
+  };
+  const findRows = async (name, filters = {}, { limit = 50000 } = {}) => {
+    reads.push(name);
+    const rows = tables[name] || [];
+    const matches = rows.filter(row => Object.entries(filters).every(([key, expected]) => {
+      const values = Array.isArray(expected) ? expected : [expected];
+      return values.some(value => String(row?.[key] ?? '') === String(value ?? ''));
+    }));
+    return matches.slice(0, limit);
+  };
   const updateRow = async (name, id, patch) => {
     writes.push({ name, id, patch });
     tables[name] = tables[name].map(row => row.BoletaUID === id ? { ...row, ...patch } : row);
@@ -365,12 +404,16 @@ function detailHarness({ optimized, count, legacy = false, permission = 'BOLETAS
   const errors = { notFound: message => new Error(message), forbidden: message => new Error(message) };
   const getSource = path => optimized ? currentSource(path) : sourceAt(DETAIL_BASE_SHA, path);
   const snapshotFactory = optimized
-    ? load(currentSource('backend/src/services/ticket-detail-snapshot.service.js'), { readTable, sheetsRevisionTracker: tracker }, 'createTicketDetailSnapshot').createTicketDetailSnapshot
+    ? load(currentSource('backend/src/services/ticket-detail-snapshot.service.js'), { findById, findRows, readTable, sheetsRevisionTracker: tracker }, 'createTicketDetailSnapshot').createTicketDetailSnapshot
     : null;
   const group = load(getSource('backend/src/services/ticket-visit-group.service.js'), {
     ...errors,
+    ensureColumns: async () => true,
+    findById,
+    findRows,
     readTable,
     updateRow,
+    updateRows: async (name, updates) => Promise.all(updates.map(item => updateRow(name, item.idValue, item.patch))),
     nowIso: () => 'fixed-time',
     env: { sheetId: 'fixture' },
     sheetsApi: { spreadsheets: { values: { get: async () => ({ data: { values: [['GrupoVisitaID', 'BoletaPrincipalUID', 'NumeroVisita', 'EsVisitaPrincipal', 'FirmaOrigen', 'FirmaFecha', 'EstadoEntregaFirma', 'UltimoErrorEntregaFirma', 'FirmaReenviadaEn']] } }) } } },
@@ -396,11 +439,20 @@ function detailHarness({ optimized, count, legacy = false, permission = 'BOLETAS
   };
   const ticketAccessHandlers = load(getSource('backend/src/modules/ticket-access.module.js'), {
     ...errors,
+    findById,
+    findRows,
+    findTicketByStoredFileId: async () => null,
+    queryTicketPage: listQueryTicketPage,
     readTable,
+    readTables,
+    ticketHandlers: {},
+    selectTicketPage,
     pick,
   }, 'ticketAccessHandlers').ticketAccessHandlers;
   const { assertTicketPayloadAccess } = load(getSource('backend/src/services/ticket-access.service.js'), {
     ...errors,
+    findById,
+    findRows,
     readTable,
     pick,
   }, 'assertTicketPayloadAccess');
@@ -408,6 +460,7 @@ function detailHarness({ optimized, count, legacy = false, permission = 'BOLETAS
   load(getSource('backend/src/services/ticket-detail-read-optimization.patch.js'), {
     ...errors,
     pick,
+    findById,
     readTable,
     baseTicketHandlers,
     ticketMultiHandlers,

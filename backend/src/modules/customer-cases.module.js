@@ -5,9 +5,12 @@ import {
   appendRow,
   appendRows,
   findById,
-  readTable,
-  readTables,
+  findOneBy,
+  findRows,
+  nextCustomerCaseNumber,
+  queryCustomerCasePage,
   updateRow,
+  withTransaction,
 } from '../infra/sheets.repository.js';
 import {
   createFolder,
@@ -155,8 +158,7 @@ async function findClientByToken(token) {
   const requested = clean(token, 200);
   if (requested.length < 32) throw notFound('El enlace del formulario no es válido.');
   await ensureCustomerCaseSchema();
-  const clients = await readTable('Clientes');
-  const client = clients.find((item) => clean(item.PortalCasosToken, 200) === requested);
+  const client = await findOneBy('Clientes', { PortalCasosToken: requested });
   if (!client || !activePortal(client)) throw notFound('Este enlace no está disponible. Solicite uno nuevo a DMS.');
   return client;
 }
@@ -174,8 +176,8 @@ function caseView(item = {}) {
 }
 
 async function evidenceRows(caseId) {
-  const rows = await readTable('CasoEvidencias');
-  return rows.filter((row) => clean(row.CasoID) === clean(caseId) && row.Activo !== false);
+  const rows = await findRows('CasoEvidencias', { CasoID: clean(caseId) }, { limit: 50_000 });
+  return rows.filter((row) => row.Activo !== false && String(row.Activo ?? 'true').toLowerCase() !== 'false');
 }
 
 async function notificationRecord({ caseId, channel, destination, type, result = null, error = null, actor = 'SISTEMA' }) {
@@ -283,8 +285,9 @@ async function sendInitialNotification(caseData, evidences) {
 async function techniciansFromIds(ids = []) {
   const requested = [...new Set(ids.map((value) => clean(value, 200)).filter(Boolean))];
   if (!requested.length) throw badRequest('Seleccione al menos un técnico.');
-  const users = await readTable('Usuarios');
-  const technicians = requested.map((id) => users.find((user) => clean(user.UsuarioID) === id)).filter(Boolean);
+  const users = await findRows('Usuarios', { UsuarioID: requested }, { limit: 50_000 });
+  const usersById = new Map(users.map((user) => [clean(user.UsuarioID), user]));
+  const technicians = requested.map((id) => usersById.get(id)).filter(Boolean);
   if (technicians.length !== requested.length) throw badRequest('Uno o más técnicos seleccionados ya no existen.');
   const inactive = technicians.filter((user) => user.Activo === false || clean(user.Estado || 'ACTIVO').toUpperCase() === 'INACTIVO');
   if (inactive.length) throw badRequest('Uno o más técnicos seleccionados están inactivos.');
@@ -351,20 +354,17 @@ async function sendTechnicianNotification({ caseData, evidences, technicians, ct
 
 async function detailBundle(caseId, origin = '') {
   const item = caseView(await findById('CasosClientes', caseId));
-  const [evidences, users, tickets] = await Promise.all([
+  const ids = [...new Set(item.TecnicoIDs.map((value) => clean(value)).filter(Boolean))];
+  const [evidences, users, ticket] = await Promise.all([
     evidenceRows(item.CasoID),
-    readTable('Usuarios'),
-    readTable('Boletas'),
+    ids.length ? findRows('Usuarios', { UsuarioID: ids }, { limit: 50_000 }) : Promise.resolve([]),
+    item.BoletaUID ? findById('Boletas', item.BoletaUID).catch(() => null) : Promise.resolve(null),
   ]);
-  const ids = new Set(item.TecnicoIDs);
-  const technicians = users
-    .filter((user) => ids.has(clean(user.UsuarioID)))
-    .map((user) => ({
-      UsuarioID: user.UsuarioID,
-      Nombre: clean(user.NombreCompleto || user.Nombre || user.NombreUsuario || user.UsuarioID, 180),
-      Correo: clean(user.Correo, 320),
-    }));
-  const ticket = tickets.find((row) => clean(row.BoletaUID) === clean(item.BoletaUID)) || null;
+  const technicians = users.map((user) => ({
+    UsuarioID: user.UsuarioID,
+    Nombre: clean(user.NombreCompleto || user.Nombre || user.NombreUsuario || user.UsuarioID, 180),
+    Correo: clean(user.Correo, 320),
+  }));
   return {
     case: item,
     evidences,
@@ -389,9 +389,58 @@ async function createPublicCase(ctx, client) {
   const evidences = validateEvidences(ctx.payload.evidences || ctx.payload.evidencias || []);
 
   return withCaseCreateLock(async () => {
-    const rows = await readTable('CasosClientes', { force: true });
-    const duplicate = rows.find((item) => clean(item.SolicitudClienteID) === requestId && clean(item.ClienteID) === clean(client.ClienteID));
-    if (duplicate) {
+    // Serialize the visible case number and persist the case in the SAME
+    // PostgreSQL transaction. External Drive/email side effects stay below,
+    // after COMMIT, so no database transaction is held during network I/O.
+    const persisted = await withTransaction(async () => {
+      const caseNumber = await nextCustomerCaseNumber();
+      const duplicate = await findOneBy('CasosClientes', {
+        SolicitudClienteID: requestId,
+        ClienteID: clean(client.ClienteID),
+      });
+      if (duplicate) return { duplicate, caseData: null };
+
+      const timestamp = nowIso();
+      const caseData = {
+        CasoID: uuid(),
+          CasoNumero: caseNumber,
+        SolicitudClienteID: requestId,
+        ClienteID: client.ClienteID,
+        Cliente: clientName(client),
+        RazonVisita: reason,
+        Problema: problem,
+        CorreoSolicitante: email,
+        NombreSolicitante: requester,
+        Estado: 'EN_ESPERA',
+        EvidenciaCount: 0,
+        TecnicoIDsJSON: '[]',
+        TecnicoNombres: '',
+        FechaVisita: '',
+        HoraVisita: '',
+        MensajeAdministrador: '',
+        BoletaUID: '',
+        BoletaID: '',
+        AsuntoCorreoInicial: '',
+        CuerpoCorreoInicial: '',
+        AsuntoCorreoTecnicos: '',
+        CuerpoCorreoTecnicos: '',
+        EstadoNotificacionInicial: 'PENDIENTE',
+        EstadoNotificacionTecnicos: 'PENDIENTE',
+        UltimoErrorNotificacion: '',
+        FechaProceso: '',
+        FechaFinalizacion: '',
+        FechaCreacion: timestamp,
+        FechaActualizacion: timestamp,
+        CreadoPor: 'CLIENTE',
+        ActualizadoPor: 'CLIENTE',
+        Activo: true,
+      };
+      await appendRow('CasosClientes', caseData);
+      return { duplicate: null, caseData };
+    });
+
+    if (persisted.duplicate) {
+      const duplicate = persisted.duplicate;
       return {
         accepted: true,
         alreadyCreated: true,
@@ -403,42 +452,7 @@ async function createPublicCase(ctx, client) {
       };
     }
 
-    const timestamp = nowIso();
-    let caseData = {
-      CasoID: uuid(),
-      CasoNumero: nextCaseNumber(rows),
-      SolicitudClienteID: requestId,
-      ClienteID: client.ClienteID,
-      Cliente: clientName(client),
-      RazonVisita: reason,
-      Problema: problem,
-      CorreoSolicitante: email,
-      NombreSolicitante: requester,
-      Estado: 'EN_ESPERA',
-      EvidenciaCount: 0,
-      TecnicoIDsJSON: '[]',
-      TecnicoNombres: '',
-      FechaVisita: '',
-      HoraVisita: '',
-      MensajeAdministrador: '',
-      BoletaUID: '',
-      BoletaID: '',
-      AsuntoCorreoInicial: '',
-      CuerpoCorreoInicial: '',
-      AsuntoCorreoTecnicos: '',
-      CuerpoCorreoTecnicos: '',
-      EstadoNotificacionInicial: 'PENDIENTE',
-      EstadoNotificacionTecnicos: 'PENDIENTE',
-      UltimoErrorNotificacion: '',
-      FechaProceso: '',
-      FechaFinalizacion: '',
-      FechaCreacion: timestamp,
-      FechaActualizacion: timestamp,
-      CreadoPor: 'CLIENTE',
-      ActualizadoPor: 'CLIENTE',
-      Activo: true,
-    };
-    await appendRow('CasosClientes', caseData);
+    let caseData = persisted.caseData;
 
     const uploaded = await uploadCaseEvidences({ caseData, client, evidences });
     caseData = await updateRow('CasosClientes', caseData.CasoID, {
@@ -551,29 +565,10 @@ export const customerCaseHandlers = {
     await reconcileCustomerCases(ctx.user.UsuarioID).catch((error) => {
       console.warn(`[customer-cases] No se pudo reconciliar el cierre: ${error.message}`);
     });
-    let rows = (await readTable('CasosClientes')).filter((row) => row.Activo !== false).map(caseView);
-    const state = clean(pick(ctx.payload, ['status', 'estado']), 50);
-    const clientId = clean(pick(ctx.payload, ['clientId', 'ClienteID']), 200);
-    const search = clean(pick(ctx.payload, ['search', 'q']), 300).toLowerCase();
-    if (state) rows = rows.filter((row) => normalizeState(row.Estado) === normalizeState(state));
-    if (clientId) rows = rows.filter((row) => clean(row.ClienteID) === clientId);
-    if (search) rows = rows.filter((row) => `${row.CasoNumero} ${row.Cliente} ${row.RazonVisita} ${row.Problema} ${row.NombreSolicitante} ${row.CorreoSolicitante}`.toLowerCase().includes(search));
-    rows.sort((a, b) => clean(b.FechaCreacion).localeCompare(clean(a.FechaCreacion)));
-    const all = (await readTable('CasosClientes')).filter((row) => row.Activo !== false).map(caseView);
-    const counts = {
-      EN_ESPERA: all.filter((row) => row.Estado === 'EN_ESPERA').length,
-      EN_PROCESO: all.filter((row) => row.Estado === 'EN_PROCESO').length,
-      FINALIZADO: all.filter((row) => row.Estado === 'FINALIZADO').length,
-      TOTAL: all.length,
-    };
-    const page = Math.max(1, Number(ctx.payload.page || 1));
-    const pageSize = Math.min(200, Math.max(1, Number(ctx.payload.pageSize || 60)));
+    const result = await queryCustomerCasePage(ctx.payload || {});
     return {
-      items: rows.slice((page - 1) * pageSize, page * pageSize),
-      total: rows.length,
-      page,
-      pageSize,
-      counts,
+      ...result,
+      items: result.items.map(caseView),
     };
   },
 
