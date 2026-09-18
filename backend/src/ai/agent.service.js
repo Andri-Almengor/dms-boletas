@@ -8,7 +8,7 @@ import { costaRicaNowIso } from './agent.dates.js';
 import {
   createInteraction, externalSources, fallbackCompatible, functionCalls, outputText, outputTruncated, usage,
 } from './agent.gemini.js';
-import { AI_INTENTS, classifyAiIntent, isKnowledgeDocumentQuery, isTechnicalKnowledgeQuery, toolNamesForIntent } from './agent.intent.js';
+import { AI_INTENTS, classifyAiIntent, isKnowledgeDocumentQuery, isTechnicalKnowledgeQuery, toolNamesForEntityTypes, toolNamesForIntent } from './agent.intent.js';
 import { recordAiMetrics } from './agent.metrics.js';
 import { buildAgentSystemPrompt, buildAgentUserInput } from './agent.prompt.js';
 import { sanitizeActiveContext } from './agent.sanitize.js';
@@ -111,10 +111,10 @@ async function loadDiagnosticImageInputs(attachments = []) {
 function sessionFingerprint(sessionToken){return crypto.createHash('sha256').update(clean(sessionToken,12000)).digest('base64url');}
 function requiresInternalEvidence(message,context={}){
   const text=String(message||'');
-  if(Object.keys(context||{}).some(key=>/^last(Client|Maintenance|Ticket|Knowledge|Case|User|Device)/.test(key))) return true;
-  if(context?.pageContext?.entityId||context?.pageContext?.maintenanceId||context?.pageContext?.ticketId) return true;
+  const refersToContext=/\b(ese|esa|este|esta|mismo|misma|anterior|anteriores|último|ultimo|última|ultima|las demás|los demás|ahí|ahi)\b/i.test(text);
+  if(refersToContext&&Object.keys(context||{}).some(key=>/^last(Client|Maintenance|Ticket|Knowledge|Case|User|Device)/.test(key))) return true;
   if(context?.pageContext?.route&&/\b(esta sección|esta seccion|esta pantalla|aquí|aqui|qué hace|que hace)\b/i.test(text)) return true;
-  return /\b(dms|boleta|boletas|mantenimiento|mantenimientos|cliente|clientes|técnico|tecnico|supervisor|evidencia|evidencias|dispositivo|dispositivos|cámara|camara|caso|casos|agenda|pendiente|finalizada|finalizó|finalizo|subió|subio|base de conocimiento|knowledge)\b/i.test(text);
+  return /\b(dms|boleta|boletas|mantenimiento|mantenimientos|proyecto|proyectos|cliente|clientes|técnico|tecnico|supervisor|evidencia|evidencias|foto|fotos|imagen|imagenes|imágenes|dispositivo|dispositivos|equipo|equipos|cámara|camara|zona|zonas|inventario|operatividad|avance|caso|casos|agenda|pendiente|finalizada|finalizó|finalizo|subió|subio|base de conocimiento|knowledge)\b/i.test(text);
 }
 function requiresKnowledgeLookup(message,context={}){
   return isTechnicalKnowledgeQuery({message,context});
@@ -231,8 +231,9 @@ export async function runDmsAgent(ctx, overrides = {}){
   }
   const internalEvidenceRequired=requiresInternalEvidence(message,context)||intent!==AI_INTENTS.GENERAL&&intent!==AI_INTENTS.WEB;
   let selectedNames=toolNamesForIntent(intent);
+  if(chatAttachments.length) selectedNames=[...new Set([...selectedNames,'read_chat_attachment'])];
   if(context?.pageContext?.route&&/\b(esta sección|esta seccion|esta pantalla|qué hace|que hace)\b/i.test(message)){
-    selectedNames=[...selectedNames,'get_app_help'];
+    selectedNames=[...new Set([...selectedNames,'get_app_help'])];
   }
 
   let webEnabledForTurn=aiConfig.webSearchEnabled&&(intent===AI_INTENTS.WEB||(externalRequested(message)&&!knowledgeRequired));
@@ -422,6 +423,23 @@ export async function runDmsAgent(ctx, overrides = {}){
             );
             dbQueries+=Number(measured.metrics?.queries||0);dbQueryMs+=Number(measured.metrics?.queryMs||0);
             mergeUi(ui,measured.result.ui);
+            if(call.name==='search_internal'){
+              const discoveredTypes=[...new Set((measured.result.modelData?.matches||[])
+                .map(item=>String(item?.type||'').toLowerCase()).filter(Boolean))];
+              const discoveredTools=toolNamesForEntityTypes(discoveredTypes);
+              const expanded=[...new Set([...selectedNames,...discoveredTools])];
+              if(expanded.length!==selectedNames.length){
+                selectedNames=expanded;
+                tools=declarationsForUser(ctx,{includeWeb:webEnabledForTurn,intent,selectedNames});
+                console.info('[ai-agent] '+JSON.stringify({
+                  event:'ai_internal_toolset_expanded',
+                  requestId:clean(ctx.requestId,120),
+                  intent,
+                  discoveredTypes,
+                  toolDefinitionsCount:tools.length,
+                }));
+              }
+            }
             if(knowledgeCall){
               const modelData=measured.result.modelData||{};
               const totalShown=Number(modelData.totalShown||0);
