@@ -4,6 +4,7 @@ import { nowIso, pick, uuid } from '../core/utils.js';
 import { env } from '../config/env.js';
 import { googleAuth } from '../infra/google.js';
 import { appendRow, findById, readTable } from '../infra/sheets.repository.js';
+import { query } from '../infra/postgres.js';
 import { getConfig } from '../modules/config.module.js';
 import { ensureSheetColumns } from './sheet-columns.service.js';
 import { validateEvidenceMediaPayload } from './evidence-media-policy.service.js';
@@ -19,6 +20,25 @@ const MAINTENANCE_MEDIA_COLUMNS = ['TipoMedio', 'DuracionSegundos'];
 function clean(value, fallback = '') {
   const text = String(value ?? '').trim();
   return text || fallback;
+}
+
+function sessionFingerprint(sessionToken) {
+  return crypto.createHash('sha256').update(clean(sessionToken)).digest('base64url');
+}
+
+const ASSISTANT_ALLOWED_MIMES = new Set([
+  'application/pdf',
+  'application/vnd.openxmlformats-officedocument.wordprocessingml.document',
+  'application/msword',
+  'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet',
+  'application/vnd.ms-excel',
+  'text/plain',
+  'text/csv',
+  'text/tab-separated-values',
+]);
+function assistantMimeAllowed(value) {
+  const mime = clean(value).toLowerCase().split(';')[0];
+  return mime.startsWith('image/') || ASSISTANT_ALLOWED_MIMES.has(mime);
 }
 
 function validClientGeneratedId(value) {
@@ -113,7 +133,21 @@ function existingMaintenanceEvidence(rows, imageId, deviceId) {
   return existing;
 }
 
+async function findExistingAssistantUpload(token) {
+  const result = await query(
+    `SELECT "UploadID" AS id,"NombreArchivo" AS name,"MimeType" AS "mimeType","SizeBytes" AS size,
+            "Status" AS status,"ExpiresAt" AS "expiresAt"
+       FROM "AiChatUploads" WHERE "__valid"=TRUE AND "UploadID"=$1 LIMIT 1`,
+    [token.uploadId],
+    { label: 'ai.upload.existing' },
+  );
+  const row = result.rows[0];
+  if (!row) return null;
+  return { uploadId: row.id, name: row.name, mimeType: row.mimeType, size: Number(row.size || 0), status: row.status };
+}
+
 async function findExistingEvidence(token, kind) {
+  if (kind === 'assistant') return findExistingAssistantUpload(token);
   if (kind === 'knowledge') {
     return (await readTable('KnowledgeAttachments', { force: true })).find(row => row.AdjuntoID === token.attachmentId) || null;
   }
@@ -135,6 +169,46 @@ function validatedVideoMetadata(payload, allowDocuments = false) {
   const metadata = validateEvidenceMediaPayload(payload, { allowDocuments, requireData: false });
   if (!Number.isSafeInteger(metadata.size) || metadata.size <= 0) throw badRequest('El tamaño del archivo no es válido.');
   return metadata;
+}
+
+async function initAssistant(ctx) {
+  const uploadId = clean(pick(ctx.payload, ['uploadId', 'UploadID'], uuid()));
+  if (!validClientGeneratedId(uploadId)) throw badRequest('El identificador local del adjunto no es válido.');
+  const size = Number(ctx.payload.size);
+  if (!Number.isSafeInteger(size) || size <= 0 || size > 50 * 1024 * 1024) {
+    throw badRequest('El adjunto debe tener un tamaño válido de hasta 50 MB.');
+  }
+  const mimeType = clean(ctx.payload.mimeType, 'application/octet-stream').toLowerCase().split(';')[0];
+  if (!assistantMimeAllowed(mimeType)) {
+    throw badRequest('El formato adjunto no está permitido en el asistente. Use imágenes, PDF, DOCX, XLSX, CSV o TXT.');
+  }
+
+  const existing = await findExistingAssistantUpload({ uploadId });
+  if (existing) return { complete: true, ...existing };
+
+  const cfg = await getConfig();
+  const fileName = clean(ctx.payload.fileName || ctx.payload.nombre, 'adjunto');
+  const sessionUrl = await startDriveResumableSession({
+    fileName,
+    mimeType,
+    size,
+    folderId: cfg.EVIDENCIAS_FOLDER_ID || cfg.ROOT_FOLDER_ID,
+  });
+  return {
+    complete: false,
+    uploadId,
+    chunkBytes: LARGE_VIDEO_CHUNK_BYTES,
+    uploadToken: createUploadToken({
+      kind: 'assistant',
+      sessionUrl,
+      uploadId,
+      actor: ctx.user.UsuarioID,
+      sessionHash: sessionFingerprint(ctx.sessionToken),
+      fileName,
+      mimeType,
+      size,
+    }),
+  };
 }
 
 async function initTicket(ctx) {
@@ -272,9 +346,46 @@ async function appendMaintenanceEvidence(token, file) {
   };
 }
 
+async function appendAssistantUpload(token, file) {
+  const existing = await findExistingAssistantUpload(token);
+  if (existing) return existing;
+  const createdAt = nowIso();
+  const expiresAt = new Date(Date.now() + UPLOAD_TOKEN_TTL_MS).toISOString();
+  await query(
+    `INSERT INTO "AiChatUploads"
+      ("UploadID","UserID","SessionHash","NombreArchivo","MimeType","SizeBytes","DriveFileID","DriveURL",
+       "Status","CreatedAt","ExpiresAt","__valid")
+     VALUES ($1,$2,$3,$4,$5,$6,$7,$8,'AVAILABLE',$9,$10,TRUE)
+     ON CONFLICT DO NOTHING`,
+    [
+      token.uploadId,
+      token.actor,
+      token.sessionHash,
+      file.name || token.fileName,
+      file.mimeType || token.mimeType,
+      Number(file.size || token.size || 0),
+      file.id,
+      file.webViewLink || '',
+      createdAt,
+      expiresAt,
+    ],
+    { label: 'ai.upload.insert', write: true },
+  );
+  return {
+    uploadId: token.uploadId,
+    name: file.name || token.fileName,
+    mimeType: file.mimeType || token.mimeType,
+    size: Number(file.size || token.size || 0),
+    status: 'AVAILABLE',
+  };
+}
+
 async function uploadChunk(ctx, kind) {
   const token = parseUploadToken(ctx.payload.uploadToken, kind);
   if (token.actor !== ctx.user.UsuarioID) throw badRequest('La sesión de carga pertenece a otro usuario.');
+  if (kind === 'assistant' && token.sessionHash !== sessionFingerprint(ctx.sessionToken)) {
+    throw badRequest('La sesión de carga pertenece a otra sesión del usuario.');
+  }
   if (String(ctx.payload.base64 || '').length > Math.ceil(LARGE_VIDEO_CHUNK_BYTES / 3) * 4 + 4) throw badRequest('El bloque supera el tamaño permitido.');
   const offset = Number(ctx.payload.offset);
   if (!Number.isInteger(offset) || offset < 0 || offset >= token.size) throw badRequest('La posición del bloque del video no es válida.');
@@ -314,6 +425,10 @@ async function uploadChunk(ctx, kind) {
   const file = await response.json();
   if (!file?.id) throw new Error('Google Drive no devolvió el archivo al completar el video.');
   if (kind === 'knowledge') return { complete: true, nextOffset: token.size, file, token };
+  if (kind === 'assistant') {
+    const upload = await appendAssistantUpload(token, file);
+    return { complete: true, nextOffset: token.size, ...upload };
+  }
   const evidence = kind === 'ticket'
     ? await appendTicketEvidence(token, file)
     : await appendMaintenanceEvidence(token, file);
@@ -325,6 +440,8 @@ export const largeEvidenceUploadHandlers = {
   ticketChunk: (ctx) => uploadChunk(ctx, 'ticket'),
   maintenanceInit: initMaintenance,
   maintenanceChunk: (ctx) => uploadChunk(ctx, 'maintenance'),
+  assistantInit: initAssistant,
+  assistantChunk: (ctx) => uploadChunk(ctx, 'assistant'),
 };
 
 // Called only after the original knowledge handler authorizes the article.
