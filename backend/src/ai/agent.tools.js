@@ -7,6 +7,8 @@ import { ticketRepositoryTools } from './agent.repository.tickets.js';
 import { maintenanceRepositoryTools } from './agent.repository.maintenance.js';
 import { knowledgeRepositoryTools } from './agent.repository.knowledge.js';
 import { statisticsRepositoryTools } from './agent.repository.statistics.js';
+import { agendaRepositoryTools } from './agent.repository.agenda.js';
+import { integrationRepositoryTools } from './agent.repository.integrations.js';
 
 const TOOL_IMPL=Object.freeze({
   ...directoryRepositoryTools,
@@ -14,6 +16,8 @@ const TOOL_IMPL=Object.freeze({
   ...maintenanceRepositoryTools,
   ...knowledgeRepositoryTools,
   ...statisticsRepositoryTools,
+  ...agendaRepositoryTools,
+  ...integrationRepositoryTools,
 });
 
 const COMMON_DATE_PROPERTIES={
@@ -29,7 +33,7 @@ function fn(name,description,properties={},required=[]){
 
 export const TOOL_DECLARATIONS=Object.freeze({
   search_internal:fn('search_internal','Busca entidades internas por texto sin requerir IDs técnicos.',{
-    query:{type:'string'},entityTypes:{type:'array',items:{type:'string',enum:['client','maintenance','ticket','user','device','knowledge','case']}},limit:{type:'integer',minimum:1,maximum:20},
+    query:{type:'string'},entityTypes:{type:'array',items:{type:'string',enum:['client','maintenance','ticket','user','device','network_device','knowledge','case','agenda']}},limit:{type:'integer',minimum:1,maximum:20},
   },['query']),
   search_clients:fn('search_clients','Busca clientes DMS por nombre, razón social o identificación.',{query:{type:'string'},limit:{type:'integer',minimum:1,maximum:20}}),
   get_client:fn('get_client','Obtiene información autorizada de un cliente y sus supervisores.',{clientId:{type:'string'}},['clientId']),
@@ -46,6 +50,8 @@ export const TOOL_DECLARATIONS=Object.freeze({
   search_devices:fn('search_devices','Busca dispositivos por nombre, tipo, marca, modelo, serie, MAC, zona u observación.',{query:{type:'string'},limit:{type:'integer',minimum:1,maximum:50}},['query']),
   search_knowledge_base:fn('search_knowledge_base','Busca primero procedimientos y conocimiento interno de DMS.',{query:{type:'string'},limit:{type:'integer',minimum:1,maximum:20}},['query']),
   get_knowledge_article:fn('get_knowledge_article','Obtiene el contenido autorizado de un artículo de Knowledge Base.',{articleId:{type:'string'}},['articleId']),
+  search_agenda:fn('search_agenda','Consulta agenda DMS. Técnicos solo ven sus propias asignaciones; administradores pueden filtrar por técnico.',{query:{type:'string'},technicianId:{type:'string'},status:{type:'string'},limit:{type:'integer',minimum:1,maximum:50},offset:{type:'integer',minimum:0},...COMMON_DATE_PROPERTIES}),
+  search_network_devices:fn('search_network_devices','Busca dispositivos integrados por nombre, IP, MAC, fabricante o modelo. Solo administradores.',{query:{type:'string'},limit:{type:'integer',minimum:1,maximum:50}},['query']),
   search_cases:fn('search_cases','Busca casos internos similares. Disponible solo con permisos administrativos.',{query:{type:'string'},status:{type:'string'},limit:{type:'integer',minimum:1,maximum:30},...COMMON_DATE_PROPERTIES}),
   get_case:fn('get_case','Obtiene detalle de un caso interno autorizado.',{caseId:{type:'string'}},['caseId']),
   get_statistics:fn('get_statistics','Ejecuta agregaciones PostgreSQL eficientes para conteos y rankings.',{
@@ -55,13 +61,14 @@ export const TOOL_DECLARATIONS=Object.freeze({
 });
 
 function allowedNames(ctx){
-  const access=aiAccess(ctx); const names=['search_internal'];
+  const access=aiAccess(ctx); const names=['search_internal','search_agenda'];
   if(access.clients) names.push('search_clients','get_client');
   if(access.users) names.push('search_users');
   if(access.tickets) names.push('search_tickets','get_ticket','get_ticket_evidence','get_ticket_history','get_technician_activity');
   if(access.maintenance) names.push('search_maintenances','get_maintenance','get_maintenance_devices','get_maintenance_evidence','search_devices');
   if(access.knowledge) names.push('search_knowledge_base','get_knowledge_article');
   if(access.cases) names.push('search_cases','get_case');
+  if(access.admin) names.push('search_network_devices');
   if(access.statistics) names.push('get_statistics');
   return names;
 }
@@ -94,7 +101,9 @@ async function searchInternal(ctx,args={}){
   if(access.users&&wants('user')) add('user','search_users');
   if(access.maintenance&&wants('device')) add('device','search_devices');
   if(access.knowledge&&wants('knowledge')) add('knowledge','search_knowledge_base');
+  if(wants('agenda')) add('agenda','search_agenda');
   if(access.cases&&wants('case')) add('case','search_cases');
+  if(access.admin&&wants('network_device')) add('network_device','search_network_devices');
   const results=await runBatched(jobs,aiConfig.maxParallelTools);
   const matches=[],entities=[],sources=[];
   for(const {type,result} of results){
