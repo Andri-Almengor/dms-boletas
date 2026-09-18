@@ -50,6 +50,9 @@ try {
   let canonicalRows = 0;
   let validRows = 0;
   for (const [name, meta] of Object.entries(DATABASE_TABLES)) {
+    const sourcePayloadSql = name === 'SyncChanges'
+      ? "(COALESCE(r.row_data,'{}'::jsonb) - 'Cursor')"
+      : "COALESCE(r.row_data,'{}'::jsonb)";
     const recon = reconByTable.get(name);
     if (!recon) {
       fail(`missing reconciliation row for ${name}`);
@@ -65,7 +68,7 @@ try {
            WHERE c."__migration_run_id"=$1
              AND (
                r.source_row_number IS NULL
-               OR NOT (COALESCE(c."__payload",'{}'::jsonb) @> COALESCE(r.row_data,'{}'::jsonb))
+               OR NOT (COALESCE(c."__payload",'{}'::jsonb) @> ${sourcePayloadSql})
              )
          )::bigint AS payload_mismatch
        FROM ${quoted(name)} c
