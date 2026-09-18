@@ -8,7 +8,7 @@ import { costaRicaNowIso } from './agent.dates.js';
 import {
   createInteraction, externalSources, fallbackCompatible, functionCalls, outputText, outputTruncated, usage,
 } from './agent.gemini.js';
-import { AI_INTENTS, classifyAiIntent, toolNamesForIntent } from './agent.intent.js';
+import { AI_INTENTS, classifyAiIntent, isKnowledgeDocumentQuery, isTechnicalKnowledgeQuery, toolNamesForIntent } from './agent.intent.js';
 import { recordAiMetrics } from './agent.metrics.js';
 import { buildAgentSystemPrompt, buildAgentUserInput } from './agent.prompt.js';
 import { sanitizeActiveContext } from './agent.sanitize.js';
@@ -116,9 +116,16 @@ function requiresInternalEvidence(message,context={}){
   if(context?.pageContext?.route&&/\b(esta sección|esta seccion|esta pantalla|aquí|aqui|qué hace|que hace)\b/i.test(text)) return true;
   return /\b(dms|boleta|boletas|mantenimiento|mantenimientos|cliente|clientes|técnico|tecnico|supervisor|evidencia|evidencias|dispositivo|dispositivos|cámara|camara|caso|casos|agenda|pendiente|finalizada|finalizó|finalizo|subió|subio|base de conocimiento|knowledge)\b/i.test(text);
 }
-function requiresKnowledgeLookup(message){
-  return /\b(axis|onguard|lenel|lenels2|milestone|xprotect|barco|faceme|morphomanager|windows server|sql server|postgresql|odbc|camera station|access control)\b/i.test(String(message||''))
-    && /\b(error|falla|problema|solucion|solución|solucionar|resolver|configurar|instalar|procedimiento|manual|diagnosticar|diagnóstico|como|cómo)\b/i.test(String(message||''));
+function requiresKnowledgeLookup(message,context={}){
+  return isTechnicalKnowledgeQuery({message,context});
+}
+function knowledgeToolName(name=''){return /^search_knowledge_|^get_knowledge_/.test(String(name||''));}
+function hashAiUser(ctx){
+  const value=clean(ctx?.user?.UsuarioID||'',250);
+  return value?crypto.createHash('sha256').update(value).digest('hex').slice(0,16):'';
+}
+function toolsetNames(toolset=[]){
+  return toolset.filter((item)=>item?.type==='function'&&item?.name).map((item)=>item.name);
 }
 function externalRequested(message){
   const text=String(message||'');
