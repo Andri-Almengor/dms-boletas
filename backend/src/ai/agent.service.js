@@ -204,8 +204,11 @@ export function modelFallbackChain(){
   return aiConfig.modelFallbackEnabled?models.slice(0,1+aiConfig.maxModelFallbacks):models.slice(0,1);
 }
 
-export async function runDmsAgent(ctx){
+export async function runDmsAgent(ctx, overrides = {}){
   assertRateLimit(ctx);
+  const createInteractionFn=overrides.createInteraction||createInteraction;
+  const executeAiToolFn=overrides.executeAiTool||executeAiTool;
+  const auditFn=overrides.audit||audit;
   const started=performance.now(),deadline=started+aiConfig.totalTimeoutMs;
   const message=clean(ctx.payload?.message||ctx.payload?.question,aiConfig.maxMessageChars);
   if(!message)throw badRequest('Escriba una pregunta para el asistente.');
@@ -251,7 +254,7 @@ export async function runDmsAgent(ctx){
   const toolNames=[];let modelMs=0,toolMs=0,totalInput=0,totalOutput=0,dbQueries=0,dbQueryMs=0,requestBytes=0;
   const knowledgeFlow={articleSearches:0,articleResults:0,documentSearches:0,documentsFound:0,readyDocuments:0,chunkSearches:0,chunksFound:0,errors:0};
   let knowledgeChunks=0,initialModel='',finalModel='',fallbackCount=0,fallbackReason='',modelIndex=0,compacted=false;
-  const models=modelFallbackChain();
+  const models=Array.isArray(overrides.models)&&overrides.models.length?[...overrides.models]:modelFallbackChain();
   if(!models.length)throw new AppError('GEMINI_MODEL_NOT_CONFIGURED','Configure GEMINI_PRIMARY_MODEL o GEMINI_MODEL en el servidor.',503);
   initialModel=models[0];finalModel=models[0];
   const maxOutputTokens=outputBudget(intent,message);
@@ -270,7 +273,7 @@ export async function runDmsAgent(ctx){
       const timeoutMs=Math.max(250,Math.min(aiConfig.requestTimeoutMs,Math.floor(remaining())));
       const modelStarted=performance.now();
       try{
-        const interaction=await createInteraction({
+        const interaction=await createInteractionFn({
           systemInstruction,input:localInput,tools:noTools?[]:toolset,model,timeoutMs,maxOutputTokens,
         });
         modelMs+=performance.now()-modelStarted;
@@ -324,7 +327,7 @@ export async function runDmsAgent(ctx){
       requestBytes,responseBytes,knowledgeChunks,attachments:response.attachments.length,status:'ok',
     };
     console.info('[ai-agent] '+JSON.stringify(telemetry));
-    await audit(ctx,'AI_CHAT','Asistente',clean(ctx.payload?.conversationId,250)||'chat',null,{
+    await auditFn(ctx,'AI_CHAT','Asistente',clean(ctx.payload?.conversationId,250)||'chat',null,{
       ModelInitial:initialModel,ModelFinal:finalModel,FallbackCount:fallbackCount,FallbackReason:fallbackReason,
       Intent:intent,Herramientas:[...new Set(toolNames)],DuracionMs:durationMs,BusquedaWeb:response.agent.webSearch,
     }).catch(()=>{});
@@ -371,7 +374,7 @@ export async function runDmsAgent(ctx){
           const toolStarted=performance.now();
           try{
             const measured=await withTimeout(
-              withDbRequestMetrics(()=>executeAiTool(ctx,call.name,call.arguments||{})),
+              withDbRequestMetrics(()=>executeAiToolFn(ctx,call.name,call.arguments||{})),
               Math.max(1,Math.min(aiConfig.toolTimeoutMs,Math.floor(remaining()))),call.name,
             );
             dbQueries+=Number(measured.metrics?.queries||0);dbQueryMs+=Number(measured.metrics?.queryMs||0);
