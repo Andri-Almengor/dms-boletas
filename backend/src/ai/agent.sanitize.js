@@ -9,6 +9,12 @@ const SAFE_CONTEXT_KEYS = new Set([
   'lastTicketId',
   'lastTicketNumber',
   'lastKnowledgeId',
+  'lastKnowledgeArticleId',
+  'lastKnowledgeDocumentId',
+  'lastKnowledgeDocumentName',
+  'lastEvidenceStage',
+  'pendingOperationId',
+  'pendingUploadIds',
   'lastCaseId',
   'lastUserId',
   'lastUserName',
@@ -87,6 +93,7 @@ export function sanitizeAiToolResult(toolName, result = {}) {
         entityId: cleanString(item.entityId, 250),
       })) : [],
       sources: Array.isArray(result.sources) ? sanitizeValue(result.sources).slice(0, 50) : [],
+      confirmations: Array.isArray(result.confirmations) ? sanitizeValue(result.confirmations).slice(0, 10) : [],
       context: sanitizeActiveContext(result.context || {}),
     },
   };
@@ -96,7 +103,11 @@ export function sanitizeActiveContext(raw = {}) {
   const output = {};
   for (const key of SAFE_CONTEXT_KEYS) {
     if (raw[key] === undefined || raw[key] === null || raw[key] === '') continue;
-    output[key] = cleanString(raw[key], 300);
+    if (key === 'pendingUploadIds' && Array.isArray(raw[key])) {
+      output[key] = raw[key].slice(0, aiConfig.maxEvidenceUploadBatch).map((value) => cleanString(value, 250)).filter(Boolean);
+    } else {
+      output[key] = cleanString(raw[key], 300);
+    }
   }
 
   const page = raw.pageContext;
