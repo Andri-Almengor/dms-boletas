@@ -36,6 +36,7 @@ test('boletas permiten grabar, seleccionar, validar y reproducir videos de hasta
   const multiSelect = source('src/components/forms/TicketEvidenceMultiSelectBridge.jsx');
   const preview = source('src/components/tickets/MediaPreview.jsx');
   const persistence = source('src/features/tickets/ticketPersistenceService.js');
+  const batch = source('src/services/ticketEvidenceBatch.js');
 
   assert.match(form, /prepareEvidenceFiles\(files, \{ allowDocuments: true \}\)/);
   assert.match(uploader, /Grabar video/);
@@ -53,15 +54,16 @@ test('boletas permiten grabar, seleccionar, validar y reproducir videos de hasta
   assert.match(multiSelect, /Seleccionar varios archivos/);
   assert.match(multiSelect, /prepareEvidenceFiles\(files, \{ allowDocuments: true \}\)/);
   assert.match(multiSelect, /uploadTicketEvidenceItems/);
-  assert.match(multiSelect, /mediaType: prepared\.mediaType/);
-  assert.match(multiSelect, /durationSeconds: Number\(prepared\.durationSeconds/);
+  assert.match(batch, /mediaType: item\.mediaType/);
+  assert.match(batch, /durationSeconds: Number\(item\.durationSeconds/);
   assert.doesNotMatch(multiSelect, /actionButtons\[1\]/);
   assert.doesNotMatch(multiSelect, /dmsOriginalLabel/);
   assert.match(preview, /knownKind === 'video'/);
   assert.match(preview, /<video src=\{fullSource\} controls/);
   assert.match(persistence, /uploadTicketEvidenceItems/);
-  assert.match(persistence, /mediaType: item\.mediaType/);
-  assert.match(persistence, /durationSeconds: Number\(item\.durationSeconds/);
+  assert.match(persistence, /uploadTicketEvidenceItems/);
+  assert.match(batch, /mediaType: item\.mediaType/);
+  assert.match(batch, /durationSeconds: Number\(item\.durationSeconds/);
 });
 
 test('mantenimientos aceptan videos grandes en editor, carga rápida y lotes', () => {
@@ -91,21 +93,21 @@ test('mantenimientos aceptan videos grandes en editor, carga rápida y lotes', (
   assert.match(batches, /size: Number\(image\.size/);
 });
 
-test('las evidencias grandes usan carga reanudable en bloques de 4 MiB', () => {
+test('las evidencias grandes usan carga reanudable en bloques de 6 MiB', () => {
   const frontend = source('src/services/largeEvidenceUpload.js');
   const backend = source('backend/src/services/large-evidence-upload.service.js');
   const router = source('backend/src/core/action-router.js');
   const google = source('backend/src/infra/google.js');
 
   assert.doesNotThrow(() => syntaxCheck('backend/src/services/large-evidence-upload.service.js'));
-  assert.match(frontend, /LARGE_EVIDENCE_THRESHOLD_BYTES = 4 \* 1024 \* 1024/);
-  assert.match(frontend, /LARGE_EVIDENCE_CHUNK_BYTES = 4 \* 1024 \* 1024/);
+  assert.match(frontend, /LARGE_EVIDENCE_THRESHOLD_BYTES = 6 \* 1024 \* 1024/);
+  assert.match(frontend, /LARGE_EVIDENCE_CHUNK_BYTES = 6 \* 1024 \* 1024/);
   assert.match(frontend, /file\.slice\(offset, end/);
   assert.match(frontend, /fileToBase64\(chunk/);
   assert.match(frontend, /cargas por bloques necesitan conexión a internet/i);
-  assert.match(backend, /LARGE_VIDEO_THRESHOLD_BYTES = 4 \* 1024 \* 1024/);
+  assert.match(backend, /LARGE_VIDEO_THRESHOLD_BYTES = 6 \* 1024 \* 1024/);
   assert.match(backend, /LARGE_VIDEO_MAX_BYTES = 300 \* 1024 \* 1024/);
-  assert.match(backend, /LARGE_VIDEO_CHUNK_BYTES = 4 \* 1024 \* 1024/);
+  assert.match(backend, /LARGE_VIDEO_CHUNK_BYTES = 6 \* 1024 \* 1024/);
   assert.match(backend, /uploadType=resumable/);
   assert.match(backend, /Content-Range/);
   assert.match(backend, /response\.status === 308/);
