@@ -59,8 +59,8 @@ test('boletas permiten grabar, seleccionar, validar y reproducir videos de hasta
   assert.match(multiSelect, /durationSeconds: Number\(prepared\.durationSeconds/);
   assert.doesNotMatch(multiSelect, /actionButtons\[1\]/);
   assert.doesNotMatch(multiSelect, /dmsOriginalLabel/);
-  assert.match(preview, /resolvedKind === 'video'/);
-  assert.match(preview, /<video src=\{source\} controls/);
+  assert.match(preview, /knownKind === 'video'/);
+  assert.match(preview, /<video src=\{fullSource\} controls/);
   assert.match(persistence, /shouldUseLargeEvidenceUpload\(item\)/);
   assert.match(persistence, /uploadLargeTicketEvidence/);
   assert.match(persistence, /mediaType: item\.mediaType/);
