@@ -20,7 +20,7 @@ test('el detalle conserva acciones independientes para foto, video, archivo y se
   assert.doesNotMatch(bridge, /innerHTML\s*=\s*['"]<span[^;]+Seleccionar varios archivos[^;]+selectButton/);
 });
 
-test('la selección múltiple reutiliza la política de medios y conserva el envío individual', () => {
+test('la selección múltiple reutiliza la política de medios y el uploader por lotes', () => {
   const bridge = source('src/components/forms/TicketEvidenceMultiSelectBridge.jsx');
 
   assert.match(bridge, /prepareEvidenceFiles\(files, \{ allowDocuments: true \}\)/);
@@ -28,10 +28,10 @@ test('la selección múltiple reutiliza la política de medios y conserva el env
   assert.match(bridge, /multiFileInput/);
   assert.match(bridge, /originalSubmit\.hidden = hasMultipleSelection/);
   assert.match(bridge, /multiUpload\.hidden = !hasMultipleSelection/);
-  assert.match(bridge, /selectedFilesRef\.current = items\.slice\(uploadedCount\)/);
-  assert.match(bridge, /mediaType: prepared\.mediaType/);
-  assert.match(bridge, /durationSeconds: Number\(prepared\.durationSeconds/);
-  assert.match(bridge, /size: Number\(prepared\.size/);
+  assert.match(bridge, /uploadTicketEvidenceItems/);
+  assert.match(bridge, /failedItems/);
+  assert.match(bridge, /onProgress/);
+  assert.match(bridge, /evidenceName\(prepared, index, items\.length, baseName\)/);
 });
 
 test('el formulario de evidencias mantiene contrato responsive y modo oscuro', () => {
