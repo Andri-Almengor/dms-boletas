@@ -11,7 +11,7 @@ import {
   requestSynchronizedDetail,
   subscribeSyncEntity,
 } from '../../services/syncManager';
-import { shouldUseLargeEvidenceUpload, uploadLargeTicketEvidence } from '../../services/largeEvidenceUpload';
+import { uploadTicketEvidenceItems } from '../../services/ticketEvidenceBatch';
 import { evidenceMediaKind, prepareEvidenceFiles } from '../../utils/evidenceMedia';
 import { normalizeMacAddress } from '../../utils/macAddress';
 import { formatDate, formatTime, normalizeTicketStatus } from '../../utils/tickets';
@@ -36,15 +36,6 @@ function InfoGrid({ items }) {
       {items.map(([label, value, wide]) => <div className={wide ? 'is-wide' : ''} key={label}><dt>{label}</dt><dd>{value || 'Sin especificar'}</dd></div>)}
     </dl>
   );
-}
-
-async function fileToBase64(file) {
-  return new Promise((resolve, reject) => {
-    const reader = new FileReader();
-    reader.onload = () => resolve(String(reader.result || '').split(',')[1] || '');
-    reader.onerror = reject;
-    reader.readAsDataURL(file);
-  });
 }
 
 function cameraEvidenceName(mediaType = 'image') {
@@ -299,23 +290,20 @@ export default function TicketDetailPage() {
     setError('');
     setNotice('');
     try {
-      let result;
-      if (shouldUseLargeEvidenceUpload(evidenceForm)) {
-        result = await uploadLargeTicketEvidence({ boletaUid, item: evidenceForm, sessionToken });
-      } else {
-        result = await requestAvailable(MODULE_ROUTES.tickets.evidenceUpload, {
-          boletaUid,
-          nombre: evidenceForm.name || evidenceForm.file.name,
-          nota: evidenceForm.note,
-          fileName: evidenceForm.file.name,
-          mimeType: evidenceForm.mimeType,
-          mediaType: evidenceForm.mediaType,
-          durationSeconds: Number(evidenceForm.durationSeconds || 0),
-          size: Number(evidenceForm.size || evidenceForm.file.size || 0),
-          base64: await fileToBase64(evidenceForm.file),
-        }, sessionToken);
+      const uploadItem = {
+        ...evidenceForm,
+        name: evidenceForm.name || evidenceForm.file.name,
+        note: evidenceForm.note,
+      };
+      const uploadResult = await uploadTicketEvidenceItems({
+        boletaUid,
+        items: [uploadItem],
+        sessionToken,
+        onUploaded: (row) => patchEvidence(row),
+      });
+      if (uploadResult.failed?.length) {
+        throw new Error(uploadResult.failed[0]?.message || 'No se pudo cargar la evidencia.');
       }
-      patchEvidence(result);
       clearEvidenceForm();
       setNotice('Evidencia agregada correctamente. Si la boleta ya estaba finalizada, use “Reenviar a chats” para publicar el reporte actualizado.');
     } catch (err) {
