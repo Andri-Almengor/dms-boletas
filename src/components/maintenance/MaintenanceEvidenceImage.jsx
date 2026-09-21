@@ -93,6 +93,7 @@ export default function MaintenanceEvidenceImage({
 
   const activeImage = gallery[activeIndex] || image;
   const activeAlt = pick(activeImage, ['Nombre', 'NombreArchivo'], alt);
+  const activePreviewSource = evidenceSource(activeImage);
   const canGoPrevious = activeIndex > 0;
   const canGoNext = activeIndex < gallery.length - 1;
 
@@ -309,7 +310,6 @@ export default function MaintenanceEvidenceImage({
         onClick={openFullImage}
         onPointerEnter={warmCurrentFullImage}
         onFocus={warmCurrentFullImage}
-        onTouchStart={warmCurrentFullImage}
         aria-label="Abrir evidencia en tamaño completo"
       >
         {source ? (
@@ -364,6 +364,16 @@ export default function MaintenanceEvidenceImage({
                 referrerPolicy="no-referrer"
                 draggable="false"
                 onLoad={() => { if (!showingPreview) setLoadingFullSource(false); }}
+                onError={() => {
+                  setLoadingFullSource(false);
+                  if (!showingPreview && activePreviewSource) {
+                    setFullSource(activePreviewSource);
+                    setShowingPreview(true);
+                    setFullError(false);
+                  } else {
+                    setFullError(true);
+                  }
+                }}
                 onDoubleClick={toggleZoom}
                 style={{ transform: `translate3d(${pan.x}px, ${pan.y}px, 0) scale(${zoom})` }}
               />
