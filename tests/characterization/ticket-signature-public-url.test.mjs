@@ -94,22 +94,22 @@ test('si la reconciliación no confirma, conserva la firma y muestra un mensaje 
 
 
 test('al eliminar una firma de boleta se limpia todo el grupo y se reutiliza el token existente', () => {
-  const resetBlock = groupSource.match(/export async function resetVisitGroupSignature[\\s\\S]*?\\n\\}/)?.[0] || '';
+  const resetBlock = groupSource.match(/export async function resetVisitGroupSignature[\s\S]*?\n\}/)?.[0] || '';
 
-  assert.match(resetBlock, /group\\.visits\\s*\\.map/);
+  assert.match(resetBlock, /group\.visits\s*\.map/);
   assert.match(resetBlock, /FirmaArchivoID: ''/);
   assert.match(resetBlock, /Estado: 'PENDIENTE'/);
   assert.match(resetBlock, /FechaExpiracion: expiresAt/);
   assert.match(resetBlock, /const request = await ensureSingleRequest/);
-  assert.match(resetBlock, /reusedLink: Boolean\\(reusableRequest/);
+  assert.match(resetBlock, /reusedLink: Boolean\(reusableRequest/);
   assert.doesNotMatch(resetBlock, /randomBytes/);
 });
 
 test('el reset de firma de boleta conserva permisos administrativos existentes y está disponible en el detalle', () => {
   assert.match(
     routerSource,
-    /ticket\\.signature\\.reset[\\s\\S]*?ticketSignatureHandlers\\.reset[\\s\\S]*?BOLETAS_ELIMINAR[\\s\\S]*?USUARIOS_GESTIONAR/,
+    /ticket\.signature\.reset[\s\S]*?ticketSignatureHandlers\.reset[\s\S]*?BOLETAS_ELIMINAR[\s\S]*?USUARIOS_GESTIONAR/,
   );
-  assert.match(detailSource, /MODULE_ROUTES\\.tickets\\.signatureReset/);
+  assert.match(detailSource, /MODULE_ROUTES\.tickets\.signatureReset/);
   assert.match(detailSource, /Eliminar firma y reactivar enlace/);
 });
