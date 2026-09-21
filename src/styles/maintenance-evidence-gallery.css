@@ -1,0 +1,294 @@
+/* Galería de evidencias de mantenimiento: navegación, zoom y controles translúcidos. */
+
+.maintenance-lightbox--gallery {
+  grid-template-columns: minmax(0, 1fr);
+  grid-template-rows: minmax(0, 1fr);
+  padding: 58px 78px 82px;
+  overflow: hidden;
+}
+
+.maintenance-lightbox__stage {
+  width: 100%;
+  height: 100%;
+  min-width: 0;
+  min-height: 0;
+  display: grid;
+  place-items: center;
+  overflow: hidden;
+  touch-action: pinch-zoom;
+  user-select: none;
+}
+
+.maintenance-lightbox__image {
+  width: auto !important;
+  height: auto !important;
+  max-width: min(100%, 1200px) !important;
+  max-height: calc(100vh - 140px) !important;
+  aspect-ratio: auto !important;
+  object-fit: contain !important;
+  transform-origin: center center;
+  transition: transform .2s ease;
+  will-change: transform;
+  cursor: zoom-in;
+  user-select: none;
+  -webkit-user-drag: none;
+}
+
+.maintenance-lightbox__stage.is-zoomed .maintenance-lightbox__image {
+  cursor: grab;
+}
+
+.maintenance-lightbox__stage.is-dragging .maintenance-lightbox__image {
+  cursor: grabbing;
+  transition: none;
+}
+
+.maintenance-lightbox__nav,
+.maintenance-lightbox__zoom-controls,
+.maintenance-lightbox__counter,
+.maintenance-lightbox__close {
+  -webkit-backdrop-filter: blur(16px) saturate(145%);
+  backdrop-filter: blur(16px) saturate(145%);
+}
+
+.maintenance-lightbox__nav {
+  position: fixed;
+  z-index: 1202;
+  top: 50%;
+  width: 54px;
+  height: 76px;
+  padding: 0;
+  border: 1px solid rgba(255, 255, 255, .28);
+  border-radius: 18px;
+  background: rgba(255, 255, 255, .12);
+  color: #fff;
+  box-shadow: 0 14px 36px rgba(0, 0, 0, .24), inset 0 1px 0 rgba(255, 255, 255, .16);
+  display: grid;
+  place-items: center;
+  transform: translateY(-50%);
+  cursor: pointer;
+  transition: background .16s ease, border-color .16s ease, transform .16s ease, opacity .16s ease;
+}
+
+.maintenance-lightbox__nav:hover,
+.maintenance-lightbox__nav:focus-visible {
+  border-color: rgba(255, 255, 255, .52);
+  background: rgba(255, 255, 255, .2);
+  outline: none;
+}
+
+.maintenance-lightbox__nav:hover {
+  transform: translateY(-50%) scale(1.04);
+}
+
+.maintenance-lightbox__nav:focus-visible {
+  box-shadow: 0 0 0 3px rgba(255, 255, 255, .18), 0 14px 36px rgba(0, 0, 0, .24);
+}
+
+.maintenance-lightbox__nav:disabled {
+  opacity: .2;
+  cursor: default;
+  pointer-events: none;
+}
+
+.maintenance-lightbox__nav .material-symbols-outlined {
+  font-size: 34px;
+}
+
+.maintenance-lightbox__nav--previous {
+  left: max(16px, env(safe-area-inset-left));
+}
+
+.maintenance-lightbox__nav--next {
+  right: max(16px, env(safe-area-inset-right));
+}
+
+.maintenance-lightbox__counter {
+  position: fixed;
+  z-index: 1202;
+  top: max(16px, env(safe-area-inset-top));
+  left: 50%;
+  min-width: 68px;
+  min-height: 36px;
+  padding: 0 13px;
+  border: 1px solid rgba(255, 255, 255, .22);
+  border-radius: 999px;
+  background: rgba(22, 22, 22, .38);
+  color: rgba(255, 255, 255, .94);
+  box-shadow: 0 8px 24px rgba(0, 0, 0, .2);
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  transform: translateX(-50%);
+  font-size: .74rem;
+  font-weight: 850;
+  font-variant-numeric: tabular-nums;
+  letter-spacing: .02em;
+}
+
+.maintenance-lightbox__zoom-controls {
+  position: fixed;
+  z-index: 1202;
+  bottom: max(18px, env(safe-area-inset-bottom));
+  left: 50%;
+  min-height: 48px;
+  padding: 5px;
+  border: 1px solid rgba(255, 255, 255, .24);
+  border-radius: 16px;
+  background: rgba(24, 24, 24, .46);
+  box-shadow: 0 14px 36px rgba(0, 0, 0, .24), inset 0 1px 0 rgba(255, 255, 255, .08);
+  display: flex;
+  align-items: center;
+  gap: 3px;
+  transform: translateX(-50%);
+}
+
+.maintenance-lightbox__zoom-controls button {
+  width: 38px;
+  height: 38px;
+  padding: 0;
+  border: 0;
+  border-radius: 11px;
+  background: transparent;
+  color: #fff;
+  display: grid;
+  place-items: center;
+  font: inherit;
+  cursor: pointer;
+  transition: background .15s ease, opacity .15s ease;
+}
+
+.maintenance-lightbox__zoom-controls button:hover,
+.maintenance-lightbox__zoom-controls button:focus-visible {
+  background: rgba(255, 255, 255, .15);
+  outline: none;
+}
+
+.maintenance-lightbox__zoom-controls button:focus-visible {
+  box-shadow: inset 0 0 0 2px rgba(255, 255, 255, .3);
+}
+
+.maintenance-lightbox__zoom-controls button:disabled {
+  opacity: .28;
+  cursor: default;
+}
+
+.maintenance-lightbox__zoom-controls .maintenance-lightbox__zoom-value {
+  width: auto;
+  min-width: 62px;
+  padding-inline: 8px;
+  font-size: .72rem;
+  font-weight: 850;
+  font-variant-numeric: tabular-nums;
+}
+
+.maintenance-lightbox__error {
+  max-width: 320px;
+  padding: 22px;
+  border: 1px solid rgba(255, 255, 255, .2);
+  border-radius: 18px;
+  background: rgba(255, 255, 255, .08);
+  color: #fff;
+  display: grid;
+  justify-items: center;
+  gap: 9px;
+  text-align: center;
+}
+
+.maintenance-lightbox__error > .material-symbols-outlined {
+  font-size: 38px;
+}
+
+.maintenance-lightbox__error button {
+  min-height: 38px;
+  padding: 0 14px;
+  border: 1px solid rgba(255, 255, 255, .3);
+  border-radius: 10px;
+  background: rgba(255, 255, 255, .12);
+  color: #fff;
+  font: inherit;
+  font-weight: 800;
+  cursor: pointer;
+}
+
+.maintenance-inventory-table tbody > tr:not(.maintenance-inventory-expanded-row):not(.maintenance-inventory-location-row),
+.maintenance-location-device-table tbody > tr:not(.maintenance-inventory-expanded-row) {
+  cursor: pointer;
+}
+
+.maintenance-inventory-table tbody > tr:not(.maintenance-inventory-expanded-row):not(.maintenance-inventory-location-row):hover > td,
+.maintenance-location-device-table tbody > tr:not(.maintenance-inventory-expanded-row):hover > td {
+  background: color-mix(in srgb, var(--primary-soft) 52%, var(--surface-card));
+}
+
+.maintenance-inventory-table tbody > tr[data-device-row]:focus-visible,
+.maintenance-location-device-table tbody > tr[data-device-row]:focus-visible {
+  outline: 2px solid color-mix(in srgb, var(--primary) 45%, transparent);
+  outline-offset: -2px;
+}
+
+@media (max-width: 760px) {
+  .maintenance-lightbox--gallery {
+    padding: 58px 50px 82px;
+  }
+
+  .maintenance-lightbox__nav {
+    width: 42px;
+    height: 62px;
+    border-radius: 14px;
+  }
+
+  .maintenance-lightbox__nav--previous {
+    left: max(6px, env(safe-area-inset-left));
+  }
+
+  .maintenance-lightbox__nav--next {
+    right: max(6px, env(safe-area-inset-right));
+  }
+
+  .maintenance-lightbox__nav .material-symbols-outlined {
+    font-size: 29px;
+  }
+
+  .maintenance-lightbox__image {
+    max-height: calc(100dvh - 150px) !important;
+  }
+
+  .maintenance-lightbox__zoom-controls {
+    bottom: max(12px, env(safe-area-inset-bottom));
+  }
+}
+
+@media (max-width: 430px) {
+  .maintenance-lightbox--gallery {
+    padding-inline: 44px;
+  }
+
+  .maintenance-lightbox__nav {
+    width: 38px;
+    height: 56px;
+  }
+
+  .maintenance-lightbox__zoom-controls {
+    min-height: 44px;
+  }
+
+  .maintenance-lightbox__zoom-controls button {
+    width: 34px;
+    height: 34px;
+  }
+
+  .maintenance-lightbox__zoom-controls .maintenance-lightbox__zoom-value {
+    min-width: 54px;
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .maintenance-lightbox__image,
+  .maintenance-lightbox__nav,
+  .maintenance-lightbox__zoom-controls button,
+  .maintenance-inventory-table tbody > tr,
+  .maintenance-location-device-table tbody > tr {
+    transition: none;
+  }
+}
