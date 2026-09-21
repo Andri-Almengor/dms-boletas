@@ -14,6 +14,7 @@ const ROOT = fileURLToPath(new URL('../../', import.meta.url));
 const source = (relativePath) => readFileSync(path.join(ROOT, relativePath), 'utf8');
 
 const mediaPreview = source('src/components/tickets/MediaPreview.jsx');
+const ticketMediaSource = source('src/services/ticketMediaSource.js');
 const mediaQueue = source('src/services/mediaPreviewQueue.js');
 const mediaStream = source('backend/src/services/protected-media-stream.service.js');
 const mediaPatch = source('backend/src/services/protected-media-stream.patch.js');
@@ -31,7 +32,8 @@ const app = source('backend/src/app.js');
 test('las evidencias protegidas no se descargan hasta acercarse al viewport', () => {
   assert.match(mediaPreview, /IntersectionObserver/);
   assert.match(mediaPreview, /rootMargin:\s*'300px 0px'/);
-  assert.match(mediaPreview, /scheduleMediaPreview/);
+  assert.match(ticketMediaSource, /scheduleMediaPreview/);
+  assert.match(ticketMediaSource, /requestTicketProtectedSource/);
   assert.match(mediaPreview, /AbortController/);
   assert.match(mediaPreview, /Reintentar/);
   assert.equal(MEDIA_PREVIEW_QUEUE_POLICY.maxConcurrent, 3);
