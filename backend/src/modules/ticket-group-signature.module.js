@@ -1,3 +1,4 @@
+import { forbidden } from '../core/errors.js';
 import { findById } from '../infra/sheets.repository.js';
 import { audit } from '../services/audit.service.js';
 import { deliverSignedTicket } from '../services/ticket-group-delivery.service.js';
@@ -6,6 +7,7 @@ import {
   applyPublicSignature,
   ensureSignatureRequestForTicket,
   findSignatureRequestByToken,
+  resetVisitGroupSignature,
   signatureRequestView,
   updateSignatureDelivery,
   visitGroupHasSignature,
@@ -19,6 +21,11 @@ import { ticketAccessHandlers } from './ticket-access.module.js';
 
 function clean(value) {
   return String(value ?? '').trim();
+}
+
+function isAdmin(ctx) {
+  return ctx.permissions?.includes('BOLETAS_ELIMINAR')
+    || ctx.permissions?.includes('USUARIOS_GESTIONAR');
 }
 
 function reasonForVisit(ticket = {}) {
@@ -84,6 +91,48 @@ export const ticketGroupSignatureHandlers = {
         rootId: group.rootId,
         visitCount: group.visits.length,
       },
+    };
+  },
+
+  reset: async (ctx) => {
+    if (!isAdmin(ctx)) {
+      throw forbidden('Solo un administrador puede eliminar la firma de la boleta.');
+    }
+    const ticketId = ctx.payload.boletaUid || ctx.payload.BoletaUID || ctx.payload.id;
+    const result = await resetVisitGroupSignature({
+      ticketId,
+      origin: ctx.origin,
+      actor: ctx.user?.UsuarioID || 'SISTEMA',
+    });
+
+    await audit(
+      ctx,
+      'ELIMINAR_FIRMA_BOLETA',
+      'Boletas',
+      result.group.rootId,
+      null,
+      {
+        GrupoVisitaID: result.group.id,
+        CantidadVisitas: result.group.visits.length,
+        FirmaArchivoIDAnterior: result.previousSignatureFileIds.join(','),
+        SolicitudFirmaID: result.request?.id || '',
+        EnlaceReutilizado: Boolean(result.reusedLink),
+      },
+    ).catch(() => {});
+
+    return {
+      signed: false,
+      request: result.request,
+      ticket: publicTicketView(result.group),
+      group: {
+        id: result.group.id,
+        rootId: result.group.rootId,
+        visitCount: result.group.visits.length,
+      },
+      reusedLink: Boolean(result.reusedLink),
+      message: result.reusedLink
+        ? 'La firma anterior fue eliminada y el mismo enlace quedó habilitado nuevamente para que el cliente firme.'
+        : 'La firma anterior fue eliminada y quedó disponible un enlace de firma para el cliente.',
     };
   },
 

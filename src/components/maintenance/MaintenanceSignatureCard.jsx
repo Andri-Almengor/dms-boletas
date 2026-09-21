@@ -7,6 +7,10 @@ const SIGNATURE_LINK_ROUTES = [
   'maintenance.signature.link',
   'mantenimientos.firma.enlace',
 ];
+const SIGNATURE_RESET_ROUTES = [
+  'maintenance.signature.reset',
+  'mantenimientos.firma.eliminar',
+];
 const SIGNATURE_TEST_LINK_ROUTES = [
   'maintenance.signature.test.link',
   'mantenimientos.firma.prueba.enlace',
@@ -20,12 +24,14 @@ export default function MaintenanceSignatureCard({
   maintenanceId,
   sessionToken,
   isAdmin = false,
+  canResetSignature = false,
   disabled = false,
   onStatusChange,
 }) {
   const [info, setInfo] = useState(null);
   const [loading, setLoading] = useState(true);
   const [testing, setTesting] = useState(false);
+  const [resetting, setResetting] = useState(false);
   const [savingDirect, setSavingDirect] = useState(false);
   const [signatureDraft, setSignatureDraft] = useState('');
   const [error, setError] = useState('');
@@ -153,6 +159,30 @@ export default function MaintenanceSignatureCard({
     }
   }
 
+  async function resetSignature() {
+    if (!signed || !canResetSignature || resetting || disabled) return;
+    if (!window.confirm('¿Eliminar la firma actual? El mismo enlace volverá a quedar habilitado para que el cliente firme nuevamente.')) return;
+
+    setResetting(true);
+    setError('');
+    setNotice('');
+    try {
+      const data = await requestAvailable(
+        SIGNATURE_RESET_ROUTES,
+        { maintenanceId, MantenimientoID: maintenanceId },
+        sessionToken,
+      );
+      setInfo(data);
+      setSignatureDraft('');
+      setNotice(data?.message || 'La firma fue eliminada y el enlace quedó habilitado nuevamente.');
+      onStatusChange?.(false);
+    } catch (resetError) {
+      setError(resetError.message || 'No se pudo eliminar la firma del mantenimiento.');
+    } finally {
+      setResetting(false);
+    }
+  }
+
   async function openTestLink() {
     const testWindow = window.open('about:blank', '_blank');
     setTesting(true);
@@ -246,9 +276,18 @@ export default function MaintenanceSignatureCard({
         </>
       )}
 
+      {signed && isAdmin && canResetSignature && (
+        <div className="ticket-public-signature-card__actions">
+          <button className="button button--danger button--compact" type="button" onClick={resetSignature} disabled={disabled || resetting || savingDirect}>
+            <Icon name={resetting ? 'progress_activity' : 'delete'} />
+            {resetting ? 'Eliminando firma...' : 'Eliminar firma y reactivar enlace'}
+          </button>
+        </div>
+      )}
+
       {isAdmin && (
         <div className="ticket-public-signature-card__actions">
-          <button className="button button--secondary button--compact" type="button" onClick={openTestLink} disabled={disabled || testing || savingDirect}>
+          <button className="button button--secondary button--compact" type="button" onClick={openTestLink} disabled={disabled || testing || resetting || savingDirect}>
             <Icon name={testing ? 'progress_activity' : 'science'} />
             {testing ? 'Preparando prueba...' : 'Probar firma sin guardar'}
           </button>

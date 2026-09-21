@@ -93,13 +93,14 @@ test('finalization storage reuses shared schema and preserves bounded recoverabl
 // authorization, persisted headers, checkpoints, pagination results and write batching.
 // Protected media is intentionally excluded here because PR #305 changes its transport;
 // dedicated security/performance characterization covers that path instead.
+// Maintenance signature handling and the boleta report script are also covered by
+// dedicated signature characterization because the signature reset/fit work changes them intentionally.
 const businessBaseline = {
   "backend/src/services/maintenance-evidence-permissions.patch.js": "c39ed14272d49ad648ddd4e40ecedeaf0bad22555d88df17baa53b2ae715032b",
   "backend/src/services/maintenance-device-delete-permissions.patch.js": "40cf84fbc2552b8e00b16d840d11c0f9825c71819c6bf4bcb86e630d7e359903",
   "backend/src/modules/agenda.module.js": "9b2b364f7a825cefa4c39849b9b54da5356c6882282be10450baeaddc52bd8d0",
   "backend/src/modules/crud.module.js": "d34442574321a7f1596bffacd1d7fecead757ad73557251449f8322590b6f27b",
   "backend/src/modules/ticket-signature.module.js": "c1df58a8a8a5303d10ba236335eef7a3d7d12c643057be6f6063a60f72271ba0",
-  "backend/src/modules/maintenance-signature.module.js": "607439631bfdb7b8e17cff815ca8e55fd5f716223ee764fd983fec79fa4416b6",
   "backend/src/services/maintenance-finalization-resume.patch.js": "0f9dca7d2a8110451d52dbe152bb6b8df654579e190dfb44046eef2f775478e6",
   "backend/src/services/maintenance-finalization-schedule.patch.js": "726eba328256a4a1cac542dc2489e1fe1a25eca6efd14cc2d61a5aa8220a9bbd",
   "apps-script/KnowledgeBase.gs": "5ccb3dc0115e44445c0c0fd7a7944c19c11cbe65298e4cc7a60d6d4fa6783ab3",
@@ -111,7 +112,6 @@ const businessBaseline = {
   "apps-script/MigrateImportedClientRelations.gs": "b43907afd2c60e7d37cb80054a92bfac57df39f49a3952d63bed74c4264e311a",
   "apps-script/OperationalAccessAndInvites.gs": "d79376d14a89063ef72b0986c168c29417179fc2bf7de3d4f339b5a27a77c5c8",
   "apps-script/RepairImportedClientIds.gs": "3976d85dd4936f185ce2634c9d816e94f123919cf7fea95706f096051b68d18f",
-  "apps-script/boletas-report/Code.gs": "5aeb4d1c13bf8adcd160acc2da98d199e26005dfbf6cbb68fa5bea2c01df42b6",
   "apps-script/boletas-report/appsscript.json": "16d91a41109e4e876741d4b437f40b2e4d1619555432f03c873cc176772f5db8",
   "apps-script/patches/agenda-ticket-finalization-reminders-v7.9.patch": "530353f2daa2cead4e84e52aed8b24a9792bf045b8858c2ea6df29e542543147",
   "apps-script/patches/pdf-annex-blank-page.patch": "f5237174bdcf74e4d005802aaf572847af15e59ca9388c98bb5ec5c1ad9bc864",

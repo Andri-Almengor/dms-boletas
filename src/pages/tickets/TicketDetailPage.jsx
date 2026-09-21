@@ -346,6 +346,29 @@ export default function TicketDetailPage() {
     }
   }
 
+  async function resetSignature() {
+    if (!canAdmin || !(signatureFileId || signatureUrl)) return;
+    if (!window.confirm('¿Eliminar la firma actual? El mismo enlace volverá a quedar habilitado para que el cliente firme nuevamente.')) return;
+    setProcessing(true);
+    setError('');
+    setNotice('');
+    try {
+      const result = await requestAvailable(
+        MODULE_ROUTES.tickets.signatureReset,
+        { boletaUid, BoletaUID: boletaUid },
+        sessionToken,
+      );
+      setSignatureDraft('');
+      setSignatureEditorOpen(false);
+      await loadTicket({ forceSync: true, showLoading: false });
+      setNotice(result?.message || 'La firma fue eliminada y el enlace quedó habilitado nuevamente.');
+    } catch (err) {
+      setError(err.message || 'No se pudo eliminar la firma de la boleta.');
+    } finally {
+      setProcessing(false);
+    }
+  }
+
   async function editEvidence(item) {
     const nombre = window.prompt('Nombre de la evidencia', pick(item, ['Nombre', 'name'], ''));
     if (nombre === null) return;
@@ -458,7 +481,13 @@ export default function TicketDetailPage() {
       </section>
 
       <section className="section-block">
-        <div className="section-heading ticket-signature-heading"><div><span className="eyebrow">Conformidad</span><h2>Firma del Cliente</h2></div>{canEdit && !signatureEditorOpen && <button className="button button--secondary button--compact" type="button" onClick={() => { setSignatureDraft(''); setSignatureEditorOpen(true); }}><Icon name="draw" /> {signatureFileId || signatureUrl ? 'Editar firma' : 'Agregar firma'}</button>}</div>
+        <div className="section-heading ticket-signature-heading">
+          <div><span className="eyebrow">Conformidad</span><h2>Firma del Cliente</h2></div>
+          {!signatureEditorOpen && <div className="ticket-public-signature-card__actions">
+            {canEdit && <button className="button button--secondary button--compact" type="button" onClick={() => { setSignatureDraft(''); setSignatureEditorOpen(true); }} disabled={processing}><Icon name="draw" /> {signatureFileId || signatureUrl ? 'Editar firma' : 'Agregar firma'}</button>}
+            {canAdmin && (signatureFileId || signatureUrl) && <button className="button button--danger button--compact" type="button" onClick={resetSignature} disabled={processing}><Icon name={processing ? 'progress_activity' : 'delete'} /> {processing ? 'Eliminando firma...' : 'Eliminar firma y reactivar enlace'}</button>}
+          </div>}
+        </div>
         {signatureEditorOpen ? <div className="ticket-signature-editor"><SignaturePad value={signatureDraft} onChange={setSignatureDraft} /><div className="ticket-signature-editor__actions"><button className="button button--secondary" type="button" disabled={processing} onClick={() => { setSignatureDraft(''); setSignatureEditorOpen(false); }}><Icon name="close" /> Cancelar</button><button className="button button--primary" type="button" disabled={processing || !signatureDraft} onClick={saveSignature}><Icon name="save" /> {processing ? 'Guardando...' : 'Guardar firma'}</button></div></div> : <div className="signature-display">{signatureFileId || signatureUrl ? <MediaPreview boletaUid={boletaUid} fileId={signatureFileId} kind="signature" directUrl={signatureUrl} mimeType="image/png" alt="Firma del cliente" onOpen={() => setViewer({ items: [{ key: 'signature', fileId: signatureFileId, directUrl: signatureUrl, mimeType: 'image/png', alt: 'Firma del cliente', kind: 'signature' }], initialIndex: 0 })} /> : <span><Icon name="draw" /> Firma pendiente</span>}</div>}
       </section>
 

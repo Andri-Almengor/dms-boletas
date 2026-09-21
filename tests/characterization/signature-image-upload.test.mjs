@@ -15,6 +15,9 @@ test('el editor compartido permite dibujar o cargar una imagen de firma', () => 
   assert.match(signaturePad, /MAX_SIGNATURE_SOURCE_BYTES/);
   assert.match(signaturePad, /canvas\.toDataURL\('image\/png'\)/);
   assert.match(signaturePad, /La imagen se adapta automáticamente al recuadro de firma/);
+  assert.match(signaturePad, /function drawImageContained/);
+  assert.match(signaturePad, /Math\.min\(availableWidth \/ sourceWidth, availableHeight \/ sourceHeight\)/);
+  assert.match(signaturePad, /publishedCanvasSourceRef/);
 });
 
 test('las boletas conservan su ruta actual de firma y reciben la mejora desde SignaturePad', () => {
@@ -48,4 +51,34 @@ test('la firma por enlace permanece disponible junto con la carga directa', () =
   assert.match(card, /Compartir con cliente/);
   assert.match(card, /Abrir enlace real/);
   assert.match(card, /Probar firma sin guardar/);
+  assert.match(card, /Eliminar firma y reactivar enlace/);
+  assert.match(card, /maintenance\.signature\.reset/);
+});
+
+
+test('el reset de firma reutiliza el mismo enlace y conserva permisos administrativos existentes', () => {
+  const service = source('backend/src/services/maintenance-signature-request.service.js');
+  const module = source('backend/src/modules/maintenance-signature.module.js');
+  const router = source('backend/src/core/action-router.js');
+  const syncRegistry = source('backend/src/services/sync-resource-registry.js');
+
+  assert.match(service, /export async function resetMaintenanceSignature/);
+  assert.match(service, /Estado: 'PENDIENTE'/);
+  assert.match(service, /FechaExpiracion: expiresAt/);
+  assert.match(service, /reusedLink:/);
+  assert.match(service, /trashFile\(signatureFileId\)/);
+  assert.match(service, /MAINTENANCE_SIGNATURE_RESET_HAS_TICKETS/);
+  assert.match(module, /ELIMINAR_FIRMA_MANTENIMIENTO/);
+  assert.match(router, /signatureReset:\['maintenance\.signature\.reset','mantenimientos\.firma\.eliminar'\]/);
+  assert.match(router, /\['ticketGenerationTest','signatureReset','signatureTestLink'\]/);
+  assert.match(syncRegistry, /maintenance\.signature\.reset/);
+});
+
+test('el PDF limita ancho y alto de la firma sin recortarla ni deformar su proporción', () => {
+  const report = source('apps-script/boletas-report/Code.gs');
+
+  assert.match(report, /replaceMarkerWithImage_\(body, '<<\[Firma\]>>', signatureBlob, 180, 80\)/);
+  assert.match(report, /resizeInlineImage_\(signatureImage, 260, 120\)/);
+  assert.match(report, /function resizeInlineImage_\(image, maxWidth, maxHeight\)/);
+  assert.match(report, /const ratio = Math\.min\(1, widthRatio, heightRatio\)/);
 });

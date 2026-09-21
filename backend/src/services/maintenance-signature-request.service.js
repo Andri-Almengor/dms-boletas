@@ -1,13 +1,14 @@
 import crypto from 'node:crypto';
 import { AppError, badRequest, notFound } from '../core/errors.js';
 import { nowIso, pick, uuid } from '../core/utils.js';
-import { uploadBase64 } from '../infra/drive.repository.js';
+import { trashFile, uploadBase64 } from '../infra/drive.repository.js';
 import {
   appendRow,
   ensureColumns,
   findById,
   findRows,
   updateRow,
+  withTransaction,
 } from '../infra/sheets.repository.js';
 import { getConfig } from '../modules/config.module.js';
 import { ensureSheetColumns } from './sheet-columns.service.js';
@@ -291,6 +292,100 @@ export async function synchronizeMaintenanceSignatureToTickets(
   }
 
   return { updated: ticketIds.length, ticketIds };
+}
+
+export async function resetMaintenanceSignature({
+  maintenanceId,
+  origin = '',
+  actor = 'SISTEMA',
+}) {
+  await ensureMaintenanceSignatureStorage();
+  const maintenance = await findById('Mantenimiento', maintenanceId);
+  const status = clean(maintenance.Estado, 'PENDIENTE').toUpperCase();
+  if (status !== 'PENDIENTE') {
+    throw new AppError(
+      'MAINTENANCE_SIGNATURE_RESET_REQUIRES_PENDING',
+      'La firma solo puede eliminarse mientras el mantenimiento esté pendiente.',
+      409,
+    );
+  }
+
+  const relatedTickets = (await findRows(
+    'Boletas',
+    { OrigenMantenimientoID: maintenance.MantenimientoID },
+    { limit: 50_000 },
+  )).filter((ticket) => (
+    ticket.Activo !== false
+    && String(ticket.Activo ?? 'true').toLowerCase() !== 'false'
+  ));
+  if (relatedTickets.length) {
+    throw new AppError(
+      'MAINTENANCE_SIGNATURE_RESET_HAS_TICKETS',
+      'Este mantenimiento ya tiene boletas generadas. La firma general no puede eliminarse desde el mantenimiento porque forma parte de esos registros.',
+      409,
+    );
+  }
+
+  const signatureFileId = clean(pick(maintenance, ['FirmaArchivoID', 'FirmaFileID']));
+  const requests = (await findRows(
+    SHEET_NAME,
+    { MantenimientoID: maintenance.MantenimientoID },
+    { limit: 5000 },
+  ))
+    .filter((row) => !asBoolean(row.ModoPrueba))
+    .sort((left, right) => String(right.FechaCreacion || '').localeCompare(String(left.FechaCreacion || '')));
+  const reusableRequest = requests.find((row) => clean(row.Token)) || null;
+  const timestamp = nowIso();
+  const expiresAt = new Date(Date.now() + 90 * 24 * 60 * 60 * 1000).toISOString();
+
+  let updatedMaintenance;
+  let request = null;
+  await withTransaction(async () => {
+    updatedMaintenance = await updateRow('Mantenimiento', maintenance.MantenimientoID, {
+      FirmaArchivoID: '',
+      FirmaURL: '',
+      FirmaMimeType: '',
+      FirmaOrigen: '',
+      FirmaFecha: '',
+      ActualizadoPor: actor,
+      FechaActualizacion: timestamp,
+    });
+
+    if (reusableRequest) {
+      const resetRow = await updateRow(SHEET_NAME, reusableRequest.SolicitudFirmaMantenimientoID, {
+        Estado: 'PENDIENTE',
+        FirmaArchivoID: '',
+        FirmaURL: '',
+        FechaFirma: '',
+        FechaExpiracion: expiresAt,
+        ActualizadoPor: actor,
+        FechaActualizacion: timestamp,
+      });
+      request = requestView(await refreshPendingPublicUrl(resetRow, origin, actor));
+    }
+  });
+
+  if (!request) {
+    request = await ensureMaintenanceSignatureRequest({
+      maintenanceId: maintenance.MantenimientoID,
+      origin,
+      actor,
+      testMode: false,
+    });
+  }
+
+  if (signatureFileId) {
+    await trashFile(signatureFileId).catch((error) => {
+      console.warn(`[maintenance-signature-reset:${maintenance.MantenimientoID}] No se pudo enviar la firma anterior a la papelera de Drive: ${String(error?.message || error)}`);
+    });
+  }
+
+  return {
+    maintenance: updatedMaintenance,
+    request,
+    previousSignatureFileId: signatureFileId,
+    reusedLink: Boolean(reusableRequest && clean(reusableRequest.Token) === clean(request?.token)),
+  };
 }
 
 export async function applyPublicMaintenanceSignature({

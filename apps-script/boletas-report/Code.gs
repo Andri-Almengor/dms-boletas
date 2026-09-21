@@ -85,8 +85,8 @@ function createReportAndMaybeSend_(payload) {
   const signatureBlob = getDriveBlob_(ticket.FirmaArchivoID || ticket.FirmaFileID || ticket.FirmaURL);
   let signatureInserted = false;
   if (signatureBlob) {
-    signatureInserted = replaceMarkerWithImage_(body, '<<[Firma]>>', signatureBlob, 180)
-      || replaceMarkerWithImage_(body, '{{Firma}}', signatureBlob, 180);
+    signatureInserted = replaceMarkerWithImage_(body, '<<[Firma]>>', signatureBlob, 180, 80)
+      || replaceMarkerWithImage_(body, '{{Firma}}', signatureBlob, 180, 80);
   }
 
   replaceMarkers_(body, ticket, assignedNames);
@@ -180,7 +180,7 @@ function replaceMarkers_(body, ticket, assignedNames) {
   });
 }
 
-function replaceMarkerWithImage_(body, marker, blob, maxWidth) {
+function replaceMarkerWithImage_(body, marker, blob, maxWidth, maxHeight) {
   const found = body.findText(escapeRegex_(marker));
   if (!found) return false;
   const text = found.getElement().asText();
@@ -189,7 +189,7 @@ function replaceMarkerWithImage_(body, marker, blob, maxWidth) {
   while (parent && parent.getType() !== DocumentApp.ElementType.PARAGRAPH) parent = parent.getParent();
   if (!parent) return false;
   const image = parent.asParagraph().appendInlineImage(blob);
-  resizeInlineImage_(image, maxWidth);
+  resizeInlineImage_(image, maxWidth, maxHeight);
   return true;
 }
 
@@ -243,7 +243,7 @@ function appendAnnexes_(body, signatureBlob, signatureInserted, evidences) {
   if (signatureBlob && !signatureInserted) {
     body.appendParagraph('Firma del cliente').setHeading(DocumentApp.ParagraphHeading.HEADING2);
     const signatureImage = body.appendParagraph('').appendInlineImage(signatureBlob);
-    resizeInlineImage_(signatureImage, 260);
+    resizeInlineImage_(signatureImage, 260, 120);
   }
 
   if (!annexEvidences.length) return;
@@ -451,13 +451,15 @@ function getOrCreateFolder_(parent, name) {
   return folders.hasNext() ? folders.next() : parent.createFolder(name);
 }
 
-function resizeInlineImage_(image, maxWidth) {
-  const width = image.getWidth();
-  const height = image.getHeight();
-  if (width <= maxWidth) return;
-  const ratio = maxWidth / width;
-  image.setWidth(Math.round(width * ratio));
-  image.setHeight(Math.round(height * ratio));
+function resizeInlineImage_(image, maxWidth, maxHeight) {
+  const width = Math.max(1, image.getWidth());
+  const height = Math.max(1, image.getHeight());
+  const widthRatio = maxWidth ? Number(maxWidth) / width : 1;
+  const heightRatio = maxHeight ? Number(maxHeight) / height : 1;
+  const ratio = Math.min(1, widthRatio, heightRatio);
+  if (ratio >= 1) return;
+  image.setWidth(Math.max(1, Math.round(width * ratio)));
+  image.setHeight(Math.max(1, Math.round(height * ratio)));
 }
 
 function formatDate_(value) {

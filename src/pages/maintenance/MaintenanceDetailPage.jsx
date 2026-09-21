@@ -418,10 +418,11 @@ export default function MaintenanceDetailPage() {
             maintenanceId={maintenanceId}
             sessionToken={sessionToken}
             isAdmin={isAdmin}
+            canResetSignature={Boolean(isAdmin && pending && generatedTicketCount === 0)}
             disabled={Boolean(working)}
             onStatusChange={(signed) => {
               setMaintenanceSigned(signed);
-              if (signed) load({ silent: true, forceSync: true });
+              load({ silent: true, forceSync: true });
             }}
           />
         </MaintenanceMobileFold>

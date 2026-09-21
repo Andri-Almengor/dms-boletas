@@ -43,6 +43,7 @@ const MAINTENANCE_MUTATIONS = new Set([
   'maintenance.delete', 'mantenimientos.delete',
   'maintenance.finalize', 'mantenimientos.finalize',
   'maintenance.reopen', 'mantenimientos.reopen',
+  'maintenance.signature.reset', 'mantenimientos.firma.eliminar',
   'maintenance.devices.create', 'mantenimientos.dispositivos.create',
   'maintenance.devices.update', 'mantenimientos.dispositivos.update',
   'maintenance.devices.autosave', 'mantenimientos.dispositivos.autosave',

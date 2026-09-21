@@ -29,6 +29,27 @@ function loadImage(source) {
   });
 }
 
+function drawImageContained(context, image, canvas, padding = 18) {
+  const safePadding = Math.max(0, Math.min(
+    Math.round(Math.min(canvas.width, canvas.height) * 0.12),
+    Number(padding || 0),
+  ));
+  const availableWidth = Math.max(1, canvas.width - safePadding * 2);
+  const availableHeight = Math.max(1, canvas.height - safePadding * 2);
+  const sourceWidth = Math.max(1, Number(image.naturalWidth || image.width || 1));
+  const sourceHeight = Math.max(1, Number(image.naturalHeight || image.height || 1));
+  const scale = Math.min(availableWidth / sourceWidth, availableHeight / sourceHeight);
+  const drawWidth = Math.max(1, Math.round(sourceWidth * scale));
+  const drawHeight = Math.max(1, Math.round(sourceHeight * scale));
+  const x = Math.round((canvas.width - drawWidth) / 2);
+  const y = Math.round((canvas.height - drawHeight) / 2);
+
+  context.clearRect(0, 0, canvas.width, canvas.height);
+  context.fillStyle = '#ffffff';
+  context.fillRect(0, 0, canvas.width, canvas.height);
+  context.drawImage(image, x, y, drawWidth, drawHeight);
+}
+
 function looksLikeImage(file) {
   const mimeType = String(file?.type || '').toLowerCase();
   const name = String(file?.name || '').toLowerCase();
@@ -42,13 +63,15 @@ export default function SignaturePad({ value, onChange }) {
   const fileInputRef = useRef(null);
   const drawingRef = useRef(false);
   const storedSourceRef = useRef('');
+  const publishedCanvasSourceRef = useRef('');
   const [existingSource, setExistingSource] = useState('');
   const [existingStatus, setExistingStatus] = useState(boletaUid ? 'loading' : 'none');
   const [expanded, setExpanded] = useState(false);
   const [imageBusy, setImageBusy] = useState(false);
   const [imageError, setImageError] = useState('');
 
-  function publishSignature(nextValue) {
+  function publishSignature(nextValue, { fromCanvas = false } = {}) {
+    if (fromCanvas) publishedCanvasSourceRef.current = nextValue;
     onChange(nextValue);
     window.dispatchEvent(new CustomEvent('dms-signature-draft-change', {
       detail: { route: currentRoute(), value: nextValue },
@@ -117,13 +140,16 @@ export default function SignaturePad({ value, onChange }) {
     context.clearRect(0, 0, canvas.width, canvas.height);
     const source = value || existingSource;
     if (!source) return undefined;
+    if (value && publishedCanvasSourceRef.current === value) {
+      publishedCanvasSourceRef.current = '';
+      return undefined;
+    }
 
     let active = true;
     const image = new Image();
     image.onload = () => {
       if (!active) return;
-      context.clearRect(0, 0, canvas.width, canvas.height);
-      context.drawImage(image, 0, 0, canvas.width, canvas.height);
+      drawImageContained(context, image, canvas);
     };
     image.src = source;
     return () => { active = false; };
@@ -165,7 +191,7 @@ export default function SignaturePad({ value, onChange }) {
   function stopDrawing() {
     if (!drawingRef.current) return;
     drawingRef.current = false;
-    publishSignature(canvasRef.current.toDataURL('image/png'));
+    publishSignature(canvasRef.current.toDataURL('image/png'), { fromCanvas: true });
   }
 
   async function importSignatureImage(file) {
@@ -188,23 +214,9 @@ export default function SignaturePad({ value, onChange }) {
       const context = canvas?.getContext('2d');
       if (!canvas || !context) throw new Error('No se pudo preparar el área de firma.');
 
-      const padding = Math.max(12, Math.round(Math.min(canvas.width, canvas.height) * 0.05));
-      const availableWidth = Math.max(1, canvas.width - padding * 2);
-      const availableHeight = Math.max(1, canvas.height - padding * 2);
-      const sourceWidth = Math.max(1, Number(image.naturalWidth || image.width || 1));
-      const sourceHeight = Math.max(1, Number(image.naturalHeight || image.height || 1));
-      const scale = Math.min(availableWidth / sourceWidth, availableHeight / sourceHeight);
-      const drawWidth = Math.max(1, Math.round(sourceWidth * scale));
-      const drawHeight = Math.max(1, Math.round(sourceHeight * scale));
-      const x = Math.round((canvas.width - drawWidth) / 2);
-      const y = Math.round((canvas.height - drawHeight) / 2);
-
-      context.clearRect(0, 0, canvas.width, canvas.height);
-      context.fillStyle = '#ffffff';
-      context.fillRect(0, 0, canvas.width, canvas.height);
-      context.drawImage(image, x, y, drawWidth, drawHeight);
+      drawImageContained(context, image, canvas);
       setExistingSource('');
-      publishSignature(canvas.toDataURL('image/png'));
+      publishSignature(canvas.toDataURL('image/png'), { fromCanvas: true });
     } catch (error) {
       setImageError(error?.message || 'No se pudo preparar la imagen de firma.');
     } finally {

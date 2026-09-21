@@ -43,3 +43,12 @@ test('las solicitudes nuevas también se crean con la URL pública canónica', (
   assert.match(source, /const url = publicSignatureUrl\(token, origin\);/);
   assert.match(source, /FirmaURLPublica: url/);
 });
+
+
+test('al eliminar una firma se reactiva la solicitud existente sin cambiar su token', () => {
+  assert.match(source, /const reusableRequest = requests\.find\(\(row\) => clean\(row\.Token\)\)/);
+  assert.match(source, /Estado: 'PENDIENTE'/);
+  assert.match(source, /request = requestView\(await refreshPendingPublicUrl\(resetRow, origin, actor\)\)/);
+  const resetBlock = source.match(/export async function resetMaintenanceSignature[\s\S]*?\n\}/)?.[0] || '';
+  assert.doesNotMatch(resetBlock, /crypto\.randomBytes/);
+});

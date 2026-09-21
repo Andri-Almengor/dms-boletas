@@ -49,6 +49,7 @@ export const MODULE_ROUTES = {
     evidenceUpdate: ['boletas.evidence.update', 'tickets.evidence.update'],
     evidenceDelete: ['boletas.evidence.delete', 'tickets.evidence.delete'],
     signatureUpload: ['boletas.signature.upload'],
+    signatureReset: ['ticket.signature.reset', 'boletas.signature.reset', 'boletas.firma.eliminar'],
     mediaGet: ['boletas.media.get', 'tickets.media.get'],
   },
   maintenance: {
@@ -69,6 +70,7 @@ export const MODULE_ROUTES = {
     mediaGet: ['maintenance.media.get', 'mantenimientos.media.get'],
     spreadsheetReport: ['maintenance.report.spreadsheet', 'mantenimientos.reporte.excel'],
     slidesReport: ['maintenance.report.slides', 'mantenimientos.reporte.presentacion'],
+    signatureReset: ['maintenance.signature.reset', 'mantenimientos.firma.eliminar'],
     config: ['maintenance.config', 'mantenimientos.config'],
   },
   clients: {
