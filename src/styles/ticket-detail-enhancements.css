@@ -110,6 +110,33 @@
   box-shadow: var(--shadow-sm);
 }
 
+/* La vista previa general usa un recorte cuadrado para evidencias.
+ * Las firmas deben conservar el lienzo completo y su proporción original. */
+.signature-display .media-preview-host {
+  width: 100%;
+  min-width: 0;
+}
+
+.signature-display .media-preview-button {
+  width: 100%;
+  min-height: 145px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  overflow: hidden;
+  background: transparent;
+}
+
+.signature-display .media-preview-button img {
+  width: auto;
+  height: auto;
+  max-width: 100%;
+  max-height: 145px;
+  aspect-ratio: auto;
+  object-fit: contain;
+  object-position: center;
+}
+
 @media (min-width: 761px) {
   .ticket-detail-evidence-form {
     grid-template-columns: repeat(2, minmax(0, 1fr));
