@@ -3,16 +3,16 @@ import { badRequest } from '../core/errors.js';
 import { nowIso, pick, uuid } from '../core/utils.js';
 import { env } from '../config/env.js';
 import { googleAuth } from '../infra/google.js';
-import { appendRow, findById, readTable } from '../infra/sheets.repository.js';
+import { appendRow, findById, findRows, readTable } from '../infra/sheets.repository.js';
 import { query } from '../infra/postgres.js';
 import { aiConfig } from '../ai/agent.config.js';
 import { getConfig } from '../modules/config.module.js';
 import { ensureSheetColumns } from './sheet-columns.service.js';
 import { validateEvidenceMediaPayload } from './evidence-media-policy.service.js';
 
-export const LARGE_VIDEO_THRESHOLD_BYTES = 256 * 1024;
+export const LARGE_VIDEO_THRESHOLD_BYTES = 4 * 1024 * 1024;
 export const LARGE_VIDEO_MAX_BYTES = 300 * 1024 * 1024;
-export const LARGE_VIDEO_CHUNK_BYTES = 256 * 1024;
+export const LARGE_VIDEO_CHUNK_BYTES = 4 * 1024 * 1024;
 const UPLOAD_TOKEN_TTL_MS = 4 * 60 * 60 * 1000;
 const DRIVE_RESUMABLE_PREFIX = 'https://www.googleapis.com/upload/drive/v3/files?uploadType=resumable';
 const TICKET_MEDIA_COLUMNS = ['TipoMedio', 'DuracionSegundos', 'TamanoBytes'];
@@ -143,15 +143,17 @@ async function startDriveResumableSession({ fileName, mimeType, size, folderId }
   return sessionUrl;
 }
 
-function existingTicketEvidence(rows, evidenceId, boletaUid) {
-  const existing = rows.find((row) => clean(row.EvidenciaID) === evidenceId);
+async function findTicketEvidenceById(evidenceId, boletaUid) {
+  const rows = await findRows('EvidenciasBoleta', { EvidenciaID: evidenceId }, { limit: 1 });
+  const existing = rows[0] || null;
   if (!existing) return null;
   if (clean(existing.BoletaUID) !== clean(boletaUid)) throw badRequest('La evidencia local ya pertenece a otra boleta.');
   return existing;
 }
 
-function existingMaintenanceEvidence(rows, imageId, deviceId) {
-  const existing = rows.find((row) => clean(row.FotoDispositivoID) === imageId);
+async function findMaintenanceEvidenceById(imageId, deviceId) {
+  const rows = await findRows('Mantenimiento imagenes', { FotoDispositivoID: imageId }, { limit: 1 });
+  const existing = rows[0] || null;
   if (!existing) return null;
   if (clean(existing.DispositivoMantenimientoRef) !== clean(deviceId)) throw badRequest('La evidencia local ya pertenece a otro dispositivo.');
   return existing;
@@ -180,18 +182,8 @@ async function findExistingEvidence(token, kind) {
   if (kind === 'knowledge') {
     return (await readTable('KnowledgeAttachments', { force: true })).find(row => row.AdjuntoID === token.attachmentId) || null;
   }
-  if (kind === 'ticket') {
-    return existingTicketEvidence(
-      await readTable('EvidenciasBoleta', { force: true }),
-      token.evidenceId,
-      token.boletaUid,
-    );
-  }
-  return existingMaintenanceEvidence(
-    await readTable('Mantenimiento imagenes', { force: true }),
-    token.imageId,
-    token.deviceId,
-  );
+  if (kind === 'ticket') return findTicketEvidenceById(token.evidenceId, token.boletaUid);
+  return findMaintenanceEvidenceById(token.imageId, token.deviceId);
 }
 
 function validatedVideoMetadata(payload, allowDocuments = false) {
@@ -249,7 +241,7 @@ async function initTicket(ctx) {
   if (!boletaUid) throw badRequest('No se indicó la boleta de la evidencia.');
   if (!validClientGeneratedId(evidenceId)) throw badRequest('El identificador local de la evidencia no es válido.');
   await findById('Boletas', boletaUid);
-  const existing = existingTicketEvidence(await readTable('EvidenciasBoleta', { force: true }), evidenceId, boletaUid);
+  const existing = await findTicketEvidenceById(evidenceId, boletaUid);
   if (existing) return { complete: true, evidence: existing };
 
   const metadata = validatedVideoMetadata(ctx.payload, true);
@@ -288,7 +280,7 @@ async function initMaintenance(ctx) {
   if (!deviceId) throw badRequest('No se indicó el dispositivo de la evidencia.');
   if (!validClientGeneratedId(imageId)) throw badRequest('El identificador local de la evidencia no es válido.');
   await findById('Evidencia_Mantenimientos', deviceId);
-  const existing = existingMaintenanceEvidence(await readTable('Mantenimiento imagenes', { force: true }), imageId, deviceId);
+  const existing = await findMaintenanceEvidenceById(imageId, deviceId);
   if (existing) return { complete: true, evidence: existing };
 
   const metadata = validatedVideoMetadata(ctx.payload);
@@ -321,7 +313,7 @@ async function initMaintenance(ctx) {
 }
 
 async function appendTicketEvidence(token, file) {
-  const existing = existingTicketEvidence(await readTable('EvidenciasBoleta', { force: true }), token.evidenceId, token.boletaUid);
+  const existing = await findTicketEvidenceById(token.evidenceId, token.boletaUid);
   if (existing) return existing;
   await ensureSheetColumns('EvidenciasBoleta', TICKET_MEDIA_COLUMNS);
   const timestamp = nowIso();
@@ -349,7 +341,7 @@ async function appendTicketEvidence(token, file) {
 }
 
 async function appendMaintenanceEvidence(token, file) {
-  const existing = existingMaintenanceEvidence(await readTable('Mantenimiento imagenes', { force: true }), token.imageId, token.deviceId);
+  const existing = await findMaintenanceEvidenceById(token.imageId, token.deviceId);
   if (existing) return existing;
   await ensureSheetColumns('Mantenimiento imagenes', MAINTENANCE_MEDIA_COLUMNS);
   const timestamp = nowIso();
