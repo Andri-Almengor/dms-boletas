@@ -9,6 +9,7 @@ const IMAGE_UPLOAD_BATCH_ROUTES = ['maintenance.images.uploadBatch', 'mantenimie
 const IMAGE_UPDATE_BATCH_ROUTES = ['maintenance.images.updateBatch', 'mantenimientos.imagenes.actualizarLote'];
 const MAX_FILES_PER_REQUEST = 10;
 const MAX_RAW_BYTES_PER_REQUEST = 10 * 1024 * 1024;
+export const MAINTENANCE_BATCH_RESUMABLE_THRESHOLD_BYTES = MAX_RAW_BYTES_PER_REQUEST;
 const MAX_METADATA_UPDATES_PER_REQUEST = 80;
 
 let uploadBatchAvailable = null;
@@ -191,14 +192,12 @@ export async function uploadMaintenanceImagesInBatches({
 }) {
   const uploaded = [];
   const failed = [];
-  const largeVideos = images.filter(shouldUseLargeEvidenceUpload);
-  const regularImages = images.filter((image) => !shouldUseLargeEvidenceUpload(image));
-
-  if (largeVideos.length) {
-    const large = await uploadLargeVideos({ maintenanceId, deviceId, images: largeVideos, sessionToken, signal });
-    uploaded.push(...large.uploaded);
-    failed.push(...large.failed);
-  }
+  const largeUploads = images.filter((image) => shouldUseLargeEvidenceUpload(image, {
+    thresholdBytes: MAINTENANCE_BATCH_RESUMABLE_THRESHOLD_BYTES,
+  }));
+  const regularImages = images.filter((image) => !shouldUseLargeEvidenceUpload(image, {
+    thresholdBytes: MAINTENANCE_BATCH_RESUMABLE_THRESHOLD_BYTES,
+  }));
 
   const chunks = chunkByWeight(regularImages);
   let useFallbackForRemaining = uploadBatchAvailable === false || browserIsOffline();
@@ -239,6 +238,12 @@ export async function uploadMaintenanceImagesInBatches({
     } finally {
       clearPreparedPayloads(payloadImages);
     }
+  }
+
+  if (largeUploads.length) {
+    const large = await uploadLargeVideos({ maintenanceId, deviceId, images: largeUploads, sessionToken, signal });
+    uploaded.push(...large.uploaded);
+    failed.push(...large.failed);
   }
 
   return { uploaded, failed, total: images.length };
