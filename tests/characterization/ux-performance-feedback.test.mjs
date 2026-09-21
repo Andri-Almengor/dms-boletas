@@ -11,14 +11,14 @@ test('las fotos usan thumbnail en la grilla y cargan el original protegido al am
   const contents = source('src/components/maintenance/MaintenanceEvidenceImage.jsx');
   const styles = source('src/styles/maintenance-enhancements.css');
 
-  assert.match(contents, /function evidenceSource\(image\)[\\s\\S]*pick\(image, \['PreviewURL', 'previewUrl', 'DriveURL', 'url'\]\)/);
+  assert.match(contents, /function evidenceSource\(image\)[\s\S]*pick\(image, \['PreviewURL', 'previewUrl', 'DriveURL', 'url'\]\)/);
   assert.match(contents, /const initialSource = evidenceSource\(image\)/);
   assert.match(contents, /const \[source, setSource\] = useState\(kind === 'video' \? '' : initialSource\)/);
   assert.match(contents, /const \[fullSource, setFullSource\] = useState\(''\)/);
   assert.match(contents, /function openFullImage\(\)/);
   assert.match(contents, /const protectedSource = await requestProtectedSource\(nextId, sessionToken, force\)/);
   assert.match(contents, /onClick=\{openFullImage\}/);
-  assert.match(contents, /className="maintenance-lightbox__image"[\\s\\S]*src=\{fullSource\}[\\s\\S]*referrerPolicy="no-referrer"/);
+  assert.match(contents, /className="maintenance-lightbox__image"[\s\S]*src=\{fullSource\}[\s\S]*referrerPolicy="no-referrer"/);
   assert.match(contents, /if \(imageId && \(kind === 'video' \|\| !initialSource\)\) loadProtectedMedia\(\)/);
   assert.match(contents, /onError=\{\(\) => \{/);
   assert.match(contents, /protectedMediaCache/);
