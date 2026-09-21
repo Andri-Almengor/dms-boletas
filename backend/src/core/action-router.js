@@ -70,6 +70,7 @@ add(['customerCases.public.submit','casos.cliente.public.submit'], customerCaseH
 add(['ticket.signature.public.get','boletas.firma.publica.get'], publicSignatureHandlers.publicGet, null, true);
 add(['ticket.signature.public.submit','boletas.firma.publica.guardar'], publicSignatureHandlers.publicSubmit, null, true);
 add(['ticket.signature.link','boletas.signature.link','boletas.firma.enlace'], ticketSignatureHandlers.link, 'BOLETAS_VER');
+add(['ticket.signature.reset','boletas.signature.reset','boletas.firma.eliminar'], ticketSignatureHandlers.reset, ['BOLETAS_ELIMINAR','USUARIOS_GESTIONAR']);
 add(['maintenance.signature.public.get','mantenimientos.firma.publica.get'], publicSignatureHandlers.publicGet, null, true);
 add(['maintenance.signature.public.submit','mantenimientos.firma.publica.guardar'], publicSignatureHandlers.publicSubmit, null, true);
 add(['survey.questions.list','encuestas.preguntas.list'], surveyHandlers.questionsList, 'USUARIOS_GESTIONAR');

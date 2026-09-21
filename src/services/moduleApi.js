@@ -49,6 +49,7 @@ export const MODULE_ROUTES = {
     evidenceUpdate: ['boletas.evidence.update', 'tickets.evidence.update'],
     evidenceDelete: ['boletas.evidence.delete', 'tickets.evidence.delete'],
     signatureUpload: ['boletas.signature.upload'],
+    signatureReset: ['ticket.signature.reset', 'boletas.signature.reset', 'boletas.firma.eliminar'],
     mediaGet: ['boletas.media.get', 'tickets.media.get'],
   },
   maintenance: {

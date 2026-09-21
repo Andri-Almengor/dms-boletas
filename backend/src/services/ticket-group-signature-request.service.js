@@ -1,6 +1,15 @@
+import { nowIso } from '../core/utils.js';
+import { trashFile } from '../infra/drive.repository.js';
+import {
+  findRows,
+  updateRow,
+  updateRows,
+  withTransaction,
+} from '../infra/sheets.repository.js';
 import {
   applyPublicSignature as applySingleSignature,
   ensureSignatureRequestForTicket as ensureSingleRequest,
+  ensureSignatureStorage,
   findSignatureRequestByToken,
   signatureRequestView,
   ticketHasSignature,
@@ -14,6 +23,11 @@ import {
 } from './ticket-visit-group.service.js';
 
 export { findSignatureRequestByToken, signatureRequestView, updateSignatureDelivery };
+
+function clean(value, fallback = '') {
+  const text = String(value ?? '').trim();
+  return text || fallback;
+}
 
 export async function visitGroupHasSignature(ticketId) {
   const group = await ensureVisitGroupForTicket(ticketId);
@@ -54,6 +68,80 @@ export async function ensureSignatureRequestForTicket({ ticketId, origin = '', a
     rootId: group.rootId,
     ticketNumber: group.visits.map((visit) => visit.BoletaID || visit.BoletaUID).join(', '),
     visitCount: group.visits.length,
+  };
+}
+
+export async function resetVisitGroupSignature({
+  ticketId,
+  origin = '',
+  actor = 'SISTEMA',
+}) {
+  await ensureSignatureStorage();
+  const group = await ensureVisitGroupForTicket(ticketId, actor);
+  const signatureFileIds = [...new Set(group.visits
+    .map((visit) => clean(visit.FirmaArchivoID || visit.FirmaFileID))
+    .filter(Boolean))];
+  const requests = (await findRows(
+    'FirmaSolicitudes',
+    { BoletaUID: group.rootId },
+    { limit: 5000 },
+  )).sort((left, right) => String(right.FechaCreacion || '').localeCompare(String(left.FechaCreacion || '')));
+  const reusableRequest = requests.find((row) => clean(row.Token)) || null;
+  const timestamp = nowIso();
+  const expiresAt = new Date(Date.now() + 90 * 24 * 60 * 60 * 1000).toISOString();
+
+  await withTransaction(async () => {
+    await updateRows('Boletas', group.visits.map((visit) => ({
+      idValue: visit.BoletaUID,
+      patch: {
+        FirmaArchivoID: '',
+        FirmaURL: '',
+        FirmaMimeType: '',
+        FirmaOrigen: '',
+        FirmaFecha: '',
+        EstadoEntregaFirma: 'ESPERANDO_FIRMA',
+        UltimoErrorEntregaFirma: '',
+        FirmaReenviadaEn: '',
+        Version: Number(visit.Version || 0) + 1,
+        ActualizadoPor: actor,
+        FechaActualizacion: timestamp,
+      },
+    })));
+
+    if (reusableRequest) {
+      await updateRow('FirmaSolicitudes', reusableRequest.SolicitudFirmaID, {
+        Estado: 'PENDIENTE',
+        FirmaArchivoID: '',
+        FirmaURL: '',
+        FechaFirma: '',
+        FechaExpiracion: expiresAt,
+        EstadoEntrega: '',
+        ErrorEntrega: '',
+        PDFURLFirmado: '',
+        ActualizadoPor: actor,
+        FechaActualizacion: timestamp,
+      });
+    }
+  });
+
+  const request = await ensureSingleRequest({
+    ticketId: group.rootId,
+    origin,
+    actor,
+  });
+
+  for (const fileId of signatureFileIds) {
+    await trashFile(fileId).catch((error) => {
+      console.warn(`[ticket-signature-reset:${group.rootId}] No se pudo enviar la firma anterior a la papelera de Drive: ${String(error?.message || error)}`);
+    });
+  }
+
+  const refreshedGroup = await ensureVisitGroupForTicket(group.rootId, actor);
+  return {
+    group: refreshedGroup,
+    request,
+    previousSignatureFileIds: signatureFileIds,
+    reusedLink: Boolean(reusableRequest && clean(reusableRequest.Token) === clean(request?.token)),
   };
 }
 

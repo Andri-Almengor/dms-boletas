@@ -9,6 +9,18 @@ const source = readFileSync(
   path.join(ROOT, 'backend/src/services/ticket-signature-request.service.js'),
   'utf8',
 );
+const groupSource = readFileSync(
+  path.join(ROOT, 'backend/src/services/ticket-group-signature-request.service.js'),
+  'utf8',
+);
+const routerSource = readFileSync(
+  path.join(ROOT, 'backend/src/core/action-router.js'),
+  'utf8',
+);
+const detailSource = readFileSync(
+  path.join(ROOT, 'src/pages/tickets/TicketDetailPage.jsx'),
+  'utf8',
+);
 const publicPageSource = readFileSync(
   path.join(ROOT, 'src/pages/tickets/PublicSignaturePage.jsx'),
   'utf8',
@@ -78,4 +90,26 @@ test('si la reconciliación no confirma, conserva la firma y muestra un mensaje 
   const pendingMessageIndex = uncertainBranch.indexOf('Su firma sigue en pantalla');
   assert.ok(successClearIndex >= 0, 'La firma puede limpiarse después de una confirmación autoritativa.');
   assert.ok(pendingMessageIndex > successClearIndex, 'El caso pendiente debe conservar el trazo y ofrecer reintento manual.');
+});
+
+
+test('al eliminar una firma de boleta se limpia todo el grupo y se reutiliza el token existente', () => {
+  const resetBlock = groupSource.match(/export async function resetVisitGroupSignature[\\s\\S]*?\\n\\}/)?.[0] || '';
+
+  assert.match(resetBlock, /group\\.visits\\s*\\.map/);
+  assert.match(resetBlock, /FirmaArchivoID: ''/);
+  assert.match(resetBlock, /Estado: 'PENDIENTE'/);
+  assert.match(resetBlock, /FechaExpiracion: expiresAt/);
+  assert.match(resetBlock, /const request = await ensureSingleRequest/);
+  assert.match(resetBlock, /reusedLink: Boolean\\(reusableRequest/);
+  assert.doesNotMatch(resetBlock, /randomBytes/);
+});
+
+test('el reset de firma de boleta conserva permisos administrativos existentes y está disponible en el detalle', () => {
+  assert.match(
+    routerSource,
+    /ticket\\.signature\\.reset[\\s\\S]*?ticketSignatureHandlers\\.reset[\\s\\S]*?BOLETAS_ELIMINAR[\\s\\S]*?USUARIOS_GESTIONAR/,
+  );
+  assert.match(detailSource, /MODULE_ROUTES\\.tickets\\.signatureReset/);
+  assert.match(detailSource, /Eliminar firma y reactivar enlace/);
 });
