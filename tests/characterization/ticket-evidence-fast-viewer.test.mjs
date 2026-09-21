@@ -18,6 +18,8 @@ test('boletas usan thumbnail ligero y reservan el original protegido para cuando
   assert.match(preview, /onPointerEnter=\{warmOriginal\}/);
   assert.match(preview, /onFocus=\{warmOriginal\}/);
   assert.match(preview, /previewFailed/);
+  assert.match(preview, /mediaKindHint/);
+  assert.match(mediaSource, /hint\.includes\('imagen'\)/);
 });
 
 test('visor de boleta abre el preview, mejora calidad y precarga anterior/siguiente', () => {
@@ -42,6 +44,7 @@ test('detalle agrupa solamente imágenes navegables y mantiene firma fuera de la
   const routes = source('src/styles/routes/tickets.js');
 
   assert.match(detail, /imageEvidenceItems = evidences\.map\(ticketImageViewerItem\)\.filter\(Boolean\)/);
+  assert.match(detail, /TipoMedio/);
   assert.match(detail, /imageEvidenceIndexByKey/);
   assert.match(detail, /items: imageEvidenceItems/);
   assert.match(detail, /kind: 'signature'/);

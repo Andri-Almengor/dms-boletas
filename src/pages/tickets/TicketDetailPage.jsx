@@ -74,14 +74,22 @@ function ticketImageViewerItem(item = {}, index = 0) {
   const fileId = pick(item, ['ArchivoFileID', 'ArchivoID', 'fileId']);
   const directUrl = pick(item, ['ArchivoURL', 'URL', 'url']);
   const mimeType = pick(item, ['MimeType', 'mimeType']);
+  const mediaKind = pick(item, ['TipoMedio', 'MediaType', 'mediaType']);
   const alt = pick(item, ['Nombre', 'name'], `Evidencia ${index + 1}`);
-  if (evidenceMediaKind({ mimeType, name: alt }) !== 'image') return null;
+  const normalizedKind = String(mediaKind || '').toLowerCase();
+  const resolvedKind = normalizedKind.includes('video')
+    ? 'video'
+    : (normalizedKind.includes('imagen') || normalizedKind.includes('image'))
+      ? 'image'
+      : evidenceMediaKind({ mimeType, name: alt });
+  if (resolvedKind !== 'image') return null;
   return {
     key: String(evidenceId || fileId || index),
     evidenceId,
     fileId,
     directUrl,
     mimeType,
+    mediaKind,
     alt,
     kind: 'evidence',
   };
@@ -436,11 +444,12 @@ export default function TicketDetailPage() {
           const fileId = pick(item, ['ArchivoFileID', 'ArchivoID', 'fileId']);
           const url = pick(item, ['ArchivoURL', 'URL', 'url']);
           const mimeType = pick(item, ['MimeType', 'mimeType']);
+          const mediaKind = pick(item, ['TipoMedio', 'MediaType', 'mediaType']);
           const name = pick(item, ['Nombre', 'name'], `Evidencia ${index + 1}`);
           const note = pick(item, ['Nota', 'note']);
           const galleryKey = String(evidenceId || fileId || index);
           const galleryIndex = imageEvidenceIndexByKey.get(galleryKey) ?? 0;
-          return <article className="evidence-detail-card" key={evidenceId || index}><MediaPreview boletaUid={boletaUid} evidenceId={evidenceId} fileId={fileId} directUrl={url} mimeType={mimeType} alt={name} onOpen={() => setViewer({ items: imageEvidenceItems, initialIndex: galleryIndex })} /><div><strong>{name}</strong>{note && <p>{note}</p>}{String(pick(item, ['TipoMedio'])).toUpperCase() === 'VIDEO' && <small>Video · {Math.ceil(Number(pick(item, ['DuracionSegundos'], 0)))} s</small>}</div>{canEvidence && <div className="evidence-detail-card__actions"><button type="button" onClick={() => editEvidence(item)} disabled={processing} aria-label={`Editar ${name}`}><Icon name="edit" /></button><button type="button" onClick={() => deleteEvidence(item)} disabled={processing} aria-label={`Eliminar ${name}`}><Icon name="delete" /></button></div>}</article>;
+          return <article className="evidence-detail-card" key={evidenceId || index}><MediaPreview boletaUid={boletaUid} evidenceId={evidenceId} fileId={fileId} directUrl={url} mimeType={mimeType} mediaKind={mediaKind} alt={name} onOpen={() => setViewer({ items: imageEvidenceItems, initialIndex: galleryIndex })} /><div><strong>{name}</strong>{note && <p>{note}</p>}{String(pick(item, ['TipoMedio'])).toUpperCase() === 'VIDEO' && <small>Video · {Math.ceil(Number(pick(item, ['DuracionSegundos'], 0)))} s</small>}</div>{canEvidence && <div className="evidence-detail-card__actions"><button type="button" onClick={() => editEvidence(item)} disabled={processing} aria-label={`Editar ${name}`}><Icon name="edit" /></button><button type="button" onClick={() => deleteEvidence(item)} disabled={processing} aria-label={`Eliminar ${name}`}><Icon name="delete" /></button></div>}</article>;
         })}</div> : <div className="empty-state"><Icon name="perm_media" /><h2>Sin evidencias</h2><p>No hay archivos asociados a esta boleta.</p></div>}
 
         {canEvidence && <form className="evidence-inline-form ticket-detail-evidence-form" onSubmit={uploadEvidence}>

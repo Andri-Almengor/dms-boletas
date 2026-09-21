@@ -32,10 +32,16 @@ export function ticketMediaPreviewSource({
   fileId,
   mimeType,
   alt,
+  mediaKind,
   kind = 'evidence',
 }) {
   if (canUseTicketMediaDirectly(directUrl)) return clean(directUrl);
-  const resolvedKind = evidenceMediaKind({ mimeType, name: alt });
+  const hint = clean(mediaKind).toLowerCase();
+  const resolvedKind = hint.includes('video')
+    ? 'video'
+    : (hint.includes('imagen') || hint.includes('image'))
+      ? 'image'
+      : evidenceMediaKind({ mimeType, name: alt });
   if (resolvedKind !== 'image' || !fileId) return '';
   return `https://drive.google.com/thumbnail?id=${encodeURIComponent(fileId)}&sz=w1200`;
 }

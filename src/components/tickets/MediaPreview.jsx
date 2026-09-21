@@ -14,6 +14,7 @@ export default function MediaPreview({
   kind = 'evidence',
   directUrl,
   mimeType,
+  mediaKind,
   alt,
   onOpen,
 }) {
@@ -27,14 +28,20 @@ export default function MediaPreview({
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState('');
 
-  const knownKind = evidenceMediaKind({ mimeType, name: alt });
+  const mediaKindHint = String(mediaKind || '').toLowerCase();
+  const knownKind = mediaKindHint.includes('video')
+    ? 'video'
+    : (mediaKindHint.includes('imagen') || mediaKindHint.includes('image'))
+      ? 'image'
+      : evidenceMediaKind({ mimeType, name: alt });
   const previewSource = useMemo(() => ticketMediaPreviewSource({
     directUrl,
     fileId,
     mimeType,
+    mediaKind,
     alt,
     kind,
-  }), [directUrl, fileId, mimeType, alt, kind]);
+  }), [directUrl, fileId, mimeType, mediaKind, alt, kind]);
   const canRequestProtected = Boolean(evidenceId || fileId || kind === 'signature');
   const imageSource = !previewFailed && previewSource ? previewSource : fullSource;
 
@@ -151,6 +158,7 @@ export default function MediaPreview({
       kind,
       directUrl,
       mimeType,
+      mediaKind,
       alt,
     });
   }
