@@ -110,8 +110,8 @@
   box-shadow: var(--shadow-sm);
 }
 
-/* La vista previa general usa un recorte cuadrado para evidencias.
- * Las firmas deben conservar el lienzo completo y su proporción original. */
+/* Las evidencias usan una vista previa cuadrada, pero la firma no debe recortarse.
+ * Conserva el lienzo completo, centrado y con su proporción original. */
 .signature-display .media-preview-host {
   width: 100%;
   min-width: 0;
