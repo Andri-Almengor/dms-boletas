@@ -22,6 +22,10 @@ test('el lightbox de evidencias permite navegar y hacer zoom sin cerrarlo', () =
   assert.match(component, /event\.key === 'Escape'/);
   assert.match(component, /onDoubleClick=\{toggleZoom\}/);
   assert.match(component, /MAX_ZOOM = 4/);
+  assert.match(component, /setFullSource\(fallback \|\| ''\)/);
+  assert.match(component, /warmCurrentFullImage/);
+  assert.match(component, /requestProtectedSource\(neighborId, sessionToken\)/);
+  assert.match(component, /Mejorando calidad/);
 
   assert.match(styles, /backdrop-filter:\s*blur\(16px\)/);
   assert.match(styles, /\.maintenance-lightbox__nav/);
