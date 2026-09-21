@@ -110,6 +110,12 @@ export function calendarDays(value) {
   return days;
 }
 
+export function sortAgendaDatesNewestFirst(dateKeys = []) {
+  return [...dateKeys].sort((left, right) => (
+    String(right || '').localeCompare(String(left || ''))
+  ));
+}
+
 export function groupAgendasByDate(items = []) {
   const groups = new Map();
   items.forEach((item) => {
