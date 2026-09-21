@@ -48,3 +48,15 @@ test('el formulario de evidencias mantiene contrato responsive y modo oscuro', (
   assert.match(multiStyles, /ticket-detail-multi-upload-button\[hidden\]/);
   assert.match(multiStyles, /overflow-wrap: anywhere/);
 });
+
+
+test('la firma guardada se muestra completa sin el recorte cuadrado de las evidencias', () => {
+  const detailStyles = source('src/styles/ticket-detail-enhancements.css');
+
+  assert.match(detailStyles, /\.signature-display \.media-preview-button img/);
+  assert.match(detailStyles, /aspect-ratio: auto/);
+  assert.match(detailStyles, /object-fit: contain/);
+  assert.match(detailStyles, /object-position: center/);
+  assert.match(detailStyles, /max-width: 100%/);
+  assert.match(detailStyles, /max-height: 145px/);
+});
