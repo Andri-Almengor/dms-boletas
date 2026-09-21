@@ -51,6 +51,10 @@ export const env = Object.freeze({
   syncBackgroundIntervalMs: optionalNumber('SYNC_BACKGROUND_INTERVAL_MS', 60_000, 15_000),
   syncIntegrityCheckMs: optionalNumber('SYNC_INTEGRITY_CHECK_MS', 15 * 60_000, 60_000),
 
+  ticketEvidenceBatchMaxFiles: optionalNumber('TICKET_EVIDENCE_BATCH_MAX_FILES', 20, 1),
+  ticketEvidenceBatchMaxBase64Chars: optionalNumber('TICKET_EVIDENCE_BATCH_MAX_BASE64_CHARS', 22_000_000, 1_000_000),
+  ticketEvidenceUploadConcurrency: optionalNumber('TICKET_EVIDENCE_UPLOAD_CONCURRENCY', 3, 1),
+
   maintenanceImageBatchMaxFiles: optionalNumber('MAINTENANCE_IMAGE_BATCH_MAX_FILES', 20, 1),
   maintenanceImageBatchMaxBase64Chars: optionalNumber('MAINTENANCE_IMAGE_BATCH_MAX_BASE64_CHARS', 22_000_000, 1_000_000),
   maintenanceImageMetadataBatchMaxItems: optionalNumber('MAINTENANCE_IMAGE_METADATA_BATCH_MAX_ITEMS', 100, 1),
