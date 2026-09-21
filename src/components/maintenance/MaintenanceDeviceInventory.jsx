@@ -127,6 +127,16 @@ function isOffline(device) {
     || (device.Imagenes || []).some((image) => Boolean(image.OfflinePendiente));
 }
 
+function hasOwnInteraction(target) {
+  return Boolean(target?.closest?.('button, a, input, select, textarea, label, [data-no-device-toggle]'));
+}
+
+function toggleRowFromKeyboard(event, action) {
+  if (event.target !== event.currentTarget || (event.key !== 'Enter' && event.key !== ' ')) return;
+  event.preventDefault();
+  action();
+}
+
 function FilterSelect({ label, value, onChange, children }) {
   return (
     <label className="field-group">
@@ -288,7 +298,7 @@ export default function MaintenanceDeviceInventory({
         <div className="maintenance-inventory-images">
           {images.map((image) => (
             <figure key={pick(image, ['FotoDispositivoID', 'id'])}>
-              <MaintenanceEvidenceImage image={image} sessionToken={sessionToken} alt={pick(image, ['Nombre'], 'Evidencia')} />
+              <MaintenanceEvidenceImage image={image} galleryImages={images} sessionToken={sessionToken} alt={pick(image, ['Nombre'], 'Evidencia')} />
               <figcaption><strong>{pick(image, ['Tipo'], 'Evidencia')}</strong><span>{pick(image, ['Nota'], 'Sin nota')}</span></figcaption>
               {pending && canEdit && <button type="button" onClick={() => onEditEvidence(image, device)}><Icon name="edit" />Editar evidencia</button>}
             </figure>
@@ -389,7 +399,14 @@ export default function MaintenanceDeviceInventory({
                         const displayedState = effectiveState(device);
                         return (
                           <React.Fragment key={id}>
-                            <tr className={open ? 'is-expanded' : ''}>
+                            <tr
+                              data-device-row
+                              className={open ? 'is-expanded' : ''}
+                              tabIndex="0"
+                              aria-expanded={open}
+                              onClick={(event) => { if (!hasOwnInteraction(event.target)) toggle(device); }}
+                              onKeyDown={(event) => toggleRowFromKeyboard(event, () => toggle(device))}
+                            >
                               <td>{absoluteIndex + 1}</td>
                               <td><button type="button" className="maintenance-inventory-name" onClick={() => toggle(device)}><span className="maintenance-device-list__icon"><Icon name={getMaintenanceCategory(deviceType(device)).icon} /></span><span><strong>{deviceName(device)}</strong>{isOffline(device) && <small><Icon name="cloud_off" />Offline</small>}</span></button></td>
                               <td>{deviceType(device)}</td>
