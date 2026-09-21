@@ -14,6 +14,7 @@ import {
   monthLabel,
   normalizeAgendaText,
   shiftMonth,
+  sortAgendaDatesNewestFirst,
   statusMeta,
   tomorrowCostaRicaDate,
 } from '../../features/agenda/agendaDomain';
@@ -428,7 +429,7 @@ export default function AgendaPage() {
   const grouped = useMemo(() => groupAgendasByDate(filtered), [filtered]);
   const allGrouped = useMemo(() => groupAgendasByDate(items), [items]);
   const dayDialogItems = useMemo(() => requestedDay ? (allGrouped.get(requestedDay) || []) : [], [allGrouped, requestedDay]);
-  const visibleMobileDates = useMemo(() => [...grouped.keys()].sort(), [grouped]);
+  const visibleMobileDates = useMemo(() => sortAgendaDatesNewestFirst(grouped.keys()), [grouped]);
 
   function openAgenda(item) {
     setSelected(item);
