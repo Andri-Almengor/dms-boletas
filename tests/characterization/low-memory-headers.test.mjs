@@ -94,10 +94,8 @@ test('finalization storage reuses shared schema and preserves bounded recoverabl
 // Protected media is intentionally excluded here because PR #305 changes its transport;
 // dedicated security/performance characterization covers that path instead.
 const businessBaseline = {
-  "backend/src/core/action-router.js": "92f33f8d565c70a77e6ef8b6196a696237a5b7b9880b0858842f6aa23aa37033",
   "backend/src/services/maintenance-evidence-permissions.patch.js": "c39ed14272d49ad648ddd4e40ecedeaf0bad22555d88df17baa53b2ae715032b",
   "backend/src/services/maintenance-device-delete-permissions.patch.js": "40cf84fbc2552b8e00b16d840d11c0f9825c71819c6bf4bcb86e630d7e359903",
-  "backend/src/modules/tickets.module.js": "6f40142d4a0691e99e83cbdc869cc8871559010871c017084f4a393887b60059",
   "backend/src/modules/agenda.module.js": "9b2b364f7a825cefa4c39849b9b54da5356c6882282be10450baeaddc52bd8d0",
   "backend/src/modules/crud.module.js": "d34442574321a7f1596bffacd1d7fecead757ad73557251449f8322590b6f27b",
   "backend/src/modules/ticket-signature.module.js": "c1df58a8a8a5303d10ba236335eef7a3d7d12c643057be6f6063a60f72271ba0",
@@ -122,6 +120,17 @@ const businessBaseline = {
 };
 test('unchanged business handlers and Apps Script remain byte-identical while auth permissions preserve policy', () => {
   for (const [file, digest] of Object.entries(businessBaseline)) assert.equal(createHash('sha256').update(read(file)).digest('hex'), digest, file);
+
+  const router = read('backend/src/core/action-router.js');
+  assert.match(router, /boletas\.evidence\.uploadBatch/);
+  assert.match(router, /ticketScalableEvidenceHandlers\.uploadBatch, \['BOLETAS_EVIDENCIAS','BOLETAS_EDITAR'\]/);
+  assert.match(router, /maintenance\.images\.uploadBatch/);
+  assert.match(router, /maintenanceScalableImageHandlers\.uploadBatch/);
+
+  const tickets = read('backend/src/modules/tickets.module.js');
+  assert.match(tickets, /findRows\('EvidenciasBoleta'/);
+  assert.match(tickets, /TipoMedio:/);
+  assert.match(tickets, /DuracionSegundos:/);
 
   const auth = read('backend/src/services/auth.service.js');
   assert.match(auth, /findUserByLogin/);
