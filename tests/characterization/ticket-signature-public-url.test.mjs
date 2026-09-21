@@ -94,14 +94,17 @@ test('si la reconciliación no confirma, conserva la firma y muestra un mensaje 
 
 
 test('al eliminar una firma de boleta se limpia todo el grupo y se reutiliza el token existente', () => {
-  const resetBlock = groupSource.match(/export async function resetVisitGroupSignature[\s\S]*?\n\}/)?.[0] || '';
+  assert.match(groupSource, /export async function resetVisitGroupSignature/);
+  assert.match(groupSource, /group\.visits[\s\S]*?\.map/);
+  assert.match(groupSource, /FirmaArchivoID: ''/);
+  assert.match(groupSource, /Estado: 'PENDIENTE'/);
+  assert.match(groupSource, /FechaExpiracion: expiresAt/);
+  assert.match(groupSource, /const request = await ensureSingleRequest/);
+  assert.match(groupSource, /reusedLink: Boolean\(reusableRequest/);
 
-  assert.match(resetBlock, /group\.visits\s*\.map/);
-  assert.match(resetBlock, /FirmaArchivoID: ''/);
-  assert.match(resetBlock, /Estado: 'PENDIENTE'/);
-  assert.match(resetBlock, /FechaExpiracion: expiresAt/);
-  assert.match(resetBlock, /const request = await ensureSingleRequest/);
-  assert.match(resetBlock, /reusedLink: Boolean\(reusableRequest/);
+  const resetStart = groupSource.indexOf('export async function resetVisitGroupSignature');
+  const resetEnd = groupSource.indexOf('export async function applyPublicSignature');
+  const resetBlock = groupSource.slice(resetStart, resetEnd);
   assert.doesNotMatch(resetBlock, /randomBytes/);
 });
 
