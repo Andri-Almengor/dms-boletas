@@ -41,20 +41,22 @@ export async function persistMaintenanceDevice({
   );
   if (!deviceId) throw new Error('El backend no devolvió el identificador del dispositivo.');
 
-  const metadataResult = await updateMaintenanceImagesInBatches({
-    maintenanceId,
-    deviceId,
-    images: device.images || [],
-    sessionToken,
-    signal,
-  });
-  const uploadResult = await uploadMaintenanceImagesInBatches({
-    maintenanceId,
-    deviceId,
-    images: device.newImages || [],
-    sessionToken,
-    signal,
-  });
+  const [metadataResult, uploadResult] = await Promise.all([
+    updateMaintenanceImagesInBatches({
+      maintenanceId,
+      deviceId,
+      images: device.images || [],
+      sessionToken,
+      signal,
+    }),
+    uploadMaintenanceImagesInBatches({
+      maintenanceId,
+      deviceId,
+      images: device.newImages || [],
+      sessionToken,
+      signal,
+    }),
+  ]);
   const confirmedDevice = {
     ...requestDevice,
     id: deviceId,
