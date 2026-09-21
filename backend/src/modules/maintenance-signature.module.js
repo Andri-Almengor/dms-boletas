@@ -9,6 +9,7 @@ import {
   findMaintenanceSignatureRequestByToken,
   maintenanceHasSignature,
   maintenanceSignatureRequestView,
+  resetMaintenanceSignature,
 } from '../services/maintenance-signature-request.service.js';
 
 function clean(value, fallback = '') {
@@ -82,6 +83,43 @@ async function signatureLink(ctx, testMode = false) {
 export const maintenanceSignatureHandlers = {
   link: async (ctx) => signatureLink(ctx, false),
   testLink: async (ctx) => signatureLink(ctx, true),
+
+  reset: async (ctx) => {
+    if (!isAdmin(ctx)) {
+      throw forbidden('Solo un administrador puede eliminar la firma general del mantenimiento.');
+    }
+    const maintenanceId = pick(ctx.payload, ['maintenanceId', 'MantenimientoID', 'id']);
+    const result = await resetMaintenanceSignature({
+      maintenanceId,
+      origin: ctx.origin,
+      actor: ctx.user?.UsuarioID || 'SISTEMA',
+    });
+    const maintenance = await publicMaintenanceView(maintenanceId);
+
+    await audit(
+      ctx,
+      'ELIMINAR_FIRMA_MANTENIMIENTO',
+      'Mantenimiento',
+      maintenanceId,
+      null,
+      {
+        FirmaArchivoIDAnterior: result.previousSignatureFileId || '',
+        SolicitudFirmaID: result.request?.id || '',
+        EnlaceReutilizado: Boolean(result.reusedLink),
+      },
+    ).catch(() => {});
+
+    return {
+      signed: false,
+      request: result.request,
+      maintenance,
+      ticket: maintenance,
+      reusedLink: Boolean(result.reusedLink),
+      message: result.reusedLink
+        ? 'La firma anterior fue eliminada y el mismo enlace quedó habilitado nuevamente para el cliente.'
+        : 'La firma anterior fue eliminada y quedó disponible un enlace de firma para el cliente.',
+    };
+  },
 
   publicGet: async (ctx) => {
     const requestRow = await findMaintenanceSignatureRequestByToken(ctx.payload.token);
