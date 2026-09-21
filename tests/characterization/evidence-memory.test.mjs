@@ -60,15 +60,21 @@ test('el fallback individual reutiliza el Base64 preparado y conserva la cola of
   assert.match(batch, /useFallbackForRemaining = true/);
 });
 
-test('las evidencias de boleta usan IDs idempotentes y carga secuencial', () => {
-  const tickets = source('src/features/tickets/ticketPersistenceService.js');
-  assert.match(tickets, /for \(const item of evidences\)/);
-  assert.match(tickets, /createLocalId\('evidencia'\)/);
-  assert.match(tickets, /evidenciaId: evidenceId/);
-  assert.match(tickets, /EvidenciaID: evidenceId/);
-  assert.match(tickets, /fileToBase64\(item\.file, \{ signal \}\)/);
-  assert.match(tickets, /base64 = ''/);
-  assert.doesNotMatch(tickets, /Promise\.all\(evidences/);
+test('las evidencias de boleta agrupan archivos sin convertir varios en paralelo', () => {
+  const service = source('src/services/ticketEvidenceBatch.js');
+  const persistence = source('src/features/tickets/ticketPersistenceService.js');
+
+  assert.match(service, /MAX_FILES_PER_REQUEST = 10/);
+  assert.match(service, /MAX_RAW_BYTES_PER_REQUEST = 10 \* 1024 \* 1024/);
+  assert.match(service, /TICKET_BATCH_RESUMABLE_THRESHOLD_BYTES = 10 \* 1024 \* 1024/);
+  assert.match(service, /mapFilesSequentially/);
+  assert.match(service, /createLocalId\('evidencia'\)/);
+  assert.match(service, /clearPayloads/);
+  assert.match(service, /browserIsOffline/);
+  assert.match(service, /uploadLargeTicketEvidence/);
+  assert.doesNotMatch(service, /Promise\.all\(chunk\.map/);
+  assert.match(persistence, /uploadTicketEvidenceItems/);
+  assert.match(persistence, /Promise\.all\(\[signatureTask, evidenceTask\]\)/);
 });
 
 test('la liberación local es compartida e idempotente por archivo', () => {
