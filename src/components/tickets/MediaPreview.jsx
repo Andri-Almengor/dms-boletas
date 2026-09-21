@@ -1,39 +1,45 @@
-import React, { useCallback, useEffect, useRef, useState } from 'react';
+import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { useAuth } from '../../AuthContext';
 import Icon from '../common/Icon';
-import { MODULE_ROUTES, requestAvailable } from '../../services/moduleApi';
-import { scheduleMediaPreview } from '../../services/mediaPreviewQueue';
+import {
+  requestTicketProtectedSource,
+  ticketMediaPreviewSource,
+} from '../../services/ticketMediaSource';
 import { evidenceMediaKind } from '../../utils/evidenceMedia';
 
-function isProtectedGoogleUrl(value = '') {
-  const url = String(value || '').trim();
-  return /(?:drive|docs)\.google\.com|googleusercontent\.com/i.test(url);
-}
-
-function canUseDirectly(value = '') {
-  const url = String(value || '').trim();
-  return Boolean(url) && !isProtectedGoogleUrl(url);
-}
-
-function mediaRequestKey({ boletaUid, evidenceId, fileId, kind }) {
-  return [boletaUid, evidenceId, fileId, kind].map((value) => String(value || '')).join(':');
-}
-
-export default function MediaPreview({ boletaUid, evidenceId, fileId, kind = 'evidence', directUrl, mimeType, alt, onOpen }) {
+export default function MediaPreview({
+  boletaUid,
+  evidenceId,
+  fileId,
+  kind = 'evidence',
+  directUrl,
+  mimeType,
+  alt,
+  onOpen,
+}) {
   const { sessionToken } = useAuth();
   const hostRef = useRef(null);
   const loadControllerRef = useRef(null);
   const attemptedRef = useRef(false);
-  const directSource = canUseDirectly(directUrl) ? directUrl : '';
-  const [source, setSource] = useState(directSource);
-  const [nearViewport, setNearViewport] = useState(Boolean(directSource));
+  const [fullSource, setFullSource] = useState('');
+  const [previewFailed, setPreviewFailed] = useState(false);
+  const [nearViewport, setNearViewport] = useState(false);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState('');
-  const canRequestProtected = Boolean(evidenceId || fileId || kind === 'signature');
+
   const knownKind = evidenceMediaKind({ mimeType, name: alt });
+  const previewSource = useMemo(() => ticketMediaPreviewSource({
+    directUrl,
+    fileId,
+    mimeType,
+    alt,
+    kind,
+  }), [directUrl, fileId, mimeType, alt, kind]);
+  const canRequestProtected = Boolean(evidenceId || fileId || kind === 'signature');
+  const imageSource = !previewFailed && previewSource ? previewSource : fullSource;
 
   const loadProtectedMedia = useCallback(async (force = false, priority = 0) => {
-    if (!canRequestProtected || (!force && attemptedRef.current)) return '';
+    if (!canRequestProtected || (!force && attemptedRef.current && fullSource)) return fullSource;
     attemptedRef.current = true;
     loadControllerRef.current?.abort();
     const controller = new AbortController();
@@ -41,41 +47,44 @@ export default function MediaPreview({ boletaUid, evidenceId, fileId, kind = 'ev
     setLoading(true);
     setError('');
     try {
-      const key = mediaRequestKey({ boletaUid, evidenceId, fileId, kind });
-      const data = await scheduleMediaPreview(key, (queueSignal) => requestAvailable(MODULE_ROUTES.tickets.mediaGet, {
+      const resolved = await requestTicketProtectedSource({
         boletaUid,
-        evidenciaId: evidenceId,
-        EvidenciaID: evidenceId,
+        evidenceId,
         fileId,
         kind,
-      }, sessionToken, { signal: queueSignal }), {
+        sessionToken,
+      }, {
         signal: controller.signal,
         priority,
+        force,
       });
-      const resolved = data?.streamUrl || data?.dataUrl || data?.DataURL || data?.url || '';
-      if (!resolved) {
-        if (data?.missing) throw new Error(data?.message || 'El archivo no está disponible.');
-        throw new Error('El backend no devolvió el contenido del archivo.');
-      }
-      if (!controller.signal.aborted) setSource(resolved);
+      if (!controller.signal.aborted) setFullSource(resolved);
       return resolved;
     } catch (requestError) {
       if (requestError?.name === 'AbortError') return '';
-      setError(requestError.message || 'No se pudo cargar el archivo.');
-      if (!canUseDirectly(directUrl)) setSource('');
+      if (!controller.signal.aborted) {
+        setError(requestError.message || 'No se pudo cargar el archivo.');
+        if (!previewSource) setFullSource('');
+      }
       return '';
     } finally {
       if (loadControllerRef.current === controller) loadControllerRef.current = null;
       if (!controller.signal.aborted) setLoading(false);
     }
-  }, [boletaUid, evidenceId, fileId, kind, sessionToken, canRequestProtected, directUrl]);
+  }, [
+    boletaUid,
+    evidenceId,
+    fileId,
+    kind,
+    sessionToken,
+    canRequestProtected,
+    fullSource,
+    previewSource,
+  ]);
 
   useEffect(() => {
     const node = hostRef.current;
-    if (!node || directSource) {
-      setNearViewport(true);
-      return undefined;
-    }
+    if (!node) return undefined;
     if (typeof IntersectionObserver !== 'function') {
       setNearViewport(true);
       return undefined;
@@ -89,70 +98,106 @@ export default function MediaPreview({ boletaUid, evidenceId, fileId, kind = 'ev
     }, { rootMargin: '300px 0px' });
     observer.observe(node);
     return () => observer.disconnect();
-  }, [directSource, boletaUid, evidenceId, fileId, kind]);
+  }, [boletaUid, evidenceId, fileId, kind]);
 
   useEffect(() => {
     attemptedRef.current = false;
     loadControllerRef.current?.abort();
     setError('');
     setLoading(false);
-    setSource(directSource);
+    setFullSource('');
+    setPreviewFailed(false);
 
-    const needsProtectedMedia = Boolean(evidenceId)
-      || kind === 'signature'
-      || Boolean(fileId && (!directSource || isProtectedGoogleUrl(directUrl)));
-    if (nearViewport && needsProtectedMedia) loadProtectedMedia(false, 10);
-    else if (nearViewport && !directSource && !needsProtectedMedia) setError('El registro no tiene un archivo disponible.');
+    const shouldLoadOriginalNow = knownKind !== 'image' || !previewSource;
+    if (nearViewport && shouldLoadOriginalNow && canRequestProtected) loadProtectedMedia(false, 10);
+    else if (nearViewport && !previewSource && !canRequestProtected) {
+      setError('El registro no tiene un archivo disponible.');
+    }
 
     return () => {
       loadControllerRef.current?.abort();
       loadControllerRef.current = null;
     };
-  }, [boletaUid, evidenceId, fileId, kind, directUrl, sessionToken, directSource, nearViewport, loadProtectedMedia]);
+  }, [
+    boletaUid,
+    evidenceId,
+    fileId,
+    kind,
+    sessionToken,
+    nearViewport,
+    knownKind,
+    previewSource,
+    canRequestProtected,
+  ]);
 
-  const resolvedKind = String(source || '').startsWith('data:video/')
-    ? 'video'
-    : String(source || '').startsWith('data:image/')
-      ? 'image'
-      : knownKind;
+  const warmOriginal = useCallback(() => {
+    if (knownKind !== 'image' || !canRequestProtected) return;
+    loadProtectedMedia(false, 100).catch(() => {});
+  }, [knownKind, canRequestProtected, loadProtectedMedia]);
 
   async function retry() {
     attemptedRef.current = false;
     setNearViewport(true);
-    await loadProtectedMedia(true, 100);
+    setPreviewFailed(true);
+    await loadProtectedMedia(true, 200);
+  }
+
+  function openImage() {
+    onOpen?.({
+      previewSource: imageSource,
+      fullSource,
+      evidenceId,
+      fileId,
+      kind,
+      directUrl,
+      mimeType,
+      alt,
+    });
   }
 
   return (
     <div ref={hostRef} className="media-preview-host">
-      {!nearViewport && !source && <div className="media-loading media-loading--deferred"><Icon name={knownKind === 'video' ? 'videocam' : knownKind === 'image' ? 'image' : 'description'} /> <span>Vista previa</span></div>}
-      {nearViewport && loading && !source && <div className="media-loading"><Icon name="progress_activity" /> Cargando...</div>}
-      {nearViewport && error && !source && <div className="media-error"><Icon name="broken_image" /> <span>{error}</span>{canRequestProtected && <button type="button" onClick={retry}>Reintentar</button>}</div>}
-      {nearViewport && !loading && !error && !source && <div className="media-error"><Icon name="hide_image" /><span>Archivo no disponible</span></div>}
+      {!nearViewport && !imageSource && <div className="media-loading media-loading--deferred"><Icon name={knownKind === 'video' ? 'videocam' : knownKind === 'image' ? 'image' : 'description'} /> <span>Vista previa</span></div>}
+      {nearViewport && loading && !imageSource && !fullSource && <div className="media-loading"><Icon name="progress_activity" /> Cargando...</div>}
+      {nearViewport && error && !imageSource && !fullSource && <div className="media-error"><Icon name="broken_image" /> <span>{error}</span>{canRequestProtected && <button type="button" onClick={retry}>Reintentar</button>}</div>}
+      {nearViewport && !loading && !error && !imageSource && !fullSource && <div className="media-error"><Icon name="hide_image" /><span>Archivo no disponible</span></div>}
 
-      {source && resolvedKind === 'video' && (
+      {fullSource && knownKind === 'video' && (
         <div className="media-preview-video">
-          <video src={source} controls preload="metadata" playsInline aria-label={alt || 'Video de evidencia'} />
+          <video src={fullSource} controls preload="metadata" playsInline aria-label={alt || 'Video de evidencia'} />
           {loading && <span className="media-preview-button__loading"><Icon name="progress_activity" /></span>}
         </div>
       )}
 
-      {source && resolvedKind !== 'video' && resolvedKind !== 'image' && (
-        <a className="evidence-file-link" href={source} target="_blank" rel="noreferrer"><Icon name="description" /> Abrir archivo</a>
+      {fullSource && knownKind !== 'video' && knownKind !== 'image' && (
+        <a className="evidence-file-link" href={fullSource} target="_blank" rel="noreferrer"><Icon name="description" /> Abrir archivo</a>
       )}
 
-      {source && resolvedKind === 'image' && (
-        <button className="media-preview-button" type="button" onClick={() => onOpen?.(source)} aria-label={`Abrir ${alt || 'evidencia'}`}>
+      {imageSource && knownKind === 'image' && (
+        <button
+          className="media-preview-button"
+          type="button"
+          onClick={openImage}
+          onPointerEnter={warmOriginal}
+          onFocus={warmOriginal}
+          aria-label={`Abrir ${alt || 'evidencia'}`}
+        >
           <img
-            src={source}
+            src={imageSource}
             alt={alt || 'Evidencia'}
             loading="lazy"
             decoding="async"
+            referrerPolicy="no-referrer"
             onError={() => {
-              setSource('');
+              if (!previewFailed && previewSource) {
+                setPreviewFailed(true);
+                if (!fullSource) loadProtectedMedia(false, 150);
+                return;
+              }
               setError('No se pudo mostrar la imagen.');
             }}
           />
-          {loading && <span className="media-preview-button__loading"><Icon name="progress_activity" /></span>}
+          {loading && !previewSource && <span className="media-preview-button__loading"><Icon name="progress_activity" /></span>}
         </button>
       )}
     </div>

@@ -12,7 +12,7 @@ import {
   subscribeSyncEntity,
 } from '../../services/syncManager';
 import { shouldUseLargeEvidenceUpload, uploadLargeTicketEvidence } from '../../services/largeEvidenceUpload';
-import { prepareEvidenceFiles } from '../../utils/evidenceMedia';
+import { evidenceMediaKind, prepareEvidenceFiles } from '../../utils/evidenceMedia';
 import { normalizeMacAddress } from '../../utils/macAddress';
 import { formatDate, formatTime, normalizeTicketStatus } from '../../utils/tickets';
 
@@ -67,6 +67,24 @@ function normalizeDetailResult(result) {
   return result?.boleta
     ? result
     : { boleta: result, evidencias: result?.Evidencias || [], asignados: result?.asignados || [] };
+}
+
+function ticketImageViewerItem(item = {}, index = 0) {
+  const evidenceId = pick(item, ['EvidenciaID', 'id']);
+  const fileId = pick(item, ['ArchivoFileID', 'ArchivoID', 'fileId']);
+  const directUrl = pick(item, ['ArchivoURL', 'URL', 'url']);
+  const mimeType = pick(item, ['MimeType', 'mimeType']);
+  const alt = pick(item, ['Nombre', 'name'], `Evidencia ${index + 1}`);
+  if (evidenceMediaKind({ mimeType, name: alt }) !== 'image') return null;
+  return {
+    key: String(evidenceId || fileId || index),
+    evidenceId,
+    fileId,
+    directUrl,
+    mimeType,
+    alt,
+    kind: 'evidence',
+  };
 }
 
 export default function TicketDetailPage() {
@@ -370,6 +388,8 @@ export default function TicketDetailPage() {
   if (!data) return <div className="page page--narrow"><div className="alert alert--error"><Icon name="error" /><span>{error || 'No se encontró la boleta.'}</span></div><button className="button button--secondary" type="button" onClick={() => navigate('/boletas/pendientes')}><Icon name="arrow_back" /> Volver</button></div>;
 
   const evidences = data?.evidencias || data?.evidences || [];
+  const imageEvidenceItems = evidences.map(ticketImageViewerItem).filter(Boolean);
+  const imageEvidenceIndexByKey = new Map(imageEvidenceItems.map((item, index) => [item.key, index]));
   const assigned = (data?.asignados || []).map((item) => pick(item, ['NombreCompleto', 'Nombre', 'NombreUsuarioSnapshot', 'NombreUsuario', 'Correo', 'name'])).filter(Boolean).join(', ');
   const status = normalizeTicketStatus(record);
   const displayId = pick(record, ['BoletaID', 'TicketID'], boletaUid);
@@ -418,7 +438,9 @@ export default function TicketDetailPage() {
           const mimeType = pick(item, ['MimeType', 'mimeType']);
           const name = pick(item, ['Nombre', 'name'], `Evidencia ${index + 1}`);
           const note = pick(item, ['Nota', 'note']);
-          return <article className="evidence-detail-card" key={evidenceId || index}><MediaPreview boletaUid={boletaUid} evidenceId={evidenceId} fileId={fileId} directUrl={url} mimeType={mimeType} alt={name} onOpen={(source) => setViewer({ source, alt: name })} /><div><strong>{name}</strong>{note && <p>{note}</p>}{String(pick(item, ['TipoMedio'])).toUpperCase() === 'VIDEO' && <small>Video · {Math.ceil(Number(pick(item, ['DuracionSegundos'], 0)))} s</small>}</div>{canEvidence && <div className="evidence-detail-card__actions"><button type="button" onClick={() => editEvidence(item)} disabled={processing} aria-label={`Editar ${name}`}><Icon name="edit" /></button><button type="button" onClick={() => deleteEvidence(item)} disabled={processing} aria-label={`Eliminar ${name}`}><Icon name="delete" /></button></div>}</article>;
+          const galleryKey = String(evidenceId || fileId || index);
+          const galleryIndex = imageEvidenceIndexByKey.get(galleryKey) ?? 0;
+          return <article className="evidence-detail-card" key={evidenceId || index}><MediaPreview boletaUid={boletaUid} evidenceId={evidenceId} fileId={fileId} directUrl={url} mimeType={mimeType} alt={name} onOpen={() => setViewer({ items: imageEvidenceItems, initialIndex: galleryIndex })} /><div><strong>{name}</strong>{note && <p>{note}</p>}{String(pick(item, ['TipoMedio'])).toUpperCase() === 'VIDEO' && <small>Video · {Math.ceil(Number(pick(item, ['DuracionSegundos'], 0)))} s</small>}</div>{canEvidence && <div className="evidence-detail-card__actions"><button type="button" onClick={() => editEvidence(item)} disabled={processing} aria-label={`Editar ${name}`}><Icon name="edit" /></button><button type="button" onClick={() => deleteEvidence(item)} disabled={processing} aria-label={`Eliminar ${name}`}><Icon name="delete" /></button></div>}</article>;
         })}</div> : <div className="empty-state"><Icon name="perm_media" /><h2>Sin evidencias</h2><p>No hay archivos asociados a esta boleta.</p></div>}
 
         {canEvidence && <form className="evidence-inline-form ticket-detail-evidence-form" onSubmit={uploadEvidence}>
@@ -440,7 +462,7 @@ export default function TicketDetailPage() {
 
       <section className="section-block">
         <div className="section-heading ticket-signature-heading"><div><span className="eyebrow">Conformidad</span><h2>Firma del Cliente</h2></div>{canEdit && !signatureEditorOpen && <button className="button button--secondary button--compact" type="button" onClick={() => { setSignatureDraft(''); setSignatureEditorOpen(true); }}><Icon name="draw" /> {signatureFileId || signatureUrl ? 'Editar firma' : 'Agregar firma'}</button>}</div>
-        {signatureEditorOpen ? <div className="ticket-signature-editor"><SignaturePad value={signatureDraft} onChange={setSignatureDraft} /><div className="ticket-signature-editor__actions"><button className="button button--secondary" type="button" disabled={processing} onClick={() => { setSignatureDraft(''); setSignatureEditorOpen(false); }}><Icon name="close" /> Cancelar</button><button className="button button--primary" type="button" disabled={processing || !signatureDraft} onClick={saveSignature}><Icon name="save" /> {processing ? 'Guardando...' : 'Guardar firma'}</button></div></div> : <div className="signature-display">{signatureFileId || signatureUrl ? <MediaPreview boletaUid={boletaUid} fileId={signatureFileId} kind="signature" directUrl={signatureUrl} mimeType="image/png" alt="Firma del cliente" onOpen={(source) => setViewer({ source, alt: 'Firma del cliente' })} /> : <span><Icon name="draw" /> Firma pendiente</span>}</div>}
+        {signatureEditorOpen ? <div className="ticket-signature-editor"><SignaturePad value={signatureDraft} onChange={setSignatureDraft} /><div className="ticket-signature-editor__actions"><button className="button button--secondary" type="button" disabled={processing} onClick={() => { setSignatureDraft(''); setSignatureEditorOpen(false); }}><Icon name="close" /> Cancelar</button><button className="button button--primary" type="button" disabled={processing || !signatureDraft} onClick={saveSignature}><Icon name="save" /> {processing ? 'Guardando...' : 'Guardar firma'}</button></div></div> : <div className="signature-display">{signatureFileId || signatureUrl ? <MediaPreview boletaUid={boletaUid} fileId={signatureFileId} kind="signature" directUrl={signatureUrl} mimeType="image/png" alt="Firma del cliente" onOpen={() => setViewer({ items: [{ key: 'signature', fileId: signatureFileId, directUrl: signatureUrl, mimeType: 'image/png', alt: 'Firma del cliente', kind: 'signature' }], initialIndex: 0 })} /> : <span><Icon name="draw" /> Firma pendiente</span>}</div>}
       </section>
 
       <section className="document-links"><h2>Documentos</h2><div>{documentUrl && <a className="button button--secondary" href={documentUrl} target="_blank" rel="noreferrer"><Icon name="description" /> Google Doc</a>}{pdfUrl && <a className="button button--secondary" href={pdfUrl} target="_blank" rel="noreferrer"><Icon name="picture_as_pdf" /> PDF</a>}{folderUrl && <a className="button button--secondary" href={folderUrl} target="_blank" rel="noreferrer"><Icon name="folder" /> Carpeta Drive</a>}</div></section>
@@ -451,7 +473,7 @@ export default function TicketDetailPage() {
         {finalized ? <>{pdfUrl && <a className="button button--secondary" href={pdfUrl} target="_blank" rel="noreferrer"><Icon name="picture_as_pdf" /> Abrir PDF</a>}{canResend && <button className="button button--primary button--wide" type="button" onClick={() => finalAction('resend')} disabled={processing}><Icon name="send" /> {processing ? 'Reenviando...' : 'Reenviar a chats'}</button>}{canAdmin && <button className="button button--secondary" type="button" onClick={() => finalAction('pending')} disabled={processing}><Icon name="undo" /> Volver a pendiente</button>}</> : canFinalize && <button className="button button--primary button--wide" type="button" onClick={() => finalAction('finalize')} disabled={processing}><Icon name="task_alt" /> {processing ? 'Procesando...' : 'Finalizar boleta'}</button>}
       </div>
 
-      <ImageViewer open={Boolean(viewer)} source={viewer?.source} alt={viewer?.alt} onClose={() => setViewer(null)} />
+      <ImageViewer boletaUid={boletaUid} open={Boolean(viewer)} items={viewer?.items || []} initialIndex={viewer?.initialIndex || 0} onClose={() => setViewer(null)} />
     </div>
   );
 }

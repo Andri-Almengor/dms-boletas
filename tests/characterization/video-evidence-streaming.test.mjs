@@ -42,10 +42,11 @@ test('imágenes y videos de mantenimiento usan streaming protegido en lugar de B
 });
 
 test('visores priorizan streamUrl para videos', () => {
+  const ticketSource = source('src/services/ticketMediaSource.js');
   const ticketPreview = source('src/components/tickets/MediaPreview.jsx');
   const maintenancePreview = source('src/components/maintenance/MaintenanceEvidenceImage.jsx');
 
-  assert.match(ticketPreview, /data\?\.streamUrl \|\| data\?\.dataUrl/);
+  assert.match(ticketSource, /data\?\.streamUrl \|\| data\?\.dataUrl/);
   assert.match(ticketPreview, /<video src=\{source\} controls preload="metadata"/);
   assert.match(maintenancePreview, /\['streamUrl', 'dataUrl', 'DataURL', 'url'\]/);
   assert.match(maintenancePreview, /<video src=\{source\} controls preload="metadata"/);
