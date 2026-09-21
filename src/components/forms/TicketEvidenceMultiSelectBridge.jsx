@@ -1,18 +1,8 @@
 import React, { useEffect, useRef } from 'react';
 import { useLocation } from 'react-router-dom';
 import { useAuth } from '../../AuthContext';
-import { shouldUseLargeEvidenceUpload, uploadLargeTicketEvidence } from '../../services/largeEvidenceUpload';
-import { MODULE_ROUTES, requestAvailable } from '../../services/moduleApi';
+import { uploadTicketEvidenceItems } from '../../services/ticketEvidenceBatch';
 import { prepareEvidenceFiles } from '../../utils/evidenceMedia';
-
-async function fileToBase64(file) {
-  return new Promise((resolve, reject) => {
-    const reader = new FileReader();
-    reader.onload = () => resolve(String(reader.result || '').split(',')[1] || '');
-    reader.onerror = reject;
-    reader.readAsDataURL(file);
-  });
-}
 
 function ticketIdFromPath(pathname) {
   const match = String(pathname || '').match(/^\/boletas\/([^/]+)\/?$/i);
@@ -226,7 +216,11 @@ export default function TicketEvidenceMultiSelectBridge() {
       const baseName = controls[0]?.value || '';
       const note = controls[1]?.value || '';
       const button = uploadButton(form);
-      let uploadedCount = 0;
+      const uploadItems = items.map((prepared, index) => ({
+        ...prepared,
+        name: prepared.name || evidenceName(prepared, index, items.length, baseName),
+        note: prepared.note ?? note,
+      }));
 
       uploading = true;
       syncSubmissionMode(form);
@@ -235,56 +229,51 @@ export default function TicketEvidenceMultiSelectBridge() {
       });
 
       try {
-        for (let index = 0; index < items.length; index += 1) {
-          const prepared = items[index];
-          const file = prepared.file;
-          const uploadItem = {
-            ...prepared,
-            name: evidenceName(prepared, index, items.length, baseName),
-            note,
-          };
-          button.innerHTML = `<span class="material-symbols-outlined" aria-hidden="true">progress_activity</span><span>Cargando ${index + 1} de ${items.length}...</span>`;
-          renderSelection(form, `Cargando ${index + 1} de ${items.length}...`, 'progress');
-
-          let result;
-          if (shouldUseLargeEvidenceUpload(uploadItem)) {
-            result = await uploadLargeTicketEvidence({ boletaUid, item: uploadItem, sessionToken });
-          } else {
-            result = await requestAvailable(MODULE_ROUTES.tickets.evidenceUpload, {
-              boletaUid,
-              nombre: uploadItem.name,
-              nota: note,
-              fileName: file.name,
-              mimeType: prepared.mimeType,
-              mediaType: prepared.mediaType,
-              durationSeconds: Number(prepared.durationSeconds || 0),
-              size: Number(prepared.size || file.size || 0),
-              base64: await fileToBase64(file),
-            }, sessionToken);
-          }
-          uploadedCount = index + 1;
-          notifyUploadedEvidence(boletaUid, result);
-        }
+        const result = await uploadTicketEvidenceItems({
+          boletaUid,
+          items: uploadItems,
+          sessionToken,
+          onUploaded: (row) => notifyUploadedEvidence(boletaUid, row),
+          onProgress: ({ completed, total, failed }) => {
+            const label = failed
+              ? `Cargando ${completed} de ${total} · ${failed} pendiente(s)`
+              : `Cargando ${completed} de ${total}...`;
+            button.innerHTML = `<span class="material-symbols-outlined" aria-hidden="true">progress_activity</span><span>${label}</span>`;
+            renderSelection(form, label, 'progress');
+          },
+        });
 
         uploading = false;
-        selectedFilesRef.current = [];
-        if (activeInputRef.current) activeInputRef.current.value = '';
         form.querySelectorAll('.ticket-detail-capture-actions .button').forEach((item) => {
           item.disabled = false;
         });
+
+        if (result.failed?.length) {
+          selectedFilesRef.current = result.failedItems || [];
+          button.innerHTML = '<span class="material-symbols-outlined" aria-hidden="true">refresh</span><span>Reintentar carga pendiente</span>';
+          renderSelection(
+            form,
+            `${result.uploaded.length} evidencia(s) se cargaron. Quedan ${result.failed.length} pendiente(s) para reintentar.`,
+            'error',
+          );
+          syncSubmissionMode(form);
+          return;
+        }
+
+        selectedFilesRef.current = [];
+        if (activeInputRef.current) activeInputRef.current.value = '';
         renderSelection(form, 'Todas las evidencias se cargaron correctamente.', 'success');
         syncSubmissionMode(form);
       } catch (error) {
         uploading = false;
-        selectedFilesRef.current = items.slice(uploadedCount);
+        // Los IDs locales asignados por el motor quedan en uploadItems, por lo que
+        // un reintento puede deduplicar cualquier archivo que haya llegado al servidor.
+        selectedFilesRef.current = uploadItems;
         button.innerHTML = '<span class="material-symbols-outlined" aria-hidden="true">refresh</span><span>Reintentar carga pendiente</span>';
         form.querySelectorAll('.ticket-detail-capture-actions .button').forEach((item) => {
           item.disabled = false;
         });
-        const prefix = uploadedCount
-          ? `${uploadedCount} evidencia(s) se cargaron. Quedan ${selectedFilesRef.current.length}. `
-          : '';
-        renderSelection(form, `${prefix}${error?.message || 'No se pudieron cargar todas las evidencias.'}`, 'error');
+        renderSelection(form, error?.message || 'No se pudieron cargar todas las evidencias.', 'error');
         syncSubmissionMode(form);
       }
     }

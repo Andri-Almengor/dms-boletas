@@ -2,7 +2,8 @@ import { fileToBase64 } from '../utils/fileEncoding';
 import { requestAvailable } from './moduleApi';
 import { withMediaUploadPriority } from './mediaActivity';
 
-export const LARGE_EVIDENCE_THRESHOLD_BYTES = 256 * 1024;
+export const LARGE_EVIDENCE_THRESHOLD_BYTES = 6 * 1024 * 1024;
+export const LARGE_EVIDENCE_CHUNK_BYTES = 6 * 1024 * 1024;
 const TICKET_LARGE_INIT_ROUTES = ['boletas.evidence.large.init', 'tickets.evidence.large.init'];
 const TICKET_LARGE_CHUNK_ROUTES = ['boletas.evidence.large.chunk', 'tickets.evidence.large.chunk'];
 const MAINTENANCE_LARGE_INIT_ROUTES = ['maintenance.images.large.init', 'mantenimientos.imagenes.grande.iniciar'];
@@ -18,11 +19,11 @@ function assertOnline() {
   }
 }
 
-export function shouldUseLargeEvidenceUpload(item = {}) {
+export function shouldUseLargeEvidenceUpload(item = {}, { thresholdBytes = LARGE_EVIDENCE_THRESHOLD_BYTES } = {}) {
   const size = Number(item.size || item.file?.size || 0);
   const online = typeof navigator === 'undefined' || navigator.onLine !== false;
   const previouslyRequiredOnline = String(item.mediaType || '').toLowerCase() === 'video' && size > 30 * 1024 * 1024;
-  return previouslyRequiredOnline || (online && size > LARGE_EVIDENCE_THRESHOLD_BYTES);
+  return previouslyRequiredOnline || (online && size > Math.max(256 * 1024, Number(thresholdBytes) || LARGE_EVIDENCE_THRESHOLD_BYTES));
 }
 
 async function uploadByChunks({ initRoutes, chunkRoutes, initPayload, file, sessionToken, signal, onProgress, chunkPayload = {} }) {
@@ -32,7 +33,7 @@ async function uploadByChunks({ initRoutes, chunkRoutes, initPayload, file, sess
     if (init?.complete) return init.evidence || init;
 
     const uploadToken = String(init?.uploadToken || '');
-    const chunkBytes = 256 * 1024;
+    const chunkBytes = Math.max(256 * 1024, Number(init?.chunkBytes || LARGE_EVIDENCE_CHUNK_BYTES));
     if (!uploadToken) throw new Error('El servidor no devolvió una sesión para cargar el video.');
 
     let offset = 0;
@@ -170,7 +171,7 @@ export async function uploadLargeKnowledgeAttachment({
       return init.evidence || init;
     }
     uploadToken = String(init?.uploadToken || '');
-    chunkBytes = Number(init?.chunkBytes || 256 * 1024);
+    chunkBytes = Number(init?.chunkBytes || LARGE_EVIDENCE_CHUNK_BYTES);
     if (!uploadToken) throw new Error('El servidor no devolvió una sesión resumible para el documento.');
     sessionStorage.setItem(storageKey, JSON.stringify({ uploadToken, chunkBytes }));
   } else {
@@ -197,7 +198,7 @@ export async function uploadLargeKnowledgeAttachment({
       throw error;
     }
     assertOnline();
-    const end = Math.min(file.size, offset + Math.max(256 * 1024, chunkBytes || 256 * 1024));
+    const end = Math.min(file.size, offset + Math.max(256 * 1024, chunkBytes || LARGE_EVIDENCE_CHUNK_BYTES));
     const chunk = file.slice(offset, end, file.type || 'application/octet-stream');
     let base64 = await fileToBase64(chunk, { signal });
     let completed = null;

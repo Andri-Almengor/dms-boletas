@@ -45,6 +45,7 @@ export const MODULE_ROUTES = {
     returnPending: ['boletas.returnPending', 'boletas.update', 'tickets.update'],
     annul: ['boletas.annul', 'boletas.update', 'tickets.update'],
     evidenceUpload: ['boletas.evidence.upload', 'tickets.evidence.upload'],
+    evidenceUploadBatch: ['boletas.evidence.uploadBatch', 'tickets.evidence.uploadBatch'],
     evidenceUpdate: ['boletas.evidence.update', 'tickets.evidence.update'],
     evidenceDelete: ['boletas.evidence.delete', 'tickets.evidence.delete'],
     signatureUpload: ['boletas.signature.upload'],

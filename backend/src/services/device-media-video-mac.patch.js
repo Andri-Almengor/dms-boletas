@@ -99,6 +99,11 @@ function validateInlineMedia(payload, options = {}) {
 async function persistTicketEvidenceMetadata(result, metadata, actor) {
   const id = clean(pick(result, ['EvidenciaID', 'evidenciaId', 'id']));
   if (!id) return result;
+  if (
+    clean(result.TipoMedio).toLowerCase() === clean(metadata.mediaType).toLowerCase()
+    && Number(result.DuracionSegundos || 0) === Number(metadata.durationSeconds || 0)
+    && Number(result.TamanoBytes || 0) === Number(metadata.size || 0)
+  ) return result;
   await ensureSheetColumns('EvidenciasBoleta', TICKET_MEDIA_COLUMNS);
   const saved = await updateRow('EvidenciasBoleta', id, {
     TipoMedio: metadata.mediaType,
@@ -173,6 +178,10 @@ if (!maintenanceScalableImageHandlers[INSTALL_FLAG]) {
       const key = clean(pick(row, ['clientKey', 'FotoDispositivoID', 'imageId'], String(index)));
       const metadata = metadataByKey.get(key) || metadataByKey.get(clean(row.FotoDispositivoID));
       if (!metadata || !row.FotoDispositivoID) return null;
+      if (
+        clean(row.TipoMedio).toLowerCase() === clean(metadata.mediaType).toLowerCase()
+        && Number(row.DuracionSegundos || 0) === Number(metadata.durationSeconds || 0)
+      ) return null;
       return {
         idValue: row.FotoDispositivoID,
         patch: {

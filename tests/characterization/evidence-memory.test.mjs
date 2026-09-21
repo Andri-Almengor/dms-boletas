@@ -3,7 +3,7 @@ import assert from 'node:assert/strict';
 import { readFileSync } from 'node:fs';
 import { fileURLToPath } from 'node:url';
 import path from 'node:path';
-import { mapFilesSequentially } from '../../src/utils/fileEncoding.js';
+import { mapFilesSequentially, mapFilesWithConcurrency } from '../../src/utils/fileEncoding.js';
 
 const ROOT = fileURLToPath(new URL('../../', import.meta.url));
 const source = (relativePath) => readFileSync(path.join(ROOT, relativePath), 'utf8');
@@ -26,6 +26,21 @@ test('la preparación de archivos mantiene una sola conversión activa', async (
   assert.deepEqual(result, [10, 20, 30]);
 });
 
+test('la preparación paralela queda estrictamente acotada a dos conversiones', async () => {
+  let active = 0;
+  let maximum = 0;
+  const result = await mapFilesWithConcurrency([1, 2, 3, 4], async (value) => {
+    active += 1;
+    maximum = Math.max(maximum, active);
+    await new Promise((resolve) => setImmediate(resolve));
+    active -= 1;
+    return value * 2;
+  }, { concurrency: 2 });
+
+  assert.equal(maximum, 2);
+  assert.deepEqual(result, [2, 4, 6, 8]);
+});
+
 test('la codificación admite cancelación y limpia listeners del FileReader', () => {
   const encoding = source('src/utils/fileEncoding.js');
   assert.match(encoding, /signal\?\.aborted/);
@@ -33,16 +48,19 @@ test('la codificación admite cancelación y limpia listeners del FileReader', (
   assert.match(encoding, /removeEventListener\('abort'/);
   assert.match(encoding, /reader\.onload = null/);
   assert.match(encoding, /mapFilesSequentially/);
+  assert.match(encoding, /mapFilesWithConcurrency/);
 });
 
-test('mantenimiento conserva límites y evita conversiones paralelas o duplicadas', () => {
+test('mantenimiento conserva límites y usa concurrencia acotada sin conversiones duplicadas', () => {
   const batch = source('src/services/maintenanceImageBatch.js');
 
   assert.match(batch, /MAX_FILES_PER_REQUEST = 10/);
   assert.match(batch, /MAX_RAW_BYTES_PER_REQUEST = 10 \* 1024 \* 1024/);
   assert.match(batch, /MAX_METADATA_UPDATES_PER_REQUEST = 80/);
   assert.match(batch, /prepareUploadChunk/);
-  assert.match(batch, /mapFilesSequentially/);
+  assert.match(batch, /mapFilesWithConcurrency/);
+  assert.match(batch, /PREPARE_CONCURRENCY = 2/);
+  assert.match(batch, /LARGE_UPLOAD_CONCURRENCY = 2/);
   assert.match(batch, /preparedImages/);
   assert.match(batch, /preparedByKey/);
   assert.match(batch, /clearPreparedPayloads/);
@@ -60,15 +78,23 @@ test('el fallback individual reutiliza el Base64 preparado y conserva la cola of
   assert.match(batch, /useFallbackForRemaining = true/);
 });
 
-test('las evidencias de boleta usan IDs idempotentes y carga secuencial', () => {
-  const tickets = source('src/features/tickets/ticketPersistenceService.js');
-  assert.match(tickets, /for \(const item of evidences\)/);
-  assert.match(tickets, /createLocalId\('evidencia'\)/);
-  assert.match(tickets, /evidenciaId: evidenceId/);
-  assert.match(tickets, /EvidenciaID: evidenceId/);
-  assert.match(tickets, /fileToBase64\(item\.file, \{ signal \}\)/);
-  assert.match(tickets, /base64 = ''/);
-  assert.doesNotMatch(tickets, /Promise\.all\(evidences/);
+test('las evidencias de boleta agrupan archivos con preparación paralela acotada', () => {
+  const service = source('src/services/ticketEvidenceBatch.js');
+  const persistence = source('src/features/tickets/ticketPersistenceService.js');
+
+  assert.match(service, /MAX_FILES_PER_REQUEST = 10/);
+  assert.match(service, /MAX_RAW_BYTES_PER_REQUEST = 10 \* 1024 \* 1024/);
+  assert.match(service, /TICKET_BATCH_RESUMABLE_THRESHOLD_BYTES = 10 \* 1024 \* 1024/);
+  assert.match(service, /mapFilesWithConcurrency/);
+  assert.match(service, /PREPARE_CONCURRENCY = 2/);
+  assert.match(service, /LARGE_UPLOAD_CONCURRENCY = 2/);
+  assert.match(service, /createLocalId\('evidencia'\)/);
+  assert.match(service, /clearPayloads/);
+  assert.match(service, /browserIsOffline/);
+  assert.match(service, /uploadLargeTicketEvidence/);
+  assert.doesNotMatch(service, /Promise\.all\(chunk\.map/);
+  assert.match(persistence, /uploadTicketEvidenceItems/);
+  assert.match(persistence, /Promise\.all\(\[signatureTask, evidenceTask\]\)/);
 });
 
 test('la liberación local es compartida e idempotente por archivo', () => {

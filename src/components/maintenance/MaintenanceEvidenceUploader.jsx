@@ -1,9 +1,8 @@
 import React, { useEffect, useRef, useState } from 'react';
 import Icon from '../common/Icon';
 import MaintenanceQuickDeviceCreator from './MaintenanceQuickDeviceCreator';
-import { fileToBase64 } from '../../pages/maintenance/maintenanceFormData';
-import { MODULE_ROUTES, pick, requestAvailable } from '../../services/moduleApi';
-import { shouldUseLargeEvidenceUpload, uploadLargeMaintenanceEvidence } from '../../services/largeEvidenceUpload';
+import { pick } from '../../services/moduleApi';
+import { uploadMaintenanceImagesInBatches } from '../../services/maintenanceImageBatch';
 import {
   createEvidencePreviewUrl,
   prepareEvidenceFiles,
@@ -81,39 +80,29 @@ function DeviceEvidenceUploader({ device, maintenanceId, sessionToken, onClose, 
     setSaving(true);
     setError('');
     try {
-      for (const evidence of evidences) {
-        if (shouldUseLargeEvidenceUpload(evidence)) {
-          await uploadLargeMaintenanceEvidence({
-            maintenanceId,
-            deviceId,
-            imageId: evidence.localId,
-            item: evidence,
-            sessionToken,
-          });
-        } else {
-          await requestAvailable(
-            MODULE_ROUTES.maintenance.imageUpload,
-            {
-              maintenanceId,
-              deviceId,
-              imageId: evidence.localId,
-              FotoDispositivoID: evidence.localId,
-              DispositivoMantenimientoRef: deviceId,
-              Tipo: evidence.type,
-              Nota: evidence.note,
-              fileName: evidence.file.name,
-              mimeType: evidence.mimeType,
-              mediaType: evidence.mediaType,
-              durationSeconds: Number(evidence.durationSeconds || 0),
-              size: Number(evidence.size || evidence.file.size || 0),
-              base64: await fileToBase64(evidence.file),
-            },
-            sessionToken,
-          );
+      const pending = [...evidences];
+      const result = await uploadMaintenanceImagesInBatches({
+        maintenanceId,
+        deviceId,
+        images: pending,
+        sessionToken,
+      });
+      const uploadedKeys = new Set((result.uploaded || []).map((row) => String(
+        row.clientKey || row.FotoDispositivoID || row.id || '',
+      )).filter(Boolean));
+
+      pending.forEach((evidence) => {
+        if (uploadedKeys.has(String(evidence.localId || ''))) {
+          releaseEvidencePreviewUrl(evidence.previewUrl);
         }
-        releaseEvidencePreviewUrl(evidence.previewUrl);
-        setEvidences((current) => current.filter((item) => item.localId !== evidence.localId));
+      });
+      setEvidences((current) => current.filter((item) => !uploadedKeys.has(String(item.localId || ''))));
+
+      if (result.failed?.length) {
+        setError(`${result.failed.length} evidencia(s) no pudieron cargarse. Las pendientes permanecen seleccionadas para reintentarlas.`);
+        return;
       }
+
       await onUploaded?.();
       onClose();
     } catch (uploadError) {

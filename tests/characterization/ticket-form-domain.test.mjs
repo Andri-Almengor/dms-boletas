@@ -145,11 +145,12 @@ test('filtra fabricantes, modelos, supervisores y técnicos sin cambiar etiqueta
 test('la página y los servicios conservan dominio, campos y codificación comunes', () => {
   const page = source('src/pages/tickets/TicketFormPage.jsx');
   const persistence = source('src/features/tickets/ticketPersistenceService.js');
+  const evidenceBatch = source('src/services/ticketEvidenceBatch.js');
   const persistenceHook = source('src/features/tickets/useTicketPersistence.js');
 
   assert.match(page, /features\/tickets\/ticketFormDomain/);
   assert.match(page, /components\/forms\/FormField/);
-  assert.match(persistence, /utils\/fileEncoding/);
+  assert.match(evidenceBatch, /utils\/fileEncoding/);
   assert.match(persistence, /buildTicketPayload/);
   assert.match(persistenceHook, /validateTicketForm/);
   assert.doesNotMatch(page, /function hours\(/);

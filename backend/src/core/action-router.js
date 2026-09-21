@@ -13,6 +13,7 @@ import { crudHandlers } from '../modules/crud.module.js';
 import { clientRelationsHandlers } from '../modules/client-relations.module.js';
 import { customerCaseHandlers } from '../modules/customer-cases.module.js';
 import { ticketMultiHandlers as ticketHandlers } from '../modules/ticket-multi.module.js';
+import { ticketScalableEvidenceHandlers } from '../modules/ticket-scalable-evidence.module.js';
 import { ticketDeliveryHandlers } from '../modules/ticket-delivery.module.js';
 import { ticketGroupSignatureHandlers as ticketSignatureHandlers } from '../modules/ticket-group-signature.module.js';
 import { publicSignatureHandlers } from '../modules/public-signature.module.js';
@@ -181,6 +182,7 @@ for(const [key,names] of Object.entries(ticketAliases)) {
   const handler = ticketDeliveryHandlers[key] || ticketHandlers[key];
   add(names,handler,permission);
 }
+add(['boletas.evidence.uploadBatch','tickets.evidence.uploadBatch'], ticketScalableEvidenceHandlers.uploadBatch, ['BOLETAS_EVIDENCIAS','BOLETAS_EDITAR']);
 add(['boletas.evidence.large.init','tickets.evidence.large.init'], largeEvidenceUploadHandlers.ticketInit, ['BOLETAS_EVIDENCIAS','BOLETAS_EDITAR']);
 add(['boletas.evidence.large.chunk','tickets.evidence.large.chunk'], largeEvidenceUploadHandlers.ticketChunk, ['BOLETAS_EVIDENCIAS','BOLETAS_EDITAR']);
 

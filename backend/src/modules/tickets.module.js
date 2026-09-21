@@ -3,6 +3,7 @@ import {
   appendRows,
   filterRows,
   findById,
+  findRows,
   readTable,
   readTables,
   softDelete,
@@ -306,7 +307,7 @@ export const ticketHandlers = {
     const boletaUid = pick(ctx.payload, ['boletaUid', 'BoletaUID']);
     if (requestedId && !validClientGeneratedId(requestedId)) throw badRequest('El identificador local de la evidencia no es válido.');
     if (requestedId) {
-      const existing = (await readTable('EvidenciasBoleta', { force: true })).find((item) => String(item.EvidenciaID) === requestedId);
+      const existing = (await findRows('EvidenciasBoleta', { EvidenciaID: requestedId }, { limit: 1 }))[0];
       if (existing) {
         if (String(existing.BoletaUID) !== String(boletaUid)) throw badRequest('La evidencia local ya pertenece a otra boleta.');
         return existing;
@@ -324,6 +325,9 @@ export const ticketHandlers = {
       ArchivoURL: file.webViewLink,
       NombreArchivo: file.name,
       MimeType: file.mimeType,
+      TipoMedio: pick(ctx.payload, ['mediaType', 'TipoMedio']),
+      DuracionSegundos: Number(pick(ctx.payload, ['durationSeconds', 'DuracionSegundos'], 0) || 0),
+      TamanoBytes: Number(pick(ctx.payload, ['size', 'TamanoBytes'], file.size || 0) || 0),
       Orden: Number(ctx.payload.orden || 0),
       Activo: true,
       CreadoPor: ctx.user.UsuarioID,

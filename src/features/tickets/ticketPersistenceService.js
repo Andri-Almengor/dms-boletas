@@ -1,7 +1,5 @@
 import { MODULE_ROUTES, pick, requestAvailable } from '../../services/moduleApi';
-import { shouldUseLargeEvidenceUpload, uploadLargeTicketEvidence } from '../../services/largeEvidenceUpload';
-import { fileToBase64 } from '../../utils/fileEncoding';
-import { createLocalId } from '../../utils/localId';
+import { uploadTicketEvidenceItems } from '../../services/ticketEvidenceBatch';
 import { buildTicketPayload, ticketRecordData } from './ticketFormDomain';
 
 function requestOptions(signal) {
@@ -19,51 +17,44 @@ export async function autosaveTicket({ form, boletaUid, sessionToken, signal }) 
 
 export async function uploadTicketAssets({ uid, form, evidences, sessionToken, signal }) {
   const options = requestOptions(signal);
-  if (form.firma?.startsWith('data:image/')) {
-    await requestAvailable(MODULE_ROUTES.tickets.signatureUpload, {
+  const signatureTask = form.firma?.startsWith('data:image/')
+    ? requestAvailable(MODULE_ROUTES.tickets.signatureUpload, {
       boletaUid: uid,
       base64: form.firma.split(',')[1],
       mimeType: 'image/png',
       fileName: `firma_boleta_${uid}.png`,
-    }, sessionToken, options);
+    }, sessionToken, options)
+    : Promise.resolve(null);
+
+  const evidenceTask = evidences?.length
+    ? uploadTicketEvidenceItems({
+      boletaUid: uid,
+      items: evidences,
+      sessionToken,
+      signal,
+    })
+    : Promise.resolve({ uploaded: [], failed: [], failedItems: [], total: 0 });
+
+  const online = typeof navigator === 'undefined' || navigator.onLine !== false;
+  let evidenceResult;
+  if (online) {
+    [, evidenceResult] = await Promise.all([signatureTask, evidenceTask]);
+  } else {
+    await signatureTask;
+    evidenceResult = await evidenceTask;
   }
 
-  const uploaded = [];
-  for (const item of evidences) {
-    const evidenceId = String(item.localId || createLocalId('evidencia'));
-    if (shouldUseLargeEvidenceUpload(item)) {
-      const result = await uploadLargeTicketEvidence({
-        boletaUid: uid,
-        evidenceId,
-        item,
-        sessionToken,
-        signal,
-      });
-      uploaded.push({ evidenceId, result });
-      continue;
-    }
-
-    let base64 = await fileToBase64(item.file, { signal });
-    try {
-      const result = await requestAvailable(MODULE_ROUTES.tickets.evidenceUpload, {
-        boletaUid: uid,
-        evidenciaId: evidenceId,
-        EvidenciaID: evidenceId,
-        nombre: item.name || item.file.name,
-        nota: item.note,
-        fileName: item.file.name,
-        mimeType: item.mimeType,
-        mediaType: item.mediaType,
-        durationSeconds: Number(item.durationSeconds || 0),
-        size: Number(item.size || item.file.size || 0),
-        base64,
-      }, sessionToken, options);
-      uploaded.push({ evidenceId, result });
-    } finally {
-      base64 = '';
-    }
+  if (evidenceResult.failed?.length) {
+    const error = new Error(`${evidenceResult.failed.length} evidencia(s) no pudieron cargarse. Puede reintentar el guardado sin duplicar las que ya se almacenaron.`);
+    error.code = 'TICKET_EVIDENCE_PARTIAL_UPLOAD';
+    error.uploadResult = evidenceResult;
+    throw error;
   }
-  return uploaded;
+
+  return (evidenceResult.uploaded || []).map((row) => ({
+    evidenceId: String(row.EvidenciaID || row.clientKey || ''),
+    result: row,
+  }));
 }
 
 export async function saveTicketBase({

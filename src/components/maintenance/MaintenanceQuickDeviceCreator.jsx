@@ -1,5 +1,3 @@
-import { shouldUseLargeEvidenceUpload, uploadLargeMaintenanceEvidence } from '../../services/largeEvidenceUpload';
-import { createLocalId } from '../../utils/localId';
 import React, { useEffect, useRef, useState } from 'react';
 import Icon from '../common/Icon';
 import ProcessingOverlay from '../feedback/ProcessingOverlay';
@@ -11,10 +9,10 @@ import {
 } from '../../config/dynamicMaintenanceTypes';
 import {
   createMaintenanceDevice,
-  fileToBase64,
   maintenanceDevicePayload,
 } from '../../pages/maintenance/maintenanceFormData';
 import { showMaintenanceDeviceCreatedFeedback } from '../../services/maintenanceDeviceCreatedFeedback';
+import { uploadMaintenanceImagesInBatches } from '../../services/maintenanceImageBatch';
 import { MODULE_ROUTES, normalizeItems, pick, requestAvailable } from '../../services/moduleApi';
 
 function equipmentOption(row) {
@@ -171,29 +169,32 @@ export default function MaintenanceQuickDeviceCreator({
       }
 
       const pendingImages = [...(device.newImages || [])];
-      for (const image of pendingImages) {
-        const uploaded = shouldUseLargeEvidenceUpload(image)
-          ? await uploadLargeMaintenanceEvidence({ maintenanceId, deviceId, imageId: image.localId || createLocalId('image'), item: image, sessionToken })
-          : await requestAvailable(
-          MODULE_ROUTES.maintenance.imageUpload,
-          {
-            maintenanceId,
-            deviceId,
-            DispositivoMantenimientoRef: deviceId,
-            Tipo: image.type,
-            Nota: image.note,
-            fileName: image.file.name,
-            mimeType: image.file.type || 'image/jpeg',
-            base64: await fileToBase64(image.file),
-          },
+      if (pendingImages.length) {
+        const uploadResult = await uploadMaintenanceImagesInBatches({
+          maintenanceId,
+          deviceId,
+          images: pendingImages,
           sessionToken,
-        );
-        offlinePending ||= responseIsOfflinePending(uploaded);
-        if (image.previewUrl) URL.revokeObjectURL(image.previewUrl);
+        });
+        const uploadedKeys = new Set((uploadResult.uploaded || []).map((row) => String(
+          row.clientKey || row.FotoDispositivoID || row.id || '',
+        )).filter(Boolean));
+        offlinePending ||= (uploadResult.uploaded || []).some(responseIsOfflinePending);
+
+        pendingImages.forEach((image) => {
+          if (!uploadedKeys.has(String(image.localId || ''))) return;
+          if (image.previewUrl) URL.revokeObjectURL(image.previewUrl);
+        });
         setDevice((current) => ({
           ...current,
-          newImages: current.newImages.filter((item) => item.localId !== image.localId),
+          newImages: (current.newImages || []).filter((item) => !uploadedKeys.has(String(item.localId || ''))),
         }));
+
+        if (uploadResult.failed?.length) {
+          const error = new Error(`El dispositivo se guardó, pero ${uploadResult.failed.length} evidencia(s) no pudieron cargarse. Las pendientes permanecen en el formulario para reintentarlas.`);
+          error.code = 'MAINTENANCE_EVIDENCE_PARTIAL_UPLOAD';
+          throw error;
+        }
       }
 
       const selectedLocation = equipmentOptions.find((item) => String(item.value) === String(device.ubicacionEquipoId));
