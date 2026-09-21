@@ -359,7 +359,7 @@ export default function MaintenanceDeviceEditor({
           {(device.images || []).map((image) => {
             const imageId = String(image.id || image.FotoDispositivoID || '');
             return <article key={imageId} className="maintenance-device-image-card">
-              <MaintenanceEvidenceImage image={{ ...image, FotoDispositivoID: imageId }} sessionToken={sessionToken} alt={pick(image, ['Nombre'], 'Evidencia')} />
+              <MaintenanceEvidenceImage image={{ ...image, FotoDispositivoID: imageId }} galleryImages={device.images || []} sessionToken={sessionToken} alt={pick(image, ['Nombre'], 'Evidencia')} />
               {canDeleteEvidence && !locked && <button type="button" className="maintenance-image-delete" onClick={() => removeExistingImage(image)} disabled={Boolean(deletingImageId)} aria-label="Eliminar evidencia"><Icon name={deletingImageId === imageId ? 'progress_activity' : 'delete'} /></button>}
               <label><span>Tipo</span><select value={pick(image, ['Tipo'], 'Antes')} onChange={(event) => updateExistingImage(image.id, { Tipo: event.target.value })} disabled={locked}><option>Antes</option><option>Despues</option></select></label>
               <label><span>Nota</span><input value={pick(image, ['Nota'])} onChange={(event) => updateExistingImage(image.id, { Nota: event.target.value })} placeholder="Descripción opcional" disabled={locked} /></label>
