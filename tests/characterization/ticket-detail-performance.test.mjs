@@ -155,7 +155,8 @@ test('tickets.get tiene single-flight por boleta y sesión sin afectar candidato
 test('CRUD y carga múltiple de evidencias no recargan la SPA completa', () => {
   assert.doesNotMatch(multiUpload, /window\.location\.reload/);
   assert.match(multiUpload, /dms-ticket-evidence-uploaded/);
-  assert.match(multiUpload, /items\.slice\(uploadedCount\)/);
+  assert.match(multiUpload, /uploadTicketEvidenceItems/);
+  assert.match(multiUpload, /failedItems/);
   assert.match(detailPage, /patchEvidence\(result\)/);
   assert.match(detailPage, /removeEvidence\(evidenceId\)/);
 });
