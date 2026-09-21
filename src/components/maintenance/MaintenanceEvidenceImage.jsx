@@ -71,6 +71,7 @@ export default function MaintenanceEvidenceImage({
   const [fullSource, setFullSource] = useState('');
   const [loadingFallback, setLoadingFallback] = useState(false);
   const [loadingFullSource, setLoadingFullSource] = useState(false);
+  const [showingPreview, setShowingPreview] = useState(false);
   const [fullError, setFullError] = useState(false);
   const [failed, setFailed] = useState(false);
   const [open, setOpen] = useState(false);
@@ -92,6 +93,7 @@ export default function MaintenanceEvidenceImage({
 
   const activeImage = gallery[activeIndex] || image;
   const activeAlt = pick(activeImage, ['Nombre', 'NombreArchivo'], alt);
+  const activePreviewSource = evidenceSource(activeImage);
   const canGoPrevious = activeIndex > 0;
   const canGoNext = activeIndex < gallery.length - 1;
 
@@ -147,32 +149,43 @@ export default function MaintenanceEvidenceImage({
     fullImageRequestRef.current = requestVersion;
 
     setActiveIndex(index);
-    setFullSource('');
+    setFullSource(fallback || '');
+    setShowingPreview(Boolean(fallback && nextId));
     setFullError(false);
-    setLoadingFullSource(true);
+    setLoadingFullSource(Boolean(nextId));
     resetZoom();
 
     if (!nextId) {
-      setFullSource(fallback || '');
       setFullError(!fallback);
       setLoadingFullSource(false);
+      setShowingPreview(false);
       return;
     }
 
     try {
       const protectedSource = await requestProtectedSource(nextId, sessionToken, force);
       if (fullImageRequestRef.current === requestVersion) {
-        setFullSource(protectedSource || fallback || '');
-        setFullError(!(protectedSource || fallback));
+        const nextSource = protectedSource || fallback || '';
+        setFullSource(nextSource);
+        setShowingPreview(Boolean(fallback && !protectedSource));
+        setFullError(!nextSource);
+        if (!protectedSource) setLoadingFullSource(false);
       }
     } catch {
       if (fullImageRequestRef.current === requestVersion) {
         setFullSource(fallback || '');
+        setShowingPreview(Boolean(fallback));
         setFullError(!fallback);
+        setLoadingFullSource(false);
       }
-    } finally {
-      if (fullImageRequestRef.current === requestVersion) setLoadingFullSource(false);
     }
+  }
+
+  function warmCurrentFullImage() {
+    const target = gallery[ownGalleryIndex] || image;
+    const targetId = evidenceId(target);
+    if (!targetId) return;
+    requestProtectedSource(targetId, sessionToken).catch(() => {});
   }
 
   function openFullImage() {
@@ -185,6 +198,7 @@ export default function MaintenanceEvidenceImage({
     fullImageRequestRef.current += 1;
     setOpen(false);
     setFullSource('');
+    setShowingPreview(false);
     setFullError(false);
     setLoadingFullSource(false);
     resetZoom();
@@ -232,6 +246,7 @@ export default function MaintenanceEvidenceImage({
     setFailed(false);
     setOpen(false);
     setFullSource('');
+    setShowingPreview(false);
     setFullError(false);
     setLoadingFullSource(false);
     setSource(kind === 'video' ? '' : initialSource);
@@ -243,6 +258,13 @@ export default function MaintenanceEvidenceImage({
 
   useEffect(() => {
     if (!open) return undefined;
+
+    [activeIndex - 1, activeIndex + 1].forEach((index) => {
+      const neighbor = gallery[index];
+      const neighborId = neighbor && evidenceId(neighbor);
+      if (neighborId) requestProtectedSource(neighborId, sessionToken).catch(() => {});
+    });
+
     const previousOverflow = document.body.style.overflow;
     document.body.style.overflow = 'hidden';
 
@@ -282,7 +304,14 @@ export default function MaintenanceEvidenceImage({
 
   return (
     <>
-      <button type="button" className="maintenance-evidence-image" onClick={openFullImage} aria-label="Abrir evidencia en tamaño completo">
+      <button
+        type="button"
+        className="maintenance-evidence-image"
+        onClick={openFullImage}
+        onPointerEnter={warmCurrentFullImage}
+        onFocus={warmCurrentFullImage}
+        aria-label="Abrir evidencia en tamaño completo"
+      >
         {source ? (
           <img
             src={source}
@@ -334,6 +363,17 @@ export default function MaintenanceEvidenceImage({
                 alt={activeAlt}
                 referrerPolicy="no-referrer"
                 draggable="false"
+                onLoad={() => { if (!showingPreview) setLoadingFullSource(false); }}
+                onError={() => {
+                  setLoadingFullSource(false);
+                  if (!showingPreview && activePreviewSource) {
+                    setFullSource(activePreviewSource);
+                    setShowingPreview(true);
+                    setFullError(false);
+                  } else {
+                    setFullError(true);
+                  }
+                }}
                 onDoubleClick={toggleZoom}
                 style={{ transform: `translate3d(${pan.x}px, ${pan.y}px, 0) scale(${zoom})` }}
               />
@@ -347,6 +387,13 @@ export default function MaintenanceEvidenceImage({
               <span className="maintenance-lightbox__loading"><Icon name="progress_activity" /> {loadingFullSource ? 'Cargando imagen original...' : 'Preparando imagen original...'}</span>
             )}
           </div>
+
+          {loadingFullSource && fullSource && (
+            <div className="maintenance-lightbox__quality-loading" role="status">
+              <Icon name="progress_activity" />
+              <span>{showingPreview ? 'Mejorando calidad…' : 'Cargando imagen original…'}</span>
+            </div>
+          )}
 
           <div className="maintenance-lightbox__zoom-controls" aria-label="Controles de zoom">
             <button type="button" onClick={() => zoomBy(-ZOOM_STEP)} disabled={zoom <= MIN_ZOOM} aria-label="Alejar"><Icon name="zoom_out" /></button>

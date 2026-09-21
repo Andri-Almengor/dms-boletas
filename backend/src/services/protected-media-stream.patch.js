@@ -49,7 +49,7 @@ function maintenanceStreamResult(row, ctx) {
   const fileId = clean(pick(row, ['DriveFileID', 'ArchivoID', 'ArchivoFileID']));
   if (!fileId) throw notFound('La evidencia no tiene un archivo asociado.');
   const imageId = clean(row.FotoDispositivoID);
-  const mimeType = row.MimeType || 'video/mp4';
+  const mimeType = row.MimeType || (isVideo(row) ? 'video/mp4' : 'image/jpeg');
   return {
     FotoDispositivoID: imageId,
     fileId,
@@ -62,6 +62,7 @@ function maintenanceStreamResult(row, ctx) {
       kind: 'maintenance-media',
       userId: ctx.user?.UsuarioID,
       sessionToken: ctx.sessionToken,
+      fileName: clean(row.Nombre),
     }),
   };
 }
@@ -120,7 +121,10 @@ if (!maintenanceProgressChatHandlers[INSTALL_FLAG]) {
     const imageId = clean(pick(ctx.payload, ['imageId', 'FotoDispositivoID', 'id']));
     if (imageId) {
       const row = await findById('Mantenimiento imagenes', imageId);
-      if (isVideo(row)) return maintenanceStreamResult(row, ctx);
+      const fileId = clean(pick(row, ['DriveFileID', 'ArchivoID', 'ArchivoFileID']));
+      // Imágenes y videos usan el mismo streaming protegido. Evita descargar
+      // el archivo completo en Node y convertirlo a Base64 antes de responder.
+      if (isActive(row) && fileId) return maintenanceStreamResult(row, ctx);
     }
     return originalMediaGet(ctx);
   };
