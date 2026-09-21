@@ -12,6 +12,7 @@ import {
   agendaRequiresTicket as frontendRequiresTicket,
   calendarDays,
   calendarMonthRange,
+  sortAgendaDatesNewestFirst,
 } from '../../src/features/agenda/agendaDomain.js';
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
@@ -30,6 +31,11 @@ assert.equal(frontendRequiresTicket('Mantenimiento de cámaras'), true);
 const range = calendarMonthRange('2026-08');
 assert.deepEqual(range, { from: '2026-07-27', to: '2026-09-06' });
 assert.equal(calendarDays('2026-08').length, 42);
+assert.deepEqual(
+  sortAgendaDatesNewestFirst(['2026-09-01', '2026-09-21', '2026-09-08', '2026-09-20']),
+  ['2026-09-21', '2026-09-20', '2026-09-08', '2026-09-01'],
+  'La vista móvil debe mostrar primero la fecha más reciente del período.',
+);
 
 const agendas = [
   {
@@ -150,6 +156,7 @@ assert.match(appSource, /path="agenda"/);
 assert.match(agendaPageSource, /Separar por persona/);
 assert.match(agendaPageSource, /Puede agregar varias agendas con la misma fecha/);
 assert.match(agendaPageSource, /AgendaClientAssignment/);
+assert.match(agendaPageSource, /sortAgendaDatesNewestFirst\(grouped\.keys\(\)\)/);
 assert.doesNotMatch(agendaPageSource, /clients\.list/);
 assert.doesNotMatch(agendaPageSource, /sortedClients/);
 assert.doesNotMatch(agendaPageSource, /updateClient/);
