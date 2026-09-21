@@ -13,6 +13,7 @@ const TICKET_MUTATIONS = new Set([
   'boletas.finalize', 'tickets.finalize',
   'boletas.returnPending', 'boletas.annul',
   'boletas.evidence.upload', 'tickets.evidence.upload',
+  'boletas.evidence.uploadBatch', 'tickets.evidence.uploadBatch',
   'boletas.evidence.update', 'tickets.evidence.update',
   'boletas.evidence.delete', 'tickets.evidence.delete',
   'boletas.signature.upload',
