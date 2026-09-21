@@ -7,7 +7,7 @@ import path from 'node:path';
 const ROOT = fileURLToPath(new URL('../../', import.meta.url));
 const source = (relativePath) => readFileSync(path.join(ROOT, relativePath), 'utf8');
 
-test('la carga reanudable reduce viajes usando bloques de 4 MiB', () => {
+test('la carga reanudable reduce viajes usando bloques de 6 MiB', () => {
   const client = source('src/services/largeEvidenceUpload.js');
   const backend = source('backend/src/services/large-evidence-upload.service.js');
 
@@ -30,7 +30,9 @@ test('boletas agrupan evidencias, suben a Drive con concurrencia acotada e inser
 
   assert.match(client, /MAX_FILES_PER_REQUEST = 10/);
   assert.match(client, /MAX_RAW_BYTES_PER_REQUEST = 10 \* 1024 \* 1024/);
-  assert.match(client, /mapFilesSequentially/);
+  assert.match(client, /mapFilesWithConcurrency/);
+  assert.match(client, /PREPARE_CONCURRENCY = 2/);
+  assert.match(client, /LARGE_UPLOAD_CONCURRENCY = 2/);
   assert.match(client, /boletas\.evidence\.uploadBatch/);
   assert.match(backend, /mapWithConcurrency/);
   assert.match(backend, /env\.ticketEvidenceUploadConcurrency/);
@@ -62,6 +64,9 @@ test('mantenimientos usan lotes en edición, alta rápida y carga rápida de evi
   const backend = source('backend/src/modules/maintenance-scalable-images.module.js');
 
   assert.match(batch, /MAINTENANCE_BATCH_RESUMABLE_THRESHOLD_BYTES = MAX_RAW_BYTES_PER_REQUEST/);
+  assert.match(batch, /mapFilesWithConcurrency/);
+  assert.match(batch, /PREPARE_CONCURRENCY = 2/);
+  assert.match(batch, /LARGE_UPLOAD_CONCURRENCY = 2/);
   assert.match(batch, /thresholdBytes: MAINTENANCE_BATCH_RESUMABLE_THRESHOLD_BYTES/);
   assert.match(persistence, /Promise\.all\(\[/);
   assert.match(persistence, /updateMaintenanceImagesInBatches/);

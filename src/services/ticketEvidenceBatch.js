@@ -1,5 +1,5 @@
 import { apiRequest } from '../api';
-import { fileToBase64, mapFilesSequentially } from '../utils/fileEncoding';
+import { fileToBase64, mapFilesWithConcurrency } from '../utils/fileEncoding';
 import { createLocalId } from '../utils/localId';
 import {
   shouldUseLargeEvidenceUpload,
@@ -11,6 +11,8 @@ import { isAbortError, isNetworkError } from './requestErrors';
 const BATCH_ROUTES = ['boletas.evidence.uploadBatch', 'tickets.evidence.uploadBatch'];
 const MAX_FILES_PER_REQUEST = 10;
 const MAX_RAW_BYTES_PER_REQUEST = 10 * 1024 * 1024;
+const PREPARE_CONCURRENCY = 2;
+const LARGE_UPLOAD_CONCURRENCY = 2;
 export const TICKET_BATCH_RESUMABLE_THRESHOLD_BYTES = 10 * 1024 * 1024;
 
 let batchAvailable = null;
@@ -96,10 +98,33 @@ function payloadFor(item, base64) {
 }
 
 async function prepareChunk(items, signal) {
-  return mapFilesSequentially(items, async (item) => payloadFor(
+  return mapFilesWithConcurrency(items, async (item) => payloadFor(
     item,
     await fileToBase64(item.file, { signal }),
-  ), { signal });
+  ), { signal, concurrency: PREPARE_CONCURRENCY });
+}
+
+async function mapWithConcurrency(items, concurrency, worker) {
+  const results = new Array(items.length);
+  let nextIndex = 0;
+
+  async function run() {
+    while (nextIndex < items.length) {
+      const index = nextIndex;
+      nextIndex += 1;
+      try {
+        results[index] = { status: 'fulfilled', value: await worker(items[index], index) };
+      } catch (error) {
+        results[index] = { status: 'rejected', reason: error };
+      }
+    }
+  }
+
+  await Promise.all(Array.from(
+    { length: Math.min(Math.max(1, concurrency), Math.max(1, items.length)) },
+    () => run(),
+  ));
+  return results;
 }
 
 function clearPayloads(items = []) {
@@ -284,9 +309,11 @@ export async function uploadTicketEvidenceItems({
     }
   }
 
-  for (const item of resumable) {
-    const evidenceId = ensureEvidenceId(item);
-    try {
+  const resumableResults = await mapWithConcurrency(
+    resumable,
+    LARGE_UPLOAD_CONCURRENCY,
+    async (item) => {
+      const evidenceId = ensureEvidenceId(item);
       const row = await uploadLargeTicketEvidence({
         boletaUid,
         evidenceId,
@@ -294,25 +321,33 @@ export async function uploadTicketEvidenceItems({
         sessionToken,
         signal,
       });
-      const normalized = { ...row, clientKey: evidenceId };
+      return { item, evidenceId, row };
+    },
+  );
+
+  for (let index = 0; index < resumableResults.length; index += 1) {
+    const result = resumableResults[index];
+    const item = resumable[index];
+    const evidenceId = ensureEvidenceId(item);
+    if (result?.status === 'fulfilled') {
+      const normalized = { ...result.value.row, clientKey: evidenceId };
       uploaded.push(normalized);
       onUploaded?.(normalized, item);
-    } catch (error) {
-      if (isAbortError(error)) throw error;
+    } else {
+      if (isAbortError(result?.reason)) throw result.reason;
       failed.push({
         clientKey: evidenceId,
         fileName: item.file?.name,
-        message: error.message || 'No se pudo cargar la evidencia.',
+        message: result?.reason?.message || 'No se pudo cargar la evidencia.',
       });
       progressState.failed += 1;
-    } finally {
-      progressState.completed += 1;
-      onProgress?.({
-        completed: progressState.completed,
-        total: progressState.total,
-        failed: progressState.failed,
-      });
     }
+    progressState.completed += 1;
+    onProgress?.({
+      completed: progressState.completed,
+      total: progressState.total,
+      failed: progressState.failed,
+    });
   }
 
   const failedKeys = new Set(failed.map((item) => clean(item.clientKey)));

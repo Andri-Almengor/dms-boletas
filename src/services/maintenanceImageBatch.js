@@ -1,5 +1,5 @@
 import { apiRequest } from '../api';
-import { fileToBase64, mapFilesSequentially } from '../utils/fileEncoding';
+import { fileToBase64, mapFilesWithConcurrency } from '../utils/fileEncoding';
 import { shouldUseLargeEvidenceUpload, uploadLargeMaintenanceEvidence } from './largeEvidenceUpload';
 import { MODULE_ROUTES, pick, requestAvailable } from './moduleApi';
 import { maintenanceImageSyncBase, withSyncBase } from './maintenanceSyncBase';
@@ -9,6 +9,8 @@ const IMAGE_UPLOAD_BATCH_ROUTES = ['maintenance.images.uploadBatch', 'mantenimie
 const IMAGE_UPDATE_BATCH_ROUTES = ['maintenance.images.updateBatch', 'mantenimientos.imagenes.actualizarLote'];
 const MAX_FILES_PER_REQUEST = 10;
 const MAX_RAW_BYTES_PER_REQUEST = 10 * 1024 * 1024;
+const PREPARE_CONCURRENCY = 2;
+const LARGE_UPLOAD_CONCURRENCY = 2;
 export const MAINTENANCE_BATCH_RESUMABLE_THRESHOLD_BYTES = MAX_RAW_BYTES_PER_REQUEST;
 const MAX_METADATA_UPDATES_PER_REQUEST = 80;
 
@@ -108,10 +110,33 @@ function imageMetadataPayload(image, maintenanceId, deviceId) {
 }
 
 async function prepareUploadChunk(images, signal) {
-  return mapFilesSequentially(images, async (image) => imagePayload(
+  return mapFilesWithConcurrency(images, async (image) => imagePayload(
     image,
     await fileToBase64(image.file, { signal }),
-  ), { signal });
+  ), { signal, concurrency: PREPARE_CONCURRENCY });
+}
+
+async function mapWithConcurrency(items, concurrency, worker) {
+  const results = new Array(items.length);
+  let nextIndex = 0;
+
+  async function run() {
+    while (nextIndex < items.length) {
+      const index = nextIndex;
+      nextIndex += 1;
+      try {
+        results[index] = { status: 'fulfilled', value: await worker(items[index], index) };
+      } catch (error) {
+        results[index] = { status: 'rejected', reason: error };
+      }
+    }
+  }
+
+  await Promise.all(Array.from(
+    { length: Math.min(Math.max(1, concurrency), Math.max(1, items.length)) },
+    () => run(),
+  ));
+  return results;
 }
 
 function clearPreparedPayloads(items = []) {
@@ -164,8 +189,10 @@ async function uploadFallback({
 async function uploadLargeVideos({ maintenanceId, deviceId, images, sessionToken, signal }) {
   const uploaded = [];
   const failed = [];
-  for (const image of images) {
-    try {
+  const results = await mapWithConcurrency(
+    images,
+    LARGE_UPLOAD_CONCURRENCY,
+    async (image) => {
       const result = await uploadLargeMaintenanceEvidence({
         maintenanceId,
         deviceId,
@@ -174,12 +201,23 @@ async function uploadLargeVideos({ maintenanceId, deviceId, images, sessionToken
         sessionToken,
         signal,
       });
-      uploaded.push({ ...uploadedView(result, maintenanceId), clientKey: image.localId });
-    } catch (error) {
-      if (isAbortError(error)) throw error;
-      failed.push({ clientKey: image.localId, fileName: image.file?.name, message: error.message });
+      return { image, result };
+    },
+  );
+
+  results.forEach((entry, index) => {
+    const image = images[index];
+    if (entry?.status === 'fulfilled') {
+      uploaded.push({ ...uploadedView(entry.value.result, maintenanceId), clientKey: image.localId });
+      return;
     }
-  }
+    if (isAbortError(entry?.reason)) throw entry.reason;
+    failed.push({
+      clientKey: image.localId,
+      fileName: image.file?.name,
+      message: entry?.reason?.message || 'No se pudo cargar la evidencia.',
+    });
+  });
   return { uploaded, failed };
 }
 

@@ -57,3 +57,28 @@ export async function mapFilesSequentially(items = [], mapper, { signal } = {}) 
   }
   return results;
 }
+
+
+export async function mapFilesWithConcurrency(items = [], mapper, {
+  signal,
+  concurrency = 2,
+} = {}) {
+  const results = new Array(items.length);
+  let nextIndex = 0;
+  const workerCount = Math.min(
+    Math.max(1, Number(concurrency) || 1),
+    Math.max(1, items.length),
+  );
+
+  async function worker() {
+    while (nextIndex < items.length) {
+      if (signal?.aborted) throw fileAbortError();
+      const index = nextIndex;
+      nextIndex += 1;
+      results[index] = await mapper(items[index], index);
+    }
+  }
+
+  await Promise.all(Array.from({ length: workerCount }, () => worker()));
+  return results;
+}

@@ -2,8 +2,8 @@ import { fileToBase64 } from '../utils/fileEncoding';
 import { requestAvailable } from './moduleApi';
 import { withMediaUploadPriority } from './mediaActivity';
 
-export const LARGE_EVIDENCE_THRESHOLD_BYTES = 4 * 1024 * 1024;
-export const LARGE_EVIDENCE_CHUNK_BYTES = 4 * 1024 * 1024;
+export const LARGE_EVIDENCE_THRESHOLD_BYTES = 6 * 1024 * 1024;
+export const LARGE_EVIDENCE_CHUNK_BYTES = 6 * 1024 * 1024;
 const TICKET_LARGE_INIT_ROUTES = ['boletas.evidence.large.init', 'tickets.evidence.large.init'];
 const TICKET_LARGE_CHUNK_ROUTES = ['boletas.evidence.large.chunk', 'tickets.evidence.large.chunk'];
 const MAINTENANCE_LARGE_INIT_ROUTES = ['maintenance.images.large.init', 'mantenimientos.imagenes.grande.iniciar'];

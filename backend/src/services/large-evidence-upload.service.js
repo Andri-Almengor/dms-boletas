@@ -10,9 +10,9 @@ import { getConfig } from '../modules/config.module.js';
 import { ensureSheetColumns } from './sheet-columns.service.js';
 import { validateEvidenceMediaPayload } from './evidence-media-policy.service.js';
 
-export const LARGE_VIDEO_THRESHOLD_BYTES = 4 * 1024 * 1024;
+export const LARGE_VIDEO_THRESHOLD_BYTES = 6 * 1024 * 1024;
 export const LARGE_VIDEO_MAX_BYTES = 300 * 1024 * 1024;
-export const LARGE_VIDEO_CHUNK_BYTES = 4 * 1024 * 1024;
+export const LARGE_VIDEO_CHUNK_BYTES = 6 * 1024 * 1024;
 const UPLOAD_TOKEN_TTL_MS = 4 * 60 * 60 * 1000;
 const DRIVE_RESUMABLE_PREFIX = 'https://www.googleapis.com/upload/drive/v3/files?uploadType=resumable';
 const TICKET_MEDIA_COLUMNS = ['TipoMedio', 'DuracionSegundos', 'TamanoBytes'];
