@@ -30,6 +30,17 @@ test('videos protegidos se reproducen por streaming y no como DataURL gigante', 
   assert.match(stream, /Readable\.fromWeb\(upstream\.body\)/);
 });
 
+test('imágenes y videos de mantenimiento usan streaming protegido en lugar de Base64', () => {
+  const patch = source('backend/src/services/protected-media-stream.patch.js');
+  const maintenance = source('backend/src/modules/maintenance.module.js');
+
+  assert.match(patch, /if \(isActive\(row\) && fileId\) return maintenanceStreamResult\(row, ctx\)/);
+  assert.match(patch, /kind: 'maintenance-media'/);
+  assert.match(patch, /fileName: clean\(row\.Nombre\)/);
+  assert.match(maintenance, /downloadAsDataUrl/);
+  assert.doesNotMatch(patch, /downloadAsDataUrl/);
+});
+
 test('visores priorizan streamUrl para videos', () => {
   const ticketPreview = source('src/components/tickets/MediaPreview.jsx');
   const maintenancePreview = source('src/components/maintenance/MaintenanceEvidenceImage.jsx');
