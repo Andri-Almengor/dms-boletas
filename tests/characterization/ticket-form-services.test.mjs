@@ -84,6 +84,7 @@ test('la creación rápida conserva todos los tipos y actualiza el catálogo loc
 test('la persistencia conserva autosave, archivos y acciones finales', () => {
   const hook = source('src/features/tickets/useTicketPersistence.js');
   const service = source('src/features/tickets/ticketPersistenceService.js');
+  const evidenceBatch = source('src/services/ticketEvidenceBatch.js');
 
   assert.match(hook, /1800/);
   assert.match(hook, /validateTicketForm/);
@@ -98,9 +99,10 @@ test('la persistencia conserva autosave, archivos y acciones finales', () => {
   assert.ok(navigation > routeDelete, 'La navegación debe esperar a que ambos borradores hayan sido eliminados');
   assert.match(service, /MODULE_ROUTES\.tickets\.autosave/);
   assert.match(service, /MODULE_ROUTES\.tickets\.signatureUpload/);
-  assert.match(service, /MODULE_ROUTES\.tickets\.evidenceUpload/);
-  assert.match(service, /for \(const item of evidences\)/);
-  assert.match(service, /fileToBase64/);
+  assert.match(service, /uploadTicketEvidenceItems/);
+  assert.match(evidenceBatch, /MODULE_ROUTES\.tickets\.evidenceUpload/);
+  assert.match(evidenceBatch, /fileToBase64/);
+  assert.match(evidenceBatch, /LARGE_UPLOAD_CONCURRENCY = 2/);
   assert.match(service, /MODULE_ROUTES\.tickets\.finalize/);
   assert.match(service, /MODULE_ROUTES\.tickets\.testFinalize/);
   assert.match(service, /MODULE_ROUTES\.tickets\.generatePdf/);
