@@ -330,4 +330,8 @@
   .maintenance-location-device-table tbody > tr {
     transition: none;
   }
+
+  .maintenance-lightbox__quality-loading .material-symbols-outlined {
+    animation: none;
+  }
 }
