@@ -69,6 +69,7 @@ export const MODULE_ROUTES = {
     mediaGet: ['maintenance.media.get', 'mantenimientos.media.get'],
     spreadsheetReport: ['maintenance.report.spreadsheet', 'mantenimientos.reporte.excel'],
     slidesReport: ['maintenance.report.slides', 'mantenimientos.reporte.presentacion'],
+    signatureReset: ['maintenance.signature.reset', 'mantenimientos.firma.eliminar'],
     config: ['maintenance.config', 'mantenimientos.config'],
   },
   clients: {
