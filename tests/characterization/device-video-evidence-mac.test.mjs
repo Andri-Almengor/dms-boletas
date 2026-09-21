@@ -48,21 +48,18 @@ test('boletas permiten grabar, seleccionar, validar y reproducir videos de hasta
   assert.match(detail, /Grabar video/);
   assert.match(detail, /Tomar foto/);
   assert.match(detail, /Seleccionar archivo/);
-  assert.match(detail, /shouldUseLargeEvidenceUpload\(evidenceForm\)/);
-  assert.match(detail, /uploadLargeTicketEvidence/);
+  assert.match(detail, /uploadTicketEvidenceItems/);
   assert.match(detail, /hasta 300 MB/);
   assert.match(multiSelect, /Seleccionar varios archivos/);
   assert.match(multiSelect, /prepareEvidenceFiles\(files, \{ allowDocuments: true \}\)/);
-  assert.match(multiSelect, /shouldUseLargeEvidenceUpload\(uploadItem\)/);
-  assert.match(multiSelect, /uploadLargeTicketEvidence/);
+  assert.match(multiSelect, /uploadTicketEvidenceItems/);
   assert.match(multiSelect, /mediaType: prepared\.mediaType/);
   assert.match(multiSelect, /durationSeconds: Number\(prepared\.durationSeconds/);
   assert.doesNotMatch(multiSelect, /actionButtons\[1\]/);
   assert.doesNotMatch(multiSelect, /dmsOriginalLabel/);
   assert.match(preview, /knownKind === 'video'/);
   assert.match(preview, /<video src=\{fullSource\} controls/);
-  assert.match(persistence, /shouldUseLargeEvidenceUpload\(item\)/);
-  assert.match(persistence, /uploadLargeTicketEvidence/);
+  assert.match(persistence, /uploadTicketEvidenceItems/);
   assert.match(persistence, /mediaType: item\.mediaType/);
   assert.match(persistence, /durationSeconds: Number\(item\.durationSeconds/);
 });
@@ -79,13 +76,14 @@ test('mantenimientos aceptan videos grandes en editor, carga rápida y lotes', (
   assert.match(uploader, /prepareEvidenceFiles\(selected, \{ allowDocuments: false \}\)/);
   assert.match(uploader, /1 minuto y 30 segundos/);
   assert.match(uploader, /300 MB/);
-  assert.match(uploader, /shouldUseLargeEvidenceUpload\(evidence\)/);
-  assert.match(uploader, /uploadLargeMaintenanceEvidence/);
+  assert.match(uploader, /uploadMaintenanceImagesInBatches/);
   assert.match(uploader, /Video ·/);
   assert.match(viewer, /kind === 'video'/);
   assert.match(viewer, /Cargando video/);
   assert.match(batches, /MAX_RAW_BYTES_PER_REQUEST = 10 \* 1024 \* 1024/);
-  assert.match(batches, /largeVideos = images\.filter\(shouldUseLargeEvidenceUpload\)/);
+  assert.match(batches, /MAINTENANCE_BATCH_RESUMABLE_THRESHOLD_BYTES = MAX_RAW_BYTES_PER_REQUEST/);
+  assert.match(batches, /largeUploads = images\.filter/);
+  assert.match(batches, /thresholdBytes: MAINTENANCE_BATCH_RESUMABLE_THRESHOLD_BYTES/);
   assert.match(batches, /uploadLargeMaintenanceEvidence/);
   assert.match(batches, /regularImages = images\.filter/);
   assert.match(batches, /mediaType: image\.mediaType/);
@@ -93,20 +91,21 @@ test('mantenimientos aceptan videos grandes en editor, carga rápida y lotes', (
   assert.match(batches, /size: Number\(image\.size/);
 });
 
-test('las evidencias mayores de 256 KiB usan carga reanudable en bloques de 256 KiB', () => {
+test('las evidencias grandes usan carga reanudable en bloques de 4 MiB', () => {
   const frontend = source('src/services/largeEvidenceUpload.js');
   const backend = source('backend/src/services/large-evidence-upload.service.js');
   const router = source('backend/src/core/action-router.js');
   const google = source('backend/src/infra/google.js');
 
   assert.doesNotThrow(() => syntaxCheck('backend/src/services/large-evidence-upload.service.js'));
-  assert.match(frontend, /LARGE_EVIDENCE_THRESHOLD_BYTES = 256 \* 1024/);
+  assert.match(frontend, /LARGE_EVIDENCE_THRESHOLD_BYTES = 4 \* 1024 \* 1024/);
+  assert.match(frontend, /LARGE_EVIDENCE_CHUNK_BYTES = 4 \* 1024 \* 1024/);
   assert.match(frontend, /file\.slice\(offset, end/);
   assert.match(frontend, /fileToBase64\(chunk/);
   assert.match(frontend, /cargas por bloques necesitan conexión a internet/i);
-  assert.match(backend, /LARGE_VIDEO_THRESHOLD_BYTES = 256 \* 1024/);
+  assert.match(backend, /LARGE_VIDEO_THRESHOLD_BYTES = 4 \* 1024 \* 1024/);
   assert.match(backend, /LARGE_VIDEO_MAX_BYTES = 300 \* 1024 \* 1024/);
-  assert.match(backend, /LARGE_VIDEO_CHUNK_BYTES = 256 \* 1024/);
+  assert.match(backend, /LARGE_VIDEO_CHUNK_BYTES = 4 \* 1024 \* 1024/);
   assert.match(backend, /uploadType=resumable/);
   assert.match(backend, /Content-Range/);
   assert.match(backend, /response\.status === 308/);
