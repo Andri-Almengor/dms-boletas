@@ -357,7 +357,7 @@ export async function notifyMaintenanceProgress({
       sendError = error;
     }
 
-    const persisted = await persistAttempt({
+    await persistAttempt({
       existing,
       key,
       maintenance,
