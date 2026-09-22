@@ -168,3 +168,29 @@ test('la integración usa el Chat del cliente, idempotencia persistente y no blo
   assert.match(envExample, /MAINTENANCE_PROGRESS_CHAT_HOURS=7,17/);
   assert.doesNotMatch(service, /Destino:\s*webhook\b/);
 });
+
+
+test('reserva cada recordatorio en PostgreSQL antes de llamar al webhook y evita carreras entre instancias', () => {
+  const service = source('backend/src/services/maintenance-progress-chat.service.js');
+  const migration = source('backend/migrations/015_maintenance_notification_idempotency.sql');
+
+  assert.match(service, /pg_advisory_xact_lock\(hashtextextended/);
+  assert.match(service, /findRows\(\s*'Notificaciones',[\s\S]*?ClaveIdempotencia: key/);
+  assert.match(service, /Estado: 'ENVIANDO'/);
+  assert.match(service, /ALREADY_RUNNING/);
+  assert.match(service, /IN_FLIGHT_LEASE_MS/);
+  assert.ok(
+    service.indexOf('const reservation = await claimNotification') < service.indexOf('result = await sendChatMessage'),
+    'La reserva persistente debe ocurrir antes del envío al Space.',
+  );
+  assert.doesNotMatch(
+    service,
+    /readTables\(\[[\s\S]*?'Notificaciones'[\s\S]*?\], \{ force: true \}\)/,
+    'El scheduler no debe decidir idempotencia usando un snapshot viejo de Notificaciones.',
+  );
+
+  assert.match(migration, /ROW_NUMBER\(\) OVER/);
+  assert.match(migration, /CASE WHEN UPPER\(COALESCE\("Estado", ''\)\) = 'ENVIADO'/);
+  assert.match(migration, /CREATE UNIQUE INDEX IF NOT EXISTS ux_notificaciones_clave_idempotencia/);
+  assert.match(migration, /"ClaveIdempotencia"/);
+});

@@ -6,11 +6,13 @@ import {
   isMaintenanceProgressWeekday,
   maintenanceProgressScheduleSlot,
 } from '../core/maintenance-progress.js';
+import { query } from '../infra/postgres.js';
 import {
   appendRow,
-  readTable,
+  findRows,
   readTables,
   updateRow,
+  withTransaction,
 } from '../infra/sheets.repository.js';
 import { redactWebhook, sendChatMessage } from './chat.service.js';
 import { ensureSheetColumns } from './sheet-columns.service.js';
@@ -35,6 +37,7 @@ const NOTIFICATION_COLUMNS = Object.freeze([
 
 const MAX_NOTIFICATION_ATTEMPTS = 3;
 const RETRY_DELAY_MS = 5 * 60_000;
+const IN_FLIGHT_LEASE_MS = 10 * 60_000;
 const keyLocks = new Map();
 let schemaPromise = null;
 let immediateTail = Promise.resolve();
@@ -139,16 +142,94 @@ function withKeyLock(key, operation) {
 }
 
 function existingNotification(rows, key) {
-  return (rows || []).find((row) => clean(row.ClaveIdempotencia) === key) || null;
+  const matches = (rows || []).filter((row) => clean(row.ClaveIdempotencia) === key);
+  return matches.find((row) => normalized(row.Estado) === 'ENVIADO') || matches[0] || null;
 }
 
 function shouldRetry(existing, now = new Date()) {
   if (!existing) return true;
-  if (normalized(existing.Estado) === 'ENVIADO') return false;
+  const state = normalized(existing.Estado);
+  if (state === 'ENVIADO') return false;
   const attempts = Number(existing.Intentos || 0);
   if (attempts >= MAX_NOTIFICATION_ATTEMPTS) return false;
   const lastAttempt = parseDate(existing.UltimoIntento || existing.FechaCreacion);
-  return !lastAttempt || now.getTime() - lastAttempt.getTime() >= RETRY_DELAY_MS;
+  const delay = state === 'ENVIANDO' ? IN_FLIGHT_LEASE_MS : RETRY_DELAY_MS;
+  return !lastAttempt || now.getTime() - lastAttempt.getTime() >= delay;
+}
+
+function skipReason(existing) {
+  const state = normalized(existing?.Estado);
+  if (state === 'ENVIADO') return 'ALREADY_SENT';
+  if (state === 'ENVIANDO') return 'ALREADY_RUNNING';
+  return 'RETRY_LIMIT';
+}
+
+
+async function claimNotification({
+  key,
+  maintenance,
+  reason,
+  webhook,
+  actor,
+  progress,
+  now,
+}) {
+  await ensureNotificationSchema();
+  return withTransaction(async () => {
+    // keyLocks evita duplicados dentro del mismo proceso. Este advisory lock
+    // hace la reserva atómica también entre varias instancias de Render.
+    await query(
+      'SELECT pg_advisory_xact_lock(hashtextextended($1::text, 0))',
+      [key],
+      { label: 'maintenance_progress_chat.claim_lock' },
+    );
+
+    // No usamos el snapshot precargado de Notificaciones: otra instancia pudo
+    // haber enviado el mismo slot desde que comenzó este ciclo.
+    const rows = await findRows(
+      'Notificaciones',
+      { ClaveIdempotencia: key },
+      { limit: 20, order: 'DESC' },
+    );
+    const existing = existingNotification(rows, key);
+    if (!shouldRetry(existing, now)) {
+      return { claimed: false, existing, skipped: skipReason(existing) };
+    }
+
+    const timestamp = now.toISOString();
+    const claim = {
+      ClaveIdempotencia: key,
+      Entidad: 'Mantenimiento',
+      EntidadID: clean(maintenance.MantenimientoID),
+      Canal: 'GOOGLE_CHAT',
+      Destino: redactWebhook(webhook),
+      Tipo: notificationType(reason),
+      Estado: 'ENVIANDO',
+      Intentos: Number(existing?.Intentos || 0),
+      Respuesta: existing?.Respuesta || '',
+      Error: '',
+      FechaCreacion: existing?.FechaCreacion || timestamp,
+      FechaEnvio: existing?.FechaEnvio || '',
+      UltimoIntento: timestamp,
+      CreadoPor: clean(actor) || 'SYSTEM',
+      ResumenJSON: JSON.stringify({
+        registered: progress.registered,
+        expected: progress.expected,
+        remaining: progress.remaining,
+        percentage: progress.percentage,
+        items: progress.items,
+      }),
+    };
+
+    if (existing?.NotificacionID) {
+      const reserved = await updateRow('Notificaciones', existing.NotificacionID, claim);
+      return { claimed: true, existing: reserved };
+    }
+
+    const reserved = { NotificacionID: uuid(), ...claim };
+    await appendRow('Notificaciones', reserved);
+    return { claimed: true, existing: reserved };
+  });
 }
 
 async function persistAttempt({ existing, key, maintenance, reason, webhook, actor, progress, result, error, now }) {
@@ -186,12 +267,6 @@ async function persistAttempt({ existing, key, maintenance, reason, webhook, act
   const created = { NotificacionID: uuid(), ...row };
   await appendRow('Notificaciones', created);
   return created;
-}
-
-async function notificationRowsFromContext(context = {}) {
-  if (Array.isArray(context.notifications)) return context.notifications;
-  await ensureNotificationSchema();
-  return readTable('Notificaciones', { force: true });
 }
 
 function progressContextForMaintenance(maintenance, context = {}) {
@@ -247,15 +322,23 @@ export async function notifyMaintenanceProgress({
   const key = notificationKey({ maintenance, reason, slotKey });
 
   return withKeyLock(key, async () => {
-    const notifications = await notificationRowsFromContext(loadedContext);
-    const existing = existingNotification(notifications, key);
-    if (!shouldRetry(existing, now)) {
+    const reservation = await claimNotification({
+      key,
+      maintenance,
+      reason,
+      webhook,
+      actor,
+      progress,
+      now,
+    });
+    if (!reservation.claimed) {
       return {
         sent: false,
-        skipped: normalized(existing?.Estado) === 'ENVIADO' ? 'ALREADY_SENT' : 'RETRY_LIMIT',
+        skipped: reservation.skipped,
         progress,
       };
     }
+    const existing = reservation.existing;
 
     const message = formatMaintenanceProgressMessage({
       maintenance,
@@ -274,7 +357,7 @@ export async function notifyMaintenanceProgress({
       sendError = error;
     }
 
-    const persisted = await persistAttempt({
+    await persistAttempt({
       existing,
       key,
       maintenance,
@@ -286,12 +369,6 @@ export async function notifyMaintenanceProgress({
       error: sendError,
       now,
     });
-
-    if (Array.isArray(loadedContext.notifications)) {
-      const index = loadedContext.notifications.findIndex((row) => clean(row.NotificacionID) === clean(persisted.NotificacionID));
-      if (index >= 0) loadedContext.notifications[index] = persisted;
-      else loadedContext.notifications.push(persisted);
-    }
 
     if (sendError) {
       console.warn(`[maintenance-progress-chat] ${clean(maintenance.MantenimientoID)}: ${errorText(sendError)}`);
@@ -326,14 +403,12 @@ export async function sendScheduledMaintenanceProgress(now = new Date()) {
     'Evidencia_Mantenimientos',
     'TiposDispositivo',
     'Clientes',
-    'Notificaciones',
   ], { force: true });
 
   const context = {
     devices: tables.Evidencia_Mantenimientos || [],
     deviceTypes: tables.TiposDispositivo || [],
     clients: tables.Clientes || [],
-    notifications: tables.Notificaciones || [],
   };
   const pending = (tables.Mantenimiento || []).filter(pendingMaintenance);
   const summary = { due: true, slot: slot.slot, key: slot.key, pending: pending.length, sent: 0, skipped: 0, failed: 0 };
