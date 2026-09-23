@@ -1,7 +1,9 @@
-# Finalización automática de mantenimientos a las 17:00
+# Automatización externa de mantenimientos: recordatorios 07:00/17:00 y finalización 17:00
 
 ## Comportamiento
 
+- Los recordatorios de progreso de mantenimientos pendientes se despiertan externamente a las **07:00** y **17:00 America/Costa_Rica**, por lo que no dependen de que el Web Service gratuito de Render permanezca despierto.
+- El scheduler interno del backend se conserva como respaldo; la idempotencia PostgreSQL garantiza un solo mensaje por mantenimiento, fecha y franja aunque ambos caminos coincidan.
 - Si un administrador pulsa **Finalizar mantenimiento antes de las 17:00** en Costa Rica, el mantenimiento queda en `PROGRAMADO` / `ESPERANDO_1700`.
 - No se generan boletas, PDF, carpetas ni notificaciones antes de la hora programada.
 - A partir de las **17:00 America/Costa_Rica**, el worker puede iniciar la finalización escalonada existente.
@@ -46,18 +48,30 @@ installDmsMaintenanceFinalizationTrigger();
 
 Autorizar `UrlFetchApp` y la creación de triggers cuando Google lo solicite.
 
-La instalación crea dos salvaguardas:
+La instalación crea tres salvaguardas:
 
-- el trigger diario de finalización alrededor de las 17:00 Costa Rica;
+- un trigger diario que despierta el recordatorio de progreso alrededor de las **07:00** Costa Rica;
+- un trigger diario de las **17:00** que despierta primero el recordatorio de progreso y luego el worker de finalización;
 - una limpieza horaria de las propiedades de idempotencia del Apps Script de reportes.
+
+Después de actualizar este archivo en un proyecto de Apps Script que ya existía, debe ejecutarse nuevamente `installDmsMaintenanceFinalizationTrigger()` una sola vez para reemplazar los triggers antiguos por esta configuración.
 
 La limpieza conserva como máximo 80 entradas recientes y únicamente administra claves con los prefijos `DELIVERY_`, `INVITATION_`, `MAINTENANCE_PRESENTATION_` y `CUSTOMER_CASE_*`. No elimina `REPORT_WEBHOOK_SECRET`, IDs de carpetas, plantillas ni los secretos del worker.
 
-El trigger usa `America/Costa_Rica`. Google puede ejecutar un trigger diario unos minutos antes o después del minuto solicitado. Si se ejecuta antes de las 17:00, el backend responde con `nextDueAt` y el script crea automáticamente un trigger de una sola ejecución después de la hora exacta.
+Los triggers usan `America/Costa_Rica`. Google puede ejecutar un trigger diario unos minutos antes o después del minuto solicitado. Los recordatorios nunca se envían antes de la hora nominal: si el wake de las 07:00 o 17:00 llega anticipadamente, el backend responde `TOO_EARLY` y Apps Script programa un retry corto. La finalización mantiene además su mecanismo `nextDueAt` existente.
 
-## 4. Probar sin finalizar nada
+## 4. Probar los wake-ups
 
-Ejecutar:
+Para probar los recordatorios sin esperar al trigger puede ejecutar:
+
+```javascript
+testDmsMaintenanceProgressMorning();
+testDmsMaintenanceProgressAfternoon();
+```
+
+La respuesta puede indicar `TOO_EARLY` si la prueba se ejecuta antes de la franja solicitada; en ese caso no se envía ningún mensaje antes de hora.
+
+Para probar el worker de finalización:
 
 ```javascript
 testDmsMaintenanceFinalizationWorker();
@@ -97,7 +111,27 @@ La función elimina únicamente las propiedades idempotentes administradas por D
 
 Una vez completada la limpieza, en DMS Boletas usar **Reintentar desde el último paso**. El backend conserva el job y el progreso persistido, por lo que no hay que devolver el mantenimiento a Pendiente ni recrearlo.
 
-## Endpoint
+## Endpoints
+
+Recordatorios de progreso:
+
+```text
+POST /api/maintenance-progress/wake
+```
+
+Body:
+
+```json
+{ "slot": "07:00" }
+```
+
+o:
+
+```json
+{ "slot": "17:00" }
+```
+
+Finalización:
 
 ```text
 POST /api/maintenance-finalization/wake
