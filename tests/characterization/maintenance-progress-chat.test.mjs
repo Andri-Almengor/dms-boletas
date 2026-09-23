@@ -178,7 +178,8 @@ test('reserva cada recordatorio en PostgreSQL antes de llamar al webhook y evita
   assert.match(service, /findRows\(\s*'Notificaciones',[\s\S]*?ClaveIdempotencia: key/);
   assert.match(service, /Estado: 'ENVIANDO'/);
   assert.match(service, /ALREADY_RUNNING/);
-  assert.match(service, /IN_FLIGHT_LEASE_MS/);
+  assert.match(service, /state === 'ENVIADO' \|\| state === 'ENVIANDO'/);
+  assert.match(service, /Intentos: Number\(existing\?\.Intentos \|\| 0\) \+ 1/);
   assert.ok(
     service.indexOf('const reservation = await claimNotification') < service.indexOf('result = await sendChatMessage'),
     'La reserva persistente debe ocurrir antes del envío al Space.',
@@ -217,4 +218,35 @@ test('el recordatorio programado tiene wake-up HTTP protegido para Render free',
   assert.match(script, /\/api\/maintenance-progress\/wake/);
   assert.match(script, /atHour\(7\)/);
   assert.match(script, /atHour\(17\)/);
+});
+
+
+test('un trigger tardío no puede reenviar un slot ya reclamado y el Apps Script principal guarda el slot', () => {
+  const service = source('backend/src/services/maintenance-progress-chat.service.js');
+  const reportScript = source('apps-script/report-service/Code.gs');
+  const standaloneScript = source('scripts/google-apps-script/maintenance-finalization-5pm-worker.gs');
+
+  assert.match(
+    service,
+    /if \(state === 'ENVIADO' \|\| state === 'ENVIANDO'\) return false/,
+    'ENVIANDO debe ser terminal para reintentos automáticos y evitar duplicados ambiguos.',
+  );
+
+  [
+    reportScript,
+    standaloneScript,
+  ].forEach((script) => {
+    assert.match(script, /DMS_MAINTENANCE_PROGRESS_SLOT_/);
+    assert.match(script, /SCRIPT_SLOT_ALREADY_COMPLETE/);
+    assert.match(script, /SCRIPT_SLOT_ALREADY_RUNNING/);
+    assert.match(script, /beginDmsMaintenanceProgressSlot_/);
+    assert.match(script, /completeDmsMaintenanceProgressSlot_/);
+    assert.match(script, /releaseDmsMaintenanceProgressSlot_/);
+    assert.match(script, /atHour\(7\)/);
+    assert.match(script, /atHour\(17\)/);
+    assert.match(script, /\/api\/maintenance-progress\/wake/);
+  });
+
+  assert.match(reportScript, /dmsDiagnoseMaintenanceProgressTriggers/);
+  assert.match(reportScript, /runDmsMaintenanceProgressSlot_\(\s*'17:00'/);
 });
