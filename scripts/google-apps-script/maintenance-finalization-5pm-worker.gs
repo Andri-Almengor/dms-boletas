@@ -11,6 +11,9 @@
 const DMS_PROGRESS_MORNING_HANDLER = 'wakeDmsMaintenanceProgressAtSeven';
 const DMS_PROGRESS_MORNING_RETRY_HANDLER = 'retryDmsMaintenanceProgressAtSeven';
 const DMS_PROGRESS_AFTERNOON_RETRY_HANDLER = 'retryDmsMaintenanceProgressAtFive';
+const DMS_PROGRESS_SLOT_GUARD_PREFIX = 'DMS_MAINTENANCE_PROGRESS_SLOT_';
+const DMS_PROGRESS_SLOT_RUNNING_TTL_MS = 10 * 60 * 1000;
+const DMS_PROGRESS_SLOT_RETENTION_MS = 3 * 24 * 60 * 60 * 1000;
 const DMS_FINALIZATION_DAILY_HANDLER = 'wakeDmsMaintenanceFinalizationsAtFive';
 const DMS_FINALIZATION_RETRY_HANDLER = 'retryDmsMaintenanceFinalizations';
 const DMS_PROPERTY_QUOTA_CLEANUP_HANDLER = 'dmsCleanupPropertyQuotaScheduled';
@@ -169,6 +172,133 @@ function dmsCleanupQuotaBeforeWake_() {
   }
 }
 
+function dmsMaintenanceProgressSlotPropertyKey_(slot, now) {
+  const dateKey = Utilities.formatDate(
+    now instanceof Date ? now : new Date(),
+    'America/Costa_Rica',
+    'yyyy-MM-dd',
+  );
+  const normalizedSlot = String(slot || '').trim().replace(/[^0-9]/g, '');
+  return DMS_PROGRESS_SLOT_GUARD_PREFIX + dateKey + '_' + normalizedSlot;
+}
+
+function beginDmsMaintenanceProgressSlot_(slot) {
+  const lock = LockService.getScriptLock();
+  lock.waitLock(30000);
+  try {
+    const properties = PropertiesService.getScriptProperties();
+    const key = dmsMaintenanceProgressSlotPropertyKey_(slot, new Date());
+    const raw = properties.getProperty(key);
+    const now = Date.now();
+
+    if (raw) {
+      try {
+        const stored = JSON.parse(raw);
+        if (stored && stored.status === 'COMPLETE') {
+          return { acquired: false, key: key, reason: 'SCRIPT_SLOT_ALREADY_COMPLETE' };
+        }
+        if (
+          stored
+          && stored.status === 'RUNNING'
+          && Number(stored.startedAt || 0)
+          && now - Number(stored.startedAt || 0) < DMS_PROGRESS_SLOT_RUNNING_TTL_MS
+        ) {
+          return { acquired: false, key: key, reason: 'SCRIPT_SLOT_ALREADY_RUNNING' };
+        }
+      } catch (_) {
+        // Guarda inválida: se reemplaza.
+      }
+    }
+
+    const token = Utilities.getUuid();
+    properties.setProperty(key, JSON.stringify({
+      status: 'RUNNING',
+      slot: String(slot || ''),
+      startedAt: now,
+      token: token,
+    }));
+    return { acquired: true, key: key, token: token };
+  } finally {
+    lock.releaseLock();
+  }
+}
+
+function completeDmsMaintenanceProgressSlot_(claim, result) {
+  if (!claim || !claim.acquired || !claim.key) return;
+  const lock = LockService.getScriptLock();
+  lock.waitLock(30000);
+  try {
+    const properties = PropertiesService.getScriptProperties();
+    const raw = properties.getProperty(claim.key);
+    if (raw) {
+      try {
+        const stored = JSON.parse(raw);
+        if (stored && stored.token && claim.token && stored.token !== claim.token) return;
+      } catch (_) {
+        // Se reemplaza por COMPLETE.
+      }
+    }
+
+    properties.setProperty(claim.key, JSON.stringify({
+      status: 'COMPLETE',
+      slot: String(result && result.slot || ''),
+      storedAt: Date.now(),
+      sent: Number(result && result.sent || 0),
+      skipped: Number(result && result.skipped || 0),
+      failed: Number(result && result.failed || 0),
+    }));
+  } finally {
+    lock.releaseLock();
+  }
+}
+
+function releaseDmsMaintenanceProgressSlot_(claim) {
+  if (!claim || !claim.acquired || !claim.key) return;
+  const lock = LockService.getScriptLock();
+  if (!lock.tryLock(5000)) return;
+  try {
+    const properties = PropertiesService.getScriptProperties();
+    const raw = properties.getProperty(claim.key);
+    if (!raw) return;
+    try {
+      const stored = JSON.parse(raw);
+      if (!stored || !stored.token || !claim.token || stored.token === claim.token) {
+        properties.deleteProperty(claim.key);
+      }
+    } catch (_) {
+      properties.deleteProperty(claim.key);
+    }
+  } finally {
+    lock.releaseLock();
+  }
+}
+
+function cleanupDmsMaintenanceProgressSlotGuards_() {
+  const properties = PropertiesService.getScriptProperties();
+  const all = properties.getProperties();
+  const now = Date.now();
+  let deleted = 0;
+
+  Object.keys(all).forEach(function(key) {
+    if (key.indexOf(DMS_PROGRESS_SLOT_GUARD_PREFIX) !== 0) return;
+
+    let timestamp = 0;
+    try {
+      const stored = JSON.parse(all[key]);
+      timestamp = Number(stored.storedAt || stored.startedAt || 0);
+    } catch (_) {
+      timestamp = 0;
+    }
+
+    if (!timestamp || now - timestamp > DMS_PROGRESS_SLOT_RETENTION_MS) {
+      properties.deleteProperty(key);
+      deleted += 1;
+    }
+  });
+
+  return deleted;
+}
+
 function callDmsMaintenanceProgressWorker_(slot) {
   const config = dmsFinalizationProperties_();
   const response = UrlFetchApp.fetch(config.appUrl + '/api/maintenance-progress/wake', {
@@ -219,15 +349,39 @@ function scheduleDmsProgressRetry_(handler) {
 }
 
 function runDmsMaintenanceProgressSlot_(slot, retryHandler) {
+  cleanupDmsMaintenanceProgressSlotGuards_();
+  const claim = beginDmsMaintenanceProgressSlot_(slot);
+
+  if (!claim.acquired) {
+    removeDmsProgressRetryTriggers_(retryHandler);
+    return {
+      due: false,
+      slot: String(slot || ''),
+      skippedByAppsScript: true,
+      reason: claim.reason,
+    };
+  }
+
   try {
     const result = callDmsMaintenanceProgressWorker_(slot);
+
     if (result && result.due === false && result.reason === 'TOO_EARLY') {
+      releaseDmsMaintenanceProgressSlot_(claim);
       scheduleDmsProgressRetry_(retryHandler);
-    } else {
-      removeDmsProgressRetryTriggers_(retryHandler);
+      return result;
     }
+
+    if (Number(result && result.failed || 0) > 0) {
+      releaseDmsMaintenanceProgressSlot_(claim);
+      scheduleDmsProgressRetry_(retryHandler);
+      return result;
+    }
+
+    completeDmsMaintenanceProgressSlot_(claim, result);
+    removeDmsProgressRetryTriggers_(retryHandler);
     return result;
   } catch (error) {
+    releaseDmsMaintenanceProgressSlot_(claim);
     console.error('[DMS maintenance progress ' + slot + '] ' + (error && error.stack ? error.stack : error));
     scheduleDmsProgressRetry_(retryHandler);
     throw error;
@@ -403,9 +557,11 @@ function installDmsMaintenanceFinalizationTrigger() {
     .create();
 
   const cleanup = dmsCleanupPropertyQuotaNow();
+  const progressGuardsDeleted = cleanupDmsMaintenanceProgressSlotGuards_();
   return 'Triggers DMS instalados para recordatorios de mantenimiento a las 07:00 y 17:00, '
-    + 'más finalización a las 17:00 America/Costa_Rica. Protección de cuota instalada cada hora. '
-    + 'Propiedades antiguas eliminadas: ' + cleanup.deleted + '.';
+    + 'más finalización a las 17:00 America/Costa_Rica. Cada slot tiene guarda persistente. '
+    + 'Protección de cuota instalada cada hora. Propiedades antiguas eliminadas: '
+    + cleanup.deleted + '. Guardas antiguas eliminadas: ' + progressGuardsDeleted + '.';
 }
 
 function testDmsMaintenanceFinalizationWorker() {
