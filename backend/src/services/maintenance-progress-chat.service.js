@@ -37,7 +37,6 @@ const NOTIFICATION_COLUMNS = Object.freeze([
 
 const MAX_NOTIFICATION_ATTEMPTS = 3;
 const RETRY_DELAY_MS = 5 * 60_000;
-const IN_FLIGHT_LEASE_MS = 10 * 60_000;
 const keyLocks = new Map();
 let schemaPromise = null;
 let immediateTail = Promise.resolve();
@@ -69,6 +68,29 @@ function configuredHours() {
     .map(Number)
     .filter((value) => Number.isInteger(value) && value >= 0 && value <= 23);
   return values.length ? [...new Set(values)] : [7, 17];
+}
+
+function zonedDateParts(date = new Date(), timeZone = env.maintenanceProgressChatTimezone) {
+  const parts = new Intl.DateTimeFormat('en-US', {
+    timeZone,
+    weekday: 'short',
+    year: 'numeric',
+    month: '2-digit',
+    day: '2-digit',
+    hour: '2-digit',
+    minute: '2-digit',
+    hourCycle: 'h23',
+  }).formatToParts(date);
+  return Object.fromEntries(parts.filter((part) => part.type !== 'literal').map((part) => [part.type, part.value]));
+}
+
+function normalizeScheduledSlot(value) {
+  const match = clean(value).match(/^(\d{1,2})(?::(\d{2}))?$/);
+  if (!match) return '';
+  const hour = Number(match[1]);
+  const minute = Number(match[2] || 0);
+  if (!Number.isInteger(hour) || minute !== 0 || !configuredHours().includes(hour)) return '';
+  return `${String(hour).padStart(2, '0')}:00`;
 }
 
 function notificationType(reason) {
@@ -146,21 +168,38 @@ function existingNotification(rows, key) {
   return matches.find((row) => normalized(row.Estado) === 'ENVIADO') || matches[0] || null;
 }
 
+function scheduledProgressNotification(existing) {
+  return normalized(existing?.Tipo) === 'MANTENIMIENTO_PROGRESO_PROGRAMADO';
+}
+
 function shouldRetry(existing, now = new Date()) {
   if (!existing) return true;
   const state = normalized(existing.Estado);
-  if (state === 'ENVIADO') return false;
+
+  // Los slots 07:00/17:00 son estrictamente at-most-once. Una vez creada la
+  // reserva ya ocurrió (o está por ocurrir) la única llamada permitida al
+  // webhook para mantenimiento + fecha + franja. Incluso un ERROR HTTP puede
+  // ser ambiguo: Google Chat pudo aceptar el mensaje antes de que la conexión
+  // se interrumpiera. Reintentar ese slot puede producir exactamente el doble
+  // envío que esta ruta debe impedir.
+  if (scheduledProgressNotification(existing)) return false;
+
+  // Para notificaciones inmediatas (creación/cambio de cantidades) se conserva
+  // la política previa: ENVIADO/ENVIANDO no se repiten y solo ERROR puede
+  // reintentarse de forma acotada.
+  if (state === 'ENVIADO' || state === 'ENVIANDO') return false;
+
   const attempts = Number(existing.Intentos || 0);
   if (attempts >= MAX_NOTIFICATION_ATTEMPTS) return false;
   const lastAttempt = parseDate(existing.UltimoIntento || existing.FechaCreacion);
-  const delay = state === 'ENVIANDO' ? IN_FLIGHT_LEASE_MS : RETRY_DELAY_MS;
-  return !lastAttempt || now.getTime() - lastAttempt.getTime() >= delay;
+  return !lastAttempt || now.getTime() - lastAttempt.getTime() >= RETRY_DELAY_MS;
 }
 
 function skipReason(existing) {
   const state = normalized(existing?.Estado);
   if (state === 'ENVIADO') return 'ALREADY_SENT';
   if (state === 'ENVIANDO') return 'ALREADY_RUNNING';
+  if (scheduledProgressNotification(existing)) return 'SCHEDULED_ALREADY_ATTEMPTED';
   return 'RETRY_LIMIT';
 }
 
@@ -205,7 +244,7 @@ async function claimNotification({
       Destino: redactWebhook(webhook),
       Tipo: notificationType(reason),
       Estado: 'ENVIANDO',
-      Intentos: Number(existing?.Intentos || 0),
+      Intentos: Number(existing?.Intentos || 0) + 1,
       Respuesta: existing?.Respuesta || '',
       Error: '',
       FechaCreacion: existing?.FechaCreacion || timestamp,
@@ -235,7 +274,7 @@ async function claimNotification({
 async function persistAttempt({ existing, key, maintenance, reason, webhook, actor, progress, result, error, now }) {
   const timestamp = now.toISOString();
   const sent = Boolean(result?.sent) && !error;
-  const attempts = Number(existing?.Intentos || 0) + 1;
+  const attempts = Math.max(1, Number(existing?.Intentos || 1));
   const row = {
     ClaveIdempotencia: key,
     Entidad: 'Mantenimiento',
@@ -389,14 +428,7 @@ export function queueMaintenanceProgressNotification(options = {}) {
   return { queued: true };
 }
 
-export async function sendScheduledMaintenanceProgress(now = new Date()) {
-  const slot = maintenanceProgressScheduleSlot(
-    now,
-    env.maintenanceProgressChatTimezone,
-    configuredHours(),
-  );
-  if (!slot) return { due: false, sent: 0, skipped: 0, failed: 0 };
-
+async function dispatchScheduledMaintenanceProgress({ slot, slotKey, now = new Date() }) {
   await ensureNotificationSchema();
   const tables = await readTables([
     'Mantenimiento',
@@ -411,14 +443,14 @@ export async function sendScheduledMaintenanceProgress(now = new Date()) {
     clients: tables.Clientes || [],
   };
   const pending = (tables.Mantenimiento || []).filter(pendingMaintenance);
-  const summary = { due: true, slot: slot.slot, key: slot.key, pending: pending.length, sent: 0, skipped: 0, failed: 0 };
+  const summary = { due: true, slot, key: slotKey, pending: pending.length, sent: 0, skipped: 0, failed: 0 };
 
   for (const maintenance of pending) {
     const result = await notifyMaintenanceProgress({
       maintenance,
       reason: 'SCHEDULED',
-      slot: slot.slot,
-      slotKey: slot.key,
+      slot,
+      slotKey,
       actor: 'SYSTEM',
       now,
       context,
@@ -429,6 +461,61 @@ export async function sendScheduledMaintenanceProgress(now = new Date()) {
   }
 
   return summary;
+}
+
+export async function sendScheduledMaintenanceProgressForSlot({ slot, now = new Date() } = {}) {
+  if (!env.maintenanceProgressChatEnabled) {
+    return { due: false, reason: 'DISABLED', sent: 0, skipped: 0, failed: 0 };
+  }
+
+  const normalizedSlot = normalizeScheduledSlot(slot);
+  if (!normalizedSlot) {
+    return { due: false, reason: 'INVALID_SLOT', sent: 0, skipped: 0, failed: 0 };
+  }
+  if (!isMaintenanceProgressWeekday(now, env.maintenanceProgressChatTimezone)) {
+    return { due: false, reason: 'WEEKEND', slot: normalizedSlot, sent: 0, skipped: 0, failed: 0 };
+  }
+
+  const parts = zonedDateParts(now, env.maintenanceProgressChatTimezone);
+  const currentMinutes = Number(parts.hour || 0) * 60 + Number(parts.minute || 0);
+  const targetHour = Number(normalizedSlot.slice(0, 2));
+  const targetMinutes = targetHour * 60;
+  const dateKey = `${parts.year}-${parts.month}-${parts.day}`;
+
+  // Apps Script puede disparar nearMinute(0) unos minutos antes. Nunca enviamos
+  // el recordatorio antes de la hora nominal; el script reintentará al llegar.
+  if (currentMinutes < targetMinutes) {
+    return {
+      due: false,
+      reason: 'TOO_EARLY',
+      slot: normalizedSlot,
+      dateKey,
+      sent: 0,
+      skipped: 0,
+      failed: 0,
+    };
+  }
+
+  return dispatchScheduledMaintenanceProgress({
+    slot: normalizedSlot,
+    slotKey: `${dateKey}|${normalizedSlot}`,
+    now,
+  });
+}
+
+export async function sendScheduledMaintenanceProgress(now = new Date()) {
+  const slot = maintenanceProgressScheduleSlot(
+    now,
+    env.maintenanceProgressChatTimezone,
+    configuredHours(),
+  );
+  if (!slot) return { due: false, sent: 0, skipped: 0, failed: 0 };
+
+  return dispatchScheduledMaintenanceProgress({
+    slot: slot.slot,
+    slotKey: slot.key,
+    now,
+  });
 }
 
 async function schedulerTick() {

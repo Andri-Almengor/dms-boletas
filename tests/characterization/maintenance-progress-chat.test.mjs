@@ -104,6 +104,11 @@ test('programa 7 a. m. y 5 p. m. de Costa Rica y omite fines de semana', () => {
     'America/Costa_Rica',
     [7, 17],
   );
+  const delayedMorning = maintenanceProgressScheduleSlot(
+    new Date('2026-08-07T13:27:00.000Z'),
+    'America/Costa_Rica',
+    [7, 17],
+  );
   const afternoon = maintenanceProgressScheduleSlot(
     new Date('2026-08-07T23:00:15.000Z'),
     'America/Costa_Rica',
@@ -117,6 +122,12 @@ test('programa 7 a. m. y 5 p. m. de Costa Rica y omite fines de semana', () => {
 
   assert.equal(morning?.slot, '07:00');
   assert.equal(morning?.dateKey, '2026-08-07');
+  assert.equal(delayedMorning?.slot, '07:00');
+  assert.equal(
+    delayedMorning?.key,
+    morning?.key,
+    '07:00 y 07:27 pertenecen al mismo slot idempotente del día.',
+  );
   assert.equal(afternoon?.slot, '17:00');
   assert.equal(saturday, null);
 });
@@ -178,7 +189,8 @@ test('reserva cada recordatorio en PostgreSQL antes de llamar al webhook y evita
   assert.match(service, /findRows\(\s*'Notificaciones',[\s\S]*?ClaveIdempotencia: key/);
   assert.match(service, /Estado: 'ENVIANDO'/);
   assert.match(service, /ALREADY_RUNNING/);
-  assert.match(service, /IN_FLIGHT_LEASE_MS/);
+  assert.match(service, /state === 'ENVIADO' \|\| state === 'ENVIANDO'/);
+  assert.match(service, /Intentos: Number\(existing\?\.Intentos \|\| 0\) \+ 1/);
   assert.ok(
     service.indexOf('const reservation = await claimNotification') < service.indexOf('result = await sendChatMessage'),
     'La reserva persistente debe ocurrir antes del envío al Space.',
@@ -193,4 +205,71 @@ test('reserva cada recordatorio en PostgreSQL antes de llamar al webhook y evita
   assert.match(migration, /CASE WHEN UPPER\(COALESCE\("Estado", ''\)\) = 'ENVIADO'/);
   assert.match(migration, /CREATE UNIQUE INDEX IF NOT EXISTS ux_notificaciones_clave_idempotencia/);
   assert.match(migration, /"ClaveIdempotencia"/);
+});
+
+
+test('el recordatorio programado tiene wake-up HTTP protegido para Render free', () => {
+  const service = source('backend/src/services/maintenance-progress-chat.service.js');
+  const route = source('backend/src/routes/maintenance-progress-worker.routes.js');
+  const app = source('backend/src/app.js');
+  const script = source('scripts/google-apps-script/maintenance-finalization-5pm-worker.gs');
+
+  assert.match(service, /sendScheduledMaintenanceProgressForSlot/);
+  assert.match(service, /reason: 'TOO_EARLY'/);
+  assert.match(service, /currentMinutes < targetMinutes/);
+  assert.match(service, /slotKey: `\$\{dateKey\}\|\$\{normalizedSlot\}`/);
+  assert.match(route, /MAINTENANCE_FINALIZATION_WAKE_SECRET/);
+  assert.match(route, /x-dms-worker-secret/);
+  assert.match(route, /timingSafeEqual/);
+  assert.match(route, /sendScheduledMaintenanceProgressForSlot/);
+  assert.match(app, /\/api\/maintenance-progress/);
+  assert.match(script, /wakeDmsMaintenanceProgressAtSeven/);
+  assert.match(script, /retryDmsMaintenanceProgressAtSeven/);
+  assert.match(script, /retryDmsMaintenanceProgressAtFive/);
+  assert.match(script, /\/api\/maintenance-progress\/wake/);
+  assert.match(script, /atHour\(7\)/);
+  assert.match(script, /atHour\(17\)/);
+});
+
+
+test('un trigger tardío no puede reenviar un slot ya reclamado y el Apps Script principal guarda el slot', () => {
+  const service = source('backend/src/services/maintenance-progress-chat.service.js');
+  const reportScript = source('apps-script/report-service/Code.gs');
+  const standaloneScript = source('scripts/google-apps-script/maintenance-finalization-5pm-worker.gs');
+
+  assert.match(
+    service,
+    /if \(scheduledProgressNotification\(existing\)\) return false/,
+    'Un recordatorio 07:00\/17:00 ya reclamado nunca debe volver a llamar al webhook.',
+  );
+  assert.match(
+    service,
+    /if \(state === 'ENVIADO' \|\| state === 'ENVIANDO'\) return false/,
+    'Las notificaciones inmediatas también deben bloquear ENVIADO\/ENVIANDO.',
+  );
+  assert.match(service, /SCHEDULED_ALREADY_ATTEMPTED/);
+
+  [
+    reportScript,
+    standaloneScript,
+  ].forEach((script) => {
+    assert.match(script, /DMS_MAINTENANCE_PROGRESS_SLOT_/);
+    assert.match(script, /SCRIPT_SLOT_ALREADY_COMPLETE/);
+    assert.match(script, /SCRIPT_SLOT_ALREADY_RUNNING/);
+    assert.match(script, /beginDmsMaintenanceProgressSlot_/);
+    assert.match(script, /completeDmsMaintenanceProgressSlot_/);
+    assert.match(script, /releaseDmsMaintenanceProgressSlot_/);
+    assert.doesNotMatch(
+      script.match(/function runDmsMaintenanceProgressSlot_[\s\S]*?\n\}/)?.[0] || '',
+      /Number\(result && result\.failed \|\| 0\) > 0[\s\S]*?scheduleDmsProgressRetry_/,
+      'Un ERROR devuelto después del intento del webhook no debe programar otro envío.',
+    );
+    assert.match(script, /atHour\(7\)/);
+    assert.match(script, /atHour\(17\)/);
+    assert.match(script, /\/api\/maintenance-progress\/wake/);
+  });
+
+  assert.match(reportScript, /2026-09-23-V7\.10-MAINTENANCE-PROGRESS-ONCE/);
+  assert.match(reportScript, /dmsDiagnoseMaintenanceProgressTriggers/);
+  assert.match(reportScript, /runDmsMaintenanceProgressSlot_\(\s*'17:00'/);
 });

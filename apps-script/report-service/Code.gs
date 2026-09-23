@@ -11,7 +11,7 @@ const BRAND_BORDER = '#ead5d7';
 const BRAND_BACKGROUND = '#fffafa';
 const DMS_EMAIL_FROM_ALIAS = 'reportes@solutionsdms.com';
 const DMS_EMAIL_FROM_NAME = 'DMS Boletas';
-const APPS_SCRIPT_VERSION = '2026-09-11-V7.9-BOUNDED-CASE-UPLOADS';
+const APPS_SCRIPT_VERSION = '2026-09-23-V7.10-MAINTENANCE-PROGRESS-ONCE';
 const MAINTENANCE_ARCHIVE_DELIVERY_TYPE = 'MAINTENANCE_ARCHIVE';
 
 /*
@@ -9541,6 +9541,12 @@ function parseAgendaEmails_(value) {
  *   Debe ser exactamente igual a MAINTENANCE_FINALIZATION_WAKE_SECRET
  *   configurado en Render.
  */
+const DMS_PROGRESS_MORNING_HANDLER = 'wakeDmsMaintenanceProgressAtSeven';
+const DMS_PROGRESS_MORNING_RETRY_HANDLER = 'retryDmsMaintenanceProgressAtSeven';
+const DMS_PROGRESS_AFTERNOON_RETRY_HANDLER = 'retryDmsMaintenanceProgressAtFive';
+const DMS_PROGRESS_SLOT_GUARD_PREFIX = 'DMS_MAINTENANCE_PROGRESS_SLOT_';
+const DMS_PROGRESS_SLOT_RUNNING_TTL_MS = 10 * 60 * 1000;
+const DMS_PROGRESS_SLOT_RETENTION_MS = 3 * 24 * 60 * 60 * 1000;
 const DMS_FINALIZATION_DAILY_HANDLER = 'wakeDmsMaintenanceFinalizationsAtFive';
 const DMS_FINALIZATION_RETRY_HANDLER = 'retryDmsMaintenanceFinalizations';
 const DMS_PROPERTY_QUOTA_CLEANUP_HANDLER = 'dmsCleanupPropertyQuotaScheduled';
@@ -9763,6 +9769,422 @@ function dmsCleanupQuotaBeforeWake_() {
 }
 
 /**
+ * Protege cada franja 07:00/17:00 también dentro de Apps Script.
+ *
+ * Esta guarda NO sustituye la idempotencia PostgreSQL. Evita que un trigger
+ * diario retrasado, un retry antiguo o dos ejecuciones del mismo proyecto
+ * vuelvan a despertar el mismo slot después de haber terminado correctamente.
+ */
+function dmsMaintenanceProgressSlotPropertyKey_(slot, now) {
+  const dateKey = Utilities.formatDate(
+    now instanceof Date ? now : new Date(),
+    DEFAULT_TIME_ZONE,
+    'yyyy-MM-dd',
+  );
+  const normalizedSlot = String(slot || '')
+    .trim()
+    .replace(/[^0-9]/g, '');
+
+  return DMS_PROGRESS_SLOT_GUARD_PREFIX
+    + dateKey
+    + '_'
+    + normalizedSlot;
+}
+
+function beginDmsMaintenanceProgressSlot_(slot) {
+  const lock = LockService.getScriptLock();
+  lock.waitLock(30000);
+
+  try {
+    const properties = PropertiesService.getScriptProperties();
+    const key = dmsMaintenanceProgressSlotPropertyKey_(
+      slot,
+      new Date(),
+    );
+    const raw = properties.getProperty(key);
+    const now = Date.now();
+
+    if (raw) {
+      try {
+        const stored = JSON.parse(raw);
+
+        if (
+          stored
+          && stored.status === 'COMPLETE'
+        ) {
+          return {
+            acquired: false,
+            key: key,
+            reason: 'SCRIPT_SLOT_ALREADY_COMPLETE',
+          };
+        }
+
+        if (
+          stored
+          && stored.status === 'RUNNING'
+          && Number(stored.startedAt || 0)
+          && now - Number(stored.startedAt || 0)
+            < DMS_PROGRESS_SLOT_RUNNING_TTL_MS
+        ) {
+          return {
+            acquired: false,
+            key: key,
+            reason: 'SCRIPT_SLOT_ALREADY_RUNNING',
+          };
+        }
+      } catch (_) {
+        // Una guarda antigua/corrupta se reemplaza de forma segura.
+      }
+    }
+
+    const token = Utilities.getUuid();
+
+    properties.setProperty(
+      key,
+      JSON.stringify({
+        status: 'RUNNING',
+        slot: String(slot || ''),
+        startedAt: now,
+        token: token,
+      }),
+    );
+
+    return {
+      acquired: true,
+      key: key,
+      token: token,
+    };
+  } finally {
+    lock.releaseLock();
+  }
+}
+
+function completeDmsMaintenanceProgressSlot_(claim, result) {
+  if (!claim || !claim.acquired || !claim.key) return;
+
+  const lock = LockService.getScriptLock();
+  lock.waitLock(30000);
+
+  try {
+    const properties = PropertiesService.getScriptProperties();
+    const raw = properties.getProperty(claim.key);
+
+    if (raw) {
+      try {
+        const stored = JSON.parse(raw);
+
+        if (
+          stored
+          && stored.token
+          && claim.token
+          && stored.token !== claim.token
+        ) {
+          return;
+        }
+      } catch (_) {
+        // Se reemplaza por el estado COMPLETE válido.
+      }
+    }
+
+    properties.setProperty(
+      claim.key,
+      JSON.stringify({
+        status: 'COMPLETE',
+        slot: String(result && result.slot || ''),
+        storedAt: Date.now(),
+        sent: Number(result && result.sent || 0),
+        skipped: Number(result && result.skipped || 0),
+        failed: Number(result && result.failed || 0),
+      }),
+    );
+  } finally {
+    lock.releaseLock();
+  }
+}
+
+function releaseDmsMaintenanceProgressSlot_(claim) {
+  if (!claim || !claim.acquired || !claim.key) return;
+
+  const lock = LockService.getScriptLock();
+
+  if (!lock.tryLock(5000)) return;
+
+  try {
+    const properties = PropertiesService.getScriptProperties();
+    const raw = properties.getProperty(claim.key);
+
+    if (!raw) return;
+
+    try {
+      const stored = JSON.parse(raw);
+
+      if (
+        !stored
+        || !stored.token
+        || !claim.token
+        || stored.token === claim.token
+      ) {
+        properties.deleteProperty(claim.key);
+      }
+    } catch (_) {
+      properties.deleteProperty(claim.key);
+    }
+  } finally {
+    lock.releaseLock();
+  }
+}
+
+function cleanupDmsMaintenanceProgressSlotGuards_() {
+  const properties = PropertiesService.getScriptProperties();
+  const all = properties.getProperties();
+  const now = Date.now();
+  let deleted = 0;
+
+  Object.keys(all).forEach(function (key) {
+    if (
+      key.indexOf(DMS_PROGRESS_SLOT_GUARD_PREFIX) !== 0
+    ) {
+      return;
+    }
+
+    let timestamp = 0;
+
+    try {
+      const stored = JSON.parse(all[key]);
+      timestamp = Number(
+        stored.storedAt
+        || stored.startedAt
+        || 0,
+      );
+    } catch (_) {
+      timestamp = 0;
+    }
+
+    if (
+      !timestamp
+      || now - timestamp > DMS_PROGRESS_SLOT_RETENTION_MS
+    ) {
+      properties.deleteProperty(key);
+      deleted += 1;
+    }
+  });
+
+  return deleted;
+}
+
+/**
+ * Llama al endpoint protegido de recordatorios 07:00/17:00.
+ */
+function callDmsMaintenanceProgressWorker_(slot) {
+  const config = dmsFinalizationProperties_();
+
+  const response = UrlFetchApp.fetch(
+    config.appUrl
+      + '/api/maintenance-progress/wake',
+    {
+      method: 'post',
+      contentType: 'application/json',
+      headers: {
+        'x-dms-worker-secret': config.secret,
+      },
+      payload: JSON.stringify({
+        slot: String(slot || ''),
+        source: 'GOOGLE_APPS_SCRIPT_PROGRESS',
+      }),
+      muteHttpExceptions: true,
+      followRedirects: true,
+    },
+  );
+
+  const status = response.getResponseCode();
+  const raw = response.getContentText() || '';
+  let body = {};
+
+  try {
+    body = JSON.parse(raw);
+  } catch (_) {
+    throw new Error(
+      'El worker de progreso devolvió una respuesta no JSON. '
+      + 'HTTP '
+      + status
+      + ': '
+      + raw.slice(0, 500),
+    );
+  }
+
+  if (
+    status < 200
+    || status >= 300
+    || body.ok !== true
+  ) {
+    const message = (
+      body
+      && body.error
+      && body.error.message
+    )
+      ? body.error.message
+      : raw.slice(0, 500);
+
+    throw new Error(
+      'El worker de progreso rechazó la solicitud. '
+      + 'HTTP '
+      + status
+      + ': '
+      + message,
+    );
+  }
+
+  return body.data || {};
+}
+
+function removeDmsProgressRetryTriggers_(handler) {
+  ScriptApp
+    .getProjectTriggers()
+    .forEach(function (trigger) {
+      if (
+        trigger.getHandlerFunction() === handler
+      ) {
+        ScriptApp.deleteTrigger(trigger);
+      }
+    });
+}
+
+function scheduleDmsProgressRetry_(handler) {
+  removeDmsProgressRetryTriggers_(handler);
+
+  ScriptApp
+    .newTrigger(handler)
+    .timeBased()
+    .after(5 * 60 * 1000)
+    .create();
+}
+
+function runDmsMaintenanceProgressSlot_(slot, retryHandler) {
+  cleanupDmsMaintenanceProgressSlotGuards_();
+
+  const claim = beginDmsMaintenanceProgressSlot_(slot);
+
+  if (!claim.acquired) {
+    removeDmsProgressRetryTriggers_(retryHandler);
+    return {
+      due: false,
+      slot: String(slot || ''),
+      skippedByAppsScript: true,
+      reason: claim.reason,
+    };
+  }
+
+  try {
+    const result = callDmsMaintenanceProgressWorker_(slot);
+
+    if (
+      result
+      && result.due === false
+      && result.reason === 'TOO_EARLY'
+    ) {
+      releaseDmsMaintenanceProgressSlot_(claim);
+      scheduleDmsProgressRetry_(retryHandler);
+      return result;
+    }
+
+    /*
+     * Si el backend alcanzó el intento del webhook, el slot queda consumido
+     * aunque el resultado sea ERROR. Reintentar un webhook ambiguo podría
+     * duplicar un mensaje que Google Chat ya aceptó.
+     */
+    completeDmsMaintenanceProgressSlot_(
+      claim,
+      result,
+    );
+    removeDmsProgressRetryTriggers_(retryHandler);
+    return result;
+  } catch (error) {
+    releaseDmsMaintenanceProgressSlot_(claim);
+    scheduleDmsProgressRetry_(retryHandler);
+
+    console.error(
+      '[DMS maintenance progress '
+      + slot
+      + '] '
+      + (
+        error && error.stack
+          ? error.stack
+          : error
+      ),
+    );
+
+    throw error;
+  }
+}
+
+function wakeDmsMaintenanceProgressAtSeven() {
+  return runDmsMaintenanceProgressSlot_(
+    '07:00',
+    DMS_PROGRESS_MORNING_RETRY_HANDLER,
+  );
+}
+
+function retryDmsMaintenanceProgressAtSeven() {
+  removeDmsProgressRetryTriggers_(
+    DMS_PROGRESS_MORNING_RETRY_HANDLER,
+  );
+
+  return wakeDmsMaintenanceProgressAtSeven();
+}
+
+function retryDmsMaintenanceProgressAtFive() {
+  removeDmsProgressRetryTriggers_(
+    DMS_PROGRESS_AFTERNOON_RETRY_HANDLER,
+  );
+
+  return runDmsMaintenanceProgressSlot_(
+    '17:00',
+    DMS_PROGRESS_AFTERNOON_RETRY_HANDLER,
+  );
+}
+
+/**
+ * Diagnóstico seguro de triggers/guardas de recordatorios.
+ * No devuelve secretos ni URLs.
+ */
+function dmsDiagnoseMaintenanceProgressTriggers() {
+  const triggers = ScriptApp.getProjectTriggers();
+  const properties = PropertiesService
+    .getScriptProperties()
+    .getProperties();
+  const handlers = [
+    DMS_PROGRESS_MORNING_HANDLER,
+    DMS_PROGRESS_MORNING_RETRY_HANDLER,
+    DMS_PROGRESS_AFTERNOON_RETRY_HANDLER,
+    DMS_FINALIZATION_DAILY_HANDLER,
+    DMS_FINALIZATION_RETRY_HANDLER,
+  ];
+  const counts = {};
+
+  handlers.forEach(function (handler) {
+    counts[handler] = triggers.filter(function (trigger) {
+      return trigger.getHandlerFunction() === handler;
+    }).length;
+  });
+
+  const guards = Object.keys(properties)
+    .filter(function (key) {
+      return key.indexOf(
+        DMS_PROGRESS_SLOT_GUARD_PREFIX,
+      ) === 0;
+    })
+    .sort();
+
+  return {
+    ok: true,
+    version: APPS_SCRIPT_VERSION,
+    timeZone: DEFAULT_TIME_ZONE,
+    triggerCounts: counts,
+    guardKeys: guards,
+  };
+}
+
+/**
  * Llama al endpoint protegido del worker de finalización del backend.
  */
 function callDmsFinalizationWorker_() {
@@ -9950,6 +10372,19 @@ function runDmsFinalizationWorker_() {
  * Handler diario de las 17:00 Costa Rica.
  */
 function wakeDmsMaintenanceFinalizationsAtFive() {
+  /*
+   * La ejecución de las 17:00 despierta primero el recordatorio de progreso.
+   * La guarda de Apps Script + la idempotencia PostgreSQL impiden duplicarlo.
+   */
+  try {
+    runDmsMaintenanceProgressSlot_(
+      '17:00',
+      DMS_PROGRESS_AFTERNOON_RETRY_HANDLER,
+    );
+  } catch (_) {
+    // El recordatorio mantiene su propio retry y no bloquea la finalización.
+  }
+
   try {
     return runDmsFinalizationWorker_();
   } catch (error) {
@@ -9991,7 +10426,10 @@ function installDmsMaintenanceFinalizationTrigger() {
         .getHandlerFunction();
 
       if (
-        handler === DMS_FINALIZATION_DAILY_HANDLER
+        handler === DMS_PROGRESS_MORNING_HANDLER
+        || handler === DMS_PROGRESS_MORNING_RETRY_HANDLER
+        || handler === DMS_PROGRESS_AFTERNOON_RETRY_HANDLER
+        || handler === DMS_FINALIZATION_DAILY_HANDLER
         || handler === DMS_FINALIZATION_RETRY_HANDLER
         || handler
           === DMS_PROPERTY_QUOTA_CLEANUP_HANDLER
@@ -9999,6 +10437,17 @@ function installDmsMaintenanceFinalizationTrigger() {
         ScriptApp.deleteTrigger(trigger);
       }
     });
+
+  ScriptApp
+    .newTrigger(
+      DMS_PROGRESS_MORNING_HANDLER,
+    )
+    .timeBased()
+    .atHour(7)
+    .nearMinute(0)
+    .everyDays(1)
+    .inTimezone(DEFAULT_TIME_ZONE)
+    .create();
 
   ScriptApp
     .newTrigger(
@@ -10020,17 +10469,21 @@ function installDmsMaintenanceFinalizationTrigger() {
     .create();
 
   const cleanup = dmsCleanupPropertyQuotaNow();
+  const progressGuardsDeleted = cleanupDmsMaintenanceProgressSlotGuards_();
 
   return {
     ok: true,
     version: APPS_SCRIPT_VERSION,
     timeZone: DEFAULT_TIME_ZONE,
+    progressHours: ['07:00', '17:00'],
     finalizationHour: '17:00',
     cleanup: cleanup,
+    progressGuardsDeleted: progressGuardsDeleted,
     message: (
-      'Worker DMS instalado para las 17:00 '
+      'Workers DMS instalados para recordatorios de mantenimiento 07:00 y 17:00, '
+      + 'más finalización 17:00 '
       + DEFAULT_TIME_ZONE
-      + '. La limpieza de cuota se ejecutará cada hora.'
+      + '. Cada slot tiene guarda persistente contra duplicados.'
     ),
   };
 }
@@ -10043,6 +10496,14 @@ function installDmsMaintenanceFinalizationTrigger() {
  */
 function testDmsMaintenanceFinalizationWorker() {
   return callDmsFinalizationWorker_();
+}
+
+function testDmsMaintenanceProgressMorning() {
+  return callDmsMaintenanceProgressWorker_('07:00');
+}
+
+function testDmsMaintenanceProgressAfternoon() {
+  return callDmsMaintenanceProgressWorker_('17:00');
 }
 
 /**
