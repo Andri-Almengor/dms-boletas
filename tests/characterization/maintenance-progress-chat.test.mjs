@@ -194,3 +194,27 @@ test('reserva cada recordatorio en PostgreSQL antes de llamar al webhook y evita
   assert.match(migration, /CREATE UNIQUE INDEX IF NOT EXISTS ux_notificaciones_clave_idempotencia/);
   assert.match(migration, /"ClaveIdempotencia"/);
 });
+
+
+test('el recordatorio programado tiene wake-up HTTP protegido para Render free', () => {
+  const service = source('backend/src/services/maintenance-progress-chat.service.js');
+  const route = source('backend/src/routes/maintenance-progress-worker.routes.js');
+  const app = source('backend/src/app.js');
+  const script = source('scripts/google-apps-script/maintenance-finalization-5pm-worker.gs');
+
+  assert.match(service, /sendScheduledMaintenanceProgressForSlot/);
+  assert.match(service, /reason: 'TOO_EARLY'/);
+  assert.match(service, /currentMinutes < targetMinutes/);
+  assert.match(service, /slotKey: `\$\{dateKey\}\|\$\{normalizedSlot\}`/);
+  assert.match(route, /MAINTENANCE_FINALIZATION_WAKE_SECRET/);
+  assert.match(route, /x-dms-worker-secret/);
+  assert.match(route, /timingSafeEqual/);
+  assert.match(route, /sendScheduledMaintenanceProgressForSlot/);
+  assert.match(app, /\/api\/maintenance-progress/);
+  assert.match(script, /wakeDmsMaintenanceProgressAtSeven/);
+  assert.match(script, /retryDmsMaintenanceProgressAtSeven/);
+  assert.match(script, /retryDmsMaintenanceProgressAtFive/);
+  assert.match(script, /\/api\/maintenance-progress\/wake/);
+  assert.match(script, /atHour\(7\)/);
+  assert.match(script, /atHour\(17\)/);
+});
