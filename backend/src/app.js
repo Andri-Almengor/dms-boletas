@@ -42,6 +42,7 @@ import {
   isPasswordVaultRoute,
 } from './modules/password-vault.module.js';
 import { maintenanceFinalizationWorkerRouter } from './routes/maintenance-finalization-worker.routes.js';
+import { maintenanceProgressWorkerRouter } from './routes/maintenance-progress-worker.routes.js';
 import { runWithActionConcurrency } from './services/action-concurrency.service.js';
 import { runWithActionSingleFlight } from './services/action-single-flight.service.js';
 import { startRouteObservation } from './services/performance-observability.service.js';
@@ -103,6 +104,7 @@ app.use(express.json({ limit: '50mb' }));
 app.use(express.text({ type: ['text/plain', 'application/javascript'], limit: '50mb' }));
 
 app.use('/api/maintenance-finalization', maintenanceFinalizationWorkerRouter);
+app.use('/api/maintenance-progress', maintenanceProgressWorkerRouter);
 
 app.get('/api/health', (_req, res) => {
   res.setHeader('Cache-Control', 'no-store');
