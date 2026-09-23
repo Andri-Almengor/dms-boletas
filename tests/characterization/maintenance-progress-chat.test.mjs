@@ -104,6 +104,11 @@ test('programa 7 a. m. y 5 p. m. de Costa Rica y omite fines de semana', () => {
     'America/Costa_Rica',
     [7, 17],
   );
+  const delayedMorning = maintenanceProgressScheduleSlot(
+    new Date('2026-08-07T13:27:00.000Z'),
+    'America/Costa_Rica',
+    [7, 17],
+  );
   const afternoon = maintenanceProgressScheduleSlot(
     new Date('2026-08-07T23:00:15.000Z'),
     'America/Costa_Rica',
@@ -117,6 +122,12 @@ test('programa 7 a. m. y 5 p. m. de Costa Rica y omite fines de semana', () => {
 
   assert.equal(morning?.slot, '07:00');
   assert.equal(morning?.dateKey, '2026-08-07');
+  assert.equal(delayedMorning?.slot, '07:00');
+  assert.equal(
+    delayedMorning?.key,
+    morning?.key,
+    '07:00 y 07:27 pertenecen al mismo slot idempotente del día.',
+  );
   assert.equal(afternoon?.slot, '17:00');
   assert.equal(saturday, null);
 });
