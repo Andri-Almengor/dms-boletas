@@ -1,5 +1,5 @@
 /*
- * DMS Boletas · Worker de finalización de mantenimientos a las 5:00 p. m.
+ * DMS Boletas · Worker externo de mantenimientos (recordatorios 07:00/17:00 + finalización 17:00)
  *
  * Script Properties requeridas:
  *   DMS_APP_URL                      https://tu-app.onrender.com
@@ -8,6 +8,9 @@
  * Zona horaria recomendada del proyecto de Apps Script: America/Costa_Rica
  */
 
+const DMS_PROGRESS_MORNING_HANDLER = 'wakeDmsMaintenanceProgressAtSeven';
+const DMS_PROGRESS_MORNING_RETRY_HANDLER = 'retryDmsMaintenanceProgressAtSeven';
+const DMS_PROGRESS_AFTERNOON_RETRY_HANDLER = 'retryDmsMaintenanceProgressAtFive';
 const DMS_FINALIZATION_DAILY_HANDLER = 'wakeDmsMaintenanceFinalizationsAtFive';
 const DMS_FINALIZATION_RETRY_HANDLER = 'retryDmsMaintenanceFinalizations';
 const DMS_PROPERTY_QUOTA_CLEANUP_HANDLER = 'dmsCleanupPropertyQuotaScheduled';
@@ -166,6 +169,85 @@ function dmsCleanupQuotaBeforeWake_() {
   }
 }
 
+function callDmsMaintenanceProgressWorker_(slot) {
+  const config = dmsFinalizationProperties_();
+  const response = UrlFetchApp.fetch(config.appUrl + '/api/maintenance-progress/wake', {
+    method: 'post',
+    contentType: 'application/json',
+    headers: {
+      'x-dms-worker-secret': config.secret,
+    },
+    payload: JSON.stringify({
+      slot: String(slot || ''),
+      source: 'GOOGLE_APPS_SCRIPT_PROGRESS',
+    }),
+    muteHttpExceptions: true,
+    followRedirects: true,
+  });
+
+  const status = response.getResponseCode();
+  const raw = response.getContentText() || '';
+  let body = {};
+  try {
+    body = JSON.parse(raw);
+  } catch (error) {
+    throw new Error('El worker de progreso devolvió una respuesta no JSON. HTTP ' + status + ': ' + raw.slice(0, 500));
+  }
+  if (status < 200 || status >= 300 || body.ok !== true) {
+    const message = body && body.error && body.error.message
+      ? body.error.message
+      : raw.slice(0, 500);
+    throw new Error('El worker de progreso rechazó la solicitud. HTTP ' + status + ': ' + message);
+  }
+  return body.data || {};
+}
+
+function removeDmsProgressRetryTriggers_(handler) {
+  ScriptApp.getProjectTriggers().forEach(function(trigger) {
+    if (trigger.getHandlerFunction() === handler) {
+      ScriptApp.deleteTrigger(trigger);
+    }
+  });
+}
+
+function scheduleDmsProgressRetry_(handler) {
+  removeDmsProgressRetryTriggers_(handler);
+  ScriptApp.newTrigger(handler)
+    .timeBased()
+    .after(5 * 60 * 1000)
+    .create();
+}
+
+function runDmsMaintenanceProgressSlot_(slot, retryHandler) {
+  try {
+    const result = callDmsMaintenanceProgressWorker_(slot);
+    if (result && result.due === false && result.reason === 'TOO_EARLY') {
+      scheduleDmsProgressRetry_(retryHandler);
+    } else {
+      removeDmsProgressRetryTriggers_(retryHandler);
+    }
+    return result;
+  } catch (error) {
+    console.error('[DMS maintenance progress ' + slot + '] ' + (error && error.stack ? error.stack : error));
+    scheduleDmsProgressRetry_(retryHandler);
+    throw error;
+  }
+}
+
+function wakeDmsMaintenanceProgressAtSeven() {
+  return runDmsMaintenanceProgressSlot_('07:00', DMS_PROGRESS_MORNING_RETRY_HANDLER);
+}
+
+function retryDmsMaintenanceProgressAtSeven() {
+  removeDmsProgressRetryTriggers_(DMS_PROGRESS_MORNING_RETRY_HANDLER);
+  return wakeDmsMaintenanceProgressAtSeven();
+}
+
+function retryDmsMaintenanceProgressAtFive() {
+  removeDmsProgressRetryTriggers_(DMS_PROGRESS_AFTERNOON_RETRY_HANDLER);
+  return runDmsMaintenanceProgressSlot_('17:00', DMS_PROGRESS_AFTERNOON_RETRY_HANDLER);
+}
+
 function callDmsFinalizationWorker_() {
   // Libera primero las propiedades heredadas para que el Apps Script de reportes
   // tenga espacio antes de que Render empiece a solicitar boletas y PDFs.
@@ -257,6 +339,14 @@ function runDmsFinalizationWorker_() {
 }
 
 function wakeDmsMaintenanceFinalizationsAtFive() {
+  // El mismo wake-up de las 17:00 garantiza primero el recordatorio de progreso.
+  // Si Render estaba dormido, esta llamada lo despierta antes de la finalización.
+  try {
+    runDmsMaintenanceProgressSlot_('17:00', DMS_PROGRESS_AFTERNOON_RETRY_HANDLER);
+  } catch (_) {
+    // El progreso tiene su propio retry. Nunca bloquea la finalización programada.
+  }
+
   try {
     return runDmsFinalizationWorker_();
   } catch (error) {
@@ -275,7 +365,10 @@ function installDmsMaintenanceFinalizationTrigger() {
   ScriptApp.getProjectTriggers().forEach(function(trigger) {
     const handler = trigger.getHandlerFunction();
     if (
-      handler === DMS_FINALIZATION_DAILY_HANDLER
+      handler === DMS_PROGRESS_MORNING_HANDLER
+      || handler === DMS_PROGRESS_MORNING_RETRY_HANDLER
+      || handler === DMS_PROGRESS_AFTERNOON_RETRY_HANDLER
+      || handler === DMS_FINALIZATION_DAILY_HANDLER
       || handler === DMS_FINALIZATION_RETRY_HANDLER
       || handler === DMS_PROPERTY_QUOTA_CLEANUP_HANDLER
     ) {
@@ -283,8 +376,17 @@ function installDmsMaintenanceFinalizationTrigger() {
     }
   });
 
-  // nearMinute(0) puede ejecutarse aproximadamente ±15 minutos. Si ocurre
-  // antes de las 17:00, el backend devuelve nextDueAt y se instala un retry exacto.
+  // Google puede ejecutar nearMinute(0) unos minutos antes o después.
+  // El backend nunca envía el recordatorio antes de su hora nominal y estos
+  // handlers crean un retry corto cuando el disparo ocurrió anticipadamente.
+  ScriptApp.newTrigger(DMS_PROGRESS_MORNING_HANDLER)
+    .timeBased()
+    .atHour(7)
+    .nearMinute(0)
+    .everyDays(1)
+    .inTimezone('America/Costa_Rica')
+    .create();
+
   ScriptApp.newTrigger(DMS_FINALIZATION_DAILY_HANDLER)
     .timeBased()
     .atHour(17)
@@ -301,11 +403,19 @@ function installDmsMaintenanceFinalizationTrigger() {
     .create();
 
   const cleanup = dmsCleanupPropertyQuotaNow();
-  return 'Trigger DMS de finalización instalado para las 17:00 America/Costa_Rica. '
-    + 'Protección de cuota instalada cada hora. Propiedades antiguas eliminadas: '
-    + cleanup.deleted + '.';
+  return 'Triggers DMS instalados para recordatorios de mantenimiento a las 07:00 y 17:00, '
+    + 'más finalización a las 17:00 America/Costa_Rica. Protección de cuota instalada cada hora. '
+    + 'Propiedades antiguas eliminadas: ' + cleanup.deleted + '.';
 }
 
 function testDmsMaintenanceFinalizationWorker() {
   return callDmsFinalizationWorker_();
+}
+
+function testDmsMaintenanceProgressMorning() {
+  return callDmsMaintenanceProgressWorker_('07:00');
+}
+
+function testDmsMaintenanceProgressAfternoon() {
+  return callDmsMaintenanceProgressWorker_('17:00');
 }
