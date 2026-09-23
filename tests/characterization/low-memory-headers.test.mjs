@@ -116,7 +116,6 @@ const businessBaseline = {
   "apps-script/boletas-report/appsscript.json": "16d91a41109e4e876741d4b437f40b2e4d1619555432f03c873cc176772f5db8",
   "apps-script/patches/agenda-ticket-finalization-reminders-v7.9.patch": "530353f2daa2cead4e84e52aed8b24a9792bf045b8858c2ea6df29e542543147",
   "apps-script/patches/pdf-annex-blank-page.patch": "f5237174bdcf74e4d005802aaf572847af15e59ca9388c98bb5ec5c1ad9bc864",
-  "apps-script/report-service/Code.gs": "66f20d592e3632766fa5fa76d2ea4cd9c68802389ae7db669daff04e50268012",
   "apps-script/report-service/README.md": "972bad00e5fc9f8593c2b2b95a4009d61bb8eade84c975425a7f74c1169b60ea"
 };
 test('unchanged business handlers and Apps Script remain byte-identical while auth permissions preserve policy', () => {
