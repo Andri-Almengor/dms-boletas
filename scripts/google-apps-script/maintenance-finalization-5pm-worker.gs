@@ -371,12 +371,8 @@ function runDmsMaintenanceProgressSlot_(slot, retryHandler) {
       return result;
     }
 
-    if (Number(result && result.failed || 0) > 0) {
-      releaseDmsMaintenanceProgressSlot_(claim);
-      scheduleDmsProgressRetry_(retryHandler);
-      return result;
-    }
-
+    // Si el backend alcanzó el webhook, el slot queda consumido aunque el
+    // resultado sea ERROR: un retry ambiguo podría duplicar el mensaje.
     completeDmsMaintenanceProgressSlot_(claim, result);
     removeDmsProgressRetryTriggers_(retryHandler);
     return result;
