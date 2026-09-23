@@ -37,7 +37,6 @@ const NOTIFICATION_COLUMNS = Object.freeze([
 
 const MAX_NOTIFICATION_ATTEMPTS = 3;
 const RETRY_DELAY_MS = 5 * 60_000;
-const IN_FLIGHT_LEASE_MS = 10 * 60_000;
 const keyLocks = new Map();
 let schemaPromise = null;
 let immediateTail = Promise.resolve();
@@ -172,12 +171,19 @@ function existingNotification(rows, key) {
 function shouldRetry(existing, now = new Date()) {
   if (!existing) return true;
   const state = normalized(existing.Estado);
-  if (state === 'ENVIADO') return false;
+
+  // Regla at-most-once para Google Chat:
+  // una vez que un slot fue reclamado como ENVIANDO no se vuelve a invocar el
+  // webhook automáticamente. Si el webhook alcanzó a aceptar el mensaje pero el
+  // proceso murió antes de persistir ENVIADO, reintentar produciría un duplicado.
+  // Los reintentos continúan únicamente cuando el envío terminó explícitamente
+  // en ERROR y por tanto sabemos que no quedó un éxito confirmado.
+  if (state === 'ENVIADO' || state === 'ENVIANDO') return false;
+
   const attempts = Number(existing.Intentos || 0);
   if (attempts >= MAX_NOTIFICATION_ATTEMPTS) return false;
   const lastAttempt = parseDate(existing.UltimoIntento || existing.FechaCreacion);
-  const delay = state === 'ENVIANDO' ? IN_FLIGHT_LEASE_MS : RETRY_DELAY_MS;
-  return !lastAttempt || now.getTime() - lastAttempt.getTime() >= delay;
+  return !lastAttempt || now.getTime() - lastAttempt.getTime() >= RETRY_DELAY_MS;
 }
 
 function skipReason(existing) {
@@ -228,7 +234,7 @@ async function claimNotification({
       Destino: redactWebhook(webhook),
       Tipo: notificationType(reason),
       Estado: 'ENVIANDO',
-      Intentos: Number(existing?.Intentos || 0),
+      Intentos: Number(existing?.Intentos || 0) + 1,
       Respuesta: existing?.Respuesta || '',
       Error: '',
       FechaCreacion: existing?.FechaCreacion || timestamp,
@@ -258,7 +264,7 @@ async function claimNotification({
 async function persistAttempt({ existing, key, maintenance, reason, webhook, actor, progress, result, error, now }) {
   const timestamp = now.toISOString();
   const sent = Boolean(result?.sent) && !error;
-  const attempts = Number(existing?.Intentos || 0) + 1;
+  const attempts = Math.max(1, Number(existing?.Intentos || 1));
   const row = {
     ClaveIdempotencia: key,
     Entidad: 'Mantenimiento',
