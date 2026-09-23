@@ -71,6 +71,29 @@ function configuredHours() {
   return values.length ? [...new Set(values)] : [7, 17];
 }
 
+function zonedDateParts(date = new Date(), timeZone = env.maintenanceProgressChatTimezone) {
+  const parts = new Intl.DateTimeFormat('en-US', {
+    timeZone,
+    weekday: 'short',
+    year: 'numeric',
+    month: '2-digit',
+    day: '2-digit',
+    hour: '2-digit',
+    minute: '2-digit',
+    hourCycle: 'h23',
+  }).formatToParts(date);
+  return Object.fromEntries(parts.filter((part) => part.type !== 'literal').map((part) => [part.type, part.value]));
+}
+
+function normalizeScheduledSlot(value) {
+  const match = clean(value).match(/^(\d{1,2})(?::(\d{2}))?$/);
+  if (!match) return '';
+  const hour = Number(match[1]);
+  const minute = Number(match[2] || 0);
+  if (!Number.isInteger(hour) || minute !== 0 || !configuredHours().includes(hour)) return '';
+  return `${String(hour).padStart(2, '0')}:00`;
+}
+
 function notificationType(reason) {
   if (reason === 'CREATED') return 'MANTENIMIENTO_CREADO';
   if (reason === 'COUNTS_UPDATED') return 'MANTENIMIENTO_CANTIDADES_ACTUALIZADAS';
@@ -389,14 +412,7 @@ export function queueMaintenanceProgressNotification(options = {}) {
   return { queued: true };
 }
 
-export async function sendScheduledMaintenanceProgress(now = new Date()) {
-  const slot = maintenanceProgressScheduleSlot(
-    now,
-    env.maintenanceProgressChatTimezone,
-    configuredHours(),
-  );
-  if (!slot) return { due: false, sent: 0, skipped: 0, failed: 0 };
-
+async function dispatchScheduledMaintenanceProgress({ slot, slotKey, now = new Date() }) {
   await ensureNotificationSchema();
   const tables = await readTables([
     'Mantenimiento',
@@ -411,14 +427,14 @@ export async function sendScheduledMaintenanceProgress(now = new Date()) {
     clients: tables.Clientes || [],
   };
   const pending = (tables.Mantenimiento || []).filter(pendingMaintenance);
-  const summary = { due: true, slot: slot.slot, key: slot.key, pending: pending.length, sent: 0, skipped: 0, failed: 0 };
+  const summary = { due: true, slot, key: slotKey, pending: pending.length, sent: 0, skipped: 0, failed: 0 };
 
   for (const maintenance of pending) {
     const result = await notifyMaintenanceProgress({
       maintenance,
       reason: 'SCHEDULED',
-      slot: slot.slot,
-      slotKey: slot.key,
+      slot,
+      slotKey,
       actor: 'SYSTEM',
       now,
       context,
@@ -429,6 +445,61 @@ export async function sendScheduledMaintenanceProgress(now = new Date()) {
   }
 
   return summary;
+}
+
+export async function sendScheduledMaintenanceProgressForSlot({ slot, now = new Date() } = {}) {
+  if (!env.maintenanceProgressChatEnabled) {
+    return { due: false, reason: 'DISABLED', sent: 0, skipped: 0, failed: 0 };
+  }
+
+  const normalizedSlot = normalizeScheduledSlot(slot);
+  if (!normalizedSlot) {
+    return { due: false, reason: 'INVALID_SLOT', sent: 0, skipped: 0, failed: 0 };
+  }
+  if (!isMaintenanceProgressWeekday(now, env.maintenanceProgressChatTimezone)) {
+    return { due: false, reason: 'WEEKEND', slot: normalizedSlot, sent: 0, skipped: 0, failed: 0 };
+  }
+
+  const parts = zonedDateParts(now, env.maintenanceProgressChatTimezone);
+  const currentMinutes = Number(parts.hour || 0) * 60 + Number(parts.minute || 0);
+  const targetHour = Number(normalizedSlot.slice(0, 2));
+  const targetMinutes = targetHour * 60;
+  const dateKey = `${parts.year}-${parts.month}-${parts.day}`;
+
+  // Apps Script puede disparar nearMinute(0) unos minutos antes. Nunca enviamos
+  // el recordatorio antes de la hora nominal; el script reintentará al llegar.
+  if (currentMinutes < targetMinutes) {
+    return {
+      due: false,
+      reason: 'TOO_EARLY',
+      slot: normalizedSlot,
+      dateKey,
+      sent: 0,
+      skipped: 0,
+      failed: 0,
+    };
+  }
+
+  return dispatchScheduledMaintenanceProgress({
+    slot: normalizedSlot,
+    slotKey: `${dateKey}|${normalizedSlot}`,
+    now,
+  });
+}
+
+export async function sendScheduledMaintenanceProgress(now = new Date()) {
+  const slot = maintenanceProgressScheduleSlot(
+    now,
+    env.maintenanceProgressChatTimezone,
+    configuredHours(),
+  );
+  if (!slot) return { due: false, sent: 0, skipped: 0, failed: 0 };
+
+  return dispatchScheduledMaintenanceProgress({
+    slot: slot.slot,
+    slotKey: slot.key,
+    now,
+  });
 }
 
 async function schedulerTick() {
