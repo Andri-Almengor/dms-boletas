@@ -78,13 +78,18 @@ test('el endpoint externo exige un secreto y nunca reutiliza una sesión de usua
   assert.match(render, /MAINTENANCE_FINALIZATION_WAKE_SECRET/);
 });
 
-test('Apps Script despierta Render a las 17:00 y programa reintentos si todavía queda trabajo', () => {
+test('Apps Script despierta Render a las 07:00 y 17:00 y programa reintentos si todavía queda trabajo', () => {
   const script = source('scripts/google-apps-script/maintenance-finalization-5pm-worker.gs');
+  assert.match(script, /atHour\(7\)/);
   assert.match(script, /atHour\(17\)/);
   assert.match(script, /inTimezone\('America\/Costa_Rica'\)/);
   assert.match(script, /nextDueAt/);
   assert.match(script, /scheduleDmsRetry_/);
   assert.match(script, /\/api\/maintenance-finalization\/wake/);
+  assert.match(script, /\/api\/maintenance-progress\/wake/);
+  assert.match(script, /runDmsMaintenanceProgressSlot_\('17:00'/);
+  assert.match(script, /DMS_PROGRESS_MORNING_RETRY_HANDLER/);
+  assert.match(script, /DMS_PROGRESS_AFTERNOON_RETRY_HANDLER/);
 });
 
 test('Apps Script libera idempotencia heredada incluida Agenda y limita el crecimiento antes de despertar Render', () => {
