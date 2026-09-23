@@ -228,9 +228,15 @@ test('un trigger tardío no puede reenviar un slot ya reclamado y el Apps Script
 
   assert.match(
     service,
-    /if \(state === 'ENVIADO' \|\| state === 'ENVIANDO'\) return false/,
-    'ENVIANDO debe ser terminal para reintentos automáticos y evitar duplicados ambiguos.',
+    /if \(scheduledProgressNotification\(existing\)\) return false/,
+    'Un recordatorio 07:00\/17:00 ya reclamado nunca debe volver a llamar al webhook.',
   );
+  assert.match(
+    service,
+    /if \(state === 'ENVIADO' \|\| state === 'ENVIANDO'\) return false/,
+    'Las notificaciones inmediatas también deben bloquear ENVIADO\/ENVIANDO.',
+  );
+  assert.match(service, /SCHEDULED_ALREADY_ATTEMPTED/);
 
   [
     reportScript,
@@ -242,6 +248,11 @@ test('un trigger tardío no puede reenviar un slot ya reclamado y el Apps Script
     assert.match(script, /beginDmsMaintenanceProgressSlot_/);
     assert.match(script, /completeDmsMaintenanceProgressSlot_/);
     assert.match(script, /releaseDmsMaintenanceProgressSlot_/);
+    assert.doesNotMatch(
+      script.match(/function runDmsMaintenanceProgressSlot_[\s\S]*?\n\}/)?.[0] || '',
+      /Number\(result && result\.failed \|\| 0\) > 0[\s\S]*?scheduleDmsProgressRetry_/,
+      'Un ERROR devuelto después del intento del webhook no debe programar otro envío.',
+    );
     assert.match(script, /atHour\(7\)/);
     assert.match(script, /atHour\(17\)/);
     assert.match(script, /\/api\/maintenance-progress\/wake/);
