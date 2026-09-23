@@ -93,8 +93,9 @@ test('finalization storage reuses shared schema and preserves bounded recoverabl
 // authorization, persisted headers, checkpoints, pagination results and write batching.
 // Protected media is intentionally excluded here because PR #305 changes its transport;
 // dedicated security/performance characterization covers that path instead.
-// Maintenance signature handling and the boleta report script are also covered by
-// dedicated signature characterization because the signature reset/fit work changes them intentionally.
+// Maintenance signature handling and the report-service Apps Script are also covered by
+// dedicated characterization. The maintenance progress wake/deduplication work intentionally
+// changes the report-service trigger worker while preserving the existing business flows.
 const businessBaseline = {
   "backend/src/services/maintenance-evidence-permissions.patch.js": "c39ed14272d49ad648ddd4e40ecedeaf0bad22555d88df17baa53b2ae715032b",
   "backend/src/services/maintenance-device-delete-permissions.patch.js": "40cf84fbc2552b8e00b16d840d11c0f9825c71819c6bf4bcb86e630d7e359903",
@@ -115,7 +116,7 @@ const businessBaseline = {
   "apps-script/boletas-report/appsscript.json": "16d91a41109e4e876741d4b437f40b2e4d1619555432f03c873cc176772f5db8",
   "apps-script/patches/agenda-ticket-finalization-reminders-v7.9.patch": "530353f2daa2cead4e84e52aed8b24a9792bf045b8858c2ea6df29e542543147",
   "apps-script/patches/pdf-annex-blank-page.patch": "f5237174bdcf74e4d005802aaf572847af15e59ca9388c98bb5ec5c1ad9bc864",
-  "apps-script/report-service/Code.gs": "9c7e56b51a6d4585161fa267c50e8ec94475532a4b735136c448bea7186314b0",
+  "apps-script/report-service/Code.gs": "66f20d592e3632766fa5fa76d2ea4cd9c68802389ae7db669daff04e50268012",
   "apps-script/report-service/README.md": "972bad00e5fc9f8593c2b2b95a4009d61bb8eade84c975425a7f74c1169b60ea"
 };
 test('unchanged business handlers and Apps Script remain byte-identical while auth permissions preserve policy', () => {
