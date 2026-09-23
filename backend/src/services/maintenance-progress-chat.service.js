@@ -168,16 +168,25 @@ function existingNotification(rows, key) {
   return matches.find((row) => normalized(row.Estado) === 'ENVIADO') || matches[0] || null;
 }
 
+function scheduledProgressNotification(existing) {
+  return normalized(existing?.Tipo) === 'MANTENIMIENTO_PROGRESO_PROGRAMADO';
+}
+
 function shouldRetry(existing, now = new Date()) {
   if (!existing) return true;
   const state = normalized(existing.Estado);
 
-  // Regla at-most-once para Google Chat:
-  // una vez que un slot fue reclamado como ENVIANDO no se vuelve a invocar el
-  // webhook automáticamente. Si el webhook alcanzó a aceptar el mensaje pero el
-  // proceso murió antes de persistir ENVIADO, reintentar produciría un duplicado.
-  // Los reintentos continúan únicamente cuando el envío terminó explícitamente
-  // en ERROR y por tanto sabemos que no quedó un éxito confirmado.
+  // Los slots 07:00/17:00 son estrictamente at-most-once. Una vez creada la
+  // reserva ya ocurrió (o está por ocurrir) la única llamada permitida al
+  // webhook para mantenimiento + fecha + franja. Incluso un ERROR HTTP puede
+  // ser ambiguo: Google Chat pudo aceptar el mensaje antes de que la conexión
+  // se interrumpiera. Reintentar ese slot puede producir exactamente el doble
+  // envío que esta ruta debe impedir.
+  if (scheduledProgressNotification(existing)) return false;
+
+  // Para notificaciones inmediatas (creación/cambio de cantidades) se conserva
+  // la política previa: ENVIADO/ENVIANDO no se repiten y solo ERROR puede
+  // reintentarse de forma acotada.
   if (state === 'ENVIADO' || state === 'ENVIANDO') return false;
 
   const attempts = Number(existing.Intentos || 0);
@@ -190,6 +199,7 @@ function skipReason(existing) {
   const state = normalized(existing?.Estado);
   if (state === 'ENVIADO') return 'ALREADY_SENT';
   if (state === 'ENVIANDO') return 'ALREADY_RUNNING';
+  if (scheduledProgressNotification(existing)) return 'SCHEDULED_ALREADY_ATTEMPTED';
   return 'RETRY_LIMIT';
 }
 
