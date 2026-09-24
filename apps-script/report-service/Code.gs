@@ -11,7 +11,7 @@ const BRAND_BORDER = '#ead5d7';
 const BRAND_BACKGROUND = '#fffafa';
 const DMS_EMAIL_FROM_ALIAS = 'reportes@solutionsdms.com';
 const DMS_EMAIL_FROM_NAME = 'DMS Boletas';
-const APPS_SCRIPT_VERSION = '2026-09-23-V7.10-MAINTENANCE-PROGRESS-ONCE';
+const APPS_SCRIPT_VERSION = '2026-09-24-V7.11-NORMAL-TICKET-EMAIL-FIX';
 const MAINTENANCE_ARCHIVE_DELIVERY_TYPE = 'MAINTENANCE_ARCHIVE';
 
 /*
@@ -2610,10 +2610,11 @@ function isMaintenanceArchiveDelivery_(
 /**
  * Decide si corresponde enviar correo.
  *
- * Un mantenimiento automático puede declarar EnviarCorreoCliente=false. Esa
- * decisión prevalece incluso si un backend antiguo envía sendEmail=true, para
- * evitar una segunda lectura pesada de todas las evidencias y un correo que no
- * debía enviarse.
+ * IMPORTANTE: EnviarCorreoCliente pertenece a la selección de destinatarios de
+ * una boleta normal; NO significa "desactivar el correo". El backend envía
+ * sendEmail=true cuando corresponde entregar el reporte y resuelve aparte si el
+ * cliente debe ir en TO/CC. Las boletas automáticas de mantenimiento se
+ * excluyen únicamente mediante MAINTENANCE_ARCHIVE/archiveOnly.
  */
 function resolveReportSendEmail_(
   payload,
@@ -2631,28 +2632,6 @@ function resolveReportSendEmail_(
     && !reportBoolean_(request.sendEmail, true)
   ) {
     return false;
-  }
-
-  const maintenanceEmailFields = [
-    'EnviarCorreoCliente',
-    'EnviarCorreo',
-    'SendClientEmail',
-    'sendClientEmail',
-  ];
-
-  for (
-    let index = 0;
-    index < maintenanceEmailFields.length;
-    index += 1
-  ) {
-    const key = maintenanceEmailFields[index];
-
-    if (
-      Object.prototype.hasOwnProperty.call(source, key)
-      && !reportBoolean_(source[key], true)
-    ) {
-      return false;
-    }
   }
 
   return true;
