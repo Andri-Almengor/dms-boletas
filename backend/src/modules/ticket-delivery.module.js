@@ -1,6 +1,6 @@
 import { findById, updateRow } from '../infra/sheets.repository.js';
 import { badRequest, forbidden } from '../core/errors.js';
-import { nowIso, pick } from '../core/utils.js';
+import { asBool, nowIso, pick } from '../core/utils.js';
 import { audit } from '../services/audit.service.js';
 import { deliverTicket, resendTicketChats } from '../services/ticket-group-delivery.service.js';
 import { generateTicketWithAppsScript } from '../services/apps-script-ticket-group.service.js';
@@ -54,6 +54,44 @@ function sameWorkflowState(ticket = {}, expected = {}) {
     && clean(ticket.FinalizadaEn) === clean(expected.FinalizadaEn)
     && clean(ticket.EstadoNotificacion) === clean(expected.EstadoNotificacion)
     && clean(ticket.UltimoErrorNotificacion) === clean(expected.UltimoErrorNotificacion);
+}
+
+async function applyFinalizationRecipientOverrides(group, payload = {}, actor = 'SISTEMA') {
+  const hasClientCopy = Object.prototype.hasOwnProperty.call(payload, 'sendClientCopy')
+    || Object.prototype.hasOwnProperty.call(payload, 'EnviarCorreoCliente')
+    || Object.prototype.hasOwnProperty.call(payload, 'enviarCorreoCliente');
+  const hasCc = Object.prototype.hasOwnProperty.call(payload, 'cc')
+    || Object.prototype.hasOwnProperty.call(payload, 'CorreosCC')
+    || Object.prototype.hasOwnProperty.call(payload, 'correosCC');
+
+  if (!hasClientCopy && !hasCc) return group;
+
+  const patch = {
+    ActualizadoPor: actor,
+    FechaActualizacion: nowIso(),
+  };
+
+  if (hasClientCopy) {
+    patch.EnviarCorreoCliente = asBool(
+      pick(
+        payload,
+        ['sendClientCopy', 'EnviarCorreoCliente', 'enviarCorreoCliente'],
+        group.root?.EnviarCorreoCliente,
+      ),
+      false,
+    );
+  }
+
+  if (hasCc) {
+    patch.CorreosCC = pick(
+      payload,
+      ['cc', 'CorreosCC', 'correosCC'],
+      group.root?.CorreosCC || '',
+    );
+  }
+
+  await updateRow('Boletas', group.rootId, patch);
+  return ensureVisitGroupForTicket(group.rootId, actor);
 }
 
 async function inheritMaintenanceSignatureIfAvailable(ticket, actor) {
@@ -172,7 +210,12 @@ export const ticketDeliveryHandlers = {
     const group = await ensureVisitGroupForTicket(requestedTicket.BoletaUID, ctx.user.UsuarioID);
 
     return runOnce(`finalize-group:${group.rootId}`, async () => {
-      const currentGroup = await ensureVisitGroupForTicket(group.rootId, ctx.user.UsuarioID);
+      let currentGroup = await ensureVisitGroupForTicket(group.rootId, ctx.user.UsuarioID);
+      currentGroup = await applyFinalizationRecipientOverrides(
+        currentGroup,
+        ctx.payload,
+        ctx.user.UsuarioID,
+      );
       if (currentGroup.visits.every((visit) => isFinalized(visit.Estado))) {
         return {
           boleta: currentGroup.root,
