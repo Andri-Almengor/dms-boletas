@@ -321,8 +321,8 @@ export async function queryMaintenanceHomeSummary(payload = {}) {
   const result = await query(
     `SELECT
       COUNT(*)::bigint AS total,
-      COUNT(*) FILTER (WHERE UPPER(COALESCE("Estado",''))='PENDIENTE')::bigint AS pending,
-      COUNT(*) FILTER (WHERE UPPER(COALESCE("Estado",''))='FINALIZADO')::bigint AS finished
+      COUNT(*) FILTER (WHERE ${normalizeStatusSql('"Estado"')}='PENDIENTE')::bigint AS pending,
+      COUNT(*) FILTER (WHERE ${normalizeStatusSql('"Estado"')}='FINALIZADA')::bigint AS finished
      FROM "Mantenimiento"
      WHERE ${clauses.join(' AND ')}`,
     params,
