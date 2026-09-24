@@ -1,5 +1,11 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
+import { readFileSync } from 'node:fs';
+import { fileURLToPath } from 'node:url';
+import path from 'node:path';
+const ROOT = fileURLToPath(new URL('../../', import.meta.url));
+const source = (relativePath) => readFileSync(path.join(ROOT, relativePath), 'utf8');
+
 import {
   addVisibleMaintenanceDeviceCounts,
   selectMaintenancePage,
@@ -43,4 +49,26 @@ test('Etapa 2: el conteo recorre dispositivos una sola vez y cuenta solo IDs vis
   const result = addVisibleMaintenanceDeviceCounts(page, devices);
   assert.equal(iterations, rawDevices.length);
   assert.deepEqual(result.map((row) => row.DispositivosRegistrados), [2, 1]);
+});
+
+
+test('Etapa 2: la consulta PostgreSQL de mantenimientos normaliza FINALIZADO y FINALIZADA', () => {
+  const module = source('backend/src/modules/maintenance-progress-chat.module.js');
+  const queries = source('backend/src/infra/postgres.repository.queries.js');
+
+  const listStart = module.indexOf("queryPage('Mantenimiento'");
+  const listEnd = module.indexOf('});', listStart);
+  const listQuery = module.slice(listStart, listEnd + 3);
+
+  assert.ok(listStart >= 0);
+  assert.match(listQuery, /statusNormalized:\s*true/);
+  assert.match(queries, /normalizeStatusSql/);
+  assert.match(
+    queries,
+    /maintenance\.homeSummary/,
+  );
+  assert.match(
+    queries,
+    /COUNT\(\*\) FILTER \(WHERE \$\{normalizeStatusSql\('"Estado"'\)\}='FINALIZADA'\)/,
+  );
 });
