@@ -63,7 +63,10 @@ function resolveRecipients(bundle, config, testMode, override = null, forceClien
 
   const supervisorEmails = splitEmails(bundle.ticket.CorreoSupervisor);
   const technicianEmails = splitEmails(bundle.assigned.map((item) => item.Correo));
-  const clientEmails = splitEmails(bundle.ticket.CorreoCliente);
+  const clientEmails = splitEmails([
+    bundle.ticket.CorreoCliente,
+    bundle.client?.CorreoGeneral,
+  ]);
   const includeClient = forceClient || asBool(bundle.ticket.EnviarCorreoCliente, false);
   const to = supervisorEmails.length
     ? supervisorEmails
@@ -85,6 +88,7 @@ function requestKey(ticket, testMode, sendEmail, deliveryType = '') {
   const version = ticket.Version || ticket.FechaActualizacion || ticket.FinalizadaEn || '1';
   if (testMode) return `test:${ticket.BoletaUID}:${Date.now()}`;
   if (deliveryType === 'SIGNED') return `signed:${ticket.BoletaUID}:${version}`;
+  if (deliveryType === 'NORMAL_EMAIL_RECOVERY') return `email-recovery:${ticket.BoletaUID}:${version}`;
   return `${sendEmail ? 'final' : 'pdf'}:${ticket.BoletaUID}:${version}`;
 }
 

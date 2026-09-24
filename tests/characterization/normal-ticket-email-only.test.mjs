@@ -49,3 +49,40 @@ test('la recuperación se instala después del handler que excluye correo de man
   assert.ok(archiveIndex >= 0);
   assert.ok(normalIndex > archiveIndex);
 });
+
+
+test('EnviarCorreoCliente no desactiva el correo completo de una boleta normal', () => {
+  const script = source('apps-script/report-service/Code.gs');
+  const start = script.indexOf('function resolveReportSendEmail_');
+  const end = script.indexOf('function reportBoolean_', start);
+  const resolver = script.slice(start, end);
+
+  assert.ok(start >= 0 && end > start);
+  assert.match(resolver, /isMaintenanceArchiveDelivery_/);
+  assert.match(resolver, /request\.sendEmail/);
+  assert.doesNotMatch(resolver, /EnviarCorreoCliente/);
+  assert.match(script, /2026-09-24-V7\.11-NORMAL-TICKET-EMAIL-FIX/);
+});
+
+test('la finalización usa la selección actual de copia al cliente y CC del formulario', () => {
+  const module = source('backend/src/modules/ticket-delivery.module.js');
+
+  assert.match(module, /applyFinalizationRecipientOverrides/);
+  assert.match(module, /sendClientCopy/);
+  assert.match(module, /patch\.EnviarCorreoCliente = asBool/);
+  assert.match(module, /patch\.CorreosCC = pick/);
+
+  const applyIndex = module.indexOf('currentGroup = await applyFinalizationRecipientOverrides');
+  const deliverIndex = module.indexOf('const delivery = await deliverTicket', applyIndex);
+  assert.ok(applyIndex >= 0 && deliverIndex > applyIndex);
+});
+
+test('el cliente usa CorreoGeneral actual como respaldo y recovery tiene idempotencia propia', () => {
+  const group = source('backend/src/services/apps-script-ticket-group.service.js');
+  const single = source('backend/src/services/apps-script-ticket.service.js');
+
+  assert.match(group, /bundle\.client\?\.CorreoGeneral/);
+  assert.match(group, /email-recovery-group:/);
+  assert.match(single, /bundle\.client\?\.CorreoGeneral/);
+  assert.match(single, /email-recovery:/);
+});
