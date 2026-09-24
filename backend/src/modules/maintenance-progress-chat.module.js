@@ -28,6 +28,9 @@ async function list(ctx) {
   const page = await queryPage('Mantenimiento', ctx.payload || {}, {
     searchFields: ['TituloMantenimiento', 'Cliente', 'Responsables', 'DescripcionGeneral', 'Ubicacion'],
     excludeInactive: true,
+    // Mantenimiento guarda FINALIZADO, pero existen filas históricas FINALIZADA.
+    // La consulta genérica normaliza ambas variantes al mismo estado lógico.
+    statusNormalized: true,
   });
   if (!page.items.length) return page;
   const ids = page.items.map((row) => clean(row.MantenimientoID)).filter(Boolean);
