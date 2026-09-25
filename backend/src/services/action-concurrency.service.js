@@ -3,6 +3,12 @@ import { AsyncSemaphore } from '../core/semaphore.js';
 
 const authActions = new AsyncSemaphore({ name: 'action-auth', max: 2, queueLimit: env.httpQueueLimit, timeoutMs: env.httpQueueTimeoutMs });
 const uploadActions = new AsyncSemaphore({ name: 'action-upload', max: 1, queueLimit: env.httpQueueLimit, timeoutMs: env.httpQueueTimeoutMs });
+const aiActions = new AsyncSemaphore({
+  name: 'action-ai',
+  max: env.aiActionMaxConcurrent,
+  queueLimit: Math.max(6, env.httpQueueLimit),
+  timeoutMs: Math.max(env.httpQueueTimeoutMs, 60_000),
+});
 
 const writeActions = new AsyncSemaphore({
   name: 'action-write',
@@ -22,9 +28,22 @@ function normalizedRoute(route) {
   return String(route || '').trim().toLowerCase();
 }
 
+function isAiRewriteRoute(route) {
+  return [
+    'ai.technicalrewrite',
+    'gemini.technicalrewrite',
+    'boletas.ai.rewrite',
+    'ai.knowledgerewrite',
+    'gemini.knowledgerewrite',
+    'knowledge.ai.rewrite',
+    'baseconocimientos.ai.rewrite',
+  ].includes(normalizedRoute(route));
+}
+
 function isReadRoute(route) {
   const value = normalizedRoute(route);
-  return value === 'auth.me'
+  return isAiRewriteRoute(value)
+    || value === 'auth.me'
     || value === 'sync.delta'
     || value === 'assistant.chat'
     || value === 'asistente.chat'
@@ -86,6 +105,8 @@ export async function runWithActionConcurrency(route, operation) {
     // incrementales no deben competir con finalizaciones/reportes pesados.
     if (normalizedRoute(route).startsWith('auth.')) {
       releaseDedicated = await authActions.acquire();
+    } else if (isAiRewriteRoute(route)) {
+      releaseDedicated = await aiActions.acquire();
     } else if (/evidence|images|imagenes|grande|attachments|adjuntos/.test(normalizedRoute(route))) {
       releaseDedicated = await uploadActions.acquire();
     } else if (heavy) {
@@ -107,6 +128,7 @@ export function actionConcurrencySnapshot() {
   return {
     auth: authActions.snapshot(),
     uploads: uploadActions.snapshot(),
+    ai: aiActions.snapshot(),
     writes: writeActions.snapshot(),
     heavy: heavyActions.snapshot(),
   };
