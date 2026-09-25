@@ -19,6 +19,7 @@
 .ticket-status--finished { color: #0c6645; background: var(--success-soft); border: 1px solid #b9e5d1; }
 .ticket-card__data { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 12px; margin: 17px 0 0; }
 .ticket-card__data div { min-width: 0; }
+.ticket-card__data .ticket-card__data-wide { grid-column: 1 / -1; }
 .ticket-card__data dt { color: var(--muted); font-size: .69rem; }
 .ticket-card__data dd { margin: 3px 0 0; font-size: .84rem; font-weight: 650; overflow-wrap: anywhere; }
 .ticket-card__meta { display: flex; flex-wrap: wrap; gap: 10px 16px; margin-top: 15px; padding-top: 13px; border-top: 1px solid var(--surface-container); color: var(--muted); font-size: .73rem; }

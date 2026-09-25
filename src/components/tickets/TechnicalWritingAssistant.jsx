@@ -86,6 +86,7 @@ export default function TechnicalWritingAssistant({ form, setForm, disabled = fa
         <p>Lee el contexto completo, corrige los cuatro campos y genera un título relacionado con el trabajo realizado, sin inventar hechos.</p>
         {error && <small className="field-error">{error}</small>}
         {message && <small>{message}</small>}
+        {loading && <small>Gemini puede tardar en responder. Si el modelo activo no responde o alcanza su cuota, se intentará otro automáticamente.</small>}
         <div className="inline-actions">
           <button className="button button--secondary button--compact" type="button" onClick={improve} disabled={disabled || loading || !hasText}>
             <Icon name={loading ? 'progress_activity' : 'auto_awesome'} />

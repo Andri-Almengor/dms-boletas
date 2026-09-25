@@ -6,6 +6,18 @@ export function requestTimeoutMs(route) {
   // Must stay above AI_AGENT_TOTAL_TIMEOUT_MS (max configured backend default: 120 s)
   // so the browser does not abandon a valid Gemini/tool loop first.
   if (['assistant.chat','asistente.chat'].includes(value)) return 195_000;
+  // La redacción técnica puede necesitar esperar un modelo lento y luego rotar
+  // a uno o más modelos alternativos. El backend tiene un presupuesto total
+  // menor que esta ventana para que el navegador no abandone primero.
+  if ([
+    'ai.technicalrewrite',
+    'gemini.technicalrewrite',
+    'boletas.ai.rewrite',
+    'ai.knowledgerewrite',
+    'gemini.knowledgerewrite',
+    'knowledge.ai.rewrite',
+    'baseconocimientos.ai.rewrite',
+  ].includes(value)) return 240_000;
   if (['assistant.operations.decide','asistente.operaciones.decidir'].includes(value)) return 90_000;
   if (['customercases.public.submit','casos.cliente.public.submit'].includes(value)) return 240_000;
   if (/finaliz|report|reporte|slides|presentacion|resend|reenviar/.test(value)) return 240_000;
