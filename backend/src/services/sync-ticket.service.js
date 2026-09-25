@@ -51,27 +51,36 @@ export async function materializeTicketDelta(ctx = {}, events = []) {
   }
 
   const assignmentsByTicket = new Map();
+  const assignmentNamesByTicket = new Map();
   if (entityIds.length) {
-    const assignmentParams = [entityIds];
-    let userClause = '';
-    if (!admin) {
-      assignmentParams.push(userId);
-      userClause = ` AND "UsuarioID"=$2`;
-    }
     const assigned = await query(
-      `SELECT "BoletaUID", "UsuarioID"
-       FROM "BoletaAsignados"
-       WHERE "__valid"=TRUE
-         AND LOWER(COALESCE("Activo",'true')) <> 'false'
-         AND "BoletaUID"=ANY($1::text[])${userClause}
-       ORDER BY "__db_id" ASC`,
-      assignmentParams,
+      `SELECT
+         ba."BoletaUID",
+         ba."UsuarioID",
+         COALESCE(
+           NULLIF(BTRIM(u."NombreCompleto"), ''),
+           NULLIF(BTRIM(u."NombreUsuario"), ''),
+           NULLIF(BTRIM(ba."NombreUsuarioSnapshot"), ''),
+           NULLIF(BTRIM(ba."UsuarioID"), '')
+         ) AS "NombreAsignado"
+       FROM "BoletaAsignados" ba
+       LEFT JOIN "Usuarios" u
+         ON u."__valid"=TRUE
+        AND u."UsuarioID"=ba."UsuarioID"
+       WHERE ba."__valid"=TRUE
+         AND LOWER(COALESCE(ba."Activo",'true')) <> 'false'
+         AND ba."BoletaUID"=ANY($1::text[])
+       ORDER BY ba."__db_id" ASC`,
+      [entityIds],
       { label: 'sync.ticket.assignments' },
     );
     for (const row of assigned.rows) {
       const id = clean(row.BoletaUID);
       if (!assignmentsByTicket.has(id)) assignmentsByTicket.set(id, new Set());
       assignmentsByTicket.get(id).add(clean(row.UsuarioID));
+      if (!assignmentNamesByTicket.has(id)) assignmentNamesByTicket.set(id, new Set());
+      const name = clean(row.NombreAsignado);
+      if (name) assignmentNamesByTicket.get(id).add(name);
     }
   }
 
@@ -93,6 +102,7 @@ export async function materializeTicketDelta(ctx = {}, events = []) {
     }
     upserts.push({
       ...ticket,
+      AsignadosNombres: [...(assignmentNamesByTicket.get(entityId) || [])].filter(Boolean).sort().join(', '),
       __sync: { assignedUserIds: [...(assignmentsByTicket.get(entityId) || [])].filter(Boolean).sort() },
     });
   }
