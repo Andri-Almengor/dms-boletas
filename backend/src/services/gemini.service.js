@@ -21,6 +21,10 @@ const DEFAULT_FALLBACK_MODELS = ['gemini-3.1-flash-lite', 'gemini-2.5-flash-lite
 const CLIENT_CHAT_SUMMARY_MODE = 'CLIENT_CHAT_SUMMARY';
 const DEFAULT_QUOTA_COOLDOWN_MS = 60_000;
 const MAX_QUOTA_COOLDOWN_MS = 5 * 60_000;
+const DEFAULT_MODEL_TIMEOUT_MS = 65_000;
+const DEFAULT_TOTAL_TIMEOUT_MS = 210_000;
+const MAX_MODEL_TIMEOUT_MS = 120_000;
+const MAX_TOTAL_TIMEOUT_MS = 300_000;
 const modelQuotaCooldowns = new Map();
 const announcedFallbackModels = new Set();
 
@@ -202,13 +206,47 @@ function setQuotaCooldown(model, milliseconds) {
   modelQuotaCooldowns.set(model, Date.now() + duration);
 }
 
-async function requestModel({ apiKey, model, prompt, retries }) {
-  const timeoutMs = positiveInteger(process.env.GEMINI_TIMEOUT_MS, 30_000, 10_000, 90_000);
+function modelUnavailableFailure(status, message = '') {
+  const text = String(message || '').toLowerCase();
+  if (status === 404) return true;
+  if (![400, 403].includes(Number(status))) return false;
+  return text.includes('model')
+    && (
+      text.includes('not found')
+      || text.includes('not available')
+      || text.includes('unavailable')
+      || text.includes('unsupported')
+      || text.includes('not supported')
+      || text.includes('permission')
+      || text.includes('access')
+    );
+}
+
+function totalBudgetFailure() {
+  return {
+    status: 504,
+    code: 'GEMINI_TOTAL_TIMEOUT',
+    message: 'Gemini agotó el tiempo total disponible para esta redacción.',
+    transient: true,
+  };
+}
+
+async function requestModel({ apiKey, model, prompt, retries, deadlineAt }) {
+  const configuredTimeoutMs = positiveInteger(
+    process.env.GEMINI_TIMEOUT_MS,
+    DEFAULT_MODEL_TIMEOUT_MS,
+    15_000,
+    MAX_MODEL_TIMEOUT_MS,
+  );
   let lastFailure = null;
 
   for (let attempt = 0; attempt <= retries; attempt += 1) {
+    const remainingMs = Number(deadlineAt || 0) - Date.now();
+    if (remainingMs <= 1_000) return { error: totalBudgetFailure(), model };
+
+    const attemptTimeoutMs = Math.min(configuredTimeoutMs, remainingMs);
     const controller = new AbortController();
-    const timeout = setTimeout(() => controller.abort(), timeoutMs);
+    const timeout = setTimeout(() => controller.abort(), attemptTimeoutMs);
     let response;
     let data = {};
 
@@ -252,18 +290,34 @@ async function requestModel({ apiKey, model, prompt, retries }) {
     if (response) {
       const status = response.status;
       const message = data?.error?.message || `Gemini rechazó la solicitud (${status}).`;
+      const unavailable = modelUnavailableFailure(status, message);
       lastFailure = {
         status,
-        code: status === 429 ? 'GEMINI_QUOTA_EXCEEDED' : 'GEMINI_REQUEST_FAILED',
+        code: status === 429
+          ? 'GEMINI_QUOTA_EXCEEDED'
+          : unavailable
+            ? 'GEMINI_MODEL_UNAVAILABLE'
+            : 'GEMINI_REQUEST_FAILED',
         message,
-        transient: TRANSIENT_STATUSES.has(status),
+        transient: TRANSIENT_STATUSES.has(status) || unavailable,
         retryAfterMs: status === 429 ? retryAfterMilliseconds(response, message) : 0,
+        rotateModel: status === 429 || unavailable,
       };
     }
 
-    if (lastFailure?.status === 429) break;
+    // Cuota agotada, modelo no disponible o un timeout no deben consumir otro
+    // intento del mismo modelo. Rotamos inmediatamente para dejar presupuesto
+    // suficiente a los fallbacks.
+    if (
+      lastFailure?.status === 429
+      || lastFailure?.code === 'GEMINI_TIMEOUT'
+      || lastFailure?.rotateModel
+    ) break;
     if (!lastFailure?.transient || attempt >= retries) break;
-    await sleep(retryDelay(attempt, response));
+
+    const remainingBeforeRetry = Number(deadlineAt || 0) - Date.now();
+    if (remainingBeforeRetry <= 1_000) return { error: totalBudgetFailure(), model };
+    await sleep(Math.min(retryDelay(attempt, response), Math.max(0, remainingBeforeRetry - 1_000)));
   }
 
   return { error: lastFailure || { status: 502, code: 'GEMINI_REQUEST_FAILED', message: 'Gemini rechazó la solicitud.', transient: false }, model };
@@ -325,18 +379,32 @@ export async function rewriteTechnicalReport(payload = {}) {
 
   const models = resolveModels();
   const primaryRetries = positiveInteger(process.env.GEMINI_MAX_RETRIES, 1, 0, 3);
+  const totalTimeoutMs = positiveInteger(
+    process.env.GEMINI_TOTAL_TIMEOUT_MS,
+    DEFAULT_TOTAL_TIMEOUT_MS,
+    60_000,
+    MAX_TOTAL_TIMEOUT_MS,
+  );
+  const deadlineAt = Date.now() + totalTimeoutMs;
   const attemptedModels = [];
   let lastFailure = null;
+  const prompt = buildPrompt(fields, context);
 
   for (let index = 0; index < models.length; index += 1) {
     const model = models[index];
     if (quotaCooldownRemaining(model) > 0) continue;
+    if (deadlineAt - Date.now() <= 1_000) {
+      lastFailure = totalBudgetFailure();
+      break;
+    }
+
     attemptedModels.push(model);
     const result = await requestModel({
       apiKey,
       model,
-      prompt: buildPrompt(fields, context),
+      prompt,
       retries: index === 0 ? primaryRetries : 0,
+      deadlineAt,
     });
 
     if (result.data) {
@@ -360,6 +428,10 @@ export async function rewriteTechnicalReport(payload = {}) {
     if (lastFailure?.status === 429) {
       setQuotaCooldown(model, lastFailure.retryAfterMs);
       console.warn(`[gemini] ${model} alcanzó su cuota. Se omitirá temporalmente y se usará un modelo alternativo.`);
+    } else if (lastFailure?.code === 'GEMINI_TIMEOUT') {
+      console.warn(`[gemini] ${model} superó el tiempo por modelo. Cambiando al siguiente modelo disponible.`);
+    } else if (lastFailure?.code === 'GEMINI_MODEL_UNAVAILABLE') {
+      console.warn(`[gemini] ${model} no está disponible para esta solicitud. Cambiando al siguiente modelo.`);
     } else {
       console.warn(`[gemini] ${model} no respondió correctamente: ${lastFailure?.status || 'sin estado'} ${lastFailure?.message || ''}`);
     }
