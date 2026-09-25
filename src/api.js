@@ -36,6 +36,19 @@ function isAppsScriptUrl(value) {
   return /^https:\/\/script\.google\.com\//i.test(String(value || ''));
 }
 
+function isReplaySafeAiRoute(route) {
+  const value = String(route || '').trim().toLowerCase();
+  return [
+    'ai.technicalrewrite',
+    'gemini.technicalrewrite',
+    'boletas.ai.rewrite',
+    'ai.knowledgerewrite',
+    'gemini.knowledgerewrite',
+    'knowledge.ai.rewrite',
+    'baseconocimientos.ai.rewrite',
+  ].includes(value);
+}
+
 function isReadRoute(route) {
   const value = String(route || '').toLowerCase();
   return value === 'sync.delta'
@@ -260,6 +273,8 @@ async function retryRequest(route, payload, sessionToken, signal) {
   }
 
   const read = isReadRoute(route);
+  const replaySafeAi = isReplaySafeAiRoute(route);
+  const retrySafe = read || replaySafeAi;
   let lastError;
   for (let attempt = 0; attempt <= TRANSIENT_RETRY_DELAYS_MS.length; attempt += 1) {
     try {
@@ -272,7 +287,7 @@ async function retryRequest(route, payload, sessionToken, signal) {
       const safeMutationRetry = !read
         && String(error?.code || '').toUpperCase() === 'BACKEND_EDGE_THROTTLED'
         && !backendReached;
-      const ambiguousMutation = !read
+      const ambiguousMutation = !retrySafe
         && !safeMutationRetry
         && (retryable || Number(error?.status || 0) >= 500);
 
@@ -288,10 +303,10 @@ async function retryRequest(route, payload, sessionToken, signal) {
         });
       }
 
-      const shouldRetry = read ? retryable : safeMutationRetry;
+      const shouldRetry = retrySafe ? retryable : safeMutationRetry;
       if (shouldRetry && !backendReached) markBackendUnavailable(error);
       if (!shouldRetry || attempt === TRANSIENT_RETRY_DELAYS_MS.length) {
-        if (read) {
+        if (retrySafe) {
           if (retryable && !backendReached && !isOfflineModeEnabled()) throw onlineRequiredError(error);
         }
         throw error;
@@ -406,6 +421,13 @@ export async function apiRequest(route, payload = {}, sessionToken = '', options
   // Cursor probes and authoritative snapshots must never use the short/stale
   // response cache: its content could predate the cursor captured by sync.
   if (String(route).toLowerCase() === 'sync.delta' || (isReadRoute(route) && options.cache === 'no-store')) {
+    return performRequestWithRetry(route, payload, sessionToken, { signal });
+  }
+
+  // Las rutas de IA son idempotentes y reintentables, pero no se almacenan
+  // en la caché de lecturas: cada pulsación explícita debe poder pedir una
+  // nueva redacción sin invalidar colecciones operativas.
+  if (isReplaySafeAiRoute(route)) {
     return performRequestWithRetry(route, payload, sessionToken, { signal });
   }
 
