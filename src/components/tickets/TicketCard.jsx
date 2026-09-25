@@ -4,6 +4,21 @@ import Icon from '../common/Icon';
 import { pick } from '../../services/moduleApi';
 import { formatDate, formatTime, getTicketId, normalizeTicketStatus } from '../../utils/tickets';
 
+function assignedNames(ticket = {}) {
+  const direct = pick(ticket, ['AsignadosNombres'], '');
+  if (String(direct || '').trim()) return String(direct).trim();
+
+  const raw = ticket.asignados ?? ticket.Asignados ?? ticket.AsignadoA ?? ticket.Responsables;
+  const values = Array.isArray(raw) ? raw : raw ? [raw] : [];
+  return [...new Set(values
+    .map((item) => typeof item === 'string'
+      ? item
+      : pick(item, ['NombreCompleto', 'Nombre', 'NombreUsuario', 'UsuarioID'], ''))
+    .map((value) => String(value || '').trim())
+    .filter(Boolean))]
+    .join(', ');
+}
+
 export function TicketStatusChip({ status }) {
   const raw = String(status || '').toUpperCase();
   const normalized = raw.includes('FINAL') ? 'FINALIZADA' : raw.includes('ANUL') ? 'ANULADA' : 'PENDIENTE';
@@ -18,7 +33,7 @@ function TicketCard({ ticket, compact = false, onDelete }) {
   const title = pick(ticket, ['Titulo', 'Título', 'TituloBoleta', 'title', 'TipoServicio'], 'Boleta de servicio');
   const client = pick(ticket, ['Cliente', 'ClienteNombre', 'Clientes', 'clientName'], 'Cliente sin especificar');
   const equipment = [pick(ticket, ['TipoDispositivo']), pick(ticket, ['Fabricante']), pick(ticket, ['Modelo'])].filter(Boolean).join(' · ') || pick(ticket, ['Equipo', 'UbicacionEquipo', 'Ubicacion_equipo', 'Categoria'], 'Servicio técnico');
-  const assigned = String(pick(ticket, ['AsignadosNombres', 'Asignados', 'AsignadoA', 'Responsables'], '') || '').trim();
+  const assigned = assignedNames(ticket);
   const date = pick(ticket, ['FechaFinalizacion', 'Fecha', 'FechaCreacion', 'CreatedAt', 'fecha']);
   const time = pick(ticket, ['HoraInicio', 'horaInicio', 'Hora']);
   const location = pick(ticket, ['Ubicacion', 'Ubicación', 'Direccion', 'Dirección']);
