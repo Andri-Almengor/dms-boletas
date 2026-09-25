@@ -282,8 +282,14 @@ async function retryRequest(route, payload, sessionToken, signal) {
     } catch (error) {
       if (isAbortError(error)) throw error;
       lastError = error;
-      const retryable = transientError(error);
       const backendReached = error?.backendReached === true;
+      // Si DMS ya respondió que Gemini agotó sus modelos/presupuesto, repetir
+      // automáticamente toda la cadena solo alarga la espera. Sí reintentamos
+      // errores de transporte/edge donde el backend no llegó a procesar la IA.
+      const terminalAiFailure = replaySafeAi
+        && backendReached
+        && String(error?.code || '').toUpperCase().startsWith('GEMINI_');
+      const retryable = transientError(error) && !terminalAiFailure;
       const safeMutationRetry = !read
         && String(error?.code || '').toUpperCase() === 'BACKEND_EDGE_THROTTLED'
         && !backendReached;
