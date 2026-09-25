@@ -18,6 +18,7 @@ function TicketCard({ ticket, compact = false, onDelete }) {
   const title = pick(ticket, ['Titulo', 'Título', 'TituloBoleta', 'title', 'TipoServicio'], 'Boleta de servicio');
   const client = pick(ticket, ['Cliente', 'ClienteNombre', 'Clientes', 'clientName'], 'Cliente sin especificar');
   const equipment = [pick(ticket, ['TipoDispositivo']), pick(ticket, ['Fabricante']), pick(ticket, ['Modelo'])].filter(Boolean).join(' · ') || pick(ticket, ['Equipo', 'UbicacionEquipo', 'Ubicacion_equipo', 'Categoria'], 'Servicio técnico');
+  const assigned = String(pick(ticket, ['AsignadosNombres', 'Asignados', 'AsignadoA', 'Responsables'], '') || '').trim();
   const date = pick(ticket, ['FechaFinalizacion', 'Fecha', 'FechaCreacion', 'CreatedAt', 'fecha']);
   const time = pick(ticket, ['HoraInicio', 'horaInicio', 'Hora']);
   const location = pick(ticket, ['Ubicacion', 'Ubicación', 'Direccion', 'Dirección']);
@@ -45,7 +46,7 @@ function TicketCard({ ticket, compact = false, onDelete }) {
     aria-label={detailUrl ? `Abrir detalle de la boleta ${id || ''}` : undefined}
   >
     <div className="ticket-card__header"><div className="ticket-card__identity"><span className="ticket-card__number">#{String(id || 'SIN-ID').slice(0, 20)}</span><h3>{title}</h3>{compact && <p>Cliente: {client}</p>}</div><TicketStatusChip status={status} /></div>
-    {!compact && <dl className="ticket-card__data"><div><dt>Cliente</dt><dd>{client}</dd></div><div><dt>Equipo</dt><dd>{equipment}</dd></div></dl>}
+    {!compact && <dl className="ticket-card__data"><div><dt>Cliente</dt><dd>{client}</dd></div><div><dt>Equipo</dt><dd>{equipment}</dd></div>{assigned && <div className="ticket-card__data-wide"><dt>Asignados</dt><dd>{assigned}</dd></div>}</dl>}
     <div className="ticket-card__meta"><span><Icon name="calendar_today" /> {formatDate(date)}</span>{time && <span><Icon name="schedule" /> {formatTime(time)}</span>}{location && <span><Icon name="location_on" /> {location}</span>}</div>
     {!compact && uid && <div className="ticket-card__actions"><Link className="button button--primary button--compact" to={detailUrl}>Ver detalle</Link>{status !== 'FINALIZADA' && <Link className="icon-button icon-button--outlined" to={`${detailUrl}/editar`} aria-label="Editar boleta"><Icon name="edit" /></Link>}{status === 'FINALIZADA' && pdfUrl && <a className="icon-button icon-button--outlined" href={pdfUrl} target="_blank" rel="noreferrer" aria-label="Abrir PDF"><Icon name="picture_as_pdf" /></a>}{onDelete && <button className="icon-button icon-button--danger" type="button" onClick={() => onDelete(ticket)} aria-label="Anular boleta"><Icon name="delete" /></button>}</div>}
   </article>;
