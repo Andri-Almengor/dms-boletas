@@ -167,7 +167,27 @@ export async function queryTicketPage(payload = {}, { assignedUserId = '', allow
 
   const pageParams = [...itemParams, pageSize, (page - 1) * pageSize];
   const rows = await query(
-    `SELECT ${selectList('Boletas')} FROM "Boletas"
+    `SELECT ${selectList('Boletas')},
+       COALESCE((
+         SELECT STRING_AGG(assigned_names.name, ', ' ORDER BY assigned_names.name)
+         FROM (
+           SELECT DISTINCT COALESCE(
+             NULLIF(BTRIM(u."NombreCompleto"), ''),
+             NULLIF(BTRIM(u."NombreUsuario"), ''),
+             NULLIF(BTRIM(ba."NombreUsuarioSnapshot"), ''),
+             NULLIF(BTRIM(ba."UsuarioID"), '')
+           ) AS name
+           FROM "BoletaAsignados" ba
+           LEFT JOIN "Usuarios" u
+             ON u."__valid"=TRUE
+            AND u."UsuarioID"=ba."UsuarioID"
+           WHERE ba."__valid"=TRUE
+             AND ba."BoletaUID"="Boletas"."BoletaUID"
+             AND LOWER(COALESCE(ba."Activo",'true')) <> 'false'
+         ) assigned_names
+         WHERE assigned_names.name IS NOT NULL
+       ), '') AS "AsignadosNombres"
+     FROM "Boletas"
      WHERE ${where}
      ORDER BY ${order}
      LIMIT $${pageParams.length - 1} OFFSET $${pageParams.length}`,
@@ -175,7 +195,10 @@ export async function queryTicketPage(payload = {}, { assignedUserId = '', allow
     { label: 'tickets.list.items' },
   );
   const result = {
-    items: rows.rows.map(publicRow),
+    items: rows.rows.map((row) => ({
+      ...publicRow(row),
+      AsignadosNombres: String(row.AsignadosNombres || ''),
+    })),
     total: Number(count.rows[0]?.total || 0),
     page,
     pageSize,
