@@ -102,7 +102,7 @@ test('el alias corporativo es preferido pero no bloquea el envío de boletas', (
   assert.doesNotMatch(aliasResolver, /throw error/);
   assert.match(aliasResolver, /cuenta efectiva del Web App/);
   assert.match(sender, /mailAppSend_/);
-  assert.match(sender, /MailApp\.sendEmail/);
+  assert.match(script, /function mailAppSend_[\s\S]*?MailApp\.sendEmail/);
   assert.match(sender, /aliasFallback/);
   assert.match(sender, /CORPORATE_ALIAS/);
 });
