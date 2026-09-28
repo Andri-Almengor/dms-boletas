@@ -139,18 +139,29 @@ function resolveRecipients(bundle, settings, testMode, override = null, forceCli
     bundle.ticket.CorreoCliente,
     bundle.client?.CorreoGeneral,
   ]);
+  const configuredEmails = splitEmails(settings.ticketDefaultCc);
+  const ticketCcEmails = splitEmails(bundle.ticket.CorreosCC);
   const includeClient = forceClient || asBool(bundle.ticket.EnviarCorreoCliente, false);
-  const to = supervisorEmails.length
+  const preferredTo = supervisorEmails.length
     ? supervisorEmails
     : technicianEmails.length
       ? technicianEmails
       : includeClient
         ? clientEmails
         : [];
+  const fallbackRecipients = splitEmails([
+    ...configuredEmails,
+    ...ticketCcEmails,
+    ...(includeClient ? clientEmails : []),
+  ]);
+  // Gmail necesita al menos un destinatario principal. Si la boleta no tiene
+  // supervisor/técnico/cliente elegible pero sí destinatarios configurados,
+  // esos correos dejan de quedar varados únicamente como CC.
+  const to = preferredTo.length ? preferredTo : fallbackRecipients;
   const cc = [
     ...(supervisorEmails.length ? technicianEmails : []),
-    ...splitEmails(settings.ticketDefaultCc),
-    ...splitEmails(bundle.ticket.CorreosCC),
+    ...configuredEmails,
+    ...ticketCcEmails,
     ...(includeClient ? clientEmails : []),
   ].filter((email, index, all) => !to.includes(email) && all.indexOf(email) === index);
   return { to, cc };
