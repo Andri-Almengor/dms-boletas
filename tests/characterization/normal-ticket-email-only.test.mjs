@@ -77,13 +77,19 @@ test('la finalización usa la selección actual de copia al cliente y CC del for
   assert.ok(applyIndex >= 0 && deliverIndex > applyIndex);
 });
 
-test('el cliente usa CorreoGeneral actual como respaldo y recovery tiene idempotencia propia', () => {
+test('Yehuda es siempre el destinatario principal y la copia al cliente usa CorreoSupervisor', () => {
   const group = source('backend/src/services/apps-script-ticket-group.service.js');
   const single = source('backend/src/services/apps-script-ticket.service.js');
 
-  assert.match(group, /bundle\.client\?\.CorreoGeneral/);
+  for (const service of [group, single]) {
+    assert.match(service, /TICKET_PRIMARY_EMAIL = 'yehuda\.karmona@solutionsdms\.com'/);
+    assert.match(service, /const to = splitEmails\(TICKET_PRIMARY_EMAIL\)/);
+    assert.match(service, /CorreoSupervisor/);
+    assert.match(service, /\.\.\.\(includeClient \? supervisorEmails : \[\]\)/);
+    assert.doesNotMatch(service, /bundle\.client\?\.CorreoGeneral/);
+  }
+
   assert.match(group, /email-recovery-group:/);
-  assert.match(single, /bundle\.client\?\.CorreoGeneral/);
   assert.match(single, /email-recovery:/);
 });
 
@@ -107,15 +113,30 @@ test('el alias corporativo es preferido pero no bloquea el envío de boletas', (
   assert.match(sender, /CORPORATE_ALIAS/);
 });
 
-test('los correos configurados se promueven a TO cuando no existe destinatario principal', () => {
+test('técnicos y correos configurados permanecen en CC y nunca desplazan al destinatario principal', () => {
   const group = source('backend/src/services/apps-script-ticket-group.service.js');
   const single = source('backend/src/services/apps-script-ticket.service.js');
 
   for (const service of [group, single]) {
-    assert.match(service, /const configuredEmails = splitEmails/);
-    assert.match(service, /const fallbackRecipients = splitEmails/);
-    assert.match(service, /const to = preferredTo\.length \? preferredTo : fallbackRecipients/);
+    assert.match(service, /const technicianEmails = splitEmails/);
+    assert.match(service, /const ticketCcEmails = splitEmails/);
+    assert.match(service, /\.\.\.technicianEmails/);
+    assert.match(service, /\.\.\.configuredCc/);
+    assert.match(service, /\.\.\.ticketCcEmails/);
+    assert.match(service, /filter\(\(email\) => !to\.includes\(email\)\)/);
   }
+});
+
+test('el reporte firmado conserva a Yehuda en TO y copia al cliente mediante el supervisor', () => {
+  const delivery = source('backend/src/services/ticket-group-delivery.service.js');
+  const groupService = source('backend/src/services/apps-script-ticket-group.service.js');
+  const signedBlock = delivery.match(/export async function deliverSignedTicket[\s\S]*?\n\}/)?.[0] || '';
+
+  assert.doesNotMatch(signedBlock, /CorreoCliente/);
+  assert.doesNotMatch(signedBlock, /recipientsOverride/);
+  assert.match(signedBlock, /deliveryType: 'SIGNED'/);
+  assert.match(groupService, /deliveryType === 'SIGNED'/);
+  assert.match(groupService, /includeClient \? supervisorEmails/);
 });
 
 test('una boleta finalizada puede reenviar solamente el correo sin tocar Google Chat', () => {
