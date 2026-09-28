@@ -11,7 +11,7 @@ const BRAND_BORDER = '#ead5d7';
 const BRAND_BACKGROUND = '#fffafa';
 const DMS_EMAIL_FROM_ALIAS = 'reportes@solutionsdms.com';
 const DMS_EMAIL_FROM_NAME = 'DMS Boletas';
-const APPS_SCRIPT_VERSION = '2026-09-24-V7.11-NORMAL-TICKET-EMAIL-FIX';
+const APPS_SCRIPT_VERSION = '2026-09-28-V7.12-EMAIL-DELIVERY-FALLBACK';
 const MAINTENANCE_ARCHIVE_DELIVERY_TYPE = 'MAINTENANCE_ARCHIVE';
 
 /*
@@ -621,6 +621,9 @@ function compactReportReplayData_(data) {
       'signatureUrl',
       'signedDelivery',
       'remainingDailyQuota',
+      'senderMode',
+      'senderAddress',
+      'aliasFallback',
     ].forEach(function (key) {
       if (Object.prototype.hasOwnProperty.call(email, key)) {
         compact.email[key] = email[key];
@@ -2287,6 +2290,9 @@ function sendVisitGroupEmail_(data) {
     cc: cc,
     messageCount: delivery.messageCount,
     attachmentCount: attachments.length,
+    senderMode: delivery.senderMode || '',
+    senderAddress: delivery.senderAddress || '',
+    aliasFallback: Boolean(delivery.aliasFallback),
     reportAttachmentCount: reportBlobs.length,
     evidenceAttachmentCount: evidenceParts.attachments.length,
     inlineImageCount: 0,
@@ -6399,6 +6405,9 @@ function sendReportEmail_(data) {
     cc: cc,
     messageCount: delivery.messageCount,
     attachmentCount: attachments.length,
+    senderMode: delivery.senderMode || '',
+    senderAddress: delivery.senderAddress || '',
+    aliasFallback: Boolean(delivery.aliasFallback),
     reportAttachmentCount: 1,
     evidenceAttachmentCount: evidenceParts.attachments.length,
     inlineImageCount: 0,
@@ -6640,6 +6649,8 @@ function sendDirectAttachmentEmails_(data) {
     );
   }
 
+  let sender = null;
+
   batches.forEach(function (batch, index) {
     const multiple = batches.length > 1;
     const part = index + 1;
@@ -6657,7 +6668,7 @@ function sendDirectAttachmentEmails_(data) {
       ? data.htmlBody
       : buildDirectAttachmentContinuationHtml_(part, batches.length);
 
-    sendDmsEmail_({
+    const currentSender = sendDmsEmail_({
       to: data.to.join(','),
       cc: data.cc.join(',') || undefined,
       subject: subject,
@@ -6666,11 +6677,16 @@ function sendDirectAttachmentEmails_(data) {
       name: data.name || 'DMS Boletas',
       attachments: batch,
     });
+
+    if (!sender) sender = currentSender;
   });
 
   return {
     messageCount: batches.length,
     attachmentCount: (data.attachments || []).length,
+    senderMode: sender ? sender.senderMode : '',
+    senderAddress: sender ? sender.senderAddress : '',
+    aliasFallback: Boolean(sender && sender.aliasFallback),
   };
 }
 
@@ -7458,11 +7474,12 @@ function safeWebUrl_(value) {
  */
 
 /**
- * Devuelve el alias corporativo que se usará como remitente visible.
+ * Devuelve el alias corporativo preferido.
  *
- * GmailApp solo permite usar `from` cuando la dirección está configurada y
- * verificada en Gmail como "Enviar correo como". No se hace fallback silencioso
- * a la cuenta personal para evitar que un aviso de DMS exponga ese remitente.
+ * El alias mejora la presentación del correo, pero NO es una dependencia de
+ * entrega. Si no existe, no está autorizado o Gmail no permite consultarlo, el
+ * mensaje se envía con la cuenta efectiva de la implementación mediante
+ * MailApp.
  */
 function getDmsEmailFromAlias_() {
   if (REQUEST_DMS_EMAIL_ALIAS_CACHE_ !== null) {
@@ -7474,20 +7491,25 @@ function getDmsEmailFromAlias_() {
     Session.getEffectiveUser().getEmail() || '',
   ).trim().toLowerCase();
 
-  /*
-   * Si la propia cuenta ejecutora ya es reportes@solutionsdms.com no hace falta
-   * indicar `from`: Gmail enviará naturalmente desde esa dirección.
-   */
   if (effectiveEmail === desired) {
     REQUEST_DMS_EMAIL_ALIAS_CACHE_ = '';
     return '';
   }
 
-  const aliases = GmailApp.getAliases()
-    .map(function (email) {
-      return String(email || '').trim();
-    })
-    .filter(Boolean);
+  let aliases = [];
+  try {
+    aliases = GmailApp.getAliases()
+      .map(function (email) {
+        return String(email || '').trim();
+      })
+      .filter(Boolean);
+  } catch (error) {
+    console.warn(
+      `No fue posible consultar los alias de Gmail (${error.message}). Se usará la cuenta efectiva para no bloquear el correo.`,
+    );
+    REQUEST_DMS_EMAIL_ALIAS_CACHE_ = '';
+    return '';
+  }
 
   for (let index = 0; index < aliases.length; index += 1) {
     if (aliases[index].toLowerCase() === desired) {
@@ -7496,20 +7518,67 @@ function getDmsEmailFromAlias_() {
     }
   }
 
-  const error = new Error(
-    `El alias ${DMS_EMAIL_FROM_ALIAS} no está disponible para la cuenta que ejecuta este Apps Script. `
-    + 'Configure y verifique ese alias en Gmail > Configuración > Cuentas e importación > Enviar correo como, '
-    + 'y luego vuelva a autorizar el proyecto.',
+  console.warn(
+    `El alias ${DMS_EMAIL_FROM_ALIAS} no está configurado. El correo se enviará con la cuenta efectiva del Web App.`,
   );
-  error.code = 'DMS_EMAIL_ALIAS_NOT_CONFIGURED';
-  throw error;
+  REQUEST_DMS_EMAIL_ALIAS_CACHE_ = '';
+  return '';
+}
+
+function isDmsAliasSendError_(error) {
+  const message = String(
+    error && error.message ? error.message : error || '',
+  ).toLowerCase();
+
+  return [
+    'alias',
+    'from address',
+    'from field',
+    'send as',
+    'send-as',
+    'not one of the aliases',
+    'invalid argument: from',
+  ].some(function (fragment) {
+    return message.indexOf(fragment) !== -1;
+  });
+}
+
+function effectiveDmsSenderEmail_() {
+  return String(
+    Session.getEffectiveUser().getEmail() || '',
+  ).trim();
+}
+
+function mailAppSend_(data, to) {
+  const options = {
+    to: to,
+    subject: String(data.subject || ''),
+    body: String(data.body || ''),
+    name: clean_(data.name, DMS_EMAIL_FROM_NAME),
+  };
+
+  if (data.cc) options.cc = data.cc;
+  if (data.bcc) options.bcc = data.bcc;
+  if (data.htmlBody) options.htmlBody = data.htmlBody;
+  if (data.attachments) options.attachments = data.attachments;
+  if (data.inlineImages) options.inlineImages = data.inlineImages;
+  if (data.noReply === true) options.noReply = true;
+  if (data.replyTo) options.replyTo = clean_(data.replyTo);
+
+  MailApp.sendEmail(options);
+
+  return {
+    senderMode: 'EFFECTIVE_ACCOUNT',
+    senderAddress: effectiveDmsSenderEmail_(),
+  };
 }
 
 /**
  * Envío centralizado de todos los correos de DMS.
  *
- * Conserva la misma estructura de opciones usada anteriormente con MailApp,
- * pero utiliza GmailApp para poder establecer el remitente `from`.
+ * Prefiere el alias corporativo, pero siempre conserva una ruta de entrega con
+ * la cuenta efectiva. Solo se repite mediante MailApp cuando el error de
+ * GmailApp identifica específicamente un problema con el alias/remitente.
  */
 function sendDmsEmail_(options) {
   const data = options || {};
@@ -7520,19 +7589,20 @@ function sendDmsEmail_(options) {
   }
 
   const fromAlias = getDmsEmailFromAlias_();
+
+  if (!fromAlias) {
+    const fallback = mailAppSend_(data, to);
+    return Object.assign({}, fallback, {
+      aliasFallback: effectiveDmsSenderEmail_().toLowerCase()
+        !== DMS_EMAIL_FROM_ALIAS.toLowerCase(),
+    });
+  }
+
   const gmailOptions = {
     name: clean_(data.name, DMS_EMAIL_FROM_NAME),
+    from: fromAlias,
+    replyTo: clean_(data.replyTo, DMS_EMAIL_FROM_ALIAS),
   };
-
-  if (fromAlias) {
-    gmailOptions.from = fromAlias;
-    gmailOptions.replyTo = clean_(
-      data.replyTo,
-      DMS_EMAIL_FROM_ALIAS,
-    );
-  } else if (data.replyTo) {
-    gmailOptions.replyTo = clean_(data.replyTo);
-  }
 
   if (data.cc) gmailOptions.cc = data.cc;
   if (data.bcc) gmailOptions.bcc = data.bcc;
@@ -7541,12 +7611,28 @@ function sendDmsEmail_(options) {
   if (data.inlineImages) gmailOptions.inlineImages = data.inlineImages;
   if (data.noReply === true) gmailOptions.noReply = true;
 
-  GmailApp.sendEmail(
-    to,
-    String(data.subject || ''),
-    String(data.body || ''),
-    gmailOptions,
-  );
+  try {
+    GmailApp.sendEmail(
+      to,
+      String(data.subject || ''),
+      String(data.body || ''),
+      gmailOptions,
+    );
+
+    return {
+      senderMode: 'CORPORATE_ALIAS',
+      senderAddress: fromAlias,
+      aliasFallback: false,
+    };
+  } catch (error) {
+    if (!isDmsAliasSendError_(error)) throw error;
+
+    console.warn(
+      `Gmail rechazó el alias ${fromAlias}; se reintentará una sola vez con la cuenta efectiva. Detalle: ${error.message}`,
+    );
+    const fallback = mailAppSend_(data, to);
+    return Object.assign({}, fallback, { aliasFallback: true });
+  }
 }
 
 /**
@@ -7575,9 +7661,10 @@ function dmsDiagnoseEmailAlias() {
     aliasConfigured: aliasMatch,
     primaryMatchesAlias: isPrimary,
     configuredAliasCount: aliases.length,
+    emailDeliveryFallback: true,
     message: isPrimary || aliasMatch
       ? `DMS enviará los correos como ${DMS_EMAIL_FROM_ALIAS}.`
-      : `Falta configurar ${DMS_EMAIL_FROM_ALIAS} como alias de envío en la cuenta que ejecuta el Web App.`,
+      : `El alias ${DMS_EMAIL_FROM_ALIAS} no está configurado; el envío seguirá operativo usando la cuenta efectiva del Web App.`,
   };
 
   console.log(JSON.stringify(result, null, 2));
