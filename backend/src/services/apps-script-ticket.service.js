@@ -67,18 +67,26 @@ function resolveRecipients(bundle, config, testMode, override = null, forceClien
     bundle.ticket.CorreoCliente,
     bundle.client?.CorreoGeneral,
   ]);
+  const configuredEmails = splitEmails(config.DEFAULT_CC_EMAILS);
+  const ticketCcEmails = splitEmails(bundle.ticket.CorreosCC);
   const includeClient = forceClient || asBool(bundle.ticket.EnviarCorreoCliente, false);
-  const to = supervisorEmails.length
+  const preferredTo = supervisorEmails.length
     ? supervisorEmails
     : technicianEmails.length
       ? technicianEmails
       : includeClient
         ? clientEmails
         : [];
+  const fallbackRecipients = splitEmails([
+    ...configuredEmails,
+    ...ticketCcEmails,
+    ...(includeClient ? clientEmails : []),
+  ]);
+  const to = preferredTo.length ? preferredTo : fallbackRecipients;
   const cc = [
     ...(supervisorEmails.length ? technicianEmails : []),
-    ...splitEmails(config.DEFAULT_CC_EMAILS),
-    ...splitEmails(bundle.ticket.CorreosCC),
+    ...configuredEmails,
+    ...ticketCcEmails,
     ...(includeClient ? clientEmails : []),
   ].filter((email, index, all) => !to.includes(email) && all.indexOf(email) === index);
   return { to, cc };
