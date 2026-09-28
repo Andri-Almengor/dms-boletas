@@ -11,6 +11,7 @@ import {
 import { ticketPdfFileName } from './ticket-pdf-name.service.js';
 
 const DEFAULT_TEMPLATE_ID = '1QsEaLN8RL5Ry_EBZvBeKoWo6NHZHNmKHckAWT85fhBE';
+const TICKET_PRIMARY_EMAIL = 'yehuda.karmona@solutionsdms.com';
 
 function clean(value, fallback = '') {
   const text = String(value ?? '').trim();
@@ -119,51 +120,44 @@ async function loadTicketGroupBundle(ticketId) {
 }
 
 function resolveRecipients(bundle, settings, testMode, override = null, forceClient = false) {
-  const configuredCc = testMode ? settings.testCc : settings.ticketDefaultCc;
-  if (override) {
-    const to = splitEmails(override.to || []);
-    const cc = splitEmails([...(override.cc || []), ...configuredCc])
-      .filter((email) => !to.includes(email));
-    return { to, cc };
-  }
   if (testMode) {
     const to = splitEmails(settings.testRecipients);
     const cc = splitEmails(settings.testCc).filter((email) => !to.includes(email));
     return { to, cc };
   }
 
-  const supervisorEmails = splitEmails(bundle.visits.map((visit) => visit.ticket.CorreoSupervisor));
+  const to = splitEmails(TICKET_PRIMARY_EMAIL);
+  const configuredCc = splitEmails(settings.ticketDefaultCc);
+
+  // En producción Yehuda es siempre el destinatario principal. Cualquier
+  // override se interpreta únicamente como copia adicional, nunca como un TO
+  // alternativo que pueda desplazarlo.
+  if (override) {
+    const cc = splitEmails([
+      ...(override.to || []),
+      ...(override.cc || []),
+      ...configuredCc,
+    ]).filter((email) => !to.includes(email));
+    return { to, cc };
+  }
+
+  const supervisorEmails = splitEmails(
+    bundle.visits.map((visit) => visit.ticket.CorreoSupervisor),
+  );
   const technicianEmails = splitEmails(bundle.assigned.map((item) => item.Correo));
-  const clientEmails = splitEmails([
-    ...bundle.visits.map((visit) => visit.ticket.CorreoCliente),
-    bundle.ticket.CorreoCliente,
-    bundle.client?.CorreoGeneral,
-  ]);
-  const configuredEmails = splitEmails(settings.ticketDefaultCc);
   const ticketCcEmails = splitEmails(bundle.ticket.CorreosCC);
   const includeClient = forceClient || asBool(bundle.ticket.EnviarCorreoCliente, false);
-  const preferredTo = supervisorEmails.length
-    ? supervisorEmails
-    : technicianEmails.length
-      ? technicianEmails
-      : includeClient
-        ? clientEmails
-        : [];
-  const fallbackRecipients = splitEmails([
-    ...configuredEmails,
+
+  const cc = splitEmails([
+    ...technicianEmails,
+    ...configuredCc,
     ...ticketCcEmails,
-    ...(includeClient ? clientEmails : []),
-  ]);
-  // Gmail necesita al menos un destinatario principal. Si la boleta no tiene
-  // supervisor/técnico/cliente elegible pero sí destinatarios configurados,
-  // esos correos dejan de quedar varados únicamente como CC.
-  const to = preferredTo.length ? preferredTo : fallbackRecipients;
-  const cc = [
-    ...(supervisorEmails.length ? technicianEmails : []),
-    ...configuredEmails,
-    ...ticketCcEmails,
-    ...(includeClient ? clientEmails : []),
-  ].filter((email, index, all) => !to.includes(email) && all.indexOf(email) === index);
+    // Para DMS la copia al cliente se entrega al correo del supervisor
+    // registrado en la boleta. CorreoCliente/CorreoGeneral no sustituyen esta
+    // dirección ni participan como destinatario principal.
+    ...(includeClient ? supervisorEmails : []),
+  ]).filter((email) => !to.includes(email));
+
   return { to, cc };
 }
 
