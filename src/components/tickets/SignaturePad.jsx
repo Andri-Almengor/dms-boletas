@@ -67,7 +67,7 @@ export default function SignaturePad({ value, onChange, loadStoredSignature = fa
   const storedSourceRef = useRef('');
   const publishedCanvasSourceRef = useRef('');
   const [existingSource, setExistingSource] = useState('');
-  const [existingStatus, setExistingStatus] = useState(boletaUid ? 'loading' : 'none');
+  const [existingStatus, setExistingStatus] = useState(loadStoredSignature && boletaUid ? 'loading' : 'none');
   const [expanded, setExpanded] = useState(false);
   const [imageBusy, setImageBusy] = useState(false);
   const [imageError, setImageError] = useState('');
@@ -161,7 +161,7 @@ export default function SignaturePad({ value, onChange, loadStoredSignature = fa
     let active = true;
     const image = new Image();
     image.onload = () => {
-      if (!active) return;
+      if (!active || drawingRef.current) return;
       drawImageContained(context, image, canvas);
     };
     image.src = source;
