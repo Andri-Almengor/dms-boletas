@@ -178,19 +178,26 @@ function signatureVersionKey(bundle) {
   return signatures.length ? [...new Set(signatures)].join('-').slice(0, 140) : 'sin-firma';
 }
 
-async function requestKey(bundle, testMode, sendEmail, deliveryType = '', recipients = {}) {
+async function requestKey(bundle, testMode, sendEmail, deliveryType = '', recipients = {}, requestId = '') {
   const version = await visitGroupVersionKey(bundle.group.rootId);
   const signatureVersion = signatureVersionKey(bundle);
   const recipientsVersion = sha256(JSON.stringify({
     to: splitEmails(recipients.to || []).sort(),
     cc: splitEmails(recipients.cc || []).sort(),
   })).slice(0, 18);
-  if (testMode) return `test-group:${bundle.group.id}:${signatureVersion}:${recipientsVersion}:${Date.now()}`;
-  if (deliveryType === 'SIGNED') return `signed-group:${bundle.group.id}:${version}:${signatureVersion}:${recipientsVersion}`;
+  const explicitRequestId = clean(requestId);
+  const suffix = explicitRequestId
+    ? `:request:${sha256(explicitRequestId).slice(0, 18)}`
+    : '';
+  if (testMode) return `test-group:${bundle.group.id}:${signatureVersion}:${recipientsVersion}:${Date.now()}${suffix}`;
+  if (deliveryType === 'SIGNED') return `signed-group:${bundle.group.id}:${version}:${signatureVersion}:${recipientsVersion}${suffix}`;
   if (deliveryType === 'NORMAL_EMAIL_RECOVERY') {
-    return `email-recovery-group:${bundle.group.id}:${version}:${signatureVersion}:${recipientsVersion}`;
+    return `email-recovery-group:${bundle.group.id}:${version}:${signatureVersion}:${recipientsVersion}${suffix}`;
   }
-  return `${sendEmail ? 'final-group' : 'pdf-group'}:${bundle.group.id}:${version}:${signatureVersion}:${recipientsVersion}`;
+  if (deliveryType === 'MANUAL_EMAIL_RESEND') {
+    return `manual-email-group:${bundle.group.id}:${version}:${signatureVersion}:${recipientsVersion}${suffix}`;
+  }
+  return `${sendEmail ? 'final-group' : 'pdf-group'}:${bundle.group.id}:${version}:${signatureVersion}:${recipientsVersion}${suffix}`;
 }
 
 async function postAppsScript(url, payload) {
@@ -238,6 +245,7 @@ export async function generateTicketWithAppsScript({
   signatureRequest = null,
   recipientsOverride = null,
   deliveryType = '',
+  requestId = '',
 }) {
   const url = clean(process.env.APPS_SCRIPT_REPORT_URL);
   const secret = clean(process.env.APPS_SCRIPT_REPORT_SECRET);
@@ -300,7 +308,7 @@ export async function generateTicketWithAppsScript({
   const data = await postAppsScript(url, {
     action: 'ticket.report.deliver',
     secret,
-    idempotencyKey: await requestKey(bundle, testMode, sendEmail, deliveryType, recipients),
+    idempotencyKey: await requestKey(bundle, testMode, sendEmail, deliveryType, recipients, requestId),
     testMode,
     sendEmail,
     deliveryType,
