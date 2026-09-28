@@ -2,7 +2,7 @@ import { findById, updateRow } from '../infra/sheets.repository.js';
 import { badRequest, forbidden } from '../core/errors.js';
 import { asBool, nowIso, pick } from '../core/utils.js';
 import { audit } from '../services/audit.service.js';
-import { deliverTicket, resendTicketChats } from '../services/ticket-group-delivery.service.js';
+import { deliverTicket, resendTicketChats, resendTicketEmail } from '../services/ticket-group-delivery.service.js';
 import { generateTicketWithAppsScript } from '../services/apps-script-ticket-group.service.js';
 import {
   maintenanceHasSignature,
@@ -29,6 +29,12 @@ function clean(value) {
 
 function isFinalized(value) {
   return clean(value).toUpperCase().includes('FINAL');
+}
+
+function isMaintenanceTicket(ticket = {}) {
+  return Boolean(clean(ticket.OrigenMantenimientoID))
+    || ticket.EsBoletaMantenimiento === true
+    || clean(ticket.EsBoletaMantenimiento).toLowerCase() === 'true';
 }
 
 function reportForTicket(reports, ticket) {
@@ -245,6 +251,52 @@ export const ticketDeliveryHandlers = {
         grupoVisitas: groupSummary(updatedGroup),
         delivery,
         surveyUrl: delivery.report.survey?.url || '',
+      };
+    });
+  },
+
+  resendEmail: async (ctx) => {
+    const requestedId = pick(ctx.payload, ['boletaUid', 'BoletaUID', 'id']);
+    await ticketAccessHandlers.assertCanModifyFinalized(ctx, requestedId);
+    const group = await ensureVisitGroupForTicket(requestedId, ctx.user.UsuarioID);
+
+    return runOnce(`resend-email-group:${group.rootId}`, async () => {
+      const currentGroup = await ensureVisitGroupForTicket(group.rootId, ctx.user.UsuarioID);
+      if (currentGroup.visits.some((visit) => isMaintenanceTicket(visit))) {
+        throw badRequest('Las boletas automáticas de mantenimiento no se envían por correo individual.');
+      }
+      if (!currentGroup.visits.some((visit) => isFinalized(visit.Estado))) {
+        throw badRequest('Solo se puede reenviar por correo un seguimiento finalizado.');
+      }
+
+      const before = currentGroup.root;
+      const delivery = await resendTicketEmail(ctx, { ticketId: currentGroup.rootId });
+      const updatedGroup = await persistReportPerVisit(currentGroup, delivery.report, {
+        EstadoNotificacion: delivery.notificationState,
+        UltimoErrorNotificacion: delivery.errors.join(' | '),
+      }, ctx.user.UsuarioID);
+
+      await audit(ctx, 'REENVIAR_GRUPO_BOLETAS_CORREO', 'Boletas', updatedGroup.rootId, before, {
+        GrupoVisitaID: updatedGroup.id,
+        CantidadVisitas: updatedGroup.visits.length,
+        Canales: ['CORREO_APPS_SCRIPT'],
+        CorreoEnviado: delivery.notificationState === 'ENVIADO',
+        EstadoReenvio: delivery.notificationState,
+        Errores: delivery.errors,
+        Destinatarios: [
+          ...(delivery.report?.recipients?.to || []),
+          ...(delivery.report?.recipients?.cc || []),
+        ],
+      }).catch(() => {});
+
+      return {
+        boleta: updatedGroup.root,
+        grupoVisitas: groupSummary(updatedGroup),
+        delivery,
+        emailSent: delivery.notificationState === 'ENVIADO',
+        message: delivery.notificationState === 'ENVIADO'
+          ? 'El reporte fue enviado nuevamente por correo a los destinatarios configurados.'
+          : 'El reenvío de correo terminó con errores. Revise el detalle de notificaciones.',
       };
     });
   },

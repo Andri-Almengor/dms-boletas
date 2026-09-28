@@ -269,7 +269,7 @@ test('un trigger tardío no puede reenviar un slot ya reclamado y el Apps Script
     assert.match(script, /\/api\/maintenance-progress\/wake/);
   });
 
-  assert.match(reportScript, /2026-09-24-V7\.11-NORMAL-TICKET-EMAIL-FIX/);
+  assert.match(reportScript, /2026-09-28-V7\.12-EMAIL-DELIVERY-FALLBACK/);
   assert.match(reportScript, /dmsDiagnoseMaintenanceProgressTriggers/);
   assert.match(reportScript, /runDmsMaintenanceProgressSlot_\(\s*'17:00'/);
 });

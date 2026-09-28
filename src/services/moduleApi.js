@@ -40,6 +40,7 @@ export const MODULE_ROUTES = {
     update: ['boletas.update', 'tickets.update'],
     autosave: ['boletas.autosave', 'boletas.update', 'tickets.update'],
     finalize: ['boletas.finalize', 'tickets.finalize'],
+    resendEmail: ['boletas.resendEmail', 'tickets.resendEmail', 'boletas.reenviarCorreo'],
     testFinalize: ['boletas.testFinalize', 'tickets.testFinalize'],
     generatePdf: ['boletas.generatePdf', 'tickets.generatePdf'],
     returnPending: ['boletas.returnPending', 'boletas.update', 'tickets.update'],

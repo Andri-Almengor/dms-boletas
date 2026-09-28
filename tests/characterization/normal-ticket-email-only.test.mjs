@@ -61,7 +61,7 @@ test('EnviarCorreoCliente no desactiva el correo completo de una boleta normal',
   assert.match(resolver, /isMaintenanceArchiveDelivery_/);
   assert.match(resolver, /request\.sendEmail/);
   assert.doesNotMatch(resolver, /EnviarCorreoCliente/);
-  assert.match(script, /2026-09-24-V7\.11-NORMAL-TICKET-EMAIL-FIX/);
+  assert.match(script, /2026-09-28-V7\.12-EMAIL-DELIVERY-FALLBACK/);
 });
 
 test('la finalización usa la selección actual de copia al cliente y CC del formulario', () => {
@@ -77,12 +77,84 @@ test('la finalización usa la selección actual de copia al cliente y CC del for
   assert.ok(applyIndex >= 0 && deliverIndex > applyIndex);
 });
 
-test('el cliente usa CorreoGeneral actual como respaldo y recovery tiene idempotencia propia', () => {
+test('Yehuda es siempre el destinatario principal y la copia al cliente usa CorreoSupervisor', () => {
   const group = source('backend/src/services/apps-script-ticket-group.service.js');
   const single = source('backend/src/services/apps-script-ticket.service.js');
 
-  assert.match(group, /bundle\.client\?\.CorreoGeneral/);
+  for (const service of [group, single]) {
+    assert.match(service, /TICKET_PRIMARY_EMAIL = 'yehuda\.karmona@solutionsdms\.com'/);
+    assert.match(service, /const to = splitEmails\(TICKET_PRIMARY_EMAIL\)/);
+    assert.match(service, /CorreoSupervisor/);
+    assert.match(service, /\.\.\.\(includeClient \? supervisorEmails : \[\]\)/);
+    assert.doesNotMatch(service, /bundle\.client\?\.CorreoGeneral/);
+  }
+
   assert.match(group, /email-recovery-group:/);
-  assert.match(single, /bundle\.client\?\.CorreoGeneral/);
   assert.match(single, /email-recovery:/);
+});
+
+
+test('el alias corporativo es preferido pero no bloquea el envío de boletas', () => {
+  const script = source('apps-script/report-service/Code.gs');
+  const aliasStart = script.indexOf('function getDmsEmailFromAlias_');
+  const aliasEnd = script.indexOf('function isDmsAliasSendError_', aliasStart);
+  const aliasResolver = script.slice(aliasStart, aliasEnd);
+  const senderStart = script.indexOf('function sendDmsEmail_');
+  const senderEnd = script.indexOf('function dmsDiagnoseEmailAlias', senderStart);
+  const sender = script.slice(senderStart, senderEnd);
+
+  assert.ok(aliasStart >= 0 && aliasEnd > aliasStart);
+  assert.doesNotMatch(aliasResolver, /DMS_EMAIL_ALIAS_NOT_CONFIGURED/);
+  assert.doesNotMatch(aliasResolver, /throw error/);
+  assert.match(aliasResolver, /cuenta efectiva del Web App/);
+  assert.match(sender, /mailAppSend_/);
+  assert.match(script, /function mailAppSend_[\s\S]*?MailApp\.sendEmail/);
+  assert.match(sender, /aliasFallback/);
+  assert.match(sender, /CORPORATE_ALIAS/);
+});
+
+test('técnicos y correos configurados permanecen en CC y nunca desplazan al destinatario principal', () => {
+  const group = source('backend/src/services/apps-script-ticket-group.service.js');
+  const single = source('backend/src/services/apps-script-ticket.service.js');
+
+  for (const service of [group, single]) {
+    assert.match(service, /const technicianEmails = splitEmails/);
+    assert.match(service, /const ticketCcEmails = splitEmails/);
+    assert.match(service, /\.\.\.technicianEmails/);
+    assert.match(service, /\.\.\.configuredCc/);
+    assert.match(service, /\.\.\.ticketCcEmails/);
+    assert.match(service, /filter\(\(email\) => !to\.includes\(email\)\)/);
+  }
+});
+
+test('el reporte firmado conserva a Yehuda en TO y copia al cliente mediante el supervisor', () => {
+  const delivery = source('backend/src/services/ticket-group-delivery.service.js');
+  const groupService = source('backend/src/services/apps-script-ticket-group.service.js');
+  const signedBlock = delivery.match(/export async function deliverSignedTicket[\s\S]*?\n\}/)?.[0] || '';
+
+  assert.doesNotMatch(signedBlock, /CorreoCliente/);
+  assert.doesNotMatch(signedBlock, /recipientsOverride/);
+  assert.match(signedBlock, /deliveryType: 'SIGNED'/);
+  assert.match(groupService, /deliveryType === 'SIGNED'/);
+  assert.match(groupService, /includeClient \? supervisorEmails/);
+});
+
+test('una boleta finalizada puede reenviar solamente el correo sin tocar Google Chat', () => {
+  const delivery = source('backend/src/services/ticket-group-delivery.service.js');
+  const module = source('backend/src/modules/ticket-delivery.module.js');
+  const router = source('backend/src/core/action-router.js');
+  const api = source('src/services/moduleApi.js');
+  const detail = source('src/pages/tickets/TicketDetailPage.jsx');
+
+  assert.match(delivery, /export async function resendTicketEmail/);
+  assert.match(delivery, /deliveryType: 'MANUAL_EMAIL_RESEND'/);
+  assert.match(delivery, /requestId: uuid\(\)/);
+  assert.doesNotMatch(
+    delivery.match(/export async function resendTicketEmail[\s\S]*?\n\}/)?.[0] || '',
+    /sendChatMessage/,
+  );
+  assert.match(module, /REENVIAR_GRUPO_BOLETAS_CORREO/);
+  assert.match(router, /boletas\.resendEmail/);
+  assert.match(api, /resendEmail: \['boletas\.resendEmail'/);
+  assert.match(detail, /Reenviar correo/);
 });

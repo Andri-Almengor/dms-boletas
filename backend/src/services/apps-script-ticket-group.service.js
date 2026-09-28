@@ -11,6 +11,7 @@ import {
 import { ticketPdfFileName } from './ticket-pdf-name.service.js';
 
 const DEFAULT_TEMPLATE_ID = '1QsEaLN8RL5Ry_EBZvBeKoWo6NHZHNmKHckAWT85fhBE';
+const TICKET_PRIMARY_EMAIL = 'yehuda.karmona@solutionsdms.com';
 
 function clean(value, fallback = '') {
   const text = String(value ?? '').trim();
@@ -119,40 +120,44 @@ async function loadTicketGroupBundle(ticketId) {
 }
 
 function resolveRecipients(bundle, settings, testMode, override = null, forceClient = false) {
-  const configuredCc = testMode ? settings.testCc : settings.ticketDefaultCc;
-  if (override) {
-    const to = splitEmails(override.to || []);
-    const cc = splitEmails([...(override.cc || []), ...configuredCc])
-      .filter((email) => !to.includes(email));
-    return { to, cc };
-  }
   if (testMode) {
     const to = splitEmails(settings.testRecipients);
     const cc = splitEmails(settings.testCc).filter((email) => !to.includes(email));
     return { to, cc };
   }
 
-  const supervisorEmails = splitEmails(bundle.visits.map((visit) => visit.ticket.CorreoSupervisor));
+  const to = splitEmails(TICKET_PRIMARY_EMAIL);
+  const configuredCc = splitEmails(settings.ticketDefaultCc);
+
+  // En producción Yehuda es siempre el destinatario principal. Cualquier
+  // override se interpreta únicamente como copia adicional, nunca como un TO
+  // alternativo que pueda desplazarlo.
+  if (override) {
+    const cc = splitEmails([
+      ...(override.to || []),
+      ...(override.cc || []),
+      ...configuredCc,
+    ]).filter((email) => !to.includes(email));
+    return { to, cc };
+  }
+
+  const supervisorEmails = splitEmails(
+    bundle.visits.map((visit) => visit.ticket.CorreoSupervisor),
+  );
   const technicianEmails = splitEmails(bundle.assigned.map((item) => item.Correo));
-  const clientEmails = splitEmails([
-    ...bundle.visits.map((visit) => visit.ticket.CorreoCliente),
-    bundle.ticket.CorreoCliente,
-    bundle.client?.CorreoGeneral,
-  ]);
+  const ticketCcEmails = splitEmails(bundle.ticket.CorreosCC);
   const includeClient = forceClient || asBool(bundle.ticket.EnviarCorreoCliente, false);
-  const to = supervisorEmails.length
-    ? supervisorEmails
-    : technicianEmails.length
-      ? technicianEmails
-      : includeClient
-        ? clientEmails
-        : [];
-  const cc = [
-    ...(supervisorEmails.length ? technicianEmails : []),
-    ...splitEmails(settings.ticketDefaultCc),
-    ...splitEmails(bundle.ticket.CorreosCC),
-    ...(includeClient ? clientEmails : []),
-  ].filter((email, index, all) => !to.includes(email) && all.indexOf(email) === index);
+
+  const cc = splitEmails([
+    ...technicianEmails,
+    ...configuredCc,
+    ...ticketCcEmails,
+    // Para DMS la copia al cliente se entrega al correo del supervisor
+    // registrado en la boleta. CorreoCliente/CorreoGeneral no sustituyen esta
+    // dirección ni participan como destinatario principal.
+    ...(includeClient ? supervisorEmails : []),
+  ]).filter((email) => !to.includes(email));
+
   return { to, cc };
 }
 
@@ -167,19 +172,26 @@ function signatureVersionKey(bundle) {
   return signatures.length ? [...new Set(signatures)].join('-').slice(0, 140) : 'sin-firma';
 }
 
-async function requestKey(bundle, testMode, sendEmail, deliveryType = '', recipients = {}) {
+async function requestKey(bundle, testMode, sendEmail, deliveryType = '', recipients = {}, requestId = '') {
   const version = await visitGroupVersionKey(bundle.group.rootId);
   const signatureVersion = signatureVersionKey(bundle);
   const recipientsVersion = sha256(JSON.stringify({
     to: splitEmails(recipients.to || []).sort(),
     cc: splitEmails(recipients.cc || []).sort(),
   })).slice(0, 18);
-  if (testMode) return `test-group:${bundle.group.id}:${signatureVersion}:${recipientsVersion}:${Date.now()}`;
-  if (deliveryType === 'SIGNED') return `signed-group:${bundle.group.id}:${version}:${signatureVersion}:${recipientsVersion}`;
+  const explicitRequestId = clean(requestId);
+  const suffix = explicitRequestId
+    ? `:request:${sha256(explicitRequestId).slice(0, 18)}`
+    : '';
+  if (testMode) return `test-group:${bundle.group.id}:${signatureVersion}:${recipientsVersion}:${Date.now()}${suffix}`;
+  if (deliveryType === 'SIGNED') return `signed-group:${bundle.group.id}:${version}:${signatureVersion}:${recipientsVersion}${suffix}`;
   if (deliveryType === 'NORMAL_EMAIL_RECOVERY') {
-    return `email-recovery-group:${bundle.group.id}:${version}:${signatureVersion}:${recipientsVersion}`;
+    return `email-recovery-group:${bundle.group.id}:${version}:${signatureVersion}:${recipientsVersion}${suffix}`;
   }
-  return `${sendEmail ? 'final-group' : 'pdf-group'}:${bundle.group.id}:${version}:${signatureVersion}:${recipientsVersion}`;
+  if (deliveryType === 'MANUAL_EMAIL_RESEND') {
+    return `manual-email-group:${bundle.group.id}:${version}:${signatureVersion}:${recipientsVersion}${suffix}`;
+  }
+  return `${sendEmail ? 'final-group' : 'pdf-group'}:${bundle.group.id}:${version}:${signatureVersion}:${recipientsVersion}${suffix}`;
 }
 
 async function postAppsScript(url, payload) {
@@ -227,6 +239,7 @@ export async function generateTicketWithAppsScript({
   signatureRequest = null,
   recipientsOverride = null,
   deliveryType = '',
+  requestId = '',
 }) {
   const url = clean(process.env.APPS_SCRIPT_REPORT_URL);
   const secret = clean(process.env.APPS_SCRIPT_REPORT_SECRET);
@@ -289,7 +302,7 @@ export async function generateTicketWithAppsScript({
   const data = await postAppsScript(url, {
     action: 'ticket.report.deliver',
     secret,
-    idempotencyKey: await requestKey(bundle, testMode, sendEmail, deliveryType, recipients),
+    idempotencyKey: await requestKey(bundle, testMode, sendEmail, deliveryType, recipients, requestId),
     testMode,
     sendEmail,
     deliveryType,

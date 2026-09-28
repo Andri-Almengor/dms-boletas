@@ -56,16 +56,18 @@ function looksLikeImage(file) {
   return mimeType.startsWith('image/') || /\.(png|jpe?g|webp|heic|heif)$/i.test(name);
 }
 
-export default function SignaturePad({ value, onChange }) {
+export default function SignaturePad({ value, onChange, loadStoredSignature = false }) {
   const { boletaUid } = useParams();
   const { sessionToken } = useAuth();
   const canvasRef = useRef(null);
   const fileInputRef = useRef(null);
   const drawingRef = useRef(false);
+  const activePointerRef = useRef(null);
+  const interactionRef = useRef(false);
   const storedSourceRef = useRef('');
   const publishedCanvasSourceRef = useRef('');
   const [existingSource, setExistingSource] = useState('');
-  const [existingStatus, setExistingStatus] = useState(boletaUid ? 'loading' : 'none');
+  const [existingStatus, setExistingStatus] = useState(loadStoredSignature && boletaUid ? 'loading' : 'none');
   const [expanded, setExpanded] = useState(false);
   const [imageBusy, setImageBusy] = useState(false);
   const [imageError, setImageError] = useState('');
@@ -80,7 +82,7 @@ export default function SignaturePad({ value, onChange }) {
 
   useEffect(() => {
     let active = true;
-    if (!boletaUid) {
+    if (!loadStoredSignature || !boletaUid) {
       setExistingStatus('none');
       return undefined;
     }
@@ -92,7 +94,12 @@ export default function SignaturePad({ value, onChange }) {
         const source = data?.dataUrl || data?.DataURL || '';
         if (!source) throw new Error('El backend no devolvió la firma almacenada.');
         storedSourceRef.current = source;
-        setExistingSource(source);
+        // La lectura remota puede terminar después de que el usuario ya empezó
+        // a firmar. En ese caso conservamos la referencia almacenada para
+        // "Restaurar", pero jamás volvemos a pintar encima del trazo actual.
+        if (!interactionRef.current && !drawingRef.current) {
+          setExistingSource(source);
+        }
         setExistingStatus('loaded');
       })
       .catch((error) => {
@@ -103,7 +110,7 @@ export default function SignaturePad({ value, onChange }) {
       });
 
     return () => { active = false; };
-  }, [boletaUid, sessionToken]);
+  }, [boletaUid, loadStoredSignature, sessionToken]);
 
   useEffect(() => {
     const restore = (event) => {
@@ -111,6 +118,7 @@ export default function SignaturePad({ value, onChange }) {
       if (detail.route && detail.route !== currentRoute()) return;
       const restored = String(detail.value || '');
       if (!restored.startsWith('data:image/') || restored === value) return;
+      interactionRef.current = true;
       setExistingSource('');
       onChange(restored);
     };
@@ -137,6 +145,11 @@ export default function SignaturePad({ value, onChange }) {
     const context = canvas?.getContext('2d');
     if (!canvas || !context) return undefined;
 
+    // Nunca sincronizar una imagen controlada mientras existe un trazo activo.
+    // Cambiar/limpiar el bitmap del canvas durante pointermove era la causa de
+    // firmas que parecían borrarse mientras el usuario dibujaba.
+    if (drawingRef.current) return undefined;
+
     context.clearRect(0, 0, canvas.width, canvas.height);
     const source = value || existingSource;
     if (!source) return undefined;
@@ -148,7 +161,7 @@ export default function SignaturePad({ value, onChange }) {
     let active = true;
     const image = new Image();
     image.onload = () => {
-      if (!active) return;
+      if (!active || drawingRef.current) return;
       drawImageContained(context, image, canvas);
     };
     image.src = source;
@@ -158,40 +171,66 @@ export default function SignaturePad({ value, onChange }) {
   function pointFromEvent(event) {
     const canvas = canvasRef.current;
     const rect = canvas.getBoundingClientRect();
-    const source = event.touches?.[0] || event;
     return {
-      x: (source.clientX - rect.left) * (canvas.width / rect.width),
-      y: (source.clientY - rect.top) * (canvas.height / rect.height),
+      x: (event.clientX - rect.left) * (canvas.width / rect.width),
+      y: (event.clientY - rect.top) * (canvas.height / rect.height),
     };
   }
 
   function startDrawing(event) {
+    if (event.pointerType === 'mouse' && event.button !== 0) return;
     event.preventDefault();
     setImageError('');
-    const context = canvasRef.current.getContext('2d');
+    interactionRef.current = true;
+    activePointerRef.current = event.pointerId;
+
+    const canvas = canvasRef.current;
+    const context = canvas.getContext('2d');
     const point = pointFromEvent(event);
     drawingRef.current = true;
+
+    try {
+      canvas.setPointerCapture?.(event.pointerId);
+    } catch {
+      // Algunos WebViews antiguos no implementan pointer capture.
+    }
+
     context.beginPath();
     context.moveTo(point.x, point.y);
   }
 
   function draw(event) {
-    if (!drawingRef.current) return;
+    if (!drawingRef.current || activePointerRef.current !== event.pointerId) return;
     event.preventDefault();
     const canvas = canvasRef.current;
     const context = canvas.getContext('2d');
     const point = pointFromEvent(event);
     context.lineWidth = 2.4;
     context.lineCap = 'round';
+    context.lineJoin = 'round';
     context.strokeStyle = '#1b1c1c';
     context.lineTo(point.x, point.y);
     context.stroke();
   }
 
-  function stopDrawing() {
+  function stopDrawing(event) {
     if (!drawingRef.current) return;
+    if (event?.pointerId != null && activePointerRef.current !== event.pointerId) return;
+
+    const canvas = canvasRef.current;
     drawingRef.current = false;
-    publishSignature(canvasRef.current.toDataURL('image/png'), { fromCanvas: true });
+    const pointerId = activePointerRef.current;
+    activePointerRef.current = null;
+
+    try {
+      if (pointerId != null && canvas.hasPointerCapture?.(pointerId)) {
+        canvas.releasePointerCapture(pointerId);
+      }
+    } catch {
+      // La captura pudo liberarse automáticamente al salir del WebView.
+    }
+
+    publishSignature(canvas.toDataURL('image/png'), { fromCanvas: true });
   }
 
   async function importSignatureImage(file) {
@@ -206,6 +245,7 @@ export default function SignaturePad({ value, onChange }) {
       return;
     }
 
+    interactionRef.current = true;
     setImageBusy(true);
     try {
       const source = await fileAsDataUrl(file);
@@ -230,6 +270,7 @@ export default function SignaturePad({ value, onChange }) {
   }
 
   function clearSignature() {
+    interactionRef.current = true;
     const canvas = canvasRef.current;
     canvas.getContext('2d').clearRect(0, 0, canvas.width, canvas.height);
     setExistingSource('');
@@ -319,13 +360,10 @@ export default function SignaturePad({ value, onChange }) {
           data-draft-signature="primary"
           width="900"
           height="300"
-          onMouseDown={startDrawing}
-          onMouseMove={draw}
-          onMouseUp={stopDrawing}
-          onMouseLeave={stopDrawing}
-          onTouchStart={startDrawing}
-          onTouchMove={draw}
-          onTouchEnd={stopDrawing}
+          onPointerDown={startDrawing}
+          onPointerMove={draw}
+          onPointerUp={stopDrawing}
+          onPointerCancel={stopDrawing}
         />
       </div>
     </>

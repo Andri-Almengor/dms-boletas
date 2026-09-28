@@ -9,7 +9,7 @@ La generación del Google Doc, el PDF y el envío del correo se ejecutan desde u
 3. Copie el contenido de `apps-script/boletas-report/Code.gs` en el archivo `Code.gs`.
 4. Use el manifiesto incluido en `apps-script/boletas-report/appsscript.json` si trabaja con `clasp`.
 
-El correo saldrá desde la cuenta que despliegue el Web App. Para que el remitente sea `reportes@solutionsdms.com`, el proyecto debe crearse y desplegarse desde esa cuenta o desde una cuenta que tenga configurado ese alias en Google Workspace.
+El correo usa preferentemente `reportes@solutionsdms.com` cuando esa dirección es la cuenta ejecutora o un alias verificado. Si el alias no está disponible, el envío **no se bloquea**: V7.12 usa la cuenta efectiva del Web App mediante `MailApp` y conserva el nombre visible `DMS Boletas`. Configure el alias en Google Workspace para mantener el remitente corporativo, pero ya no es un requisito para que las boletas salgan por correo.
 
 ## 2. Configurar propiedades privadas
 

@@ -4,6 +4,7 @@ import { findById, readTables } from '../infra/sheets.repository.js';
 import { getConfig } from '../modules/config.module.js';
 
 const DEFAULT_TEMPLATE_ID = '1QsEaLN8RL5Ry_EBZvBeKoWo6NHZHNmKHckAWT85fhBE';
+const TICKET_PRIMARY_EMAIL = 'yehuda.karmona@solutionsdms.com';
 
 function clean(value, fallback = '') {
   const text = String(value ?? '').trim();
@@ -51,36 +52,34 @@ async function loadTicketBundle(ticketId) {
 }
 
 function resolveRecipients(bundle, config, testMode, override = null, forceClient = false) {
-  if (override) {
-    const to = splitEmails(override.to || []);
-    const cc = splitEmails(override.cc || []).filter((email) => !to.includes(email));
-    return { to, cc };
-  }
   if (testMode) {
     const testEmail = clean(process.env.TEST_NOTIFICATION_EMAIL || config.TEST_EMAIL, 'andrick.almengor@solutionsdms.com');
     return { to: splitEmails(testEmail), cc: [] };
   }
 
+  const to = splitEmails(TICKET_PRIMARY_EMAIL);
+  const configuredCc = splitEmails(config.DEFAULT_CC_EMAILS);
+
+  if (override) {
+    const cc = splitEmails([
+      ...(override.to || []),
+      ...(override.cc || []),
+      ...configuredCc,
+    ]).filter((email) => !to.includes(email));
+    return { to, cc };
+  }
+
   const supervisorEmails = splitEmails(bundle.ticket.CorreoSupervisor);
   const technicianEmails = splitEmails(bundle.assigned.map((item) => item.Correo));
-  const clientEmails = splitEmails([
-    bundle.ticket.CorreoCliente,
-    bundle.client?.CorreoGeneral,
-  ]);
+  const ticketCcEmails = splitEmails(bundle.ticket.CorreosCC);
   const includeClient = forceClient || asBool(bundle.ticket.EnviarCorreoCliente, false);
-  const to = supervisorEmails.length
-    ? supervisorEmails
-    : technicianEmails.length
-      ? technicianEmails
-      : includeClient
-        ? clientEmails
-        : [];
-  const cc = [
-    ...(supervisorEmails.length ? technicianEmails : []),
-    ...splitEmails(config.DEFAULT_CC_EMAILS),
-    ...splitEmails(bundle.ticket.CorreosCC),
-    ...(includeClient ? clientEmails : []),
-  ].filter((email, index, all) => !to.includes(email) && all.indexOf(email) === index);
+  const cc = splitEmails([
+    ...technicianEmails,
+    ...configuredCc,
+    ...ticketCcEmails,
+    ...(includeClient ? supervisorEmails : []),
+  ]).filter((email) => !to.includes(email));
+
   return { to, cc };
 }
 

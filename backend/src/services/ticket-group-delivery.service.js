@@ -263,10 +263,6 @@ export async function deliverSignedTicket(ctx, { ticketId, signatureRequest = nu
     getConfig(),
     ensureVisitGroupForTicket(ticketId, 'CLIENTE'),
   ]);
-  const clientEmails = splitEmails(group.visits.map((ticket) => ticket.CorreoCliente));
-  if (!clientEmails.length) {
-    throw new Error('La firma fue guardada, pero las boletas no tienen un correo de cliente válido para reenviar el reporte firmado.');
-  }
   const surveyUrl = clean(group.root.EncuestaURL || group.root.SurveyURL);
   const survey = surveyUrl ? { url: surveyUrl, type: 'REAL' } : null;
   const report = await generateTicketWithAppsScript({
@@ -275,7 +271,6 @@ export async function deliverSignedTicket(ctx, { ticketId, signatureRequest = nu
     sendEmail: true,
     survey,
     signatureRequest: null,
-    recipientsOverride: { to: clientEmails, cc: [] },
     deliveryType: 'SIGNED',
   });
   const results = [];
@@ -297,6 +292,43 @@ export async function deliverSignedTicket(ctx, { ticketId, signatureRequest = nu
     FirmaReenviadaEn: nowIso(),
   }, 'CLIENTE');
   return summary;
+}
+
+export async function resendTicketEmail(ctx, { ticketId }) {
+  const group = await ensureVisitGroupForTicket(
+    ticketId,
+    ctx.user?.UsuarioID || 'SISTEMA',
+  );
+  const survey = await ensureSurveyForVisitGroup({
+    ticketId: group.rootId,
+    origin: ctx.origin,
+    actor: ctx.user?.UsuarioID || 'SISTEMA',
+  });
+  const signatureRequest = !(await visitGroupHasSignature(group.rootId))
+    ? await ensureSignatureRequestForTicket({
+      ticketId: group.rootId,
+      origin: ctx.origin,
+      actor: ctx.user?.UsuarioID || 'SISTEMA',
+    })
+    : null;
+
+  const report = await generateTicketWithAppsScript({
+    ticketId: group.rootId,
+    testMode: false,
+    sendEmail: true,
+    survey,
+    signatureRequest,
+    deliveryType: 'MANUAL_EMAIL_RESEND',
+    requestId: uuid(),
+  });
+
+  const results = [];
+  await appendEmailResult(ctx, report, results, 'REENVIO_CORREO_GRUPO');
+  return deliverySummary(report, results, {
+    testMode: false,
+    emailResend: true,
+    signatureRequest,
+  });
 }
 
 export async function resendTicketChats(ctx, { ticketId }) {

@@ -229,6 +229,7 @@ export default function TicketDetailPage() {
       finalize: '¿Finalizar la boleta, generar PDF y enviar las notificaciones?',
       test: '¿Ejecutar una prueba sin cambiar el estado ni notificar al cliente?',
       pending: '¿Regresar esta boleta a pendiente?',
+      email: '¿Generar el reporte actualizado y reenviarlo por correo a los destinatarios configurados? No se reenviarán los mensajes de Google Chat.',
       resend: '¿Generar el reporte actualizado y reenviarlo únicamente al Chat de boletas y al Chat del cliente? No se enviará correo electrónico.',
     };
     if (!window.confirm(messages[type])) return;
@@ -240,6 +241,10 @@ export default function TicketDetailPage() {
       if (type === 'finalize') result = await requestAvailable(MODULE_ROUTES.tickets.finalize, { boletaUid, testMode: false, sendClientCopy: Boolean(record.EnviarCorreoCliente), cc: record.CorreosCC || '' }, sessionToken);
       if (type === 'test') result = await requestAvailable(MODULE_ROUTES.tickets.testFinalize, { boletaUid, testMode: true }, sessionToken);
       if (type === 'pending') result = await requestAvailable(MODULE_ROUTES.tickets.returnPending, { boletaUid, estado: 'PENDIENTE' }, sessionToken);
+      if (type === 'email') {
+        result = await requestAvailable(MODULE_ROUTES.tickets.resendEmail, { boletaUid }, sessionToken);
+        setNotice(result?.message || 'El reporte fue reenviado por correo a los destinatarios configurados.');
+      }
       if (type === 'resend') {
         result = await requestAvailable(RESEND_CHAT_ROUTES, { boletaUid }, sessionToken);
         setNotice(result?.message || 'Boleta reenviada únicamente a los chats configurados. No se envió correo electrónico.');
@@ -305,7 +310,7 @@ export default function TicketDetailPage() {
         throw new Error(uploadResult.failed[0]?.message || 'No se pudo cargar la evidencia.');
       }
       clearEvidenceForm();
-      setNotice('Evidencia agregada correctamente. Si la boleta ya estaba finalizada, use “Reenviar a chats” para publicar el reporte actualizado.');
+      setNotice('Evidencia agregada correctamente. Si la boleta ya estaba finalizada, use “Reenviar correo” y/o “Reenviar a chats” para publicar el reporte actualizado.');
     } catch (err) {
       setError(err.message);
     } finally {
@@ -338,7 +343,7 @@ export default function TicketDetailPage() {
       }
       setSignatureDraft('');
       setSignatureEditorOpen(false);
-      setNotice('Firma actualizada correctamente. Si la boleta ya estaba finalizada, use “Reenviar a chats” para publicar el reporte actualizado.');
+      setNotice('Firma actualizada correctamente. Si la boleta ya estaba finalizada, use “Reenviar correo” y/o “Reenviar a chats” para publicar el reporte actualizado.');
     } catch (err) {
       setError(err.message);
     } finally {
@@ -428,7 +433,7 @@ export default function TicketDetailPage() {
 
       {error && <div className="alert alert--error"><Icon name="error" /><span>{error}</span></div>}
       {notice && <div className="alert alert--success"><Icon name="check_circle" /><span>{notice}</span></div>}
-      {finalized && canEdit && <div className="info-box"><Icon name="edit_note" /><p>Esta boleta está finalizada, pero puede corregir sus datos, firma y evidencias. Después use <strong>Reenviar a chats</strong> para generar el PDF actualizado.</p></div>}
+      {finalized && canEdit && <div className="info-box"><Icon name="edit_note" /><p>Esta boleta está finalizada, pero puede corregir sus datos, firma y evidencias. Después use <strong>Reenviar correo</strong> y/o <strong>Reenviar a chats</strong> para generar y publicar el reporte actualizado.</p></div>}
 
       <section className="ticket-status-card"><div><span>Estado actual</span><TicketStatusChip status={status} /></div><div><span>Fecha de asignación</span><strong>{formatDate(pick(record, ['Fecha', 'FechaCreacion']))}</strong></div></section>
 
@@ -496,7 +501,7 @@ export default function TicketDetailPage() {
       <div className="ticket-detail-actions">
         {canEdit && <Link className="button button--secondary" to={`/boletas/${encodeURIComponent(boletaUid)}/editar`}><Icon name="edit" /> Editar</Link>}
         {canTest && !finalized && <button className="button button--secondary" type="button" onClick={() => finalAction('test')} disabled={processing}><Icon name="science" /> Probar</button>}
-        {finalized ? <>{pdfUrl && <a className="button button--secondary" href={pdfUrl} target="_blank" rel="noreferrer"><Icon name="picture_as_pdf" /> Abrir PDF</a>}{canResend && <button className="button button--primary button--wide" type="button" onClick={() => finalAction('resend')} disabled={processing}><Icon name="send" /> {processing ? 'Reenviando...' : 'Reenviar a chats'}</button>}{canAdmin && <button className="button button--secondary" type="button" onClick={() => finalAction('pending')} disabled={processing}><Icon name="undo" /> Volver a pendiente</button>}</> : canFinalize && <button className="button button--primary button--wide" type="button" onClick={() => finalAction('finalize')} disabled={processing}><Icon name="task_alt" /> {processing ? 'Procesando...' : 'Finalizar boleta'}</button>}
+        {finalized ? <>{pdfUrl && <a className="button button--secondary" href={pdfUrl} target="_blank" rel="noreferrer"><Icon name="picture_as_pdf" /> Abrir PDF</a>}{canResend && <button className="button button--primary button--wide" type="button" onClick={() => finalAction('email')} disabled={processing}><Icon name="mail" /> {processing ? 'Enviando...' : 'Reenviar correo'}</button>}{canResend && <button className="button button--secondary button--wide" type="button" onClick={() => finalAction('resend')} disabled={processing}><Icon name="send" /> {processing ? 'Reenviando...' : 'Reenviar a chats'}</button>}{canAdmin && <button className="button button--secondary" type="button" onClick={() => finalAction('pending')} disabled={processing}><Icon name="undo" /> Volver a pendiente</button>}</> : canFinalize && <button className="button button--primary button--wide" type="button" onClick={() => finalAction('finalize')} disabled={processing}><Icon name="task_alt" /> {processing ? 'Procesando...' : 'Finalizar boleta'}</button>}
       </div>
 
       <ImageViewer boletaUid={boletaUid} open={Boolean(viewer)} items={viewer?.items || []} initialIndex={viewer?.initialIndex || 0} onClose={() => setViewer(null)} />

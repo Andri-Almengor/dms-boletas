@@ -328,7 +328,7 @@ export default function TicketFormPage({ mode = 'create' }) {
           </>}
           {step === 5 && <EvidenceUploader items={evidences} onAdd={addFiles} onUpdate={(index, patch) => setEvidences((rows) => rows.map((row, itemIndex) => itemIndex === index ? { ...row, ...patch } : row))} onRemove={(index) => setEvidences((rows) => rows.filter((_, itemIndex) => itemIndex !== index))} disabled={saving} />}
           {step === 6 && <>
-            <SignaturePad value={form.firma} onChange={(firma) => setForm((current) => ({ ...current, firma }))} />
+            <SignaturePad value={form.firma} onChange={(firma) => setForm((current) => ({ ...current, firma }))} loadStoredSignature={editing} />
             {editing && !form.firma && <div className="info-box"><Icon name="info" /><p>La firma existente se conserva si no dibuja una nueva.</p></div>}
           </>}
 
