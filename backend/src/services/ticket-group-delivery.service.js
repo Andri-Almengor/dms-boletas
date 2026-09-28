@@ -263,10 +263,9 @@ export async function deliverSignedTicket(ctx, { ticketId, signatureRequest = nu
     getConfig(),
     ensureVisitGroupForTicket(ticketId, 'CLIENTE'),
   ]);
-  const clientEmails = splitEmails(group.visits.map((ticket) => ticket.CorreoCliente));
-  if (!clientEmails.length) {
-    throw new Error('La firma fue guardada, pero las boletas no tienen un correo de cliente válido para reenviar el reporte firmado.');
-  }
+  const supervisorEmails = splitEmails(
+    group.visits.map((ticket) => ticket.CorreoSupervisor),
+  );
   const surveyUrl = clean(group.root.EncuestaURL || group.root.SurveyURL);
   const survey = surveyUrl ? { url: surveyUrl, type: 'REAL' } : null;
   const report = await generateTicketWithAppsScript({
@@ -275,7 +274,7 @@ export async function deliverSignedTicket(ctx, { ticketId, signatureRequest = nu
     sendEmail: true,
     survey,
     signatureRequest: null,
-    recipientsOverride: { to: clientEmails, cc: [] },
+    recipientsOverride: { to: [], cc: supervisorEmails },
     deliveryType: 'SIGNED',
   });
   const results = [];
