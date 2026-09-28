@@ -299,6 +299,43 @@ export async function deliverSignedTicket(ctx, { ticketId, signatureRequest = nu
   return summary;
 }
 
+export async function resendTicketEmail(ctx, { ticketId }) {
+  const group = await ensureVisitGroupForTicket(
+    ticketId,
+    ctx.user?.UsuarioID || 'SISTEMA',
+  );
+  const survey = await ensureSurveyForVisitGroup({
+    ticketId: group.rootId,
+    origin: ctx.origin,
+    actor: ctx.user?.UsuarioID || 'SISTEMA',
+  });
+  const signatureRequest = !(await visitGroupHasSignature(group.rootId))
+    ? await ensureSignatureRequestForTicket({
+      ticketId: group.rootId,
+      origin: ctx.origin,
+      actor: ctx.user?.UsuarioID || 'SISTEMA',
+    })
+    : null;
+
+  const report = await generateTicketWithAppsScript({
+    ticketId: group.rootId,
+    testMode: false,
+    sendEmail: true,
+    survey,
+    signatureRequest,
+    deliveryType: 'MANUAL_EMAIL_RESEND',
+    requestId: uuid(),
+  });
+
+  const results = [];
+  await appendEmailResult(ctx, report, results, 'REENVIO_CORREO_GRUPO');
+  return deliverySummary(report, results, {
+    testMode: false,
+    emailResend: true,
+    signatureRequest,
+  });
+}
+
 export async function resendTicketChats(ctx, { ticketId }) {
   const [config, group] = await Promise.all([
     getConfig(),
