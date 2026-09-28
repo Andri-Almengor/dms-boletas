@@ -150,13 +150,18 @@ export default function SignaturePad({ value, onChange, loadStoredSignature = fa
     // firmas que parecían borrarse mientras el usuario dibujaba.
     if (drawingRef.current) return undefined;
 
-    context.clearRect(0, 0, canvas.width, canvas.height);
-    const source = value || existingSource;
-    if (!source) return undefined;
+    // Si este valor acaba de salir del propio canvas, el bitmap que el usuario
+    // está viendo YA es la representación correcta. No limpiar ni volver a
+    // cargar la imagen: hacerlo aquí provoca un parpadeo/preview en blanco al
+    // terminar cada trazo, aunque el dataURL guardado sea correcto.
     if (value && publishedCanvasSourceRef.current === value) {
       publishedCanvasSourceRef.current = '';
       return undefined;
     }
+
+    const source = value || existingSource;
+    context.clearRect(0, 0, canvas.width, canvas.height);
+    if (!source) return undefined;
 
     let active = true;
     const image = new Image();

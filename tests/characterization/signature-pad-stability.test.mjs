@@ -39,3 +39,18 @@ test('el detalle y el enlace público no cargan una firma remota encima del dibu
   assert.match(publicPage, /<SignaturePad value=\{signature\} onChange=\{setSignature\} \/>/);
   assert.match(form, /loadStoredSignature=\{editing\}/);
 });
+
+
+test('el preview del canvas permanece visible después de publicar cada trazo', () => {
+  const pad = source('src/components/tickets/SignaturePad.jsx');
+
+  const publishedIndex = pad.indexOf("if (value && publishedCanvasSourceRef.current === value)");
+  const clearIndex = pad.indexOf('context.clearRect(0, 0, canvas.width, canvas.height)', publishedIndex);
+
+  assert.ok(publishedIndex >= 0, 'Debe reconocer valores recién publicados por el propio canvas.');
+  assert.ok(clearIndex > publishedIndex, 'La comprobación del canvas publicado debe ocurrir antes de limpiar el bitmap.');
+  assert.match(
+    pad.slice(publishedIndex, clearIndex),
+    /publishedCanvasSourceRef\.current = ''[\s\S]*?return undefined/,
+  );
+});
