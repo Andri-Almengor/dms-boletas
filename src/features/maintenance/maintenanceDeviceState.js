@@ -4,11 +4,23 @@ export function maintenanceDeviceDraftKey(maintenanceId) {
   return `dms-maintenance-device-draft:${maintenanceId || 'new'}`;
 }
 
+function cloneAnswerValue(value) {
+  if (Array.isArray(value)) return value.map(cloneAnswerValue);
+  if (value && typeof value === 'object') {
+    return Object.fromEntries(Object.entries(value).map(([key, item]) => [key, cloneAnswerValue(item)]));
+  }
+  return value;
+}
+
+function cloneAnswers(answers = {}) {
+  return Object.fromEntries(Object.entries(answers || {}).map(([key, value]) => [key, cloneAnswerValue(value)]));
+}
+
 export function cloneMaintenanceDevice(device) {
   if (!device) return null;
   return {
     ...device,
-    respuestas: { ...(device.respuestas || {}) },
+    respuestas: cloneAnswers(device.respuestas),
     images: (device.images || []).map((image) => ({ ...image })),
     newImages: (device.newImages || []).map((image) => ({ ...image })),
   };
@@ -19,7 +31,8 @@ export function serializableMaintenanceDevice(device) {
   const { newImages: _newImages, ...rest } = device;
   return {
     ...rest,
-    respuestas: { ...(device.respuestas || {}) },
+    respuestas: cloneAnswers(device.respuestas),
+    questionDetails: (device.questionDetails || []).map((item) => ({ ...item, config: cloneAnswerValue(item.config), value: cloneAnswerValue(item.value) })),
     images: (device.images || []).map(({ dataUrl: _dataUrl, previewUrl: _previewUrl, ...image }) => image),
     newImages: [],
   };
