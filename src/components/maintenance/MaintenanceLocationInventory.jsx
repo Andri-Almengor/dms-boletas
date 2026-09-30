@@ -56,6 +56,21 @@ function deviceId(device) {
   return String(pick(device, ['EvidenciaMantenimientoID', 'deviceId', 'id'], '')).trim();
 }
 
+function deviceTechnicians(device) {
+  const value = pick(device, ['Tecnicos', 'TecnicoNombres', 'tecnicos'], '');
+  if (Array.isArray(value)) {
+    const names = value.map((item) => {
+      if (typeof item === 'string') return item.trim();
+      return String(pick(item, ['NombreCompleto', 'Nombre', 'NombreUsuario', 'name'], '')).trim();
+    }).filter(Boolean);
+    return names.join(', ') || 'Sin dato';
+  }
+  if (value && typeof value === 'object') {
+    return String(pick(value, ['NombreCompleto', 'Nombre', 'NombreUsuario', 'name'], 'Sin dato'));
+  }
+  return String(value || 'Sin dato');
+}
+
 function stateClass(value) {
   const text = normalized(value);
   if (text.startsWith('si') || text === 'correcto') return 'is-good';
@@ -593,7 +608,7 @@ export default function MaintenanceLocationInventory({
         <div><span>Serie</span><strong>{pick(device, ['Serie'], 'Sin dato')}</strong></div>
         <div><span>Dirección MAC</span><strong>{pick(device, ['DireccionMAC', 'macAddress'], 'Sin dato')}</strong></div>
         <div><span>Fecha de trabajo</span><strong>{pick(device, ['FechaTrabajo'], 'Sin dato')}</strong></div>
-        <div><span>Técnicos</span><strong>{pick(device, ['Tecnicos', 'TecnicoNombres'], 'Sin dato')}</strong></div>
+        <div><span>Técnicos</span><strong>{deviceTechnicians(device)}</strong></div>
         <div><span>Estado</span><strong>{stateText(pick(device, ['Estado']))}</strong></div>
         <div><span>Evidencias</span><strong>{allImages.length}</strong></div>
       </div>}
@@ -695,7 +710,7 @@ export default function MaintenanceLocationInventory({
                   data-device-row
                   className={`${expanded ? 'is-expanded' : ''}${selected ? ' is-selected-for-move' : ''}`}
                   tabIndex="0"
-                  aria-expanded={expanded}
+                  aria-expanded={projectMode ? undefined : expanded}
                   onClick={(event) => { if (!hasOwnInteraction(event.target)) toggleDevice(device); }}
                   onKeyDown={(event) => toggleRowFromKeyboard(event, () => toggleDevice(device))}
                 >{pending && canEdit && <td className="maintenance-device-selection-cell"><label title={`Seleccionar ${deviceName(device)}`}><input type="checkbox" checked={selected} onChange={() => toggleDeviceSelection(group, device)} disabled={moving || !id} /><Icon name={selected ? 'check_box' : 'check_box_outline_blank'} /></label></td>}<td><button type="button" className="maintenance-inventory-name" onClick={() => toggleDevice(device)}><span className="maintenance-device-list__icon"><Icon name={getMaintenanceCategory(deviceType(device)).icon} /></span><span><strong>{deviceName(device)}</strong>{isOffline(device) && <small><Icon name="cloud_off" />Offline</small>}</span></button></td><td>{deviceType(device)}</td><td>{[pick(device, ['Modelo']), pick(device, ['Serie'])].filter(Boolean).join(' · ') || 'Sin datos'}</td><td><span className={`maintenance-device-compact-state ${stateClass(pick(device, ['Estado']))}`}>{stateText(pick(device, ['Estado']))}</span></td><td><span className="maintenance-device-evidence-count"><Icon name="photo_library" />{images.length}</span></td><td><div className="maintenance-inventory-row-actions">{pending && canEdit && <button type="button" className="icon-button" onClick={() => onEditDevice(device)} aria-label={`Editar ${deviceName(device)}`} disabled={moving}><Icon name="edit" /></button>}<button type="button" className="icon-button" onClick={() => toggleDevice(device)} aria-expanded={projectMode ? undefined : expanded} aria-label={`Ver detalle de ${deviceName(device)}`}><Icon name={projectMode ? 'open_in_new' : (expanded ? 'expand_less' : 'expand_more')} /></button></div></td></tr>{expanded && <tr className="maintenance-inventory-expanded-row"><td colSpan={pending && canEdit ? 7 : 6}>{expandedContent(device)}</td></tr>}</React.Fragment>;
