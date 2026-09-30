@@ -63,6 +63,75 @@ function relationEntries(answers = {}) {
     .filter(([, value]) => Array.isArray(value.items));
 }
 
+function projectQuestionLabelMap(answers = {}) {
+  const questions = Array.isArray(answers.__preguntas) ? answers.__preguntas : [];
+  return new Map(questions.map((question) => [
+    clean(question?.key || question?.Clave),
+    clean(question?.label || question?.Pregunta || question?.key || question?.Clave),
+  ]).filter(([key]) => key));
+}
+
+function scalarAnswers(value = {}) {
+  const answers = parseObject(value);
+  const details = Array.isArray(answers.__preguntas) ? answers.__preguntas : [];
+  const labels = new Map(details.map((question) => [
+    clean(question?.key || question?.Clave),
+    clean(question?.label || question?.Pregunta || question?.key || question?.Clave),
+  ]).filter(([key]) => key));
+  const output = {};
+  for (const [key, raw] of Object.entries(answers)) {
+    if (key === '__preguntas') continue;
+    if (raw && typeof raw === 'object') continue;
+    output[labels.get(key) || key] = raw;
+  }
+  return output;
+}
+
+export function projectMaintenanceComponentsFromAnswers(rawAnswers = {}) {
+  const answers = parseObject(rawAnswers);
+  const labels = projectQuestionLabelMap(answers);
+  return relationEntries(answers).flatMap(([relationKey, relation]) => {
+    if (!truthy(relation.enabled)) return [];
+    return relation.items.map((item, index) => {
+      const identity = componentIdentity(item, relation);
+      const itemAnswers = scalarAnswers(item?.respuestas);
+      return {
+        relationKey,
+        relationLabel: labels.get(relationKey) || relationKey,
+        localId: clean(item?.localId || item?.id || `${relationKey}-${index + 1}`),
+        typeId: identity.typeId,
+        type: clean(item?.categoria || item?.Categoria || relation.relatedTypeName || 'Componente relacionado'),
+        name: identity.name,
+        manufacturerId: clean(item?.fabricanteId || item?.FabricanteID),
+        manufacturer: clean(item?.fabricante || item?.Fabricante),
+        modelId: clean(item?.modeloId || item?.ModeloID),
+        model: clean(item?.modelo || item?.Modelo),
+        serial: clean(item?.serie || item?.Serie),
+        mac: clean(item?.macAddress || item?.DireccionMAC),
+        answers: itemAnswers,
+      };
+    });
+  });
+}
+
+export function projectMaintenanceScalarAnswers(rawAnswers = {}) {
+  const answers = parseObject(rawAnswers);
+  const details = Array.isArray(answers.__preguntas) ? answers.__preguntas : [];
+  const labels = new Map(details.map((question) => [
+    clean(question?.key || question?.Clave),
+    clean(question?.label || question?.Pregunta || question?.key || question?.Clave),
+  ]).filter(([key]) => key));
+  const output = {};
+  for (const [key, raw] of Object.entries(answers)) {
+    if (key === '__preguntas') continue;
+    const relation = parseObject(raw);
+    if (Array.isArray(relation.items)) continue;
+    if (raw && typeof raw === 'object') continue;
+    output[labels.get(key) || key] = raw;
+  }
+  return output;
+}
+
 function resolveProjectTarget(payload = {}, device = {}, existing = null) {
   const requestedType = clean(pick(
     payload,
