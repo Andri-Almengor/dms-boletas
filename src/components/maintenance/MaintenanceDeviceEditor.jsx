@@ -229,6 +229,7 @@ export default function MaintenanceDeviceEditor({
     if (projectMode) {
       const desiredState = projectMissingQuestions.length ? AUTOMATIC_PENDING_STATE : 'Correcto';
       const next = {};
+      if (device.maintenanceType !== 'PROYECTO') next.maintenanceType = 'PROYECTO';
       if (!device.funcionamiento) next.funcionamiento = 'No aplica';
       if (!device.enUso) next.enUso = 'No aplica';
       if (String(device.estado || '') !== desiredState) next.estado = desiredState;
@@ -366,7 +367,7 @@ export default function MaintenanceDeviceEditor({
       <section className="form-card maintenance-device-section-card maintenance-device-identification-card">
         <div className="form-card__heading"><span className="section-marker" /><div><h3>Identificación y ubicación</h3><p>La ubicación del equipo es obligatoria y define cómo se agrupará el dispositivo. Los demás campos pueden completarse según la información disponible.</p></div></div>
         <div className="maintenance-device-fields-grid">
-          <div className="maintenance-device-fields-grid__full"><MaintenanceDeviceCatalogFields device={device} onChange={updateCatalogDevice} disabled={locked} catalogData={catalogData} /></div>
+          <div className="maintenance-device-fields-grid__full"><MaintenanceDeviceCatalogFields device={device} onChange={updateCatalogDevice} disabled={locked} catalogData={catalogData} maintenanceType={maintenanceType} /></div>
           <MaintenanceEquipmentLocationSelect locationId={maintenanceLocationId} value={device.ubicacionEquipoId} options={equipmentOptions} disabled={locked} onChange={(ubicacionEquipoId, label) => patch({ ubicacionEquipoId, ubicacionEquipoNombre: label || '', zona: label || '' })} />
           {missingEquipmentLocation && <div className="info-box maintenance-device-fields-grid__full"><Icon name="location_on" /><p>Seleccione una ubicación del equipo. Este dropdown es el que define la agrupación del dispositivo.</p></div>}
           <Field label="Nombre del dispositivo" value={device.nombre} onChange={(event) => patch({ nombre: event.target.value })} disabled={locked} autoComplete="off" />
