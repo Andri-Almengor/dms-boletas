@@ -47,6 +47,7 @@ const RESPONSE_TYPE_OPTIONS = [
   ['NUMERO', 'Número'],
   ['CANTIDAD', 'Cantidad'],
   ['MAC', 'Dirección MAC'],
+  ['OPCIONES', 'Lista de opciones'],
   ['RELACION_DISPOSITIVO', 'Relacionar otro dispositivo'],
 ];
 
@@ -78,6 +79,7 @@ function emptyValues(typeIdentifier = '') {
     tipoRespuesta: 'SI_NO',
     tipoDispositivoRelacionadoId: '',
     camposRelacionados: ['cantidad', 'fabricante', 'modelo', 'serie'],
+    opcionesTexto: '',
   };
 }
 
@@ -122,6 +124,19 @@ function QuestionEditorFields({ values, setValues, deviceName, deviceTypes }) {
         </select>
       </label>
     </div>
+    {values.tipoRespuesta === 'OPCIONES' && <label className="field-group">
+      <span className="field-label">Opciones *</span>
+      <textarea
+        className="form-control ticket-textarea"
+        rows="4"
+        name="opcionesTexto"
+        value={values.opcionesTexto}
+        onChange={change}
+        placeholder={'Ej.\nLector\nBotón\nOtro'}
+        required
+      />
+      <small className="field-hint">Escriba una opción por línea. En Proyecto se mostrará como un selector, no como texto libre.</small>
+    </label>}
     {values.tipoRespuesta === 'RELACION_DISPOSITIVO' && <>
       <label className="field-group">
         <span className="field-label">Tipo de dispositivo relacionado *</span>
@@ -268,6 +283,9 @@ export default function MaintenanceQuestionsPage() {
         camposRelacionados: Array.isArray(parseQuestionConfig(question).fields)
           ? parseQuestionConfig(question).fields
           : ['cantidad', 'fabricante', 'modelo', 'serie'],
+        opcionesTexto: Array.isArray(parseQuestionConfig(question).options)
+          ? parseQuestionConfig(question).options.join('\n')
+          : '',
       },
     });
     setManagerError('');
@@ -290,6 +308,14 @@ export default function MaintenanceQuestionsPage() {
       setManagerError('Seleccione el tipo de dispositivo relacionado.');
       return;
     }
+    const configuredOptions = editor.values.opcionesTexto
+      .split(/\r?\n/)
+      .map((item) => item.trim())
+      .filter(Boolean);
+    if (editor.values.tipoRespuesta === 'OPCIONES' && !configuredOptions.length) {
+      setManagerError('Agregue al menos una opción.');
+      return;
+    }
 
     setSaving(true);
     setManagerError('');
@@ -305,6 +331,9 @@ export default function MaintenanceQuestionsPage() {
         ConfiguracionJSON: JSON.stringify({
           fields: editor.values.tipoRespuesta === 'RELACION_DISPOSITIVO'
             ? editor.values.camposRelacionados
+            : [],
+          options: editor.values.tipoRespuesta === 'OPCIONES'
+            ? configuredOptions
             : [],
         }),
         ...(editor.values.orden !== '' ? { Orden: Number(editor.values.orden) } : {}),
@@ -373,7 +402,7 @@ export default function MaintenanceQuestionsPage() {
       <div>
         <span className="eyebrow">Catálogos relacionados</span>
         <h1>Preguntas de mantenimiento</h1>
-        <p>Seleccione el lápiz de un dispositivo para administrar sus preguntas de Sí o No.</p>
+        <p>Configure preguntas, campos y relaciones reutilizables para cada tipo de dispositivo.</p>
       </div>
     </div>
 
