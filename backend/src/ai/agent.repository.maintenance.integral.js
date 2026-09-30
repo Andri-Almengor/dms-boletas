@@ -256,7 +256,7 @@ export async function searchMaintenanceEvidence(ctx, args = {}) {
   if (clean(args.type)) {
     params.push(like(args.type));
     const p = '$' + params.length;
-    clauses.push(`(d."TipoDispositivo" ILIKE ${p} ESCAPE '\' OR d."Categoria" ILIKE ${p} ESCAPE '\')`);
+    clauses.push(`(d."TipoDispositivo" ILIKE ${p} ESCAPE '\\' OR d."Categoria" ILIKE ${p} ESCAPE '\\')`);
   }
   if (clean(args.stage)) {
     if (String(maintenance.maintenanceType || 'MANTENIMIENTO').toUpperCase() === 'PROYECTO') {
@@ -273,14 +273,14 @@ export async function searchMaintenanceEvidence(ctx, args = {}) {
     params.push(like(args.query));
     const p = '$' + params.length;
     clauses.push(`(
-      mi."Nombre" ILIKE ${p} ESCAPE '\'
-      OR mi."Nota" ILIKE ${p} ESCAPE '\'
-      OR d."NombreDispositivo" ILIKE ${p} ESCAPE '\'
-      OR d."TipoDispositivo" ILIKE ${p} ESCAPE '\'
-      OR d."Categoria" ILIKE ${p} ESCAPE '\'
-      OR d."Zona" ILIKE ${p} ESCAPE '\'
-      OR mi."ProyectoComponenteNombre" ILIKE ${p} ESCAPE '\'
-      OR project_type."Nombre" ILIKE ${p} ESCAPE '\'
+      mi."Nombre" ILIKE ${p} ESCAPE '\\'
+      OR mi."Nota" ILIKE ${p} ESCAPE '\\'
+      OR d."NombreDispositivo" ILIKE ${p} ESCAPE '\\'
+      OR d."TipoDispositivo" ILIKE ${p} ESCAPE '\\'
+      OR d."Categoria" ILIKE ${p} ESCAPE '\\'
+      OR d."Zona" ILIKE ${p} ESCAPE '\\'
+      OR mi."ProyectoComponenteNombre" ILIKE ${p} ESCAPE '\\'
+      OR project_type."Nombre" ILIKE ${p} ESCAPE '\\'
     )`);
   }
   if (clean(args.uploaderId)) {
@@ -289,7 +289,7 @@ export async function searchMaintenanceEvidence(ctx, args = {}) {
   } else if (clean(args.uploaderName)) {
     params.push(like(args.uploaderName));
     const p = '$' + params.length;
-    clauses.push(`(uploader."NombreCompleto" ILIKE ${p} ESCAPE '\' OR uploader."NombreUsuario" ILIKE ${p} ESCAPE '\')`);
+    clauses.push(`(uploader."NombreCompleto" ILIKE ${p} ESCAPE '\\' OR uploader."NombreUsuario" ILIKE ${p} ESCAPE '\\')`);
   }
 
   const projectFilters = hasProjectEvidenceFilters(args);
@@ -304,7 +304,7 @@ export async function searchMaintenanceEvidence(ctx, args = {}) {
   if (clean(args.componentType)) {
     params.push(like(args.componentType));
     const p = '$' + params.length;
-    clauses.push(`(project_type."Nombre" ILIKE ${p} ESCAPE '\' OR mi."ProyectoComponenteNombre" ILIKE ${p} ESCAPE '\')`);
+    clauses.push(`(project_type."Nombre" ILIKE ${p} ESCAPE '\\' OR mi."ProyectoComponenteNombre" ILIKE ${p} ESCAPE '\\')`);
     clauses.push(`UPPER(COALESCE(mi."ProyectoDestinoTipo",''))='COMPONENTE'`);
   }
   if (projectFilters) {
@@ -336,7 +336,7 @@ export async function searchMaintenanceEvidence(ctx, args = {}) {
     for (const value of Object.values(projectEvidenceFilters(args))) {
       if (!value) continue;
       params.push(like(value));
-      clauses.push(`COALESCE(d."RespuestasJSON",'') ILIKE $${params.length} ESCAPE '\'`);
+      clauses.push(`COALESCE(d."RespuestasJSON",'') ILIKE $${params.length} ESCAPE '\\'`);
     }
   }
 
