@@ -105,6 +105,11 @@ function maintenancePayload(payload, before = {}) {
   return row;
 }
 
+function answerColumnValue(value) {
+  if (value && typeof value === 'object') return JSON.stringify(value);
+  return value;
+}
+
 function devicePayload(payload, before = {}) {
   let answers = payload.respuestas || payload.answers || payload.RespuestasJSON || before.RespuestasJSON || {};
   if (typeof answers === 'string') {
@@ -132,7 +137,10 @@ function devicePayload(payload, before = {}) {
     Estado: pick(payload, ['Estado', 'estado'], before.Estado || 'Correcto'),
     Observacion: pick(payload, ['Observacion', 'observacion'], before.Observacion),
     RespuestasJSON: JSON.stringify(answers),
-    ...Object.fromEntries(Object.entries(answers).map(([key, value]) => [key.charAt(0).toUpperCase() + key.slice(1), value])),
+    ...Object.fromEntries(Object.entries(answers).map(([key, value]) => [
+      key.charAt(0).toUpperCase() + key.slice(1),
+      answerColumnValue(value),
+    ])),
   };
 }
 
@@ -252,6 +260,14 @@ export const maintenanceHandlers = {
     const tables = await readTables(['Mantenimiento', 'Usuarios', 'Evidencia_Mantenimientos', 'Mantenimiento imagenes']);
     const before = maintenanceRow(tables, id);
     const payload = maintenancePayload(ctx.payload, before);
+    const previousType = normalizeMaintenanceType(before.TipoMantenimiento);
+    const requestedType = normalizeMaintenanceType(payload.TipoMantenimiento);
+    if (previousType !== requestedType) {
+      const hasDevices = (tables.Evidencia_Mantenimientos || []).some((device) => (
+        String(device.MantenimientoRef) === String(id) && device.Activo !== false
+      ));
+      if (hasDevices) throw badRequest('No se puede cambiar entre Mantenimiento y Proyecto después de registrar dispositivos. Cree otro registro o elimine primero los dispositivos.');
+    }
     const usersById = indexRowsBy(tables.Usuarios || [], (user) => user.UsuarioID);
     payload.Responsables = asArray(payload.ResponsableIDsJSON)
       .map((userId) => usersById.get(String(userId))?.NombreCompleto || userId)
@@ -266,6 +282,10 @@ export const maintenanceHandlers = {
 
   finalize: async (ctx) => {
     const id = pick(ctx.payload, ['maintenanceId', 'MantenimientoID']);
+    const maintenance = await findById('Mantenimiento', id);
+    if (normalizeMaintenanceType(maintenance.TipoMantenimiento) === 'PROYECTO') {
+      throw badRequest('Los proyectos no utilizan la finalización automática de mantenimientos ni generan boletas automáticas.');
+    }
     const tables = await readTables(['Evidencia_Mantenimientos', 'Mantenimiento imagenes']);
     const devices = (tables.Evidencia_Mantenimientos || [])
       .filter((device) => String(device.MantenimientoRef) === String(id) && device.Activo !== false);
