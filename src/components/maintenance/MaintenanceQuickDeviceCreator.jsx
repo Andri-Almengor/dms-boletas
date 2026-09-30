@@ -153,7 +153,7 @@ export default function MaintenanceQuickDeviceCreator({
       if (!deviceId) {
         savedRecord = await requestAvailable(
           MODULE_ROUTES.maintenance.deviceCreate,
-          maintenanceDevicePayload(device, maintenanceId),
+          maintenanceDevicePayload(device, maintenanceId, maintenanceType),
           sessionToken,
         );
         deviceId = String(pick(savedRecord, ['EvidenciaMantenimientoID', 'deviceId', 'id']));
@@ -164,7 +164,7 @@ export default function MaintenanceQuickDeviceCreator({
       } else {
         savedRecord = await requestAvailable(
           MODULE_ROUTES.maintenance.deviceUpdate,
-          maintenanceDevicePayload({ ...device, id: deviceId }, maintenanceId),
+          maintenanceDevicePayload({ ...device, id: deviceId }, maintenanceId, maintenanceType),
           sessionToken,
         );
         offlinePending ||= responseIsOfflinePending(savedRecord);
