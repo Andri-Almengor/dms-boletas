@@ -15,6 +15,7 @@ import '../maintenance-technician-feedback.css';
 import '../maintenance-catalog-ui-fixes.css';
 import '../maintenance-questions.css';
 import '../maintenance-question-cards.css';
+import '../maintenance-project.css';
 import '../maintenance-mobile-groups-collapse.css';
 import '../maintenance-location-groups-collapsible.css';
 import '../maintenance-evidence-gallery.css';
