@@ -256,9 +256,24 @@ export async function getMaintenanceDevices(ctx,args={}){
       OR d."DireccionMAC" ILIKE ${p} ESCAPE '\\'
       OR d."Zona" ILIKE ${p} ESCAPE '\\'
       OR d."Observacion" ILIKE ${p} ESCAPE '\\'
+      OR EXISTS (
+        SELECT 1 FROM "Mantenimiento imagenes" ai_note
+         WHERE ${active('ai_note')}
+           AND ai_note."DispositivoMantenimientoRef"=d."EvidenciaMantenimientoID"
+           AND ai_note."Nota" ILIKE ${p} ESCAPE '\\'
+      )
     )`);
   }
   if(clean(args.type)){params.push(like(args.type));const p='$'+params.length;clauses.push(`(d."TipoDispositivo" ILIKE ${p} ESCAPE '\\' OR d."Categoria" ILIKE ${p} ESCAPE '\\')`);}
+  if(clean(args.evidenceNote)){
+    params.push(like(args.evidenceNote)); const p='$'+params.length;
+    clauses.push(`EXISTS (
+      SELECT 1 FROM "Mantenimiento imagenes" ai_note
+       WHERE ${active('ai_note')}
+         AND ai_note."DispositivoMantenimientoRef"=d."EvidenciaMantenimientoID"
+         AND ai_note."Nota" ILIKE ${p} ESCAPE '\\'
+    )`);
+  }
   if(args.observationsOnly===true){
     clauses.push(`(
       COALESCE(NULLIF(d."Observacion",''),'')<>''
@@ -297,7 +312,16 @@ export async function getMaintenanceDevices(ctx,args={}){
             d."CreadoPor" AS "createdBy",d."FechaCreacion" AS "createdAt",
             d."ActualizadoPor" AS "updatedBy",d."FechaActualizacion" AS "updatedAt",
             (SELECT COUNT(*) FROM "Mantenimiento imagenes" mi
-             WHERE ${active('mi')} AND mi."DispositivoMantenimientoRef"=d."EvidenciaMantenimientoID")::bigint AS "evidenceCount"
+             WHERE ${active('mi')} AND mi."DispositivoMantenimientoRef"=d."EvidenciaMantenimientoID")::bigint AS "evidenceCount",
+            ARRAY(
+              SELECT note_row."Nota"
+                FROM "Mantenimiento imagenes" note_row
+               WHERE ${active('note_row')}
+                 AND note_row."DispositivoMantenimientoRef"=d."EvidenciaMantenimientoID"
+                 AND COALESCE(NULLIF(BTRIM(note_row."Nota"),''),'')<>''
+               ORDER BY COALESCE(NULLIF(note_row."FechaCaptura",''),note_row."FechaCreacion") DESC NULLS LAST
+               LIMIT 8
+            ) AS "evidenceNotes"
        FROM "Evidencia_Mantenimientos" d WHERE ${where}
       ORDER BY COALESCE(NULLIF(d."Zona",''),'') ASC,COALESCE(NULLIF(d."NombreDispositivo",''),d."TipoDispositivo") ASC
       LIMIT $${queryParams.length-1} OFFSET $${queryParams.length}`,
@@ -312,6 +336,7 @@ export async function getMaintenanceDevices(ctx,args={}){
       functioning:row.functioning||'',inUse:row.inUse||'',status:row.status||'',observation:clean(row.observation,2200),
       workDate:row.workDate||'',technicians:row.technicians||'',createdBy:row.createdBy||'',createdAt:row.createdAt||'',
       updatedBy:row.updatedBy||'',updatedAt:row.updatedAt||'',evidenceCount:Number(row.evidenceCount||0),
+      evidenceNotes:(Array.isArray(row.evidenceNotes)?row.evidenceNotes:[]).map(value=>clean(value,600)).filter(Boolean),
       projectAnswers:projectData.projectAnswers,
       projectComponents:projectData.projectComponents,
       projectComponentCount:projectData.projectComponentCount,
@@ -404,7 +429,7 @@ export async function searchDevices(ctx,args={}){
   const q=clean(args.query,250);
   const projectFilters=hasProjectComponentFilters(args);
   const hasDirectFilters=[
-    args.type,args.manufacturer,args.model,args.serial,args.mac,args.zone,args.maintenanceType,args.clientId,
+    args.type,args.manufacturer,args.model,args.serial,args.mac,args.zone,args.maintenanceType,args.clientId,args.evidenceNote,
   ].some((value)=>clean(value));
   if(!q&&!projectFilters&&!hasDirectFilters) throw badRequest('Indique un dispositivo, tipo, fabricante, modelo, serie, MAC, zona o componente a buscar.');
 
@@ -421,6 +446,12 @@ export async function searchDevices(ctx,args={}){
       OR d."DireccionMAC" ILIKE ${p} ESCAPE '\\'
       OR d."Zona" ILIKE ${p} ESCAPE '\\'
       OR d."Observacion" ILIKE ${p} ESCAPE '\\'
+      OR EXISTS (
+        SELECT 1 FROM "Mantenimiento imagenes" ai_note
+         WHERE ${active('ai_note')}
+           AND ai_note."DispositivoMantenimientoRef"=d."EvidenciaMantenimientoID"
+           AND ai_note."Nota" ILIKE ${p} ESCAPE '\\'
+      )
       OR COALESCE(d."RespuestasJSON",'') ILIKE ${p} ESCAPE '\\'
       OR m."TituloMantenimiento" ILIKE ${p} ESCAPE '\\'
       OR m."Cliente" ILIKE ${p} ESCAPE '\\'
@@ -435,6 +466,15 @@ export async function searchDevices(ctx,args={}){
   if(clean(args.serial)){params.push(like(args.serial));clauses.push(`d."Serie" ILIKE $${params.length} ESCAPE '\\'`);}
   if(clean(args.mac)){params.push(like(args.mac));clauses.push(`d."DireccionMAC" ILIKE $${params.length} ESCAPE '\\'`);}
   if(clean(args.zone)){params.push(like(args.zone));clauses.push(`d."Zona" ILIKE $${params.length} ESCAPE '\\'`);}
+  if(clean(args.evidenceNote)){
+    params.push(like(args.evidenceNote)); const p='$'+params.length;
+    clauses.push(`EXISTS (
+      SELECT 1 FROM "Mantenimiento imagenes" ai_note
+       WHERE ${active('ai_note')}
+         AND ai_note."DispositivoMantenimientoRef"=d."EvidenciaMantenimientoID"
+         AND ai_note."Nota" ILIKE ${p} ESCAPE '\\'
+    )`);
+  }
   if(clean(args.maintenanceType)){
     params.push(clean(args.maintenanceType,40).toUpperCase());
     clauses.push(`UPPER(COALESCE(NULLIF(m."TipoMantenimiento",''),'MANTENIMIENTO'))=$${params.length}`);
@@ -471,7 +511,16 @@ export async function searchDevices(ctx,args={}){
             d."ActualizadoPor" AS "updatedBy",d."FechaActualizacion" AS "updatedAt",
             m."MantenimientoID" AS "maintenanceId",m."TituloMantenimiento" AS maintenance,
             COALESCE(NULLIF(m."TipoMantenimiento",''),'MANTENIMIENTO') AS "maintenanceType",
-            m."ClienteID" AS "clientId",m."Cliente" AS client
+            m."ClienteID" AS "clientId",m."Cliente" AS client,
+            ARRAY(
+              SELECT note_row."Nota"
+                FROM "Mantenimiento imagenes" note_row
+               WHERE ${active('note_row')}
+                 AND note_row."DispositivoMantenimientoRef"=d."EvidenciaMantenimientoID"
+                 AND COALESCE(NULLIF(BTRIM(note_row."Nota"),''),'')<>''
+               ORDER BY COALESCE(NULLIF(note_row."FechaCaptura",''),note_row."FechaCreacion") DESC NULLS LAST
+               LIMIT 8
+            ) AS "evidenceNotes"
        FROM "Evidencia_Mantenimientos" d
        JOIN "Mantenimiento" m ON m."MantenimientoID"=d."MantenimientoRef"
       WHERE ${where}
@@ -490,6 +539,7 @@ export async function searchDevices(ctx,args={}){
       serial:row.serial||'',mac:row.mac||'',zone:row.zone||'',status:row.status||'',observation:clean(row.observation,1600),
       maintenanceId:row.maintenanceId||'',maintenance:row.maintenance||'',maintenanceType:String(row.maintenanceType||'MANTENIMIENTO').toUpperCase(),
       clientId:row.clientId||'',client:row.client||'',
+      evidenceNotes:(Array.isArray(row.evidenceNotes)?row.evidenceNotes:[]).map(value=>clean(value,600)).filter(Boolean),
       projectAnswers:projectData.projectAnswers,
       projectComponents:projectData.projectComponents,
       projectComponentCount:projectData.projectComponentCount,
