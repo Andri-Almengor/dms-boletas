@@ -1,3 +1,6 @@
+import { isProjectMaintenance } from './maintenanceType';
+import { normalizeProjectChecklist } from './maintenanceProjectChecklist';
+
 function readValue(object, keys, fallback = '') {
   for (const key of keys) {
     const value = object?.[key];
@@ -67,6 +70,11 @@ export function validateMaintenanceForm(form = {}) {
   if (!String(form.titulo || '').trim()) return 'El título es obligatorio.';
   if (!form.clienteId) return 'Selecciona un cliente.';
   if (!(form.responsables || []).length) return 'Selecciona al menos un responsable.';
+  if (isProjectMaintenance(form.tipoMantenimiento)) {
+    const checklist = normalizeProjectChecklist(form.projectChecklist);
+    const blank = checklist.groups.flatMap((group) => group.questions || []).find((question) => !String(question.label || '').trim());
+    if (blank) return 'Complete el texto de todas las preguntas del checklist de progreso o elimine las filas vacías.';
+  }
   return '';
 }
 
