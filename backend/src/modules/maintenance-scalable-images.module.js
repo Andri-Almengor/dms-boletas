@@ -3,7 +3,6 @@ import { nowIso, pick, uuid } from '../core/utils.js';
 import { env } from '../config/env.js';
 import {
   appendRows,
-  findById,
   findRows,
   updateRows,
 } from '../infra/sheets.repository.js';
