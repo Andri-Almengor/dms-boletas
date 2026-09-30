@@ -262,11 +262,13 @@ export async function searchMaintenanceEvidence(ctx, args = {}) {
     if (String(maintenance.maintenanceType || 'MANTENIMIENTO').toUpperCase() === 'PROYECTO') {
       throw badRequest('Los Proyectos no clasifican evidencias como ANTES o DESPUÉS. Filtre por dispositivo o componente relacionado.');
     }
-    const normalized = normalize(args.stage);
-    const stage = normalized.includes('desp') ? 'Despues' : (normalized.includes('antes') ? 'Antes' : '');
+    const normalizedStage = normalize(args.stage);
+    const stage = normalizedStage.includes('desp') ? 'Despues' : (normalizedStage.includes('antes') ? 'Antes' : '');
     if (stage) {
       params.push(stage);
-      clauses.push('LOWER(COALESCE(mi."Tipo",\'\'))=LOWER(
+      clauses.push('LOWER(COALESCE(mi."Tipo",\\'\\'))=LOWER($' + params.length + ')');
+    }
+  }
   if (clean(args.query)) {
     params.push(like(args.query));
     const p = '$' + params.length;
@@ -277,23 +279,75 @@ export async function searchMaintenanceEvidence(ctx, args = {}) {
       OR d."TipoDispositivo" ILIKE ${p} ESCAPE '\\'
       OR d."Categoria" ILIKE ${p} ESCAPE '\\'
       OR d."Zona" ILIKE ${p} ESCAPE '\\'
+      OR mi."ProyectoComponenteNombre" ILIKE ${p} ESCAPE '\\'
+      OR project_type."Nombre" ILIKE ${p} ESCAPE '\\'
     )`);
   }
   if (clean(args.uploaderId)) {
-    params.push(clean(args.uploaderId,250));
+    params.push(clean(args.uploaderId, 250));
     clauses.push('mi."CreadoPor"=$' + params.length);
   } else if (clean(args.uploaderName)) {
     params.push(like(args.uploaderName));
-    const p='$'+params.length;
+    const p = '$' + params.length;
     clauses.push(`(uploader."NombreCompleto" ILIKE ${p} ESCAPE '\\' OR uploader."NombreUsuario" ILIKE ${p} ESCAPE '\\')`);
   }
-  const mimeCategory=clean(args.mimeCategory,40).toUpperCase();
-  if (mimeCategory==='IMAGE') clauses.push(`LOWER(COALESCE(mi."MimeType",'')) LIKE 'image/%'`);
-  else if (mimeCategory==='VIDEO') clauses.push(`LOWER(COALESCE(mi."MimeType",'')) LIKE 'video/%'`);
-  else if (mimeCategory==='PDF') clauses.push(`LOWER(COALESCE(mi."MimeType",''))='application/pdf'`);
-  const period=addRange(clauses,params,'mi."FechaCreacion"',args);
 
-  const counted=await one(
+  const projectFilters = hasProjectEvidenceFilters(args);
+  if (clean(args.projectTargetType)) {
+    params.push(clean(args.projectTargetType, 40).toUpperCase());
+    clauses.push('UPPER(COALESCE(mi."ProyectoDestinoTipo",\\'\\'))=$' + params.length);
+  }
+  if (clean(args.componentId)) {
+    params.push(clean(args.componentId, 250));
+    clauses.push('mi."ProyectoComponenteLocalID"=$' + params.length);
+  }
+  if (clean(args.componentType)) {
+    params.push(like(args.componentType));
+    const p = '$' + params.length;
+    clauses.push(`(project_type."Nombre" ILIKE ${p} ESCAPE '\\' OR mi."ProyectoComponenteNombre" ILIKE ${p} ESCAPE '\\')`);
+    clauses.push(`UPPER(COALESCE(mi."ProyectoDestinoTipo",''))='COMPONENTE'`);
+  }
+  if (projectFilters) {
+    if (String(maintenance.maintenanceType || 'MANTENIMIENTO').toUpperCase() !== 'PROYECTO') {
+      return {
+        modelData: {
+          maintenance: {
+            id: maintenance.id,
+            title: maintenance.title || 'Mantenimiento',
+            client: maintenance.client || '',
+            maintenanceType: String(maintenance.maintenanceType || 'MANTENIMIENTO').toUpperCase(),
+          },
+          total: 0,
+          totalShown: 0,
+          items: [],
+          message: 'Los filtros por componentes relacionados aplican a mantenimientos tipo Proyecto.',
+        },
+        attachments: [],
+        entities: [entity('maintenance', maintenance.id, maintenance.title || 'Mantenimiento', '/mantenimientos/' + encodeURIComponent(maintenance.id))],
+        sources: [source('maintenance', maintenance.id, (maintenance.title || 'Mantenimiento') + ' · evidencias', '/mantenimientos/' + encodeURIComponent(maintenance.id))],
+        context: {
+          lastMaintenanceId: maintenance.id,
+          lastMaintenanceName: maintenance.title || '',
+          lastClientId: maintenance.clientId || '',
+          lastClientName: maintenance.client || '',
+        },
+      };
+    }
+    for (const value of Object.values(projectEvidenceFilters(args))) {
+      if (!value) continue;
+      params.push(like(value));
+      clauses.push(`COALESCE(d."RespuestasJSON",'') ILIKE $${params.length} ESCAPE '\\'`);
+    }
+  }
+
+  const mimeCategory = clean(args.mimeCategory, 40).toUpperCase();
+  if (mimeCategory === 'IMAGE') clauses.push(`LOWER(COALESCE(mi."MimeType",'')) LIKE 'image/%'`);
+  else if (mimeCategory === 'VIDEO') clauses.push(`LOWER(COALESCE(mi."MimeType",'')) LIKE 'video/%'`);
+  else if (mimeCategory === 'PDF') clauses.push(`LOWER(COALESCE(mi."MimeType",''))='application/pdf'`);
+  const period = addRange(clauses, params, 'COALESCE(NULLIF(mi."FechaCaptura",\\'\\'),mi."FechaCreacion")', args);
+  const where = clauses.join(' AND ');
+
+  const counted = await one(
     `SELECT COUNT(*)::bigint AS total,
             COUNT(*) FILTER (WHERE LOWER(COALESCE(mi."MimeType",'')) LIKE 'image/%')::bigint AS images,
             COUNT(*) FILTER (WHERE LOWER(COALESCE(mi."MimeType",'')) LIKE 'video/%')::bigint AS videos,
@@ -304,39 +358,73 @@ export async function searchMaintenanceEvidence(ctx, args = {}) {
          ON d."__valid"=TRUE AND mi."DispositivoMantenimientoRef"=d."EvidenciaMantenimientoID"
        LEFT JOIN "Usuarios" uploader
          ON uploader."__valid"=TRUE AND uploader."UsuarioID"=mi."CreadoPor"
-      WHERE ${clauses.join(' AND ')}`,
+       LEFT JOIN "TiposDispositivo" project_type
+         ON project_type."__valid"=TRUE AND project_type."TipoDispositivoID"=mi."ProyectoComponenteTipoDispositivoID"
+      WHERE ${where}`,
     params,
     'ai.integralMaintenance.evidence.count',
   );
 
-  const queryParams=[...params,pageLimit(args.limit,50),pageOffset(args.offset)];
+  const requestedLimit = pageLimit(args.limit, 50);
+  const requestedOffset = pageOffset(args.offset);
+  const candidateLimit = projectFilters ? Math.min(250, Math.max(50, (requestedOffset + requestedLimit) * 5)) : requestedLimit;
+  const candidateOffset = projectFilters ? 0 : requestedOffset;
+  const queryParams = [...params, candidateLimit, candidateOffset];
   const rows = await many(
     `SELECT mi."FotoDispositivoID" AS id,mi."Nombre" AS name,mi."Nota" AS note,mi."Tipo" AS stage,
-            mi."MimeType" AS "mimeType",mi."TipoMedio" AS "mediaType",mi."FechaCreacion" AS "createdAt",
+            mi."MimeType" AS "mimeType",mi."TipoMedio" AS "mediaType",
+            COALESCE(NULLIF(mi."FechaCaptura",''),mi."FechaCreacion") AS "capturedAt",
+            mi."FechaCreacion" AS "createdAt",mi."ContextoEvidencia" AS "evidenceContext",
+            mi."ProyectoDestinoTipo" AS "projectTargetType",mi."ProyectoRelacionClave" AS "projectRelationKey",
+            mi."ProyectoComponenteLocalID" AS "projectComponentLocalId",
+            mi."ProyectoComponenteTipoDispositivoID" AS "projectComponentTypeId",
+            mi."ProyectoComponenteNombre" AS "projectComponentName",
+            project_type."Nombre" AS "projectComponentType",
             mi."CreadoPor" AS "createdBy",
             COALESCE(NULLIF(uploader."NombreCompleto",''),uploader."NombreUsuario",mi."CreadoPor") AS "uploadedBy",
             mi."DriveFileID" AS "__file",
             d."EvidenciaMantenimientoID" AS "deviceId",d."NombreDispositivo" AS "deviceName",
-            COALESCE(NULLIF(d."TipoDispositivo",''),d."Categoria") AS "deviceType",d."Zona" AS zone
+            COALESCE(NULLIF(d."TipoDispositivo",''),d."Categoria") AS "deviceType",
+            d."Zona" AS zone,d."RespuestasJSON" AS "answersJson"
        FROM "Mantenimiento imagenes" mi
        JOIN "Evidencia_Mantenimientos" d
          ON d."__valid"=TRUE AND mi."DispositivoMantenimientoRef"=d."EvidenciaMantenimientoID"
        LEFT JOIN "Usuarios" uploader
          ON uploader."__valid"=TRUE AND uploader."UsuarioID"=mi."CreadoPor"
-      WHERE ${clauses.join(' AND ')}
-      ORDER BY d."Zona" ASC NULLS LAST,d."NombreDispositivo" ASC NULLS LAST,mi."FechaCreacion" ASC NULLS LAST
+       LEFT JOIN "TiposDispositivo" project_type
+         ON project_type."__valid"=TRUE AND project_type."TipoDispositivoID"=mi."ProyectoComponenteTipoDispositivoID"
+      WHERE ${where}
+      ORDER BY COALESCE(NULLIF(mi."FechaCaptura",''),mi."FechaCreacion") DESC NULLS LAST,
+               d."Zona" ASC NULLS LAST,d."NombreDispositivo" ASC NULLS LAST
       LIMIT $${queryParams.length-1} OFFSET $${queryParams.length}`,
     queryParams,
     'ai.integralMaintenance.evidence',
   );
 
-  const items = rows.map((row) => ({
+  const filters = projectEvidenceFilters(args);
+  const enrichedRows = rows.map((row) => {
+    const component = projectEvidenceComponent(row);
+    return {
+      row,
+      component,
+      matchesProjectComponentFilters: !projectFilters || projectEvidenceComponentMatches(component, filters),
+    };
+  });
+  const matchedRows = projectFilters
+    ? enrichedRows.filter((entry) => entry.matchesProjectComponentFilters)
+    : enrichedRows;
+  const selectedRows = projectFilters
+    ? matchedRows.slice(requestedOffset, requestedOffset + requestedLimit)
+    : matchedRows;
+
+  const items = selectedRows.map(({ row, component }) => ({
     id: row.id,
     name: row.name || 'Evidencia',
     note: clean(row.note, 1600),
-    stage: row.stage || '',
+    stage: String(maintenance.maintenanceType || 'MANTENIMIENTO').toUpperCase() === 'PROYECTO' ? '' : (row.stage || ''),
     mimeType: row.mimeType || 'application/octet-stream',
     mediaType: row.mediaType || '',
+    capturedAt: row.capturedAt || row.createdAt || '',
     createdAt: row.createdAt || '',
     createdBy: row.createdBy || '',
     uploadedBy: row.uploadedBy || row.createdBy || '',
@@ -344,32 +432,61 @@ export async function searchMaintenanceEvidence(ctx, args = {}) {
     deviceName: row.deviceName || row.deviceType || 'Dispositivo',
     deviceType: row.deviceType || '',
     zone: row.zone || '',
+    projectTargetType: row.projectTargetType || '',
+    projectRelationKey: row.projectRelationKey || '',
+    projectComponentLocalId: row.projectComponentLocalId || '',
+    projectComponentType: component?.type || row.projectComponentType || '',
+    projectComponentName: component?.name || row.projectComponentName || '',
+    projectComponent: component || undefined,
   }));
 
-  const attachments = rows.map((row) => protectedAttachment(ctx, {
+  const attachments = selectedRows.map(({ row, component }) => protectedAttachment(ctx, {
     fileId: row.__file,
     mimeType: row.mimeType,
     scopeId: 'maintenance:' + maintenance.id,
     evidenceId: row.id,
     kind: 'maintenance-evidence',
     title: row.deviceName || row.name || 'Dispositivo',
-    subtitle: [row.stage, row.deviceType, row.zone, row.note].filter(Boolean).join(' · '),
+    subtitle: [
+      component?.name || row.projectComponentName,
+      component?.type || row.projectComponentType,
+      row.deviceType,
+      row.zone,
+      row.capturedAt,
+      row.note,
+    ].filter(Boolean).join(' · '),
     entityType: 'maintenance',
     entityId: maintenance.id,
   })).filter(Boolean);
 
+  const candidateTotal = Number(counted?.total || 0);
+  const exactTotal = !projectFilters || candidateTotal <= candidateLimit;
+  const imageCount = projectFilters
+    ? (exactTotal ? selectedRows.filter(({ row }) => String(row.mimeType || '').toLowerCase().startsWith('image/')).length : null)
+    : Number(counted?.images || 0);
+  const videoCount = projectFilters
+    ? (exactTotal ? selectedRows.filter(({ row }) => String(row.mimeType || '').toLowerCase().startsWith('video/')).length : null)
+    : Number(counted?.videos || 0);
   const normalizedStages = [...new Set(items.map((item) => normalize(item.stage)).filter(Boolean))];
   return {
     modelData: {
-      maintenance: { id: maintenance.id, title: maintenance.title || 'Mantenimiento', client: maintenance.client || '' },
-      total: Number(counted?.total||0),
+      maintenance: {
+        id: maintenance.id,
+        title: maintenance.title || 'Mantenimiento',
+        client: maintenance.client || '',
+        maintenanceType: String(maintenance.maintenanceType || 'MANTENIMIENTO').toUpperCase(),
+      },
+      total: exactTotal ? (projectFilters ? matchedRows.length : candidateTotal) : null,
+      candidateTotal: projectFilters ? candidateTotal : undefined,
       totalShown: items.length,
-      imageCount: Number(counted?.images||0),
-      videoCount: Number(counted?.videos||0),
-      beforeCount: Number(counted?.before_count||0),
-      afterCount: Number(counted?.after_count||0),
+      imageCount,
+      videoCount,
+      beforeCount: String(maintenance.maintenanceType || 'MANTENIMIENTO').toUpperCase() === 'PROYECTO' ? 0 : Number(counted?.before_count || 0),
+      afterCount: String(maintenance.maintenanceType || 'MANTENIMIENTO').toUpperCase() === 'PROYECTO' ? 0 : Number(counted?.after_count || 0),
       mimeCategory,
       period,
+      truncated: projectFilters && !exactTotal,
+      ...(projectFilters && !exactTotal ? { message: 'Hay más evidencias candidatas que el límite de análisis estructurado. Refine por dispositivo, componente, fabricante o modelo.' } : {}),
       items,
     },
     attachments,
