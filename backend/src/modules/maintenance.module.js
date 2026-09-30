@@ -338,6 +338,7 @@ export const maintenanceHandlers = {
     const maintenanceId = pick(ctx.payload, ['maintenanceId', 'MantenimientoID', 'MantenimientoRef']);
     const requestedId = String(pick(ctx.payload, ['deviceId', 'EvidenciaMantenimientoID'], '')).trim();
     if (requestedId && !validClientGeneratedId(requestedId)) throw badRequest('El identificador local del dispositivo no es válido.');
+    if (!maintenanceId) throw badRequest('Falta el mantenimiento del dispositivo.');
     const maintenance = await findById('Mantenimiento', maintenanceId);
     const progressJson = validateProjectDeviceProgress({ maintenance, payload: ctx.payload });
     const payload = devicePayload({ ...ctx.payload, ProyectoProgresoJSON: progressJson });
