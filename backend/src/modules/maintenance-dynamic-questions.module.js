@@ -11,6 +11,7 @@ import {
 } from '../infra/sheets.repository.js';
 import { audit } from '../services/audit.service.js';
 import { normalizeMacAddress } from '../services/evidence-media-policy.service.js';
+import { assertProjectEvidenceTargetsStillExist } from '../services/maintenance-evidence-policy.service.js';
 import { createDynamicMaintenanceSpreadsheetReport } from '../services/maintenance-dynamic-spreadsheet.service.js';
 import {
   MAINTENANCE_QUESTION_SHEET,
@@ -540,13 +541,35 @@ async function deviceCreate(ctx) {
 async function deviceUpdate(ctx) {
   const id = cleanMaintenanceQuestionValue(pick(ctx.payload, ['deviceId', 'EvidenciaMantenimientoID']));
   const before = await findById('Evidencia_Mantenimientos', id);
-  return maintenanceDeviceCountPolicyHandlers.deviceUpdate(await contextWithQuestionSnapshot(ctx, before));
+  const prepared = await contextWithQuestionSnapshot(ctx, before);
+  if (
+    prepared.payload.TipoMantenimiento === 'PROYECTO'
+    && String(before.RespuestasJSON || '') !== String(prepared.payload.RespuestasJSON || '')
+  ) {
+    await assertProjectEvidenceTargetsStillExist({
+      deviceId: id,
+      answers: prepared.payload.RespuestasJSON,
+      maintenanceType: prepared.payload.TipoMantenimiento,
+    });
+  }
+  return maintenanceDeviceCountPolicyHandlers.deviceUpdate(prepared);
 }
 
 async function deviceAutosave(ctx) {
   const id = cleanMaintenanceQuestionValue(pick(ctx.payload, ['deviceId', 'EvidenciaMantenimientoID']));
   const before = await findById('Evidencia_Mantenimientos', id);
-  return maintenanceDeviceCountPolicyHandlers.deviceAutosave(await contextWithQuestionSnapshot(ctx, before));
+  const prepared = await contextWithQuestionSnapshot(ctx, before);
+  if (
+    prepared.payload.TipoMantenimiento === 'PROYECTO'
+    && String(before.RespuestasJSON || '') !== String(prepared.payload.RespuestasJSON || '')
+  ) {
+    await assertProjectEvidenceTargetsStillExist({
+      deviceId: id,
+      answers: prepared.payload.RespuestasJSON,
+      maintenanceType: prepared.payload.TipoMantenimiento,
+    });
+  }
+  return maintenanceDeviceCountPolicyHandlers.deviceAutosave(prepared);
 }
 
 export const maintenanceQuestionHandlers = {
