@@ -7,6 +7,7 @@ import MaintenanceDeviceCatalogFields from './MaintenanceDeviceCatalogFields';
 import MaintenanceEquipmentLocationSelect from './MaintenanceEquipmentLocationSelect';
 import MaintenanceEvidenceImage from './MaintenanceEvidenceImage';
 import MaintenanceProjectRelationField from './MaintenanceProjectRelationField';
+import MaintenanceProjectProgressChecklist from './MaintenanceProjectProgressChecklist';
 import MaintenanceQuestionField from './MaintenanceQuestionField';
 import { getMaintenanceCategory } from '../../config/maintenanceCategories';
 import useMaintenanceQuestionCatalog from '../../hooks/useMaintenanceQuestionCatalog';
@@ -19,6 +20,7 @@ import {
 } from '../../utils/evidenceMedia';
 import { formatMacAddressInput, macAddressError, normalizeMacAddress } from '../../utils/macAddress';
 import { isProjectMaintenance } from '../../features/maintenance/maintenanceType';
+import { projectChecklistProgressForDevice } from '../../features/maintenance/maintenanceProjectChecklist';
 import {
   normalizeProjectRelationValue,
   projectEvidenceTargetPatch,
@@ -131,6 +133,7 @@ export default function MaintenanceDeviceEditor({
   submitting = false,
   autosaveStatus = 'idle',
   maintenanceType = 'MANTENIMIENTO',
+  projectChecklist,
 }) {
   const { sessionToken, hasPermission } = useAuth();
   const projectMode = isProjectMaintenance(maintenanceType);
@@ -227,6 +230,10 @@ export default function MaintenanceDeviceEditor({
       ? dynamicQuestions.filter((question) => projectQuestionMissing(question, device.respuestas?.[question.key]))
       : []
   ), [device.respuestas, dynamicQuestions, projectMode]);
+  const projectProgress = useMemo(
+    () => projectMode ? projectChecklistProgressForDevice(projectChecklist, device) : null,
+    [device, projectChecklist, projectMode],
+  );
 
   const projectEvidenceTargetErrors = useMemo(() => {
     if (!projectMode) return [];
@@ -278,7 +285,9 @@ export default function MaintenanceDeviceEditor({
   useEffect(() => {
     if (locked || manualPending) return;
     if (projectMode) {
-      const desiredState = projectMissingQuestions.length ? AUTOMATIC_PENDING_STATE : 'Correcto';
+      const desiredState = projectMissingQuestions.length || (projectProgress?.total > 0 && !projectProgress.complete)
+        ? AUTOMATIC_PENDING_STATE
+        : 'Correcto';
       const next = {};
       if (device.maintenanceType !== 'PROYECTO') next.maintenanceType = 'PROYECTO';
       if (!device.funcionamiento) next.funcionamiento = 'No aplica';
@@ -293,7 +302,7 @@ export default function MaintenanceDeviceEditor({
     );
     if (String(device.estado || '') === desiredState) return;
     onChange({ ...device, estado: desiredState });
-  }, [device, dynamicQuestions, locked, manualPending, onChange, projectMissingQuestions.length, projectMode]);
+  }, [device, dynamicQuestions, locked, manualPending, onChange, projectMissingQuestions.length, projectMode, projectProgress?.complete, projectProgress?.total]);
 
   function patch(values) { onChange({ ...device, ...values }); }
 
@@ -309,7 +318,7 @@ export default function MaintenanceDeviceEditor({
     const previousType = String(device.tipoDispositivoId || device.categoria || '');
     const nextType = String(nextDevice.tipoDispositivoId || nextDevice.categoria || '');
     if (previousType && nextType && previousType !== nextType) {
-      onChange({ ...nextDevice, respuestas: {}, questionDetails: [] });
+      onChange({ ...nextDevice, respuestas: {}, questionDetails: [], projectProgress: { version: 1, answers: {} } });
       return;
     }
     onChange(nextDevice);
@@ -486,6 +495,13 @@ export default function MaintenanceDeviceEditor({
         {questionCatalog.error && <div className="info-box maintenance-question-warning"><Icon name="cloud_off" /><p>No se pudo actualizar el catálogo de preguntas. Se muestran las preguntas compatibles disponibles en el dispositivo.</p></div>}
         <Choice label="Estado" value={checklistPending ? '' : device.estado} onChange={(value) => patch({ estado: value })} options={['Correcto', 'Mal estado']} disabled={checklistLocked || !checklistCompletion.complete} note={!checklistCompletion.complete ? 'El estado final se habilitará cuando todas las preguntas obligatorias estén respondidas.' : ''} />
       </section>}
+
+      {projectMode && <MaintenanceProjectProgressChecklist
+        checklist={projectChecklist}
+        device={device}
+        disabled={locked}
+        onChange={(projectProgressValue) => patch({ projectProgress: projectProgressValue })}
+      />}
 
       <section className="form-card maintenance-device-section-card"><div className="form-card__heading"><span className="section-marker" /><div><h3>Observaciones</h3><p>Registre hallazgos, fallas, trabajos realizados o recomendaciones.</p></div></div><Field label="Observación" multiline value={device.observacion} onChange={(event) => patch({ observacion: event.target.value })} disabled={locked} /></section>
 
