@@ -21,6 +21,7 @@ export function cloneMaintenanceDevice(device) {
   return {
     ...device,
     respuestas: cloneAnswers(device.respuestas),
+    projectProgress: cloneAnswerValue(device.projectProgress),
     images: (device.images || []).map((image) => ({ ...image })),
     newImages: (device.newImages || []).map((image) => ({ ...image })),
   };
@@ -32,6 +33,7 @@ export function serializableMaintenanceDevice(device) {
   return {
     ...rest,
     respuestas: cloneAnswers(device.respuestas),
+    projectProgress: cloneAnswerValue(device.projectProgress),
     questionDetails: (device.questionDetails || []).map((item) => ({ ...item, config: cloneAnswerValue(item.config), value: cloneAnswerValue(item.value) })),
     images: (device.images || []).map(({ dataUrl: _dataUrl, previewUrl: _previewUrl, ...image }) => image),
     newImages: [],
