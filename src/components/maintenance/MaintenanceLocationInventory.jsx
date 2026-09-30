@@ -739,10 +739,10 @@ export default function MaintenanceLocationInventory({
       className="maintenance-project-device-detail-modal"
       onClose={closeProjectDeviceDetail}
       footer={<div className="maintenance-project-device-detail-navigation">
-        <button className="button button--secondary" type="button" onClick={() => navigateProjectDevice(-1)} disabled={activeProjectDeviceIndex <= 0}><Icon name="arrow_back" />Anterior</button>
+        <button className="button button--secondary maintenance-project-device-detail-navigation__previous" type="button" onClick={() => navigateProjectDevice(-1)} disabled={activeProjectDeviceIndex <= 0}><Icon name="arrow_back" />Anterior</button>
         <span><strong>{activeProjectDeviceIndex + 1}</strong> / {projectDetailDevices.length}</span>
-        {pending && canEdit && <button className="button button--primary" type="button" onClick={() => editDeviceFromDetail(activeProjectDevice)}><Icon name="edit" />Editar</button>}
-        <button className="button button--secondary" type="button" onClick={() => navigateProjectDevice(1)} disabled={activeProjectDeviceIndex < 0 || activeProjectDeviceIndex >= projectDetailDevices.length - 1}>Siguiente<Icon name="arrow_forward" /></button>
+        {pending && canEdit && <button className="button button--primary maintenance-project-device-detail-navigation__edit" type="button" onClick={() => editDeviceFromDetail(activeProjectDevice)}><Icon name="edit" />Editar</button>}
+        <button className="button button--secondary maintenance-project-device-detail-navigation__next" type="button" onClick={() => navigateProjectDevice(1)} disabled={activeProjectDeviceIndex < 0 || activeProjectDeviceIndex >= projectDetailDevices.length - 1}>Siguiente<Icon name="arrow_forward" /></button>
       </div>}
     >
       {expandedContent(activeProjectDevice, { detailView: true })}
