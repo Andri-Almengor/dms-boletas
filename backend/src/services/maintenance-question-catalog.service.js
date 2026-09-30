@@ -14,6 +14,9 @@ export const MAINTENANCE_QUESTION_COLUMNS = [
   'Pregunta',
   'Orden',
   'TipoRespuesta',
+  'AplicaModo',
+  'TipoDispositivoRelacionadoID',
+  'ConfiguracionJSON',
   'Activo',
   'Estado',
   'CreadoPor',
@@ -22,6 +25,8 @@ export const MAINTENANCE_QUESTION_COLUMNS = [
   'FechaActualizacion',
 ];
 export const DEVICE_QUESTION_SNAPSHOT_COLUMN = 'RespuestasDetalleJSON';
+export const MAINTENANCE_QUESTION_MODES = ['MANTENIMIENTO', 'PROYECTO', 'AMBOS'];
+export const MAINTENANCE_QUESTION_RESPONSE_TYPES = ['SI_NO', 'TEXTO', 'NUMERO', 'CANTIDAD', 'MAC', 'RELACION_DISPOSITIVO'];
 
 const DEFAULT_QUESTION_GROUPS = [
   {
@@ -155,6 +160,32 @@ export function normalizeMaintenanceQuestionValue(value) {
     .trim();
 }
 
+export function normalizeMaintenanceQuestionMode(value, fallback = 'MANTENIMIENTO') {
+  const normalized = cleanMaintenanceQuestionValue(value, fallback).toUpperCase();
+  return MAINTENANCE_QUESTION_MODES.includes(normalized) ? normalized : fallback;
+}
+
+export function normalizeMaintenanceQuestionResponseType(value, fallback = 'SI_NO') {
+  const normalized = cleanMaintenanceQuestionValue(value, fallback).toUpperCase();
+  return MAINTENANCE_QUESTION_RESPONSE_TYPES.includes(normalized) ? normalized : fallback;
+}
+
+export function parseMaintenanceQuestionConfig(value) {
+  if (value && typeof value === 'object' && !Array.isArray(value)) return value;
+  try {
+    const parsed = JSON.parse(value || '{}');
+    return parsed && typeof parsed === 'object' && !Array.isArray(parsed) ? parsed : {};
+  } catch {
+    return {};
+  }
+}
+
+export function maintenanceQuestionAppliesTo(row = {}, mode = 'MANTENIMIENTO') {
+  const appliesTo = normalizeMaintenanceQuestionMode(row.AplicaModo || row.appliesTo || row.mode, 'MANTENIMIENTO');
+  const requested = normalizeMaintenanceQuestionMode(mode, 'MANTENIMIENTO');
+  return appliesTo === 'AMBOS' || appliesTo === requested;
+}
+
 export function isActiveMaintenanceQuestion(row = {}) {
   const active = String(row.Activo ?? 'true').trim().toLowerCase();
   const status = cleanMaintenanceQuestionValue(row.Estado, 'ACTIVO').toUpperCase();
@@ -174,6 +205,9 @@ export function legacyMaintenanceQuestions(typeName = '') {
     Pregunta: label,
     Orden: (index + 1) * 10,
     TipoRespuesta: 'SI_NO',
+    AplicaModo: 'MANTENIMIENTO',
+    TipoDispositivoRelacionadoID: '',
+    ConfiguracionJSON: '{}',
     Activo: true,
     Estado: 'ACTIVO',
     Origen: 'LEGACY',
@@ -225,18 +259,19 @@ export async function ensureMaintenanceQuestionCatalog(actor = 'SYSTEM') {
   return ensurePromise;
 }
 
-export async function readMaintenanceQuestions({ includeInactive = false, typeId = '' } = {}) {
+export async function readMaintenanceQuestions({ includeInactive = false, typeId = '', mode = '' } = {}) {
   await ensureMaintenanceQuestionCatalog();
   let rows = await readTable(MAINTENANCE_QUESTION_SHEET);
   if (!includeInactive) rows = rows.filter(isActiveMaintenanceQuestion);
   if (typeId) rows = rows.filter((row) => cleanMaintenanceQuestionValue(row.TipoDispositivoID) === cleanMaintenanceQuestionValue(typeId));
+  if (mode) rows = rows.filter((row) => maintenanceQuestionAppliesTo(row, mode));
   return [...rows].sort((left, right) => (
     Number(left.Orden || 0) - Number(right.Orden || 0)
     || cleanMaintenanceQuestionValue(left.Pregunta).localeCompare(cleanMaintenanceQuestionValue(right.Pregunta), 'es')
   ));
 }
 
-export async function resolveMaintenanceQuestionsForType({ typeId = '', typeName = '', includeInactive = false } = {}) {
+export async function resolveMaintenanceQuestionsForType({ typeId = '', typeName = '', includeInactive = false, mode = 'MANTENIMIENTO' } = {}) {
   const cleanTypeId = cleanMaintenanceQuestionValue(typeId);
   let resolvedTypeId = cleanTypeId;
   let resolvedTypeName = cleanMaintenanceQuestionValue(typeName);
@@ -249,12 +284,12 @@ export async function resolveMaintenanceQuestionsForType({ typeId = '', typeName
   }
 
   if (resolvedTypeId) {
-    const rows = await readMaintenanceQuestions({ includeInactive, typeId: resolvedTypeId });
+    const rows = await readMaintenanceQuestions({ includeInactive, typeId: resolvedTypeId, mode });
     if (rows.length || includeInactive) return rows;
   }
 
   // Compatibilidad con mantenimientos históricos que no tienen TipoDispositivoID.
-  if (!resolvedTypeId) return legacyMaintenanceQuestions(resolvedTypeName);
+  if (!resolvedTypeId && normalizeMaintenanceQuestionMode(mode) === 'MANTENIMIENTO') return legacyMaintenanceQuestions(resolvedTypeName);
   return [];
 }
 
@@ -267,7 +302,10 @@ export function maintenanceQuestionClientView(row = {}, typeName = '') {
     key: cleanMaintenanceQuestionValue(row.Clave),
     label: cleanMaintenanceQuestionValue(row.Pregunta),
     order: Number(row.Orden || 0),
-    responseType: cleanMaintenanceQuestionValue(row.TipoRespuesta, 'SI_NO'),
+    responseType: normalizeMaintenanceQuestionResponseType(row.TipoRespuesta, 'SI_NO'),
+    appliesTo: normalizeMaintenanceQuestionMode(row.AplicaModo, 'MANTENIMIENTO'),
+    relatedTypeId: cleanMaintenanceQuestionValue(row.TipoDispositivoRelacionadoID),
+    config: parseMaintenanceQuestionConfig(row.ConfiguracionJSON),
     active: isActiveMaintenanceQuestion(row),
     status: cleanMaintenanceQuestionValue(row.Estado, 'ACTIVO'),
     origin: cleanMaintenanceQuestionValue(row.Origen, 'CATALOGO'),
@@ -307,7 +345,16 @@ export async function buildMaintenanceQuestionSnapshot(payload = {}, before = {}
     ['TipoDispositivo', 'Categoria', 'categoria'],
     before.TipoDispositivo || before.Categoria,
   ));
-  const activeQuestions = await resolveMaintenanceQuestionsForType({ typeId, typeName, includeInactive: false });
+  const maintenanceMode = normalizeMaintenanceQuestionMode(
+    pick(payload, ['TipoMantenimiento', 'tipoMantenimiento', 'maintenanceType'], 'MANTENIMIENTO'),
+    'MANTENIMIENTO',
+  );
+  const activeQuestions = await resolveMaintenanceQuestionsForType({
+    typeId,
+    typeName,
+    includeInactive: false,
+    mode: maintenanceMode,
+  });
   const suppliedSnapshot = parseMaintenanceQuestionSnapshot(
     payload.RespuestasDetalleJSON
       || payload.respuestasDetalle
@@ -326,7 +373,10 @@ export async function buildMaintenanceQuestionSnapshot(payload = {}, before = {}
       key,
       label: cleanMaintenanceQuestionValue(question.Pregunta || existing.label || key),
       order: Number(question.Orden || existing.order || (index + 1) * 10),
-      responseType: cleanMaintenanceQuestionValue(question.TipoRespuesta || existing.responseType, 'SI_NO'),
+      responseType: normalizeMaintenanceQuestionResponseType(question.TipoRespuesta || existing.responseType, 'SI_NO'),
+      appliesTo: normalizeMaintenanceQuestionMode(question.AplicaModo || existing.appliesTo, maintenanceMode),
+      relatedTypeId: cleanMaintenanceQuestionValue(question.TipoDispositivoRelacionadoID || existing.relatedTypeId),
+      config: parseMaintenanceQuestionConfig(question.ConfiguracionJSON || existing.config),
       value: cleanMaintenanceQuestionValue(answers[key] ?? existing.value),
       activeAtSave: true,
     };
@@ -344,7 +394,10 @@ export async function buildMaintenanceQuestionSnapshot(payload = {}, before = {}
       key,
       label: cleanMaintenanceQuestionValue(item.label || item.Pregunta || key),
       order: Number(item.order || item.Orden || 9999),
-      responseType: cleanMaintenanceQuestionValue(item.responseType || item.TipoRespuesta, 'SI_NO'),
+      responseType: normalizeMaintenanceQuestionResponseType(item.responseType || item.TipoRespuesta, 'SI_NO'),
+      appliesTo: normalizeMaintenanceQuestionMode(item.appliesTo || item.AplicaModo, maintenanceMode),
+      relatedTypeId: cleanMaintenanceQuestionValue(item.relatedTypeId || item.TipoDispositivoRelacionadoID),
+      config: parseMaintenanceQuestionConfig(item.config || item.ConfiguracionJSON),
       value,
       activeAtSave: false,
     });
