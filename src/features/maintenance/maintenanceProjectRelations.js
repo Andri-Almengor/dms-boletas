@@ -205,11 +205,12 @@ export function projectEvidenceTargetValue(image = {}) {
 }
 
 export function projectEvidenceTargetPatch(target = {}) {
+  const targetType = target.targetType === 'COMPONENTE' ? 'COMPONENTE' : 'DISPOSITIVO';
   return {
-    projectTargetType: target.targetType || 'DISPOSITIVO',
-    projectRelationKey: target.relationKey || '',
-    projectComponentLocalId: target.componentLocalId || '',
-    projectComponentTypeId: target.componentTypeId || '',
-    projectComponentName: target.componentName || '',
+    projectTargetType: targetType,
+    projectRelationKey: targetType === 'COMPONENTE' ? target.relationKey || '' : '',
+    projectComponentLocalId: targetType === 'COMPONENTE' ? target.componentLocalId || '' : '',
+    projectComponentTypeId: targetType === 'COMPONENTE' ? target.componentTypeId || '' : '',
+    projectComponentName: targetType === 'COMPONENTE' ? target.componentName || '' : '',
   };
 }
