@@ -23,6 +23,16 @@ import {
 
 export { fileToBase64 } from '../../utils/fileEncoding';
 
+export function normalizeMaintenanceType(value = 'MANTENIMIENTO') {
+  return String(value || 'MANTENIMIENTO').trim().toUpperCase() === 'PROYECTO'
+    ? 'PROYECTO'
+    : 'MANTENIMIENTO';
+}
+
+export function isProjectMaintenance(value) {
+  return normalizeMaintenanceType(value) === 'PROYECTO';
+}
+
 export const MAINTENANCE_STEPS = [
   ['Información general', 'Cliente, ubicación, responsables, fechas y descripción.'],
   ['Cantidades esperadas', 'Indica cuántos dispositivos se revisarán por categoría.'],
@@ -31,7 +41,7 @@ export const MAINTENANCE_STEPS = [
 ];
 
 export const EMPTY_MAINTENANCE = {
-  titulo: '', clienteId: '', cliente: '', ubicacionId: '', ubicacion: '', estado: 'PENDIENTE',
+  titulo: '', tipoMantenimiento: 'MANTENIMIENTO', clienteId: '', cliente: '', ubicacionId: '', ubicacion: '', estado: 'PENDIENTE',
   fecha: todayInCostaRica(),
   fechaFinalizacion: todayInCostaRica(),
   responsables: [], descripcion: '', counts: createEmptyMaintenanceCounts(), syncBase: null,
@@ -145,6 +155,7 @@ export function mapMaintenance(data) {
   return {
     ...EMPTY_MAINTENANCE,
     titulo: pick(row, ['TituloMantenimiento', 'titulo']),
+    tipoMantenimiento: normalizeMaintenanceType(pick(row, ['TipoMantenimiento', 'tipoMantenimiento', 'maintenanceType'], 'MANTENIMIENTO')),
     clienteId: String(pick(row, ['ClienteID', 'ClienteRef', 'clienteId'])),
     cliente: pick(row, ['Cliente', 'ClienteNombre', 'cliente']),
     ubicacionId: String(pick(row, ['UbicacionID', 'ubicacionId'])),
@@ -206,6 +217,8 @@ export function mapMaintenanceDevice(row = {}) {
 export function maintenancePayload(form, id) {
   return withSyncBase({
     maintenanceId: id, MantenimientoID: id, TituloMantenimiento: form.titulo,
+    TipoMantenimiento: normalizeMaintenanceType(form.tipoMantenimiento),
+    tipoMantenimiento: normalizeMaintenanceType(form.tipoMantenimiento),
     ClienteID: form.clienteId, ClienteRef: form.clienteId, Cliente: form.cliente,
     UbicacionID: form.ubicacionId, Ubicacion: form.ubicacion, Estado: form.estado,
     Fecha: form.fecha, FechaFinalizacion: form.fechaFinalizacion,
