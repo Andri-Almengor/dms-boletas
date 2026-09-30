@@ -52,6 +52,8 @@ export default function MaintenanceEvidenceEditor({
             ProyectoDestinoTipo: target?.targetType || 'DISPOSITIVO',
             ProyectoRelacionClave: target?.relationKey || '',
             ProyectoComponenteLocalID: target?.componentLocalId || '',
+            ProyectoComponenteTipoDispositivoID: target?.componentTypeId || '',
+            ProyectoComponenteNombre: target?.componentName || '',
           } : {}),
         },
         sessionToken,
