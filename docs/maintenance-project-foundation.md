@@ -61,12 +61,28 @@ Proyecto reutiliza la tabla y los componentes actuales de evidencias, sin crear 
 
 La migración `017_maintenance_project_evidence.sql` extiende `Mantenimiento imagenes` con metadatos de Proyecto e índices por dispositivo/fecha y componente/fecha.
 
+## Etapa 4 — detalle y navegación del inventario de Proyecto
+
+El inventario mantiene las mismas ubicaciones y dispositivos, pero Proyecto reutiliza `AdminEntityModal` como ventana de detalle en lugar de crear una pantalla o ruta paralela.
+
+- al abrir un dispositivo de Proyecto se muestra una ventana responsive propia;
+- la ventana incluye tipo, ubicación, fabricante, modelo, serie, MAC, fecha de trabajo, técnicos, estado y cantidad de evidencias;
+- las preguntas configurables y los componentes relacionados se muestran con la misma estructura guardada en `RespuestasJSON`;
+- la galería reutiliza `MaintenanceEvidenceImage`, incluyendo lightbox, navegación y zoom existentes;
+- desde la ventana se puede agregar evidencia o editar una existente mediante los flujos ya implementados;
+- las evidencias pueden filtrarse por dispositivo principal o por cualquiera de sus componentes relacionados;
+- existen controles Anterior / Siguiente para recorrer todos los dispositivos en el orden natural del inventario sin cerrar el detalle;
+- el botón Editar sigue reutilizando el editor de dispositivo actual y sus permisos;
+- el buscador del inventario también inspecciona notas, nombres y componente relacionado de las evidencias, por lo que una nota como “mal funcionamiento” puede localizar el dispositivo correspondiente;
+- Mantenimiento normal conserva la expansión histórica dentro de la tabla/tarjeta; la ventana nueva se activa únicamente para Proyecto.
+
+No se agregaron rutas backend, tablas, permisos, servicios de datos ni almacenamiento nuevo en esta etapa.
+
 ## Etapas posteriores
 
-Después de evidencias:
+Después del detalle navegable:
 
-1. mejorar la navegación de detalle entre dispositivos del Proyecto;
-2. exponer dispositivos, relaciones, notas y evidencias al Agente Gemini mediante tools controladas;
-3. soportar consultas naturales y tablas filtradas por tipo, fabricante, modelo, serie, componentes y notas;
-4. permitir recuperar imágenes por dispositivo o componente relacionado;
-5. pedir aclaración cuando la referencia natural no pueda resolverse con suficiente certeza.
+1. exponer dispositivos, relaciones, notas y evidencias al Agente Gemini mediante tools controladas;
+2. soportar consultas naturales y tablas filtradas por tipo, fabricante, modelo, serie, componentes y notas;
+3. permitir recuperar imágenes por dispositivo o componente relacionado;
+4. pedir aclaración cuando la referencia natural no pueda resolverse con suficiente certeza.
