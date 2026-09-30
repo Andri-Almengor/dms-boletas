@@ -5,6 +5,10 @@ import FilterDrawer from '../forms/FilterDrawer';
 import MaintenanceEvidenceImage from './MaintenanceEvidenceImage';
 import { getMaintenanceCategory } from '../../config/maintenanceCategories';
 import { MODULE_ROUTES, pick, requestAvailable } from '../../services/moduleApi';
+import {
+  projectEvidenceTargets,
+  projectEvidenceTargetValue,
+} from '../../features/maintenance/maintenanceProjectRelations';
 
 const NATURAL_COLLATOR = new Intl.Collator('es', {
   numeric: true,
@@ -69,6 +73,29 @@ function parseAnswers(device) {
   } catch {
     return {};
   }
+}
+
+function evidenceTimestamp(image = {}) {
+  const value = pick(image, ['FechaCaptura', 'FechaCreacion', 'FechaActualizacion'], '');
+  const time = Date.parse(value);
+  return Number.isFinite(time) ? time : 0;
+}
+
+function sortedEvidence(images = []) {
+  return [...images].sort((left, right) => evidenceTimestamp(right) - evidenceTimestamp(left));
+}
+
+function projectEvidenceLabel(device, image) {
+  const value = projectEvidenceTargetValue(image);
+  const target = projectEvidenceTargets(device).find((item) => item.value === value);
+  return target?.label || pick(image, ['ProyectoComponenteNombre'], 'Dispositivo principal');
+}
+
+function evidenceDateLabel(image = {}) {
+  const value = pick(image, ['FechaCaptura', 'FechaCreacion'], '');
+  const parsed = new Date(value);
+  if (Number.isNaN(parsed.getTime())) return 'Sin fecha';
+  return new Intl.DateTimeFormat('es-CR', { dateStyle: 'short', timeStyle: 'short' }).format(parsed);
 }
 
 function projectQuestionDetails(answers = {}) {
@@ -488,7 +515,7 @@ export default function MaintenanceLocationInventory({
   function expandedContent(device) {
     const config = getMaintenanceCategory(deviceType(device));
     const answers = parseAnswers(device);
-    const images = device.Imagenes || [];
+    const images = sortedEvidence(device.Imagenes || []);
     const id = deviceId(device);
     return <div className="maintenance-inventory-expanded">
       <div className="maintenance-inventory-expanded__heading">
@@ -503,12 +530,12 @@ export default function MaintenanceLocationInventory({
           {config.questions.map(([key, label]) => <div className={stateClass(answers[key])} key={key}><span>{label.replace(/^¿|\?$/g, '')}</span><strong>{answers[key] || 'Sin responder'}</strong></div>)}
         </div>}
       {pick(device, ['Observacion']) && <div className="maintenance-inventory-observation"><Icon name="notes" /><p>{pick(device, ['Observacion'])}</p></div>}
-      <div className="maintenance-inventory-evidence-heading"><div><strong>Evidencias</strong><span>{evidenceEnabled ? `${images.length} fotografía${images.length === 1 ? '' : 's'}` : 'Galería de Proyecto disponible en la siguiente etapa'}</span></div>{evidenceEnabled && pending && canEdit && onAddEvidence && <button className="button button--secondary button--compact" type="button" onClick={() => onAddEvidence(device)}><Icon name="add_a_photo" />Agregar</button>}</div>
+      <div className="maintenance-inventory-evidence-heading"><div><strong>Evidencias</strong><span>{images.length} archivo{images.length === 1 ? '' : 's'} · más reciente primero</span></div>{evidenceEnabled && pending && canEdit && onAddEvidence && <button className="button button--secondary button--compact" type="button" onClick={() => onAddEvidence(device)}><Icon name="add_a_photo" />Agregar</button>}</div>
       {evidenceEnabled && <div className="maintenance-inventory-images">
-        {images.map((image) => <figure key={pick(image, ['FotoDispositivoID', 'id'])}><MaintenanceEvidenceImage image={image} galleryImages={images} sessionToken={sessionToken} alt={pick(image, ['Nombre'], 'Evidencia')} /><figcaption><strong>{pick(image, ['Tipo'], 'Evidencia')}</strong><span>{pick(image, ['Nota'], 'Sin nota')}</span></figcaption>{evidenceEnabled && pending && canEdit && onEditEvidence && <button type="button" onClick={() => onEditEvidence(image, device)}><Icon name="edit" />Editar evidencia</button>}</figure>)}
+        {images.map((image) => <figure key={pick(image, ['FotoDispositivoID', 'id'])}><MaintenanceEvidenceImage image={image} galleryImages={images} sessionToken={sessionToken} alt={pick(image, ['Nombre'], 'Evidencia')} /><figcaption>{projectMode ? <><strong>{projectEvidenceLabel(device, image)}</strong><span>{evidenceDateLabel(image)}</span><span>{pick(image, ['Nota'], 'Sin nota')}</span></> : <><strong>{pick(image, ['Tipo'], 'Evidencia')}</strong><span>{pick(image, ['Nota'], 'Sin nota')}</span></>}</figcaption>{evidenceEnabled && pending && canEdit && onEditEvidence && <button type="button" onClick={() => onEditEvidence(image, device)}><Icon name="edit" />Editar evidencia</button>}</figure>)}
         {!images.length && <div className="maintenance-inventory-no-images"><Icon name="photo_library" /><span>Sin fotografías registradas.</span></div>}
       </div>}
-      {!evidenceEnabled && <div className="info-box"><Icon name="photo_library" /><p>Las evidencias de Proyecto usarán fecha/hora, nota y componente relacionado sin clasificación Antes/Después.</p></div>}
+      {!evidenceEnabled && <div className="info-box"><Icon name="photo_library" /><p>La carga de evidencias no está disponible en esta vista.</p></div>}
       {isOffline(device) && <div className="maintenance-inventory-offline-note"><Icon name="cloud_off" />Este dispositivo y sus evidencias están guardados en este equipo y se enviarán al recuperar conexión.</div>}
       <span className="maintenance-inventory-device-id">ID: {id}</span>
     </div>;
@@ -581,7 +608,7 @@ export default function MaintenanceLocationInventory({
               <div className="maintenance-location-device-table-wrap"><table className="maintenance-inventory-table maintenance-location-device-table"><thead><tr>{pending && canEdit && <th className="maintenance-device-selection-column">Sel.</th>}<th>Nombre</th><th>Tipo</th><th>Modelo / Serie</th><th>Estado</th><th>Fotos</th><th>Acciones</th></tr></thead><tbody>{group.visibleItems.map((device) => {
                 const id = deviceId(device);
                 const expanded = expandedDevice === id;
-                const images = device.Imagenes || [];
+                const images = sortedEvidence(device.Imagenes || []);
                 const selected = selectionGroupId === group.id && selectedDeviceIds.has(id);
                 return <React.Fragment key={id}><tr
                   data-device-row
