@@ -2,7 +2,7 @@ import { badRequest } from '../core/errors.js';
 import { appendTicketVisibility, assertAiCapability } from './agent.permissions.js';
 import { active, addRange, clean, many, normalizeTicketStatus, one, pageLimit, ticketDateColumn } from './agent.repository.shared.js';
 
-const METRICS=new Set(['ticket_count','tickets_by_technician','tickets_by_client','recent_finished_tickets','maintenance_count','maintenances_by_client','devices_with_observations','devices_by_type']);
+const METRICS=new Set(['ticket_count','tickets_by_technician','tickets_by_client','recent_finished_tickets','maintenance_count','maintenances_by_client','maintenance_evidence_count','devices_with_observations','devices_by_type']);
 
 export async function getStatistics(ctx,args={}){
   assertAiCapability(ctx,'statistics');
@@ -19,11 +19,35 @@ export async function getStatistics(ctx,args={}){
     const qp=[...params,pageLimit(args.limit,10)];const rows=await many(`SELECT b."BoletaUID" AS uid,b."BoletaID" AS number,b."Titulo" AS title,b."Cliente" AS client,b."Fecha" AS date,b."FinalizadaEn" AS "finishedAt" FROM "Boletas" b WHERE ${where} AND UPPER(COALESCE(b."Estado",''))='FINALIZADA' ORDER BY ${ticketDateColumn('b')} DESC NULLS LAST LIMIT $${qp.length}`,qp,'ai.stats.recentFinished');return{modelData:{metric,period,items:rows.map(r=>({uid:r.uid,number:r.number||r.uid,title:r.title||'',client:r.client||'',date:r.date||'',finishedAt:r.finishedAt||''}))}};
   }
   assertAiCapability(ctx,'maintenance');
-  const params=[];const clauses=[active('m')];const period=addRange(clauses,params,'m."Fecha"',args);
-  if(clean(args.clientId)){params.push(clean(args.clientId,250));clauses.push(`m."ClienteID"=$${params.length}`);}
+  const params=[];const clauses=[active('m')];
+  if(clean(args.maintenanceType)){
+    params.push(clean(args.maintenanceType,40).toUpperCase());
+    clauses.push(`UPPER(COALESCE(NULLIF(m."TipoMantenimiento",''),'MANTENIMIENTO'))=${params.length}`);
+  }
+  if(clean(args.maintenanceId)){params.push(clean(args.maintenanceId,250));clauses.push(`m."MantenimientoID"=${params.length}`);}
+  const period=addRange(clauses,params,'m."Fecha"',args);
+  if(clean(args.clientId)){params.push(clean(args.clientId,250));clauses.push(`m."ClienteID"=${params.length}`);}
   if(metric==='maintenance_count'){const r=await one(`SELECT COUNT(*)::bigint AS total FROM "Mantenimiento" m WHERE ${clauses.join(' AND ')}`,params,'ai.stats.maintenanceCount');return{modelData:{metric,period,total:Number(r?.total||0)}};}
   if(metric==='maintenances_by_client'){const qp=[...params,pageLimit(args.limit,30)];const rows=await many(`SELECT m."ClienteID" AS "clientId",m."Cliente" AS client,COUNT(*)::bigint AS total FROM "Mantenimiento" m WHERE ${clauses.join(' AND ')} GROUP BY m."ClienteID",m."Cliente" ORDER BY total DESC,client ASC LIMIT $${qp.length}`,qp,'ai.stats.maintenanceByClient');return{modelData:{metric,period,items:rows.map(r=>({clientId:r.clientId,client:r.client,total:Number(r.total||0)}))}};}
-  const dparams=[];const dclauses=[active('d'),active('m'),'m."MantenimientoID"=d."MantenimientoRef"'];const dperiod=addRange(dclauses,dparams,'m."Fecha"',args);if(clean(args.clientId)){dparams.push(clean(args.clientId,250));dclauses.push(`m."ClienteID"=$${dparams.length}`);}
+  const dparams=[];const dclauses=[active('d'),active('m'),'m."MantenimientoID"=d."MantenimientoRef"'];
+  if(clean(args.maintenanceType)){
+    dparams.push(clean(args.maintenanceType,40).toUpperCase());
+    dclauses.push(`UPPER(COALESCE(NULLIF(m."TipoMantenimiento",''),'MANTENIMIENTO'))=${dparams.length}`);
+  }
+  if(clean(args.maintenanceId)){dparams.push(clean(args.maintenanceId,250));dclauses.push(`m."MantenimientoID"=${dparams.length}`);}
+  const dperiod=addRange(dclauses,dparams,'m."Fecha"',args);if(clean(args.clientId)){dparams.push(clean(args.clientId,250));dclauses.push(`m."ClienteID"=${dparams.length}`);}
+  if(metric==='maintenance_evidence_count'){
+    const r=await one(`SELECT COUNT(mi."FotoDispositivoID")::bigint AS total,
+      COUNT(mi."FotoDispositivoID") FILTER(WHERE LOWER(COALESCE(mi."MimeType",'')) LIKE 'image/%')::bigint AS images,
+      COUNT(mi."FotoDispositivoID") FILTER(WHERE LOWER(COALESCE(mi."MimeType",'')) LIKE 'video/%')::bigint AS videos,
+      COUNT(mi."FotoDispositivoID") FILTER(WHERE UPPER(COALESCE(mi."ProyectoDestinoTipo",''))='DISPOSITIVO')::bigint AS "deviceTargets",
+      COUNT(mi."FotoDispositivoID") FILTER(WHERE UPPER(COALESCE(mi."ProyectoDestinoTipo",''))='COMPONENTE')::bigint AS "componentTargets"
+      FROM "Evidencia_Mantenimientos" d
+      JOIN "Mantenimiento" m ON m."__valid"=TRUE AND m."MantenimientoID"=d."MantenimientoRef"
+      LEFT JOIN "Mantenimiento imagenes" mi ON ${active('mi')} AND mi."DispositivoMantenimientoRef"=d."EvidenciaMantenimientoID"
+      WHERE ${dclauses.join(' AND ')}`,dparams,'ai.stats.maintenanceEvidenceCount');
+    return{modelData:{metric,period:dperiod,total:Number(r?.total||0),images:Number(r?.images||0),videos:Number(r?.videos||0),deviceTargets:Number(r?.deviceTargets||0),componentTargets:Number(r?.componentTargets||0)}};
+  }
   if(metric==='devices_with_observations'){dclauses.push(`(COALESCE(NULLIF(d."Observacion",''),'')<>'' OR UPPER(COALESCE(d."Estado",'')) LIKE '%FALL%' OR UPPER(COALESCE(d."Estado",'')) LIKE '%MAL%' OR UPPER(COALESCE(d."Estado",'')) LIKE '%ATEN%')`);const qp=[...dparams,pageLimit(args.limit,30)];const rows=await many(`SELECT m."MantenimientoID" AS "maintenanceId",m."TituloMantenimiento" AS maintenance,m."Cliente" AS client,COUNT(*)::bigint AS total FROM "Evidencia_Mantenimientos" d JOIN "Mantenimiento" m ON m."__valid"=TRUE AND m."MantenimientoID"=d."MantenimientoRef" WHERE ${dclauses.join(' AND ')} GROUP BY m."MantenimientoID",m."TituloMantenimiento",m."Cliente" ORDER BY total DESC,maintenance ASC LIMIT $${qp.length}`,qp,'ai.stats.devicesObservations');return{modelData:{metric,period:dperiod,items:rows.map(r=>({maintenanceId:r.maintenanceId,maintenance:r.maintenance,client:r.client,total:Number(r.total||0)}))}};}
   const qp=[...dparams,pageLimit(args.limit,30)];const rows=await many(`SELECT COALESCE(NULLIF(d."TipoDispositivo",''),NULLIF(d."Categoria",''),'Sin categoría') AS type,COUNT(*)::bigint AS total FROM "Evidencia_Mantenimientos" d JOIN "Mantenimiento" m ON m."__valid"=TRUE AND m."MantenimientoID"=d."MantenimientoRef" WHERE ${dclauses.join(' AND ')} GROUP BY 1 ORDER BY total DESC,type ASC LIMIT $${qp.length}`,qp,'ai.stats.devicesByType');return{modelData:{metric,period:dperiod,items:rows.map(r=>({type:r.type,total:Number(r.total||0)}))}};
 }
