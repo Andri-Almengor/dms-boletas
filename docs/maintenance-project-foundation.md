@@ -103,7 +103,75 @@ Ejemplos soportados:
 - “Dame las imágenes de los magnetos de esas puertas.”
 - “Lista las puertas de emergencia de este Proyecto.”
 
-## Etapas posteriores
+## Etapa 6 — acciones operativas Gemini para Proyecto
 
-1. extender acciones operativas de Gemini a la semántica específica de Proyecto solo cuando exista una solicitud explícita y contrato PREPARE/COMMIT seguro;
-2. añadir nuevas consultas agregadas únicamente si aparecen necesidades que no puedan resolverse eficientemente con las tools reutilizadas.
+Las escrituras siguen el contrato existente **PREPARE → confirmación explícita en interfaz → COMMIT**. Gemini nunca recibe una tool COMMIT.
+
+### Crear dispositivos de Proyecto
+
+`prepare_maintenance_device_bulk_create` se generalizó; no se creó una variante v2.
+
+Además de Nombre/Tipo/ubicación, en Proyecto puede preparar:
+
+- fabricante, modelo, serie y MAC;
+- observación;
+- respuestas configurables;
+- componentes relacionados;
+- respuestas propias de esos componentes.
+
+PREPARE resuelve la ubicación entre las ubicaciones realmente seleccionadas para el mantenimiento, valida tipos/fabricantes/modelos globales, relaciones tipo/fabricante y preguntas obligatorias. Si falta o es ambiguo un dato, no genera confirmación.
+
+COMMIT reutiliza `maintenance.devices.create` mediante `maintenanceProgressChatHandlers.deviceCreate`.
+
+### Editar estructura y componentes
+
+La nueva PREPARE `prepare_maintenance_project_device_update` permite modificar un dispositivo existente de Proyecto sin habilitar ediciones estructuradas en Mantenimiento normal.
+
+Puede cambiar:
+
+- nombre;
+- ubicación;
+- fabricante/modelo;
+- serie/MAC;
+- observación;
+- respuestas configurables;
+- agregar, editar o eliminar componentes relacionados.
+
+Los componentes se identifican por su `localId` real y la relación configurada. UPDATE/DELETE nunca se convierten silenciosamente en ADD.
+
+Si un componente tiene evidencias, PREPARE bloquea su eliminación. COMMIT vuelve a pasar por las validaciones compartidas y por `assertProjectEvidenceTargetsStillExist`.
+
+La operación guarda un hash del dispositivo en PREPARE. Si el dispositivo cambia antes de confirmar, COMMIT devuelve `AI_OPERATION_CONFLICT` y no sobrescribe los cambios concurrentes.
+
+### Evidencias desde Gemini
+
+`prepare_maintenance_evidence_upload` también se generalizó:
+
+- MANTENIMIENTO sigue exigiendo ANTES/DESPUÉS;
+- PROYECTO rechaza ANTES/DESPUÉS;
+- Proyecto puede apuntar al dispositivo principal o a un componente relacionado;
+- el componente se vuelve a resolver desde `RespuestasJSON`;
+- se puede guardar nota;
+- se conserva la fecha/hora original del adjunto cuando está disponible.
+
+COMMIT reutiliza `maintenanceEvidenceMetadata` y el archivo ya cargado al chat en Drive; no copia binarios a PostgreSQL ni expone `DriveFileID` a Gemini.
+
+### Seguridad, sync y auditoría
+
+- Los permisos existentes de Mantenimientos siguen siendo la fuente de verdad.
+- No se agregaron permisos nuevos.
+- Las operaciones siguen siendo idempotentes mediante `AiPendingOperations`.
+- Un fallo inesperado durante COMMIT deja la operación en `FAILED`, no atascada en `COMMITTING`.
+- Creación de dispositivos, edición estructurada y carga de evidencias generan auditoría AI.
+- Después de un COMMIT efectivo se registra `SyncChanges` del mantenimiento usando el servicio existente; si el changelog falla, el servicio de sync marca reconciliación.
+- Se corrigió el payload compartido de dispositivos para que `DireccionMAC` se persista tanto en creación como actualización.
+
+No se agregaron tablas, migraciones, variables de entorno ni cambios de Apps Script en esta etapa.
+
+## Etapa 7 pendiente — cierre y validación integral
+
+1. realizar una auditoría final de todo el flujo Proyecto de punta a punta;
+2. revisar permisos, sync/offline, auditoría, rendimiento y contratos Gemini;
+3. consolidar pruebas de regresión y documentación de despliegue;
+4. verificar que no existan rutas/servicios duplicados ni comportamiento accidental sobre Mantenimiento normal;
+5. cerrar el PR con el checklist final de migraciones y despliegue.
