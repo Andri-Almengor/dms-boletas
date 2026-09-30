@@ -78,11 +78,32 @@ El inventario mantiene las mismas ubicaciones y dispositivos, pero Proyecto reut
 
 No se agregaron rutas backend, tablas, permisos, servicios de datos ni almacenamiento nuevo en esta etapa.
 
+## Etapa 5 — consultas del Agente Gemini sobre Proyecto
+
+El Agente reutiliza las tools controladas existentes de Mantenimientos. Gemini sigue sin acceso directo a PostgreSQL, Drive o SQL arbitrario.
+
+- `get_maintenance_devices` devuelve en Proyecto las respuestas configurables del dispositivo principal y sus componentes relacionados.
+- Puede filtrar componentes por tipo, marca, modelo, serie, MAC y contenido de preguntas configurables.
+- `search_devices` permite las mismas búsquedas entre Proyectos cuando todavía no se conoce el Proyecto exacto.
+- Las notas de evidencias participan en las búsquedas de dispositivos sin ejecutar una consulta por dispositivo.
+- `search_maintenance_evidence` puede devolver solo las evidencias de un lector, magneto u otro componente relacionado.
+- Los archivos continúan saliendo como attachments protegidos; el modelo nunca recibe `DriveFileID`.
+- Para Proyecto se usa `FechaCaptura`; la tool rechaza reinterpretar sus evidencias como ANTES/DESPUÉS.
+- El clasificador reconoce referencias naturales como puertas, lectores o magnetos aunque el usuario no escriba la palabra “dispositivo”.
+- Las respuestas de listas/filtros pueden usar tablas Markdown.
+- Si existen varias referencias válidas o el resultado estructurado supera el límite seguro, Gemini debe pedir/refinar información y no seleccionar o declarar exhaustividad por intuición.
+- El contexto conversacional conserva de forma sanitizada los últimos filtros de tipo/componente/marca/modelo/serie/MAC/nota para seguimientos como “esas puertas” o “las fotos de esos magnetos”.
+- La migración `018_ai_project_inventory_search.sql` agrega índices de búsqueda; no crea almacenamiento paralelo.
+
+Ejemplos soportados:
+
+- “Dame las puertas que tengan magnetos modelo X.”
+- “Muéstrame los lectores HID del Proyecto Zeus.”
+- “¿Qué dispositivos tienen notas de mal funcionamiento?”
+- “Dame las imágenes de los magnetos de esas puertas.”
+- “Lista las puertas de emergencia de este Proyecto.”
+
 ## Etapas posteriores
 
-Después del detalle navegable:
-
-1. exponer dispositivos, relaciones, notas y evidencias al Agente Gemini mediante tools controladas;
-2. soportar consultas naturales y tablas filtradas por tipo, fabricante, modelo, serie, componentes y notas;
-3. permitir recuperar imágenes por dispositivo o componente relacionado;
-4. pedir aclaración cuando la referencia natural no pueda resolverse con suficiente certeza.
+1. extender acciones operativas de Gemini a la semántica específica de Proyecto solo cuando exista una solicitud explícita y contrato PREPARE/COMMIT seguro;
+2. añadir nuevas consultas agregadas únicamente si aparecen necesidades que no puedan resolverse eficientemente con las tools reutilizadas.
