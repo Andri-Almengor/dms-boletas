@@ -96,3 +96,21 @@ test('migration 018 accelerates project AI filters without parallel storage', ()
   assert.ok(migration.includes('ix_ai_project_evidence_component_type'));
   assert.equal(/CREATE\s+TABLE/i.test(migration), false);
 });
+
+
+test('Project aggregate statistics reuse get_statistics with authoritative filters', () => {
+  const tools = source('backend/src/ai/agent.tools.js');
+  const statistics = source('backend/src/ai/agent.repository.statistics.js');
+  const prompt = source('backend/src/ai/agent.prompt.js');
+
+  assert.ok(tools.includes("maintenance_evidence_count"));
+  assert.ok(tools.includes("maintenanceId:{type:'string'}"));
+  assert.ok(tools.includes("maintenanceType:{type:'string',enum:['MANTENIMIENTO','PROYECTO']}"));
+  assert.ok(statistics.includes("UPPER(COALESCE(NULLIF(m.\"TipoMantenimiento\",''),'MANTENIMIENTO'))"));
+  assert.ok(statistics.includes('m.\"MantenimientoID\"'));
+  assert.ok(statistics.includes("metric==='maintenance_evidence_count'"));
+  assert.ok(statistics.includes('mi.\"ProyectoDestinoTipo\"'));
+  assert.ok(statistics.includes("COUNT(mi.\"FotoDispositivoID\")"));
+  assert.ok(prompt.includes('get_statistics con maintenanceType=PROYECTO'));
+  assert.ok(prompt.includes('no mezcles MANTENIMIENTO y PROYECTO'));
+});
