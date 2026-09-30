@@ -6,7 +6,7 @@ function Field({ label, multiline = false, ...props }) {
   return <label className="field-group"><span className="field-label">{label}</span>{multiline ? <textarea className="form-control ticket-textarea" rows="5" {...props} /> : <input className="form-control" {...props} />}</label>;
 }
 
-export default function MaintenanceGeneralStep({ form, setForm, clients, locations, technicians, disabled, canCreateLocation, onAddLocation, onSearchClients }) {
+export default function MaintenanceGeneralStep({ form, setForm, clients, locations, technicians, disabled, canCreateLocation, onAddLocation, onSearchClients, maintenanceTypeLocked = false }) {
   const clientOptions = clients.map((item) => ({ value: item.id, label: item.name }));
   const locationOptions = locations.map((item) => ({ value: item.id, label: item.name }));
   function update(event) { const { name, value } = event.target; setForm((current) => ({ ...current, [name]: value })); }
@@ -21,7 +21,29 @@ export default function MaintenanceGeneralStep({ form, setForm, clients, locatio
     setForm((current) => ({ ...current, ubicacionId: id, ubicacion: selected?.name || '' }));
   }
   return <div className="stack-form">
-    <Field label="Título del mantenimiento *" name="titulo" value={form.titulo} onChange={update} disabled={disabled} />
+    <Field label={form.tipoMantenimiento === 'PROYECTO' ? 'Título del proyecto *' : 'Título del mantenimiento *'} name="titulo" value={form.titulo} onChange={update} disabled={disabled} />
+    <label className="field-group">
+      <span className="field-label">Tipo *</span>
+      <div className="select-shell">
+        <select
+          className="form-control"
+          name="tipoMantenimiento"
+          value={form.tipoMantenimiento || 'MANTENIMIENTO'}
+          onChange={update}
+          disabled={disabled || maintenanceTypeLocked}
+        >
+          <option value="MANTENIMIENTO">Mantenimiento</option>
+          <option value="PROYECTO">Proyecto</option>
+        </select>
+      </div>
+      <small className="field-hint">
+        {maintenanceTypeLocked
+          ? 'El tipo queda bloqueado después de registrar dispositivos para proteger la información existente.'
+          : form.tipoMantenimiento === 'PROYECTO'
+            ? 'Proyecto mantiene cliente, ubicación, responsables y cantidades; cambia la captura detallada de cada dispositivo.'
+            : 'Mantenimiento conserva exactamente el flujo técnico actual.'}
+      </small>
+    </label>
     <DependentSelect
       label="Cliente *"
       name="clienteId"
