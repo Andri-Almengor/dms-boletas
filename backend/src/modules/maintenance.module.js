@@ -19,6 +19,10 @@ import {
   maintenanceEvidenceMetadata,
   sortMaintenanceEvidenceNewestFirst,
 } from '../services/maintenance-evidence-policy.service.js';
+import {
+  projectChecklistJson,
+  validateProjectDeviceProgress,
+} from '../services/maintenance-project-checklist.service.js';
 
 const deviceAutosaveWriteTimes = new Map();
 const DEVICE_AUTOSAVE_MIN_INTERVAL_MS = 6000;
@@ -103,6 +107,11 @@ function maintenancePayload(payload, before = {}) {
     ResponsableIDsJSON: JSON.stringify(asArray(payload.ResponsableIDs || payload.responsables || before.ResponsableIDsJSON)),
     DescripcionGeneral: pick(payload, ['DescripcionGeneral', 'descripcion'], before.DescripcionGeneral),
     CantidadesJSON: JSON.stringify(counts),
+    ProyectoChecklistJSON: normalizeMaintenanceType(
+      pick(payload, ['TipoMantenimiento', 'tipoMantenimiento', 'maintenanceType'], before.TipoMantenimiento || 'MANTENIMIENTO'),
+    ) === 'PROYECTO'
+      ? projectChecklistJson(payload.projectChecklist || payload.ProyectoChecklistJSON || before.ProyectoChecklistJSON)
+      : (before.ProyectoChecklistJSON || ''),
   };
   CATEGORY_CONFIG.forEach((category) => {
     row[category.countField] = Number(counts[category.countField] ?? payload[category.countField] ?? before[category.countField] ?? 0);
@@ -142,6 +151,7 @@ function devicePayload(payload, before = {}) {
     EnUso: pick(payload, ['EnUso', 'enUso'], before.EnUso),
     Estado: pick(payload, ['Estado', 'estado'], before.Estado || 'Correcto'),
     Observacion: pick(payload, ['Observacion', 'observacion'], before.Observacion),
+    ProyectoProgresoJSON: pick(payload, ['ProyectoProgresoJSON', 'projectProgress', 'proyectoProgreso'], before.ProyectoProgresoJSON || ''),
     RespuestasJSON: JSON.stringify(answers),
     ...Object.fromEntries(Object.entries(answers).map(([key, value]) => [
       key.charAt(0).toUpperCase() + key.slice(1),
@@ -274,6 +284,15 @@ export const maintenanceHandlers = {
       ));
       if (hasDevices) throw badRequest('No se puede cambiar entre Mantenimiento y Proyecto después de registrar dispositivos. Cree otro registro o elimine primero los dispositivos.');
     }
+    const projectDevicesExist = requestedType === 'PROYECTO' && (tables.Evidencia_Mantenimientos || []).some((device) => (
+      String(device.MantenimientoRef) === String(id) && device.Activo !== false
+    ));
+    if (
+      projectDevicesExist
+      && String(before.ProyectoChecklistJSON || '') !== String(payload.ProyectoChecklistJSON || '')
+    ) {
+      throw badRequest('No se puede modificar el checklist de progreso del Proyecto después de registrar dispositivos. Defínalo antes de comenzar el inventario.');
+    }
     const usersById = indexRowsBy(tables.Usuarios || [], (user) => user.UsuarioID);
     payload.Responsables = asArray(payload.ResponsableIDsJSON)
       .map((userId) => usersById.get(String(userId))?.NombreCompleto || userId)
@@ -316,12 +335,13 @@ export const maintenanceHandlers = {
   },
 
   deviceCreate: async (ctx) => withDeviceCreateLock(async () => {
-    const payload = devicePayload(ctx.payload);
     const maintenanceId = pick(ctx.payload, ['maintenanceId', 'MantenimientoID', 'MantenimientoRef']);
     const requestedId = String(pick(ctx.payload, ['deviceId', 'EvidenciaMantenimientoID'], '')).trim();
     if (requestedId && !validClientGeneratedId(requestedId)) throw badRequest('El identificador local del dispositivo no es válido.');
+    const maintenance = await findById('Mantenimiento', maintenanceId);
+    const progressJson = validateProjectDeviceProgress({ maintenance, payload: ctx.payload });
+    const payload = devicePayload({ ...ctx.payload, ProyectoProgresoJSON: progressJson });
     if (!maintenanceId || !payload.Categoria || !payload.NombreDispositivo || !payload.Zona) throw badRequest('Categoría, nombre y ubicación son obligatorios.');
-    await findById('Mantenimiento', maintenanceId);
 
     if (requestedId) {
       const existing = (await readTable('Evidencia_Mantenimientos', { force: true })).find((item) => String(item.EvidenciaMantenimientoID) === requestedId);
@@ -348,7 +368,9 @@ export const maintenanceHandlers = {
   deviceUpdate: async (ctx) => {
     const id = pick(ctx.payload, ['deviceId', 'EvidenciaMantenimientoID']);
     const before = await findById('Evidencia_Mantenimientos', id);
-    const patch = changedDevicePatch(before, ctx.payload, ctx.user.UsuarioID);
+    const maintenance = await findById('Mantenimiento', pick(ctx.payload, ['maintenanceId', 'MantenimientoID', 'MantenimientoRef'], before.MantenimientoRef));
+    const progressJson = validateProjectDeviceProgress({ maintenance, payload: ctx.payload, before });
+    const patch = changedDevicePatch(before, { ...ctx.payload, ProyectoProgresoJSON: progressJson }, ctx.user.UsuarioID);
     return Object.keys(patch).length ? updateRow('Evidencia_Mantenimientos', id, patch) : before;
   },
 
@@ -362,7 +384,9 @@ export const maintenanceHandlers = {
     deviceAutosaveWriteTimes.set(id, now);
     try {
       const before = await findById('Evidencia_Mantenimientos', id);
-      const patch = changedDevicePatch(before, ctx.payload, ctx.user.UsuarioID);
+      const maintenance = await findById('Mantenimiento', pick(ctx.payload, ['maintenanceId', 'MantenimientoID', 'MantenimientoRef'], before.MantenimientoRef));
+      const progressJson = validateProjectDeviceProgress({ maintenance, payload: ctx.payload, before });
+      const patch = changedDevicePatch(before, { ...ctx.payload, ProyectoProgresoJSON: progressJson }, ctx.user.UsuarioID);
       if (!Object.keys(patch).length) return { ...before, autosaved: false, unchanged: true };
       const after = await updateRow('Evidencia_Mantenimientos', id, patch);
       return { ...after, autosaved: true };
