@@ -92,6 +92,7 @@ export default function MaintenanceFormPage({ mode = 'create' }) {
           submitting={state.deviceSaving}
           autosaveStatus={state.deviceAutosaveStatus}
           maintenanceType={state.form.tipoMantenimiento}
+          projectChecklist={state.form.projectChecklist}
         />
       </MaintenanceCountsProvider>
     </div>;
@@ -136,7 +137,16 @@ export default function MaintenanceFormPage({ mode = 'create' }) {
       <div className="form-card__heading"><span className="section-marker" /><div><h2>Paso {step + 1}: {MAINTENANCE_STEPS[step][0]}</h2><p>{MAINTENANCE_STEPS[step][1]}</p></div></div>
       {state.error && <div className="alert alert--error"><Icon name="error" /><span>{state.error}</span></div>}
       {step === 0 && <MaintenanceGeneralStep form={state.form} setForm={state.setForm} clients={state.clients} locations={state.locations} technicians={state.technicians} disabled={state.readOnly} canCreateLocation={state.canCreateLocation} onAddLocation={() => quickCreate.openModal('location')} onSearchClients={state.searchClients} maintenanceTypeLocked={editing && state.devices.length > 0} />}
-      {step === 1 && <MaintenanceCountsStep counts={state.form.counts} registered={state.registered} disabled={state.readOnly} onChange={state.updateCount} />}
+      {step === 1 && <MaintenanceCountsStep
+        counts={state.form.counts}
+        registered={state.registered}
+        disabled={state.readOnly}
+        onChange={state.updateCount}
+        projectMode={projectMode}
+        projectChecklist={state.form.projectChecklist}
+        projectChecklistLocked={editing && state.devices.length > 0}
+        onProjectChecklistChange={(projectChecklist) => state.setForm((current) => ({ ...current, projectChecklist }))}
+      />}
       {step === 2 && <MaintenanceDevicesStep devices={state.devices} expectedTotal={state.expectedTotal} disabled={state.readOnly} canAddDevice={canAddExpectedDevice} canCreateEquipment={state.canCreateLocation && Boolean(state.form.ubicacionId)} onAddEquipment={() => quickCreate.openModal('equipment')} onAddDevice={addDevice} onOpenDevice={state.openDevice} />}
       {step === 3 && <MaintenanceReviewStep form={state.form} devices={state.devices} registered={state.registered} expectedTotal={state.expectedTotal} disabled={state.readOnly} saving={state.saving} onSave={() => persistMaintenance('pending')} onFinalize={() => persistMaintenance('finalize')} canFinalize={!projectMode && isAdministrator} />}
     </section>
