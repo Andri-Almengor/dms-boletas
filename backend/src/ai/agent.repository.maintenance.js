@@ -70,7 +70,7 @@ function addProjectComponentCandidateFilters(clauses, params, args = {}, column 
   for (const value of Object.values(projectComponentFilters(args))) {
     if (!value) continue;
     params.push(like(value));
-    clauses.push(`COALESCE(${column},'') ILIKE ${params.length} ESCAPE '\\\\'`);
+    clauses.push(`COALESCE(${column},'') ILIKE ${params.length} ESCAPE '\\'`);
   }
 }
 
