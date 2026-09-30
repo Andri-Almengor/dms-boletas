@@ -16,7 +16,7 @@
 
 .public-survey-page {
   min-height: 100dvh;
-  padding: 22px clamp(14px, 4vw, 42px) 30px;
+  padding: max(22px, var(--safe-area-top)) max(clamp(14px, 4vw, 42px), var(--safe-area-right)) max(30px, var(--safe-area-bottom)) max(clamp(14px, 4vw, 42px), var(--safe-area-left));
   background:
     radial-gradient(circle at top right, rgba(190, 12, 28, .08), transparent 34%),
     var(--surface-low, #faf7f7);
@@ -378,7 +378,7 @@
 .survey-answer-card__rating strong { font-size: 1.55rem; }
 
 @media (max-width: 680px) {
-  .public-survey-page { padding: 12px 10px 22px; }
+  .public-survey-page { padding: max(12px, var(--safe-area-top)) max(10px, var(--safe-area-right)) max(22px, var(--safe-area-bottom)) max(10px, var(--safe-area-left)); }
   .public-survey-brand { margin-bottom: 10px; padding-inline: 4px; }
   .public-survey-shell { min-height: calc(100dvh - 120px); padding: 18px 14px; border-radius: 18px; }
   .public-survey-scale { grid-template-columns: repeat(5, minmax(54px, 1fr)); gap: 6px; overflow-x: auto; padding-bottom: 4px; }
