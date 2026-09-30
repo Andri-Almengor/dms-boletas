@@ -1,5 +1,5 @@
-import { isProjectMaintenance } from './maintenanceType';
-import { normalizeProjectChecklist } from './maintenanceProjectChecklist';
+import { isProjectMaintenance } from './maintenanceType.js';
+import { normalizeProjectChecklist } from './maintenanceProjectChecklist.js';
 
 function readValue(object, keys, fallback = '') {
   for (const key of keys) {
