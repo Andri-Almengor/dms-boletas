@@ -21,6 +21,7 @@ import {
 } from '../services/maintenance-evidence-policy.service.js';
 import {
   projectChecklistJson,
+  sameProjectChecklist,
   validateProjectDeviceProgress,
 } from '../services/maintenance-project-checklist.service.js';
 
@@ -289,7 +290,7 @@ export const maintenanceHandlers = {
     ));
     if (
       projectDevicesExist
-      && String(before.ProyectoChecklistJSON || '') !== String(payload.ProyectoChecklistJSON || '')
+      && !sameProjectChecklist(before.ProyectoChecklistJSON, payload.ProyectoChecklistJSON)
     ) {
       throw badRequest('No se puede modificar el checklist de progreso del Proyecto después de registrar dispositivos. Defínalo antes de comenzar el inventario.');
     }
