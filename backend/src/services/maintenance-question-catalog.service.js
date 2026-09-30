@@ -26,7 +26,7 @@ export const MAINTENANCE_QUESTION_COLUMNS = [
 ];
 export const DEVICE_QUESTION_SNAPSHOT_COLUMN = 'RespuestasDetalleJSON';
 export const MAINTENANCE_QUESTION_MODES = ['MANTENIMIENTO', 'PROYECTO', 'AMBOS'];
-export const MAINTENANCE_QUESTION_RESPONSE_TYPES = ['SI_NO', 'TEXTO', 'NUMERO', 'CANTIDAD', 'MAC', 'RELACION_DISPOSITIVO'];
+export const MAINTENANCE_QUESTION_RESPONSE_TYPES = ['SI_NO', 'TEXTO', 'NUMERO', 'CANTIDAD', 'MAC', 'OPCIONES', 'RELACION_DISPOSITIVO'];
 
 const DEFAULT_QUESTION_GROUPS = [
   {
@@ -231,6 +231,9 @@ async function seedLegacyQuestions(actor = 'SYSTEM') {
       Pregunta: question.Pregunta,
       Orden: (index + 1) * 10,
       TipoRespuesta: 'SI_NO',
+      AplicaModo: 'MANTENIMIENTO',
+      TipoDispositivoRelacionadoID: '',
+      ConfiguracionJSON: '{}',
       Activo: true,
       Estado: 'ACTIVO',
       CreadoPor: actor,
