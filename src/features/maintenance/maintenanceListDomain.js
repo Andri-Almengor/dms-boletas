@@ -70,6 +70,7 @@ export function matchesMaintenanceListFilters(row = {}, status = 'PENDIENTE', qu
 
   return [
     pickValue(row, ['TituloMantenimiento']),
+    pickValue(row, ['TipoMantenimiento']),
     rowClient,
     pickValue(row, ['Responsables', 'Responsable']),
     pickValue(row, ['DescripcionGeneral']),
