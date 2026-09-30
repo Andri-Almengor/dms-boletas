@@ -15,7 +15,8 @@ async function maintenanceBase(ctx, idValue) {
   const row = await one(
     `SELECT m."MantenimientoID" AS id,m."TituloMantenimiento" AS title,m."ClienteID" AS "clientId",
             m."Cliente" AS client,m."UbicacionID" AS "locationId",m."Ubicacion" AS location,
-            m."Estado" AS status,m."Fecha" AS date,m."FechaFinalizacion" AS "finishedAt"
+            m."Estado" AS status,COALESCE(NULLIF(m."TipoMantenimiento",''),'MANTENIMIENTO') AS "maintenanceType",
+            m."Fecha" AS date,m."FechaFinalizacion" AS "finishedAt"
        FROM "Mantenimiento" m
       WHERE ${active('m')} AND m."MantenimientoID"=$1 LIMIT 1`,
     [id],
@@ -46,7 +47,8 @@ export async function resolveMaintenanceReference(ctx, args = {}) {
   if (!reference) throw badRequest('Indique el mantenimiento o cliente de referencia.');
   const rows = await many(
     `SELECT m."MantenimientoID" AS id,m."TituloMantenimiento" AS title,m."ClienteID" AS "clientId",
-            m."Cliente" AS client,m."Ubicacion" AS location,m."Estado" AS status,m."Fecha" AS date,
+            m."Cliente" AS client,m."Ubicacion" AS location,m."Estado" AS status,
+            COALESCE(NULLIF(m."TipoMantenimiento",''),'MANTENIMIENTO') AS "maintenanceType",m."Fecha" AS date,
             m."FechaFinalizacion" AS "finishedAt"
        FROM "Mantenimiento" m
       WHERE ${active('m')} AND (
@@ -80,6 +82,7 @@ export async function resolveMaintenanceReference(ctx, args = {}) {
     client: row.client || '',
     location: row.location || '',
     status: row.status || '',
+    maintenanceType: String(row.maintenanceType || 'MANTENIMIENTO').toUpperCase(),
     date: row.date || '',
     finishedAt: row.finishedAt || '',
   }));
