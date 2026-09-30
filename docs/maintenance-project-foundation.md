@@ -202,8 +202,81 @@ La caracterización de Proyecto cubre fundación, editor, detalle, evidencias, c
 
 Para desplegar este PR:
 
-1. ejecutar el flujo normal de migraciones PostgreSQL y confirmar aplicadas `016`, `017` y `018`;
+1. ejecutar el flujo normal de migraciones PostgreSQL y confirmar aplicadas `016`, `017`, `018` y `019`;
 2. desplegar backend y frontend desde la misma versión del PR;
 3. no crear permisos ni variables nuevas;
 4. no publicar una versión nueva de Apps Script;
 5. validar un MANTENIMIENTO histórico y un PROYECTO nuevo antes de dar por finalizado el rollout.
+
+
+## Etapa 8 — checklist de progreso personalizado por Proyecto
+
+Cada Proyecto puede definir su propio checklist de avance según los tipos de dispositivo seleccionados en **Cantidades esperadas**. Esta configuración pertenece al Proyecto concreto; no modifica el catálogo global de preguntas técnicas y no afecta a otros Proyectos.
+
+Ejemplo para el grupo Puertas:
+
+- “¿Lector instalado?” → Pendiente / Realizado.
+- “¿Magneto probado?” → Sí / No.
+- Cuando una tarea permanece Pendiente puede guardarse una nota explicando el motivo.
+
+### Modelo reutilizado
+
+No se crearon rutas, servicios de escritura ni tablas operativas paralelas.
+
+La migración `019_maintenance_project_progress_checklist.sql` agrega únicamente:
+
+- `Mantenimiento.ProyectoChecklistJSON`: snapshot de los grupos y preguntas definidos para ese Proyecto;
+- `Evidencia_Mantenimientos.ProyectoProgresoJSON`: respuestas de progreso de cada dispositivo.
+
+Los dispositivos continúan siendo `Evidencia_Mantenimientos` y las actualizaciones usan los mismos handlers, permisos, sync, offline y resolución de conflictos existentes.
+
+### Configuración
+
+- El checklist se configura dentro del paso de Cantidades esperadas únicamente para `PROYECTO`.
+- Solo se muestran los tipos con cantidad esperada mayor que cero.
+- Cada tipo puede tener cero o más preguntas.
+- Tipos de respuesta disponibles en esta etapa:
+  - `SI_NO`;
+  - `PENDIENTE_REALIZADO`.
+- El checklist puede modificarse mientras el Proyecto todavía no tenga dispositivos.
+- Cuando ya existen dispositivos activos, frontend y backend bloquean modificar la definición para no reinterpretar avances históricos.
+- Las preguntas técnicas configurables existentes (marca, modelo, relaciones, puerta de emergencia, etc.) permanecen separadas del checklist de progreso.
+
+### Progreso por dispositivo
+
+Cada dispositivo muestra el checklist correspondiente a su tipo.
+
+- Pendiente / Realizado inicia como Pendiente.
+- Pendiente admite una nota opcional.
+- Al cambiar a Realizado se elimina cualquier nota pendiente obsoleta.
+- Sí / No se considera respondido cuando se selecciona cualquiera de las dos opciones.
+- El backend acepta únicamente IDs de preguntas presentes en el snapshot del Proyecto; respuestas inventadas se descartan.
+- Guardar un dispositivo con tareas pendientes está permitido: el propósito del checklist es registrar trabajo incompleto, no bloquearlo.
+- En Proyecto, el estado del dispositivo permanece pendiente mientras existan preguntas técnicas obligatorias incompletas o tareas de progreso pendientes.
+
+### Seguimiento
+
+- El editor muestra avance por dispositivo.
+- El detalle navegable del dispositivo muestra el checklist y sus notas en modo lectura.
+- El detalle general del Proyecto muestra porcentaje global, tareas realizadas y tareas pendientes.
+- La pantalla de revisión muestra realizados/total y porcentaje.
+- El buscador del inventario conserva el progreso serializado dentro del dispositivo y el estado existente permite localizar equipos que requieren atención.
+
+### Sync, offline y compatibilidad
+
+`ProyectoChecklistJSON` y `ProyectoProgresoJSON` participan en snapshots y resolución de conflictos mediante los servicios existentes.
+
+No cambia:
+
+- MANTENIMIENTO normal;
+- Antes/Después;
+- firmas;
+- finalización;
+- boletas automáticas;
+- correo;
+- Google Chat;
+- Drive;
+- Apps Script;
+- roles o permisos.
+
+No hay variables de entorno nuevas ni publicación nueva de Apps Script.
