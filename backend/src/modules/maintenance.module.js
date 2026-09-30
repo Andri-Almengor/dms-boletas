@@ -21,6 +21,7 @@ import {
 } from '../services/maintenance-evidence-policy.service.js';
 import {
   projectChecklistJson,
+  projectDeviceProgressSummary,
   sameProjectChecklist,
   validateProjectDeviceProgress,
 } from '../services/maintenance-project-checklist.service.js';
@@ -342,7 +343,12 @@ export const maintenanceHandlers = {
     if (!maintenanceId) throw badRequest('Falta el mantenimiento del dispositivo.');
     const maintenance = await findById('Mantenimiento', maintenanceId);
     const progressJson = validateProjectDeviceProgress({ maintenance, payload: ctx.payload });
-    const payload = devicePayload({ ...ctx.payload, ProyectoProgresoJSON: progressJson });
+    const progress = projectDeviceProgressSummary({ maintenance, payload: ctx.payload, progressJson });
+    const payload = devicePayload({
+      ...ctx.payload,
+      ProyectoProgresoJSON: progressJson,
+      ...(progress.hasChecklist && !progress.complete ? { Estado: 'Pendiente' } : {}),
+    });
     if (!maintenanceId || !payload.Categoria || !payload.NombreDispositivo || !payload.Zona) throw badRequest('Categoría, nombre y ubicación son obligatorios.');
 
     if (requestedId) {
@@ -372,7 +378,12 @@ export const maintenanceHandlers = {
     const before = await findById('Evidencia_Mantenimientos', id);
     const maintenance = await findById('Mantenimiento', pick(ctx.payload, ['maintenanceId', 'MantenimientoID', 'MantenimientoRef'], before.MantenimientoRef));
     const progressJson = validateProjectDeviceProgress({ maintenance, payload: ctx.payload, before });
-    const patch = changedDevicePatch(before, { ...ctx.payload, ProyectoProgresoJSON: progressJson }, ctx.user.UsuarioID);
+    const progress = projectDeviceProgressSummary({ maintenance, payload: ctx.payload, before, progressJson });
+    const patch = changedDevicePatch(before, {
+      ...ctx.payload,
+      ProyectoProgresoJSON: progressJson,
+      ...(progress.hasChecklist && !progress.complete ? { Estado: 'Pendiente' } : {}),
+    }, ctx.user.UsuarioID);
     return Object.keys(patch).length ? updateRow('Evidencia_Mantenimientos', id, patch) : before;
   },
 
@@ -388,7 +399,12 @@ export const maintenanceHandlers = {
       const before = await findById('Evidencia_Mantenimientos', id);
       const maintenance = await findById('Mantenimiento', pick(ctx.payload, ['maintenanceId', 'MantenimientoID', 'MantenimientoRef'], before.MantenimientoRef));
       const progressJson = validateProjectDeviceProgress({ maintenance, payload: ctx.payload, before });
-      const patch = changedDevicePatch(before, { ...ctx.payload, ProyectoProgresoJSON: progressJson }, ctx.user.UsuarioID);
+      const progress = projectDeviceProgressSummary({ maintenance, payload: ctx.payload, before, progressJson });
+      const patch = changedDevicePatch(before, {
+        ...ctx.payload,
+        ProyectoProgresoJSON: progressJson,
+        ...(progress.hasChecklist && !progress.complete ? { Estado: 'Pendiente' } : {}),
+      }, ctx.user.UsuarioID);
       if (!Object.keys(patch).length) return { ...before, autosaved: false, unchanged: true };
       const after = await updateRow('Evidencia_Mantenimientos', id, patch);
       return { ...after, autosaved: true };
