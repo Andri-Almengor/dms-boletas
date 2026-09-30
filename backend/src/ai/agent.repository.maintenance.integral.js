@@ -169,8 +169,6 @@ export async function resolveMaintenanceDevice(ctx, args = {}) {
       OR d."TipoDispositivo" ILIKE ${p} ESCAPE '\\'
       OR d."Categoria" ILIKE ${p} ESCAPE '\\'
       OR d."Zona" ILIKE ${p} ESCAPE '\\'
-      OR mi."ProyectoComponenteNombre" ILIKE ${p} ESCAPE '\\'
-      OR project_type."Nombre" ILIKE ${p} ESCAPE '\\'
     )`);
   }
 
