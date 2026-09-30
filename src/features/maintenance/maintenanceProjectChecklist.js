@@ -54,7 +54,6 @@ export function projectChecklistGroupIdentity(input = {}) {
 
 function normalizeQuestion(item = {}, index = 0) {
   const label = text(item.label || item.Pregunta);
-  if (!label) return null;
   return {
     id: text(item.id || item.questionId) || createLocalId('project-check'),
     label,
@@ -75,7 +74,6 @@ function normalizeGroup(item = {}, index = 0) {
     order: Number(item.order ?? index * 10),
     questions: (Array.isArray(item.questions) ? item.questions : [])
       .map(normalizeQuestion)
-      .filter(Boolean)
       .sort((left, right) => left.order - right.order || left.label.localeCompare(right.label, 'es')),
   };
   return group.typeId || group.typeName || group.countField ? group : null;
