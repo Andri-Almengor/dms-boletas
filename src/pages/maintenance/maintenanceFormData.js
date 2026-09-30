@@ -20,18 +20,10 @@ import {
   AUTOMATIC_PENDING_STATE,
   effectiveMaintenanceDeviceState,
 } from '../../utils/maintenanceChecklistStatus';
+import { normalizeMaintenanceType } from '../../features/maintenance/maintenanceType';
 
 export { fileToBase64 } from '../../utils/fileEncoding';
-
-export function normalizeMaintenanceType(value = 'MANTENIMIENTO') {
-  return String(value || 'MANTENIMIENTO').trim().toUpperCase() === 'PROYECTO'
-    ? 'PROYECTO'
-    : 'MANTENIMIENTO';
-}
-
-export function isProjectMaintenance(value) {
-  return normalizeMaintenanceType(value) === 'PROYECTO';
-}
+export { isProjectMaintenance, normalizeMaintenanceType } from '../../features/maintenance/maintenanceType';
 
 export const MAINTENANCE_STEPS = [
   ['Información general', 'Cliente, ubicación, responsables, fechas y descripción.'],
