@@ -6,6 +6,10 @@ import { chunkKnowledgeText } from '../src/ai/agent.knowledge-documents.js';
 import { fallbackCompatible, outputTruncated } from '../src/ai/agent.gemini.js';
 import { normalizeDeviceBatch, normalizeEvidenceStage } from '../src/ai/agent.repository.operations.js';
 import { TOOL_DECLARATIONS, declarationsForUser } from '../src/ai/agent.tools.js';
+import {
+  projectMaintenanceComponentsFromAnswers,
+  projectMaintenanceScalarAnswers,
+} from '../src/services/maintenance-evidence-policy.service.js';
 
 test('integral AI routes general questions with zero DMS tools', () => {
   const intent = classifyAiIntent({ message: '¿Qué es RTSP?' });
@@ -116,4 +120,74 @@ test('truncated model output is detectable for controlled continuation', () => {
   assert.equal(outputTruncated({ finish_reason: 'MAX_OUTPUT_TOKENS' }), true);
   assert.equal(outputTruncated({ steps: [{ finishReason: 'MAX_TOKENS' }] }), true);
   assert.equal(outputTruncated({ finish_reason: 'STOP' }), false);
+});
+
+
+test('integral AI recognizes natural project component inventory queries', () => {
+  assert.equal(
+    classifyAiIntent({ message: 'Dame las puertas que tengan magnetos modelo M1.' }),
+    AI_INTENTS.MAINTENANCE_DEVICES,
+  );
+  assert.equal(
+    classifyAiIntent({ message: 'Muéstrame las imágenes de los magnetos HID de esas puertas.' }),
+    AI_INTENTS.MAINTENANCE_EVIDENCE,
+  );
+});
+
+test('existing maintenance tools expose project component filters without requiring a generic query', () => {
+  const deviceTool = TOOL_DECLARATIONS.search_devices;
+  const maintenanceDevicesTool = TOOL_DECLARATIONS.get_maintenance_devices;
+  const evidenceTool = TOOL_DECLARATIONS.search_maintenance_evidence;
+
+  assert.equal(deviceTool.parameters.required.includes('query'), false);
+  for (const key of ['componentType', 'componentManufacturer', 'componentModel', 'componentSerial', 'componentMac', 'componentQuery']) {
+    assert.ok(deviceTool.parameters.properties[key], key);
+    assert.ok(maintenanceDevicesTool.parameters.properties[key], key);
+    assert.ok(evidenceTool.parameters.properties[key], key);
+  }
+  assert.ok(deviceTool.parameters.properties.evidenceNote);
+  assert.ok(evidenceTool.parameters.properties.projectTargetType);
+  assert.ok(evidenceTool.parameters.properties.componentId);
+});
+
+test('project component parser returns configured main answers and nested component metadata', () => {
+  const payload = JSON.stringify({
+    __preguntas: [
+      { key: 'emergencia', label: '¿Es puerta de emergencia?' },
+      { key: 'lectores', label: '¿Tiene lectores?' },
+    ],
+    emergencia: 'Sí',
+    lectores: {
+      enabled: true,
+      relatedTypeId: 'TIPO-LECTOR',
+      relatedTypeName: 'Lector',
+      items: [{
+        localId: 'lector-1',
+        tipoDispositivoId: 'TIPO-LECTOR',
+        categoria: 'Lector',
+        nombre: 'Lector entrada',
+        fabricante: 'HID',
+        modelo: 'Signo',
+        serie: 'SER-01',
+        macAddress: 'AA:BB:CC:DD:EE:FF',
+        respuestas: {
+          __preguntas: [{ key: 'clase', label: 'Tipo de lector' }],
+          clase: 'Lector',
+        },
+      }],
+    },
+  });
+
+  assert.deepEqual(projectMaintenanceScalarAnswers(payload), {
+    '¿Es puerta de emergencia?': 'Sí',
+  });
+
+  const components = projectMaintenanceComponentsFromAnswers(payload);
+  assert.equal(components.length, 1);
+  assert.equal(components[0].relationLabel, '¿Tiene lectores?');
+  assert.equal(components[0].type, 'Lector');
+  assert.equal(components[0].manufacturer, 'HID');
+  assert.equal(components[0].model, 'Signo');
+  assert.equal(components[0].serial, 'SER-01');
+  assert.equal(components[0].answers['Tipo de lector'], 'Lector');
 });
