@@ -12,6 +12,10 @@ import {
   maintenanceDevicePayload,
 } from '../../pages/maintenance/maintenanceFormData';
 import { showMaintenanceDeviceCreatedFeedback } from '../../services/maintenanceDeviceCreatedFeedback';
+import {
+  emptyProjectChecklist,
+  normalizeProjectChecklist,
+} from '../../features/maintenance/maintenanceProjectChecklist';
 import { uploadMaintenanceImagesInBatches } from '../../services/maintenanceImageBatch';
 import { MODULE_ROUTES, normalizeItems, pick, requestAvailable } from '../../services/moduleApi';
 
@@ -46,7 +50,7 @@ export default function MaintenanceQuickDeviceCreator({
   const [device, setDevice] = useState(() => initialDevice(initialEquipmentLocation));
   const [maintenanceCounts, setMaintenanceCounts] = useState({});
   const [maintenanceType, setMaintenanceType] = useState('MANTENIMIENTO');
-  const [projectChecklist, setProjectChecklist] = useState({ version: 1, groups: [] });
+  const [projectChecklist, setProjectChecklist] = useState(() => emptyProjectChecklist());
   const [equipmentOptions, setEquipmentOptions] = useState(() => initialEquipmentLocation?.id ? [{
     value: String(initialEquipmentLocation.id),
     label: String(initialEquipmentLocation.name || initialEquipmentLocation.id),
@@ -106,14 +110,11 @@ export default function MaintenanceQuickDeviceCreator({
         setMaintenanceCounts(counts);
         const nextMaintenanceType = String(pick(row, ['TipoMantenimiento'], 'MANTENIMIENTO')).toUpperCase() === 'PROYECTO' ? 'PROYECTO' : 'MANTENIMIENTO';
         setMaintenanceType(nextMaintenanceType);
-        if (nextMaintenanceType === 'PROYECTO') {
-          const rawChecklist = pick(row, ['ProyectoChecklistJSON'], '');
-          try {
-            setProjectChecklist(typeof rawChecklist === 'string' ? JSON.parse(rawChecklist || '{"version":1,"groups":[]}') : (rawChecklist || { version: 1, groups: [] }));
-          } catch {
-            setProjectChecklist({ version: 1, groups: [] });
-          }
-        }
+        setProjectChecklist(
+          nextMaintenanceType === 'PROYECTO'
+            ? normalizeProjectChecklist(pick(row, ['ProyectoChecklistJSON'], emptyProjectChecklist()))
+            : emptyProjectChecklist(),
+        );
         if (!hasSelectedMaintenanceCategory(counts)) {
           setBlocked(true);
           setError('Primero edite el mantenimiento e indique una cantidad mayor que cero para al menos un tipo de dispositivo.');
