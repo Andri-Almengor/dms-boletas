@@ -87,6 +87,9 @@ async function validateQuestionMetadata(payload, before = {}) {
     ...rawConfig,
     fields: cleanStringList(rawConfig.fields),
     options: cleanStringList(rawConfig.options),
+    required: typeof rawConfig.required === 'boolean'
+      ? rawConfig.required
+      : responseType !== 'RELACION_DISPOSITIVO',
   };
   if (responseType === 'RELACION_DISPOSITIVO') {
     if (mode === 'MANTENIMIENTO') throw badRequest('Las relaciones con otros dispositivos deben aplicarse a Proyecto o Ambos.');
