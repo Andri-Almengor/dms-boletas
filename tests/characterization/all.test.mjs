@@ -55,6 +55,7 @@ import './maintenance-progress-chat.test.mjs';
 import './maintenance-project-foundation.test.mjs';
 import './maintenance-project-device-editor.test.mjs';
 import './maintenance-project-device-detail.test.mjs';
+import './maintenance-project-ai-query.test.mjs';
 import './maintenance-project-evidence.test.mjs';
 import './maintenance-ticket-report-quality.test.mjs';
 import './maintenance-ticket-splitting.test.mjs';
