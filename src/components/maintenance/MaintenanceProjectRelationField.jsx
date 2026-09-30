@@ -146,6 +146,7 @@ export default function MaintenanceProjectRelationField({
               hideType
               showManufacturer={fields.has('fabricante') || fields.has('modelo')}
               showModel={fields.has('modelo')}
+              maintenanceType="PROYECTO"
             />
 
             <div className="ticket-form-grid">
