@@ -53,6 +53,7 @@ import './maintenance-optional-signature-finalization.test.mjs';
 import './maintenance-signature-public-url.test.mjs';
 import './maintenance-progress-chat.test.mjs';
 import './maintenance-project-foundation.test.mjs';
+import './maintenance-project-device-editor.test.mjs';
 import './maintenance-ticket-report-quality.test.mjs';
 import './maintenance-ticket-splitting.test.mjs';
 import './maintenance-ticket-consecutive.test.mjs';
