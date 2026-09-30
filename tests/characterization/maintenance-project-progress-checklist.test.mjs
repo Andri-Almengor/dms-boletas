@@ -77,3 +77,14 @@ test('Project detail and review expose progress while maintenance normal remains
   assert.ok(review.includes('progreso checklist'));
   assert.ok(inventory.includes('projectMode'));
 });
+
+
+test('quick device creation receives the same Project checklist as the full form', () => {
+  const quick = source('src/components/maintenance/MaintenanceQuickDeviceCreator.jsx');
+  const form = source('src/pages/maintenance/MaintenanceFormPage.jsx');
+
+  assert.ok(quick.includes('normalizeProjectChecklist'));
+  assert.ok(quick.includes("pick(row, ['ProyectoChecklistJSON']"));
+  assert.ok(quick.includes('projectChecklist={projectChecklist}'));
+  assert.ok(form.includes('projectChecklist={state.form.projectChecklist}'));
+});
