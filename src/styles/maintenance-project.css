@@ -205,6 +205,71 @@
   margin-top: 4px;
 }
 
+
+
+.maintenance-project-evidence-section {
+  display: grid;
+  gap: 14px;
+}
+
+.maintenance-project-evidence-grid .maintenance-device-image-card > label select,
+.maintenance-evidence-pending-grid__fields select {
+  width: 100%;
+}
+
+.maintenance-project-evidence-meta {
+  min-height: 24px;
+  color: var(--text-muted);
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  font-size: .69rem;
+  font-weight: 700;
+}
+
+.maintenance-project-evidence-meta .material-symbols-outlined {
+  font-size: 16px;
+}
+
+.maintenance-project-evidence-time {
+  min-height: 54px;
+  padding: 10px 12px;
+  border: 1px solid var(--outline-soft);
+  border-radius: 11px;
+  background: var(--surface-low);
+  display: flex;
+  align-items: center;
+  gap: 10px;
+}
+
+.maintenance-project-evidence-time > .material-symbols-outlined {
+  color: var(--primary);
+}
+
+.maintenance-project-evidence-time > div {
+  display: grid;
+  gap: 2px;
+}
+
+.maintenance-project-evidence-time span {
+  color: var(--text-muted);
+  font-size: .68rem;
+  font-weight: 700;
+}
+
+.maintenance-project-evidence-time strong {
+  font-size: .8rem;
+}
+
+.maintenance-inventory-images figure figcaption {
+  display: grid;
+  gap: 2px;
+}
+
+.maintenance-inventory-images figure figcaption span {
+  overflow-wrap: anywhere;
+}
+
 @media (max-width: 700px) {
   .maintenance-project-relation__heading {
     align-items: stretch;
