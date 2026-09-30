@@ -46,6 +46,7 @@ export default function MaintenanceQuickDeviceCreator({
   const [device, setDevice] = useState(() => initialDevice(initialEquipmentLocation));
   const [maintenanceCounts, setMaintenanceCounts] = useState({});
   const [maintenanceType, setMaintenanceType] = useState('MANTENIMIENTO');
+  const [projectChecklist, setProjectChecklist] = useState({ version: 1, groups: [] });
   const [equipmentOptions, setEquipmentOptions] = useState(() => initialEquipmentLocation?.id ? [{
     value: String(initialEquipmentLocation.id),
     label: String(initialEquipmentLocation.name || initialEquipmentLocation.id),
@@ -103,7 +104,16 @@ export default function MaintenanceQuickDeviceCreator({
 
         const counts = parseMaintenanceCounts(row);
         setMaintenanceCounts(counts);
-        setMaintenanceType(String(pick(row, ['TipoMantenimiento'], 'MANTENIMIENTO')).toUpperCase() === 'PROYECTO' ? 'PROYECTO' : 'MANTENIMIENTO');
+        const nextMaintenanceType = String(pick(row, ['TipoMantenimiento'], 'MANTENIMIENTO')).toUpperCase() === 'PROYECTO' ? 'PROYECTO' : 'MANTENIMIENTO';
+        setMaintenanceType(nextMaintenanceType);
+        if (nextMaintenanceType === 'PROYECTO') {
+          const rawChecklist = pick(row, ['ProyectoChecklistJSON'], '');
+          try {
+            setProjectChecklist(typeof rawChecklist === 'string' ? JSON.parse(rawChecklist || '{"version":1,"groups":[]}') : (rawChecklist || { version: 1, groups: [] }));
+          } catch {
+            setProjectChecklist({ version: 1, groups: [] });
+          }
+        }
         if (!hasSelectedMaintenanceCategory(counts)) {
           setBlocked(true);
           setError('Primero edite el mantenimiento e indique una cantidad mayor que cero para al menos un tipo de dispositivo.');
@@ -268,6 +278,7 @@ export default function MaintenanceQuickDeviceCreator({
                 submitLabel="Guardar dispositivo"
                 submitting={saving}
                 maintenanceType={maintenanceType}
+                projectChecklist={projectChecklist}
               />
             </MaintenanceCountsProvider>
           </>
