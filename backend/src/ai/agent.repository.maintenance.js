@@ -70,7 +70,7 @@ function addProjectComponentCandidateFilters(clauses, params, args = {}, column 
   for (const value of Object.values(projectComponentFilters(args))) {
     if (!value) continue;
     params.push(like(value));
-    clauses.push(`COALESCE(${column},'') ILIKE ${params.length} ESCAPE '\\'`);
+    clauses.push(`COALESCE(${column},'') ILIKE $${params.length} ESCAPE '\\'`);
   }
 }
 
@@ -91,10 +91,10 @@ export async function searchMaintenances(ctx, args = {}) {
     )`);
   }
   if(clean(args.clientId)){params.push(clean(args.clientId,250));clauses.push(`m."ClienteID"=$${params.length}`);}
-  if(clean(args.status)){params.push(clean(args.status,50).toUpperCase());clauses.push(`UPPER(COALESCE(m."Estado",''))=${params.length}`);}
+  if(clean(args.status)){params.push(clean(args.status,50).toUpperCase());clauses.push(`UPPER(COALESCE(m."Estado",''))=$${params.length}`);}
   if(clean(args.maintenanceType)){
     params.push(clean(args.maintenanceType,40).toUpperCase());
-    clauses.push(`UPPER(COALESCE(NULLIF(m."TipoMantenimiento",''),'MANTENIMIENTO'))=${params.length}`);
+    clauses.push(`UPPER(COALESCE(NULLIF(m."TipoMantenimiento",''),'MANTENIMIENTO'))=$${params.length}`);
   }
   const range=addRange(clauses,params,'m."Fecha"',args);
   const where=clauses.join(' AND ');
