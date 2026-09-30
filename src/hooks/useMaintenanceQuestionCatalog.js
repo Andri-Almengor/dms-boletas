@@ -61,7 +61,7 @@ function savedQuestionView(row = {}) {
     appliesTo: normalizeMode(row.appliesTo || row.AplicaModo || 'MANTENIMIENTO'),
     relatedTypeId: clean(row.relatedTypeId || row.TipoDispositivoRelacionadoID),
     config: parseConfig(row.config || row.ConfiguracionJSON),
-    value: clean(row.value),
+    value: row.value ?? '',
   };
 }
 
