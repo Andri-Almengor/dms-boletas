@@ -21,6 +21,12 @@ import {
   effectiveMaintenanceDeviceState,
 } from '../../utils/maintenanceChecklistStatus';
 import { normalizeMaintenanceType } from '../../features/maintenance/maintenanceType';
+import {
+  emptyProjectChecklist,
+  emptyProjectProgress,
+  normalizeProjectChecklist,
+  normalizeProjectProgress,
+} from '../../features/maintenance/maintenanceProjectChecklist';
 
 export { fileToBase64 } from '../../utils/fileEncoding';
 export { isProjectMaintenance, normalizeMaintenanceType } from '../../features/maintenance/maintenanceType';
@@ -36,7 +42,7 @@ export const EMPTY_MAINTENANCE = {
   titulo: '', tipoMantenimiento: 'MANTENIMIENTO', clienteId: '', cliente: '', ubicacionId: '', ubicacion: '', estado: 'PENDIENTE',
   fecha: todayInCostaRica(),
   fechaFinalizacion: todayInCostaRica(),
-  responsables: [], descripcion: '', counts: createEmptyMaintenanceCounts(), syncBase: null,
+  responsables: [], descripcion: '', counts: createEmptyMaintenanceCounts(), projectChecklist: emptyProjectChecklist(), syncBase: null,
 };
 
 function parseArray(value) {
@@ -144,6 +150,7 @@ export function createMaintenanceDevice(category = 'Cámara', maintenanceType = 
     funcionamiento: 'No aplica',
     enUso: 'No aplica',
     respuestas: {},
+    projectProgress: emptyProjectProgress(),
   };
 }
 
@@ -176,6 +183,7 @@ export function mapMaintenance(data) {
     responsables,
     descripcion: pick(row, ['DescripcionGeneral', 'descripcion']),
     counts,
+    projectChecklist: normalizeProjectChecklist(pick(row, ['ProyectoChecklistJSON', 'projectChecklist'], emptyProjectChecklist())),
     syncBase: maintenanceSyncBase(row),
   };
 }
@@ -216,6 +224,7 @@ export function mapMaintenanceDevice(row = {}, maintenanceType = 'MANTENIMIENTO'
     observacion: pick(row, ['Observacion', 'observacion']),
     respuestas: bundle.answers,
     questionDetails: bundle.questionDetails,
+    projectProgress: normalizeProjectProgress(pick(row, ['ProyectoProgresoJSON', 'projectProgress'], emptyProjectProgress())),
     images: (row.Imagenes || row.images || []).map((image) => mapImage(image, maintenanceId)),
     newImages: [],
     syncBase: maintenanceDeviceSyncBase(row, maintenanceId),
@@ -237,7 +246,10 @@ export function maintenancePayload(form, id) {
     UbicacionID: form.ubicacionId, Ubicacion: form.ubicacion, Estado: form.estado,
     Fecha: form.fecha, FechaFinalizacion: form.fechaFinalizacion,
     ResponsableIDs: form.responsables, ResponsableIDsJSON: JSON.stringify(form.responsables),
-    DescripcionGeneral: form.descripcion, CantidadesJSON: JSON.stringify(form.counts), ...form.counts,
+    DescripcionGeneral: form.descripcion, CantidadesJSON: JSON.stringify(form.counts),
+    ProyectoChecklistJSON: JSON.stringify(normalizeProjectChecklist(form.projectChecklist)),
+    projectChecklist: normalizeProjectChecklist(form.projectChecklist),
+    ...form.counts,
   }, form.syncBase);
 }
 
@@ -281,6 +293,8 @@ export function maintenanceDevicePayload(device, maintenanceId, maintenanceType 
     EnUso: device.enUso, Estado: effectiveState, Observacion: device.observacion,
     questionDetails: device.questionDetails || [],
     respuestasDetalle: device.questionDetails || [],
+    ProyectoProgresoJSON: JSON.stringify(normalizeProjectProgress(device.projectProgress)),
+    projectProgress: normalizeProjectProgress(device.projectProgress),
     RespuestasJSON: JSON.stringify(device.respuestas), ...device.respuestas,
   }, device.syncBase);
 }
