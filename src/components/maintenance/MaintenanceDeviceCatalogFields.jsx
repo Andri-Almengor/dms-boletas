@@ -11,6 +11,7 @@ import {
 import { maintenanceCountKeyForDeviceType } from '../../config/dynamicMaintenanceTypes';
 import { MODULE_ROUTES, pick, requestAvailable, toBoolean, toOption } from '../../services/moduleApi';
 import useMaintenanceDeviceCatalogData from '../../hooks/useMaintenanceDeviceCatalogData';
+import { isProjectMaintenance } from '../../features/maintenance/maintenanceType';
 
 function Field({ label, multiline = false, ...props }) {
   return <label className="field-group"><span className="field-label">{label}</span>{multiline ? <textarea className="form-control ticket-textarea" rows="4" {...props} /> : <input className="form-control" {...props} />}</label>;
@@ -66,6 +67,7 @@ export default function MaintenanceDeviceCatalogFields({
   hideType = false,
   showManufacturer = true,
   showModel = true,
+  maintenanceType = 'MANTENIMIENTO',
 }) {
   const { sessionToken, hasPermission } = useAuth();
   const inheritedCounts = useMaintenanceCounts();
@@ -87,6 +89,7 @@ export default function MaintenanceDeviceCatalogFields({
   const [modalError, setModalError] = useState('');
   const [modalSaving, setModalSaving] = useState(false);
   const restrictTypes = Boolean(effectiveCounts && typeof effectiveCounts === 'object' && !fixedTypeId);
+  const projectMode = isProjectMaintenance(maintenanceType);
 
   function patch(values) { onChange({ ...device, ...values }); }
 
@@ -127,7 +130,7 @@ export default function MaintenanceDeviceCatalogFields({
         values.fabricante = '';
         values.modeloId = '';
         values.modelo = '';
-        values.respuestas = createEmptyChecklist(resolvedName);
+        values.respuestas = projectMode ? {} : createEmptyChecklist(resolvedName);
       }
     }
 
@@ -218,7 +221,8 @@ export default function MaintenanceDeviceCatalogFields({
       tipoDispositivoId: row ? String(pick(row, ['TipoDispositivoID', 'ID', 'id'])) : '',
       categoria: name,
       fabricanteId: '', fabricante: '', modeloId: '', modelo: '',
-      respuestas: createEmptyChecklist(name),
+      respuestas: projectMode ? {} : createEmptyChecklist(name),
+      questionDetails: [],
     });
   }
 
@@ -256,7 +260,7 @@ export default function MaintenanceDeviceCatalogFields({
       if (type === 'device') {
         result = await requestAvailable(MODULE_ROUTES.deviceTypes.create, { nombre: values.nombre, descripcion: values.descripcion, activo: true }, sessionToken);
         const name = canonicalMaintenanceCategoryName(pick(result, ['Nombre'], values.nombre));
-        patch({ tipoDispositivoId: String(pick(result, ['TipoDispositivoID', 'ID', 'id'])), categoria: name, fabricanteId: '', fabricante: '', modeloId: '', modelo: '', respuestas: createEmptyChecklist(name) });
+        patch({ tipoDispositivoId: String(pick(result, ['TipoDispositivoID', 'ID', 'id'])), categoria: name, fabricanteId: '', fabricante: '', modeloId: '', modelo: '', respuestas: projectMode ? {} : createEmptyChecklist(name), questionDetails: [] });
       }
       if (type === 'manufacturer') {
         result = await requestAvailable(MODULE_ROUTES.manufacturers.create, { nombre: values.nombre, activo: true }, sessionToken);
