@@ -93,6 +93,7 @@ export default function useMaintenanceForm({ editing, maintenanceId }) {
     readOnly,
     saving,
     deviceSaving,
+    maintenanceType: form.tipoMantenimiento,
     setDevices,
     setError,
   });
