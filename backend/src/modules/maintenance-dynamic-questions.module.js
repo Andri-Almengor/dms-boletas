@@ -5,10 +5,12 @@ import {
   filterRows,
   findById,
   readTable,
+  readTables,
   softDelete,
   updateRow,
 } from '../infra/sheets.repository.js';
 import { audit } from '../services/audit.service.js';
+import { normalizeMacAddress } from '../services/evidence-media-policy.service.js';
 import { createDynamicMaintenanceSpreadsheetReport } from '../services/maintenance-dynamic-spreadsheet.service.js';
 import {
   MAINTENANCE_QUESTION_SHEET,
@@ -109,6 +111,151 @@ async function validateQuestionMetadata(payload, before = {}) {
         ? { ...config, fields: [] }
         : { ...config, fields: [], options: [] },
   };
+}
+
+
+function activeCatalogRow(row = {}) {
+  const active = String(row.Activo ?? 'true').trim().toLowerCase();
+  return !['false', '0', 'no'].includes(active) && String(row.Estado || 'ACTIVO').toUpperCase() !== 'INACTIVO';
+}
+
+function relationAnswer(value) {
+  if (value && typeof value === 'object' && !Array.isArray(value)) return value;
+  try {
+    const parsed = JSON.parse(value || '{}');
+    return parsed && typeof parsed === 'object' && !Array.isArray(parsed) ? parsed : {};
+  } catch {
+    return {};
+  }
+}
+
+function hasQuestionValue(question = {}, value) {
+  const type = normalizeMaintenanceQuestionResponseType(question.responseType || question.TipoRespuesta);
+  if (type === 'RELACION_DISPOSITIVO') {
+    const relation = relationAnswer(value);
+    return relation.enabled === true && Array.isArray(relation.items) && relation.items.length > 0;
+  }
+  if (type === 'NUMERO' || type === 'CANTIDAD') return value !== '' && value !== null && value !== undefined;
+  return cleanMaintenanceQuestionValue(value) !== '';
+}
+
+async function validateProjectAnswers(snapshot = [], answers = {}, maintenanceMode = 'MANTENIMIENTO') {
+  if (normalizeMaintenanceQuestionMode(maintenanceMode) !== 'PROYECTO') return answers;
+  const activeQuestions = snapshot.filter((question) => question.activeAtSave !== false);
+  const relationQuestions = activeQuestions.filter((question) => question.responseType === 'RELACION_DISPOSITIVO');
+  const catalogs = relationQuestions.length
+    ? await readTables(['TiposDispositivo', 'Fabricantes', 'Modelos', 'TipoDispositivoFabricantes'])
+    : {};
+  const typesById = new Map((catalogs.TiposDispositivo || []).filter(activeCatalogRow).map((row) => [cleanMaintenanceQuestionValue(row.TipoDispositivoID), row]));
+  const manufacturersById = new Map((catalogs.Fabricantes || []).filter(activeCatalogRow).map((row) => [cleanMaintenanceQuestionValue(row.FabricanteID), row]));
+  const modelsById = new Map((catalogs.Modelos || []).filter(activeCatalogRow).map((row) => [cleanMaintenanceQuestionValue(row.ModeloID), row]));
+  const relationPairs = new Set((catalogs.TipoDispositivoFabricantes || []).filter(activeCatalogRow).map((row) => `${cleanMaintenanceQuestionValue(row.TipoDispositivoID)}|${cleanMaintenanceQuestionValue(row.FabricanteID)}`));
+  const relationTypeIds = new Set((catalogs.TipoDispositivoFabricantes || []).filter(activeCatalogRow).map((row) => cleanMaintenanceQuestionValue(row.TipoDispositivoID)));
+
+  const sanitized = { ...answers };
+  delete sanitized.__preguntas;
+
+  for (const question of activeQuestions) {
+    const key = cleanMaintenanceQuestionValue(question.key || question.Clave);
+    if (!key) continue;
+    const config = parseMaintenanceQuestionConfig(question.config || question.ConfiguracionJSON);
+    const responseType = normalizeMaintenanceQuestionResponseType(question.responseType || question.TipoRespuesta);
+    const required = typeof config.required === 'boolean' ? config.required : responseType !== 'RELACION_DISPOSITIVO';
+    const rawValue = sanitized[key];
+
+    if (required && !hasQuestionValue(question, rawValue)) {
+      throw badRequest(`Complete el campo obligatorio “${cleanMaintenanceQuestionValue(question.label || question.Pregunta || key)}”.`);
+    }
+    if (rawValue === undefined || rawValue === null || rawValue === '') continue;
+
+    if (responseType === 'OPCIONES') {
+      const options = cleanStringList(config.options);
+      const value = cleanMaintenanceQuestionValue(rawValue);
+      if (value && !options.includes(value)) throw badRequest(`La opción seleccionada para “${question.label || key}” ya no está disponible.`);
+      sanitized[key] = value;
+      continue;
+    }
+    if (responseType === 'NUMERO' || responseType === 'CANTIDAD') {
+      const numeric = Number(rawValue);
+      if (!Number.isFinite(numeric) || (responseType === 'CANTIDAD' && numeric < 0)) throw badRequest(`El valor de “${question.label || key}” no es válido.`);
+      sanitized[key] = String(rawValue).trim();
+      continue;
+    }
+    if (responseType === 'MAC') {
+      sanitized[key] = normalizeMacAddress(rawValue);
+      continue;
+    }
+    if (responseType !== 'RELACION_DISPOSITIVO') {
+      sanitized[key] = cleanMaintenanceQuestionValue(rawValue);
+      continue;
+    }
+
+    const relation = relationAnswer(rawValue);
+    const relatedTypeId = cleanMaintenanceQuestionValue(question.relatedTypeId || question.TipoDispositivoRelacionadoID);
+    const relatedType = typesById.get(relatedTypeId);
+    if (!relatedType) throw badRequest(`El tipo relacionado configurado para “${question.label || key}” ya no está disponible.`);
+
+    const enabled = relation.enabled === true || String(relation.enabled || '').toLowerCase() === 'true';
+    if (!enabled) {
+      sanitized[key] = {
+        enabled: false,
+        relatedTypeId,
+        relatedTypeName: cleanMaintenanceQuestionValue(relatedType.Nombre),
+        quantity: 0,
+        items: [],
+      };
+      continue;
+    }
+
+    const items = Array.isArray(relation.items) ? relation.items : [];
+    if (!items.length || items.length > 100) throw badRequest(`La relación “${question.label || key}” debe contener entre 1 y 100 dispositivos.`);
+
+    const sanitizedItems = items.map((item, index) => {
+      const typeId = cleanMaintenanceQuestionValue(item?.tipoDispositivoId || item?.TipoDispositivoID || relatedTypeId);
+      if (typeId !== relatedTypeId) throw badRequest(`El componente ${index + 1} de “${question.label || key}” no corresponde al tipo configurado.`);
+
+      const manufacturerId = cleanMaintenanceQuestionValue(item?.fabricanteId || item?.FabricanteID);
+      const manufacturer = manufacturerId ? manufacturersById.get(manufacturerId) : null;
+      if (manufacturerId && !manufacturer) throw badRequest(`El fabricante del componente ${index + 1} ya no existe o está inactivo.`);
+      if (manufacturerId && relationTypeIds.has(typeId) && !relationPairs.has(`${typeId}|${manufacturerId}`)) {
+        throw badRequest(`El fabricante del componente ${index + 1} no está relacionado con el tipo ${cleanMaintenanceQuestionValue(relatedType.Nombre)}.`);
+      }
+
+      const modelId = cleanMaintenanceQuestionValue(item?.modeloId || item?.ModeloID);
+      const model = modelId ? modelsById.get(modelId) : null;
+      if (modelId && !model) throw badRequest(`El modelo del componente ${index + 1} ya no existe o está inactivo.`);
+      if (model && cleanMaintenanceQuestionValue(model.TipoDispositivoID) && cleanMaintenanceQuestionValue(model.TipoDispositivoID) !== typeId) {
+        throw badRequest(`El modelo del componente ${index + 1} no corresponde al tipo configurado.`);
+      }
+      if (model && manufacturerId && cleanMaintenanceQuestionValue(model.FabricanteID) && cleanMaintenanceQuestionValue(model.FabricanteID) !== manufacturerId) {
+        throw badRequest(`El modelo del componente ${index + 1} no corresponde al fabricante seleccionado.`);
+      }
+
+      return {
+        localId: cleanMaintenanceQuestionValue(item?.localId || item?.id || `componente-${index + 1}`),
+        tipoDispositivoId: typeId,
+        categoria: cleanMaintenanceQuestionValue(relatedType.Nombre),
+        fabricanteId: manufacturerId,
+        fabricante: manufacturer ? cleanMaintenanceQuestionValue(manufacturer.Nombre) : '',
+        modeloId: modelId,
+        modelo: model ? cleanMaintenanceQuestionValue(model.Nombre) : '',
+        nombre: cleanMaintenanceQuestionValue(item?.nombre || item?.NombreDispositivo),
+        serie: cleanMaintenanceQuestionValue(item?.serie || item?.Serie),
+        macAddress: item?.macAddress ? normalizeMacAddress(item.macAddress) : '',
+        respuestas: item?.respuestas && typeof item.respuestas === 'object' && !Array.isArray(item.respuestas) ? item.respuestas : {},
+        questionDetails: Array.isArray(item?.questionDetails) ? item.questionDetails : [],
+      };
+    });
+
+    sanitized[key] = {
+      enabled: true,
+      relatedTypeId,
+      relatedTypeName: cleanMaintenanceQuestionValue(relatedType.Nombre),
+      quantity: sanitizedItems.length,
+      items: sanitizedItems,
+    };
+  }
+  return sanitized;
 }
 
 async function typeNamesMap() {
@@ -313,9 +460,13 @@ async function contextWithQuestionSnapshot(ctx, before = {}) {
     questionDetails: suppliedSnapshot,
   }, before);
   const snapshot = preserveHistoricalQuestionText(generatedSnapshot, suppliedSnapshot);
+  const validatedAnswers = await validateProjectAnswers(snapshot, answers, maintenanceMode);
   const persistedAnswers = {
-    ...answers,
-    __preguntas: snapshot,
+    ...validatedAnswers,
+    __preguntas: snapshot.map((item) => ({
+      ...item,
+      value: validatedAnswers[item.key] ?? item.value,
+    })),
   };
   return {
     ...ctx,
