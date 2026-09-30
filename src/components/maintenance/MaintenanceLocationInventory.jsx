@@ -621,7 +621,7 @@ export default function MaintenanceLocationInventory({
         </div>}
       {pick(device, ['Observacion']) && <div className="maintenance-inventory-observation"><Icon name="notes" /><p>{pick(device, ['Observacion'])}</p></div>}
       <div className="maintenance-inventory-evidence-heading">
-        <div><strong>Evidencias</strong><span>{images.length} de {allImages.length} archivo{allImages.length === 1 ? '' : 's'} · más reciente primero</span></div>
+        <div><strong>Evidencias</strong><span>{projectMode && detailView ? `${images.length} de ${allImages.length}` : allImages.length} archivo{allImages.length === 1 ? '' : 's'} · más reciente primero</span></div>
         <div className="maintenance-project-evidence-heading-actions">
           {projectMode && detailView && targetOptions.length > 1 && <label className="maintenance-project-evidence-filter"><span>Mostrar</span><select value={projectEvidenceTargetFilter} onChange={(event) => setProjectEvidenceTargetFilter(event.target.value)}><option value="TODAS">Todas las evidencias</option>{targetOptions.map((target) => <option key={target.value} value={target.value}>{target.label}</option>)}</select></label>}
           {evidenceEnabled && pending && canEdit && onAddEvidence && <button className="button button--secondary button--compact" type="button" onClick={() => detailView ? addEvidenceFromDetail(device) : onAddEvidence(device)}><Icon name="add_a_photo" />Agregar</button>}
