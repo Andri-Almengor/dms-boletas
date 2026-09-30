@@ -33,7 +33,8 @@ test('Project checklist is configured from selected device groups and locked aft
   assert.ok(counts.includes('<MaintenanceProjectChecklistBuilder'));
   assert.ok(builder.includes("Pendiente / Realizado"));
   assert.ok(builder.includes("Sí / No"));
-  assert.ok(builder.includes('categories={categories}') === false);
+  assert.ok(builder.includes('selectedCategories(categories, counts)'));
+  assert.ok(builder.includes('Number(counts?.[item.countField] || 0) > 0'));
   assert.ok(backend.includes('No se puede modificar el checklist de progreso del Proyecto después de registrar dispositivos'));
   assert.ok(backend.includes('sameProjectChecklist(before.ProyectoChecklistJSON'));
 });
