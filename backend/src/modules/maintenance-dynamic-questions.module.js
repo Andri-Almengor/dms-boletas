@@ -71,21 +71,40 @@ function questionConfig(payload, fallback = {}) {
   return parseMaintenanceQuestionConfig(raw);
 }
 
+function cleanStringList(value) {
+  return (Array.isArray(value) ? value : [])
+    .map((item) => cleanMaintenanceQuestionValue(item))
+    .filter(Boolean)
+    .filter((item, index, items) => items.indexOf(item) === index);
+}
+
 async function validateQuestionMetadata(payload, before = {}) {
   const mode = questionMode(payload, questionMode(before, 'MANTENIMIENTO'));
   const responseType = questionResponseType(payload, questionResponseType(before, 'SI_NO'));
   const relatedTypeId = questionRelatedTypeId(payload, questionRelatedTypeId(before, ''));
-  const config = questionConfig(payload, questionConfig(before, {}));
+  const rawConfig = questionConfig(payload, questionConfig(before, {}));
+  const config = {
+    ...rawConfig,
+    fields: cleanStringList(rawConfig.fields),
+    options: cleanStringList(rawConfig.options),
+  };
   if (responseType === 'RELACION_DISPOSITIVO') {
     if (mode === 'MANTENIMIENTO') throw badRequest('Las relaciones con otros dispositivos deben aplicarse a Proyecto o Ambos.');
     if (!relatedTypeId) throw badRequest('Seleccione el tipo de dispositivo que se relacionará.');
     await assertMaintenanceDeviceType(relatedTypeId);
   }
+  if (responseType === 'OPCIONES' && !config.options.length) {
+    throw badRequest('Agregue al menos una opción para la respuesta configurada.');
+  }
   return {
     mode,
     responseType,
     relatedTypeId: responseType === 'RELACION_DISPOSITIVO' ? relatedTypeId : '',
-    config,
+    config: responseType === 'RELACION_DISPOSITIVO'
+      ? { ...config, options: [] }
+      : responseType === 'OPCIONES'
+        ? { ...config, fields: [] }
+        : { ...config, fields: [], options: [] },
   };
 }
 
@@ -258,8 +277,20 @@ function preserveHistoricalQuestionText(generated, previous) {
   });
 }
 
+async function resolveMaintenanceModeForDevice(ctx, before = {}) {
+  const maintenanceId = cleanMaintenanceQuestionValue(pick(
+    ctx.payload,
+    ['maintenanceId', 'MantenimientoID', 'MantenimientoRef'],
+    before.MantenimientoRef,
+  ));
+  if (!maintenanceId) return 'MANTENIMIENTO';
+  const maintenance = await findById('Mantenimiento', maintenanceId).catch(() => null);
+  return normalizeMaintenanceQuestionMode(maintenance?.TipoMantenimiento, 'MANTENIMIENTO');
+}
+
 async function contextWithQuestionSnapshot(ctx, before = {}) {
   await ensureMaintenanceQuestionCatalog(ctx.user?.UsuarioID || 'SYSTEM');
+  const maintenanceMode = await resolveMaintenanceModeForDevice(ctx, before);
   const answers = parseMaintenanceAnswers(
     ctx.payload.respuestas
       || ctx.payload.answers
@@ -274,6 +305,8 @@ async function contextWithQuestionSnapshot(ctx, before = {}) {
   );
   const generatedSnapshot = await buildMaintenanceQuestionSnapshot({
     ...ctx.payload,
+    TipoMantenimiento: maintenanceMode,
+    tipoMantenimiento: maintenanceMode,
     questionDetails: suppliedSnapshot,
   }, before);
   const snapshot = preserveHistoricalQuestionText(generatedSnapshot, suppliedSnapshot);
@@ -285,6 +318,8 @@ async function contextWithQuestionSnapshot(ctx, before = {}) {
     ...ctx,
     payload: {
       ...ctx.payload,
+      TipoMantenimiento: maintenanceMode,
+      tipoMantenimiento: maintenanceMode,
       respuestas: persistedAnswers,
       answers: persistedAnswers,
       RespuestasJSON: JSON.stringify(persistedAnswers),
