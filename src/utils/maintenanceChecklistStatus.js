@@ -31,10 +31,39 @@ function questionKey(question) {
   return text(question?.key ?? question?.Clave);
 }
 
+function questionConfig(question = {}) {
+  const raw = question.config || question.ConfiguracionJSON || {};
+  if (raw && typeof raw === 'object' && !Array.isArray(raw)) return raw;
+  try {
+    const parsed = JSON.parse(raw || '{}');
+    return parsed && typeof parsed === 'object' && !Array.isArray(parsed) ? parsed : {};
+  } catch {
+    return {};
+  }
+}
+
 function activeQuestion(question) {
   return question?.historical !== true
     && question?.activeAtSave !== false
     && question?.Activo !== false;
+}
+
+function requiredQuestion(question) {
+  const config = questionConfig(question);
+  return config.required !== false;
+}
+
+function answerHasValue(question, value) {
+  const responseType = text(question?.responseType || question?.TipoRespuesta || 'SI_NO').toUpperCase();
+  if (responseType === 'RELACION_DISPOSITIVO') {
+    if (!value || typeof value !== 'object' || Array.isArray(value)) return false;
+    const enabled = value.enabled === true || normalized(value.enabled) === 'true';
+    return enabled && Array.isArray(value.items) && value.items.length > 0;
+  }
+  if (responseType === 'NUMERO' || responseType === 'CANTIDAD') {
+    return value !== '' && value !== null && value !== undefined;
+  }
+  return Boolean(text(value));
 }
 
 // Se usa mayúscula exacta para el pendiente manual que bloquea la checklist.
@@ -62,19 +91,21 @@ export function maintenanceChecklistCompletion(device = {}, fallbackQuestions = 
     ...metadataQuestions,
     ...explicitQuestions,
   ];
-  const requiredKeys = [...new Set(questionSource
+  const requiredQuestions = questionSource
     .filter(activeQuestion)
+    .filter(requiredQuestion);
+  const requiredKeys = [...new Set(requiredQuestions
     .map(questionKey)
     .filter(Boolean))];
+  const requiredByKey = new Map(requiredQuestions.map((question) => [questionKey(question), question]));
   const missing = [];
 
   if (!text(device.funcionamiento ?? device.Funcionamiento)) missing.push('Funcionamiento');
   if (!text(device.enUso ?? device.EnUso)) missing.push('En uso');
 
   requiredKeys.forEach((key) => {
-    if (!text(answers[key] ?? device[key] ?? device[`${key.charAt(0).toUpperCase()}${key.slice(1)}`])) {
-      missing.push(key);
-    }
+    const value = answers[key] ?? device[key] ?? device[`${key.charAt(0).toUpperCase()}${key.slice(1)}`];
+    if (!answerHasValue(requiredByKey.get(key), value)) missing.push(key);
   });
 
   return {
