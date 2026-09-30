@@ -10,7 +10,10 @@ import MaintenanceQuickDeviceCreator from '../../components/maintenance/Maintena
 import MaintenanceSignatureCard from '../../components/maintenance/MaintenanceSignatureCard';
 import { MODULE_ROUTES, pick, requestAvailable } from '../../services/moduleApi';
 import { isProjectMaintenance } from '../../features/maintenance/maintenanceType';
-import { normalizeProjectChecklist } from '../../features/maintenance/maintenanceProjectChecklist';
+import {
+  normalizeProjectChecklist,
+  projectChecklistOverallProgress,
+} from '../../features/maintenance/maintenanceProjectChecklist';
 import {
   requestSynchronizedDetail,
   subscribeSyncEntity,
@@ -210,6 +213,10 @@ export default function MaintenanceDetailPage() {
   const projectChecklist = useMemo(
     () => normalizeProjectChecklist(pick(row, ['ProyectoChecklistJSON'], {})),
     [row.ProyectoChecklistJSON],
+  );
+  const projectProgress = useMemo(
+    () => projectChecklistOverallProgress(projectChecklist, devices),
+    [projectChecklist, devices],
   );
   const pending = status === 'PENDIENTE';
   const offlinePending = Boolean(pick(row, ['OfflinePendiente'], false));
@@ -449,6 +456,15 @@ export default function MaintenanceDetailPage() {
           {!projectMode && isAdmin && pick(row, ['SlidesURL']) && <a className="button button--ghost" href={pick(row, ['SlidesURL'])} target="_blank" rel="noreferrer"><Icon name="open_in_new" />Presentación creada</a>}
         </section>
       )}
+
+      {projectMode && projectProgress.total > 0 && <section className="form-card maintenance-project-overall-progress">
+        <div className="maintenance-project-overall-progress__heading">
+          <div><span className="eyebrow">AVANCE DEL PROYECTO</span><h2>Checklist de progreso</h2><p>{projectProgress.completed} de {projectProgress.total} tareas realizadas.</p></div>
+          <strong>{projectProgress.percent}%</strong>
+        </div>
+        <div className="maintenance-project-progress__track"><span style={{ width: `${projectProgress.percent}%` }} /></div>
+        <div className="maintenance-project-overall-progress__stats"><span><strong>{projectProgress.completed}</strong> realizadas</span><span><strong>{projectProgress.pending}</strong> pendientes</span></div>
+      </section>}
 
       <MaintenanceLocationInventory
         devices={devices}
