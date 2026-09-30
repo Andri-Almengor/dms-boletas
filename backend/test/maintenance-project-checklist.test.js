@@ -4,6 +4,7 @@ import assert from 'node:assert/strict';
 import {
   normalizeProjectChecklistDefinition,
   projectChecklistJson,
+  projectDeviceProgressSummary,
   sameProjectChecklist,
   validateProjectDeviceProgress,
 } from '../src/services/maintenance-project-checklist.service.js';
@@ -108,4 +109,46 @@ test('Project checklist rejects blank persisted questions', () => {
       questions: [{ id: 'q1', label: '   ', responseType: 'PENDIENTE_REALIZADO' }],
     }],
   }), /pregunta/i);
+});
+
+
+test('authoritative Project progress summary remains pending until progress tasks finish', () => {
+  const maintenance = {
+    TipoMantenimiento: 'PROYECTO',
+    ProyectoChecklistJSON: JSON.stringify(CHECKLIST),
+  };
+  const pending = projectDeviceProgressSummary({
+    maintenance,
+    payload: {
+      TipoDispositivoID: 'PUERTA',
+      Categoria: 'Puerta',
+      projectProgress: {
+        answers: {
+          'lector-instalado': { value: 'PENDIENTE', note: 'Falta cableado.' },
+          'magneto-probado': { value: 'SI' },
+        },
+      },
+    },
+  });
+  assert.equal(pending.hasChecklist, true);
+  assert.equal(pending.total, 2);
+  assert.equal(pending.completed, 1);
+  assert.equal(pending.pending, 1);
+  assert.equal(pending.complete, false);
+
+  const complete = projectDeviceProgressSummary({
+    maintenance,
+    payload: {
+      TipoDispositivoID: 'PUERTA',
+      Categoria: 'Puerta',
+      projectProgress: {
+        answers: {
+          'lector-instalado': { value: 'REALIZADO' },
+          'magneto-probado': { value: 'NO' },
+        },
+      },
+    },
+  });
+  assert.equal(complete.complete, true);
+  assert.equal(complete.completed, 2);
 });
