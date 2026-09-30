@@ -84,7 +84,8 @@ test('el formulario activa Proyecto sin modificar la ruta histórica de Mantenim
   assert.match(form, /canFinalize=\{!projectMode && isAdministrator\}/);
   assert.match(editor, /MaintenanceProjectRelationField/);
   assert.match(editor, /questionCatalog\.forDevice\(device, projectMode \? 'PROYECTO' : 'MANTENIMIENTO'\)/);
-  assert.match(editor, /maintenance-project-evidence-placeholder/);
+  assert.match(editor, /maintenance-project-evidence-section/);
+  assert.match(editor, /Sin Antes\\/Después/);
   assert.match(quick, /maintenanceType=\{maintenanceType\}/);
 });
 
