@@ -127,3 +127,87 @@ export function projectAnswerHasValue(question = {}, value) {
 export function projectQuestionMissing(question = {}, value) {
   return projectQuestionRequired(question) && !projectAnswerHasValue(question, value);
 }
+
+
+function parseDeviceAnswers(device = {}) {
+  const source = device.respuestas ?? device.RespuestasJSON ?? {};
+  if (source && typeof source === 'object' && !Array.isArray(source)) return source;
+  try {
+    const parsed = JSON.parse(source || '{}');
+    return parsed && typeof parsed === 'object' && !Array.isArray(parsed) ? parsed : {};
+  } catch {
+    return {};
+  }
+}
+
+function projectQuestionLabels(device = {}, answers = {}) {
+  const details = [
+    ...(Array.isArray(answers.__preguntas) ? answers.__preguntas : []),
+    ...(Array.isArray(device.questionDetails) ? device.questionDetails : []),
+  ];
+  return new Map(details.map((question) => [
+    clean(question.key || question.Clave),
+    clean(question.label || question.Pregunta || question.key || question.Clave),
+  ]).filter(([key]) => key));
+}
+
+export function projectEvidenceTargets(device = {}) {
+  const answers = parseDeviceAnswers(device);
+  const labels = projectQuestionLabels(device, answers);
+  const deviceName = clean(device.nombre || device.NombreDispositivo || device.name || 'Dispositivo');
+  const category = clean(device.categoria || device.Categoria || device.TipoDispositivo || 'Dispositivo');
+  const targets = [{
+    value: 'DISPOSITIVO',
+    targetType: 'DISPOSITIVO',
+    relationKey: '',
+    componentLocalId: '',
+    componentTypeId: clean(device.tipoDispositivoId || device.TipoDispositivoID),
+    componentName: deviceName,
+    label: `${category} · ${deviceName}`,
+    main: true,
+  }];
+
+  Object.entries(answers)
+    .filter(([key]) => key !== '__preguntas')
+    .forEach(([key, rawRelation]) => {
+      const relation = normalizeProjectRelationValue(rawRelation);
+      if (!relation.enabled || !relation.items.length) return;
+      relation.items.forEach((item, index) => {
+        const localId = clean(item.localId || item.id);
+        if (!localId) return;
+        const itemCategory = clean(item.categoria || item.TipoDispositivo || relation.relatedTypeName || 'Componente');
+        const itemName = clean(item.nombre || item.NombreDispositivo || item.modelo || item.Modelo || `${itemCategory} ${index + 1}`);
+        const relationLabel = labels.get(key);
+        targets.push({
+          value: `COMPONENTE:${key}:${localId}`,
+          targetType: 'COMPONENTE',
+          relationKey: key,
+          componentLocalId: localId,
+          componentTypeId: clean(item.tipoDispositivoId || item.TipoDispositivoID || relation.relatedTypeId),
+          componentName: itemName,
+          label: relationLabel ? `${itemCategory} · ${itemName} · ${relationLabel}` : `${itemCategory} · ${itemName}`,
+          main: false,
+        });
+      });
+    });
+
+  return targets;
+}
+
+export function projectEvidenceTargetValue(image = {}) {
+  const targetType = clean(image.ProyectoDestinoTipo || image.projectTargetType || image.targetType).toUpperCase();
+  if (targetType !== 'COMPONENTE') return 'DISPOSITIVO';
+  const relationKey = clean(image.ProyectoRelacionClave || image.projectRelationKey || image.relationKey);
+  const componentLocalId = clean(image.ProyectoComponenteLocalID || image.projectComponentLocalId || image.componentLocalId);
+  return relationKey && componentLocalId
+    ? `COMPONENTE:${relationKey}:${componentLocalId}`
+    : 'DISPOSITIVO';
+}
+
+export function projectEvidenceTargetPatch(target = {}) {
+  return {
+    projectTargetType: target.targetType || 'DISPOSITIVO',
+    projectRelationKey: target.relationKey || '',
+    projectComponentLocalId: target.componentLocalId || '',
+  };
+}
