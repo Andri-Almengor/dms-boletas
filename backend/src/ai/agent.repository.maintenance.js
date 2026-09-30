@@ -412,36 +412,32 @@ export async function searchDevices(ctx,args={}){
   if(q){
     params.push(like(q)); const p='$'+params.length;
     clauses.push(`(
-      d."NombreDispositivo" ILIKE \${p} ESCAPE '\\\\'
-      OR d."TipoDispositivo" ILIKE \${p} ESCAPE '\\\\'
-      OR d."Categoria" ILIKE \${p} ESCAPE '\\\\'
-      OR d."Fabricante" ILIKE \${p} ESCAPE '\\\\'
-      OR d."Modelo" ILIKE \${p} ESCAPE '\\\\'
-      OR d."Serie" ILIKE \${p} ESCAPE '\\\\'
-      OR d."DireccionMAC" ILIKE \${p} ESCAPE '\\\\'
-      OR d."Zona" ILIKE \${p} ESCAPE '\\\\'
-      OR d."Observacion" ILIKE \${p} ESCAPE '\\\\'
-      OR COALESCE(d."RespuestasJSON",'') ILIKE \${p} ESCAPE '\\\\'
-      OR m."TituloMantenimiento" ILIKE \${p} ESCAPE '\\\\'
-      OR m."Cliente" ILIKE \${p} ESCAPE '\\\\'
+      d."NombreDispositivo" ILIKE ${p} ESCAPE '\\'
+      OR d."TipoDispositivo" ILIKE ${p} ESCAPE '\\'
+      OR d."Categoria" ILIKE ${p} ESCAPE '\\'
+      OR d."Fabricante" ILIKE ${p} ESCAPE '\\'
+      OR d."Modelo" ILIKE ${p} ESCAPE '\\'
+      OR d."Serie" ILIKE ${p} ESCAPE '\\'
+      OR d."DireccionMAC" ILIKE ${p} ESCAPE '\\'
+      OR d."Zona" ILIKE ${p} ESCAPE '\\'
+      OR d."Observacion" ILIKE ${p} ESCAPE '\\'
+      OR COALESCE(d."RespuestasJSON",'') ILIKE ${p} ESCAPE '\\'
+      OR m."TituloMantenimiento" ILIKE ${p} ESCAPE '\\'
+      OR m."Cliente" ILIKE ${p} ESCAPE '\\'
     )`);
   }
-  const direct=[
-    ['type','(d."TipoDispositivo" ILIKE %P% ESCAPE \\'\\\\\\' OR d."Categoria" ILIKE %P% ESCAPE \\'\\\\\\')'],
-    ['manufacturer','d."Fabricante" ILIKE %P% ESCAPE \\'\\\\\\''],
-    ['model','d."Modelo" ILIKE %P% ESCAPE \\'\\\\\\''],
-    ['serial','d."Serie" ILIKE %P% ESCAPE \\'\\\\\\''],
-    ['mac','d."DireccionMAC" ILIKE %P% ESCAPE \\'\\\\\\''],
-    ['zone','d."Zona" ILIKE %P% ESCAPE \\'\\\\\\''],
-  ];
-  for(const [key,template] of direct){
-    if(!clean(args[key])) continue;
-    params.push(like(args[key]));
-    clauses.push(template.replaceAll('%P%','$'+params.length));
+  if(clean(args.type)){
+    params.push(like(args.type)); const p='$'+params.length;
+    clauses.push(`(d."TipoDispositivo" ILIKE ${p} ESCAPE '\\' OR d."Categoria" ILIKE ${p} ESCAPE '\\')`);
   }
+  if(clean(args.manufacturer)){params.push(like(args.manufacturer));clauses.push(`d."Fabricante" ILIKE $${params.length} ESCAPE '\\'`);}
+  if(clean(args.model)){params.push(like(args.model));clauses.push(`d."Modelo" ILIKE $${params.length} ESCAPE '\\'`);}
+  if(clean(args.serial)){params.push(like(args.serial));clauses.push(`d."Serie" ILIKE $${params.length} ESCAPE '\\'`);}
+  if(clean(args.mac)){params.push(like(args.mac));clauses.push(`d."DireccionMAC" ILIKE $${params.length} ESCAPE '\\'`);}
+  if(clean(args.zone)){params.push(like(args.zone));clauses.push(`d."Zona" ILIKE $${params.length} ESCAPE '\\'`);}
   if(clean(args.maintenanceType)){
     params.push(clean(args.maintenanceType,40).toUpperCase());
-    clauses.push('UPPER(COALESCE(NULLIF(m."TipoMantenimiento",\\'\\'),\\'MANTENIMIENTO\\'))=$'+params.length);
+    clauses.push(`UPPER(COALESCE(NULLIF(m."TipoMantenimiento",''),'MANTENIMIENTO'))=$${params.length}`);
   }
   if(clean(args.clientId)){
     params.push(clean(args.clientId,250));
@@ -457,7 +453,7 @@ export async function searchDevices(ctx,args={}){
     `SELECT COUNT(*)::bigint AS total
        FROM "Evidencia_Mantenimientos" d
        JOIN "Mantenimiento" m ON m."MantenimientoID"=d."MantenimientoRef"
-      WHERE \${where}`,
+      WHERE ${where}`,
     params,
     'ai.devices.search.count',
   );
@@ -478,10 +474,10 @@ export async function searchDevices(ctx,args={}){
             m."ClienteID" AS "clientId",m."Cliente" AS client
        FROM "Evidencia_Mantenimientos" d
        JOIN "Mantenimiento" m ON m."MantenimientoID"=d."MantenimientoRef"
-      WHERE \${where}
+      WHERE ${where}
       ORDER BY COALESCE(NULLIF(m."FechaFinalizacion",''),m."Fecha",m."FechaCreacion") DESC NULLS LAST,
                d."NombreDispositivo" ASC NULLS LAST
-      LIMIT $\${queryParams.length-1} OFFSET $\${queryParams.length}`,
+      LIMIT $${queryParams.length-1} OFFSET $${queryParams.length}`,
     queryParams,'ai.devices.search');
 
   const enriched=rows.map(row=>{
