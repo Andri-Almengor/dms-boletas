@@ -21,6 +21,9 @@ import { formatMacAddressInput, macAddressError, normalizeMacAddress } from '../
 import { isProjectMaintenance } from '../../features/maintenance/maintenanceType';
 import {
   normalizeProjectRelationValue,
+  projectEvidenceTargetPatch,
+  projectEvidenceTargets,
+  projectEvidenceTargetValue,
   projectQuestionMissing,
 } from '../../features/maintenance/maintenanceProjectRelations';
 import {
@@ -54,18 +57,33 @@ function technicianOption(row) {
   };
 }
 
-function pendingEvidence(item) {
+function pendingEvidence(item, { projectMode = false, target = null } = {}) {
   return {
     localId: crypto.randomUUID?.() || `${Date.now()}-${Math.random()}`,
     file: item.file,
-    type: 'Antes',
+    type: projectMode ? 'Proyecto' : 'Antes',
     note: '',
+    capturedAt: new Date().toISOString(),
+    ...(projectMode ? projectEvidenceTargetPatch(target || {}) : {}),
     mimeType: item.mimeType,
     mediaType: item.mediaType,
     durationSeconds: item.durationSeconds,
     size: item.size,
     previewUrl: createEvidencePreviewUrl(item.file),
   };
+}
+
+function evidenceTimestamp(image = {}) {
+  const value = pick(image, ['FechaCaptura', 'capturedAt', 'FechaCreacion', 'FechaActualizacion'], '');
+  const time = Date.parse(value);
+  return Number.isFinite(time) ? time : 0;
+}
+
+function evidenceDateLabel(image = {}) {
+  const value = pick(image, ['FechaCaptura', 'capturedAt', 'FechaCreacion'], '');
+  const parsed = new Date(value);
+  if (Number.isNaN(parsed.getTime())) return 'Sin fecha';
+  return new Intl.DateTimeFormat('es-CR', { dateStyle: 'short', timeStyle: 'short' }).format(parsed);
 }
 
 function PendingEvidencePreview({ evidence }) {
@@ -158,6 +176,15 @@ export default function MaintenanceDeviceEditor({
     () => (technicians.length ? technicians : loadedTechnicians),
     [technicians, loadedTechnicians],
   );
+  const projectEvidenceTargetOptions = useMemo(
+    () => (projectMode ? projectEvidenceTargets(device) : []),
+    [device, projectMode],
+  );
+  const projectDefaultEvidenceTarget = projectEvidenceTargetOptions[0] || null;
+  const sortedExistingImages = useMemo(
+    () => [...(device.images || [])].sort((left, right) => evidenceTimestamp(right) - evidenceTimestamp(left)),
+    [device.images],
+  );
 
   const dynamicQuestions = useMemo(() => {
     const currentTypeId = String(device.tipoDispositivoId || '');
@@ -200,6 +227,14 @@ export default function MaintenanceDeviceEditor({
       ? dynamicQuestions.filter((question) => projectQuestionMissing(question, device.respuestas?.[question.key]))
       : []
   ), [device.respuestas, dynamicQuestions, projectMode]);
+
+  const projectEvidenceTargetErrors = useMemo(() => {
+    if (!projectMode) return [];
+    const validTargets = new Set(projectEvidenceTargetOptions.map((target) => target.value));
+    return [...(device.images || []), ...(device.newImages || [])]
+      .map((image) => ({ image, value: projectEvidenceTargetValue(image) }))
+      .filter(({ value }) => value.startsWith('COMPONENTE:') && !validTargets.has(value));
+  }, [device.images, device.newImages, projectEvidenceTargetOptions, projectMode]);
 
   const projectRelationErrors = useMemo(() => {
     if (!projectMode) return [];
@@ -312,7 +347,15 @@ export default function MaintenanceDeviceEditor({
     setEvidenceError('');
     try {
       const prepared = await prepareEvidenceFiles(files, { allowDocuments: false });
-      patch({ newImages: [...(device.newImages || []), ...prepared.map(pendingEvidence)] });
+      patch({
+        newImages: [
+          ...(device.newImages || []),
+          ...prepared.map((item) => pendingEvidence(item, {
+            projectMode,
+            target: projectDefaultEvidenceTarget,
+          })),
+        ],
+      });
     } catch (error) {
       setEvidenceError(error.message || 'No se pudieron preparar las evidencias seleccionadas.');
     }
@@ -363,7 +406,11 @@ export default function MaintenanceDeviceEditor({
     || !onSubmit
     || missingEquipmentLocation
     || Boolean(invalidMac)
-    || (projectMode && (projectMissingQuestions.length > 0 || projectRelationErrors.length > 0));
+    || (projectMode && (
+      projectMissingQuestions.length > 0
+      || projectRelationErrors.length > 0
+      || projectEvidenceTargetErrors.length > 0
+    ));
 
   return <div className="maintenance-device-editor" data-offline-editing-surface>
     <div className="page-header maintenance-device-editor__header">
@@ -442,9 +489,53 @@ export default function MaintenanceDeviceEditor({
 
       <section className="form-card maintenance-device-section-card"><div className="form-card__heading"><span className="section-marker" /><div><h3>Observaciones</h3><p>Registre hallazgos, fallas, trabajos realizados o recomendaciones.</p></div></div><Field label="Observación" multiline value={device.observacion} onChange={(event) => patch({ observacion: event.target.value })} disabled={locked} /></section>
 
-      {projectMode ? <section className="form-card maintenance-device-section-card maintenance-project-evidence-placeholder">
-        <div className="form-card__heading"><span className="section-marker" /><div><h3>Evidencias del proyecto</h3><p>El dispositivo ya puede guardarse con toda su estructura y componentes. La galería de Proyecto utilizará evidencias sin Antes/Después y se activa en la siguiente etapa.</p></div></div>
-        <div className="info-box"><Icon name="photo_library" /><p>Para evitar guardar evidencias con la clasificación histórica Antes/Después, la carga queda deshabilitada temporalmente únicamente en modo Proyecto.</p></div>
+      {projectMode ? <section className="maintenance-image-section maintenance-device-section-card maintenance-project-evidence-section">
+        <div className="form-card__heading"><span className="section-marker" /><div><h3>Evidencias del proyecto</h3><p>Sin Antes/Después. Cada archivo registra fecha y hora automáticamente y puede ligarse al dispositivo principal o a uno de sus componentes.</p></div><span className="maintenance-device-evidence-total">{totalEvidence}</span></div>
+        {evidenceError && <div className="alert alert--error" role="alert"><Icon name="error" /><span>{evidenceError}</span></div>}
+        {projectEvidenceTargetErrors.length > 0 && <div className="alert alert--error"><Icon name="account_tree" /><span>Hay evidencia ligada a un componente que ya no existe. Reasígnela antes de guardar el dispositivo.</span></div>}
+        {!locked && <div className="maintenance-evidence-picker maintenance-device-evidence-picker">
+          <label className="button button--primary maintenance-device-camera-button"><Icon name="photo_camera" /> Tomar foto<input type="file" accept="image/*" capture="environment" onChange={addFiles} /></label>
+          <label className="button button--secondary"><Icon name="videocam" /> Grabar video<input type="file" accept="video/mp4,video/webm,video/quicktime,video/*" capture="environment" onChange={addFiles} /></label>
+          <label className="button button--secondary"><Icon name="perm_media" /> Seleccionar archivos<input type="file" accept="image/*,video/mp4,video/webm,video/quicktime,.mov,.mp4,.webm" multiple onChange={addFiles} /></label>
+        </div>}
+        <small className="maintenance-device-camera-hint"><Icon name="schedule" /> Las evidencias se muestran de la más nueva a la más antigua. Los límites multimedia existentes se mantienen.</small>
+
+        <div className="maintenance-image-grid maintenance-device-image-grid maintenance-project-evidence-grid">
+          {sortedExistingImages.map((image) => {
+            const imageId = String(image.id || image.FotoDispositivoID || '');
+            const currentTarget = projectEvidenceTargetValue(image);
+            return <article key={imageId} className="maintenance-device-image-card">
+              <MaintenanceEvidenceImage image={{ ...image, FotoDispositivoID: imageId }} galleryImages={sortedExistingImages} sessionToken={sessionToken} alt={pick(image, ['Nombre'], 'Evidencia')} />
+              {canDeleteEvidence && !locked && <button type="button" className="maintenance-image-delete" onClick={() => removeExistingImage(image)} disabled={Boolean(deletingImageId)} aria-label="Eliminar evidencia"><Icon name={deletingImageId === imageId ? 'progress_activity' : 'delete'} /></button>}
+              <label><span>Corresponde a</span><select value={currentTarget} onChange={(event) => {
+                const target = projectEvidenceTargetOptions.find((item) => item.value === event.target.value) || projectDefaultEvidenceTarget;
+                const targetPatch = projectEvidenceTargetPatch(target || {});
+                updateExistingImage(image.id, {
+                  ProyectoDestinoTipo: targetPatch.projectTargetType,
+                  ProyectoRelacionClave: targetPatch.projectRelationKey,
+                  ProyectoComponenteLocalID: targetPatch.projectComponentLocalId,
+                });
+              }} disabled={locked}>{projectEvidenceTargetOptions.map((target) => <option key={target.value} value={target.value}>{target.label}</option>)}</select></label>
+              <label><span>Nota</span><input value={pick(image, ['Nota'])} onChange={(event) => updateExistingImage(image.id, { Nota: event.target.value })} placeholder="Descripción opcional" disabled={locked} /></label>
+              <small className="maintenance-project-evidence-meta"><Icon name="schedule" />{evidenceDateLabel(image)}</small>
+            </article>;
+          })}
+          {(device.newImages || []).map((image) => {
+            const currentTarget = projectEvidenceTargetValue(image);
+            return <article key={image.localId} className="maintenance-device-image-card maintenance-device-image-card--pending">
+              <div className="maintenance-device-image-card__preview"><PendingEvidencePreview evidence={image} /><span><Icon name="schedule" />Pendiente</span></div>
+              <button type="button" className="maintenance-image-delete" onClick={() => removeNewImage(image)} disabled={submitting} aria-label="Quitar evidencia"><Icon name="close" /></button>
+              <label><span>Corresponde a</span><select value={currentTarget} onChange={(event) => {
+                const target = projectEvidenceTargetOptions.find((item) => item.value === event.target.value) || projectDefaultEvidenceTarget;
+                updateNewImage(image.localId, projectEvidenceTargetPatch(target || {}));
+              }} disabled={locked}>{projectEvidenceTargetOptions.map((target) => <option key={target.value} value={target.value}>{target.label}</option>)}</select></label>
+              <label><span>Nota</span><input value={image.note} onChange={(event) => updateNewImage(image.localId, { note: event.target.value })} placeholder="Descripción opcional" disabled={locked} /></label>
+              <small className="maintenance-project-evidence-meta"><Icon name="schedule" />{evidenceDateLabel(image)}</small>
+              {image.mediaType === 'video' && <small>Video · {Math.ceil(Number(image.durationSeconds || 0))} segundos</small>}
+            </article>;
+          })}
+          {!totalEvidence && <div className="maintenance-device-images-empty"><Icon name="perm_media" /><strong>Sin evidencias todavía</strong><span>Puede cargarlas al dispositivo principal o a cualquiera de sus componentes relacionados.</span></div>}
+        </div>
       </section> : <section className="maintenance-image-section maintenance-device-section-card">
         <div className="form-card__heading"><span className="section-marker" /><div><h3>Evidencias del dispositivo</h3><p>Tome fotografías o grabe videos de hasta 20 segundos. Se subirán al guardar el dispositivo.</p></div><span className="maintenance-device-evidence-total">{totalEvidence}</span></div>
         {evidenceError && <div className="alert alert--error" role="alert"><Icon name="error" /><span>{evidenceError}</span></div>}
@@ -478,7 +569,7 @@ export default function MaintenanceDeviceEditor({
       <footer className="maintenance-device-editor__actions">
         <div className="maintenance-device-editor__actions-status"><AutosaveIndicator status={autosaveStatus} /></div>
         <button className="button button--ghost maintenance-device-cancel-button" type="button" onClick={cancel} disabled={submitting}><Icon name="close" />Cancelar</button>
-        {onSubmitAndContinue && isNewDevice && !locked && <button className="button button--secondary" type="button" onClick={onSubmitAndContinue} disabled={missingEquipmentLocation || Boolean(invalidMac) || (projectMode && (projectMissingQuestions.length > 0 || projectRelationErrors.length > 0))}><Icon name="add_circle" />Guardar y agregar otro</button>}
+        {onSubmitAndContinue && isNewDevice && !locked && <button className="button button--secondary" type="button" onClick={onSubmitAndContinue} disabled={missingEquipmentLocation || Boolean(invalidMac) || (projectMode && (projectMissingQuestions.length > 0 || projectRelationErrors.length > 0 || projectEvidenceTargetErrors.length > 0))}><Icon name="add_circle" />Guardar y agregar otro</button>}
         <button className="button button--primary" type="button" onClick={onSubmit} disabled={submitDisabled}><Icon name={submitting ? 'progress_activity' : 'check'} /> {submitting ? 'Guardando dispositivo...' : submitLabel}</button>
       </footer>
     </div>
