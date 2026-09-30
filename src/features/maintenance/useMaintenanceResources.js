@@ -149,7 +149,8 @@ export default function useMaintenanceResources({
 
       if (maintenanceData) {
         const mappedForm = mapMaintenance(maintenanceData);
-        const mappedDevices = (maintenanceData.dispositivos || maintenanceData.devices || []).map(mapMaintenanceDevice);
+        const mappedDevices = (maintenanceData.dispositivos || maintenanceData.devices || [])
+          .map((device) => mapMaintenanceDevice(device, mappedForm.tipoMantenimiento));
         setForm(mappedForm);
         setDevices(mappedDevices);
 

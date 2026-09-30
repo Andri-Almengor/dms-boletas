@@ -4,6 +4,76 @@ import {
   active, addRange, aliasQuery, clean, entity, like, many, one,
   pageLimit, pageOffset, protectedAttachment, source,
 } from './agent.repository.shared.js';
+import {
+  projectMaintenanceComponentsFromAnswers,
+  projectMaintenanceScalarAnswers,
+} from '../services/maintenance-evidence-policy.service.js';
+
+function normalize(value) {
+  return String(value || '').normalize('NFD').replace(/[\u0300-\u036f]/g, '').toLowerCase().replace(/\s+/g, ' ').trim();
+}
+
+function projectComponentFilters(args = {}) {
+  return {
+    query: clean(args.componentQuery, 250),
+    type: clean(args.componentType, 180),
+    manufacturer: clean(args.componentManufacturer, 180),
+    model: clean(args.componentModel, 180),
+    serial: clean(args.componentSerial, 180),
+    mac: clean(args.componentMac, 180),
+  };
+}
+
+function hasProjectComponentFilters(args = {}) {
+  return Object.values(projectComponentFilters(args)).some(Boolean);
+}
+
+function componentSearchText(component = {}) {
+  return normalize([
+    component.relationLabel,
+    component.type,
+    component.name,
+    component.manufacturer,
+    component.model,
+    component.serial,
+    component.mac,
+    ...Object.entries(component.answers || {}).flatMap(([key, value]) => [key, value]),
+  ].filter(Boolean).join(' '));
+}
+
+function componentMatchesFilters(component = {}, filters = {}) {
+  const includes = (value, expected) => !expected || normalize(value).includes(normalize(expected));
+  if (!includes(component.type, filters.type)) return false;
+  if (!includes(component.manufacturer, filters.manufacturer)) return false;
+  if (!includes(component.model, filters.model)) return false;
+  if (!includes(component.serial, filters.serial)) return false;
+  if (!includes(component.mac, filters.mac)) return false;
+  if (filters.query && !componentSearchText(component).includes(normalize(filters.query))) return false;
+  return true;
+}
+
+function projectDeviceData(row = {}, args = {}) {
+  const components = projectMaintenanceComponentsFromAnswers(row.answersJson);
+  const filters = projectComponentFilters(args);
+  const filteredComponents = hasProjectComponentFilters(args)
+    ? components.filter((component) => componentMatchesFilters(component, filters))
+    : components;
+  return {
+    projectAnswers: projectMaintenanceScalarAnswers(row.answersJson),
+    projectComponents: filteredComponents.slice(0, 50),
+    projectComponentCount: components.length,
+    matchesProjectComponentFilters: !hasProjectComponentFilters(args) || filteredComponents.length > 0,
+  };
+}
+
+function addProjectComponentCandidateFilters(clauses, params, args = {}, column = 'd."RespuestasJSON"') {
+  for (const value of Object.values(projectComponentFilters(args))) {
+    if (!value) continue;
+    params.push(like(value));
+    clauses.push(`COALESCE(${column},'') ILIKE $${params.length} ESCAPE '\\'`);
+  }
+}
+
 
 export async function searchMaintenances(ctx, args = {}) {
   assertAiCapability(ctx, 'maintenance');
@@ -22,6 +92,10 @@ export async function searchMaintenances(ctx, args = {}) {
   }
   if(clean(args.clientId)){params.push(clean(args.clientId,250));clauses.push(`m."ClienteID"=$${params.length}`);}
   if(clean(args.status)){params.push(clean(args.status,50).toUpperCase());clauses.push(`UPPER(COALESCE(m."Estado",''))=$${params.length}`);}
+  if(clean(args.maintenanceType)){
+    params.push(clean(args.maintenanceType,40).toUpperCase());
+    clauses.push(`UPPER(COALESCE(NULLIF(m."TipoMantenimiento",''),'MANTENIMIENTO'))=$${params.length}`);
+  }
   const range=addRange(clauses,params,'m."Fecha"',args);
   const where=clauses.join(' AND ');
   const counted=await one(`SELECT COUNT(*)::bigint AS total FROM "Mantenimiento" m WHERE ${where}`,params,'ai.maintenance.search.count');
@@ -29,6 +103,7 @@ export async function searchMaintenances(ctx, args = {}) {
   const rows=await many(
     `SELECT m."MantenimientoID" AS id,m."TituloMantenimiento" AS title,m."ClienteID" AS "clientId",
             m."Cliente" AS client,m."Ubicacion" AS location,m."Estado" AS status,
+            COALESCE(NULLIF(m."TipoMantenimiento",''),'MANTENIMIENTO') AS "maintenanceType",
             m."Fecha" AS date,m."FechaFinalizacion" AS "finishedAt",m."Responsables" AS responsible,
             m."DescripcionGeneral" AS description,
             (SELECT COUNT(*) FROM "Evidencia_Mantenimientos" d
@@ -40,7 +115,7 @@ export async function searchMaintenances(ctx, args = {}) {
     queryParams,'ai.maintenance.search.items');
   const items=rows.map(row=>({
     id:row.id,title:row.title||'Mantenimiento',clientId:row.clientId||'',client:row.client||'',
-    location:row.location||'',status:row.status||'',date:row.date||'',finishedAt:row.finishedAt||'',
+    location:row.location||'',status:row.status||'',maintenanceType:String(row.maintenanceType||'MANTENIMIENTO').toUpperCase(),date:row.date||'',finishedAt:row.finishedAt||'',
     responsible:row.responsible||'',description:clean(row.description,2200),deviceCount:Number(row.deviceCount||0),
   }));
   return {
@@ -57,7 +132,8 @@ async function maintenanceRow(ctx,idValue){
   const row=await one(
     `SELECT m."MantenimientoID" AS id,m."TituloMantenimiento" AS title,m."ClienteID" AS "clientId",
             m."Cliente" AS client,m."UbicacionID" AS "locationId",m."Ubicacion" AS location,
-            m."Estado" AS status,m."Fecha" AS date,m."FechaFinalizacion" AS "finishedAt",
+            m."Estado" AS status,COALESCE(NULLIF(m."TipoMantenimiento",''),'MANTENIMIENTO') AS "maintenanceType",
+            m."Fecha" AS date,m."FechaFinalizacion" AS "finishedAt",
             m."Responsables" AS responsible,m."DescripcionGeneral" AS description,
             m."CantidadesJSON" AS "expectedCounts",m."CreadoPor" AS "createdBy",
             m."FechaCreacion" AS "createdAt",m."ActualizadoPor" AS "updatedBy",
@@ -136,7 +212,8 @@ export async function getMaintenance(ctx,args={}){
 
   const item={
     id:row.id,title:row.title||'Mantenimiento',clientId:row.clientId||'',client:row.client||'',
-    locationId:row.locationId||'',location:row.location||'',status:row.status||'',date:row.date||'',
+    locationId:row.locationId||'',location:row.location||'',status:row.status||'',
+    maintenanceType:String(row.maintenanceType||'MANTENIMIENTO').toUpperCase(),date:row.date||'',
     finishedAt:row.finishedAt||'',responsible:row.responsible||'',description:clean(row.description,4200),
     expectedCounts:clean(row.expectedCounts,3200),
     deviceCount:categories.reduce((sum,x)=>sum+Number(x.total||0),0),
@@ -179,9 +256,25 @@ export async function getMaintenanceDevices(ctx,args={}){
       OR d."DireccionMAC" ILIKE ${p} ESCAPE '\\'
       OR d."Zona" ILIKE ${p} ESCAPE '\\'
       OR d."Observacion" ILIKE ${p} ESCAPE '\\'
+      OR COALESCE(d."RespuestasJSON",'') ILIKE ${p} ESCAPE '\\'
+      OR EXISTS (
+        SELECT 1 FROM "Mantenimiento imagenes" ai_note
+         WHERE ${active('ai_note')}
+           AND ai_note."DispositivoMantenimientoRef"=d."EvidenciaMantenimientoID"
+           AND ai_note."Nota" ILIKE ${p} ESCAPE '\\'
+      )
     )`);
   }
   if(clean(args.type)){params.push(like(args.type));const p='$'+params.length;clauses.push(`(d."TipoDispositivo" ILIKE ${p} ESCAPE '\\' OR d."Categoria" ILIKE ${p} ESCAPE '\\')`);}
+  if(clean(args.evidenceNote)){
+    params.push(like(args.evidenceNote)); const p='$'+params.length;
+    clauses.push(`EXISTS (
+      SELECT 1 FROM "Mantenimiento imagenes" ai_note
+       WHERE ${active('ai_note')}
+         AND ai_note."DispositivoMantenimientoRef"=d."EvidenciaMantenimientoID"
+         AND ai_note."Nota" ILIKE ${p} ESCAPE '\\'
+    )`);
+  }
   if(args.observationsOnly===true){
     clauses.push(`(
       COALESCE(NULLIF(d."Observacion",''),'')<>''
@@ -191,32 +284,80 @@ export async function getMaintenanceDevices(ctx,args={}){
       OR LOWER(COALESCE(d."Funcionamiento",'')) IN ('no','mal','false')
     )`);
   }
+  const projectFilters=hasProjectComponentFilters(args);
+  if(projectFilters){
+    if(String(maintenance.maintenanceType||'MANTENIMIENTO').toUpperCase()!=='PROYECTO'){
+      return {
+        modelData:{maintenance:{id:maintenance.id,title:maintenance.title||'Mantenimiento',client:maintenance.client||'',maintenanceType:maintenance.maintenanceType||'MANTENIMIENTO'},total:0,totalShown:0,items:[],message:'Los filtros de componentes relacionados aplican a mantenimientos tipo Proyecto.'},
+        entities:[entity('maintenance',maintenance.id,maintenance.title||'Mantenimiento','/mantenimientos/'+encodeURIComponent(maintenance.id))],
+        sources:[source('maintenance',maintenance.id,(maintenance.title||'Mantenimiento')+' · dispositivos','/mantenimientos/'+encodeURIComponent(maintenance.id))],
+        context:{lastMaintenanceId:maintenance.id,lastMaintenanceName:maintenance.title||'',lastClientId:maintenance.clientId||'',lastClientName:maintenance.client||''},
+      };
+    }
+    addProjectComponentCandidateFilters(clauses,params,args);
+  }
   const where=clauses.join(' AND ');
   const counted=await one(`SELECT COUNT(*)::bigint AS total FROM "Evidencia_Mantenimientos" d WHERE ${where}`,params,'ai.maintenance.devices.count');
-  const queryParams=[...params,pageLimit(args.limit,50),pageOffset(args.offset)];
+  const requestedLimit=pageLimit(args.limit,50);
+  const requestedOffset=pageOffset(args.offset);
+  const candidateLimit=projectFilters?Math.min(250,Math.max(50,(requestedOffset+requestedLimit)*5)):requestedLimit;
+  const candidateOffset=projectFilters?0:requestedOffset;
+  const queryParams=[...params,candidateLimit,candidateOffset];
   const rows=await many(
     `SELECT d."EvidenciaMantenimientoID" AS id,d."NombreDispositivo" AS name,
             COALESCE(NULLIF(d."TipoDispositivo",''),d."Categoria") AS type,d."Categoria" AS category,
             d."Zona" AS zone,d."Fabricante" AS manufacturer,d."Modelo" AS model,d."Serie" AS serial,
             d."DireccionMAC" AS mac,d."Funcionamiento" AS functioning,d."EnUso" AS "inUse",
             d."Estado" AS status,d."Observacion" AS observation,d."FechaTrabajo" AS "workDate",
-            d."Tecnicos" AS technicians,d."CreadoPor" AS "createdBy",d."FechaCreacion" AS "createdAt",
+            d."Tecnicos" AS technicians,d."RespuestasJSON" AS "answersJson",
+            d."CreadoPor" AS "createdBy",d."FechaCreacion" AS "createdAt",
             d."ActualizadoPor" AS "updatedBy",d."FechaActualizacion" AS "updatedAt",
             (SELECT COUNT(*) FROM "Mantenimiento imagenes" mi
-             WHERE ${active('mi')} AND mi."DispositivoMantenimientoRef"=d."EvidenciaMantenimientoID")::bigint AS "evidenceCount"
+             WHERE ${active('mi')} AND mi."DispositivoMantenimientoRef"=d."EvidenciaMantenimientoID")::bigint AS "evidenceCount",
+            ARRAY(
+              SELECT note_row."Nota"
+                FROM "Mantenimiento imagenes" note_row
+               WHERE ${active('note_row')}
+                 AND note_row."DispositivoMantenimientoRef"=d."EvidenciaMantenimientoID"
+                 AND COALESCE(NULLIF(BTRIM(note_row."Nota"),''),'')<>''
+               ORDER BY COALESCE(NULLIF(note_row."FechaCaptura",''),note_row."FechaCreacion") DESC NULLS LAST
+               LIMIT 8
+            ) AS "evidenceNotes"
        FROM "Evidencia_Mantenimientos" d WHERE ${where}
       ORDER BY COALESCE(NULLIF(d."Zona",''),'') ASC,COALESCE(NULLIF(d."NombreDispositivo",''),d."TipoDispositivo") ASC
       LIMIT $${queryParams.length-1} OFFSET $${queryParams.length}`,
     queryParams,'ai.maintenance.devices.items');
-  const items=rows.map(row=>({
-    id:row.id,name:row.name||row.type||'Dispositivo',type:row.type||'',category:row.category||'',
-    zone:row.zone||'',manufacturer:row.manufacturer||'',model:row.model||'',serial:row.serial||'',mac:row.mac||'',
-    functioning:row.functioning||'',inUse:row.inUse||'',status:row.status||'',observation:clean(row.observation,2200),
-    workDate:row.workDate||'',technicians:row.technicians||'',createdBy:row.createdBy||'',createdAt:row.createdAt||'',
-    updatedBy:row.updatedBy||'',updatedAt:row.updatedAt||'',evidenceCount:Number(row.evidenceCount||0),
-  }));
+  const enriched=rows.map(row=>{
+    const projectData=String(maintenance.maintenanceType||'MANTENIMIENTO').toUpperCase()==='PROYECTO'
+      ? projectDeviceData(row,args)
+      : {projectAnswers:{},projectComponents:[],projectComponentCount:0,matchesProjectComponentFilters:true};
+    return {
+      id:row.id,name:row.name||row.type||'Dispositivo',type:row.type||'',category:row.category||'',
+      zone:row.zone||'',manufacturer:row.manufacturer||'',model:row.model||'',serial:row.serial||'',mac:row.mac||'',
+      functioning:row.functioning||'',inUse:row.inUse||'',status:row.status||'',observation:clean(row.observation,2200),
+      workDate:row.workDate||'',technicians:row.technicians||'',createdBy:row.createdBy||'',createdAt:row.createdAt||'',
+      updatedBy:row.updatedBy||'',updatedAt:row.updatedAt||'',evidenceCount:Number(row.evidenceCount||0),
+      evidenceNotes:(Array.isArray(row.evidenceNotes)?row.evidenceNotes:[]).map(value=>clean(value,600)).filter(Boolean),
+      projectAnswers:projectData.projectAnswers,
+      projectComponents:projectData.projectComponents,
+      projectComponentCount:projectData.projectComponentCount,
+      matchesProjectComponentFilters:projectData.matchesProjectComponentFilters,
+    };
+  });
+  const matched=projectFilters?enriched.filter(item=>item.matchesProjectComponentFilters):enriched;
+  const items=projectFilters?matched.slice(requestedOffset,requestedOffset+requestedLimit):matched;
+  const candidateTotal=Number(counted?.total||0);
+  const exactTotal=!projectFilters||candidateTotal<=candidateLimit;
   return {
-    modelData:{maintenance:{id:maintenance.id,title:maintenance.title||'Mantenimiento',client:maintenance.client||''},total:Number(counted?.total||0),totalShown:items.length,items},
+    modelData:{
+      maintenance:{id:maintenance.id,title:maintenance.title||'Mantenimiento',client:maintenance.client||'',maintenanceType:String(maintenance.maintenanceType||'MANTENIMIENTO').toUpperCase()},
+      total:exactTotal?(projectFilters?matched.length:candidateTotal):null,
+      candidateTotal:projectFilters?candidateTotal:undefined,
+      totalShown:items.length,
+      truncated:projectFilters&&!exactTotal,
+      ...(projectFilters&&!exactTotal?{message:'Hay más candidatos que el límite de análisis estructurado. Refine el filtro para obtener un resultado exhaustivo.'}:{}),
+      items,
+    },
     entities:[entity('maintenance',maintenance.id,maintenance.title||'Mantenimiento','/mantenimientos/'+encodeURIComponent(maintenance.id)),...items.slice(0,25).map(i=>entity('device',i.id,i.name,'/mantenimientos/'+encodeURIComponent(maintenance.id)))],
     sources:[source('maintenance',maintenance.id,(maintenance.title||'Mantenimiento')+' · dispositivos','/mantenimientos/'+encodeURIComponent(maintenance.id))],
     context:{lastMaintenanceId:maintenance.id,lastMaintenanceName:maintenance.title||'',lastClientId:maintenance.clientId||'',lastClientName:maintenance.client||''},
@@ -286,39 +427,144 @@ export async function getMaintenanceEvidence(ctx,args={}){
 
 export async function searchDevices(ctx,args={}){
   assertAiCapability(ctx,'maintenance');
-  const q=clean(args.query,250); if(!q) throw badRequest('Indique el dispositivo, serie, modelo, MAC o término a buscar.');
+  const q=clean(args.query,250);
+  const projectFilters=hasProjectComponentFilters(args);
+  const hasDirectFilters=[
+    args.type,args.manufacturer,args.model,args.serial,args.mac,args.zone,args.maintenanceType,args.clientId,args.evidenceNote,
+  ].some((value)=>clean(value));
+  if(!q&&!projectFilters&&!hasDirectFilters) throw badRequest('Indique un dispositivo, tipo, fabricante, modelo, serie, MAC, zona o componente a buscar.');
+
+  const params=[]; const clauses=[active('d'),active('m')];
+  if(q){
+    params.push(like(q)); const p='$'+params.length;
+    clauses.push(`(
+      d."NombreDispositivo" ILIKE ${p} ESCAPE '\\'
+      OR d."TipoDispositivo" ILIKE ${p} ESCAPE '\\'
+      OR d."Categoria" ILIKE ${p} ESCAPE '\\'
+      OR d."Fabricante" ILIKE ${p} ESCAPE '\\'
+      OR d."Modelo" ILIKE ${p} ESCAPE '\\'
+      OR d."Serie" ILIKE ${p} ESCAPE '\\'
+      OR d."DireccionMAC" ILIKE ${p} ESCAPE '\\'
+      OR d."Zona" ILIKE ${p} ESCAPE '\\'
+      OR d."Observacion" ILIKE ${p} ESCAPE '\\'
+      OR EXISTS (
+        SELECT 1 FROM "Mantenimiento imagenes" ai_note
+         WHERE ${active('ai_note')}
+           AND ai_note."DispositivoMantenimientoRef"=d."EvidenciaMantenimientoID"
+           AND ai_note."Nota" ILIKE ${p} ESCAPE '\\'
+      )
+      OR COALESCE(d."RespuestasJSON",'') ILIKE ${p} ESCAPE '\\'
+      OR m."TituloMantenimiento" ILIKE ${p} ESCAPE '\\'
+      OR m."Cliente" ILIKE ${p} ESCAPE '\\'
+    )`);
+  }
+  if(clean(args.type)){
+    params.push(like(args.type)); const p='$'+params.length;
+    clauses.push(`(d."TipoDispositivo" ILIKE ${p} ESCAPE '\\' OR d."Categoria" ILIKE ${p} ESCAPE '\\')`);
+  }
+  if(clean(args.manufacturer)){params.push(like(args.manufacturer));clauses.push(`d."Fabricante" ILIKE $${params.length} ESCAPE '\\'`);}
+  if(clean(args.model)){params.push(like(args.model));clauses.push(`d."Modelo" ILIKE $${params.length} ESCAPE '\\'`);}
+  if(clean(args.serial)){params.push(like(args.serial));clauses.push(`d."Serie" ILIKE $${params.length} ESCAPE '\\'`);}
+  if(clean(args.mac)){params.push(like(args.mac));clauses.push(`d."DireccionMAC" ILIKE $${params.length} ESCAPE '\\'`);}
+  if(clean(args.zone)){params.push(like(args.zone));clauses.push(`d."Zona" ILIKE $${params.length} ESCAPE '\\'`);}
+  if(clean(args.evidenceNote)){
+    params.push(like(args.evidenceNote)); const p='$'+params.length;
+    clauses.push(`EXISTS (
+      SELECT 1 FROM "Mantenimiento imagenes" ai_note
+       WHERE ${active('ai_note')}
+         AND ai_note."DispositivoMantenimientoRef"=d."EvidenciaMantenimientoID"
+         AND ai_note."Nota" ILIKE ${p} ESCAPE '\\'
+    )`);
+  }
+  if(clean(args.maintenanceType)){
+    params.push(clean(args.maintenanceType,40).toUpperCase());
+    clauses.push(`UPPER(COALESCE(NULLIF(m."TipoMantenimiento",''),'MANTENIMIENTO'))=$${params.length}`);
+  }
+  if(clean(args.clientId)){
+    params.push(clean(args.clientId,250));
+    clauses.push('m."ClienteID"=$'+params.length);
+  }
+  if(projectFilters){
+    clauses.push(`UPPER(COALESCE(NULLIF(m."TipoMantenimiento",''),'MANTENIMIENTO'))='PROYECTO'`);
+    addProjectComponentCandidateFilters(clauses,params,args);
+  }
+
+  const where=clauses.join(' AND ');
+  const counted=await one(
+    `SELECT COUNT(*)::bigint AS total
+       FROM "Evidencia_Mantenimientos" d
+       JOIN "Mantenimiento" m ON m."MantenimientoID"=d."MantenimientoRef"
+      WHERE ${where}`,
+    params,
+    'ai.devices.search.count',
+  );
+  const requestedLimit=pageLimit(args.limit,20);
+  const requestedOffset=pageOffset(args.offset);
+  const candidateLimit=projectFilters?Math.min(250,Math.max(50,(requestedOffset+requestedLimit)*5)):requestedLimit;
+  const candidateOffset=projectFilters?0:requestedOffset;
+  const queryParams=[...params,candidateLimit,candidateOffset];
   const rows=await many(
     `SELECT d."EvidenciaMantenimientoID" AS id,d."NombreDispositivo" AS name,
             COALESCE(NULLIF(d."TipoDispositivo",''),d."Categoria") AS type,d."Fabricante" AS manufacturer,
             d."Modelo" AS model,d."Serie" AS serial,d."DireccionMAC" AS mac,d."Zona" AS zone,
-            d."Estado" AS status,d."Observacion" AS observation,d."CreadoPor" AS "createdBy",
-            d."FechaCreacion" AS "createdAt",d."ActualizadoPor" AS "updatedBy",d."FechaActualizacion" AS "updatedAt",
-            m."MantenimientoID" AS "maintenanceId",
-            m."TituloMantenimiento" AS maintenance,m."ClienteID" AS "clientId",m."Cliente" AS client
+            d."Estado" AS status,d."Observacion" AS observation,d."RespuestasJSON" AS "answersJson",
+            d."CreadoPor" AS "createdBy",d."FechaCreacion" AS "createdAt",
+            d."ActualizadoPor" AS "updatedBy",d."FechaActualizacion" AS "updatedAt",
+            m."MantenimientoID" AS "maintenanceId",m."TituloMantenimiento" AS maintenance,
+            COALESCE(NULLIF(m."TipoMantenimiento",''),'MANTENIMIENTO') AS "maintenanceType",
+            m."ClienteID" AS "clientId",m."Cliente" AS client,
+            ARRAY(
+              SELECT note_row."Nota"
+                FROM "Mantenimiento imagenes" note_row
+               WHERE ${active('note_row')}
+                 AND note_row."DispositivoMantenimientoRef"=d."EvidenciaMantenimientoID"
+                 AND COALESCE(NULLIF(BTRIM(note_row."Nota"),''),'')<>''
+               ORDER BY COALESCE(NULLIF(note_row."FechaCaptura",''),note_row."FechaCreacion") DESC NULLS LAST
+               LIMIT 8
+            ) AS "evidenceNotes"
        FROM "Evidencia_Mantenimientos" d
-       JOIN "Mantenimiento" m ON ${active('m')} AND m."MantenimientoID"=d."MantenimientoRef"
-      WHERE ${active('d')} AND (
-        d."NombreDispositivo" ILIKE $1 ESCAPE '\\' OR d."TipoDispositivo" ILIKE $1 ESCAPE '\\'
-        OR d."Categoria" ILIKE $1 ESCAPE '\\' OR d."Fabricante" ILIKE $1 ESCAPE '\\'
-        OR d."Modelo" ILIKE $1 ESCAPE '\\' OR d."Serie" ILIKE $1 ESCAPE '\\'
-        OR d."DireccionMAC" ILIKE $1 ESCAPE '\\' OR d."Zona" ILIKE $1 ESCAPE '\\'
-        OR d."Observacion" ILIKE $1 ESCAPE '\\'
-      )
-      ORDER BY m."Fecha" DESC NULLS LAST,d."NombreDispositivo" ASC LIMIT $2`,
-    [like(q),pageLimit(args.limit,20)],'ai.devices.search');
-  const items=rows.map(row=>({
-    id:row.id,name:row.name||row.type||'Dispositivo',type:row.type||'',manufacturer:row.manufacturer||'',model:row.model||'',
-    serial:row.serial||'',mac:row.mac||'',zone:row.zone||'',status:row.status||'',observation:clean(row.observation,1600),
-    maintenanceId:row.maintenanceId||'',maintenance:row.maintenance||'',clientId:row.clientId||'',client:row.client||'',
-  }));
+       JOIN "Mantenimiento" m ON m."MantenimientoID"=d."MantenimientoRef"
+      WHERE ${where}
+      ORDER BY COALESCE(NULLIF(m."FechaFinalizacion",''),m."Fecha",m."FechaCreacion") DESC NULLS LAST,
+               d."NombreDispositivo" ASC NULLS LAST
+      LIMIT $${queryParams.length-1} OFFSET $${queryParams.length}`,
+    queryParams,'ai.devices.search');
+
+  const enriched=rows.map(row=>{
+    const isProject=String(row.maintenanceType||'MANTENIMIENTO').toUpperCase()==='PROYECTO';
+    const projectData=isProject
+      ? projectDeviceData(row,args)
+      : {projectAnswers:{},projectComponents:[],projectComponentCount:0,matchesProjectComponentFilters:true};
+    return {
+      id:row.id,name:row.name||row.type||'Dispositivo',type:row.type||'',manufacturer:row.manufacturer||'',model:row.model||'',
+      serial:row.serial||'',mac:row.mac||'',zone:row.zone||'',status:row.status||'',observation:clean(row.observation,1600),
+      maintenanceId:row.maintenanceId||'',maintenance:row.maintenance||'',maintenanceType:String(row.maintenanceType||'MANTENIMIENTO').toUpperCase(),
+      clientId:row.clientId||'',client:row.client||'',
+      evidenceNotes:(Array.isArray(row.evidenceNotes)?row.evidenceNotes:[]).map(value=>clean(value,600)).filter(Boolean),
+      projectAnswers:projectData.projectAnswers,
+      projectComponents:projectData.projectComponents,
+      projectComponentCount:projectData.projectComponentCount,
+      matchesProjectComponentFilters:projectData.matchesProjectComponentFilters,
+    };
+  });
+  const matched=projectFilters?enriched.filter(item=>item.matchesProjectComponentFilters):enriched;
+  const items=projectFilters?matched.slice(requestedOffset,requestedOffset+requestedLimit):matched;
+  const candidateTotal=Number(counted?.total||0);
+  const exactTotal=!projectFilters||candidateTotal<=candidateLimit;
   return {
-    modelData:{totalShown:items.length,items},
+    modelData:{
+      total:exactTotal?(projectFilters?matched.length:candidateTotal):null,
+      candidateTotal:projectFilters?candidateTotal:undefined,
+      totalShown:items.length,
+      truncated:projectFilters&&!exactTotal,
+      ...(projectFilters&&!exactTotal?{message:'Hay más candidatos que el límite de análisis estructurado. Refine por proyecto, tipo, fabricante o modelo.'}:{}),
+      items,
+    },
     entities:items.map(i=>entity('device',i.id,i.name,'/mantenimientos/'+encodeURIComponent(i.maintenanceId))),
     sources:items.slice(0,8).map(i=>source('maintenance',i.maintenanceId,i.maintenance+' · '+i.name,'/mantenimientos/'+encodeURIComponent(i.maintenanceId))),
     context:items.length===1?{lastDeviceId:items[0].id,lastDeviceName:items[0].name,lastMaintenanceId:items[0].maintenanceId,lastMaintenanceName:items[0].maintenance,lastClientId:items[0].clientId,lastClientName:items[0].client}:{},
   };
 }
-
 
 export async function getMaintenanceHistory(ctx,args={}){
   const maintenance=await maintenanceRow(ctx,args.maintenanceId);

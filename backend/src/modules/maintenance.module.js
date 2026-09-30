@@ -14,6 +14,17 @@ import { asArray, nowIso, pick, uuid } from '../core/utils.js';
 import { getConfig } from './config.module.js';
 import { audit } from '../services/audit.service.js';
 import { sheetsApi, slidesApi } from '../infra/google.js';
+import {
+  loadMaintenanceEvidenceContext,
+  maintenanceEvidenceMetadata,
+  sortMaintenanceEvidenceNewestFirst,
+} from '../services/maintenance-evidence-policy.service.js';
+import {
+  projectChecklistJson,
+  projectDeviceProgressSummary,
+  sameProjectChecklist,
+  validateProjectDeviceProgress,
+} from '../services/maintenance-project-checklist.service.js';
 
 const deviceAutosaveWriteTimes = new Map();
 const DEVICE_AUTOSAVE_MIN_INTERVAL_MS = 6000;
@@ -74,12 +85,20 @@ function normalizeCategoryName(value) {
   return text;
 }
 
+function normalizeMaintenanceType(value, fallback = 'MANTENIMIENTO') {
+  const normalized = String(value || fallback || 'MANTENIMIENTO').trim().toUpperCase();
+  return normalized === 'PROYECTO' ? 'PROYECTO' : 'MANTENIMIENTO';
+}
+
 function maintenancePayload(payload, before = {}) {
   const counts = payload.counts || payload.cantidades || (() => {
     try { return JSON.parse(payload.CantidadesJSON || '{}'); } catch { return {}; }
   })();
   const row = {
     TituloMantenimiento: pick(payload, ['TituloMantenimiento', 'titulo'], before.TituloMantenimiento),
+    TipoMantenimiento: normalizeMaintenanceType(
+      pick(payload, ['TipoMantenimiento', 'tipoMantenimiento', 'maintenanceType'], before.TipoMantenimiento || 'MANTENIMIENTO'),
+    ),
     ClienteID: pick(payload, ['ClienteID', 'ClienteRef', 'clienteId'], before.ClienteID),
     Cliente: pick(payload, ['Cliente', 'cliente'], before.Cliente),
     UbicacionID: pick(payload, ['UbicacionID', 'ubicacionId'], before.UbicacionID),
@@ -90,11 +109,21 @@ function maintenancePayload(payload, before = {}) {
     ResponsableIDsJSON: JSON.stringify(asArray(payload.ResponsableIDs || payload.responsables || before.ResponsableIDsJSON)),
     DescripcionGeneral: pick(payload, ['DescripcionGeneral', 'descripcion'], before.DescripcionGeneral),
     CantidadesJSON: JSON.stringify(counts),
+    ProyectoChecklistJSON: normalizeMaintenanceType(
+      pick(payload, ['TipoMantenimiento', 'tipoMantenimiento', 'maintenanceType'], before.TipoMantenimiento || 'MANTENIMIENTO'),
+    ) === 'PROYECTO'
+      ? projectChecklistJson(payload.projectChecklist || payload.ProyectoChecklistJSON || before.ProyectoChecklistJSON)
+      : (before.ProyectoChecklistJSON || ''),
   };
   CATEGORY_CONFIG.forEach((category) => {
     row[category.countField] = Number(counts[category.countField] ?? payload[category.countField] ?? before[category.countField] ?? 0);
   });
   return row;
+}
+
+function answerColumnValue(value) {
+  if (value && typeof value === 'object') return JSON.stringify(value);
+  return value;
 }
 
 function devicePayload(payload, before = {}) {
@@ -119,12 +148,17 @@ function devicePayload(payload, before = {}) {
     ModeloID: pick(payload, ['ModeloID', 'modeloId'], before.ModeloID),
     Modelo: pick(payload, ['Modelo', 'modelo'], before.Modelo),
     Serie: pick(payload, ['Serie', 'serie'], before.Serie),
+    DireccionMAC: pick(payload, ['DireccionMAC', 'macAddress', 'mac'], before.DireccionMAC),
     Funcionamiento: pick(payload, ['Funcionamiento', 'funcionamiento'], before.Funcionamiento),
     EnUso: pick(payload, ['EnUso', 'enUso'], before.EnUso),
     Estado: pick(payload, ['Estado', 'estado'], before.Estado || 'Correcto'),
     Observacion: pick(payload, ['Observacion', 'observacion'], before.Observacion),
+    ProyectoProgresoJSON: pick(payload, ['ProyectoProgresoJSON', 'projectProgress', 'proyectoProgreso'], before.ProyectoProgresoJSON || ''),
     RespuestasJSON: JSON.stringify(answers),
-    ...Object.fromEntries(Object.entries(answers).map(([key, value]) => [key.charAt(0).toUpperCase() + key.slice(1), value])),
+    ...Object.fromEntries(Object.entries(answers).map(([key, value]) => [
+      key.charAt(0).toUpperCase() + key.slice(1),
+      answerColumnValue(value),
+    ])),
   };
 }
 
@@ -160,7 +194,7 @@ async function enrich(row, providedTables = null) {
         ...device,
         Categoria: category,
         TipoDispositivo: category,
-        Imagenes: (imagesByDevice.get(String(device.EvidenciaMantenimientoID)) || [])
+        Imagenes: sortMaintenanceEvidenceNewestFirst(imagesByDevice.get(String(device.EvidenciaMantenimientoID)) || [])
           .map((image) => ({
             ...image,
             PreviewURL: image.DriveFileID
@@ -187,7 +221,7 @@ export const maintenanceHandlers = {
     if (payload.dateFrom) rows = rows.filter((row) => String(row.Fecha).slice(0, 10) >= String(payload.dateFrom));
     if (payload.dateTo) rows = rows.filter((row) => String(row.Fecha).slice(0, 10) <= String(payload.dateTo));
 
-    const result = filterRows(rows, payload, ['TituloMantenimiento', 'Cliente', 'Ubicacion', 'Responsables', 'DescripcionGeneral']);
+    const result = filterRows(rows, payload, ['TituloMantenimiento', 'TipoMantenimiento', 'Cliente', 'Ubicacion', 'Responsables', 'DescripcionGeneral']);
     if (!result.items.length) return result;
 
     const pageIds = new Set(result.items.map((row) => String(row.MantenimientoID)));
@@ -244,6 +278,23 @@ export const maintenanceHandlers = {
     const tables = await readTables(['Mantenimiento', 'Usuarios', 'Evidencia_Mantenimientos', 'Mantenimiento imagenes']);
     const before = maintenanceRow(tables, id);
     const payload = maintenancePayload(ctx.payload, before);
+    const previousType = normalizeMaintenanceType(before.TipoMantenimiento);
+    const requestedType = normalizeMaintenanceType(payload.TipoMantenimiento);
+    if (previousType !== requestedType) {
+      const hasDevices = (tables.Evidencia_Mantenimientos || []).some((device) => (
+        String(device.MantenimientoRef) === String(id) && device.Activo !== false
+      ));
+      if (hasDevices) throw badRequest('No se puede cambiar entre Mantenimiento y Proyecto después de registrar dispositivos. Cree otro registro o elimine primero los dispositivos.');
+    }
+    const projectDevicesExist = requestedType === 'PROYECTO' && (tables.Evidencia_Mantenimientos || []).some((device) => (
+      String(device.MantenimientoRef) === String(id) && device.Activo !== false
+    ));
+    if (
+      projectDevicesExist
+      && !sameProjectChecklist(before.ProyectoChecklistJSON, payload.ProyectoChecklistJSON)
+    ) {
+      throw badRequest('No se puede modificar el checklist de progreso del Proyecto después de registrar dispositivos. Defínalo antes de comenzar el inventario.');
+    }
     const usersById = indexRowsBy(tables.Usuarios || [], (user) => user.UsuarioID);
     payload.Responsables = asArray(payload.ResponsableIDsJSON)
       .map((userId) => usersById.get(String(userId))?.NombreCompleto || userId)
@@ -258,6 +309,10 @@ export const maintenanceHandlers = {
 
   finalize: async (ctx) => {
     const id = pick(ctx.payload, ['maintenanceId', 'MantenimientoID']);
+    const maintenance = await findById('Mantenimiento', id);
+    if (normalizeMaintenanceType(maintenance.TipoMantenimiento) === 'PROYECTO') {
+      throw badRequest('Los proyectos no utilizan la finalización automática de mantenimientos ni generan boletas automáticas.');
+    }
     const tables = await readTables(['Evidencia_Mantenimientos', 'Mantenimiento imagenes']);
     const devices = (tables.Evidencia_Mantenimientos || [])
       .filter((device) => String(device.MantenimientoRef) === String(id) && device.Activo !== false);
@@ -282,12 +337,19 @@ export const maintenanceHandlers = {
   },
 
   deviceCreate: async (ctx) => withDeviceCreateLock(async () => {
-    const payload = devicePayload(ctx.payload);
     const maintenanceId = pick(ctx.payload, ['maintenanceId', 'MantenimientoID', 'MantenimientoRef']);
     const requestedId = String(pick(ctx.payload, ['deviceId', 'EvidenciaMantenimientoID'], '')).trim();
     if (requestedId && !validClientGeneratedId(requestedId)) throw badRequest('El identificador local del dispositivo no es válido.');
+    if (!maintenanceId) throw badRequest('Falta el mantenimiento del dispositivo.');
+    const maintenance = await findById('Mantenimiento', maintenanceId);
+    const progressJson = validateProjectDeviceProgress({ maintenance, payload: ctx.payload });
+    const progress = projectDeviceProgressSummary({ maintenance, payload: ctx.payload, progressJson });
+    const payload = devicePayload({
+      ...ctx.payload,
+      ProyectoProgresoJSON: progressJson,
+      ...(progress.hasChecklist && !progress.complete ? { Estado: 'Pendiente' } : {}),
+    });
     if (!maintenanceId || !payload.Categoria || !payload.NombreDispositivo || !payload.Zona) throw badRequest('Categoría, nombre y ubicación son obligatorios.');
-    await findById('Mantenimiento', maintenanceId);
 
     if (requestedId) {
       const existing = (await readTable('Evidencia_Mantenimientos', { force: true })).find((item) => String(item.EvidenciaMantenimientoID) === requestedId);
@@ -314,7 +376,14 @@ export const maintenanceHandlers = {
   deviceUpdate: async (ctx) => {
     const id = pick(ctx.payload, ['deviceId', 'EvidenciaMantenimientoID']);
     const before = await findById('Evidencia_Mantenimientos', id);
-    const patch = changedDevicePatch(before, ctx.payload, ctx.user.UsuarioID);
+    const maintenance = await findById('Mantenimiento', pick(ctx.payload, ['maintenanceId', 'MantenimientoID', 'MantenimientoRef'], before.MantenimientoRef));
+    const progressJson = validateProjectDeviceProgress({ maintenance, payload: ctx.payload, before });
+    const progress = projectDeviceProgressSummary({ maintenance, payload: ctx.payload, before, progressJson });
+    const patch = changedDevicePatch(before, {
+      ...ctx.payload,
+      ProyectoProgresoJSON: progressJson,
+      ...(progress.hasChecklist && !progress.complete ? { Estado: 'Pendiente' } : {}),
+    }, ctx.user.UsuarioID);
     return Object.keys(patch).length ? updateRow('Evidencia_Mantenimientos', id, patch) : before;
   },
 
@@ -328,7 +397,14 @@ export const maintenanceHandlers = {
     deviceAutosaveWriteTimes.set(id, now);
     try {
       const before = await findById('Evidencia_Mantenimientos', id);
-      const patch = changedDevicePatch(before, ctx.payload, ctx.user.UsuarioID);
+      const maintenance = await findById('Mantenimiento', pick(ctx.payload, ['maintenanceId', 'MantenimientoID', 'MantenimientoRef'], before.MantenimientoRef));
+      const progressJson = validateProjectDeviceProgress({ maintenance, payload: ctx.payload, before });
+      const progress = projectDeviceProgressSummary({ maintenance, payload: ctx.payload, before, progressJson });
+      const patch = changedDevicePatch(before, {
+        ...ctx.payload,
+        ProyectoProgresoJSON: progressJson,
+        ...(progress.hasChecklist && !progress.complete ? { Estado: 'Pendiente' } : {}),
+      }, ctx.user.UsuarioID);
       if (!Object.keys(patch).length) return { ...before, autosaved: false, unchanged: true };
       const after = await updateRow('Evidencia_Mantenimientos', id, patch);
       return { ...after, autosaved: true };
@@ -347,7 +423,11 @@ export const maintenanceHandlers = {
     const requestedId = String(pick(ctx.payload, ['imageId', 'FotoDispositivoID'], '')).trim();
     const deviceId = pick(ctx.payload, ['deviceId', 'DispositivoMantenimientoRef']);
     if (requestedId && !validClientGeneratedId(requestedId)) throw badRequest('El identificador local de la fotografía no es válido.');
-    await findById('Evidencia_Mantenimientos', deviceId);
+
+    const context = await loadMaintenanceEvidenceContext({
+      deviceId,
+      maintenanceId: pick(ctx.payload, ['maintenanceId', 'MantenimientoID']),
+    });
 
     if (requestedId) {
       const existing = (await readTable('Mantenimiento imagenes', { force: true })).find((item) => String(item.FotoDispositivoID) === requestedId);
@@ -357,12 +437,14 @@ export const maintenanceHandlers = {
       }
     }
 
+    const metadata = maintenanceEvidenceMetadata(ctx.payload, context);
     const cfg = await getConfig();
     const file = await uploadBase64({ base64: ctx.payload.base64, mimeType: ctx.payload.mimeType || 'image/jpeg', fileName: ctx.payload.fileName, folderId: cfg.EVIDENCIAS_FOLDER_ID || cfg.ROOT_FOLDER_ID });
+    const timestamp = nowIso();
     const row = {
       FotoDispositivoID: requestedId || uuid(),
       DispositivoMantenimientoRef: deviceId,
-      Tipo: String(pick(ctx.payload, ['Tipo', 'tipo'], 'Antes')).toLowerCase().includes('desp') ? 'Despues' : 'Antes',
+      ...metadata,
       Nombre: file.name,
       Nota: pick(ctx.payload, ['Nota', 'nota']),
       MimeType: file.mimeType,
@@ -371,15 +453,29 @@ export const maintenanceHandlers = {
       DriveURL: file.webViewLink,
       Activo: true,
       CreadoPor: ctx.user.UsuarioID,
-      FechaCreacion: nowIso(),
+      FechaCreacion: timestamp,
       ActualizadoPor: ctx.user.UsuarioID,
-      FechaActualizacion: nowIso(),
+      FechaActualizacion: timestamp,
     };
     await appendRow('Mantenimiento imagenes', row);
     return { ...row, PreviewURL: file.thumbnailLink };
   }),
 
-  imageUpdate: async (ctx) => updateRow('Mantenimiento imagenes', pick(ctx.payload, ['imageId', 'FotoDispositivoID']), { Tipo: pick(ctx.payload, ['Tipo', 'tipo']), Nota: pick(ctx.payload, ['Nota', 'nota']), ActualizadoPor: ctx.user.UsuarioID, FechaActualizacion: nowIso() }),
+  imageUpdate: async (ctx) => {
+    const imageId = pick(ctx.payload, ['imageId', 'FotoDispositivoID']);
+    const before = await findById('Mantenimiento imagenes', imageId);
+    const context = await loadMaintenanceEvidenceContext({
+      deviceId: before.DispositivoMantenimientoRef,
+      maintenanceId: pick(ctx.payload, ['maintenanceId', 'MantenimientoID']),
+    });
+    const metadata = maintenanceEvidenceMetadata(ctx.payload, context, { existing: before });
+    return updateRow('Mantenimiento imagenes', imageId, {
+      ...metadata,
+      Nota: pick(ctx.payload, ['Nota', 'nota'], before.Nota),
+      ActualizadoPor: ctx.user.UsuarioID,
+      FechaActualizacion: nowIso(),
+    });
+  },
 
   imageDelete: async (ctx) => {
     if (!isAdmin(ctx)) throw forbidden();

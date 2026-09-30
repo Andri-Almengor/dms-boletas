@@ -130,8 +130,9 @@ test('Maintenance repositories expose device creation dates and evidence aggrega
   assert.match(maintenance,/afterEvidenceCount/);
   assert.match(integral,/mimeCategory/);
   assert.match(integral,/uploaderName/);
-  assert.match(integral,/addRange\(clauses,params,'mi\."FechaCreacion"',args\)/);
-  assert.match(integral,/imageCount: Number\(counted\?\.images\|\|0\)/);
+  assert.match(integral,/addRange\(clauses, params, 'COALESCE\(NULLIF\(mi\."FechaCaptura"/);
+  assert.match(integral,/const imageCount = projectFilters/);
+  assert.match(integral,/imageCount,/);
 });
 
 test('Credential questions are routed through Password Vault before Gemini',()=>{

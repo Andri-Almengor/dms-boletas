@@ -3,6 +3,10 @@ import { useAuth } from '../../AuthContext';
 import Icon from '../common/Icon';
 import MaintenanceEvidenceImage from './MaintenanceEvidenceImage';
 import { MODULE_ROUTES, pick, requestAvailable } from '../../services/moduleApi';
+import {
+  projectEvidenceTargets,
+  projectEvidenceTargetValue,
+} from '../../features/maintenance/maintenanceProjectRelations';
 
 export default function MaintenanceEvidenceEditor({
   image,
@@ -12,6 +16,7 @@ export default function MaintenanceEvidenceEditor({
   isAdmin,
   onClose,
   onUpdated,
+  projectMode = false,
 }) {
   const { hasPermission } = useAuth();
   const imageId = String(pick(image, ['FotoDispositivoID', 'id']));
@@ -19,7 +24,9 @@ export default function MaintenanceEvidenceEditor({
     || hasPermission('MANTENIMIENTOS_EDITAR')
     || hasPermission('MANTENIMIENTOS_GESTIONAR')
     || hasPermission('BOLETAS_EDITAR');
-  const [type, setType] = useState(pick(image, ['Tipo'], 'Antes'));
+  const targets = projectMode ? projectEvidenceTargets(device) : [];
+  const [type, setType] = useState(pick(image, ['Tipo'], projectMode ? 'Proyecto' : 'Antes'));
+  const [targetValue, setTargetValue] = useState(projectMode ? projectEvidenceTargetValue(image) : 'DISPOSITIVO');
   const [note, setNote] = useState(pick(image, ['Nota']));
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState('');
@@ -28,6 +35,9 @@ export default function MaintenanceEvidenceEditor({
     setSaving(true);
     setError('');
     try {
+      const target = projectMode
+        ? (targets.find((item) => item.value === targetValue) || targets[0] || null)
+        : null;
       await requestAvailable(
         MODULE_ROUTES.maintenance.imageUpdate,
         {
@@ -35,8 +45,15 @@ export default function MaintenanceEvidenceEditor({
           deviceId: pick(device, ['EvidenciaMantenimientoID', 'id']),
           imageId,
           FotoDispositivoID: imageId,
-          Tipo: type,
+          Tipo: projectMode ? 'Proyecto' : type,
           Nota: note,
+          ...(projectMode ? {
+            ProyectoDestinoTipo: target?.targetType || 'DISPOSITIVO',
+            ProyectoRelacionClave: target?.relationKey || '',
+            ProyectoComponenteLocalID: target?.componentLocalId || '',
+            ProyectoComponenteTipoDispositivoID: target?.componentTypeId || '',
+            ProyectoComponenteNombre: target?.componentName || '',
+          } : {}),
         },
         sessionToken,
       );
@@ -79,7 +96,7 @@ export default function MaintenanceEvidenceEditor({
       <section className="maintenance-evidence-modal__panel maintenance-evidence-editor">
         <header>
           <div>
-            <span className="eyebrow">Editar evidencia</span>
+            <span className="eyebrow">{projectMode ? 'Editar evidencia del proyecto' : 'Editar evidencia'}</span>
             <h2>{pick(device, ['NombreDispositivo'], 'Dispositivo')}</h2>
             <p>{pick(device, ['Categoria'], 'Sin categoría')} · {pick(device, ['Zona'], 'Sin ubicación')}</p>
           </div>
@@ -95,13 +112,20 @@ export default function MaintenanceEvidenceEditor({
             <MaintenanceEvidenceImage image={image} sessionToken={sessionToken} alt={pick(image, ['Nombre'], 'Evidencia')} />
           </div>
           <div className="stack-form">
-            <label className="field-group">
+            {!projectMode && <label className="field-group">
               <span className="field-label">Tipo de evidencia</span>
               <select className="form-control" value={type} onChange={(event) => setType(event.target.value)} disabled={saving}>
                 <option>Antes</option>
                 <option>Despues</option>
               </select>
-            </label>
+            </label>}
+            {projectMode && <label className="field-group">
+              <span className="field-label">Corresponde a</span>
+              <select className="form-control" value={targetValue} onChange={(event) => setTargetValue(event.target.value)} disabled={saving}>
+                {targets.map((target) => <option key={target.value} value={target.value}>{target.label}</option>)}
+              </select>
+            </label>}
+            {projectMode && <div className="maintenance-project-evidence-time"><Icon name="schedule" /><div><span>Fecha y hora</span><strong>{new Intl.DateTimeFormat('es-CR', { dateStyle: 'medium', timeStyle: 'short' }).format(new Date(pick(image, ['FechaCaptura', 'FechaCreacion'], Date.now())))}</strong></div></div>}
             <label className="field-group">
               <span className="field-label">Nota</span>
               <textarea className="form-control ticket-textarea" rows="5" value={note} onChange={(event) => setNote(event.target.value)} placeholder="Descripción opcional" disabled={saving} />

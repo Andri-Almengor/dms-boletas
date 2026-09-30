@@ -39,6 +39,15 @@ function parseAnswers(payload = {}) {
   try { return JSON.parse(source || '{}'); } catch { return {}; }
 }
 
+function answerColumnValue(value) {
+  if (value && typeof value === 'object') return JSON.stringify(value);
+  return value;
+}
+
+function isProjectMaintenance(maintenance = {}) {
+  return clean(maintenance.TipoMantenimiento).toUpperCase() === 'PROYECTO';
+}
+
 function isAdmin(ctx) {
   return ctx.permissions?.includes('USUARIOS_GESTIONAR')
     || ctx.permissions?.includes('MANTENIMIENTOS_GESTIONAR')
@@ -162,12 +171,16 @@ async function deviceCreate(ctx) {
     ModeloID: pick(ctx.payload, ['ModeloID', 'modeloId']),
     Modelo: pick(ctx.payload, ['Modelo', 'modelo']),
     Serie: pick(ctx.payload, ['Serie', 'serie']),
+    DireccionMAC: pick(ctx.payload, ['DireccionMAC', 'macAddress', 'mac']),
     Funcionamiento: pick(ctx.payload, ['Funcionamiento', 'funcionamiento']),
     EnUso: pick(ctx.payload, ['EnUso', 'enUso']),
     Estado: pick(ctx.payload, ['Estado', 'estado']),
     Observacion: pick(ctx.payload, ['Observacion', 'observacion']),
     RespuestasJSON: JSON.stringify(answers),
-    ...Object.fromEntries(Object.entries(answers).map(([key, value]) => [key.charAt(0).toUpperCase() + key.slice(1), value])),
+    ...Object.fromEntries(Object.entries(answers).map(([key, value]) => [
+      key.charAt(0).toUpperCase() + key.slice(1),
+      answerColumnValue(value),
+    ])),
     FechaTrabajo: metadata.FechaTrabajo,
     TecnicoIDsJSON: metadata.TecnicoIDsJSON,
     Tecnicos: metadata.Tecnicos,
@@ -239,10 +252,13 @@ async function refreshReusedSignedReports(ctx, ticketGeneration) {
 
 async function finalize(ctx) {
   const maintenanceId = clean(pick(ctx.payload, ['maintenanceId', 'MantenimientoID', 'id']));
+  const maintenance = await findById('Mantenimiento', maintenanceId);
+  if (isProjectMaintenance(maintenance)) {
+    throw badRequest('Los proyectos no utilizan la finalización automática, firma general ni generación de boletas de mantenimiento.');
+  }
   const testMode = Boolean(ctx.payload.testMode || ctx.payload.prueba);
   if (testMode) return maintenanceReportAccessHandlers.finalize(ctx);
 
-  const maintenance = await findById('Mantenimiento', maintenanceId);
   if (!maintenanceHasSignature(maintenance)) {
     const request = await ensureMaintenanceSignatureRequest({ maintenanceId, origin: ctx.origin, actor: ctx.user.UsuarioID, testMode: false });
     throw new AppError('MAINTENANCE_SIGNATURE_REQUIRED', 'El cliente debe firmar el mantenimiento general antes de finalizarlo y generar las boletas automáticas.', 409, { signatureUrl: request.url, maintenanceId });
@@ -275,6 +291,8 @@ async function finalize(ctx) {
 async function ticketGenerationTest(ctx) {
   if (!isAdmin(ctx)) throw forbidden('Solo los administradores pueden probar las boletas automáticas.');
   const maintenanceId = clean(pick(ctx.payload, ['maintenanceId', 'MantenimientoID', 'id']));
+  const maintenance = await findById('Mantenimiento', maintenanceId);
+  if (isProjectMaintenance(maintenance)) throw badRequest('Los proyectos no generan boletas automáticas de mantenimiento.');
   return previewMaintenanceTicketsWithDocuments(ctx, maintenanceId);
 }
 

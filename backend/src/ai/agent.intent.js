@@ -9,6 +9,8 @@ const WEB_HINT = /\b(internet|web|google|buscar en internet|busca en internet|b�
 const TICKET_HINT = /\b(boleta|boletas|ticket|tickets|visita anterior|visitas?)\b/i;
 const MAINTENANCE_HINT = /\b(mantenimiento|mantenimientos|proyecto|proyectos)\b|\bmantenimiento-[a-z0-9-]{8,}\b/i;
 const DEVICE_HINT = /\b(dispositivo|dispositivos|equipo|equipos|cámara|camara|cámaras|camaras|nvr|grabador|servidor|zona|zonas|serie|serial|mac|modelo|fabricante|operatividad)\b/i;
+const PROJECT_COMPONENT_HINT = /\b(puerta|puertas|lector|lectores|magneto|magnetos|botón|boton|botones|sensor|sensores|contacto|contactos)\b/i;
+const INVENTORY_QUERY_HINT = /\b(dame|lista|listar|mu[eé]strame|cu[aá]l|cu[aá]les|busca|buscar|filtra|filtrar|tenga|tengan|tiene|tienen|con|nota|notas|marca|modelo|serie|serial|mac)\b/i;
 const EVIDENCE_HINT = /\b(foto|fotos|imagen|imagenes|imágenes|evidencia|evidencias|video|videos|firma|archivo|archivos|antes|despu[eé]s|subi[oó]|subió|carg[oó]|cargado|cargada)\b/i;
 const CLIENT_HINT = /\b(cliente|clientes|supervisor|supervisores)\b/i;
 const USER_HINT = /\b(t[eé]cnico|t[eé]cnicos|usuario|usuarios|qui[eé]n trabaj[oó]|actividad de)\b/i;
@@ -68,11 +70,12 @@ export function classifyAiIntent({message='',context={},attachments=[]}={}){
   const value=text(message);
   const lower=value.toLowerCase();
   const hasFiles=Array.isArray(attachments)&&attachments.length>0;
-  const wantsWrite=/\b(crea|crear|agrega|agregar|añade|anade|sube|subir|carga|cargar|pon(?:las|los)?|importa|importar)\b/i.test(value);
+  const wantsWrite=/\b(crea|crear|agrega|agregar|añade|anade|sube|subir|carga|cargar|pon(?:las|los)?|importa|importar|edita|editar|modifica|modificar|actualiza|actualizar|cambia|cambiar|elimina|eliminar|quita|quitar|borra|borrar|reemplaza|reemplazar)\b/i.test(value);
 
   const explicitTicket=TICKET_HINT.test(value);
   const explicitMaintenance=MAINTENANCE_HINT.test(value);
-  const explicitDevice=DEVICE_HINT.test(value);
+  const projectComponentInventory=PROJECT_COMPONENT_HINT.test(value)&&INVENTORY_QUERY_HINT.test(value);
+  const explicitDevice=DEVICE_HINT.test(value)||projectComponentInventory;
   const explicitEvidence=EVIDENCE_HINT.test(value);
   const pageEntity=String(context?.pageContext?.entityType||'').toLowerCase();
   const ticketContext=hasActive(context,'lastTicketId')
@@ -99,6 +102,9 @@ export function classifyAiIntent({message='',context={},attachments=[]}={}){
     return AI_INTENTS.MAINTENANCE;
   }
   if(explicitDevice&&(maintenanceContext||deviceContext)){
+    return explicitEvidence?AI_INTENTS.MAINTENANCE_EVIDENCE:AI_INTENTS.MAINTENANCE_DEVICES;
+  }
+  if(projectComponentInventory){
     return explicitEvidence?AI_INTENTS.MAINTENANCE_EVIDENCE:AI_INTENTS.MAINTENANCE_DEVICES;
   }
   if(explicitEvidence&&maintenanceContext) return AI_INTENTS.MAINTENANCE_EVIDENCE;
@@ -139,7 +145,7 @@ export function toolNamesForIntent(intent){
     case AI_INTENTS.TICKET_EVIDENCE: return ['search_tickets','get_ticket','search_ticket_evidence','get_ticket_evidence','get_ticket_history'];
     case AI_INTENTS.MAINTENANCE: return ['resolve_maintenance_reference','search_maintenances','get_maintenance','get_maintenance_history','get_maintenance_devices','get_maintenance_evidence'];
     case AI_INTENTS.MAINTENANCE_DEVICES: return ['resolve_maintenance_reference','resolve_maintenance_device','search_maintenances','get_maintenance','get_maintenance_devices','get_maintenance_evidence','search_maintenance_evidence','search_devices'];
-    case AI_INTENTS.MAINTENANCE_EVIDENCE: return ['resolve_maintenance_reference','resolve_maintenance_device','search_maintenances','get_maintenance','get_maintenance_devices','get_maintenance_evidence','search_maintenance_evidence'];
+    case AI_INTENTS.MAINTENANCE_EVIDENCE: return ['resolve_maintenance_reference','resolve_maintenance_device','search_maintenances','get_maintenance','get_maintenance_devices','get_maintenance_evidence','search_maintenance_evidence','search_devices'];
     case AI_INTENTS.CLIENTS: return ['search_clients','get_client'];
     case AI_INTENTS.USERS: return ['search_users','get_technician_activity','search_tickets','search_evidence_activity'];
     case AI_INTENTS.KNOWLEDGE: return ['search_knowledge_base','get_knowledge_article','search_knowledge_documents','get_knowledge_document','search_knowledge_document_chunks'];
@@ -154,7 +160,7 @@ export function toolNamesForIntent(intent){
     ];
     case AI_INTENTS.WRITE_MAINTENANCE: return [
       'resolve_maintenance_reference','resolve_maintenance_device','search_maintenances','get_maintenance','get_maintenance_devices',
-      'parse_device_import_file','prepare_maintenance_device_bulk_create','prepare_maintenance_evidence_upload','get_ai_operation_status',
+      'parse_device_import_file','prepare_maintenance_device_bulk_create','prepare_maintenance_project_device_update','prepare_maintenance_evidence_upload','get_ai_operation_status',
       'read_chat_attachment',
     ];
     case AI_INTENTS.WEB: return [];

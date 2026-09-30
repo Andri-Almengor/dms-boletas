@@ -6,8 +6,12 @@ import TechnicianMultiSelect from '../forms/TechnicianMultiSelect';
 import MaintenanceDeviceCatalogFields from './MaintenanceDeviceCatalogFields';
 import MaintenanceEquipmentLocationSelect from './MaintenanceEquipmentLocationSelect';
 import MaintenanceEvidenceImage from './MaintenanceEvidenceImage';
+import MaintenanceProjectRelationField from './MaintenanceProjectRelationField';
+import MaintenanceProjectProgressChecklist from './MaintenanceProjectProgressChecklist';
+import MaintenanceQuestionField from './MaintenanceQuestionField';
 import { getMaintenanceCategory } from '../../config/maintenanceCategories';
 import useMaintenanceQuestionCatalog from '../../hooks/useMaintenanceQuestionCatalog';
+import useMaintenanceDeviceCatalogData from '../../hooks/useMaintenanceDeviceCatalogData';
 import { MODULE_ROUTES, normalizeItems, pick, requestAvailable } from '../../services/moduleApi';
 import {
   createEvidencePreviewUrl,
@@ -15,6 +19,15 @@ import {
   releaseEvidencePreviewUrl,
 } from '../../utils/evidenceMedia';
 import { formatMacAddressInput, macAddressError, normalizeMacAddress } from '../../utils/macAddress';
+import { isProjectMaintenance } from '../../features/maintenance/maintenanceType';
+import { projectChecklistProgressForDevice } from '../../features/maintenance/maintenanceProjectChecklist';
+import {
+  normalizeProjectRelationValue,
+  projectEvidenceTargetPatch,
+  projectEvidenceTargets,
+  projectEvidenceTargetValue,
+  projectQuestionMissing,
+} from '../../features/maintenance/maintenanceProjectRelations';
 import {
   AUTOMATIC_PENDING_STATE,
   MANUAL_PENDING_STATE,
@@ -46,18 +59,33 @@ function technicianOption(row) {
   };
 }
 
-function pendingEvidence(item) {
+function pendingEvidence(item, { projectMode = false, target = null } = {}) {
   return {
     localId: crypto.randomUUID?.() || `${Date.now()}-${Math.random()}`,
     file: item.file,
-    type: 'Antes',
+    type: projectMode ? 'Proyecto' : 'Antes',
     note: '',
+    capturedAt: new Date().toISOString(),
+    ...(projectMode ? projectEvidenceTargetPatch(target || {}) : {}),
     mimeType: item.mimeType,
     mediaType: item.mediaType,
     durationSeconds: item.durationSeconds,
     size: item.size,
     previewUrl: createEvidencePreviewUrl(item.file),
   };
+}
+
+function evidenceTimestamp(image = {}) {
+  const value = pick(image, ['FechaCaptura', 'capturedAt', 'FechaCreacion', 'FechaActualizacion'], '');
+  const time = Date.parse(value);
+  return Number.isFinite(time) ? time : 0;
+}
+
+function evidenceDateLabel(image = {}) {
+  const value = pick(image, ['FechaCaptura', 'capturedAt', 'FechaCreacion'], '');
+  const parsed = new Date(value);
+  if (Number.isNaN(parsed.getTime())) return 'Sin fecha';
+  return new Intl.DateTimeFormat('es-CR', { dateStyle: 'short', timeStyle: 'short' }).format(parsed);
 }
 
 function PendingEvidencePreview({ evidence }) {
@@ -74,8 +102,15 @@ function normalizeQuestion(item = {}, index = 0) {
     key: String(item.key || item.Clave || ''),
     label: String(item.label || item.Pregunta || item.key || ''),
     order: Number(item.order ?? item.Orden ?? (index + 1) * 10),
-    responseType: String(item.responseType || item.TipoRespuesta || 'SI_NO'),
-    value: String(item.value ?? ''),
+    responseType: String(item.responseType || item.TipoRespuesta || 'SI_NO').toUpperCase(),
+    appliesTo: String(item.appliesTo || item.AplicaModo || 'MANTENIMIENTO').toUpperCase(),
+    relatedTypeId: String(item.relatedTypeId || item.TipoDispositivoRelacionadoID || ''),
+    config: item.config && typeof item.config === 'object'
+      ? item.config
+      : (() => {
+        try { return JSON.parse(item.ConfiguracionJSON || '{}'); } catch { return {}; }
+      })(),
+    value: item.value ?? '',
     activeAtSave: item.activeAtSave !== false,
     historical: Boolean(item.historical || item.activeAtSave === false),
   };
@@ -97,10 +132,14 @@ export default function MaintenanceDeviceEditor({
   submitLabel = 'Guardar dispositivo',
   submitting = false,
   autosaveStatus = 'idle',
+  maintenanceType = 'MANTENIMIENTO',
+  projectChecklist,
 }) {
   const { sessionToken, hasPermission } = useAuth();
+  const projectMode = isProjectMaintenance(maintenanceType);
   const category = getMaintenanceCategory(device.categoria);
   const questionCatalog = useMaintenanceQuestionCatalog(sessionToken);
+  const catalogData = useMaintenanceDeviceCatalogData(sessionToken);
   const locked = disabled || submitting;
   const cancel = onCancel || onClose;
   const canDeleteEvidence = isAdmin
@@ -140,10 +179,19 @@ export default function MaintenanceDeviceEditor({
     () => (technicians.length ? technicians : loadedTechnicians),
     [technicians, loadedTechnicians],
   );
+  const projectEvidenceTargetOptions = useMemo(
+    () => (projectMode ? projectEvidenceTargets(device) : []),
+    [device, projectMode],
+  );
+  const projectDefaultEvidenceTarget = projectEvidenceTargetOptions[0] || null;
+  const sortedExistingImages = useMemo(
+    () => [...(device.images || [])].sort((left, right) => evidenceTimestamp(right) - evidenceTimestamp(left)),
+    [device.images],
+  );
 
   const dynamicQuestions = useMemo(() => {
     const currentTypeId = String(device.tipoDispositivoId || '');
-    const catalogQuestions = questionCatalog.forDevice(device).map(normalizeQuestion);
+    const catalogQuestions = questionCatalog.forDevice(device, projectMode ? 'PROYECTO' : 'MANTENIMIENTO').map(normalizeQuestion);
     const historical = (device.questionDetails || [])
       .map(normalizeQuestion)
       .filter((item) => item.key && (!item.typeId || !currentTypeId || item.typeId === currentTypeId));
@@ -152,13 +200,13 @@ export default function MaintenanceDeviceEditor({
 
     const active = catalogQuestions.map((question) => ({
       ...question,
-      value: String(device.respuestas?.[question.key] ?? historicalByKey.get(question.key)?.value ?? ''),
+      value: device.respuestas?.[question.key] ?? historicalByKey.get(question.key)?.value ?? '',
       historical: false,
       activeAtSave: true,
     }));
     const inactiveHistorical = historical
       .filter((item) => !activeKeys.has(item.key) && (item.value || item.label))
-      .map((item) => ({ ...item, value: String(device.respuestas?.[item.key] ?? item.value ?? ''), historical: true }));
+      .map((item) => ({ ...item, value: device.respuestas?.[item.key] ?? item.value ?? '', historical: true }));
 
     if (active.length || inactiveHistorical.length || (!questionCatalog.loading && !questionCatalog.error)) {
       return [...active, ...inactiveHistorical].sort((left, right) => left.order - right.order || left.label.localeCompare(right.label, 'es'));
@@ -175,26 +223,86 @@ export default function MaintenanceDeviceEditor({
       activeAtSave: true,
       historical: false,
     }));
-  }, [category.questions, device, questionCatalog]);
+  }, [category.questions, device, projectMode, questionCatalog]);
+
+  const projectMissingQuestions = useMemo(() => (
+    projectMode
+      ? dynamicQuestions.filter((question) => projectQuestionMissing(question, device.respuestas?.[question.key]))
+      : []
+  ), [device.respuestas, dynamicQuestions, projectMode]);
+  const projectProgress = useMemo(
+    () => projectMode ? projectChecklistProgressForDevice(projectChecklist, device) : null,
+    [device, projectChecklist, projectMode],
+  );
+
+  const projectEvidenceTargetErrors = useMemo(() => {
+    if (!projectMode) return [];
+    const validTargets = new Set(projectEvidenceTargetOptions.map((target) => target.value));
+    return [...(device.images || []), ...(device.newImages || [])]
+      .map((image) => ({ image, value: projectEvidenceTargetValue(image) }))
+      .filter(({ value }) => value.startsWith('COMPONENTE:') && !validTargets.has(value));
+  }, [device.images, device.newImages, projectEvidenceTargetOptions, projectMode]);
+
+  const projectRelationErrors = useMemo(() => {
+    if (!projectMode) return [];
+    return dynamicQuestions.flatMap((question) => {
+      if (question.responseType !== 'RELACION_DISPOSITIVO') return [];
+      const relation = normalizeProjectRelationValue(device.respuestas?.[question.key], {
+        relatedTypeId: question.relatedTypeId,
+      });
+      if (!relation.enabled) return [];
+      return relation.items.flatMap((item, index) => {
+        const errors = [];
+        const directMacError = macAddressError(item.macAddress);
+        if (directMacError) errors.push({ question, index, type: 'MAC', message: directMacError });
+        const childQuestions = questionCatalog.forDevice(item, 'PROYECTO')
+          .map(normalizeQuestion)
+          .filter((entry) => entry.responseType !== 'RELACION_DISPOSITIVO');
+        childQuestions.forEach((childQuestion) => {
+          const childValue = item.respuestas?.[childQuestion.key] ?? '';
+          if (projectQuestionMissing(childQuestion, childValue)) {
+            errors.push({ question, index, type: 'REQUIRED', message: `Falta ${childQuestion.label}` });
+          }
+          if (childQuestion.responseType === 'MAC') {
+            const childMacError = macAddressError(childValue);
+            if (childMacError) errors.push({ question, index, type: 'MAC', message: childMacError });
+          }
+        });
+        return errors;
+      });
+    });
+  }, [device.respuestas, dynamicQuestions, projectMode, questionCatalog]);
 
   const checklistCompletion = useMemo(() => maintenanceChecklistCompletion(
     { ...device, questionDetails: dynamicQuestions },
     dynamicQuestions,
   ), [device, dynamicQuestions]);
-  const manualPending = isManualChecklistPending(device);
-  const automaticPending = !manualPending && !checklistCompletion.complete;
+  const manualPending = !projectMode && isManualChecklistPending(device);
+  const automaticPending = !projectMode && !manualPending && !checklistCompletion.complete;
   const checklistPending = manualPending || automaticPending;
   const checklistLocked = locked || manualPending;
 
   useEffect(() => {
     if (locked || manualPending) return;
+    if (projectMode) {
+      const desiredState = projectMissingQuestions.length || (projectProgress?.total > 0 && !projectProgress.complete)
+        ? AUTOMATIC_PENDING_STATE
+        : 'Correcto';
+      const next = {};
+      if (device.maintenanceType !== 'PROYECTO') next.maintenanceType = 'PROYECTO';
+      if (!device.funcionamiento) next.funcionamiento = 'No aplica';
+      if (!device.enUso) next.enUso = 'No aplica';
+      if (String(device.estado || '') !== desiredState) next.estado = desiredState;
+      if (Object.keys(next).length) onChange({ ...device, ...next });
+      return;
+    }
     const desiredState = effectiveMaintenanceDeviceState(
       { ...device, questionDetails: dynamicQuestions },
       dynamicQuestions,
     );
     if (String(device.estado || '') === desiredState) return;
     onChange({ ...device, estado: desiredState });
-  }, [device, dynamicQuestions, locked, manualPending, onChange]);
+  }, [device, dynamicQuestions, locked, manualPending, onChange, projectMissingQuestions.length, projectMode, projectProgress?.complete, projectProgress?.total]);
 
   function patch(values) { onChange({ ...device, ...values }); }
 
@@ -210,7 +318,7 @@ export default function MaintenanceDeviceEditor({
     const previousType = String(device.tipoDispositivoId || device.categoria || '');
     const nextType = String(nextDevice.tipoDispositivoId || nextDevice.categoria || '');
     if (previousType && nextType && previousType !== nextType) {
-      onChange({ ...nextDevice, respuestas: {}, questionDetails: [] });
+      onChange({ ...nextDevice, respuestas: {}, questionDetails: [], projectProgress: { version: 1, answers: {} } });
       return;
     }
     onChange(nextDevice);
@@ -226,6 +334,9 @@ export default function MaintenanceDeviceEditor({
       label: question.label,
       order: question.order,
       responseType: question.responseType || 'SI_NO',
+      appliesTo: question.appliesTo || (projectMode ? 'PROYECTO' : 'MANTENIMIENTO'),
+      relatedTypeId: question.relatedTypeId || '',
+      config: question.config || {},
       value,
       activeAtSave: !question.historical,
       historical: question.historical,
@@ -245,7 +356,15 @@ export default function MaintenanceDeviceEditor({
     setEvidenceError('');
     try {
       const prepared = await prepareEvidenceFiles(files, { allowDocuments: false });
-      patch({ newImages: [...(device.newImages || []), ...prepared.map(pendingEvidence)] });
+      patch({
+        newImages: [
+          ...(device.newImages || []),
+          ...prepared.map((item) => pendingEvidence(item, {
+            projectMode,
+            target: projectDefaultEvidenceTarget,
+          })),
+        ],
+      });
     } catch (error) {
       setEvidenceError(error.message || 'No se pudieron preparar las evidencias seleccionadas.');
     }
@@ -292,12 +411,20 @@ export default function MaintenanceDeviceEditor({
   const isNewDevice = startedAsNew;
   const missingEquipmentLocation = !String(device.ubicacionEquipoId || '').trim();
   const invalidMac = macAddressError(device.macAddress);
-  const submitDisabled = locked || !onSubmit || missingEquipmentLocation || Boolean(invalidMac);
+  const submitDisabled = locked
+    || !onSubmit
+    || missingEquipmentLocation
+    || Boolean(invalidMac)
+    || (projectMode && (
+      projectMissingQuestions.length > 0
+      || projectRelationErrors.length > 0
+      || projectEvidenceTargetErrors.length > 0
+    ));
 
   return <div className="maintenance-device-editor" data-offline-editing-surface>
     <div className="page-header maintenance-device-editor__header">
       <button className="icon-button maintenance-device-editor__back" type="button" onClick={cancel} disabled={submitting} aria-label="Cancelar y volver a dispositivos"><Icon name="arrow_back" /></button>
-      <div className="maintenance-device-editor__title"><span className="eyebrow">Dispositivo del mantenimiento</span><h2>{isNewDevice ? 'Nuevo dispositivo' : 'Editar dispositivo'}</h2></div>
+      <div className="maintenance-device-editor__title"><span className="eyebrow">{projectMode ? 'Dispositivo del proyecto' : 'Dispositivo del mantenimiento'}</span><h2>{isNewDevice ? 'Nuevo dispositivo' : 'Editar dispositivo'}</h2></div>
       <div className="maintenance-device-editor__sync">
         <AutosaveIndicator status={autosaveStatus} />
         <button className="button button--primary button--compact maintenance-device-editor__header-save" type="button" onClick={onSubmit} disabled={submitDisabled} aria-label={submitting ? 'Guardando dispositivo' : submitLabel}>
@@ -312,7 +439,7 @@ export default function MaintenanceDeviceEditor({
       <section className="form-card maintenance-device-section-card maintenance-device-identification-card">
         <div className="form-card__heading"><span className="section-marker" /><div><h3>Identificación y ubicación</h3><p>La ubicación del equipo es obligatoria y define cómo se agrupará el dispositivo. Los demás campos pueden completarse según la información disponible.</p></div></div>
         <div className="maintenance-device-fields-grid">
-          <div className="maintenance-device-fields-grid__full"><MaintenanceDeviceCatalogFields device={device} onChange={updateCatalogDevice} disabled={locked} /></div>
+          <div className="maintenance-device-fields-grid__full"><MaintenanceDeviceCatalogFields device={device} onChange={updateCatalogDevice} disabled={locked} catalogData={catalogData} maintenanceType={maintenanceType} /></div>
           <MaintenanceEquipmentLocationSelect locationId={maintenanceLocationId} value={device.ubicacionEquipoId} options={equipmentOptions} disabled={locked} onChange={(ubicacionEquipoId, label) => patch({ ubicacionEquipoId, ubicacionEquipoNombre: label || '', zona: label || '' })} />
           {missingEquipmentLocation && <div className="info-box maintenance-device-fields-grid__full"><Icon name="location_on" /><p>Seleccione una ubicación del equipo. Este dropdown es el que define la agrupación del dispositivo.</p></div>}
           <Field label="Nombre del dispositivo" value={device.nombre} onChange={(event) => patch({ nombre: event.target.value })} disabled={locked} autoComplete="off" />
@@ -323,29 +450,111 @@ export default function MaintenanceDeviceEditor({
       </section>
 
       <section className="form-card maintenance-device-work-card maintenance-device-section-card">
-        <div className="form-card__heading"><span className="section-marker" /><div><h3>Fecha y grupo de trabajo</h3><p>Los dispositivos de la misma fecha y con el mismo grupo formarán una sola boleta automática.</p></div></div>
+        <div className="form-card__heading"><span className="section-marker" /><div><h3>Fecha y grupo de trabajo</h3><p>{projectMode ? 'Registre la fecha y las personas responsables de este dispositivo dentro del proyecto.' : 'Los dispositivos de la misma fecha y con el mismo grupo formarán una sola boleta automática.'}</p></div></div>
         <div className="maintenance-device-work-grid">
           <Field label="Fecha de trabajo" type="date" value={device.fechaTrabajo || ''} onChange={(event) => patch({ fechaTrabajo: event.target.value })} disabled={locked} />
           <div className="field-group maintenance-device-technicians-field"><span className="field-label">Técnicos que realizaron este trabajo</span><TechnicianMultiSelect users={technicianOptions} selectedIds={device.tecnicoIds || []} onChange={(tecnicoIds) => patch({ tecnicoIds })} disabled={locked} /><small className="field-hint">Puede seleccionar varios técnicos o dejar el campo vacío.</small></div>
         </div>
       </section>
 
-      <section className={`maintenance-checklist maintenance-device-section-card${checklistPending ? ' is-pending' : ''}`}>
+      {projectMode ? <section className="maintenance-checklist maintenance-device-section-card maintenance-project-questions">
+        <div className="maintenance-checklist__heading"><h3><Icon name="account_tree" /> Datos configurables de {device.categoria || 'dispositivo'}</h3></div>
+        <p className="maintenance-project-questions__intro">Complete únicamente los campos configurados para este tipo. Las relaciones con otros dispositivos son reutilizables y pueden quedar vacías cuando no apliquen.</p>
+        {questionCatalog.loading && <div className="maintenance-question-state"><Icon name="progress_activity" /><span>Cargando configuración del proyecto...</span></div>}
+        {dynamicQuestions.map((question) => question.responseType === 'RELACION_DISPOSITIVO'
+          ? <MaintenanceProjectRelationField
+            key={question.questionId || question.key}
+            question={question}
+            value={device.respuestas?.[question.key] ?? question.value ?? {}}
+            onChange={(value) => updateQuestion(question, value)}
+            disabled={locked || question.historical}
+            catalogData={catalogData}
+            questionCatalog={questionCatalog}
+          />
+          : <MaintenanceQuestionField
+            key={question.questionId || question.key}
+            question={question}
+            value={device.respuestas?.[question.key] ?? question.value ?? ''}
+            onChange={(value) => updateQuestion(question, value)}
+            disabled={locked || question.historical}
+            note={question.historical ? 'Campo histórico: fue eliminado o desactivado después de guardarse.' : ''}
+          />)}
+        {!questionCatalog.loading && !dynamicQuestions.length && <div className="info-box"><Icon name="info" /><p>Este tipo todavía no tiene campos de Proyecto configurados. Puede guardar el dispositivo solo con su identificación o configurar campos desde Administración → Preguntas de mantenimiento.</p></div>}
+        {projectMissingQuestions.length > 0 && <div className="alert alert--warning"><Icon name="pending_actions" /><span>Faltan {projectMissingQuestions.length} campo{projectMissingQuestions.length === 1 ? '' : 's'} obligatorio{projectMissingQuestions.length === 1 ? '' : 's'} del proyecto.</span></div>}
+        {projectRelationErrors.length > 0 && <div className="alert alert--error"><Icon name="error" /><span>Revise los campos obligatorios y direcciones MAC de los componentes relacionados antes de guardar.</span></div>}
+        {questionCatalog.error && <div className="info-box maintenance-question-warning"><Icon name="cloud_off" /><p>No se pudo actualizar la configuración. Se conservan los campos históricos disponibles en el dispositivo.</p></div>}
+      </section> : <section className={`maintenance-checklist maintenance-device-section-card${checklistPending ? ' is-pending' : ''}`}>
         <div className="maintenance-checklist__heading"><h3><Icon name={category.icon} /> Checklist de {device.categoria || category.key}</h3><label className={`maintenance-checklist-pending-toggle${manualPending ? ' is-checked' : ''}`}><input type="checkbox" checked={manualPending} onChange={(event) => toggleChecklistPending(event.target.checked)} disabled={locked} /><span className="maintenance-checklist-pending-toggle__box" aria-hidden="true">{manualPending && <Icon name="check" />}</span><span className="maintenance-checklist-pending-toggle__text"><strong>Pendiente</strong><small>Bloquear pruebas por ahora</small></span></label></div>
         {manualPending && <div className="maintenance-checklist-pending-note"><Icon name="schedule" /><p>Este dispositivo fue marcado manualmente como pendiente. Quite la marca para habilitar y completar la checklist.</p></div>}
         {automaticPending && <div className="maintenance-checklist-pending-note maintenance-checklist-pending-note--automatic"><Icon name="pending_actions" /><p>Estado pendiente automático: faltan {checklistCompletion.missing.length} respuesta{checklistCompletion.missing.length === 1 ? '' : 's'} obligatoria{checklistCompletion.missing.length === 1 ? '' : 's'}.</p></div>}
         <Choice label="¿El dispositivo está funcionando correctamente?" value={device.funcionamiento} onChange={(value) => patch({ funcionamiento: value })} disabled={checklistLocked} />
         <Choice label="¿El dispositivo está en uso?" value={device.enUso} onChange={(value) => patch({ enUso: value })} options={['Sí, en uso', 'No, está guardado', 'No']} disabled={checklistLocked} />
         {questionCatalog.loading && <div className="maintenance-question-state"><Icon name="progress_activity" /><span>Cargando preguntas relacionadas con el tipo de dispositivo...</span></div>}
-        {dynamicQuestions.map((question) => <Choice key={`${question.questionId || question.key}-${question.key}`} label={question.label} value={String(device.respuestas?.[question.key] ?? question.value ?? '')} onChange={(value) => updateQuestion(question, value)} disabled={checklistLocked || question.historical} note={question.historical ? 'Pregunta histórica: fue eliminada o desactivada después de este mantenimiento.' : ''} />)}
+        {dynamicQuestions.map((question) => <MaintenanceQuestionField key={`${question.questionId || question.key}-${question.key}`} question={question} value={device.respuestas?.[question.key] ?? question.value ?? ''} onChange={(value) => updateQuestion(question, value)} disabled={checklistLocked || question.historical} note={question.historical ? 'Pregunta histórica: fue eliminada o desactivada después de este mantenimiento.' : ''} />)}
         {!questionCatalog.loading && !dynamicQuestions.length && <div className="info-box"><Icon name="info" /><p>Este tipo no tiene preguntas específicas activas. Puede agregarlas desde Administración → Preguntas de mantenimiento.</p></div>}
         {questionCatalog.error && <div className="info-box maintenance-question-warning"><Icon name="cloud_off" /><p>No se pudo actualizar el catálogo de preguntas. Se muestran las preguntas compatibles disponibles en el dispositivo.</p></div>}
         <Choice label="Estado" value={checklistPending ? '' : device.estado} onChange={(value) => patch({ estado: value })} options={['Correcto', 'Mal estado']} disabled={checklistLocked || !checklistCompletion.complete} note={!checklistCompletion.complete ? 'El estado final se habilitará cuando todas las preguntas obligatorias estén respondidas.' : ''} />
-      </section>
+      </section>}
+
+      {projectMode && <MaintenanceProjectProgressChecklist
+        checklist={projectChecklist}
+        device={device}
+        disabled={locked}
+        onChange={(projectProgressValue) => patch({ projectProgress: projectProgressValue })}
+      />}
 
       <section className="form-card maintenance-device-section-card"><div className="form-card__heading"><span className="section-marker" /><div><h3>Observaciones</h3><p>Registre hallazgos, fallas, trabajos realizados o recomendaciones.</p></div></div><Field label="Observación" multiline value={device.observacion} onChange={(event) => patch({ observacion: event.target.value })} disabled={locked} /></section>
 
-      <section className="maintenance-image-section maintenance-device-section-card">
+      {projectMode ? <section className="maintenance-image-section maintenance-device-section-card maintenance-project-evidence-section">
+        <div className="form-card__heading"><span className="section-marker" /><div><h3>Evidencias del proyecto</h3><p>Sin Antes/Después. Cada archivo registra fecha y hora automáticamente y puede ligarse al dispositivo principal o a uno de sus componentes.</p></div><span className="maintenance-device-evidence-total">{totalEvidence}</span></div>
+        {evidenceError && <div className="alert alert--error" role="alert"><Icon name="error" /><span>{evidenceError}</span></div>}
+        {projectEvidenceTargetErrors.length > 0 && <div className="alert alert--error"><Icon name="account_tree" /><span>Hay evidencia ligada a un componente que ya no existe. Reasígnela antes de guardar el dispositivo.</span></div>}
+        {!locked && <div className="maintenance-evidence-picker maintenance-device-evidence-picker">
+          <label className="button button--primary maintenance-device-camera-button"><Icon name="photo_camera" /> Tomar foto<input type="file" accept="image/*" capture="environment" onChange={addFiles} /></label>
+          <label className="button button--secondary"><Icon name="videocam" /> Grabar video<input type="file" accept="video/mp4,video/webm,video/quicktime,video/*" capture="environment" onChange={addFiles} /></label>
+          <label className="button button--secondary"><Icon name="perm_media" /> Seleccionar archivos<input type="file" accept="image/*,video/mp4,video/webm,video/quicktime,.mov,.mp4,.webm" multiple onChange={addFiles} /></label>
+        </div>}
+        <small className="maintenance-device-camera-hint"><Icon name="schedule" /> Las evidencias se muestran de la más nueva a la más antigua. Los límites multimedia existentes se mantienen.</small>
+
+        <div className="maintenance-image-grid maintenance-device-image-grid maintenance-project-evidence-grid">
+          {sortedExistingImages.map((image) => {
+            const imageId = String(image.id || image.FotoDispositivoID || '');
+            const currentTarget = projectEvidenceTargetValue(image);
+            return <article key={imageId} className="maintenance-device-image-card">
+              <MaintenanceEvidenceImage image={{ ...image, FotoDispositivoID: imageId }} galleryImages={sortedExistingImages} sessionToken={sessionToken} alt={pick(image, ['Nombre'], 'Evidencia')} />
+              {canDeleteEvidence && !locked && <button type="button" className="maintenance-image-delete" onClick={() => removeExistingImage(image)} disabled={Boolean(deletingImageId)} aria-label="Eliminar evidencia"><Icon name={deletingImageId === imageId ? 'progress_activity' : 'delete'} /></button>}
+              <label><span>Corresponde a</span><select value={currentTarget} onChange={(event) => {
+                const target = projectEvidenceTargetOptions.find((item) => item.value === event.target.value) || projectDefaultEvidenceTarget;
+                const targetPatch = projectEvidenceTargetPatch(target || {});
+                updateExistingImage(image.id, {
+                  ProyectoDestinoTipo: targetPatch.projectTargetType,
+                  ProyectoRelacionClave: targetPatch.projectRelationKey,
+                  ProyectoComponenteLocalID: targetPatch.projectComponentLocalId,
+                  ProyectoComponenteTipoDispositivoID: targetPatch.projectComponentTypeId,
+                  ProyectoComponenteNombre: targetPatch.projectComponentName,
+                });
+              }} disabled={locked}>{projectEvidenceTargetOptions.map((target) => <option key={target.value} value={target.value}>{target.label}</option>)}</select></label>
+              <label><span>Nota</span><input value={pick(image, ['Nota'])} onChange={(event) => updateExistingImage(image.id, { Nota: event.target.value })} placeholder="Descripción opcional" disabled={locked} /></label>
+              <small className="maintenance-project-evidence-meta"><Icon name="schedule" />{evidenceDateLabel(image)}</small>
+            </article>;
+          })}
+          {(device.newImages || []).map((image) => {
+            const currentTarget = projectEvidenceTargetValue(image);
+            return <article key={image.localId} className="maintenance-device-image-card maintenance-device-image-card--pending">
+              <div className="maintenance-device-image-card__preview"><PendingEvidencePreview evidence={image} /><span><Icon name="schedule" />Pendiente</span></div>
+              <button type="button" className="maintenance-image-delete" onClick={() => removeNewImage(image)} disabled={submitting} aria-label="Quitar evidencia"><Icon name="close" /></button>
+              <label><span>Corresponde a</span><select value={currentTarget} onChange={(event) => {
+                const target = projectEvidenceTargetOptions.find((item) => item.value === event.target.value) || projectDefaultEvidenceTarget;
+                updateNewImage(image.localId, projectEvidenceTargetPatch(target || {}));
+              }} disabled={locked}>{projectEvidenceTargetOptions.map((target) => <option key={target.value} value={target.value}>{target.label}</option>)}</select></label>
+              <label><span>Nota</span><input value={image.note} onChange={(event) => updateNewImage(image.localId, { note: event.target.value })} placeholder="Descripción opcional" disabled={locked} /></label>
+              <small className="maintenance-project-evidence-meta"><Icon name="schedule" />{evidenceDateLabel(image)}</small>
+              {image.mediaType === 'video' && <small>Video · {Math.ceil(Number(image.durationSeconds || 0))} segundos</small>}
+            </article>;
+          })}
+          {!totalEvidence && <div className="maintenance-device-images-empty"><Icon name="perm_media" /><strong>Sin evidencias todavía</strong><span>Puede cargarlas al dispositivo principal o a cualquiera de sus componentes relacionados.</span></div>}
+        </div>
+      </section> : <section className="maintenance-image-section maintenance-device-section-card">
         <div className="form-card__heading"><span className="section-marker" /><div><h3>Evidencias del dispositivo</h3><p>Tome fotografías o grabe videos de hasta 20 segundos. Se subirán al guardar el dispositivo.</p></div><span className="maintenance-device-evidence-total">{totalEvidence}</span></div>
         {evidenceError && <div className="alert alert--error" role="alert"><Icon name="error" /><span>{evidenceError}</span></div>}
         {!locked && <div className="maintenance-evidence-picker maintenance-device-evidence-picker">
@@ -374,12 +583,11 @@ export default function MaintenanceDeviceEditor({
           </article>)}
           {!totalEvidence && <div className="maintenance-device-images-empty"><Icon name="perm_media" /><strong>Sin evidencias todavía</strong><span>Puede tomar fotos o grabar videos ahora o agregarlos después.</span></div>}
         </div>
-      </section>
-
+      </section>}
       <footer className="maintenance-device-editor__actions">
         <div className="maintenance-device-editor__actions-status"><AutosaveIndicator status={autosaveStatus} /></div>
         <button className="button button--ghost maintenance-device-cancel-button" type="button" onClick={cancel} disabled={submitting}><Icon name="close" />Cancelar</button>
-        {onSubmitAndContinue && isNewDevice && !locked && <button className="button button--secondary" type="button" onClick={onSubmitAndContinue} disabled={missingEquipmentLocation || Boolean(invalidMac)}><Icon name="add_circle" />Guardar y agregar otro</button>}
+        {onSubmitAndContinue && isNewDevice && !locked && <button className="button button--secondary" type="button" onClick={onSubmitAndContinue} disabled={missingEquipmentLocation || Boolean(invalidMac) || (projectMode && (projectMissingQuestions.length > 0 || projectRelationErrors.length > 0 || projectEvidenceTargetErrors.length > 0))}><Icon name="add_circle" />Guardar y agregar otro</button>}
         <button className="button button--primary" type="button" onClick={onSubmit} disabled={submitDisabled}><Icon name={submitting ? 'progress_activity' : 'check'} /> {submitting ? 'Guardando dispositivo...' : submitLabel}</button>
       </footer>
     </div>

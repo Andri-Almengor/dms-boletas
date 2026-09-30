@@ -20,8 +20,16 @@ import {
   AUTOMATIC_PENDING_STATE,
   effectiveMaintenanceDeviceState,
 } from '../../utils/maintenanceChecklistStatus';
+import { normalizeMaintenanceType } from '../../features/maintenance/maintenanceType';
+import {
+  emptyProjectChecklist,
+  emptyProjectProgress,
+  normalizeProjectChecklist,
+  normalizeProjectProgress,
+} from '../../features/maintenance/maintenanceProjectChecklist';
 
 export { fileToBase64 } from '../../utils/fileEncoding';
+export { isProjectMaintenance, normalizeMaintenanceType } from '../../features/maintenance/maintenanceType';
 
 export const MAINTENANCE_STEPS = [
   ['Información general', 'Cliente, ubicación, responsables, fechas y descripción.'],
@@ -31,10 +39,10 @@ export const MAINTENANCE_STEPS = [
 ];
 
 export const EMPTY_MAINTENANCE = {
-  titulo: '', clienteId: '', cliente: '', ubicacionId: '', ubicacion: '', estado: 'PENDIENTE',
+  titulo: '', tipoMantenimiento: 'MANTENIMIENTO', clienteId: '', cliente: '', ubicacionId: '', ubicacion: '', estado: 'PENDIENTE',
   fecha: todayInCostaRica(),
   fechaFinalizacion: todayInCostaRica(),
-  responsables: [], descripcion: '', counts: createEmptyMaintenanceCounts(), syncBase: null,
+  responsables: [], descripcion: '', counts: createEmptyMaintenanceCounts(), projectChecklist: emptyProjectChecklist(), syncBase: null,
 };
 
 function parseArray(value) {
@@ -81,7 +89,14 @@ function parseAnswersBundle(row, categoryName) {
       label: String(item.label || item.Pregunta || item.key || ''),
       order: Number(item.order ?? item.Orden ?? 0),
       responseType: String(item.responseType || item.TipoRespuesta || 'SI_NO'),
-      value: String(item.value ?? ''),
+      appliesTo: String(item.appliesTo || item.AplicaModo || 'MANTENIMIENTO'),
+      relatedTypeId: String(item.relatedTypeId || item.TipoDispositivoRelacionadoID || ''),
+      config: item.config && typeof item.config === 'object'
+        ? { ...item.config }
+        : (() => {
+          try { return JSON.parse(item.ConfiguracionJSON || '{}'); } catch { return {}; }
+        })(),
+      value: item.value ?? '',
       activeAtSave: item.activeAtSave !== false,
       historical: item.activeAtSave === false,
     })).filter((item) => item.key)
@@ -114,16 +129,28 @@ function mapImage(image, maintenanceId = '') {
   };
 }
 
-export function createMaintenanceDevice(category = 'Cámara') {
+export function createMaintenanceDevice(category = 'Cámara', maintenanceType = 'MANTENIMIENTO') {
   const canonicalCategory = canonicalMaintenanceCategoryName(category);
-  return {
+  const normalizedType = normalizeMaintenanceType(maintenanceType);
+  const base = {
     localId: createLocalId(),
+    maintenanceType: normalizedType,
     id: '', ubicacionEquipoId: '', ubicacionEquipoNombre: '', zona: '',
     fechaTrabajo: todayInCostaRica(), tecnicoIds: [],
     tipoDispositivoId: '', categoria: canonicalCategory,
     fabricanteId: '', fabricante: '', modeloId: '', modelo: '',
-    nombre: '', serie: '', macAddress: '', funcionamiento: '', enUso: '', estado: AUTOMATIC_PENDING_STATE, observacion: '',
-    respuestas: createEmptyChecklist(canonicalCategory), questionDetails: [], images: [], newImages: [], syncBase: null,
+    nombre: '', serie: '', macAddress: '', funcionamiento: '', enUso: '',
+    estado: AUTOMATIC_PENDING_STATE, observacion: '',
+    respuestas: createEmptyChecklist(canonicalCategory),
+    questionDetails: [], images: [], newImages: [], syncBase: null,
+  };
+  if (normalizedType !== 'PROYECTO') return base;
+  return {
+    ...base,
+    funcionamiento: 'No aplica',
+    enUso: 'No aplica',
+    respuestas: {},
+    projectProgress: emptyProjectProgress(),
   };
 }
 
@@ -145,6 +172,7 @@ export function mapMaintenance(data) {
   return {
     ...EMPTY_MAINTENANCE,
     titulo: pick(row, ['TituloMantenimiento', 'titulo']),
+    tipoMantenimiento: normalizeMaintenanceType(pick(row, ['TipoMantenimiento', 'tipoMantenimiento', 'maintenanceType'], 'MANTENIMIENTO')),
     clienteId: String(pick(row, ['ClienteID', 'ClienteRef', 'clienteId'])),
     cliente: pick(row, ['Cliente', 'ClienteNombre', 'cliente']),
     ubicacionId: String(pick(row, ['UbicacionID', 'ubicacionId'])),
@@ -155,11 +183,13 @@ export function mapMaintenance(data) {
     responsables,
     descripcion: pick(row, ['DescripcionGeneral', 'descripcion']),
     counts,
+    projectChecklist: normalizeProjectChecklist(pick(row, ['ProyectoChecklistJSON', 'projectChecklist'], emptyProjectChecklist())),
     syncBase: maintenanceSyncBase(row),
   };
 }
 
-export function mapMaintenanceDevice(row = {}) {
+export function mapMaintenanceDevice(row = {}, maintenanceType = 'MANTENIMIENTO') {
+  const normalizedType = normalizeMaintenanceType(maintenanceType);
   const category = canonicalMaintenanceCategoryName(pick(row, ['TipoDispositivo', 'Categoria', 'categoria'], 'Cámara'));
   const bundle = parseAnswersBundle(row, category);
   const equipmentLocationName = pick(row, [
@@ -171,6 +201,7 @@ export function mapMaintenanceDevice(row = {}) {
   const legacyLocation = pick(row, ['Zona', 'UbicacionEspecifica', 'zona']);
   const maintenanceId = String(pick(row, ['MantenimientoRef', 'maintenanceId', 'MantenimientoID']));
   const mapped = {
+    maintenanceType: normalizedType,
     localId: String(pick(row, ['EvidenciaMantenimientoID', 'deviceId', 'id'], createLocalId())),
     id: String(pick(row, ['EvidenciaMantenimientoID', 'deviceId', 'id'])),
     ubicacionEquipoId: String(pick(row, ['UbicacionEquipoID', 'ubicacionEquipoId'])),
@@ -193,35 +224,48 @@ export function mapMaintenanceDevice(row = {}) {
     observacion: pick(row, ['Observacion', 'observacion']),
     respuestas: bundle.answers,
     questionDetails: bundle.questionDetails,
+    projectProgress: normalizeProjectProgress(pick(row, ['ProyectoProgresoJSON', 'projectProgress'], emptyProjectProgress())),
     images: (row.Imagenes || row.images || []).map((image) => mapImage(image, maintenanceId)),
     newImages: [],
     syncBase: maintenanceDeviceSyncBase(row, maintenanceId),
   };
   return {
     ...mapped,
-    estado: effectiveMaintenanceDeviceState(mapped, getMaintenanceCategory(category).questions),
+    estado: normalizedType === 'PROYECTO'
+      ? pick(row, ['Estado', 'estado'], AUTOMATIC_PENDING_STATE)
+      : effectiveMaintenanceDeviceState(mapped, getMaintenanceCategory(category).questions),
   };
 }
 
 export function maintenancePayload(form, id) {
   return withSyncBase({
     maintenanceId: id, MantenimientoID: id, TituloMantenimiento: form.titulo,
+    TipoMantenimiento: normalizeMaintenanceType(form.tipoMantenimiento),
+    tipoMantenimiento: normalizeMaintenanceType(form.tipoMantenimiento),
     ClienteID: form.clienteId, ClienteRef: form.clienteId, Cliente: form.cliente,
     UbicacionID: form.ubicacionId, Ubicacion: form.ubicacion, Estado: form.estado,
     Fecha: form.fecha, FechaFinalizacion: form.fechaFinalizacion,
     ResponsableIDs: form.responsables, ResponsableIDsJSON: JSON.stringify(form.responsables),
-    DescripcionGeneral: form.descripcion, CantidadesJSON: JSON.stringify(form.counts), ...form.counts,
+    DescripcionGeneral: form.descripcion, CantidadesJSON: JSON.stringify(form.counts),
+    ProyectoChecklistJSON: JSON.stringify(normalizeProjectChecklist(form.projectChecklist)),
+    projectChecklist: normalizeProjectChecklist(form.projectChecklist),
+    ...form.counts,
   }, form.syncBase);
 }
 
-export function maintenanceDevicePayload(device, maintenanceId) {
+export function maintenanceDevicePayload(device, maintenanceId, maintenanceType = device?.maintenanceType || 'MANTENIMIENTO') {
   const technicianIds = (device.tecnicoIds || []).map(String).filter(Boolean);
   const category = canonicalMaintenanceCategoryName(device.categoria);
+  const normalizedType = normalizeMaintenanceType(maintenanceType);
   const equipmentLocationName = String(device.ubicacionEquipoNombre || device.zona || '').trim();
-  const effectiveState = effectiveMaintenanceDeviceState(device, getMaintenanceCategory(category).questions);
+  const effectiveState = normalizedType === 'PROYECTO'
+    ? (String(device.estado || '').trim() || AUTOMATIC_PENDING_STATE)
+    : effectiveMaintenanceDeviceState(device, getMaintenanceCategory(category).questions);
   const macAddress = normalizeMacAddress(device.macAddress);
   return withSyncBase({
     maintenanceId, MantenimientoID: maintenanceId, deviceId: device.id,
+    TipoMantenimiento: normalizedType,
+    tipoMantenimiento: normalizedType,
     EvidenciaMantenimientoID: device.id,
     UbicacionEquipoID: device.ubicacionEquipoId,
     ubicacionEquipoId: device.ubicacionEquipoId,
@@ -249,6 +293,8 @@ export function maintenanceDevicePayload(device, maintenanceId) {
     EnUso: device.enUso, Estado: effectiveState, Observacion: device.observacion,
     questionDetails: device.questionDetails || [],
     respuestasDetalle: device.questionDetails || [],
+    ProyectoProgresoJSON: JSON.stringify(normalizeProjectProgress(device.projectProgress)),
+    projectProgress: normalizeProjectProgress(device.projectProgress),
     RespuestasJSON: JSON.stringify(device.respuestas), ...device.respuestas,
   }, device.syncBase);
 }

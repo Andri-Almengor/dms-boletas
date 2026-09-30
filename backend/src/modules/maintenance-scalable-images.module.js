@@ -3,12 +3,15 @@ import { nowIso, pick, uuid } from '../core/utils.js';
 import { env } from '../config/env.js';
 import {
   appendRows,
-  findById,
   findRows,
   updateRows,
 } from '../infra/sheets.repository.js';
 import { uploadBase64, trashFile } from '../infra/drive.repository.js';
 import { getConfig } from './config.module.js';
+import {
+  loadMaintenanceEvidenceContext,
+  maintenanceEvidenceMetadata,
+} from '../services/maintenance-evidence-policy.service.js';
 
 function clean(value, fallback = '') {
   const text = String(value ?? '').trim();
@@ -70,6 +73,10 @@ function imageInput(value = {}, index = 0) {
     size: Number(pick(value, ['size', 'TamanoBytes', 'Size'], 0) || 0),
     type: normalizeEvidenceType(pick(value, ['Tipo', 'tipo', 'type'], 'Antes')),
     note: clean(pick(value, ['Nota', 'nota', 'note'])),
+    capturedAt: clean(pick(value, ['FechaCaptura', 'fechaCaptura', 'capturedAt'])),
+    projectTargetType: clean(pick(value, ['ProyectoDestinoTipo', 'proyectoDestinoTipo', 'projectTargetType', 'targetType'])),
+    projectRelationKey: clean(pick(value, ['ProyectoRelacionClave', 'proyectoRelacionClave', 'projectRelationKey', 'relationKey'])),
+    projectComponentLocalId: clean(pick(value, ['ProyectoComponenteLocalID', 'proyectoComponenteLocalId', 'projectComponentLocalId', 'componentLocalId'])),
     clientKey: clean(pick(value, ['localId', 'imageId', 'FotoDispositivoID'], imageId || String(index))),
   };
 }
@@ -78,7 +85,7 @@ async function uploadBatch(ctx) {
   const deviceId = clean(pick(ctx.payload, ['deviceId', 'DispositivoMantenimientoRef']));
   const maintenanceId = clean(pick(ctx.payload, ['maintenanceId', 'MantenimientoID']));
   if (!deviceId) throw badRequest('Falta el dispositivo al que pertenecen las evidencias.');
-  await findById('Evidencia_Mantenimientos', deviceId);
+  const evidenceContext = await loadMaintenanceEvidenceContext({ deviceId, maintenanceId });
 
   const rawImages = Array.isArray(ctx.payload?.images) ? ctx.payload.images : [];
   if (!rawImages.length) return { uploaded: [], failed: [], skipped: [], total: 0 };
@@ -129,13 +136,21 @@ async function uploadBatch(ctx) {
         fileName: input.fileName,
         folderId,
       });
+      const metadata = maintenanceEvidenceMetadata({
+        Tipo: input.type,
+        Nota: input.note,
+        FechaCaptura: input.capturedAt,
+        ProyectoDestinoTipo: input.projectTargetType,
+        ProyectoRelacionClave: input.projectRelationKey,
+        ProyectoComponenteLocalID: input.projectComponentLocalId,
+      }, evidenceContext);
       return {
         input,
         file,
         row: {
           FotoDispositivoID: input.imageId,
           DispositivoMantenimientoRef: deviceId,
-          Tipo: input.type,
+          ...metadata,
           Nombre: file.name,
           Nota: input.note,
           MimeType: file.mimeType,
@@ -212,6 +227,12 @@ async function updateBatch(ctx) {
   const rows = imageIds.length
     ? await findRows('Mantenimiento imagenes', { FotoDispositivoID: imageIds }, { limit: imageIds.length })
     : [];
+  const evidenceContext = deviceId
+    ? await loadMaintenanceEvidenceContext({
+      deviceId,
+      maintenanceId: pick(ctx.payload, ['maintenanceId', 'MantenimientoID']),
+    })
+    : null;
   const byId = new Map(rows.map((row) => [clean(row.FotoDispositivoID), row]));
   const writes = [];
   const updated = [];
@@ -230,8 +251,13 @@ async function updateBatch(ctx) {
       continue;
     }
 
+    const context = evidenceContext || await loadMaintenanceEvidenceContext({
+      deviceId: row.DispositivoMantenimientoRef,
+      maintenanceId: pick(ctx.payload, ['maintenanceId', 'MantenimientoID']),
+    });
+    const metadata = maintenanceEvidenceMetadata(input, context, { existing: row });
     const patch = {
-      Tipo: normalizeEvidenceType(pick(input, ['Tipo', 'tipo'], row.Tipo)),
+      ...metadata,
       Nota: clean(pick(input, ['Nota', 'nota'], row.Nota)),
       ActualizadoPor: ctx.user.UsuarioID,
       FechaActualizacion: timestamp,

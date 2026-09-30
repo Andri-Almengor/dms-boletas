@@ -41,14 +41,67 @@ function questionText(row = {}) {
   return clean(pick(row, ['Pregunta', 'pregunta', 'label'], 'Pregunta sin texto'));
 }
 
-function emptyValues(typeIdentifier = '') {
-  return { tipoDispositivoId: typeIdentifier, pregunta: '', orden: '' };
+const RESPONSE_TYPE_OPTIONS = [
+  ['SI_NO', 'Sí / No'],
+  ['TEXTO', 'Texto'],
+  ['NUMERO', 'Número'],
+  ['CANTIDAD', 'Cantidad'],
+  ['MAC', 'Dirección MAC'],
+  ['OPCIONES', 'Lista de opciones'],
+  ['RELACION_DISPOSITIVO', 'Relacionar otro dispositivo'],
+];
+
+const RELATED_FIELD_OPTIONS = [
+  ['cantidad', 'Cantidad'],
+  ['nombre', 'Nombre / identificador'],
+  ['fabricante', 'Marca / fabricante'],
+  ['modelo', 'Modelo'],
+  ['serie', 'Serie'],
+  ['mac', 'Dirección MAC'],
+];
+
+function parseQuestionConfig(row = {}) {
+  const raw = row.config || row.ConfiguracionJSON || {};
+  if (raw && typeof raw === 'object' && !Array.isArray(raw)) return raw;
+  try {
+    const parsed = JSON.parse(raw || '{}');
+    return parsed && typeof parsed === 'object' && !Array.isArray(parsed) ? parsed : {};
+  } catch {
+    return {};
+  }
 }
 
-function QuestionEditorFields({ values, setValues, deviceName }) {
+function emptyValues(typeIdentifier = '') {
+  return {
+    tipoDispositivoId: typeIdentifier,
+    pregunta: '',
+    orden: '',
+    aplicaModo: 'MANTENIMIENTO',
+    tipoRespuesta: 'SI_NO',
+    tipoDispositivoRelacionadoId: '',
+    camposRelacionados: ['cantidad', 'fabricante', 'modelo', 'serie'],
+    opcionesTexto: '',
+    obligatoria: true,
+  };
+}
+
+function QuestionEditorFields({ values, setValues, deviceName, deviceTypes }) {
   function change(event) {
-    const { name, value } = event.target;
-    setValues((current) => ({ ...current, [name]: value }));
+    const { name, value, type, checked } = event.target;
+    setValues((current) => ({
+      ...current,
+      [name]: type === 'checkbox' ? checked : value,
+      ...(name === 'tipoRespuesta' && value === 'RELACION_DISPOSITIVO' ? { obligatoria: false } : {}),
+    }));
+  }
+
+  function toggleRelatedField(field) {
+    setValues((current) => {
+      const selected = new Set(current.camposRelacionados || []);
+      if (selected.has(field)) selected.delete(field);
+      else selected.add(field);
+      return { ...current, camposRelacionados: [...selected] };
+    });
   }
 
   return <>
@@ -58,9 +111,61 @@ function QuestionEditorFields({ values, setValues, deviceName }) {
       <small>La pregunta quedará relacionada permanentemente con este tipo.</small>
     </div>
     <label className="field-group">
-      <span className="field-label">Pregunta de Sí o No *</span>
-      <textarea className="form-control ticket-textarea" rows="4" name="pregunta" value={values.pregunta} onChange={change} placeholder="Ej. ¿La grabación funciona correctamente?" required maxLength="500" />
+      <span className="field-label">Pregunta o campo *</span>
+      <textarea className="form-control ticket-textarea" rows="4" name="pregunta" value={values.pregunta} onChange={change} placeholder="Ej. ¿Tiene lectores?" required maxLength="500" />
     </label>
+    <div className="ticket-form-grid">
+      <label className="field-group">
+        <span className="field-label">Aplica en</span>
+        <select className="form-control" name="aplicaModo" value={values.aplicaModo} onChange={change}>
+          <option value="MANTENIMIENTO">Mantenimiento</option>
+          <option value="PROYECTO">Proyecto</option>
+          <option value="AMBOS">Ambos</option>
+        </select>
+      </label>
+      <label className="field-group">
+        <span className="field-label">Tipo de respuesta</span>
+        <select className="form-control" name="tipoRespuesta" value={values.tipoRespuesta} onChange={change}>
+          {RESPONSE_TYPE_OPTIONS.map(([value, label]) => <option key={value} value={value}>{label}</option>)}
+        </select>
+      </label>
+    </div>
+    {values.tipoRespuesta === 'OPCIONES' && <label className="field-group">
+      <span className="field-label">Opciones *</span>
+      <textarea
+        className="form-control ticket-textarea"
+        rows="4"
+        name="opcionesTexto"
+        value={values.opcionesTexto}
+        onChange={change}
+        placeholder={'Ej.\nLector\nBotón\nOtro'}
+        required
+      />
+      <small className="field-hint">Escriba una opción por línea. En Proyecto se mostrará como un selector, no como texto libre.</small>
+    </label>}
+    <label className="maintenance-question-required-toggle">
+      <input type="checkbox" name="obligatoria" checked={Boolean(values.obligatoria)} onChange={change} />
+      <span><strong>Campo obligatorio</strong><small>Si está desactivado, el dispositivo puede guardarse aunque esta respuesta o relación no aplique.</small></span>
+    </label>
+    {values.tipoRespuesta === 'RELACION_DISPOSITIVO' && <>
+      <label className="field-group">
+        <span className="field-label">Tipo de dispositivo relacionado *</span>
+        <select className="form-control" name="tipoDispositivoRelacionadoId" value={values.tipoDispositivoRelacionadoId} onChange={change} required>
+          <option value="">Seleccione...</option>
+          {deviceTypes.filter(activeRecord).map((item) => <option key={typeId(item)} value={typeId(item)}>{typeName(item)}</option>)}
+        </select>
+        <small className="field-hint">Ejemplo: una Puerta puede relacionar Lectores, Magnetos u otros tipos ya existentes en el catálogo.</small>
+      </label>
+      <div className="field-group">
+        <span className="field-label">Datos que se pedirán para cada dispositivo relacionado</span>
+        <div className="maintenance-question-related-fields">
+          {RELATED_FIELD_OPTIONS.map(([field, label]) => <label key={field} className="checkbox-row">
+            <input type="checkbox" checked={(values.camposRelacionados || []).includes(field)} onChange={() => toggleRelatedField(field)} />
+            <span>{label}</span>
+          </label>)}
+        </div>
+      </div>
+    </>}
     <label className="field-group">
       <span className="field-label">Orden</span>
       <input className="form-control" type="number" min="0" step="1" name="orden" value={values.orden} onChange={change} placeholder="Se asigna automáticamente" />
@@ -182,6 +287,18 @@ export default function MaintenanceQuestionsPage() {
         tipoDispositivoId: identifier,
         pregunta: questionText(question),
         orden: String(question.Orden ?? ''),
+        aplicaModo: clean(question.AplicaModo || question.appliesTo || 'MANTENIMIENTO').toUpperCase(),
+        tipoRespuesta: clean(question.TipoRespuesta || question.responseType || 'SI_NO').toUpperCase(),
+        tipoDispositivoRelacionadoId: clean(question.TipoDispositivoRelacionadoID || question.relatedTypeId),
+        camposRelacionados: Array.isArray(parseQuestionConfig(question).fields)
+          ? parseQuestionConfig(question).fields
+          : ['cantidad', 'fabricante', 'modelo', 'serie'],
+        opcionesTexto: Array.isArray(parseQuestionConfig(question).options)
+          ? parseQuestionConfig(question).options.join('\n')
+          : '',
+        obligatoria: typeof parseQuestionConfig(question).required === 'boolean'
+          ? parseQuestionConfig(question).required
+          : clean(question.TipoRespuesta || question.responseType || 'SI_NO').toUpperCase() !== 'RELACION_DISPOSITIVO',
       },
     });
     setManagerError('');
@@ -197,7 +314,19 @@ export default function MaintenanceQuestionsPage() {
       return;
     }
     if (!editor.values.pregunta.trim()) {
-      setManagerError('Escriba la pregunta que se responderá con Sí o No.');
+      setManagerError('Escriba la pregunta o campo que desea configurar.');
+      return;
+    }
+    if (editor.values.tipoRespuesta === 'RELACION_DISPOSITIVO' && !editor.values.tipoDispositivoRelacionadoId) {
+      setManagerError('Seleccione el tipo de dispositivo relacionado.');
+      return;
+    }
+    const configuredOptions = editor.values.opcionesTexto
+      .split(/\r?\n/)
+      .map((item) => item.trim())
+      .filter(Boolean);
+    if (editor.values.tipoRespuesta === 'OPCIONES' && !configuredOptions.length) {
+      setManagerError('Agregue al menos una opción.');
       return;
     }
 
@@ -207,6 +336,20 @@ export default function MaintenanceQuestionsPage() {
       const payload = {
         tipoDispositivoId: identifier,
         Pregunta: editor.values.pregunta.trim(),
+        AplicaModo: editor.values.aplicaModo,
+        TipoRespuesta: editor.values.tipoRespuesta,
+        TipoDispositivoRelacionadoID: editor.values.tipoRespuesta === 'RELACION_DISPOSITIVO'
+          ? editor.values.tipoDispositivoRelacionadoId
+          : '',
+        ConfiguracionJSON: JSON.stringify({
+          fields: editor.values.tipoRespuesta === 'RELACION_DISPOSITIVO'
+            ? editor.values.camposRelacionados
+            : [],
+          options: editor.values.tipoRespuesta === 'OPCIONES'
+            ? configuredOptions
+            : [],
+          required: Boolean(editor.values.obligatoria),
+        }),
         ...(editor.values.orden !== '' ? { Orden: Number(editor.values.orden) } : {}),
       };
       if (editor.mode === 'edit') {
@@ -273,7 +416,7 @@ export default function MaintenanceQuestionsPage() {
       <div>
         <span className="eyebrow">Catálogos relacionados</span>
         <h1>Preguntas de mantenimiento</h1>
-        <p>Seleccione el lápiz de un dispositivo para administrar sus preguntas de Sí o No.</p>
+        <p>Configure preguntas, campos y relaciones reutilizables para cada tipo de dispositivo.</p>
       </div>
     </div>
 
@@ -327,7 +470,7 @@ export default function MaintenanceQuestionsPage() {
             <button className="icon-button" type="button" onClick={() => { setEditor(null); setManagerError(''); }} disabled={saving} aria-label="Volver a las preguntas"><Icon name="arrow_back" /></button>
             <div><span className="eyebrow">{editor.mode === 'edit' ? 'Editar registro' : 'Nuevo registro'}</span><h3>{editor.mode === 'edit' ? 'Editar pregunta' : 'Agregar pregunta'}</h3></div>
           </div>
-          <QuestionEditorFields values={editor.values} setValues={(updater) => setEditor((current) => ({ ...current, values: typeof updater === 'function' ? updater(current.values) : updater }))} deviceName={selectedGroup.name} />
+          <QuestionEditorFields values={editor.values} setValues={(updater) => setEditor((current) => ({ ...current, values: typeof updater === 'function' ? updater(current.values) : updater }))} deviceName={selectedGroup.name} deviceTypes={deviceTypes} />
           <footer className="maintenance-question-manager__editor-actions">
             <button className="button button--secondary" type="button" onClick={() => { setEditor(null); setManagerError(''); }} disabled={saving}>Cancelar</button>
             <button className="button button--primary" type="submit" disabled={saving}><Icon name={saving ? 'progress_activity' : 'save'} />{saving ? 'Guardando...' : 'Guardar pregunta'}</button>
@@ -343,7 +486,7 @@ export default function MaintenanceQuestionsPage() {
               const active = activeRecord(question);
               return <article key={questionId(question)} className={active ? '' : 'is-inactive'}>
                 <span className="maintenance-question-order">{Number(question.Orden || 0)}</span>
-                <div><strong>{questionText(question)}</strong><small>Respuesta: Sí / No · Clave interna: {clean(question.Clave)}</small></div>
+                <div><strong>{questionText(question)}</strong><small>{clean(question.AplicaModo || question.appliesTo || 'MANTENIMIENTO')} · {clean(question.TipoRespuesta || question.responseType || 'SI_NO')} · {parseQuestionConfig(question).required === false ? 'Opcional' : 'Obligatoria'} · Clave interna: {clean(question.Clave)}</small></div>
                 <span className={`status-chip ${active ? 'status-chip--active' : 'status-chip--inactive'}`}>{active ? 'ACTIVA' : 'INACTIVA'}</span>
                 {canManage && <div className="maintenance-question-actions">
                   <button className="icon-button" type="button" onClick={() => openEdit(question)} disabled={saving} aria-label="Editar pregunta"><Icon name="edit" /></button>

@@ -21,6 +21,7 @@ function withConflictWrite(key, operation) {
 
 const MAINTENANCE_FIELDS = Object.freeze({
   TituloMantenimiento: ['titulo'],
+  TipoMantenimiento: ['tipoMantenimiento', 'maintenanceType'],
   ClienteID: ['ClienteRef', 'clienteId'],
   Cliente: ['cliente'],
   UbicacionID: ['ubicacionId'],
@@ -31,6 +32,7 @@ const MAINTENANCE_FIELDS = Object.freeze({
   ResponsableIDsJSON: ['ResponsableIDs', 'responsables'],
   DescripcionGeneral: ['descripcion'],
   CantidadesJSON: ['counts', 'cantidades'],
+  ProyectoChecklistJSON: ['projectChecklist'],
   CantCámaras: [],
   CantPuertas: [],
   CantServidores: [],
@@ -65,6 +67,7 @@ const DEVICE_FIELDS = Object.freeze({
   Estado: ['estado'],
   Observacion: ['observacion'],
   RespuestasJSON: ['respuestas', 'answers'],
+  ProyectoProgresoJSON: ['projectProgress', 'proyectoProgreso'],
   FechaTrabajo: ['fechaTrabajo'],
   TecnicoIDsJSON: ['TecnicoIDs', 'tecnicoIds'],
 });
@@ -72,6 +75,13 @@ const DEVICE_FIELDS = Object.freeze({
 const IMAGE_FIELDS = Object.freeze({
   Tipo: ['tipo', 'type'],
   Nota: ['nota', 'note'],
+  ContextoEvidencia: ['contextoEvidencia', 'evidenceContext'],
+  FechaCaptura: ['fechaCaptura', 'capturedAt'],
+  ProyectoDestinoTipo: ['proyectoDestinoTipo', 'projectTargetType', 'targetType'],
+  ProyectoRelacionClave: ['proyectoRelacionClave', 'projectRelationKey', 'relationKey'],
+  ProyectoComponenteLocalID: ['proyectoComponenteLocalId', 'projectComponentLocalId', 'componentLocalId'],
+  ProyectoComponenteTipoDispositivoID: ['proyectoComponenteTipoDispositivoId', 'projectComponentTypeId'],
+  ProyectoComponenteNombre: ['proyectoComponenteNombre', 'projectComponentName'],
 });
 
 function clean(value) {

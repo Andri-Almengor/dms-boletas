@@ -19,6 +19,7 @@ function snapshot(record = {}, fields = {}) {
 
 export const MAINTENANCE_SYNC_FIELDS = Object.freeze({
   TituloMantenimiento: ['titulo'],
+  TipoMantenimiento: ['tipoMantenimiento', 'maintenanceType'],
   ClienteID: ['ClienteRef', 'clienteId'],
   Cliente: ['cliente'],
   UbicacionID: ['ubicacionId'],
@@ -29,6 +30,7 @@ export const MAINTENANCE_SYNC_FIELDS = Object.freeze({
   ResponsableIDsJSON: ['ResponsableIDs', 'responsables'],
   DescripcionGeneral: ['descripcion'],
   CantidadesJSON: ['counts', 'cantidades'],
+  ProyectoChecklistJSON: ['projectChecklist'],
   CantCámaras: [],
   CantPuertas: [],
   CantServidores: [],
@@ -59,6 +61,7 @@ export const MAINTENANCE_DEVICE_SYNC_FIELDS = Object.freeze({
   Estado: ['estado'],
   Observacion: ['observacion'],
   RespuestasJSON: ['respuestas', 'answers'],
+  ProyectoProgresoJSON: ['projectProgress', 'proyectoProgreso'],
   FechaTrabajo: ['fechaTrabajo'],
   TecnicoIDsJSON: ['TecnicoIDs', 'tecnicoIds'],
 });
@@ -66,6 +69,13 @@ export const MAINTENANCE_DEVICE_SYNC_FIELDS = Object.freeze({
 export const MAINTENANCE_IMAGE_SYNC_FIELDS = Object.freeze({
   Tipo: ['tipo', 'type'],
   Nota: ['nota', 'note'],
+  ContextoEvidencia: ['contextoEvidencia', 'evidenceContext'],
+  FechaCaptura: ['fechaCaptura', 'capturedAt'],
+  ProyectoDestinoTipo: ['proyectoDestinoTipo', 'projectTargetType', 'targetType'],
+  ProyectoRelacionClave: ['proyectoRelacionClave', 'projectRelationKey', 'relationKey'],
+  ProyectoComponenteLocalID: ['proyectoComponenteLocalId', 'projectComponentLocalId', 'componentLocalId'],
+  ProyectoComponenteTipoDispositivoID: ['proyectoComponenteTipoDispositivoId', 'projectComponentTypeId'],
+  ProyectoComponenteNombre: ['proyectoComponenteNombre', 'projectComponentName'],
 });
 
 export function buildMaintenanceSyncBase(record = {}, {

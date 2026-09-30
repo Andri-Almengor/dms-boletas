@@ -1,10 +1,20 @@
 import React, { useEffect, useMemo, useState } from 'react';
 import { useAuth } from '../../AuthContext';
 import Icon from '../common/Icon';
+import MaintenanceProjectChecklistBuilder from './MaintenanceProjectChecklistBuilder';
 import { buildDynamicMaintenanceCategories } from '../../config/dynamicMaintenanceTypes';
 import { MODULE_ROUTES, normalizeItems, requestAvailable } from '../../services/moduleApi';
 
-export default function MaintenanceCountsStep({ counts, registered, disabled, onChange }) {
+export default function MaintenanceCountsStep({
+  counts,
+  registered,
+  disabled,
+  onChange,
+  projectMode = false,
+  projectChecklist,
+  projectChecklistLocked = false,
+  onProjectChecklistChange,
+}) {
   const { sessionToken } = useAuth();
   const [deviceTypes, setDeviceTypes] = useState([]);
   const [loading, setLoading] = useState(true);
@@ -49,5 +59,13 @@ export default function MaintenanceCountsStep({ counts, registered, disabled, on
       </label>)}
     </div>
     {!loading && !categories.length && <div className="empty-state"><Icon name="devices_other" /><h3>Sin tipos de dispositivo activos</h3><p>Agregue tipos desde Catálogos para utilizarlos en los mantenimientos.</p></div>}
+    {projectMode && !loading && <MaintenanceProjectChecklistBuilder
+      categories={categories}
+      counts={counts}
+      value={projectChecklist}
+      disabled={disabled}
+      locked={projectChecklistLocked}
+      onChange={onProjectChecklistChange}
+    />}
   </div>;
 }

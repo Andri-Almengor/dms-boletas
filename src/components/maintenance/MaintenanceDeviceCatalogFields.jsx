@@ -9,7 +9,9 @@ import {
   createEmptyChecklist,
 } from '../../config/maintenanceCategories';
 import { maintenanceCountKeyForDeviceType } from '../../config/dynamicMaintenanceTypes';
-import { MODULE_ROUTES, normalizeItems, pick, requestAvailable, toBoolean, toOption } from '../../services/moduleApi';
+import { MODULE_ROUTES, pick, requestAvailable, toBoolean, toOption } from '../../services/moduleApi';
+import useMaintenanceDeviceCatalogData from '../../hooks/useMaintenanceDeviceCatalogData';
+import { isProjectMaintenance } from '../../features/maintenance/maintenanceType';
 
 function Field({ label, multiline = false, ...props }) {
   return <label className="field-group"><span className="field-label">{label}</span>{multiline ? <textarea className="form-control ticket-textarea" rows="4" {...props} /> : <input className="form-control" {...props} />}</label>;
@@ -54,7 +56,19 @@ function uniqueOptions(options, canonicalLabels = false) {
   });
 }
 
-export default function MaintenanceDeviceCatalogFields({ device, onChange, disabled = false, maintenanceCounts = null }) {
+export default function MaintenanceDeviceCatalogFields({
+  device,
+  onChange,
+  disabled = false,
+  maintenanceCounts = null,
+  catalogData = null,
+  fixedTypeId = '',
+  fixedTypeName = '',
+  hideType = false,
+  showManufacturer = true,
+  showModel = true,
+  maintenanceType = 'MANTENIMIENTO',
+}) {
   const { sessionToken, hasPermission } = useAuth();
   const inheritedCounts = useMaintenanceCounts();
   const effectiveCounts = maintenanceCounts || inheritedCounts;
@@ -65,41 +79,19 @@ export default function MaintenanceDeviceCatalogFields({ device, onChange, disab
     || hasPermission('USUARIOS_GESTIONAR')
     || hasPermission('BOLETAS_CREAR')
     || hasPermission('BOLETAS_EDITAR');
-  const [catalogs, setCatalogs] = useState({ deviceTypes: [], manufacturers: [], models: [], relations: [] });
-  const [loading, setLoading] = useState(true);
-  const [error, setError] = useState('');
+  const internalCatalogData = useMaintenanceDeviceCatalogData(sessionToken, { enabled: !catalogData });
+  const effectiveCatalogData = catalogData || internalCatalogData;
+  const catalogs = effectiveCatalogData.catalogs || { deviceTypes: [], manufacturers: [], models: [], relations: [] };
+  const loading = Boolean(effectiveCatalogData.loading);
+  const error = effectiveCatalogData.error || '';
+  const reloadCatalogs = effectiveCatalogData.reload || internalCatalogData.reload;
   const [modal, setModal] = useState(null);
   const [modalError, setModalError] = useState('');
   const [modalSaving, setModalSaving] = useState(false);
-  const restrictTypes = Boolean(effectiveCounts && typeof effectiveCounts === 'object');
+  const restrictTypes = Boolean(effectiveCounts && typeof effectiveCounts === 'object' && !fixedTypeId);
+  const projectMode = isProjectMaintenance(maintenanceType);
 
   function patch(values) { onChange({ ...device, ...values }); }
-
-  async function loadCatalogs() {
-    setLoading(true);
-    setError('');
-    const jobs = [
-      ['deviceTypes', MODULE_ROUTES.deviceTypes.list],
-      ['manufacturers', MODULE_ROUTES.manufacturers.list],
-      ['models', MODULE_ROUTES.models.list],
-      ['relations', MODULE_ROUTES.deviceManufacturers.list],
-    ];
-    const results = await Promise.allSettled(jobs.map(([, routes]) => requestAvailable(routes, { page: 1, pageSize: 1000, activo: true }, sessionToken)));
-    const next = {};
-    const failures = [];
-    results.forEach((result, index) => {
-      if (result.status === 'fulfilled') next[jobs[index][0]] = normalizeItems(result.value);
-      else failures.push(result.reason?.message);
-    });
-    setCatalogs((current) => ({ ...current, ...next }));
-    if (failures.length) setError(`Algunos catálogos no se cargaron: ${failures.filter(Boolean).join(' · ')}`);
-    setLoading(false);
-  }
-
-  useEffect(() => {
-    loadCatalogs();
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [sessionToken]);
 
   const allowedDeviceTypeRows = useMemo(() => {
     if (!restrictTypes) return catalogs.deviceTypes;
@@ -115,7 +107,15 @@ export default function MaintenanceDeviceCatalogFields({ device, onChange, disab
       canonicalMaintenanceCategoryName(pick(item, ['Nombre'])) === canonicalCategory
       || normalized(pick(item, ['Nombre'])) === normalized(device.categoria)
     ));
-    let resolvedType = typeById || typeByName;
+    let resolvedType = fixedTypeId
+      ? findById(catalogs.deviceTypes, fixedTypeId, ['TipoDispositivoID', 'ID', 'id'])
+      : (typeById || typeByName);
+
+    if (fixedTypeId) {
+      const resolvedName = canonicalMaintenanceCategoryName(pick(resolvedType, ['Nombre'], fixedTypeName || device.categoria));
+      if (String(device.tipoDispositivoId || '') !== String(fixedTypeId)) values.tipoDispositivoId = String(fixedTypeId);
+      if (resolvedName && device.categoria !== resolvedName) values.categoria = resolvedName;
+    }
 
     if (!device.id && restrictTypes) {
       const currentAllowed = resolvedType
@@ -130,7 +130,7 @@ export default function MaintenanceDeviceCatalogFields({ device, onChange, disab
         values.fabricante = '';
         values.modeloId = '';
         values.modelo = '';
-        values.respuestas = createEmptyChecklist(resolvedName);
+        values.respuestas = projectMode ? {} : createEmptyChecklist(resolvedName);
       }
     }
 
@@ -221,7 +221,8 @@ export default function MaintenanceDeviceCatalogFields({ device, onChange, disab
       tipoDispositivoId: row ? String(pick(row, ['TipoDispositivoID', 'ID', 'id'])) : '',
       categoria: name,
       fabricanteId: '', fabricante: '', modeloId: '', modelo: '',
-      respuestas: createEmptyChecklist(name),
+      respuestas: projectMode ? {} : createEmptyChecklist(name),
+      questionDetails: [],
     });
   }
 
@@ -259,7 +260,7 @@ export default function MaintenanceDeviceCatalogFields({ device, onChange, disab
       if (type === 'device') {
         result = await requestAvailable(MODULE_ROUTES.deviceTypes.create, { nombre: values.nombre, descripcion: values.descripcion, activo: true }, sessionToken);
         const name = canonicalMaintenanceCategoryName(pick(result, ['Nombre'], values.nombre));
-        patch({ tipoDispositivoId: String(pick(result, ['TipoDispositivoID', 'ID', 'id'])), categoria: name, fabricanteId: '', fabricante: '', modeloId: '', modelo: '', respuestas: createEmptyChecklist(name) });
+        patch({ tipoDispositivoId: String(pick(result, ['TipoDispositivoID', 'ID', 'id'])), categoria: name, fabricanteId: '', fabricante: '', modeloId: '', modelo: '', respuestas: projectMode ? {} : createEmptyChecklist(name), questionDetails: [] });
       }
       if (type === 'manufacturer') {
         result = await requestAvailable(MODULE_ROUTES.manufacturers.create, { nombre: values.nombre, activo: true }, sessionToken);
@@ -271,7 +272,7 @@ export default function MaintenanceDeviceCatalogFields({ device, onChange, disab
         result = await requestAvailable(MODULE_ROUTES.models.create, { tipoDispositivoId: device.tipoDispositivoId, fabricanteId: device.fabricanteId, nombre: values.nombre, descripcion: values.descripcion, imagenReferenciaURL: values.imagenReferenciaURL, activo: true }, sessionToken);
         patch({ modeloId: String(pick(result, ['ModeloID', 'ID', 'id'])), modelo: pick(result, ['Nombre'], values.nombre) });
       }
-      await loadCatalogs();
+      await reloadCatalogs({ force: true });
       setModal(null);
     } catch (saveError) {
       setModalError(saveError.message);
@@ -286,11 +287,11 @@ export default function MaintenanceDeviceCatalogFields({ device, onChange, disab
   return <>
     {error && <div className="alert alert--error"><span>{error}</span></div>}
     {noSelectedTypes && <div className="alert alert--warning"><span>Primero indique una cantidad mayor que cero para al menos un tipo de dispositivo en “Cantidades esperadas”.</span></div>}
-    <DependentSelect label="Tipo de dispositivo" value={selectedTypeValue} options={typeOptions} loading={loading} canAdd={manageCatalogs && !restrictTypes} onAdd={() => openModal('device')} onChange={selectDeviceType} disabled={disabled || noSelectedTypes} />
-    <div className="ticket-form-grid">
-      <DependentSelect label="Fabricante" value={device.fabricanteId} options={manufacturerOptions} loading={loading} disabled={disabled || !selectedTypeValue || noSelectedTypes} canAdd={manageCatalogs && Boolean(selectedTypeValue) && !noSelectedTypes} onAdd={() => openModal('manufacturer')} onChange={selectManufacturer} />
-      <DependentSelect label="Modelo" value={device.modeloId} options={modelOptions} loading={loading} disabled={disabled || !selectedTypeValue || !device.fabricanteId || noSelectedTypes} canAdd={manageCatalogs && Boolean(device.fabricanteId) && !noSelectedTypes} onAdd={() => openModal('model')} onChange={selectModel} />
-    </div>
+    {!hideType && <DependentSelect label="Tipo de dispositivo" value={selectedTypeValue} options={typeOptions} loading={loading} canAdd={manageCatalogs && !restrictTypes && !fixedTypeId} onAdd={() => openModal('device')} onChange={selectDeviceType} disabled={disabled || noSelectedTypes || Boolean(fixedTypeId)} />}
+    {(showManufacturer || showModel) && <div className="ticket-form-grid">
+      {showManufacturer && <DependentSelect label="Fabricante" value={device.fabricanteId} options={manufacturerOptions} loading={loading} disabled={disabled || !selectedTypeValue || noSelectedTypes} canAdd={manageCatalogs && Boolean(selectedTypeValue) && !noSelectedTypes} onAdd={() => openModal('manufacturer')} onChange={selectManufacturer} />}
+      {showModel && <DependentSelect label="Modelo" value={device.modeloId} options={modelOptions} loading={loading} disabled={disabled || !selectedTypeValue || !device.fabricanteId || noSelectedTypes} canAdd={manageCatalogs && Boolean(device.fabricanteId) && !noSelectedTypes} onAdd={() => openModal('model')} onChange={selectModel} />}
+    </div>}
     <InlineCreateModal open={Boolean(modal)} title={modal?.type === 'device' ? 'Agregar tipo de dispositivo' : modal?.type === 'manufacturer' ? 'Agregar fabricante' : 'Agregar modelo'} description="El registro quedará disponible tanto en boletas como en mantenimientos." saving={modalSaving} error={modalError} onClose={() => setModal(null)} onSubmit={submitModal}>{modal && <><Field label="Nombre" name="nombre" value={modal.values.nombre} onChange={modalUpdate} required />{['device', 'model'].includes(modal.type) && <Field label="Descripción" multiline name="descripcion" value={modal.values.descripcion} onChange={modalUpdate} />}{modal.type === 'model' && <Field label="Imagen de referencia (URL)" name="imagenReferenciaURL" value={modal.values.imagenReferenciaURL} onChange={modalUpdate} />}</>}</InlineCreateModal>
   </>;
 }

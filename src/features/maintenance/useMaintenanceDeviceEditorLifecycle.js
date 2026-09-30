@@ -31,6 +31,7 @@ export default function useMaintenanceDeviceEditorLifecycle({
   readOnly,
   saving,
   deviceSaving,
+  maintenanceType = 'MANTENIMIENTO',
   setDevices,
   setError,
 }) {
@@ -44,8 +45,8 @@ export default function useMaintenanceDeviceEditorLifecycle({
 
   const signatureOf = useCallback((device) => {
     if (!device) return '';
-    return maintenanceDeviceSignature(device, maintenanceDevicePayload(device, ''));
-  }, []);
+    return maintenanceDeviceSignature(device, maintenanceDevicePayload(device, '', maintenanceType));
+  }, [maintenanceType]);
 
   const setActiveDevice = useCallback((value) => {
     if (typeof value === 'function') {
@@ -130,7 +131,7 @@ export default function useMaintenanceDeviceEditorLifecycle({
   }, [clearDeviceDraft, setDevices]);
 
   const createDeviceForForm = useCallback(() => {
-    const fresh = createMaintenanceDevice();
+    const fresh = createMaintenanceDevice('Cámara', maintenanceType);
     if (editing || draftConsumedRef.current) return fresh;
     draftConsumedRef.current = true;
     try {
@@ -139,7 +140,7 @@ export default function useMaintenanceDeviceEditorLifecycle({
     } catch {
       return fresh;
     }
-  }, [draftKey, editing]);
+  }, [draftKey, editing, maintenanceType]);
 
   useEffect(() => {
     if (!activeDevice || readOnly || saving || deviceSaving) return undefined;

@@ -9,6 +9,11 @@ import MaintenanceEvidenceUploader from '../../components/maintenance/Maintenanc
 import MaintenanceQuickDeviceCreator from '../../components/maintenance/MaintenanceQuickDeviceCreator';
 import MaintenanceSignatureCard from '../../components/maintenance/MaintenanceSignatureCard';
 import { MODULE_ROUTES, pick, requestAvailable } from '../../services/moduleApi';
+import { isProjectMaintenance } from '../../features/maintenance/maintenanceType';
+import {
+  normalizeProjectChecklist,
+  projectChecklistOverallProgress,
+} from '../../features/maintenance/maintenanceProjectChecklist';
 import {
   requestSynchronizedDetail,
   subscribeSyncEntity,
@@ -204,6 +209,15 @@ export default function MaintenanceDetailPage() {
   const devices = data?.dispositivos || data?.devices || [];
   const maintenanceLocations = useMemo(() => locationGroups(data, row, devices), [data, row, devices]);
   const status = String(pick(row, ['Estado'], 'PENDIENTE')).toUpperCase();
+  const projectMode = isProjectMaintenance(pick(row, ['TipoMantenimiento'], 'MANTENIMIENTO'));
+  const projectChecklist = useMemo(
+    () => normalizeProjectChecklist(pick(row, ['ProyectoChecklistJSON'], {})),
+    [row.ProyectoChecklistJSON],
+  );
+  const projectProgress = useMemo(
+    () => projectChecklistOverallProgress(projectChecklist, devices),
+    [projectChecklist, devices],
+  );
   const pending = status === 'PENDIENTE';
   const offlinePending = Boolean(pick(row, ['OfflinePendiente'], false));
   const driveFolderUrl = pick(row, ['CarpetaDriveURL', 'MaintenanceFolderURL']);
@@ -359,7 +373,7 @@ export default function MaintenanceDetailPage() {
     <div className="page maintenance-detail-page maintenance-detail-page--inventory">
       <div className="page-header knowledge-detail-header">
         <button className="icon-button" type="button" onClick={() => navigate('/mantenimientos')}><Icon name="arrow_back" /></button>
-        <div><span className="eyebrow">Mantenimiento técnico</span><h1>{pick(row, ['TituloMantenimiento'], 'Mantenimiento')}</h1></div>
+        <div><span className="eyebrow">{projectMode ? 'Proyecto técnico' : 'Mantenimiento técnico'}</span><h1>{pick(row, ['TituloMantenimiento'], projectMode ? 'Proyecto' : 'Mantenimiento')}</h1></div>
         {pending && canEdit
           ? <Link className="icon-button" to={`/mantenimientos/${encodeURIComponent(maintenanceId)}/editar`} aria-label="Editar"><Icon name="edit" /></Link>
           : <span />}
@@ -389,20 +403,21 @@ export default function MaintenanceDetailPage() {
             </div>
           </div>
           <div className="maintenance-detail-summary__grid">
+            <div><Icon name={projectMode ? 'account_tree' : 'engineering'} /><span>Tipo</span><strong>{projectMode ? 'Proyecto' : 'Mantenimiento'}</strong></div>
             <div><Icon name="calendar_month" /><span>Fecha</span><strong>{date(pick(row, ['Fecha']))}</strong></div>
             <div><Icon name="event_available" /><span>Finalización</span><strong>{date(pick(row, ['FechaFinalizacion']))}</strong></div>
             <div><Icon name="location_on" /><span>Sede principal</span><strong>{pick(row, ['Ubicacion'], 'Sin ubicación')}</strong></div>
             <div><Icon name="my_location" /><span>Ubicaciones del equipo</span><strong>{maintenanceLocations.length}</strong></div>
             <div><Icon name="groups" /><span>Responsables</span><strong>{pick(row, ['Responsables', 'Responsable'], 'Sin responsables')}</strong></div>
             <div><Icon name="devices_other" /><span>Dispositivos</span><strong>{devices.length}</strong></div>
-            <div><Icon name={signatureRegistered ? 'verified' : 'draw'} /><span>Firma general</span><strong>{signatureRegistered ? 'Registrada' : 'Pendiente'}</strong></div>
-            {generatedTicketCount > 0 && <div><Icon name="receipt_long" /><span>Boletas automáticas</span><strong>{generatedTicketCount}</strong></div>}
+            {!projectMode && <div><Icon name={signatureRegistered ? 'verified' : 'draw'} /><span>Firma general</span><strong>{signatureRegistered ? 'Registrada' : 'Pendiente'}</strong></div>}
+            {!projectMode && generatedTicketCount > 0 && <div><Icon name="receipt_long" /><span>Boletas automáticas</span><strong>{generatedTicketCount}</strong></div>}
             {pick(row, ['ChatDestino']) && <div><Icon name="forum" /><span>Último destino</span><strong>{pick(row, ['ChatDestino'])}</strong></div>}
           </div>
         </section>
       </MaintenanceMobileFold>
 
-      {!offlinePending && (
+      {!offlinePending && !projectMode && (
         <MaintenanceMobileFold
           id="maintenance-signature-fold-content"
           title="Firma general"
@@ -431,16 +446,25 @@ export default function MaintenanceDetailPage() {
       {(isAdmin || (pending && canEdit)) && (
         <section className="maintenance-report-actions" aria-label="Acciones del mantenimiento">
           {pending && canEdit && <button type="button" className="button button--primary" onClick={() => setLocationPickerOpen(true)} disabled={Boolean(working)}><Icon name="add_location_alt" />Agregar ubicación</button>}
-          {pending && canEdit && <button type="button" className="button button--secondary maintenance-quick-evidence-button" onClick={() => setQuickEvidenceOpen(true)} disabled={!devices.length || Boolean(working)} title={devices.length ? 'Agregar evidencia a cualquier dispositivo' : 'Agregue un dispositivo primero'}><Icon name="add_a_photo" />Nueva evidencia</button>}
-          {isAdmin && pending && <button type="button" className="button button--secondary" onClick={() => action('ticket-test')} disabled={Boolean(working) || offlinePending || !devices.length} title={offlinePending ? 'Sincronice el mantenimiento antes de probar las boletas' : 'Agrupar por fecha y técnicos, usar Gemini y enviar una vista previa al Chat de pruebas'}><Icon name="receipt_long" />{working === 'ticket-test' ? 'Probando boletas...' : 'Probar boletas automáticas'}</button>}
-          {isAdmin && <button type="button" className="button button--secondary" onClick={() => action('test')} disabled={Boolean(working) || offlinePending || !devices.length} title={offlinePending ? 'Sincronice el mantenimiento antes de probar el envío' : 'Crear carpetas, copiar evidencias y enviar al Chat de pruebas sin finalizar'}><Icon name="science" />{working === 'test' ? 'Enviando prueba...' : 'Probar envío'}</button>}
-          {isAdmin && <button type="button" className="button button--secondary" onClick={() => action('sheet')} disabled={Boolean(working) || offlinePending} title={offlinePending ? 'Sincronice el mantenimiento antes de generar el reporte' : 'Crear reporte de Excel'}><Icon name="table_view" />{working === 'sheet' ? 'Generando...' : 'Crear Excel'}</button>}
-          {isAdmin && <button type="button" className="button button--secondary" onClick={() => action('slides')} disabled={Boolean(working) || offlinePending} title={offlinePending ? 'Sincronice el mantenimiento antes de generar la presentación' : 'Crear presentación'}><Icon name="slideshow" />{working === 'slides' ? 'Generando...' : 'Crear presentación'}</button>}
+          {!projectMode && pending && canEdit && <button type="button" className="button button--secondary maintenance-quick-evidence-button" onClick={() => setQuickEvidenceOpen(true)} disabled={!devices.length || Boolean(working)} title={devices.length ? 'Agregar evidencia a cualquier dispositivo' : 'Agregue un dispositivo primero'}><Icon name="add_a_photo" />Nueva evidencia</button>}
+          {!projectMode && isAdmin && pending && <button type="button" className="button button--secondary" onClick={() => action('ticket-test')} disabled={Boolean(working) || offlinePending || !devices.length} title={offlinePending ? 'Sincronice el mantenimiento antes de probar las boletas' : 'Agrupar por fecha y técnicos, usar Gemini y enviar una vista previa al Chat de pruebas'}><Icon name="receipt_long" />{working === 'ticket-test' ? 'Probando boletas...' : 'Probar boletas automáticas'}</button>}
+          {!projectMode && isAdmin && <button type="button" className="button button--secondary" onClick={() => action('test')} disabled={Boolean(working) || offlinePending || !devices.length} title={offlinePending ? 'Sincronice el mantenimiento antes de probar el envío' : 'Crear carpetas, copiar evidencias y enviar al Chat de pruebas sin finalizar'}><Icon name="science" />{working === 'test' ? 'Enviando prueba...' : 'Probar envío'}</button>}
+          {!projectMode && isAdmin && <button type="button" className="button button--secondary" onClick={() => action('sheet')} disabled={Boolean(working) || offlinePending} title={offlinePending ? 'Sincronice el mantenimiento antes de generar el reporte' : 'Crear reporte de Excel'}><Icon name="table_view" />{working === 'sheet' ? 'Generando...' : 'Crear Excel'}</button>}
+          {!projectMode && isAdmin && <button type="button" className="button button--secondary" onClick={() => action('slides')} disabled={Boolean(working) || offlinePending} title={offlinePending ? 'Sincronice el mantenimiento antes de generar la presentación' : 'Crear presentación'}><Icon name="slideshow" />{working === 'slides' ? 'Generando...' : 'Crear presentación'}</button>}
           {driveFolderUrl && <a className="button button--ghost" href={driveFolderUrl} target="_blank" rel="noreferrer"><Icon name="folder_open" />Abrir carpeta Drive</a>}
-          {isAdmin && pick(row, ['SpreadsheetURL']) && <a className="button button--ghost" href={pick(row, ['SpreadsheetURL'])} target="_blank" rel="noreferrer"><Icon name="open_in_new" />Excel creado</a>}
-          {isAdmin && pick(row, ['SlidesURL']) && <a className="button button--ghost" href={pick(row, ['SlidesURL'])} target="_blank" rel="noreferrer"><Icon name="open_in_new" />Presentación creada</a>}
+          {!projectMode && isAdmin && pick(row, ['SpreadsheetURL']) && <a className="button button--ghost" href={pick(row, ['SpreadsheetURL'])} target="_blank" rel="noreferrer"><Icon name="open_in_new" />Excel creado</a>}
+          {!projectMode && isAdmin && pick(row, ['SlidesURL']) && <a className="button button--ghost" href={pick(row, ['SlidesURL'])} target="_blank" rel="noreferrer"><Icon name="open_in_new" />Presentación creada</a>}
         </section>
       )}
+
+      {projectMode && projectProgress.total > 0 && <section className="form-card maintenance-project-overall-progress">
+        <div className="maintenance-project-overall-progress__heading">
+          <div><span className="eyebrow">AVANCE DEL PROYECTO</span><h2>Checklist de progreso</h2><p>{projectProgress.completed} de {projectProgress.total} tareas realizadas.</p></div>
+          <strong>{projectProgress.percent}%</strong>
+        </div>
+        <div className="maintenance-project-progress__track"><span style={{ width: `${projectProgress.percent}%` }} /></div>
+        <div className="maintenance-project-overall-progress__stats"><span><strong>{projectProgress.completed}</strong> realizadas</span><span><strong>{projectProgress.pending}</strong> pendientes</span></div>
+      </section>}
 
       <MaintenanceLocationInventory
         devices={devices}
@@ -454,19 +478,22 @@ export default function MaintenanceDetailPage() {
         onEditDevice={editDevice}
         onAddEvidence={setEvidenceDevice}
         onEditEvidence={(image, device) => setEditingEvidence({ image, device })}
+        projectMode={projectMode}
+        projectChecklist={projectChecklist}
+        evidenceEnabled
       />
 
       <section className="maintenance-detail-footer-actions">
-        {pending && !offlinePending && isAdministrator && devices.length > 0 && <button className="button button--primary" type="button" onClick={() => action('finalize')} disabled={Boolean(working) || !signatureRegistered} title={!signatureRegistered ? 'El cliente debe firmar el mantenimiento general antes de finalizar' : 'Finalizar mantenimiento y generar boletas firmadas'}><Icon name="task_alt" />{working === 'finalize' ? 'Generando boletas y finalizando...' : signatureRegistered ? 'Finalizar mantenimiento' : 'Firma pendiente'}</button>}
+        {!projectMode && pending && !offlinePending && isAdministrator && devices.length > 0 && <button className="button button--primary" type="button" onClick={() => action('finalize')} disabled={Boolean(working) || !signatureRegistered} title={!signatureRegistered ? 'El cliente debe firmar el mantenimiento general antes de finalizar' : 'Finalizar mantenimiento y generar boletas firmadas'}><Icon name="task_alt" />{working === 'finalize' ? 'Generando boletas y finalizando...' : signatureRegistered ? 'Finalizar mantenimiento' : 'Firma pendiente'}</button>}
         {status === 'FINALIZADO' && isAdmin && <button className="button button--secondary" type="button" onClick={() => action('reopen')} disabled={Boolean(working)}><Icon name="undo" />Volver a pendiente</button>}
         {isAdmin && <button className="button button--danger" type="button" onClick={() => action('delete')} disabled={Boolean(working)}><Icon name="delete" />Eliminar</button>}
       </section>
 
       <MaintenanceLocationPickerModal open={locationPickerOpen} maintenanceLocationId={String(pick(row, ['UbicacionID'], ''))} existingLocations={maintenanceLocations} saving={working === 'locations'} onClose={() => setLocationPickerOpen(false)} onSave={addLocation} />
       {quickDeviceLocation && <MaintenanceQuickDeviceCreator maintenanceId={maintenanceId} sessionToken={sessionToken} initialEquipmentLocation={quickDeviceLocation} onClose={() => setQuickDeviceLocation(null)} onCreated={() => load({ silent: true, forceSync: navigator.onLine !== false })} />}
-      {evidenceDevice && <MaintenanceEvidenceUploader device={evidenceDevice} maintenanceId={maintenanceId} sessionToken={sessionToken} onClose={() => setEvidenceDevice(null)} onUploaded={() => load({ silent: true, forceSync: navigator.onLine !== false })} />}
-      {quickEvidenceOpen && <MaintenanceEvidenceUploader devices={devices} maintenanceId={maintenanceId} sessionToken={sessionToken} onClose={() => setQuickEvidenceOpen(false)} onUploaded={() => load({ silent: true, forceSync: navigator.onLine !== false })} />}
-      {editingEvidence && <MaintenanceEvidenceEditor image={editingEvidence.image} device={editingEvidence.device} maintenanceId={maintenanceId} sessionToken={sessionToken} isAdmin={isAdmin} onClose={() => setEditingEvidence(null)} onUpdated={() => load({ silent: true, forceSync: navigator.onLine !== false })} />}
+      {evidenceDevice && <MaintenanceEvidenceUploader device={evidenceDevice} maintenanceId={maintenanceId} sessionToken={sessionToken} projectMode={projectMode} onClose={() => setEvidenceDevice(null)} onUploaded={() => load({ silent: true, forceSync: navigator.onLine !== false })} />}
+      {!projectMode && quickEvidenceOpen && <MaintenanceEvidenceUploader devices={devices} maintenanceId={maintenanceId} sessionToken={sessionToken} onClose={() => setQuickEvidenceOpen(false)} onUploaded={() => load({ silent: true, forceSync: navigator.onLine !== false })} />}
+      {editingEvidence && <MaintenanceEvidenceEditor image={editingEvidence.image} device={editingEvidence.device} maintenanceId={maintenanceId} sessionToken={sessionToken} isAdmin={isAdmin} projectMode={projectMode} onClose={() => setEditingEvidence(null)} onUpdated={() => load({ silent: true, forceSync: navigator.onLine !== false })} />}
     </div>
   );
 }

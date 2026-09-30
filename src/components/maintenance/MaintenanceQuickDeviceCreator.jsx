@@ -12,6 +12,10 @@ import {
   maintenanceDevicePayload,
 } from '../../pages/maintenance/maintenanceFormData';
 import { showMaintenanceDeviceCreatedFeedback } from '../../services/maintenanceDeviceCreatedFeedback';
+import {
+  emptyProjectChecklist,
+  normalizeProjectChecklist,
+} from '../../features/maintenance/maintenanceProjectChecklist';
 import { uploadMaintenanceImagesInBatches } from '../../services/maintenanceImageBatch';
 import { MODULE_ROUTES, normalizeItems, pick, requestAvailable } from '../../services/moduleApi';
 
@@ -45,6 +49,8 @@ export default function MaintenanceQuickDeviceCreator({
 }) {
   const [device, setDevice] = useState(() => initialDevice(initialEquipmentLocation));
   const [maintenanceCounts, setMaintenanceCounts] = useState({});
+  const [maintenanceType, setMaintenanceType] = useState('MANTENIMIENTO');
+  const [projectChecklist, setProjectChecklist] = useState(() => emptyProjectChecklist());
   const [equipmentOptions, setEquipmentOptions] = useState(() => initialEquipmentLocation?.id ? [{
     value: String(initialEquipmentLocation.id),
     label: String(initialEquipmentLocation.name || initialEquipmentLocation.id),
@@ -102,6 +108,13 @@ export default function MaintenanceQuickDeviceCreator({
 
         const counts = parseMaintenanceCounts(row);
         setMaintenanceCounts(counts);
+        const nextMaintenanceType = String(pick(row, ['TipoMantenimiento'], 'MANTENIMIENTO')).toUpperCase() === 'PROYECTO' ? 'PROYECTO' : 'MANTENIMIENTO';
+        setMaintenanceType(nextMaintenanceType);
+        setProjectChecklist(
+          nextMaintenanceType === 'PROYECTO'
+            ? normalizeProjectChecklist(pick(row, ['ProyectoChecklistJSON'], emptyProjectChecklist()))
+            : emptyProjectChecklist(),
+        );
         if (!hasSelectedMaintenanceCategory(counts)) {
           setBlocked(true);
           setError('Primero edite el mantenimiento e indique una cantidad mayor que cero para al menos un tipo de dispositivo.');
@@ -151,7 +164,7 @@ export default function MaintenanceQuickDeviceCreator({
       if (!deviceId) {
         savedRecord = await requestAvailable(
           MODULE_ROUTES.maintenance.deviceCreate,
-          maintenanceDevicePayload(device, maintenanceId),
+          maintenanceDevicePayload(device, maintenanceId, maintenanceType),
           sessionToken,
         );
         deviceId = String(pick(savedRecord, ['EvidenciaMantenimientoID', 'deviceId', 'id']));
@@ -162,7 +175,7 @@ export default function MaintenanceQuickDeviceCreator({
       } else {
         savedRecord = await requestAvailable(
           MODULE_ROUTES.maintenance.deviceUpdate,
-          maintenanceDevicePayload({ ...device, id: deviceId }, maintenanceId),
+          maintenanceDevicePayload({ ...device, id: deviceId }, maintenanceId, maintenanceType),
           sessionToken,
         );
         offlinePending ||= responseIsOfflinePending(savedRecord);
@@ -265,6 +278,8 @@ export default function MaintenanceQuickDeviceCreator({
                 onSubmit={save}
                 submitLabel="Guardar dispositivo"
                 submitting={saving}
+                maintenanceType={maintenanceType}
+                projectChecklist={projectChecklist}
               />
             </MaintenanceCountsProvider>
           </>

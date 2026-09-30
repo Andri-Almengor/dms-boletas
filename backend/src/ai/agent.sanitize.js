@@ -30,6 +30,14 @@ const SAFE_CONTEXT_KEYS = new Set([
   'lastSearchLimit',
   'lastSearchStatus',
   'lastSearchPeriod',
+  'lastSearchDeviceType',
+  'lastSearchComponentType',
+  'lastSearchComponentManufacturer',
+  'lastSearchComponentModel',
+  'lastSearchComponentSerial',
+  'lastSearchComponentMac',
+  'lastSearchEvidenceNote',
+  'lastSearchMaintenanceType',
 ]);
 
 function cleanString(value, maxLength = 6_000) {

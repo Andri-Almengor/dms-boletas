@@ -17,6 +17,21 @@ function normalized(value) {
     .trim();
 }
 
+function normalizeMode(value = 'MANTENIMIENTO') {
+  const mode = clean(value || 'MANTENIMIENTO').toUpperCase();
+  return ['MANTENIMIENTO', 'PROYECTO', 'AMBOS'].includes(mode) ? mode : 'MANTENIMIENTO';
+}
+
+function parseConfig(value) {
+  if (value && typeof value === 'object' && !Array.isArray(value)) return value;
+  try {
+    const parsed = JSON.parse(value || '{}');
+    return parsed && typeof parsed === 'object' && !Array.isArray(parsed) ? parsed : {};
+  } catch {
+    return {};
+  }
+}
+
 function questionView(row = {}) {
   return {
     id: clean(row.id || row.questionId || row.PreguntaDispositivoID),
@@ -27,6 +42,9 @@ function questionView(row = {}) {
     label: clean(row.label || row.Pregunta),
     order: Number(row.order ?? row.Orden ?? 0),
     responseType: clean(row.responseType || row.TipoRespuesta || 'SI_NO'),
+    appliesTo: normalizeMode(row.appliesTo || row.AplicaModo || 'MANTENIMIENTO'),
+    relatedTypeId: clean(row.relatedTypeId || row.TipoDispositivoRelacionadoID),
+    config: parseConfig(row.config || row.ConfiguracionJSON),
     active: row.active !== false && row.Activo !== false && clean(row.status || row.Estado || 'ACTIVO').toUpperCase() !== 'INACTIVO',
     historical: Boolean(row.historical),
   };
@@ -40,7 +58,10 @@ function savedQuestionView(row = {}) {
     label: clean(row.label || row.Pregunta),
     order: Number(row.order ?? row.Orden ?? 0),
     responseType: clean(row.responseType || row.TipoRespuesta || 'SI_NO'),
-    value: clean(row.value),
+    appliesTo: normalizeMode(row.appliesTo || row.AplicaModo || 'MANTENIMIENTO'),
+    relatedTypeId: clean(row.relatedTypeId || row.TipoDispositivoRelacionadoID),
+    config: parseConfig(row.config || row.ConfiguracionJSON),
+    value: row.value ?? '',
   };
 }
 
@@ -87,14 +108,16 @@ export default function useMaintenanceQuestionCatalog(sessionToken) {
     return map;
   }, [questions]);
 
-  function forDevice(device = {}) {
+  function forDevice(device = {}, maintenanceMode = 'MANTENIMIENTO') {
     const typeId = clean(device.tipoDispositivoId || device.TipoDispositivoID);
     const category = normalized(device.categoria || device.TipoDispositivo || device.Categoria);
-    const selected = typeId && byTypeId.has(typeId)
+    const requestedMode = normalizeMode(maintenanceMode);
+    const selected = (typeId && byTypeId.has(typeId)
       ? byTypeId.get(typeId)
       : questions
-        .filter((question) => normalized(question.typeName) === category)
-        .sort((left, right) => left.order - right.order || left.label.localeCompare(right.label, 'es'));
+        .filter((question) => normalized(question.typeName) === category))
+      .filter((question) => question.appliesTo === 'AMBOS' || question.appliesTo === requestedMode)
+      .sort((left, right) => left.order - right.order || left.label.localeCompare(right.label, 'es'));
     const savedByKey = new Map((device.questionDetails || [])
       .map(savedQuestionView)
       .filter((item) => item.key && (!item.typeId || !typeId || item.typeId === typeId))
@@ -109,6 +132,9 @@ export default function useMaintenanceQuestionCatalog(sessionToken) {
         label: saved.label || question.label,
         order: saved.order || question.order,
         responseType: saved.responseType || question.responseType,
+        appliesTo: saved.appliesTo || question.appliesTo,
+        relatedTypeId: saved.relatedTypeId || question.relatedTypeId,
+        config: saved.config || question.config,
         value: saved.value,
       };
     });
