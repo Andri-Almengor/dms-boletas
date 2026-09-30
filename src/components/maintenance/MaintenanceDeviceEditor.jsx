@@ -201,7 +201,7 @@ export default function MaintenanceDeviceEditor({
       : []
   ), [device.respuestas, dynamicQuestions, projectMode]);
 
-  const projectRelationMacErrors = useMemo(() => {
+  const projectRelationErrors = useMemo(() => {
     if (!projectMode) return [];
     return dynamicQuestions.flatMap((question) => {
       if (question.responseType !== 'RELACION_DISPOSITIVO') return [];
@@ -209,11 +209,27 @@ export default function MaintenanceDeviceEditor({
         relatedTypeId: question.relatedTypeId,
       });
       if (!relation.enabled) return [];
-      return relation.items
-        .map((item, index) => ({ question, index, error: macAddressError(item.macAddress) }))
-        .filter((item) => item.error);
+      return relation.items.flatMap((item, index) => {
+        const errors = [];
+        const directMacError = macAddressError(item.macAddress);
+        if (directMacError) errors.push({ question, index, type: 'MAC', message: directMacError });
+        const childQuestions = questionCatalog.forDevice(item, 'PROYECTO')
+          .map(normalizeQuestion)
+          .filter((entry) => entry.responseType !== 'RELACION_DISPOSITIVO');
+        childQuestions.forEach((childQuestion) => {
+          const childValue = item.respuestas?.[childQuestion.key] ?? '';
+          if (projectQuestionMissing(childQuestion, childValue)) {
+            errors.push({ question, index, type: 'REQUIRED', message: `Falta ${childQuestion.label}` });
+          }
+          if (childQuestion.responseType === 'MAC') {
+            const childMacError = macAddressError(childValue);
+            if (childMacError) errors.push({ question, index, type: 'MAC', message: childMacError });
+          }
+        });
+        return errors;
+      });
     });
-  }, [device.respuestas, dynamicQuestions, projectMode]);
+  }, [device.respuestas, dynamicQuestions, projectMode, questionCatalog]);
 
   const checklistCompletion = useMemo(() => maintenanceChecklistCompletion(
     { ...device, questionDetails: dynamicQuestions },
@@ -347,7 +363,7 @@ export default function MaintenanceDeviceEditor({
     || !onSubmit
     || missingEquipmentLocation
     || Boolean(invalidMac)
-    || (projectMode && (projectMissingQuestions.length > 0 || projectRelationMacErrors.length > 0));
+    || (projectMode && (projectMissingQuestions.length > 0 || projectRelationErrors.length > 0));
 
   return <div className="maintenance-device-editor" data-offline-editing-surface>
     <div className="page-header maintenance-device-editor__header">
@@ -409,7 +425,7 @@ export default function MaintenanceDeviceEditor({
           />)}
         {!questionCatalog.loading && !dynamicQuestions.length && <div className="info-box"><Icon name="info" /><p>Este tipo todavía no tiene campos de Proyecto configurados. Puede guardar el dispositivo solo con su identificación o configurar campos desde Administración → Preguntas de mantenimiento.</p></div>}
         {projectMissingQuestions.length > 0 && <div className="alert alert--warning"><Icon name="pending_actions" /><span>Faltan {projectMissingQuestions.length} campo{projectMissingQuestions.length === 1 ? '' : 's'} obligatorio{projectMissingQuestions.length === 1 ? '' : 's'} del proyecto.</span></div>}
-        {projectRelationMacErrors.length > 0 && <div className="alert alert--error"><Icon name="error" /><span>Revise las direcciones MAC de los componentes relacionados antes de guardar.</span></div>}
+        {projectRelationErrors.length > 0 && <div className="alert alert--error"><Icon name="error" /><span>Revise los campos obligatorios y direcciones MAC de los componentes relacionados antes de guardar.</span></div>}
         {questionCatalog.error && <div className="info-box maintenance-question-warning"><Icon name="cloud_off" /><p>No se pudo actualizar la configuración. Se conservan los campos históricos disponibles en el dispositivo.</p></div>}
       </section> : <section className={`maintenance-checklist maintenance-device-section-card${checklistPending ? ' is-pending' : ''}`}>
         <div className="maintenance-checklist__heading"><h3><Icon name={category.icon} /> Checklist de {device.categoria || category.key}</h3><label className={`maintenance-checklist-pending-toggle${manualPending ? ' is-checked' : ''}`}><input type="checkbox" checked={manualPending} onChange={(event) => toggleChecklistPending(event.target.checked)} disabled={locked} /><span className="maintenance-checklist-pending-toggle__box" aria-hidden="true">{manualPending && <Icon name="check" />}</span><span className="maintenance-checklist-pending-toggle__text"><strong>Pendiente</strong><small>Bloquear pruebas por ahora</small></span></label></div>
@@ -462,7 +478,7 @@ export default function MaintenanceDeviceEditor({
       <footer className="maintenance-device-editor__actions">
         <div className="maintenance-device-editor__actions-status"><AutosaveIndicator status={autosaveStatus} /></div>
         <button className="button button--ghost maintenance-device-cancel-button" type="button" onClick={cancel} disabled={submitting}><Icon name="close" />Cancelar</button>
-        {onSubmitAndContinue && isNewDevice && !locked && <button className="button button--secondary" type="button" onClick={onSubmitAndContinue} disabled={missingEquipmentLocation || Boolean(invalidMac) || (projectMode && (projectMissingQuestions.length > 0 || projectRelationMacErrors.length > 0))}><Icon name="add_circle" />Guardar y agregar otro</button>}
+        {onSubmitAndContinue && isNewDevice && !locked && <button className="button button--secondary" type="button" onClick={onSubmitAndContinue} disabled={missingEquipmentLocation || Boolean(invalidMac) || (projectMode && (projectMissingQuestions.length > 0 || projectRelationErrors.length > 0))}><Icon name="add_circle" />Guardar y agregar otro</button>}
         <button className="button button--primary" type="button" onClick={onSubmit} disabled={submitDisabled}><Icon name={submitting ? 'progress_activity' : 'check'} /> {submitting ? 'Guardando dispositivo...' : submitLabel}</button>
       </footer>
     </div>
