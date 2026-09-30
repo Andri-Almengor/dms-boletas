@@ -29,6 +29,25 @@ export const RUNTIME_COLUMN_EXTENSIONS = Object.freeze({
     'ImagenesCopiadas',
     'ImagenesYaExistentes',
     'ErroresCopia',
+    'TipoMantenimiento',
+    'ProyectoChecklistJSON',
+  ]),
+  TipoDispositivoPreguntas: Object.freeze([
+    'AplicaModo',
+    'TipoDispositivoRelacionadoID',
+    'ConfiguracionJSON',
+  ]),
+  Evidencia_Mantenimientos: Object.freeze([
+    'ProyectoProgresoJSON',
+  ]),
+  'Mantenimiento imagenes': Object.freeze([
+    'ContextoEvidencia',
+    'FechaCaptura',
+    'ProyectoDestinoTipo',
+    'ProyectoRelacionClave',
+    'ProyectoComponenteLocalID',
+    'ProyectoComponenteTipoDispositivoID',
+    'ProyectoComponenteNombre',
   ]),
 });
 export const DATABASE_TABLES = Object.freeze(Object.fromEntries(Object.entries(RAW_TABLES).map(([name,meta])=>[
