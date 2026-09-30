@@ -123,16 +123,23 @@ function mapImage(image, maintenanceId = '') {
   };
 }
 
-export function createMaintenanceDevice(category = 'Cámara') {
+export function createMaintenanceDevice(category = 'Cámara', maintenanceType = 'MANTENIMIENTO') {
   const canonicalCategory = canonicalMaintenanceCategoryName(category);
+  const normalizedType = normalizeMaintenanceType(maintenanceType);
   return {
     localId: createLocalId(),
+    maintenanceType: normalizedType,
     id: '', ubicacionEquipoId: '', ubicacionEquipoNombre: '', zona: '',
     fechaTrabajo: todayInCostaRica(), tecnicoIds: [],
     tipoDispositivoId: '', categoria: canonicalCategory,
     fabricanteId: '', fabricante: '', modeloId: '', modelo: '',
-    nombre: '', serie: '', macAddress: '', funcionamiento: '', enUso: '', estado: AUTOMATIC_PENDING_STATE, observacion: '',
-    respuestas: createEmptyChecklist(canonicalCategory), questionDetails: [], images: [], newImages: [], syncBase: null,
+    nombre: '', serie: '', macAddress: '',
+    funcionamiento: normalizedType === 'PROYECTO' ? 'No aplica' : '',
+    enUso: normalizedType === 'PROYECTO' ? 'No aplica' : '',
+    estado: AUTOMATIC_PENDING_STATE,
+    observacion: '',
+    respuestas: normalizedType === 'PROYECTO' ? {} : createEmptyChecklist(canonicalCategory),
+    questionDetails: [], images: [], newImages: [], syncBase: null,
   };
 }
 
@@ -169,7 +176,8 @@ export function mapMaintenance(data) {
   };
 }
 
-export function mapMaintenanceDevice(row = {}) {
+export function mapMaintenanceDevice(row = {}, maintenanceType = 'MANTENIMIENTO') {
+  const normalizedType = normalizeMaintenanceType(maintenanceType);
   const category = canonicalMaintenanceCategoryName(pick(row, ['TipoDispositivo', 'Categoria', 'categoria'], 'Cámara'));
   const bundle = parseAnswersBundle(row, category);
   const equipmentLocationName = pick(row, [
@@ -181,6 +189,7 @@ export function mapMaintenanceDevice(row = {}) {
   const legacyLocation = pick(row, ['Zona', 'UbicacionEspecifica', 'zona']);
   const maintenanceId = String(pick(row, ['MantenimientoRef', 'maintenanceId', 'MantenimientoID']));
   const mapped = {
+    maintenanceType: normalizedType,
     localId: String(pick(row, ['EvidenciaMantenimientoID', 'deviceId', 'id'], createLocalId())),
     id: String(pick(row, ['EvidenciaMantenimientoID', 'deviceId', 'id'])),
     ubicacionEquipoId: String(pick(row, ['UbicacionEquipoID', 'ubicacionEquipoId'])),
@@ -209,7 +218,9 @@ export function mapMaintenanceDevice(row = {}) {
   };
   return {
     ...mapped,
-    estado: effectiveMaintenanceDeviceState(mapped, getMaintenanceCategory(category).questions),
+    estado: normalizedType === 'PROYECTO'
+      ? pick(row, ['Estado', 'estado'], AUTOMATIC_PENDING_STATE)
+      : effectiveMaintenanceDeviceState(mapped, getMaintenanceCategory(category).questions),
   };
 }
 
@@ -226,14 +237,19 @@ export function maintenancePayload(form, id) {
   }, form.syncBase);
 }
 
-export function maintenanceDevicePayload(device, maintenanceId) {
+export function maintenanceDevicePayload(device, maintenanceId, maintenanceType = device?.maintenanceType || 'MANTENIMIENTO') {
   const technicianIds = (device.tecnicoIds || []).map(String).filter(Boolean);
   const category = canonicalMaintenanceCategoryName(device.categoria);
+  const normalizedType = normalizeMaintenanceType(maintenanceType);
   const equipmentLocationName = String(device.ubicacionEquipoNombre || device.zona || '').trim();
-  const effectiveState = effectiveMaintenanceDeviceState(device, getMaintenanceCategory(category).questions);
+  const effectiveState = normalizedType === 'PROYECTO'
+    ? (String(device.estado || '').trim() || AUTOMATIC_PENDING_STATE)
+    : effectiveMaintenanceDeviceState(device, getMaintenanceCategory(category).questions);
   const macAddress = normalizeMacAddress(device.macAddress);
   return withSyncBase({
     maintenanceId, MantenimientoID: maintenanceId, deviceId: device.id,
+    TipoMantenimiento: normalizedType,
+    tipoMantenimiento: normalizedType,
     EvidenciaMantenimientoID: device.id,
     UbicacionEquipoID: device.ubicacionEquipoId,
     ubicacionEquipoId: device.ubicacionEquipoId,
