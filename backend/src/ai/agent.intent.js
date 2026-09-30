@@ -74,7 +74,8 @@ export function classifyAiIntent({message='',context={},attachments=[]}={}){
 
   const explicitTicket=TICKET_HINT.test(value);
   const explicitMaintenance=MAINTENANCE_HINT.test(value);
-  const explicitDevice=DEVICE_HINT.test(value)||(PROJECT_COMPONENT_HINT.test(value)&&INVENTORY_QUERY_HINT.test(value));
+  const projectComponentInventory=PROJECT_COMPONENT_HINT.test(value)&&INVENTORY_QUERY_HINT.test(value);
+  const explicitDevice=DEVICE_HINT.test(value)||projectComponentInventory;
   const explicitEvidence=EVIDENCE_HINT.test(value);
   const pageEntity=String(context?.pageContext?.entityType||'').toLowerCase();
   const ticketContext=hasActive(context,'lastTicketId')
@@ -103,7 +104,7 @@ export function classifyAiIntent({message='',context={},attachments=[]}={}){
   if(explicitDevice&&(maintenanceContext||deviceContext)){
     return explicitEvidence?AI_INTENTS.MAINTENANCE_EVIDENCE:AI_INTENTS.MAINTENANCE_DEVICES;
   }
-  if(explicitDevice&&INVENTORY_QUERY_HINT.test(value)){
+  if(projectComponentInventory){
     return explicitEvidence?AI_INTENTS.MAINTENANCE_EVIDENCE:AI_INTENTS.MAINTENANCE_DEVICES;
   }
   if(explicitEvidence&&maintenanceContext) return AI_INTENTS.MAINTENANCE_EVIDENCE;
