@@ -94,6 +94,8 @@ function imagePayload(image, base64) {
     ProyectoDestinoTipo: image.projectTargetType,
     ProyectoRelacionClave: image.projectRelationKey,
     ProyectoComponenteLocalID: image.projectComponentLocalId,
+    ProyectoComponenteTipoDispositivoID: image.projectComponentTypeId,
+    ProyectoComponenteNombre: image.projectComponentName,
     fileName: image.file.name,
     mimeType: image.mimeType || image.file.type || 'image/jpeg',
     mediaType: image.mediaType || 'image',
@@ -114,6 +116,8 @@ function imageMetadataPayload(image, maintenanceId, deviceId) {
     ProyectoDestinoTipo: image.ProyectoDestinoTipo,
     ProyectoRelacionClave: image.ProyectoRelacionClave,
     ProyectoComponenteLocalID: image.ProyectoComponenteLocalID,
+    ProyectoComponenteTipoDispositivoID: image.ProyectoComponenteTipoDispositivoID,
+    ProyectoComponenteNombre: image.ProyectoComponenteNombre,
   }, image.syncBase || maintenanceImageSyncBase(image, maintenanceId));
 }
 
@@ -179,6 +183,8 @@ async function uploadFallback({
         ProyectoDestinoTipo: image.projectTargetType,
         ProyectoRelacionClave: image.projectRelationKey,
         ProyectoComponenteLocalID: image.projectComponentLocalId,
+        ProyectoComponenteTipoDispositivoID: image.projectComponentTypeId,
+        ProyectoComponenteNombre: image.projectComponentName,
         fileName: image.file.name,
         mimeType: image.mimeType || image.file.type || 'image/jpeg',
         mediaType: image.mediaType || 'image',
