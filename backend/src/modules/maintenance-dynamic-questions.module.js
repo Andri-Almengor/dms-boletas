@@ -18,7 +18,10 @@ import {
   ensureMaintenanceQuestionCatalog,
   isActiveMaintenanceQuestion,
   maintenanceQuestionClientView,
+  normalizeMaintenanceQuestionMode,
+  normalizeMaintenanceQuestionResponseType,
   normalizeMaintenanceQuestionValue,
+  parseMaintenanceQuestionConfig,
   parseMaintenanceAnswers,
   parseMaintenanceQuestionSnapshot,
   readMaintenanceQuestions,
@@ -49,6 +52,41 @@ function questionText(payload, fallback = '') {
 function questionOrder(payload, fallback = 0) {
   const value = Number(pick(payload, ['Orden', 'orden'], fallback));
   return Number.isFinite(value) ? Math.max(0, Math.round(value)) : Number(fallback || 0);
+}
+
+function questionMode(payload, fallback = 'MANTENIMIENTO') {
+  return normalizeMaintenanceQuestionMode(pick(payload, ['AplicaModo', 'aplicaModo', 'maintenanceMode'], fallback), fallback);
+}
+
+function questionResponseType(payload, fallback = 'SI_NO') {
+  return normalizeMaintenanceQuestionResponseType(pick(payload, ['TipoRespuesta', 'tipoRespuesta', 'responseType'], fallback), fallback);
+}
+
+function questionRelatedTypeId(payload, fallback = '') {
+  return cleanMaintenanceQuestionValue(pick(payload, ['TipoDispositivoRelacionadoID', 'tipoDispositivoRelacionadoId', 'relatedTypeId'], fallback));
+}
+
+function questionConfig(payload, fallback = {}) {
+  const raw = pick(payload, ['ConfiguracionJSON', 'configuracion', 'config'], fallback);
+  return parseMaintenanceQuestionConfig(raw);
+}
+
+async function validateQuestionMetadata(payload, before = {}) {
+  const mode = questionMode(payload, questionMode(before, 'MANTENIMIENTO'));
+  const responseType = questionResponseType(payload, questionResponseType(before, 'SI_NO'));
+  const relatedTypeId = questionRelatedTypeId(payload, questionRelatedTypeId(before, ''));
+  const config = questionConfig(payload, questionConfig(before, {}));
+  if (responseType === 'RELACION_DISPOSITIVO') {
+    if (mode === 'MANTENIMIENTO') throw badRequest('Las relaciones con otros dispositivos deben aplicarse a Proyecto o Ambos.');
+    if (!relatedTypeId) throw badRequest('Seleccione el tipo de dispositivo que se relacionará.');
+    await assertMaintenanceDeviceType(relatedTypeId);
+  }
+  return {
+    mode,
+    responseType,
+    relatedTypeId: responseType === 'RELACION_DISPOSITIVO' ? relatedTypeId : '',
+    config,
+  };
 }
 
 async function typeNamesMap() {
@@ -93,8 +131,9 @@ async function create(ctx) {
     const typeId = cleanMaintenanceQuestionValue(pick(ctx.payload, ['TipoDispositivoID', 'tipoDispositivoId']));
     await assertMaintenanceDeviceType(typeId);
     const text = questionText(ctx.payload);
-    if (!text) throw badRequest('Escriba la pregunta que deberá responderse con Sí o No.');
+    if (!text) throw badRequest('Escriba la pregunta o campo que se mostrará para este tipo de dispositivo.');
     await assertUniqueQuestion(typeId, text);
+    const metadata = await validateQuestionMetadata(ctx.payload);
     const timestamp = nowIso();
     const row = {
       PreguntaDispositivoID: uuid(),
@@ -102,7 +141,10 @@ async function create(ctx) {
       Clave: `q_${uuid().replace(/-/g, '')}`,
       Pregunta: text,
       Orden: hasOwn(ctx.payload, ['Orden', 'orden']) ? questionOrder(ctx.payload) : await nextOrder(typeId),
-      TipoRespuesta: 'SI_NO',
+      TipoRespuesta: metadata.responseType,
+      AplicaModo: metadata.mode,
+      TipoDispositivoRelacionadoID: metadata.relatedTypeId,
+      ConfiguracionJSON: JSON.stringify(metadata.config),
       Activo: true,
       Estado: 'ACTIVO',
       CreadoPor: ctx.user.UsuarioID,
@@ -134,6 +176,13 @@ async function update(ctx) {
       patch.Pregunta = text;
     }
     if (hasOwn(ctx.payload, ['Orden', 'orden'])) patch.Orden = questionOrder(ctx.payload, before.Orden);
+    if (hasOwn(ctx.payload, ['TipoRespuesta', 'tipoRespuesta', 'responseType', 'AplicaModo', 'aplicaModo', 'maintenanceMode', 'TipoDispositivoRelacionadoID', 'tipoDispositivoRelacionadoId', 'relatedTypeId', 'ConfiguracionJSON', 'configuracion', 'config'])) {
+      const metadata = await validateQuestionMetadata(ctx.payload, before);
+      patch.TipoRespuesta = metadata.responseType;
+      patch.AplicaModo = metadata.mode;
+      patch.TipoDispositivoRelacionadoID = metadata.relatedTypeId;
+      patch.ConfiguracionJSON = JSON.stringify(metadata.config);
+    }
     if (hasOwn(ctx.payload, ['Activo', 'activo', 'Estado', 'estado'])) {
       const requestedActive = ctx.payload.Activo ?? ctx.payload.activo;
       const requestedStatus = cleanMaintenanceQuestionValue(pick(ctx.payload, ['Estado', 'estado'], before.Estado || 'ACTIVO')).toUpperCase();
@@ -184,7 +233,7 @@ async function config(ctx) {
       .filter(isActiveMaintenanceQuestion)
       .map((row) => maintenanceQuestionClientView(row, names.get(cleanMaintenanceQuestionValue(row.TipoDispositivoID))))
       .sort((left, right) => left.typeName.localeCompare(right.typeName, 'es') || left.order - right.order),
-    questionCatalogVersion: 1,
+    questionCatalogVersion: 2,
   };
 }
 
@@ -202,6 +251,9 @@ function preserveHistoricalQuestionText(generated, previous) {
       label: cleanMaintenanceQuestionValue(saved.label || saved.Pregunta, item.label),
       order: Number(saved.order ?? saved.Orden ?? item.order),
       responseType: cleanMaintenanceQuestionValue(saved.responseType || saved.TipoRespuesta, item.responseType),
+      appliesTo: cleanMaintenanceQuestionValue(saved.appliesTo || saved.AplicaModo, item.appliesTo),
+      relatedTypeId: cleanMaintenanceQuestionValue(saved.relatedTypeId || saved.TipoDispositivoRelacionadoID, item.relatedTypeId),
+      config: parseMaintenanceQuestionConfig(saved.config || saved.ConfiguracionJSON || item.config),
     };
   });
 }
