@@ -21,6 +21,7 @@ function withConflictWrite(key, operation) {
 
 const MAINTENANCE_FIELDS = Object.freeze({
   TituloMantenimiento: ['titulo'],
+  TipoMantenimiento: ['tipoMantenimiento', 'maintenanceType'],
   ClienteID: ['ClienteRef', 'clienteId'],
   Cliente: ['cliente'],
   UbicacionID: ['ubicacionId'],
