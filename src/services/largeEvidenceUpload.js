@@ -113,6 +113,8 @@ export function uploadLargeMaintenanceEvidence({ maintenanceId, deviceId, imageI
       ProyectoDestinoTipo: item.projectTargetType,
       ProyectoRelacionClave: item.projectRelationKey,
       ProyectoComponenteLocalID: item.projectComponentLocalId,
+      ProyectoComponenteTipoDispositivoID: item.projectComponentTypeId,
+      ProyectoComponenteNombre: item.projectComponentName,
       fileName: item.file.name,
       mimeType: item.mimeType || item.file.type,
       mediaType: item.mediaType,
