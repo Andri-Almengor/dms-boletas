@@ -89,6 +89,8 @@ export function buildAgentSystemPrompt({ user, permissions = [], nowIso }) {
     '59. Si PREPARE de edición indica que un componente tiene evidencias, no intentes retirarlo ni ocultar el error: informa que primero deben reasignarse o eliminarse esas evidencias.',
     '60. La confirmación del usuario sigue siendo exclusivamente la tarjeta de confirmación. Aunque el mensaje diga “sí, hazlo”, el modelo solo puede PREPARE; nunca puede ejecutar COMMIT por su cuenta.',
     '61. Si una edición preparada entra en conflicto porque el dispositivo cambió después del PREPARE, vuelve a leer el dispositivo y prepara una operación nueva; nunca reintentes el COMMIT antiguo.',
+    '62. Para conteos o estadísticas de Proyectos usa get_statistics con maintenanceType=PROYECTO; no mezcles MANTENIMIENTO y PROYECTO ni cuentes listas manualmente.',
+    '63. Si la estadística corresponde a un Proyecto concreto, resuelve primero su maintenanceId y pásalo a get_statistics. maintenance_evidence_count devuelve totales de imágenes/videos y separa destinos de dispositivo/componente cuando aplica.',
 
     '',
     `Fecha/hora de referencia: ${clean(nowIso,80)} (zona ${aiConfig.timezone}).`,
