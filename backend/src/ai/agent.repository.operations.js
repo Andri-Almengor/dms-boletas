@@ -711,7 +711,8 @@ export async function prepareMaintenanceProjectDeviceUpdate(ctx,args={}){
 async function chatUpload(ctx,uploadId){
   const result=await query(
     `SELECT "UploadID" AS id,"NombreArchivo" AS name,"MimeType" AS "mimeType","SizeBytes" AS size,
-            "DriveFileID" AS "__file","DriveURL" AS "__url","Status" AS status,"ExpiresAt" AS "expiresAt"
+            "DriveFileID" AS "__file","DriveURL" AS "__url","Status" AS status,"ExpiresAt" AS "expiresAt",
+            "CreatedAt" AS "capturedAt"
        FROM "AiChatUploads"
       WHERE "__valid"=TRUE AND "UploadID"=$1 AND "UserID"=$2 AND "SessionHash"=$3 LIMIT 1`,
     [clean(uploadId,250),clean(ctx?.user?.UsuarioID,250),sessionHash(ctx)],{label:'ai.upload.get'},
@@ -724,11 +725,70 @@ async function chatUpload(ctx,uploadId){
 export async function prepareMaintenanceEvidenceUpload(ctx,args={}){
   assertMaintenanceWrite(ctx);
   const maintenanceId=clean(args.maintenanceId,250),deviceId=clean(args.deviceId,250);
-  const stage=normalizeEvidenceStage(args.stage);
   if(!maintenanceId||!deviceId) throw badRequest('Falta mantenimiento o dispositivo.');
-  if(!stage) return {modelData:{ready:false,needsInput:true,missing:['stage'],message:'Indique si las imágenes son ANTES o DESPUÉS.'},confirmations:[]};
   const maintenance=await maintenanceRow(maintenanceId);
   const device=await deviceRow(maintenanceId,deviceId);
+  const projectMode=isProjectMaintenanceRow(maintenance);
+  const stage=normalizeEvidenceStage(args.stage);
+  if(projectMode&&stage) throw badRequest('Los Proyectos no usan ANTES/DESPUÉS. Indique el dispositivo o componente al que corresponde la evidencia.');
+  if(!projectMode&&!stage){
+    return {modelData:{ready:false,needsInput:true,missing:['stage'],message:'Indique si las imágenes son ANTES o DESPUÉS.'},confirmations:[]};
+  }
+
+  let target={
+    targetType:'DISPOSITIVO',
+    relationKey:'',
+    componentLocalId:'',
+    componentTypeId:'',
+    componentName:'',
+    label:device.name||device.type||'Dispositivo',
+  };
+  const componentRequested=projectMode&&(
+    clean(args.projectTargetType,40).toUpperCase()==='COMPONENTE'
+    || clean(args.componentId,250)
+    || clean(args.componentName,300)
+    || clean(args.componentType,200)
+    || clean(args.componentManufacturer,200)
+    || clean(args.componentModel,200)
+    || clean(args.relation,500)
+  );
+  if(componentRequested){
+    const components=projectMaintenanceComponentsFromAnswers(device.answersJson);
+    const matches=components.filter(component=>{
+      if(clean(args.componentId,250)&&component.localId!==clean(args.componentId,250)) return false;
+      if(clean(args.componentName,300)&&normalize(component.name)!==normalize(args.componentName)) return false;
+      if(clean(args.componentType,200)&&normalize(component.type)!==normalize(args.componentType)) return false;
+      if(clean(args.componentManufacturer,200)&&normalize(component.manufacturer)!==normalize(args.componentManufacturer)) return false;
+      if(clean(args.componentModel,200)&&normalize(component.model)!==normalize(args.componentModel)) return false;
+      if(clean(args.relation,500)&&normalize(component.relationKey)!==normalize(args.relation)&&normalize(component.relationLabel)!==normalize(args.relation)) return false;
+      return true;
+    });
+    if(matches.length!==1){
+      return {
+        modelData:{
+          ready:false,needsInput:true,maintenance,device,
+          candidates:matches.slice(0,20).map(item=>({
+            componentId:item.localId,name:item.name,type:item.type,manufacturer:item.manufacturer,model:item.model,relation:item.relationLabel,
+          })),
+          message:matches.length
+            ? 'La referencia del componente es ambigua. Indique cuál componente recibirá las evidencias.'
+            : 'No se encontró un componente relacionado que coincida con la referencia indicada.',
+        },
+        confirmations:[],
+        context:{lastMaintenanceId:maintenance.id,lastMaintenanceName:maintenance.title||'',lastDeviceId:device.id,lastDeviceName:device.name||''},
+      };
+    }
+    const component=matches[0];
+    target={
+      targetType:'COMPONENTE',
+      relationKey:component.relationKey,
+      componentLocalId:component.localId,
+      componentTypeId:component.typeId,
+      componentName:component.name,
+      label:`${component.type} · ${component.name}`,
+    };
+  }
+
   const uploadIds=(Array.isArray(args.uploadIds)?args.uploadIds:[]).map(value=>clean(value,250)).filter(Boolean);
   if(!uploadIds.length) throw badRequest('Adjunte al menos una imagen al chat.');
   if(uploadIds.length>aiConfig.maxEvidenceUploadBatch) throw badRequest(`El lote supera el máximo de ${aiConfig.maxEvidenceUploadBatch} archivos.`);
@@ -739,19 +799,33 @@ export async function prepareMaintenanceEvidenceUpload(ctx,args={}){
     if(!String(upload.mimeType||'').toLowerCase().startsWith('image/')) throw badRequest(`${upload.name} no es una imagen válida para evidencia de mantenimiento.`);
     uploads.push(upload);
   }
-  const files=uploads.map(upload=>({uploadId:upload.id,imageId:uuid()}));
-  const storedArgs={maintenanceId,deviceId,stage};
+  const files=uploads.map(upload=>({uploadId:upload.id,imageId:uuid(),capturedAt:upload.capturedAt||nowIso()}));
+  const storedArgs={
+    maintenanceId,deviceId,stage:projectMode?'':stage,
+    note:clean(args.note,1200),
+    projectTargetType:projectMode?target.targetType:'',
+    projectRelationKey:projectMode?target.relationKey:'',
+    projectComponentLocalId:projectMode?target.componentLocalId:'',
+  };
   const preview={
-    maintenance:{id:maintenance.id,title:maintenance.title,client:maintenance.client},
+    maintenance:{id:maintenance.id,title:maintenance.title,client:maintenance.client,maintenanceType:projectMode?'PROYECTO':'MANTENIMIENTO'},
     device:{id:device.id,name:device.name,type:device.type,zone:device.zone},
-    stage,
+    stage:projectMode?'':stage,
+    target:projectMode?target:null,
+    note:clean(args.note,1200),
     files:uploads.map(upload=>({uploadId:upload.id,name:upload.name,mimeType:upload.mimeType,size:upload.size})),
   };
   const op=await createOperation(ctx,{action:'MAINTENANCE_EVIDENCE_UPLOAD',args:storedArgs,files,preview});
+  const title=projectMode
+    ? `Cargar ${uploads.length} imagen${uploads.length===1?'':'es'} a ${target.label}`
+    : `Cargar ${uploads.length} imagen${uploads.length===1?'':'es'} como ${stage}`;
   return {
-    modelData:{ready:true,operationId:op.OperationID,maintenance:preview.maintenance,device:preview.device,stage,fileCount:uploads.length},
-    confirmations:[confirmation(op,`Cargar ${uploads.length} imagen${uploads.length===1?'':'es'} como ${stage}`,`${device.name} · Zona ${device.zone||'sin zona'}`,preview.files)],
-    context:{lastMaintenanceId:maintenance.id,lastMaintenanceName:maintenance.title||'',lastDeviceId:device.id,lastDeviceName:device.name||'',lastEvidenceStage:stage,pendingOperationId:op.OperationID},
+    modelData:{ready:true,operationId:op.OperationID,maintenance:preview.maintenance,device:preview.device,stage:preview.stage,target:preview.target,fileCount:uploads.length},
+    confirmations:[confirmation(op,title,`${device.name} · ${maintenance.title||'Mantenimiento'}`,preview.files)],
+    context:{
+      lastMaintenanceId:maintenance.id,lastMaintenanceName:maintenance.title||'',lastDeviceId:device.id,lastDeviceName:device.name||'',
+      ...(projectMode?{}:{lastEvidenceStage:stage}),pendingOperationId:op.OperationID,
+    },
   };
 }
 
