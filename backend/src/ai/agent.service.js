@@ -478,6 +478,14 @@ export async function runDmsAgent(ctx, overrides = {}){
                 lastSearchLimit:String(Number(call.arguments?.limit||aiConfig.maxToolResultRows)),
                 lastSearchStatus:clean(call.arguments?.status,80),
                 lastSearchPeriod:clean(call.arguments?.period||call.arguments?.month||'',80),
+                lastSearchDeviceType:clean(call.arguments?.type,160),
+                lastSearchComponentType:clean(call.arguments?.componentType,160),
+                lastSearchComponentManufacturer:clean(call.arguments?.componentManufacturer,160),
+                lastSearchComponentModel:clean(call.arguments?.componentModel,160),
+                lastSearchComponentSerial:clean(call.arguments?.componentSerial,160),
+                lastSearchComponentMac:clean(call.arguments?.componentMac,160),
+                lastSearchEvidenceNote:clean(call.arguments?.evidenceNote,240),
+                lastSearchMaintenanceType:clean(call.arguments?.maintenanceType,40),
               };
             }
             return functionResult(call,{ok:true,data:measured.result.modelData});
