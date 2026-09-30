@@ -45,6 +45,7 @@ export default function MaintenanceQuickDeviceCreator({
 }) {
   const [device, setDevice] = useState(() => initialDevice(initialEquipmentLocation));
   const [maintenanceCounts, setMaintenanceCounts] = useState({});
+  const [maintenanceType, setMaintenanceType] = useState('MANTENIMIENTO');
   const [equipmentOptions, setEquipmentOptions] = useState(() => initialEquipmentLocation?.id ? [{
     value: String(initialEquipmentLocation.id),
     label: String(initialEquipmentLocation.name || initialEquipmentLocation.id),
@@ -102,6 +103,7 @@ export default function MaintenanceQuickDeviceCreator({
 
         const counts = parseMaintenanceCounts(row);
         setMaintenanceCounts(counts);
+        setMaintenanceType(String(pick(row, ['TipoMantenimiento'], 'MANTENIMIENTO')).toUpperCase() === 'PROYECTO' ? 'PROYECTO' : 'MANTENIMIENTO');
         if (!hasSelectedMaintenanceCategory(counts)) {
           setBlocked(true);
           setError('Primero edite el mantenimiento e indique una cantidad mayor que cero para al menos un tipo de dispositivo.');
@@ -265,6 +267,7 @@ export default function MaintenanceQuickDeviceCreator({
                 onSubmit={save}
                 submitLabel="Guardar dispositivo"
                 submitting={saving}
+                maintenanceType={maintenanceType}
               />
             </MaintenanceCountsProvider>
           </>
