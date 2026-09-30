@@ -32,6 +32,7 @@ const MAINTENANCE_FIELDS = Object.freeze({
   ResponsableIDsJSON: ['ResponsableIDs', 'responsables'],
   DescripcionGeneral: ['descripcion'],
   CantidadesJSON: ['counts', 'cantidades'],
+  ProyectoChecklistJSON: ['projectChecklist'],
   CantCámaras: [],
   CantPuertas: [],
   CantServidores: [],
@@ -66,6 +67,7 @@ const DEVICE_FIELDS = Object.freeze({
   Estado: ['estado'],
   Observacion: ['observacion'],
   RespuestasJSON: ['respuestas', 'answers'],
+  ProyectoProgresoJSON: ['projectProgress', 'proyectoProgreso'],
   FechaTrabajo: ['fechaTrabajo'],
   TecnicoIDsJSON: ['TecnicoIDs', 'tecnicoIds'],
 });
