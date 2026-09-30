@@ -40,7 +40,7 @@ El prompt obliga a buscar internamente antes de responder preguntas que dependan
 - No existe tool de contraseñas, password vault, tokens o secretos.
 - `sanitizeAiToolResult()` elimina campos sensibles antes de enviar tool output al modelo.
 - Datos recuperados se tratan como datos no confiables; instrucciones incrustadas en observaciones, artículos, evidencias o web no cambian las reglas del agente.
-- La etapa actual es read-only.
+- Las consultas son read-only por defecto. Las únicas escrituras expuestas al modelo son tools PREPARE explícitas; COMMIT solo puede ejecutarlo la interfaz tras confirmación humana.
 - Los attachments firmados no se persisten en `localStorage`.
 
 ## Tools
@@ -110,6 +110,19 @@ Cada petición registra métricas acumuladas de:
 `GET /api/ai/health` está disponible solo para `USUARIOS_GESTIONAR` y no forma parte del health general de DMS. Una caída de Gemini no marca `/api/health` como caído.
 
 La auditoría `AI_CHAT` guarda modelo, tools, duración y si hubo búsqueda web. No guarda prompts completos, secretos ni URLs firmadas.
+
+## Escrituras controladas de Proyectos
+
+Las acciones operativas de Proyecto reutilizan `AiPendingOperations` y las rutas/handlers existentes.
+
+- `prepare_maintenance_device_bulk_create`: prepara altas de dispositivos; en Proyecto admite respuestas y componentes relacionados.
+- `prepare_maintenance_project_device_update`: prepara cambios de un dispositivo existente, respuestas y componentes.
+- `prepare_maintenance_evidence_upload`: en Mantenimiento exige stage; en Proyecto resuelve dispositivo/componente y no usa ANTES/DESPUÉS.
+- `get_ai_operation_status`: consulta una operación ya preparada/confirmada sin repetir COMMIT.
+
+Gemini no tiene una declaration `commit_*`. La confirmación se procesa fuera del modelo. Antes de editar un dispositivo, PREPARE guarda un fingerprint; COMMIT aborta si hubo cambios concurrentes.
+
+Las escrituras efectivas pasan por validaciones compartidas, auditoría y registro de `SyncChanges`.
 
 ## Consultas de Proyectos
 
