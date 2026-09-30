@@ -1,6 +1,6 @@
 import { badRequest } from '../core/errors.js';
 import { pick } from '../core/utils.js';
-import { findById } from '../infra/sheets.repository.js';
+import { findById, findRows } from '../infra/sheets.repository.js';
 
 function clean(value) {
   return String(value ?? '').trim();
@@ -126,6 +126,45 @@ function resolveProjectTarget(payload = {}, device = {}, existing = null) {
     ProyectoComponenteTipoDispositivoID: identity.typeId,
     ProyectoComponenteNombre: identity.name,
   };
+}
+
+
+function projectComponentIds(answers = {}) {
+  const ids = new Set();
+  relationEntries(parseObject(answers)).forEach(([, relation]) => {
+    if (!truthy(relation.enabled)) return;
+    relation.items.forEach((item) => {
+      const id = clean(item?.localId || item?.id);
+      if (id) ids.add(id);
+    });
+  });
+  return ids;
+}
+
+export async function assertProjectEvidenceTargetsStillExist({
+  deviceId,
+  answers,
+  maintenanceType = 'MANTENIMIENTO',
+} = {}) {
+  if (normalizeMaintenanceType(maintenanceType) !== 'PROYECTO') return;
+  const normalizedDeviceId = clean(deviceId);
+  if (!normalizedDeviceId) return;
+  const validComponentIds = projectComponentIds(answers);
+  const images = await findRows(
+    'Mantenimiento imagenes',
+    { DispositivoMantenimientoRef: normalizedDeviceId },
+    { limit: 10_000 },
+  );
+  const missing = [...new Set(images
+    .filter((image) => image.Activo !== false)
+    .filter((image) => clean(image.ContextoEvidencia).toUpperCase() === 'PROYECTO')
+    .filter((image) => clean(image.ProyectoDestinoTipo).toUpperCase() === 'COMPONENTE')
+    .map((image) => clean(image.ProyectoComponenteLocalID))
+    .filter((id) => id && !validComponentIds.has(id)))];
+
+  if (missing.length) {
+    throw badRequest('No se puede quitar un componente que todavía tiene evidencias relacionadas. Reasigne o elimine esas evidencias antes de modificar la relación.');
+  }
 }
 
 export async function loadMaintenanceEvidenceContext({
