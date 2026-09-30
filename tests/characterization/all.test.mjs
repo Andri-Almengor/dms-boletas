@@ -7,6 +7,7 @@ import './notification-settings-ui.test.mjs';
 import './agenda-calendar-desktop-ui.test.mjs';
 import './agenda-editor-mobile-ui.test.mjs';
 import './app-recovery.test.mjs';
+import './app-responsive-foundation.test.mjs';
 import './assistant-history-retention.test.mjs';
 import './assistant-integral-agent-ui.test.mjs';
 import './assistant-password-vault-sheets-cache.test.mjs';
