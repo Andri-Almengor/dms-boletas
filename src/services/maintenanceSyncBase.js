@@ -19,6 +19,7 @@ function snapshot(record = {}, fields = {}) {
 
 export const MAINTENANCE_SYNC_FIELDS = Object.freeze({
   TituloMantenimiento: ['titulo'],
+  TipoMantenimiento: ['tipoMantenimiento', 'maintenanceType'],
   ClienteID: ['ClienteRef', 'clienteId'],
   Cliente: ['cliente'],
   UbicacionID: ['ubicacionId'],
