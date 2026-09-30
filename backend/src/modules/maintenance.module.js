@@ -14,6 +14,11 @@ import { asArray, nowIso, pick, uuid } from '../core/utils.js';
 import { getConfig } from './config.module.js';
 import { audit } from '../services/audit.service.js';
 import { sheetsApi, slidesApi } from '../infra/google.js';
+import {
+  loadMaintenanceEvidenceContext,
+  maintenanceEvidenceMetadata,
+  sortMaintenanceEvidenceNewestFirst,
+} from '../services/maintenance-evidence-policy.service.js';
 
 const deviceAutosaveWriteTimes = new Map();
 const DEVICE_AUTOSAVE_MIN_INTERVAL_MS = 6000;
@@ -176,7 +181,7 @@ async function enrich(row, providedTables = null) {
         ...device,
         Categoria: category,
         TipoDispositivo: category,
-        Imagenes: (imagesByDevice.get(String(device.EvidenciaMantenimientoID)) || [])
+        Imagenes: sortMaintenanceEvidenceNewestFirst(imagesByDevice.get(String(device.EvidenciaMantenimientoID)) || [])
           .map((image) => ({
             ...image,
             PreviewURL: image.DriveFileID
@@ -375,7 +380,11 @@ export const maintenanceHandlers = {
     const requestedId = String(pick(ctx.payload, ['imageId', 'FotoDispositivoID'], '')).trim();
     const deviceId = pick(ctx.payload, ['deviceId', 'DispositivoMantenimientoRef']);
     if (requestedId && !validClientGeneratedId(requestedId)) throw badRequest('El identificador local de la fotografía no es válido.');
-    await findById('Evidencia_Mantenimientos', deviceId);
+
+    const context = await loadMaintenanceEvidenceContext({
+      deviceId,
+      maintenanceId: pick(ctx.payload, ['maintenanceId', 'MantenimientoID']),
+    });
 
     if (requestedId) {
       const existing = (await readTable('Mantenimiento imagenes', { force: true })).find((item) => String(item.FotoDispositivoID) === requestedId);
@@ -385,12 +394,14 @@ export const maintenanceHandlers = {
       }
     }
 
+    const metadata = maintenanceEvidenceMetadata(ctx.payload, context);
     const cfg = await getConfig();
     const file = await uploadBase64({ base64: ctx.payload.base64, mimeType: ctx.payload.mimeType || 'image/jpeg', fileName: ctx.payload.fileName, folderId: cfg.EVIDENCIAS_FOLDER_ID || cfg.ROOT_FOLDER_ID });
+    const timestamp = nowIso();
     const row = {
       FotoDispositivoID: requestedId || uuid(),
       DispositivoMantenimientoRef: deviceId,
-      Tipo: String(pick(ctx.payload, ['Tipo', 'tipo'], 'Antes')).toLowerCase().includes('desp') ? 'Despues' : 'Antes',
+      ...metadata,
       Nombre: file.name,
       Nota: pick(ctx.payload, ['Nota', 'nota']),
       MimeType: file.mimeType,
@@ -399,15 +410,29 @@ export const maintenanceHandlers = {
       DriveURL: file.webViewLink,
       Activo: true,
       CreadoPor: ctx.user.UsuarioID,
-      FechaCreacion: nowIso(),
+      FechaCreacion: timestamp,
       ActualizadoPor: ctx.user.UsuarioID,
-      FechaActualizacion: nowIso(),
+      FechaActualizacion: timestamp,
     };
     await appendRow('Mantenimiento imagenes', row);
     return { ...row, PreviewURL: file.thumbnailLink };
   }),
 
-  imageUpdate: async (ctx) => updateRow('Mantenimiento imagenes', pick(ctx.payload, ['imageId', 'FotoDispositivoID']), { Tipo: pick(ctx.payload, ['Tipo', 'tipo']), Nota: pick(ctx.payload, ['Nota', 'nota']), ActualizadoPor: ctx.user.UsuarioID, FechaActualizacion: nowIso() }),
+  imageUpdate: async (ctx) => {
+    const imageId = pick(ctx.payload, ['imageId', 'FotoDispositivoID']);
+    const before = await findById('Mantenimiento imagenes', imageId);
+    const context = await loadMaintenanceEvidenceContext({
+      deviceId: before.DispositivoMantenimientoRef,
+      maintenanceId: pick(ctx.payload, ['maintenanceId', 'MantenimientoID']),
+    });
+    const metadata = maintenanceEvidenceMetadata(ctx.payload, context, { existing: before });
+    return updateRow('Mantenimiento imagenes', imageId, {
+      ...metadata,
+      Nota: pick(ctx.payload, ['Nota', 'nota'], before.Nota),
+      ActualizadoPor: ctx.user.UsuarioID,
+      FechaActualizacion: nowIso(),
+    });
+  },
 
   imageDelete: async (ctx) => {
     if (!isAdmin(ctx)) throw forbidden();
