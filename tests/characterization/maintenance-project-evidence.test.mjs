@@ -108,6 +108,8 @@ test('backend deriva el contexto de evidencia desde el mantenimiento y valida el
   assert.match(scalable, /ProyectoComponenteLocalID: input\.projectComponentLocalId/);
   assert.match(large, /evidenceMetadata/);
   assert.match(large, /ProyectoDestinoTipo/);
+  assert.match(large, /maintenanceId: evidenceContext\.maintenanceId/);
+  assert.match(large, /kind === 'maintenance' \? \{ maintenanceId: token\.maintenanceId \} : \{\}/);
 });
 
 test('Proyecto reutiliza uploader editor y galería sin Antes/Después', () => {
