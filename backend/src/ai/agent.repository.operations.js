@@ -4,6 +4,19 @@ import { nowIso, uuid } from '../core/utils.js';
 import { query } from '../infra/postgres.js';
 import { appendRow } from '../infra/sheets.repository.js';
 import { audit } from '../services/audit.service.js';
+import { normalizeMacAddress } from '../services/evidence-media-policy.service.js';
+import {
+  loadMaintenanceEvidenceContext,
+  maintenanceEvidenceMetadata,
+  projectMaintenanceComponentsFromAnswers,
+} from '../services/maintenance-evidence-policy.service.js';
+import {
+  normalizeMaintenanceQuestionResponseType,
+  parseMaintenanceQuestionConfig,
+  readMaintenanceQuestions,
+} from '../services/maintenance-question-catalog.service.js';
+import { recordClassifiedSyncChange } from '../services/sync-change.service.js';
+import { SYNC_MUTATION_CLASS } from '../services/sync-resource-registry.js';
 import { maintenanceProgressChatHandlers } from '../modules/maintenance-progress-chat.module.js';
 import { aiConfig } from './agent.config.js';
 import { extractDriveDocumentText } from './agent.knowledge-documents.js';
