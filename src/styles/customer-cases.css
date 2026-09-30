@@ -1,6 +1,7 @@
 .customer-case-public-page {
   min-height: 100vh;
-  padding: 24px 16px 40px;
+  min-height: 100dvh;
+  padding: max(24px, var(--safe-area-top)) max(16px, var(--safe-area-right)) max(40px, var(--safe-area-bottom)) max(16px, var(--safe-area-left));
   background:
     radial-gradient(circle at 10% 0%, rgba(255, 92, 112, .13), transparent 30%),
     linear-gradient(180deg, #111 0, #191718 245px, #f4f5f7 245px, #f4f5f7 100%);
@@ -275,8 +276,8 @@
 }
 
 @media (max-width: 720px) {
-  .customer-case-public-page { padding: 0 0 24px; background: #f4f5f7; }
-  .customer-case-public-brand { margin: 0; width: 100%; padding: 14px 16px; background: #171415; }
+  .customer-case-public-page { padding: 0 0 max(24px, var(--safe-area-bottom)); background: #f4f5f7; }
+  .customer-case-public-brand { margin: 0; width: 100%; padding: calc(14px + var(--safe-area-top)) max(16px, var(--safe-area-right)) 14px max(16px, var(--safe-area-left)); background: #171415; }
   .customer-case-public-shell { border: 0; border-radius: 0 0 20px 20px; box-shadow: none; }
   .customer-case-public-heading { padding: 24px 18px 19px; }
   .customer-case-public-form { grid-template-columns: 1fr; padding: 21px 18px 25px; }
@@ -286,7 +287,7 @@
   .case-submit-button,
   .case-form-privacy { grid-column: auto; }
   .case-evidence-preview-grid { grid-template-columns: repeat(2, minmax(0, 1fr)); }
-  .customer-case-public-footer { padding: 0 16px; }
+  .customer-case-public-footer { padding: 0 max(16px, var(--safe-area-right)) 0 max(16px, var(--safe-area-left)); }
   .case-dashboard-heading { align-items: stretch; }
   .case-dashboard-heading .button { align-self: flex-start; }
   .customer-case-card-grid { grid-template-columns: 1fr; }
