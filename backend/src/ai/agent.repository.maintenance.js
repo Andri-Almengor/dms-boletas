@@ -4,6 +4,76 @@ import {
   active, addRange, aliasQuery, clean, entity, like, many, one,
   pageLimit, pageOffset, protectedAttachment, source,
 } from './agent.repository.shared.js';
+import {
+  projectMaintenanceComponentsFromAnswers,
+  projectMaintenanceScalarAnswers,
+} from '../services/maintenance-evidence-policy.service.js';
+
+function normalize(value) {
+  return String(value || '').normalize('NFD').replace(/[\u0300-\u036f]/g, '').toLowerCase().replace(/\s+/g, ' ').trim();
+}
+
+function projectComponentFilters(args = {}) {
+  return {
+    query: clean(args.componentQuery, 250),
+    type: clean(args.componentType, 180),
+    manufacturer: clean(args.componentManufacturer, 180),
+    model: clean(args.componentModel, 180),
+    serial: clean(args.componentSerial, 180),
+    mac: clean(args.componentMac, 180),
+  };
+}
+
+function hasProjectComponentFilters(args = {}) {
+  return Object.values(projectComponentFilters(args)).some(Boolean);
+}
+
+function componentSearchText(component = {}) {
+  return normalize([
+    component.relationLabel,
+    component.type,
+    component.name,
+    component.manufacturer,
+    component.model,
+    component.serial,
+    component.mac,
+    ...Object.entries(component.answers || {}).flatMap(([key, value]) => [key, value]),
+  ].filter(Boolean).join(' '));
+}
+
+function componentMatchesFilters(component = {}, filters = {}) {
+  const includes = (value, expected) => !expected || normalize(value).includes(normalize(expected));
+  if (!includes(component.type, filters.type)) return false;
+  if (!includes(component.manufacturer, filters.manufacturer)) return false;
+  if (!includes(component.model, filters.model)) return false;
+  if (!includes(component.serial, filters.serial)) return false;
+  if (!includes(component.mac, filters.mac)) return false;
+  if (filters.query && !componentSearchText(component).includes(normalize(filters.query))) return false;
+  return true;
+}
+
+function projectDeviceData(row = {}, args = {}) {
+  const components = projectMaintenanceComponentsFromAnswers(row.answersJson);
+  const filters = projectComponentFilters(args);
+  const filteredComponents = hasProjectComponentFilters(args)
+    ? components.filter((component) => componentMatchesFilters(component, filters))
+    : components;
+  return {
+    projectAnswers: projectMaintenanceScalarAnswers(row.answersJson),
+    projectComponents: filteredComponents.slice(0, 50),
+    projectComponentCount: components.length,
+    matchesProjectComponentFilters: !hasProjectComponentFilters(args) || filteredComponents.length > 0,
+  };
+}
+
+function addProjectComponentCandidateFilters(clauses, params, args = {}, column = 'd."RespuestasJSON"') {
+  for (const value of Object.values(projectComponentFilters(args))) {
+    if (!value) continue;
+    params.push(like(value));
+    clauses.push(`COALESCE(${column},'') ILIKE ${params.length} ESCAPE '\\\\'`);
+  }
+}
+
 
 export async function searchMaintenances(ctx, args = {}) {
   assertAiCapability(ctx, 'maintenance');
@@ -21,7 +91,11 @@ export async function searchMaintenances(ctx, args = {}) {
     )`);
   }
   if(clean(args.clientId)){params.push(clean(args.clientId,250));clauses.push(`m."ClienteID"=$${params.length}`);}
-  if(clean(args.status)){params.push(clean(args.status,50).toUpperCase());clauses.push(`UPPER(COALESCE(m."Estado",''))=$${params.length}`);}
+  if(clean(args.status)){params.push(clean(args.status,50).toUpperCase());clauses.push(`UPPER(COALESCE(m."Estado",''))=${params.length}`);}
+  if(clean(args.maintenanceType)){
+    params.push(clean(args.maintenanceType,40).toUpperCase());
+    clauses.push(`UPPER(COALESCE(NULLIF(m."TipoMantenimiento",''),'MANTENIMIENTO'))=${params.length}`);
+  }
   const range=addRange(clauses,params,'m."Fecha"',args);
   const where=clauses.join(' AND ');
   const counted=await one(`SELECT COUNT(*)::bigint AS total FROM "Mantenimiento" m WHERE ${where}`,params,'ai.maintenance.search.count');
@@ -29,6 +103,7 @@ export async function searchMaintenances(ctx, args = {}) {
   const rows=await many(
     `SELECT m."MantenimientoID" AS id,m."TituloMantenimiento" AS title,m."ClienteID" AS "clientId",
             m."Cliente" AS client,m."Ubicacion" AS location,m."Estado" AS status,
+            COALESCE(NULLIF(m."TipoMantenimiento",''),'MANTENIMIENTO') AS "maintenanceType",
             m."Fecha" AS date,m."FechaFinalizacion" AS "finishedAt",m."Responsables" AS responsible,
             m."DescripcionGeneral" AS description,
             (SELECT COUNT(*) FROM "Evidencia_Mantenimientos" d
@@ -40,7 +115,7 @@ export async function searchMaintenances(ctx, args = {}) {
     queryParams,'ai.maintenance.search.items');
   const items=rows.map(row=>({
     id:row.id,title:row.title||'Mantenimiento',clientId:row.clientId||'',client:row.client||'',
-    location:row.location||'',status:row.status||'',date:row.date||'',finishedAt:row.finishedAt||'',
+    location:row.location||'',status:row.status||'',maintenanceType:String(row.maintenanceType||'MANTENIMIENTO').toUpperCase(),date:row.date||'',finishedAt:row.finishedAt||'',
     responsible:row.responsible||'',description:clean(row.description,2200),deviceCount:Number(row.deviceCount||0),
   }));
   return {
@@ -57,7 +132,8 @@ async function maintenanceRow(ctx,idValue){
   const row=await one(
     `SELECT m."MantenimientoID" AS id,m."TituloMantenimiento" AS title,m."ClienteID" AS "clientId",
             m."Cliente" AS client,m."UbicacionID" AS "locationId",m."Ubicacion" AS location,
-            m."Estado" AS status,m."Fecha" AS date,m."FechaFinalizacion" AS "finishedAt",
+            m."Estado" AS status,COALESCE(NULLIF(m."TipoMantenimiento",''),'MANTENIMIENTO') AS "maintenanceType",
+            m."Fecha" AS date,m."FechaFinalizacion" AS "finishedAt",
             m."Responsables" AS responsible,m."DescripcionGeneral" AS description,
             m."CantidadesJSON" AS "expectedCounts",m."CreadoPor" AS "createdBy",
             m."FechaCreacion" AS "createdAt",m."ActualizadoPor" AS "updatedBy",
