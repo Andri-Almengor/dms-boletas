@@ -303,7 +303,7 @@ function applyComponentMutations({
     if(!relatedType) throw badRequest(`El tipo relacionado de “${relation.label}” ya no está disponible.`);
     const current=answers[relation.key]&&typeof answers[relation.key]==='object'?answers[relation.key]:{};
     const items=Array.isArray(current.items)?current.items.map(item=>({...item,respuestas:{...(item.respuestas||{})}})):[];
-    const action=clean(mutation?.action,'UPSERT').toUpperCase()||'UPSERT';
+    const action=clean(mutation?.action,40).toUpperCase()||'UPSERT';
     const requestedId=clean(mutation?.componentId??mutation?.localId,250);
     let index=requestedId?items.findIndex(item=>componentRef(item)===requestedId):-1;
     if(index<0&&clean(mutation?.name,300)){
