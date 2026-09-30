@@ -19,6 +19,7 @@ import {
 import useMaintenanceDirectDevice from '../../features/maintenance/useMaintenanceDirectDevice';
 import useMaintenanceQuickCreate from '../../features/maintenance/useMaintenanceQuickCreate';
 import useMaintenanceForm from '../../hooks/useOptimizedMaintenanceForm';
+import { isProjectMaintenance } from '../../features/maintenance/maintenanceType';
 import { MAINTENANCE_STEPS } from './maintenanceFormData';
 
 export default function MaintenanceFormPage({ mode = 'create' }) {
@@ -32,6 +33,7 @@ export default function MaintenanceFormPage({ mode = 'create' }) {
   const state = useMaintenanceForm({ editing, maintenanceId });
   const [step, setStep] = useState(initialRequest.requestedStep);
   const [processingAction, setProcessingAction] = useState('');
+  const projectMode = isProjectMaintenance(state.form.tipoMantenimiento);
   const canAddExpectedDevice = hasSelectedMaintenanceCategory(state.form.counts);
 
   const direct = useMaintenanceDirectDevice({
@@ -89,6 +91,7 @@ export default function MaintenanceFormPage({ mode = 'create' }) {
           onDelete={direct.deleteDevice}
           submitting={state.deviceSaving}
           autosaveStatus={state.deviceAutosaveStatus}
+          maintenanceType={state.form.tipoMantenimiento}
         />
       </MaintenanceCountsProvider>
     </div>;
@@ -116,24 +119,26 @@ export default function MaintenanceFormPage({ mode = 'create' }) {
   return <div className="page page--narrow maintenance-form-page">
     <ProcessingOverlay
       open={state.saving || Boolean(processingAction)}
-      title={finalizing ? 'Finalizando mantenimiento' : 'Guardando mantenimiento'}
+      title={finalizing ? 'Finalizando mantenimiento' : projectMode ? 'Guardando proyecto' : 'Guardando mantenimiento'}
       message={finalizing
         ? 'Se están guardando los datos, los dispositivos y las evidencias antes de finalizar.'
-        : 'Se están guardando los datos, los dispositivos y las evidencias del mantenimiento.'}
+        : projectMode
+          ? 'Se están guardando los datos y dispositivos del proyecto.'
+          : 'Se están guardando los datos, los dispositivos y las evidencias del mantenimiento.'}
     />
     <div className="page-header ticket-form-header">
       <button className="icon-button" type="button" onClick={state.cancelMaintenanceChanges} aria-label="Cancelar edición"><Icon name="close" /></button>
-      <div><span className="eyebrow">Flujo de mantenimiento</span><h1>{editing ? 'Editar mantenimiento' : 'Crear mantenimiento'}</h1></div>
+      <div><span className="eyebrow">{projectMode ? 'Flujo de proyecto' : 'Flujo de mantenimiento'}</span><h1>{editing ? (projectMode ? 'Editar proyecto' : 'Editar mantenimiento') : (projectMode ? 'Crear proyecto' : 'Crear mantenimiento')}</h1></div>
       <span className={`status-chip ${state.form.estado === 'FINALIZADO' ? 'status-chip--active' : 'status-chip--pending'}`}>{state.form.estado}</span>
     </div>
     <section className="ticket-progress"><div><strong>Paso {step + 1} de {MAINTENANCE_STEPS.length}</strong><span>{progress}% completado</span></div><div className="ticket-progress__track"><span style={{ width: `${progress}%` }} /></div></section>
     <section className="form-card ticket-form-card maintenance-form-card--wide">
       <div className="form-card__heading"><span className="section-marker" /><div><h2>Paso {step + 1}: {MAINTENANCE_STEPS[step][0]}</h2><p>{MAINTENANCE_STEPS[step][1]}</p></div></div>
       {state.error && <div className="alert alert--error"><Icon name="error" /><span>{state.error}</span></div>}
-      {step === 0 && <MaintenanceGeneralStep form={state.form} setForm={state.setForm} clients={state.clients} locations={state.locations} technicians={state.technicians} disabled={state.readOnly} canCreateLocation={state.canCreateLocation} onAddLocation={() => quickCreate.openModal('location')} onSearchClients={state.searchClients} />}
+      {step === 0 && <MaintenanceGeneralStep form={state.form} setForm={state.setForm} clients={state.clients} locations={state.locations} technicians={state.technicians} disabled={state.readOnly} canCreateLocation={state.canCreateLocation} onAddLocation={() => quickCreate.openModal('location')} onSearchClients={state.searchClients} maintenanceTypeLocked={editing && state.devices.length > 0} />}
       {step === 1 && <MaintenanceCountsStep counts={state.form.counts} registered={state.registered} disabled={state.readOnly} onChange={state.updateCount} />}
       {step === 2 && <MaintenanceDevicesStep devices={state.devices} expectedTotal={state.expectedTotal} disabled={state.readOnly} canAddDevice={canAddExpectedDevice} canCreateEquipment={state.canCreateLocation && Boolean(state.form.ubicacionId)} onAddEquipment={() => quickCreate.openModal('equipment')} onAddDevice={addDevice} onOpenDevice={state.openDevice} />}
-      {step === 3 && <MaintenanceReviewStep form={state.form} devices={state.devices} registered={state.registered} expectedTotal={state.expectedTotal} disabled={state.readOnly} saving={state.saving} onSave={() => persistMaintenance('pending')} onFinalize={() => persistMaintenance('finalize')} canFinalize={isAdministrator} />}
+      {step === 3 && <MaintenanceReviewStep form={state.form} devices={state.devices} registered={state.registered} expectedTotal={state.expectedTotal} disabled={state.readOnly} saving={state.saving} onSave={() => persistMaintenance('pending')} onFinalize={() => persistMaintenance('finalize')} canFinalize={!projectMode && isAdministrator} />}
     </section>
     <div className="ticket-form-actions maintenance-form-navigation-actions">
       <button className="button button--ghost" type="button" onClick={state.cancelMaintenanceChanges} disabled={state.saving}><Icon name="close" />Cancelar</button>
