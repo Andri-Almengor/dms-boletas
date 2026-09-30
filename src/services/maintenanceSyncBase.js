@@ -30,6 +30,7 @@ export const MAINTENANCE_SYNC_FIELDS = Object.freeze({
   ResponsableIDsJSON: ['ResponsableIDs', 'responsables'],
   DescripcionGeneral: ['descripcion'],
   CantidadesJSON: ['counts', 'cantidades'],
+  ProyectoChecklistJSON: ['projectChecklist'],
   CantCámaras: [],
   CantPuertas: [],
   CantServidores: [],
@@ -60,6 +61,7 @@ export const MAINTENANCE_DEVICE_SYNC_FIELDS = Object.freeze({
   Estado: ['estado'],
   Observacion: ['observacion'],
   RespuestasJSON: ['respuestas', 'answers'],
+  ProyectoProgresoJSON: ['projectProgress', 'proyectoProgreso'],
   FechaTrabajo: ['fechaTrabajo'],
   TecnicoIDsJSON: ['TecnicoIDs', 'tecnicoIds'],
 });
