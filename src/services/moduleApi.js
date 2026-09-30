@@ -593,6 +593,8 @@ async function patchMaintenanceCache(kind, payload, result, sessionToken) {
           ProyectoDestinoTipo: pick(payload, ['ProyectoDestinoTipo', 'proyectoDestinoTipo', 'projectTargetType'], image.ProyectoDestinoTipo),
           ProyectoRelacionClave: pick(payload, ['ProyectoRelacionClave', 'proyectoRelacionClave', 'projectRelationKey'], image.ProyectoRelacionClave),
           ProyectoComponenteLocalID: pick(payload, ['ProyectoComponenteLocalID', 'proyectoComponenteLocalId', 'projectComponentLocalId'], image.ProyectoComponenteLocalID),
+          ProyectoComponenteTipoDispositivoID: pick(payload, ['ProyectoComponenteTipoDispositivoID', 'projectComponentTypeId'], image.ProyectoComponenteTipoDispositivoID),
+          ProyectoComponenteNombre: pick(payload, ['ProyectoComponenteNombre', 'projectComponentName'], image.ProyectoComponenteNombre),
         }
         : image),
     }));
