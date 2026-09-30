@@ -1,6 +1,7 @@
 .public-signature-page {
   min-height: 100vh;
-  padding: 24px 14px 36px;
+  min-height: 100dvh;
+  padding: max(24px, var(--safe-area-top)) max(14px, var(--safe-area-right)) max(36px, var(--safe-area-bottom)) max(14px, var(--safe-area-left));
   background: linear-gradient(180deg, #fff7f7 0%, #f4f5f7 54%, #eef0f3 100%);
   color: var(--text);
 }
@@ -270,7 +271,7 @@
 
 @media (max-width: 620px) {
   .public-signature-page {
-    padding: 12px 8px 24px;
+    padding: max(12px, var(--safe-area-top)) max(8px, var(--safe-area-right)) max(24px, var(--safe-area-bottom)) max(8px, var(--safe-area-left));
   }
 
   .public-signature-shell {
