@@ -581,6 +581,133 @@ export async function prepareMaintenanceDeviceBulkCreate(ctx,args={}){
   };
 }
 
+
+export async function prepareMaintenanceProjectDeviceUpdate(ctx,args={}){
+  assertMaintenanceWrite(ctx);
+  const maintenanceId=clean(args.maintenanceId,250),deviceId=clean(args.deviceId,250);
+  if(!maintenanceId||!deviceId) throw badRequest('Falta el Proyecto o el dispositivo que desea modificar.');
+  const maintenance=await maintenanceRow(maintenanceId);
+  if(!isProjectMaintenanceRow(maintenance)) throw badRequest('La edición estructurada de componentes desde Gemini solo está habilitada para registros tipo Proyecto.');
+  if(String(maintenance.status||'').toUpperCase()==='FINALIZADO') throw badRequest('No se puede modificar un Proyecto finalizado.');
+
+  const [device,types,locations,catalogs,projectQuestions]=await Promise.all([
+    deviceRow(maintenanceId,deviceId),
+    deviceTypes(),
+    maintenanceLocationOptions(ctx,maintenanceId),
+    loadDeviceCatalogs(),
+    readMaintenanceQuestions({includeInactive:false,mode:'PROYECTO'}),
+  ]);
+  const type=types.find(item=>clean(item.id,250)===clean(device.typeId,250));
+  if(!type) throw badRequest('El tipo actual del dispositivo ya no existe en el catálogo.');
+
+  let location={id:device.locationId,name:device.zone};
+  if(args.locationId!==undefined||args.zone!==undefined){
+    location=resolveLocationOption(locations,{locationId:args.locationId,zone:args.zone});
+  }
+  const catalog=resolveManufacturerModel(type.id,{
+    manufacturer:args.manufacturer,
+    model:args.model,
+  },catalogs,{
+    manufacturerId:device.manufacturerId,manufacturer:device.manufacturer,
+    modelId:device.modelId,model:device.model,
+  });
+  const baseAnswers=parseJson(device.answersJson,{});
+  const prepared=await prepareProjectAnswerStructure({
+    typeId:type.id,
+    baseAnswers,
+    answerPatches:args.answers,
+    componentMutations:args.components,
+    allProjectQuestions:projectQuestions,
+    types,
+    catalogs,
+  });
+  if(prepared.missing.length){
+    return {
+      modelData:{ready:false,needsInput:true,maintenance,device,missing:prepared.missing,message:'Faltan respuestas obligatorias para poder preparar la edición.'},
+      confirmations:[],
+      context:{lastMaintenanceId:maintenance.id,lastMaintenanceName:maintenance.title||'',lastDeviceId:device.id,lastDeviceName:device.name||''},
+    };
+  }
+
+  const deletedIds=prepared.componentSummaries.filter(item=>item.action==='DELETE').map(item=>item.componentId).filter(Boolean);
+  if(deletedIds.length){
+    const evidence=await query(
+      `SELECT "ProyectoComponenteLocalID" AS id,COUNT(*)::int AS total
+         FROM "Mantenimiento imagenes" mi
+        WHERE ${active('mi')} AND mi."DispositivoMantenimientoRef"=$1
+          AND mi."ProyectoComponenteLocalID"=ANY($2::text[])
+        GROUP BY "ProyectoComponenteLocalID"`,
+      [deviceId,deletedIds],{label:'ai.operation.projectComponentEvidence'},
+    );
+    if(evidence.rows.length){
+      return {
+        modelData:{
+          ready:false,needsInput:true,maintenance,device,
+          blockedComponents:evidence.rows,
+          message:'Uno o más componentes tienen evidencias relacionadas. Reasigne o elimine esas evidencias antes de retirar el componente.',
+        },
+        confirmations:[],
+        context:{lastMaintenanceId:maintenance.id,lastMaintenanceName:maintenance.title||'',lastDeviceId:device.id,lastDeviceName:device.name||''},
+      };
+    }
+  }
+
+  const has=(key)=>Object.prototype.hasOwnProperty.call(args,key);
+  const next={
+    name:has('name')?clean(args.name,300):device.name,
+    locationId:location.id,zone:location.name,
+    manufacturerId:catalog.manufacturerId,manufacturer:catalog.manufacturer,
+    modelId:catalog.modelId,model:catalog.model,
+    serial:has('serial')?clean(args.serial,300):clean(device.serial,300),
+    mac:has('mac')&&clean(args.mac,120)?normalizeMacAddress(args.mac):(has('mac')?'':clean(device.mac,120)),
+    observation:has('observation')?clean(args.observation,1200):clean(device.observation,1200),
+    answers:prepared.answers,
+  };
+  if(!next.name) throw badRequest('El dispositivo debe conservar un nombre.');
+
+  const changes=[];
+  const compare=[
+    ['Nombre',device.name,next.name],['Ubicación',device.zone,next.zone],['Fabricante',device.manufacturer,next.manufacturer],
+    ['Modelo',device.model,next.model],['Serie',device.serial,next.serial],['MAC',device.mac,next.mac],['Observación',device.observation,next.observation],
+  ];
+  compare.forEach(([field,before,after])=>{if(String(before||'')!==String(after||''))changes.push({field,before:clean(before,500),after:clean(after,500)});});
+  changes.push(...prepared.componentSummaries.map(item=>({field:'Componente',...item})));
+  if(JSON.stringify(baseAnswers)!==JSON.stringify(prepared.answers)&&!prepared.componentSummaries.length){
+    changes.push({field:'Preguntas configurables',after:'Se actualizarán las respuestas indicadas.'});
+  }
+  if(!changes.length){
+    return {
+      modelData:{ready:false,maintenance,device,message:'La solicitud no produce cambios en el dispositivo.'},
+      confirmations:[],
+      context:{lastMaintenanceId:maintenance.id,lastMaintenanceName:maintenance.title||'',lastDeviceId:device.id,lastDeviceName:device.name||''},
+    };
+  }
+
+  const storedArgs={
+    maintenanceId,deviceId,baseHash:deviceFingerprint(device),
+    payload:{
+      NombreDispositivo:next.name,
+      UbicacionEquipoID:next.locationId,
+      Zona:next.zone,
+      FabricanteID:next.manufacturerId,Fabricante:next.manufacturer,
+      ModeloID:next.modelId,Modelo:next.model,
+      Serie:next.serial,DireccionMAC:next.mac,Observacion:next.observation,
+      respuestas:next.answers,
+    },
+  };
+  const preview={
+    maintenance:{id:maintenance.id,title:maintenance.title,client:maintenance.client,maintenanceType:'PROYECTO'},
+    device:{id:device.id,name:device.name,type:device.type,zone:device.zone},
+    changes,
+  };
+  const op=await createOperation(ctx,{action:'MAINTENANCE_PROJECT_DEVICE_UPDATE',args:storedArgs,preview});
+  return {
+    modelData:{ready:true,operationId:op.OperationID,maintenance:preview.maintenance,device:preview.device,changes},
+    confirmations:[confirmation(op,'Actualizar dispositivo del Proyecto',`${device.name} · ${maintenance.title||'Proyecto'}`,changes)],
+    context:{lastMaintenanceId:maintenance.id,lastMaintenanceName:maintenance.title||'',lastDeviceId:device.id,lastDeviceName:device.name||'',pendingOperationId:op.OperationID},
+  };
+}
+
 async function chatUpload(ctx,uploadId){
   const result=await query(
     `SELECT "UploadID" AS id,"NombreArchivo" AS name,"MimeType" AS "mimeType","SizeBytes" AS size,
