@@ -139,13 +139,52 @@ function hasQuestionValue(question = {}, value) {
   return cleanMaintenanceQuestionValue(value) !== '';
 }
 
+function validateScalarProjectValue(question = {}, rawValue, {
+  labelPrefix = '',
+} = {}) {
+  const key = cleanMaintenanceQuestionValue(question.key || question.Clave);
+  const label = cleanMaintenanceQuestionValue(question.label || question.Pregunta || key);
+  const displayLabel = labelPrefix ? `${labelPrefix}: ${label}` : label;
+  const config = parseMaintenanceQuestionConfig(question.config || question.ConfiguracionJSON);
+  const responseType = normalizeMaintenanceQuestionResponseType(question.responseType || question.TipoRespuesta);
+  const required = typeof config.required === 'boolean' ? config.required : responseType !== 'RELACION_DISPOSITIVO';
+
+  if (required && !hasQuestionValue(question, rawValue)) {
+    throw badRequest(`Complete el campo obligatorio “${displayLabel}”.`);
+  }
+  if (rawValue === undefined || rawValue === null || rawValue === '') return '';
+
+  if (responseType === 'SI_NO') {
+    const value = cleanMaintenanceQuestionValue(rawValue);
+    if (!['Sí', 'Si', 'No'].includes(value)) throw badRequest(`La respuesta de “${displayLabel}” no es válida.`);
+    return value === 'Si' ? 'Sí' : value;
+  }
+  if (responseType === 'OPCIONES') {
+    const options = cleanStringList(config.options);
+    const value = cleanMaintenanceQuestionValue(rawValue);
+    if (value && !options.includes(value)) throw badRequest(`La opción seleccionada para “${displayLabel}” ya no está disponible.`);
+    return value;
+  }
+  if (responseType === 'NUMERO' || responseType === 'CANTIDAD') {
+    const numeric = Number(rawValue);
+    if (!Number.isFinite(numeric) || (responseType === 'CANTIDAD' && numeric < 0)) throw badRequest(`El valor de “${displayLabel}” no es válido.`);
+    return String(rawValue).trim();
+  }
+  if (responseType === 'MAC') return normalizeMacAddress(rawValue);
+  if (responseType === 'RELACION_DISPOSITIVO') return rawValue;
+  return cleanMaintenanceQuestionValue(rawValue);
+}
+
 async function validateProjectAnswers(snapshot = [], answers = {}, maintenanceMode = 'MANTENIMIENTO') {
   if (normalizeMaintenanceQuestionMode(maintenanceMode) !== 'PROYECTO') return answers;
   const activeQuestions = snapshot.filter((question) => question.activeAtSave !== false);
   const relationQuestions = activeQuestions.filter((question) => question.responseType === 'RELACION_DISPOSITIVO');
-  const catalogs = relationQuestions.length
-    ? await readTables(['TiposDispositivo', 'Fabricantes', 'Modelos', 'TipoDispositivoFabricantes'])
-    : {};
+  const [catalogs, childProjectQuestions] = relationQuestions.length
+    ? await Promise.all([
+      readTables(['TiposDispositivo', 'Fabricantes', 'Modelos', 'TipoDispositivoFabricantes']),
+      readMaintenanceQuestions({ includeInactive: false, mode: 'PROYECTO' }),
+    ])
+    : [{}, []];
   const typesById = new Map((catalogs.TiposDispositivo || []).filter(activeCatalogRow).map((row) => [cleanMaintenanceQuestionValue(row.TipoDispositivoID), row]));
   const manufacturersById = new Map((catalogs.Fabricantes || []).filter(activeCatalogRow).map((row) => [cleanMaintenanceQuestionValue(row.FabricanteID), row]));
   const modelsById = new Map((catalogs.Modelos || []).filter(activeCatalogRow).map((row) => [cleanMaintenanceQuestionValue(row.ModeloID), row]));
@@ -168,25 +207,8 @@ async function validateProjectAnswers(snapshot = [], answers = {}, maintenanceMo
     }
     if (rawValue === undefined || rawValue === null || rawValue === '') continue;
 
-    if (responseType === 'OPCIONES') {
-      const options = cleanStringList(config.options);
-      const value = cleanMaintenanceQuestionValue(rawValue);
-      if (value && !options.includes(value)) throw badRequest(`La opción seleccionada para “${question.label || key}” ya no está disponible.`);
-      sanitized[key] = value;
-      continue;
-    }
-    if (responseType === 'NUMERO' || responseType === 'CANTIDAD') {
-      const numeric = Number(rawValue);
-      if (!Number.isFinite(numeric) || (responseType === 'CANTIDAD' && numeric < 0)) throw badRequest(`El valor de “${question.label || key}” no es válido.`);
-      sanitized[key] = String(rawValue).trim();
-      continue;
-    }
-    if (responseType === 'MAC') {
-      sanitized[key] = normalizeMacAddress(rawValue);
-      continue;
-    }
     if (responseType !== 'RELACION_DISPOSITIVO') {
-      sanitized[key] = cleanMaintenanceQuestionValue(rawValue);
+      sanitized[key] = validateScalarProjectValue(question, rawValue);
       continue;
     }
 
@@ -231,6 +253,35 @@ async function validateProjectAnswers(snapshot = [], answers = {}, maintenanceMo
         throw badRequest(`El modelo del componente ${index + 1} no corresponde al fabricante seleccionado.`);
       }
 
+      const itemAnswers = item?.respuestas && typeof item.respuestas === 'object' && !Array.isArray(item.respuestas)
+        ? item.respuestas
+        : {};
+      const activeChildQuestions = childProjectQuestions
+        .filter((childQuestion) => cleanMaintenanceQuestionValue(childQuestion.TipoDispositivoID) === typeId)
+        .filter((childQuestion) => normalizeMaintenanceQuestionResponseType(childQuestion.TipoRespuesta) !== 'RELACION_DISPOSITIVO')
+        .sort((left, right) => Number(left.Orden || 0) - Number(right.Orden || 0));
+      const sanitizedChildAnswers = {};
+      const childSnapshot = activeChildQuestions.map((childQuestion) => {
+        const childKey = cleanMaintenanceQuestionValue(childQuestion.Clave);
+        const value = validateScalarProjectValue(childQuestion, itemAnswers[childKey], {
+          labelPrefix: `${cleanMaintenanceQuestionValue(relatedType.Nombre)} ${index + 1}`,
+        });
+        if (value !== '') sanitizedChildAnswers[childKey] = value;
+        return {
+          questionId: cleanMaintenanceQuestionValue(childQuestion.PreguntaDispositivoID),
+          typeId,
+          key: childKey,
+          label: cleanMaintenanceQuestionValue(childQuestion.Pregunta || childKey),
+          order: Number(childQuestion.Orden || 0),
+          responseType: normalizeMaintenanceQuestionResponseType(childQuestion.TipoRespuesta),
+          appliesTo: normalizeMaintenanceQuestionMode(childQuestion.AplicaModo, 'PROYECTO'),
+          relatedTypeId: cleanMaintenanceQuestionValue(childQuestion.TipoDispositivoRelacionadoID),
+          config: parseMaintenanceQuestionConfig(childQuestion.ConfiguracionJSON),
+          value,
+          activeAtSave: true,
+        };
+      });
+
       return {
         localId: cleanMaintenanceQuestionValue(item?.localId || item?.id || `componente-${index + 1}`),
         tipoDispositivoId: typeId,
@@ -242,8 +293,8 @@ async function validateProjectAnswers(snapshot = [], answers = {}, maintenanceMo
         nombre: cleanMaintenanceQuestionValue(item?.nombre || item?.NombreDispositivo),
         serie: cleanMaintenanceQuestionValue(item?.serie || item?.Serie),
         macAddress: item?.macAddress ? normalizeMacAddress(item.macAddress) : '',
-        respuestas: item?.respuestas && typeof item.respuestas === 'object' && !Array.isArray(item.respuestas) ? item.respuestas : {},
-        questionDetails: Array.isArray(item?.questionDetails) ? item.questionDetails : [],
+        respuestas: sanitizedChildAnswers,
+        questionDetails: childSnapshot,
       };
     });
 
