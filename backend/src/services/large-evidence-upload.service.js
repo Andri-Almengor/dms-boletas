@@ -20,7 +20,17 @@ export const LARGE_VIDEO_CHUNK_BYTES = 6 * 1024 * 1024;
 const UPLOAD_TOKEN_TTL_MS = 4 * 60 * 60 * 1000;
 const DRIVE_RESUMABLE_PREFIX = 'https://www.googleapis.com/upload/drive/v3/files?uploadType=resumable';
 const TICKET_MEDIA_COLUMNS = ['TipoMedio', 'DuracionSegundos', 'TamanoBytes'];
-const MAINTENANCE_MEDIA_COLUMNS = ['TipoMedio', 'DuracionSegundos'];
+const MAINTENANCE_MEDIA_COLUMNS = [
+  'TipoMedio',
+  'DuracionSegundos',
+  'ContextoEvidencia',
+  'FechaCaptura',
+  'ProyectoDestinoTipo',
+  'ProyectoRelacionClave',
+  'ProyectoComponenteLocalID',
+  'ProyectoComponenteTipoDispositivoID',
+  'ProyectoComponenteNombre',
+];
 
 function clean(value, fallback = '') {
   const text = String(value ?? '').trim();
