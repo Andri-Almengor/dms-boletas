@@ -57,9 +57,10 @@ El prompt obliga a buscar internamente antes de responder preguntas que dependan
 - `search_evidence_activity`
 - `search_maintenances`
 - `get_maintenance`
-- `get_maintenance_devices`
+- `get_maintenance_devices` — en Proyecto también devuelve respuestas configurables y componentes relacionados y acepta filtros por tipo/marca/modelo/serie/MAC del componente o nota de evidencia.
 - `get_maintenance_evidence`
-- `search_devices`
+- `search_maintenance_evidence` — en Proyecto permite filtrar evidencias por dispositivo principal o componente relacionado y devuelve únicamente attachments protegidos coincidentes.
+- `search_devices` — busca tanto dispositivos principales como sus componentes configurables de Proyecto y notas de evidencias.
 - `search_knowledge_base`
 - `get_knowledge_article`
 - `search_agenda`
@@ -110,9 +111,24 @@ Cada petición registra métricas acumuladas de:
 
 La auditoría `AI_CHAT` guarda modelo, tools, duración y si hubo búsqueda web. No guarda prompts completos, secretos ni URLs firmadas.
 
+## Consultas de Proyectos
+
+Las mismas tools de Mantenimientos se extienden para Proyecto; no existen rutas ni tools v2.
+
+- `get_maintenance_devices` puede filtrar un Proyecto por `componentType`, `componentManufacturer`, `componentModel`, `componentSerial`, `componentMac` y texto de campos configurables.
+- `search_devices` aplica esos filtros entre Proyectos cuando no se conoce aún el maintenanceId.
+- `search_maintenance_evidence` usa `ProyectoComponenteLocalID` y vuelve a resolver el componente desde `RespuestasJSON` antes de entregar metadata al modelo.
+- Las evidencias de Proyecto se filtran por `FechaCaptura`, dispositivo/componente y nota; no se reinterpretan como ANTES/DESPUÉS.
+- Los filtros estructurados se aplican primero en PostgreSQL como reducción de candidatos y después se verifican contra la estructura JSON parseada por el mismo servicio que valida las evidencias.
+- Si el número de candidatos supera el presupuesto seguro, la tool devuelve `truncated` y exige refinar la consulta en lugar de fingir exhaustividad.
+- Las listas pueden sintetizarse como tablas Markdown y los archivos se entregan únicamente como attachments protegidos.
+- Referencias ambiguas deben resolverse con las tools existentes o solicitar aclaración.
+
 ## Búsqueda
 
 La migración `011_ai_search_indexes.sql` intenta habilitar `pg_trgm` y crea índices GIN para los campos de texto de mayor uso. Si la extensión no está disponible, la migración conserva la funcionalidad y omite esos índices.
+
+La migración `018_ai_project_inventory_search.sql` agrega índices aditivos para `RespuestasJSON`, notas de evidencias, nombres de componentes, tipo de mantenimiento y componentes de evidencias de Proyecto. No agrega almacenamiento operacional paralelo.
 
 ## Añadir una tool
 
