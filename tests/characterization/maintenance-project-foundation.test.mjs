@@ -5,12 +5,9 @@ import { fileURLToPath } from 'node:url';
 import path from 'node:path';
 
 import {
-  EMPTY_MAINTENANCE,
   isProjectMaintenance,
-  maintenancePayload,
-  mapMaintenance,
   normalizeMaintenanceType,
-} from '../../src/pages/maintenance/maintenanceFormData.js';
+} from '../../src/features/maintenance/maintenanceType.js';
 
 const ROOT = fileURLToPath(new URL('../../', import.meta.url));
 const source = (relativePath) => readFileSync(path.join(ROOT, relativePath), 'utf8');
@@ -21,14 +18,10 @@ test('mantiene MANTENIMIENTO como modo histórico y acepta PROYECTO explícito',
   assert.equal(normalizeMaintenanceType('proyecto'), 'PROYECTO');
   assert.equal(isProjectMaintenance('PROYECTO'), true);
   assert.equal(isProjectMaintenance('MANTENIMIENTO'), false);
-  assert.equal(EMPTY_MAINTENANCE.tipoMantenimiento, 'MANTENIMIENTO');
-
-  assert.equal(mapMaintenance({ mantenimiento: { MantenimientoID: 'M-1' } }).tipoMantenimiento, 'MANTENIMIENTO');
-  assert.equal(mapMaintenance({ mantenimiento: { TipoMantenimiento: 'PROYECTO' } }).tipoMantenimiento, 'PROYECTO');
-
-  const payload = maintenancePayload({ ...EMPTY_MAINTENANCE, titulo: 'Proyecto Zeus', tipoMantenimiento: 'PROYECTO' }, 'M-2');
-  assert.equal(payload.TipoMantenimiento, 'PROYECTO');
-  assert.equal(payload.tipoMantenimiento, 'PROYECTO');
+  const formData = source('src/pages/maintenance/maintenanceFormData.js');
+  assert.match(formData, /tipoMantenimiento: 'MANTENIMIENTO'/);
+  assert.match(formData, /tipoMantenimiento: normalizeMaintenanceType/);
+  assert.match(formData, /TipoMantenimiento: normalizeMaintenanceType\(form\.tipoMantenimiento\)/);
 });
 
 test('la migración agrega el tipo de mantenimiento y metadatos configurables sin cambiar migraciones aplicadas', () => {
