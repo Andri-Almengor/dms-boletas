@@ -137,6 +137,7 @@ function devicePayload(payload, before = {}) {
     ModeloID: pick(payload, ['ModeloID', 'modeloId'], before.ModeloID),
     Modelo: pick(payload, ['Modelo', 'modelo'], before.Modelo),
     Serie: pick(payload, ['Serie', 'serie'], before.Serie),
+    DireccionMAC: pick(payload, ['DireccionMAC', 'macAddress', 'mac'], before.DireccionMAC),
     Funcionamiento: pick(payload, ['Funcionamiento', 'funcionamiento'], before.Funcionamiento),
     EnUso: pick(payload, ['EnUso', 'enUso'], before.EnUso),
     Estado: pick(payload, ['Estado', 'estado'], before.Estado || 'Correcto'),
