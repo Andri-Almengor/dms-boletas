@@ -133,6 +133,256 @@ async function existingDeviceNames(maintenanceId){
   return result.rows;
 }
 
+
+function isProjectMaintenanceRow(maintenance={}){
+  return String(maintenance.maintenanceType||maintenance.TipoMantenimiento||'MANTENIMIENTO').toUpperCase()==='PROYECTO';
+}
+
+function deviceFingerprint(device={}){
+  return hash({
+    id:device.id,name:device.name,typeId:device.typeId,locationId:device.locationId,
+    manufacturerId:device.manufacturerId,modelId:device.modelId,serial:device.serial,mac:device.mac,
+    observation:device.observation,answersJson:device.answersJson,workDate:device.workDate,
+    technicianIdsJson:device.technicianIdsJson,updatedAt:device.updatedAt,
+  });
+}
+
+async function loadDeviceCatalogs(){
+  const [manufacturers,models,relations]=await Promise.all([
+    query(`SELECT "FabricanteID" AS id,"Nombre" AS name FROM "Fabricantes" f WHERE ${active('f')} ORDER BY "Nombre" ASC`,[],{label:'ai.operation.manufacturers'}),
+    query(`SELECT "ModeloID" AS id,"Nombre" AS name,"TipoDispositivoID" AS "typeId","FabricanteID" AS "manufacturerId"
+             FROM "Modelos" m WHERE ${active('m')} ORDER BY "Nombre" ASC`,[],{label:'ai.operation.models'}),
+    query(`SELECT "TipoDispositivoID" AS "typeId","FabricanteID" AS "manufacturerId"
+             FROM "TipoDispositivoFabricantes" r WHERE ${active('r')}`,[],{label:'ai.operation.deviceManufacturerRelations'}),
+  ]);
+  return {
+    manufacturers:manufacturers.rows,
+    models:models.rows,
+    relations:relations.rows,
+  };
+}
+
+async function maintenanceLocationOptions(ctx,maintenanceId){
+  const detail=await maintenanceProgressChatHandlers.get({...ctx,payload:{maintenanceId}});
+  return Array.isArray(detail?.equipmentLocations)?detail.equipmentLocations:Array.isArray(detail?.ubicacionesEquipo)?detail.ubicacionesEquipo:[];
+}
+
+function resolveLocationOption(locations=[],{locationId='',zone=''}={}){
+  const id=clean(locationId,250),name=clean(zone,300);
+  if(id){
+    const exact=locations.find(item=>clean(item?.id,250)===id);
+    if(!exact) throw badRequest('La ubicación indicada no pertenece al mantenimiento o ya no está disponible.');
+    return {id:clean(exact.id,250),name:clean(exact.name,300)};
+  }
+  if(!name) return null;
+  const matches=locations.filter(item=>normalize(item?.name)===normalize(name));
+  if(matches.length===1) return {id:clean(matches[0].id,250),name:clean(matches[0].name,300)};
+  if(matches.length>1) throw badRequest(`La ubicación “${name}” es ambigua. Use su identificador.`);
+  throw badRequest(`La ubicación “${name}” no está seleccionada en este mantenimiento.`);
+}
+
+function questionMeta(row={}){
+  return {
+    id:clean(row.PreguntaDispositivoID,250),
+    typeId:clean(row.TipoDispositivoID,250),
+    key:clean(row.Clave,250),
+    label:clean(row.Pregunta,500),
+    responseType:normalizeMaintenanceQuestionResponseType(row.TipoRespuesta,'SI_NO'),
+    relatedTypeId:clean(row.TipoDispositivoRelacionadoID,250),
+    config:parseMaintenanceQuestionConfig(row.ConfiguracionJSON),
+  };
+}
+
+function findQuestion(questions=[],reference='',{relationOnly=false}={}){
+  const ref=normalize(reference);
+  if(!ref) return null;
+  const matches=questions
+    .map(questionMeta)
+    .filter(item=>!relationOnly||item.responseType==='RELACION_DISPOSITIVO')
+    .filter(item=>normalize(item.key)===ref||normalize(item.label)===ref);
+  if(matches.length>1) throw badRequest(`La pregunta “${reference}” es ambigua dentro del tipo de dispositivo.`);
+  return matches[0]||null;
+}
+
+function canonicalQuestionValue(question,value){
+  const type=question.responseType;
+  if(type==='SI_NO'){
+    const normalized=normalize(value);
+    if(['si','sí','yes','true','1'].includes(normalized)) return 'Sí';
+    if(['no','false','0'].includes(normalized)) return 'No';
+    throw badRequest(`La respuesta para “${question.label}” debe ser Sí o No.`);
+  }
+  if(type==='OPCIONES'){
+    const options=Array.isArray(question.config?.options)?question.config.options.map(item=>clean(item,300)).filter(Boolean):[];
+    const match=options.find(item=>normalize(item)===normalize(value));
+    if(!match) throw badRequest(`La respuesta para “${question.label}” no pertenece a las opciones configuradas.`);
+    return match;
+  }
+  if(type==='NUMERO'||type==='CANTIDAD'){
+    const number=Number(value);
+    if(!Number.isFinite(number)||(type==='CANTIDAD'&&number<0)) throw badRequest(`El valor de “${question.label}” no es válido.`);
+    return String(value).trim();
+  }
+  if(type==='MAC') return normalizeMacAddress(value);
+  if(type==='RELACION_DISPOSITIVO') throw badRequest(`La relación “${question.label}” debe modificarse mediante components.`);
+  return clean(value,1200);
+}
+
+function applyQuestionPatches(baseAnswers={},patches=[],questions=[]){
+  const answers={...(baseAnswers&&typeof baseAnswers==='object'?baseAnswers:{})};
+  for(const patch of Array.isArray(patches)?patches:[]){
+    const reference=clean(patch?.question??patch?.key??patch?.label,500);
+    const question=findQuestion(questions,reference);
+    if(!question) throw badRequest(`No existe la pregunta “${reference}” para este tipo de dispositivo.`);
+    answers[question.key]=canonicalQuestionValue(question,patch?.value);
+  }
+  return answers;
+}
+
+function requiredQuestionMissing(question,answers={}){
+  const required=typeof question.config?.required==='boolean'
+    ? question.config.required
+    : question.responseType!=='RELACION_DISPOSITIVO';
+  if(!required) return false;
+  const value=answers[question.key];
+  if(question.responseType==='RELACION_DISPOSITIVO'){
+    return !value||typeof value!=='object'||value.enabled!==true||!Array.isArray(value.items)||value.items.length===0;
+  }
+  return value===undefined||value===null||String(value).trim()==='';
+}
+
+function resolveManufacturerModel(typeId,input={},catalogs={},current={}){
+  const requestedManufacturer=clean(input.manufacturer??input.fabricante??'',200);
+  const requestedModel=clean(input.model??input.modelo??'',200);
+  let manufacturerId=clean(current.fabricanteId??current.manufacturerId??'',250);
+  let manufacturer=clean(current.fabricante??current.manufacturer??'',200);
+  let modelId=clean(current.modeloId??current.modelId??'',250);
+  let model=clean(current.modelo??current.model??'',200);
+
+  if(requestedManufacturer){
+    const matches=(catalogs.manufacturers||[]).filter(item=>item.id===requestedManufacturer||normalize(item.name)===normalize(requestedManufacturer));
+    if(matches.length!==1) throw badRequest(matches.length?'El fabricante indicado es ambiguo.':'El fabricante indicado no existe en el catálogo.');
+    manufacturerId=matches[0].id;manufacturer=matches[0].name;
+    modelId='';model='';
+  }
+
+  if(requestedModel){
+    let matches=(catalogs.models||[]).filter(item=>clean(item.typeId,250)===clean(typeId,250)&&(item.id===requestedModel||normalize(item.name)===normalize(requestedModel)));
+    if(manufacturerId) matches=matches.filter(item=>!item.manufacturerId||clean(item.manufacturerId,250)===manufacturerId);
+    if(matches.length!==1) throw badRequest(matches.length?'El modelo indicado es ambiguo para ese tipo/fabricante.':'El modelo indicado no existe para ese tipo/fabricante.');
+    modelId=matches[0].id;model=matches[0].name;
+    if(matches[0].manufacturerId&&!manufacturerId){
+      const found=(catalogs.manufacturers||[]).find(item=>item.id===matches[0].manufacturerId);
+      manufacturerId=clean(matches[0].manufacturerId,250);
+      manufacturer=clean(found?.name,200);
+    }
+  }
+
+  if(manufacturerId){
+    const typeRelations=(catalogs.relations||[]).filter(item=>clean(item.typeId,250)===clean(typeId,250));
+    if(typeRelations.length&&!typeRelations.some(item=>clean(item.manufacturerId,250)===manufacturerId)){
+      throw badRequest('El fabricante seleccionado no está relacionado con este tipo de dispositivo.');
+    }
+  }
+  return {manufacturerId,manufacturer,modelId,model};
+}
+
+function componentRef(item={}){
+  return clean(item.localId??item.id,250);
+}
+
+function applyComponentMutations({
+  baseAnswers={},mutations=[],parentQuestions=[],allProjectQuestions=[],typesById=new Map(),catalogs={},
+}={}){
+  const answers={...(baseAnswers&&typeof baseAnswers==='object'?baseAnswers:{})};
+  const summaries=[];
+  for(const mutation of Array.isArray(mutations)?mutations:[]){
+    const relation=findQuestion(parentQuestions,clean(mutation?.relation??mutation?.question,500),{relationOnly:true});
+    if(!relation) throw badRequest(`No existe la relación “${clean(mutation?.relation??mutation?.question,500)}” para este dispositivo.`);
+    const relatedType=typesById.get(relation.relatedTypeId);
+    if(!relatedType) throw badRequest(`El tipo relacionado de “${relation.label}” ya no está disponible.`);
+    const current=answers[relation.key]&&typeof answers[relation.key]==='object'?answers[relation.key]:{};
+    const items=Array.isArray(current.items)?current.items.map(item=>({...item,respuestas:{...(item.respuestas||{})}})):[];
+    const action=clean(mutation?.action,'UPSERT').toUpperCase()||'UPSERT';
+    const requestedId=clean(mutation?.componentId??mutation?.localId,250);
+    let index=requestedId?items.findIndex(item=>componentRef(item)===requestedId):-1;
+    if(index<0&&clean(mutation?.name,300)){
+      const matches=items.map((item,itemIndex)=>({item,itemIndex})).filter(entry=>normalize(entry.item?.nombre)===normalize(mutation.name));
+      if(matches.length===1) index=matches[0].itemIndex;
+      else if(matches.length>1) throw badRequest(`Hay más de un componente llamado “${clean(mutation.name,300)}”. Indique componentId.`);
+    }
+
+    if(action==='DELETE'){
+      if(index<0) throw badRequest('No se encontró el componente que desea eliminar.');
+      const removed=items.splice(index,1)[0];
+      summaries.push({action:'DELETE',relation:relation.label,componentId:componentRef(removed),name:clean(removed.nombre,300)||clean(removed.categoria,200)});
+    }else{
+      const existing=index>=0?items[index]:{};
+      const catalog=resolveManufacturerModel(relation.relatedTypeId,mutation,catalogs,existing);
+      const childQuestions=allProjectQuestions.filter(row=>clean(row.TipoDispositivoID,250)===relation.relatedTypeId&&normalizeMaintenanceQuestionResponseType(row.TipoRespuesta,'SI_NO')!=='RELACION_DISPOSITIVO');
+      const childAnswers=applyQuestionPatches(existing.respuestas||{},mutation?.answers,childQuestions);
+      const localId=index>=0?componentRef(existing):uuid();
+      const next={
+        ...existing,
+        localId,
+        tipoDispositivoId:relation.relatedTypeId,
+        categoria:clean(relatedType.name,200),
+        fabricanteId:catalog.manufacturerId,
+        fabricante:catalog.manufacturer,
+        modeloId:catalog.modelId,
+        modelo:catalog.model,
+        nombre:clean(mutation?.name??existing.nombre,300),
+        serie:clean(mutation?.serial??mutation?.serie??existing.serie,300),
+        macAddress:clean(mutation?.mac??mutation?.macAddress??existing.macAddress,120)
+          ? normalizeMacAddress(mutation?.mac??mutation?.macAddress??existing.macAddress)
+          : '',
+        respuestas:childAnswers,
+      };
+      const missing=childQuestions.map(questionMeta).filter(question=>requiredQuestionMissing(question,childAnswers)).map(question=>question.label);
+      if(missing.length) throw badRequest(`${next.nombre||relatedType.name}: faltan ${missing.join(', ')}.`);
+      if(index>=0) items[index]=next; else items.push(next);
+      summaries.push({action:index>=0?'UPDATE':'ADD',relation:relation.label,componentId:localId,name:next.nombre||relatedType.name,type:relatedType.name,manufacturer:next.fabricante,model:next.modelo,serial:next.serie});
+    }
+    answers[relation.key]={
+      enabled:items.length>0,
+      relatedTypeId:relation.relatedTypeId,
+      relatedTypeName:clean(relatedType.name,200),
+      quantity:items.length,
+      items,
+    };
+  }
+  return {answers,summaries};
+}
+
+async function prepareProjectAnswerStructure({
+  typeId,baseAnswers={},answerPatches=[],componentMutations=[],allProjectQuestions=[],types=[],catalogs={},
+}={}){
+  const parentQuestions=allProjectQuestions.filter(row=>clean(row.TipoDispositivoID,250)===clean(typeId,250));
+  let answers=applyQuestionPatches(baseAnswers,answerPatches,parentQuestions);
+  const typesById=new Map(types.map(item=>[clean(item.id,250),item]));
+  const componentResult=applyComponentMutations({
+    baseAnswers:answers,mutations:componentMutations,parentQuestions,allProjectQuestions,typesById,catalogs,
+  });
+  answers=componentResult.answers;
+  const missing=parentQuestions.map(questionMeta).filter(question=>requiredQuestionMissing(question,answers)).map(question=>question.label);
+  return {answers,missing,componentSummaries:componentResult.summaries};
+}
+
+async function recordMaintenanceSync(ctx,maintenanceId,action,operationId){
+  if(!maintenanceId) return;
+  await recordClassifiedSyncChange({
+    classification:SYNC_MUTATION_CLASS.SYNC_RESOURCE,
+    resource:'maintenance',
+    entityId:maintenanceId,
+    operation:'UPSERT',
+    metadata:{action,source:'AI_AGENT'},
+  },{
+    ...ctx,
+    route:'ai.operation.commit',
+    payload:{mutationId:operationId},
+  });
+}
+
 function operationPreview(op){
   return parseJson(op.PreviewJSON||op.previewJson,{});
 }
