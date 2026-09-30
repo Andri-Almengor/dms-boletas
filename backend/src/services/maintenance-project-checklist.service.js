@@ -111,6 +111,38 @@ function answerValue(value, type) {
   return 'PENDIENTE';
 }
 
+export function projectDeviceProgressSummary({ maintenance = {}, payload = {}, before = {}, progressJson } = {}) {
+  const mode = clean(maintenance.TipoMantenimiento || 'MANTENIMIENTO', 40).toUpperCase();
+  if (mode !== 'PROYECTO') return { hasChecklist: false, total: 0, completed: 0, pending: 0, complete: true };
+
+  const checklist = normalizeProjectChecklistDefinition(maintenance.ProyectoChecklistJSON);
+  const group = groupForDevice(checklist, payload, before);
+  const questions = group?.questions || [];
+  if (!questions.length) return { hasChecklist: false, total: 0, completed: 0, pending: 0, complete: true };
+
+  const current = parseProjectProgress(
+    progressJson
+      || payload.projectProgress
+      || payload.proyectoProgreso
+      || payload.ProyectoProgresoJSON
+      || before.ProyectoProgresoJSON,
+  );
+  const completed = questions.filter((question) => {
+    const raw = parseObject(current.answers?.[question.id], { value: current.answers?.[question.id] });
+    const value = answerValue(raw.value, question.responseType);
+    return question.responseType === 'SI_NO'
+      ? value === 'SI' || value === 'NO'
+      : value === 'REALIZADO';
+  }).length;
+  return {
+    hasChecklist: true,
+    total: questions.length,
+    completed,
+    pending: Math.max(0, questions.length - completed),
+    complete: completed === questions.length,
+  };
+}
+
 export function validateProjectDeviceProgress({ maintenance = {}, payload = {}, before = {} } = {}) {
   const mode = clean(maintenance.TipoMantenimiento || 'MANTENIMIENTO', 40).toUpperCase();
   if (mode !== 'PROYECTO') return clean(before.ProyectoProgresoJSON, 200000);
