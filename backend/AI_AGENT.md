@@ -61,6 +61,7 @@ El prompt obliga a buscar internamente antes de responder preguntas que dependan
 - `get_maintenance_evidence`
 - `search_maintenance_evidence` — en Proyecto permite filtrar evidencias por dispositivo principal o componente relacionado y devuelve únicamente attachments protegidos coincidentes.
 - `search_devices` — busca tanto dispositivos principales como sus componentes configurables de Proyecto y notas de evidencias.
+- `get_statistics` — reutiliza agregaciones PostgreSQL y permite aislar `PROYECTO`/`MANTENIMIENTO`, filtrar por `maintenanceId` y contar evidencias sin descargar colecciones completas.
 - `search_knowledge_base`
 - `get_knowledge_article`
 - `search_agenda`
@@ -135,6 +136,7 @@ Las mismas tools de Mantenimientos se extienden para Proyecto; no existen rutas 
 - Los filtros estructurados se aplican primero en PostgreSQL como reducción de candidatos y después se verifican contra la estructura JSON parseada por el mismo servicio que valida las evidencias.
 - Si el número de candidatos supera el presupuesto seguro, la tool devuelve `truncated` y exige refinar la consulta en lugar de fingir exhaustividad.
 - Las listas pueden sintetizarse como tablas Markdown y los archivos se entregan únicamente como attachments protegidos.
+- Los agregados de Proyecto reutilizan `get_statistics` con `maintenanceType=PROYECTO`; `maintenance_evidence_count` entrega total, imágenes, videos y destinos dispositivo/componente. Un Proyecto concreto se filtra por `maintenanceId` después de resolver la referencia.
 - Referencias ambiguas deben resolverse con las tools existentes o solicitar aclaración.
 
 ## Búsqueda
