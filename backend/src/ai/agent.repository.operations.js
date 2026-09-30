@@ -921,7 +921,8 @@ async function imageExists(imageId){
 
 async function commitDeviceBulk(ctx,op){
   const args=parseJson(op.ArgumentsJSON,{});
-  await maintenanceRow(args.maintenanceId);
+  const maintenance=await maintenanceRow(args.maintenanceId);
+  const projectMode=isProjectMaintenanceRow(maintenance);
   const success=[],failed=[];
   for(const item of Array.isArray(args.devices)?args.devices:[]){
     try{
@@ -935,7 +936,17 @@ async function commitDeviceBulk(ctx,op){
             TipoDispositivoID:item.typeId,
             TipoDispositivo:item.type,
             Categoria:item.type,
+            UbicacionEquipoID:item.locationId,
             Zona:item.zone,
+            FabricanteID:item.manufacturerId||'',
+            Fabricante:item.manufacturer||'',
+            ModeloID:item.modelId||'',
+            Modelo:item.model||'',
+            Serie:item.serial||'',
+            DireccionMAC:item.mac||'',
+            Observacion:item.observation||'',
+            respuestas:item.answers||{},
+            ...(projectMode?{Funcionamiento:'No aplica',EnUso:'No aplica'}:{}),
           },
         });
       }
@@ -944,16 +955,52 @@ async function commitDeviceBulk(ctx,op){
       failed.push({deviceId:item.deviceId,name:item.name,message:clean(error?.message||'No se pudo crear el dispositivo.',400)});
     }
   }
-  const result={created:success,failed,createdCount:success.length,failedCount:failed.length,total:(args.devices||[]).length};
+  const result={
+    maintenance:{id:maintenance.id,title:maintenance.title,maintenanceType:projectMode?'PROYECTO':'MANTENIMIENTO'},
+    created:success,failed,createdCount:success.length,failedCount:failed.length,total:(args.devices||[]).length,
+  };
   await finishOperation(op.OperationID,failed.length?'PARTIAL':'COMMITTED',result,failed.length?{message:'Uno o más dispositivos quedaron pendientes de reintento.'}:null);
-  await audit(ctx,'AI_MAINTENANCE_DEVICE_BULK_CREATE','Mantenimiento',args.maintenanceId,null,{OperationID:op.OperationID,Created:success.length,Failed:failed.length}).catch(()=>{});
+  if(success.length) await recordMaintenanceSync(ctx,args.maintenanceId,'AI_MAINTENANCE_DEVICE_BULK_CREATE',op.OperationID);
+  await audit(ctx,'AI_MAINTENANCE_DEVICE_BULK_CREATE','Mantenimiento',args.maintenanceId,null,{OperationID:op.OperationID,Created:success.length,Failed:failed.length,MaintenanceType:result.maintenance.maintenanceType}).catch(()=>{});
   return result;
+}
+
+async function commitProjectDeviceUpdate(ctx,op){
+  const args=parseJson(op.ArgumentsJSON,{});
+  const maintenance=await maintenanceRow(args.maintenanceId);
+  if(!isProjectMaintenanceRow(maintenance)) throw badRequest('La operación preparada ya no corresponde a un Proyecto.');
+  const current=await deviceRow(args.maintenanceId,args.deviceId);
+  if(deviceFingerprint(current)!==clean(args.baseHash,200)){
+    throw new AppError('AI_OPERATION_CONFLICT','El dispositivo cambió después del PREPARE. Revise los cambios actuales y prepare la edición nuevamente.',409);
+  }
+  const payload=args.payload&&typeof args.payload==='object'?args.payload:{};
+  const result=await maintenanceProgressChatHandlers.deviceUpdate({
+    ...ctx,
+    payload:{
+      maintenanceId:args.maintenanceId,
+      deviceId:args.deviceId,
+      ...payload,
+    },
+  });
+  const saved=await deviceRow(args.maintenanceId,args.deviceId);
+  const publicResult={
+    maintenance:{id:maintenance.id,title:maintenance.title,maintenanceType:'PROYECTO'},
+    device:{id:saved.id,name:saved.name,type:saved.type,zone:saved.zone},
+    updated:true,
+  };
+  await finishOperation(op.OperationID,'COMMITTED',publicResult,null);
+  await recordMaintenanceSync(ctx,args.maintenanceId,'AI_MAINTENANCE_PROJECT_DEVICE_UPDATE',op.OperationID);
+  await audit(ctx,'AI_MAINTENANCE_PROJECT_DEVICE_UPDATE','Mantenimiento',args.maintenanceId,
+    {DeviceID:current.id,DeviceHash:clean(args.baseHash,200)},
+    {OperationID:op.OperationID,DeviceID:saved.id,Updated:true}).catch(()=>{});
+  return {...publicResult,handlerResult:result?.EvidenciaMantenimientoID?{deviceId:result.EvidenciaMantenimientoID}:undefined};
 }
 
 async function commitEvidence(ctx,op){
   const args=parseJson(op.ArgumentsJSON,{}),files=parseJson(op.FilesJSON,[]);
   const maintenance=await maintenanceRow(args.maintenanceId);
   const device=await deviceRow(args.maintenanceId,args.deviceId);
+  const context=await loadMaintenanceEvidenceContext({deviceId:args.deviceId,maintenanceId:args.maintenanceId});
   const success=[],failed=[];
   for(const item of files){
     try{
@@ -962,12 +1009,20 @@ async function commitEvidence(ctx,op){
       }
       const upload=await chatUpload(ctx,item.uploadId);
       const timestamp=nowIso();
+      const metadata=maintenanceEvidenceMetadata({
+        Tipo:isProjectMaintenanceRow(maintenance)?'Proyecto':args.stage,
+        Nota:args.note||'',
+        FechaCaptura:item.capturedAt||upload.capturedAt||timestamp,
+        ProyectoDestinoTipo:args.projectTargetType,
+        ProyectoRelacionClave:args.projectRelationKey,
+        ProyectoComponenteLocalID:args.projectComponentLocalId,
+      },context);
       await appendRow('Mantenimiento imagenes',{
         FotoDispositivoID:item.imageId,
         DispositivoMantenimientoRef:args.deviceId,
-        Tipo:args.stage==='DESPUES'?'Despues':'Antes',
+        ...metadata,
         Nombre:upload.name,
-        Nota:'',
+        Nota:args.note||'',
         MimeType:upload.mimeType,
         Size:String(upload.size||''),
         TipoMedio:'IMAGE',
@@ -985,18 +1040,29 @@ async function commitEvidence(ctx,op){
           WHERE "UploadID"=$1 AND "__valid"=TRUE`,
         [item.uploadId,timestamp,op.OperationID],{label:'ai.upload.consume',write:true},
       );
-      success.push({imageId:item.imageId,uploadId:item.uploadId,name:upload.name});
+      success.push({imageId:item.imageId,uploadId:item.uploadId,name:upload.name,capturedAt:metadata.FechaCaptura,targetType:metadata.ProyectoDestinoTipo||''});
     }catch(error){
       failed.push({imageId:item.imageId,uploadId:item.uploadId,message:clean(error?.message||'No se pudo registrar la imagen.',400)});
     }
   }
   const result={
-    maintenance:{id:maintenance.id,title:maintenance.title},
+    maintenance:{id:maintenance.id,title:maintenance.title,maintenanceType:isProjectMaintenanceRow(maintenance)?'PROYECTO':'MANTENIMIENTO'},
     device:{id:device.id,name:device.name,zone:device.zone},
-    stage:args.stage,uploaded:success,failed,uploadedCount:success.length,failedCount:failed.length,total:files.length,
+    stage:isProjectMaintenanceRow(maintenance)?'':args.stage,
+    target:isProjectMaintenanceRow(maintenance)?{
+      targetType:args.projectTargetType||'DISPOSITIVO',
+      relationKey:args.projectRelationKey||'',
+      componentLocalId:args.projectComponentLocalId||'',
+    }:null,
+    uploaded:success,failed,uploadedCount:success.length,failedCount:failed.length,total:files.length,
   };
   await finishOperation(op.OperationID,failed.length?'PARTIAL':'COMMITTED',result,failed.length?{message:'Una o más imágenes quedaron pendientes de reintento.'}:null);
-  await audit(ctx,'AI_MAINTENANCE_EVIDENCE_UPLOAD','Mantenimiento',args.maintenanceId,null,{OperationID:op.OperationID,DeviceID:args.deviceId,Stage:args.stage,Uploaded:success.length,Failed:failed.length}).catch(()=>{});
+  if(success.length) await recordMaintenanceSync(ctx,args.maintenanceId,'AI_MAINTENANCE_EVIDENCE_UPLOAD',op.OperationID);
+  await audit(ctx,'AI_MAINTENANCE_EVIDENCE_UPLOAD','Mantenimiento',args.maintenanceId,null,{
+    OperationID:op.OperationID,DeviceID:args.deviceId,Stage:result.stage,
+    ProjectTargetType:result.target?.targetType||'',ProjectComponentLocalID:result.target?.componentLocalId||'',
+    Uploaded:success.length,Failed:failed.length,
+  }).catch(()=>{});
   return result;
 }
 
