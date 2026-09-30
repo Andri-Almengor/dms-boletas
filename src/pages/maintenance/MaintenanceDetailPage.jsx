@@ -398,8 +398,8 @@ export default function MaintenanceDetailPage() {
             <div><Icon name="my_location" /><span>Ubicaciones del equipo</span><strong>{maintenanceLocations.length}</strong></div>
             <div><Icon name="groups" /><span>Responsables</span><strong>{pick(row, ['Responsables', 'Responsable'], 'Sin responsables')}</strong></div>
             <div><Icon name="devices_other" /><span>Dispositivos</span><strong>{devices.length}</strong></div>
-            <div><Icon name={signatureRegistered ? 'verified' : 'draw'} /><span>Firma general</span><strong>{signatureRegistered ? 'Registrada' : 'Pendiente'}</strong></div>
-            {generatedTicketCount > 0 && <div><Icon name="receipt_long" /><span>Boletas automáticas</span><strong>{generatedTicketCount}</strong></div>}
+            {!projectMode && <div><Icon name={signatureRegistered ? 'verified' : 'draw'} /><span>Firma general</span><strong>{signatureRegistered ? 'Registrada' : 'Pendiente'}</strong></div>}
+            {!projectMode && generatedTicketCount > 0 && <div><Icon name="receipt_long" /><span>Boletas automáticas</span><strong>{generatedTicketCount}</strong></div>}
             {pick(row, ['ChatDestino']) && <div><Icon name="forum" /><span>Último destino</span><strong>{pick(row, ['ChatDestino'])}</strong></div>}
           </div>
         </section>
@@ -437,11 +437,11 @@ export default function MaintenanceDetailPage() {
           {!projectMode && pending && canEdit && <button type="button" className="button button--secondary maintenance-quick-evidence-button" onClick={() => setQuickEvidenceOpen(true)} disabled={!devices.length || Boolean(working)} title={devices.length ? 'Agregar evidencia a cualquier dispositivo' : 'Agregue un dispositivo primero'}><Icon name="add_a_photo" />Nueva evidencia</button>}
           {!projectMode && isAdmin && pending && <button type="button" className="button button--secondary" onClick={() => action('ticket-test')} disabled={Boolean(working) || offlinePending || !devices.length} title={offlinePending ? 'Sincronice el mantenimiento antes de probar las boletas' : 'Agrupar por fecha y técnicos, usar Gemini y enviar una vista previa al Chat de pruebas'}><Icon name="receipt_long" />{working === 'ticket-test' ? 'Probando boletas...' : 'Probar boletas automáticas'}</button>}
           {!projectMode && isAdmin && <button type="button" className="button button--secondary" onClick={() => action('test')} disabled={Boolean(working) || offlinePending || !devices.length} title={offlinePending ? 'Sincronice el mantenimiento antes de probar el envío' : 'Crear carpetas, copiar evidencias y enviar al Chat de pruebas sin finalizar'}><Icon name="science" />{working === 'test' ? 'Enviando prueba...' : 'Probar envío'}</button>}
-          {isAdmin && <button type="button" className="button button--secondary" onClick={() => action('sheet')} disabled={Boolean(working) || offlinePending} title={offlinePending ? 'Sincronice el mantenimiento antes de generar el reporte' : 'Crear reporte de Excel'}><Icon name="table_view" />{working === 'sheet' ? 'Generando...' : 'Crear Excel'}</button>}
-          {isAdmin && <button type="button" className="button button--secondary" onClick={() => action('slides')} disabled={Boolean(working) || offlinePending} title={offlinePending ? 'Sincronice el mantenimiento antes de generar la presentación' : 'Crear presentación'}><Icon name="slideshow" />{working === 'slides' ? 'Generando...' : 'Crear presentación'}</button>}
+          {!projectMode && isAdmin && <button type="button" className="button button--secondary" onClick={() => action('sheet')} disabled={Boolean(working) || offlinePending} title={offlinePending ? 'Sincronice el mantenimiento antes de generar el reporte' : 'Crear reporte de Excel'}><Icon name="table_view" />{working === 'sheet' ? 'Generando...' : 'Crear Excel'}</button>}
+          {!projectMode && isAdmin && <button type="button" className="button button--secondary" onClick={() => action('slides')} disabled={Boolean(working) || offlinePending} title={offlinePending ? 'Sincronice el mantenimiento antes de generar la presentación' : 'Crear presentación'}><Icon name="slideshow" />{working === 'slides' ? 'Generando...' : 'Crear presentación'}</button>}
           {driveFolderUrl && <a className="button button--ghost" href={driveFolderUrl} target="_blank" rel="noreferrer"><Icon name="folder_open" />Abrir carpeta Drive</a>}
-          {isAdmin && pick(row, ['SpreadsheetURL']) && <a className="button button--ghost" href={pick(row, ['SpreadsheetURL'])} target="_blank" rel="noreferrer"><Icon name="open_in_new" />Excel creado</a>}
-          {isAdmin && pick(row, ['SlidesURL']) && <a className="button button--ghost" href={pick(row, ['SlidesURL'])} target="_blank" rel="noreferrer"><Icon name="open_in_new" />Presentación creada</a>}
+          {!projectMode && isAdmin && pick(row, ['SpreadsheetURL']) && <a className="button button--ghost" href={pick(row, ['SpreadsheetURL'])} target="_blank" rel="noreferrer"><Icon name="open_in_new" />Excel creado</a>}
+          {!projectMode && isAdmin && pick(row, ['SlidesURL']) && <a className="button button--ghost" href={pick(row, ['SlidesURL'])} target="_blank" rel="noreferrer"><Icon name="open_in_new" />Presentación creada</a>}
         </section>
       )}
 
