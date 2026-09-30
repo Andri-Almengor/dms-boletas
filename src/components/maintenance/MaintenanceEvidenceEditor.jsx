@@ -4,7 +4,6 @@ import Icon from '../common/Icon';
 import MaintenanceEvidenceImage from './MaintenanceEvidenceImage';
 import { MODULE_ROUTES, pick, requestAvailable } from '../../services/moduleApi';
 import {
-  projectEvidenceTargetPatch,
   projectEvidenceTargets,
   projectEvidenceTargetValue,
 } from '../../features/maintenance/maintenanceProjectRelations';
