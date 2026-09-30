@@ -132,6 +132,7 @@ test('sync offline y detalle conservan relaciones estructuradas', () => {
   assert.match(formData, /normalizedType === 'PROYECTO'/);
   assert.match(inventory, /ProjectDeviceAnswers/);
   assert.match(inventory, /JSON\.stringify\(parseAnswers\(device\)\)/);
-  assert.match(detail, /evidenceEnabled=\{!projectMode\}/);
+  assert.match(detail, /projectMode=\{projectMode\}/);
+  assert.match(detail, /evidenceEnabled/);
   assert.match(detail, /!projectMode && pending && !offlinePending/);
 });
