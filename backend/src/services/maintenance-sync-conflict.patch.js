@@ -73,6 +73,13 @@ const DEVICE_FIELDS = Object.freeze({
 const IMAGE_FIELDS = Object.freeze({
   Tipo: ['tipo', 'type'],
   Nota: ['nota', 'note'],
+  ContextoEvidencia: ['contextoEvidencia', 'evidenceContext'],
+  FechaCaptura: ['fechaCaptura', 'capturedAt'],
+  ProyectoDestinoTipo: ['proyectoDestinoTipo', 'projectTargetType', 'targetType'],
+  ProyectoRelacionClave: ['proyectoRelacionClave', 'projectRelationKey', 'relationKey'],
+  ProyectoComponenteLocalID: ['proyectoComponenteLocalId', 'projectComponentLocalId', 'componentLocalId'],
+  ProyectoComponenteTipoDispositivoID: ['proyectoComponenteTipoDispositivoId', 'projectComponentTypeId'],
+  ProyectoComponenteNombre: ['proyectoComponenteNombre', 'projectComponentName'],
 });
 
 function clean(value) {
