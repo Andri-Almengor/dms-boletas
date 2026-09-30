@@ -9,6 +9,10 @@ import { aiConfig } from '../ai/agent.config.js';
 import { getConfig } from '../modules/config.module.js';
 import { ensureSheetColumns } from './sheet-columns.service.js';
 import { validateEvidenceMediaPayload } from './evidence-media-policy.service.js';
+import {
+  loadMaintenanceEvidenceContext,
+  maintenanceEvidenceMetadata,
+} from './maintenance-evidence-policy.service.js';
 
 export const LARGE_VIDEO_THRESHOLD_BYTES = 6 * 1024 * 1024;
 export const LARGE_VIDEO_MAX_BYTES = 300 * 1024 * 1024;
@@ -279,11 +283,15 @@ async function initMaintenance(ctx) {
   const imageId = clean(pick(ctx.payload, ['imageId', 'FotoDispositivoID'], uuid()));
   if (!deviceId) throw badRequest('No se indicó el dispositivo de la evidencia.');
   if (!validClientGeneratedId(imageId)) throw badRequest('El identificador local de la evidencia no es válido.');
-  await findById('Evidencia_Mantenimientos', deviceId);
+  const evidenceContext = await loadMaintenanceEvidenceContext({
+    deviceId,
+    maintenanceId: pick(ctx.payload, ['maintenanceId', 'MantenimientoID']),
+  });
   const existing = await findMaintenanceEvidenceById(imageId, deviceId);
   if (existing) return { complete: true, evidence: existing };
 
   const metadata = validatedVideoMetadata(ctx.payload);
+  const evidenceMetadata = maintenanceEvidenceMetadata(ctx.payload, evidenceContext);
   const cfg = await getConfig();
   const sessionUrl = await startDriveResumableSession({
     fileName: clean(ctx.payload.fileName, `video-${Date.now()}.mp4`),
@@ -302,7 +310,7 @@ async function initMaintenance(ctx) {
       imageId,
       fileName: clean(ctx.payload.fileName),
       note: clean(pick(ctx.payload, ['Nota', 'nota'])),
-      evidenceType: String(pick(ctx.payload, ['Tipo', 'tipo'], 'Antes')).toLowerCase().includes('desp') ? 'Despues' : 'Antes',
+      evidenceMetadata,
       mimeType: metadata.mimeType,
       mediaType: metadata.mediaType,
       durationSeconds: metadata.durationSeconds,
@@ -348,7 +356,16 @@ async function appendMaintenanceEvidence(token, file) {
   const row = {
     FotoDispositivoID: token.imageId,
     DispositivoMantenimientoRef: token.deviceId,
-    Tipo: token.evidenceType,
+    ...(token.evidenceMetadata || {
+      ContextoEvidencia: 'MANTENIMIENTO',
+      Tipo: 'Antes',
+      FechaCaptura: timestamp,
+      ProyectoDestinoTipo: '',
+      ProyectoRelacionClave: '',
+      ProyectoComponenteLocalID: '',
+      ProyectoComponenteTipoDispositivoID: '',
+      ProyectoComponenteNombre: '',
+    }),
     Nombre: file.name || token.fileName,
     Nota: token.note,
     MimeType: file.mimeType || token.mimeType,
