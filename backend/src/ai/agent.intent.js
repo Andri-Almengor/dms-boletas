@@ -160,7 +160,7 @@ export function toolNamesForIntent(intent){
     ];
     case AI_INTENTS.WRITE_MAINTENANCE: return [
       'resolve_maintenance_reference','resolve_maintenance_device','search_maintenances','get_maintenance','get_maintenance_devices',
-      'parse_device_import_file','prepare_maintenance_device_bulk_create','prepare_maintenance_evidence_upload','get_ai_operation_status',
+      'parse_device_import_file','prepare_maintenance_device_bulk_create','prepare_maintenance_project_device_update','prepare_maintenance_evidence_upload','get_ai_operation_status',
       'read_chat_attachment',
     ];
     case AI_INTENTS.WEB: return [];
