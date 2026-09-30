@@ -267,16 +267,33 @@ export async function getMaintenanceDevices(ctx,args={}){
       OR LOWER(COALESCE(d."Funcionamiento",'')) IN ('no','mal','false')
     )`);
   }
+  const projectFilters=hasProjectComponentFilters(args);
+  if(projectFilters){
+    if(String(maintenance.maintenanceType||'MANTENIMIENTO').toUpperCase()!=='PROYECTO'){
+      return {
+        modelData:{maintenance:{id:maintenance.id,title:maintenance.title||'Mantenimiento',client:maintenance.client||'',maintenanceType:maintenance.maintenanceType||'MANTENIMIENTO'},total:0,totalShown:0,items:[],message:'Los filtros de componentes relacionados aplican a mantenimientos tipo Proyecto.'},
+        entities:[entity('maintenance',maintenance.id,maintenance.title||'Mantenimiento','/mantenimientos/'+encodeURIComponent(maintenance.id))],
+        sources:[source('maintenance',maintenance.id,(maintenance.title||'Mantenimiento')+' · dispositivos','/mantenimientos/'+encodeURIComponent(maintenance.id))],
+        context:{lastMaintenanceId:maintenance.id,lastMaintenanceName:maintenance.title||'',lastClientId:maintenance.clientId||'',lastClientName:maintenance.client||''},
+      };
+    }
+    addProjectComponentCandidateFilters(clauses,params,args);
+  }
   const where=clauses.join(' AND ');
   const counted=await one(`SELECT COUNT(*)::bigint AS total FROM "Evidencia_Mantenimientos" d WHERE ${where}`,params,'ai.maintenance.devices.count');
-  const queryParams=[...params,pageLimit(args.limit,50),pageOffset(args.offset)];
+  const requestedLimit=pageLimit(args.limit,50);
+  const requestedOffset=pageOffset(args.offset);
+  const candidateLimit=projectFilters?Math.min(250,Math.max(50,(requestedOffset+requestedLimit)*5)):requestedLimit;
+  const candidateOffset=projectFilters?0:requestedOffset;
+  const queryParams=[...params,candidateLimit,candidateOffset];
   const rows=await many(
     `SELECT d."EvidenciaMantenimientoID" AS id,d."NombreDispositivo" AS name,
             COALESCE(NULLIF(d."TipoDispositivo",''),d."Categoria") AS type,d."Categoria" AS category,
             d."Zona" AS zone,d."Fabricante" AS manufacturer,d."Modelo" AS model,d."Serie" AS serial,
             d."DireccionMAC" AS mac,d."Funcionamiento" AS functioning,d."EnUso" AS "inUse",
             d."Estado" AS status,d."Observacion" AS observation,d."FechaTrabajo" AS "workDate",
-            d."Tecnicos" AS technicians,d."CreadoPor" AS "createdBy",d."FechaCreacion" AS "createdAt",
+            d."Tecnicos" AS technicians,d."RespuestasJSON" AS "answersJson",
+            d."CreadoPor" AS "createdBy",d."FechaCreacion" AS "createdAt",
             d."ActualizadoPor" AS "updatedBy",d."FechaActualizacion" AS "updatedAt",
             (SELECT COUNT(*) FROM "Mantenimiento imagenes" mi
              WHERE ${active('mi')} AND mi."DispositivoMantenimientoRef"=d."EvidenciaMantenimientoID")::bigint AS "evidenceCount"
@@ -284,15 +301,36 @@ export async function getMaintenanceDevices(ctx,args={}){
       ORDER BY COALESCE(NULLIF(d."Zona",''),'') ASC,COALESCE(NULLIF(d."NombreDispositivo",''),d."TipoDispositivo") ASC
       LIMIT $${queryParams.length-1} OFFSET $${queryParams.length}`,
     queryParams,'ai.maintenance.devices.items');
-  const items=rows.map(row=>({
-    id:row.id,name:row.name||row.type||'Dispositivo',type:row.type||'',category:row.category||'',
-    zone:row.zone||'',manufacturer:row.manufacturer||'',model:row.model||'',serial:row.serial||'',mac:row.mac||'',
-    functioning:row.functioning||'',inUse:row.inUse||'',status:row.status||'',observation:clean(row.observation,2200),
-    workDate:row.workDate||'',technicians:row.technicians||'',createdBy:row.createdBy||'',createdAt:row.createdAt||'',
-    updatedBy:row.updatedBy||'',updatedAt:row.updatedAt||'',evidenceCount:Number(row.evidenceCount||0),
-  }));
+  const enriched=rows.map(row=>{
+    const projectData=String(maintenance.maintenanceType||'MANTENIMIENTO').toUpperCase()==='PROYECTO'
+      ? projectDeviceData(row,args)
+      : {projectAnswers:{},projectComponents:[],projectComponentCount:0,matchesProjectComponentFilters:true};
+    return {
+      id:row.id,name:row.name||row.type||'Dispositivo',type:row.type||'',category:row.category||'',
+      zone:row.zone||'',manufacturer:row.manufacturer||'',model:row.model||'',serial:row.serial||'',mac:row.mac||'',
+      functioning:row.functioning||'',inUse:row.inUse||'',status:row.status||'',observation:clean(row.observation,2200),
+      workDate:row.workDate||'',technicians:row.technicians||'',createdBy:row.createdBy||'',createdAt:row.createdAt||'',
+      updatedBy:row.updatedBy||'',updatedAt:row.updatedAt||'',evidenceCount:Number(row.evidenceCount||0),
+      projectAnswers:projectData.projectAnswers,
+      projectComponents:projectData.projectComponents,
+      projectComponentCount:projectData.projectComponentCount,
+      matchesProjectComponentFilters:projectData.matchesProjectComponentFilters,
+    };
+  });
+  const matched=projectFilters?enriched.filter(item=>item.matchesProjectComponentFilters):enriched;
+  const items=projectFilters?matched.slice(requestedOffset,requestedOffset+requestedLimit):matched;
+  const candidateTotal=Number(counted?.total||0);
+  const exactTotal=!projectFilters||candidateTotal<=candidateLimit;
   return {
-    modelData:{maintenance:{id:maintenance.id,title:maintenance.title||'Mantenimiento',client:maintenance.client||''},total:Number(counted?.total||0),totalShown:items.length,items},
+    modelData:{
+      maintenance:{id:maintenance.id,title:maintenance.title||'Mantenimiento',client:maintenance.client||'',maintenanceType:String(maintenance.maintenanceType||'MANTENIMIENTO').toUpperCase()},
+      total:exactTotal?(projectFilters?matched.length:candidateTotal):null,
+      candidateTotal:projectFilters?candidateTotal:undefined,
+      totalShown:items.length,
+      truncated:projectFilters&&!exactTotal,
+      ...(projectFilters&&!exactTotal?{message:'Hay más candidatos que el límite de análisis estructurado. Refine el filtro para obtener un resultado exhaustivo.'}:{}),
+      items,
+    },
     entities:[entity('maintenance',maintenance.id,maintenance.title||'Mantenimiento','/mantenimientos/'+encodeURIComponent(maintenance.id)),...items.slice(0,25).map(i=>entity('device',i.id,i.name,'/mantenimientos/'+encodeURIComponent(maintenance.id)))],
     sources:[source('maintenance',maintenance.id,(maintenance.title||'Mantenimiento')+' · dispositivos','/mantenimientos/'+encodeURIComponent(maintenance.id))],
     context:{lastMaintenanceId:maintenance.id,lastMaintenanceName:maintenance.title||'',lastClientId:maintenance.clientId||'',lastClientName:maintenance.client||''},
