@@ -401,39 +401,123 @@ export async function getMaintenanceEvidence(ctx,args={}){
 
 export async function searchDevices(ctx,args={}){
   assertAiCapability(ctx,'maintenance');
-  const q=clean(args.query,250); if(!q) throw badRequest('Indique el dispositivo, serie, modelo, MAC o término a buscar.');
+  const q=clean(args.query,250);
+  const projectFilters=hasProjectComponentFilters(args);
+  const hasDirectFilters=[
+    args.type,args.manufacturer,args.model,args.serial,args.mac,args.zone,args.maintenanceType,args.clientId,
+  ].some((value)=>clean(value));
+  if(!q&&!projectFilters&&!hasDirectFilters) throw badRequest('Indique un dispositivo, tipo, fabricante, modelo, serie, MAC, zona o componente a buscar.');
+
+  const params=[]; const clauses=[active('d'),active('m')];
+  if(q){
+    params.push(like(q)); const p='$'+params.length;
+    clauses.push(`(
+      d."NombreDispositivo" ILIKE \${p} ESCAPE '\\\\'
+      OR d."TipoDispositivo" ILIKE \${p} ESCAPE '\\\\'
+      OR d."Categoria" ILIKE \${p} ESCAPE '\\\\'
+      OR d."Fabricante" ILIKE \${p} ESCAPE '\\\\'
+      OR d."Modelo" ILIKE \${p} ESCAPE '\\\\'
+      OR d."Serie" ILIKE \${p} ESCAPE '\\\\'
+      OR d."DireccionMAC" ILIKE \${p} ESCAPE '\\\\'
+      OR d."Zona" ILIKE \${p} ESCAPE '\\\\'
+      OR d."Observacion" ILIKE \${p} ESCAPE '\\\\'
+      OR COALESCE(d."RespuestasJSON",'') ILIKE \${p} ESCAPE '\\\\'
+      OR m."TituloMantenimiento" ILIKE \${p} ESCAPE '\\\\'
+      OR m."Cliente" ILIKE \${p} ESCAPE '\\\\'
+    )`);
+  }
+  const direct=[
+    ['type','(d."TipoDispositivo" ILIKE %P% ESCAPE \\'\\\\\\' OR d."Categoria" ILIKE %P% ESCAPE \\'\\\\\\')'],
+    ['manufacturer','d."Fabricante" ILIKE %P% ESCAPE \\'\\\\\\''],
+    ['model','d."Modelo" ILIKE %P% ESCAPE \\'\\\\\\''],
+    ['serial','d."Serie" ILIKE %P% ESCAPE \\'\\\\\\''],
+    ['mac','d."DireccionMAC" ILIKE %P% ESCAPE \\'\\\\\\''],
+    ['zone','d."Zona" ILIKE %P% ESCAPE \\'\\\\\\''],
+  ];
+  for(const [key,template] of direct){
+    if(!clean(args[key])) continue;
+    params.push(like(args[key]));
+    clauses.push(template.replaceAll('%P%','$'+params.length));
+  }
+  if(clean(args.maintenanceType)){
+    params.push(clean(args.maintenanceType,40).toUpperCase());
+    clauses.push('UPPER(COALESCE(NULLIF(m."TipoMantenimiento",\\'\\'),\\'MANTENIMIENTO\\'))=$'+params.length);
+  }
+  if(clean(args.clientId)){
+    params.push(clean(args.clientId,250));
+    clauses.push('m."ClienteID"=$'+params.length);
+  }
+  if(projectFilters){
+    clauses.push(`UPPER(COALESCE(NULLIF(m."TipoMantenimiento",''),'MANTENIMIENTO'))='PROYECTO'`);
+    addProjectComponentCandidateFilters(clauses,params,args);
+  }
+
+  const where=clauses.join(' AND ');
+  const counted=await one(
+    `SELECT COUNT(*)::bigint AS total
+       FROM "Evidencia_Mantenimientos" d
+       JOIN "Mantenimiento" m ON m."MantenimientoID"=d."MantenimientoRef"
+      WHERE \${where}`,
+    params,
+    'ai.devices.search.count',
+  );
+  const requestedLimit=pageLimit(args.limit,20);
+  const requestedOffset=pageOffset(args.offset);
+  const candidateLimit=projectFilters?Math.min(250,Math.max(50,(requestedOffset+requestedLimit)*5)):requestedLimit;
+  const candidateOffset=projectFilters?0:requestedOffset;
+  const queryParams=[...params,candidateLimit,candidateOffset];
   const rows=await many(
     `SELECT d."EvidenciaMantenimientoID" AS id,d."NombreDispositivo" AS name,
             COALESCE(NULLIF(d."TipoDispositivo",''),d."Categoria") AS type,d."Fabricante" AS manufacturer,
             d."Modelo" AS model,d."Serie" AS serial,d."DireccionMAC" AS mac,d."Zona" AS zone,
-            d."Estado" AS status,d."Observacion" AS observation,d."CreadoPor" AS "createdBy",
-            d."FechaCreacion" AS "createdAt",d."ActualizadoPor" AS "updatedBy",d."FechaActualizacion" AS "updatedAt",
-            m."MantenimientoID" AS "maintenanceId",
-            m."TituloMantenimiento" AS maintenance,m."ClienteID" AS "clientId",m."Cliente" AS client
+            d."Estado" AS status,d."Observacion" AS observation,d."RespuestasJSON" AS "answersJson",
+            d."CreadoPor" AS "createdBy",d."FechaCreacion" AS "createdAt",
+            d."ActualizadoPor" AS "updatedBy",d."FechaActualizacion" AS "updatedAt",
+            m."MantenimientoID" AS "maintenanceId",m."TituloMantenimiento" AS maintenance,
+            COALESCE(NULLIF(m."TipoMantenimiento",''),'MANTENIMIENTO') AS "maintenanceType",
+            m."ClienteID" AS "clientId",m."Cliente" AS client
        FROM "Evidencia_Mantenimientos" d
-       JOIN "Mantenimiento" m ON ${active('m')} AND m."MantenimientoID"=d."MantenimientoRef"
-      WHERE ${active('d')} AND (
-        d."NombreDispositivo" ILIKE $1 ESCAPE '\\' OR d."TipoDispositivo" ILIKE $1 ESCAPE '\\'
-        OR d."Categoria" ILIKE $1 ESCAPE '\\' OR d."Fabricante" ILIKE $1 ESCAPE '\\'
-        OR d."Modelo" ILIKE $1 ESCAPE '\\' OR d."Serie" ILIKE $1 ESCAPE '\\'
-        OR d."DireccionMAC" ILIKE $1 ESCAPE '\\' OR d."Zona" ILIKE $1 ESCAPE '\\'
-        OR d."Observacion" ILIKE $1 ESCAPE '\\'
-      )
-      ORDER BY m."Fecha" DESC NULLS LAST,d."NombreDispositivo" ASC LIMIT $2`,
-    [like(q),pageLimit(args.limit,20)],'ai.devices.search');
-  const items=rows.map(row=>({
-    id:row.id,name:row.name||row.type||'Dispositivo',type:row.type||'',manufacturer:row.manufacturer||'',model:row.model||'',
-    serial:row.serial||'',mac:row.mac||'',zone:row.zone||'',status:row.status||'',observation:clean(row.observation,1600),
-    maintenanceId:row.maintenanceId||'',maintenance:row.maintenance||'',clientId:row.clientId||'',client:row.client||'',
-  }));
+       JOIN "Mantenimiento" m ON m."MantenimientoID"=d."MantenimientoRef"
+      WHERE \${where}
+      ORDER BY COALESCE(NULLIF(m."FechaFinalizacion",''),m."Fecha",m."FechaCreacion") DESC NULLS LAST,
+               d."NombreDispositivo" ASC NULLS LAST
+      LIMIT $\${queryParams.length-1} OFFSET $\${queryParams.length}`,
+    queryParams,'ai.devices.search');
+
+  const enriched=rows.map(row=>{
+    const isProject=String(row.maintenanceType||'MANTENIMIENTO').toUpperCase()==='PROYECTO';
+    const projectData=isProject
+      ? projectDeviceData(row,args)
+      : {projectAnswers:{},projectComponents:[],projectComponentCount:0,matchesProjectComponentFilters:true};
+    return {
+      id:row.id,name:row.name||row.type||'Dispositivo',type:row.type||'',manufacturer:row.manufacturer||'',model:row.model||'',
+      serial:row.serial||'',mac:row.mac||'',zone:row.zone||'',status:row.status||'',observation:clean(row.observation,1600),
+      maintenanceId:row.maintenanceId||'',maintenance:row.maintenance||'',maintenanceType:String(row.maintenanceType||'MANTENIMIENTO').toUpperCase(),
+      clientId:row.clientId||'',client:row.client||'',
+      projectAnswers:projectData.projectAnswers,
+      projectComponents:projectData.projectComponents,
+      projectComponentCount:projectData.projectComponentCount,
+      matchesProjectComponentFilters:projectData.matchesProjectComponentFilters,
+    };
+  });
+  const matched=projectFilters?enriched.filter(item=>item.matchesProjectComponentFilters):enriched;
+  const items=projectFilters?matched.slice(requestedOffset,requestedOffset+requestedLimit):matched;
+  const candidateTotal=Number(counted?.total||0);
+  const exactTotal=!projectFilters||candidateTotal<=candidateLimit;
   return {
-    modelData:{totalShown:items.length,items},
+    modelData:{
+      total:exactTotal?(projectFilters?matched.length:candidateTotal):null,
+      candidateTotal:projectFilters?candidateTotal:undefined,
+      totalShown:items.length,
+      truncated:projectFilters&&!exactTotal,
+      ...(projectFilters&&!exactTotal?{message:'Hay más candidatos que el límite de análisis estructurado. Refine por proyecto, tipo, fabricante o modelo.'}:{}),
+      items,
+    },
     entities:items.map(i=>entity('device',i.id,i.name,'/mantenimientos/'+encodeURIComponent(i.maintenanceId))),
     sources:items.slice(0,8).map(i=>source('maintenance',i.maintenanceId,i.maintenance+' · '+i.name,'/mantenimientos/'+encodeURIComponent(i.maintenanceId))),
     context:items.length===1?{lastDeviceId:items[0].id,lastDeviceName:items[0].name,lastMaintenanceId:items[0].maintenanceId,lastMaintenanceName:items[0].maintenance,lastClientId:items[0].clientId,lastClientName:items[0].client}:{},
   };
 }
-
 
 export async function getMaintenanceHistory(ctx,args={}){
   const maintenance=await maintenanceRow(ctx,args.maintenanceId);
