@@ -60,17 +60,32 @@ export function normalizeEvidenceStage(value){
 
 export function normalizeDeviceBatch(devices=[],commonZone=''){
   const zone=clean(commonZone,300);
-  return (Array.isArray(devices)?devices:[]).map((item,index)=>({
-    row:index+1,
-    name:clean(item?.name??item?.nombre??item?.NombreDispositivo,300),
-    type:clean(item?.type??item?.tipo??item?.TipoDispositivo??item?.Categoria,200),
-    zone:clean(item?.zone??item?.zona??item?.Zona??zone,300),
-  }));
+  return (Array.isArray(devices)?devices:[]).map((item,index)=>{
+    const base={
+      row:index+1,
+      name:clean(item?.name??item?.nombre??item?.NombreDispositivo,300),
+      type:clean(item?.type??item?.tipo??item?.TipoDispositivo??item?.Categoria,200),
+      zone:clean(item?.zone??item?.zona??item?.Zona??zone,300),
+    };
+    const optional={
+      locationId:clean(item?.locationId??item?.equipmentLocationId??item?.UbicacionEquipoID,250),
+      manufacturer:clean(item?.manufacturer??item?.fabricante??item?.Fabricante,200),
+      model:clean(item?.model??item?.modelo??item?.Modelo,200),
+      serial:clean(item?.serial??item?.serie??item?.Serie,300),
+      mac:clean(item?.mac??item?.macAddress??item?.DireccionMAC,120),
+      observation:clean(item?.observation??item?.observacion??item?.Observacion,1200),
+    };
+    for(const [key,value] of Object.entries(optional)) if(value) base[key]=value;
+    if(Array.isArray(item?.answers)) base.answers=item.answers;
+    if(Array.isArray(item?.components)) base.components=item.components;
+    return base;
+  });
 }
 
 async function maintenanceRow(id){
   const result=await query(
     `SELECT "MantenimientoID" AS id,"TituloMantenimiento" AS title,"ClienteID" AS "clientId","Cliente" AS client,
+            COALESCE(NULLIF("TipoMantenimiento",''),'MANTENIMIENTO') AS "maintenanceType",
             "Estado" AS status,"Fecha" AS date
        FROM "Mantenimiento" m WHERE ${active('m')} AND m."MantenimientoID"=$1 LIMIT 1`,
     [clean(id,250)],{label:'ai.operation.maintenance'},
@@ -84,7 +99,12 @@ async function deviceRow(maintenanceId,deviceId){
   const result=await query(
     `SELECT d."EvidenciaMantenimientoID" AS id,d."MantenimientoRef" AS "maintenanceId",
             d."NombreDispositivo" AS name,COALESCE(NULLIF(d."TipoDispositivo",''),d."Categoria") AS type,
-            d."Zona" AS zone
+            d."TipoDispositivoID" AS "typeId",d."UbicacionEquipoID" AS "locationId",d."Zona" AS zone,
+            d."FabricanteID" AS "manufacturerId",d."Fabricante" AS manufacturer,
+            d."ModeloID" AS "modelId",d."Modelo" AS model,d."Serie" AS serial,d."DireccionMAC" AS mac,
+            d."Observacion" AS observation,d."RespuestasJSON" AS "answersJson",
+            d."FechaTrabajo" AS "workDate",d."TecnicoIDsJSON" AS "technicianIdsJson",
+            d."FechaActualizacion" AS "updatedAt"
        FROM "Evidencia_Mantenimientos" d
       WHERE ${active('d')} AND d."EvidenciaMantenimientoID"=$1 AND d."MantenimientoRef"=$2 LIMIT 1`,
     [clean(deviceId,250),clean(maintenanceId,250)],{label:'ai.operation.device'},
