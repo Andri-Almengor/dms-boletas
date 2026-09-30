@@ -455,10 +455,10 @@ export default function MaintenanceDetailPage() {
         onRemoveLocation={removeLocation}
         onAddDevice={addDevice}
         onEditDevice={editDevice}
-        onAddEvidence={projectMode ? undefined : setEvidenceDevice}
-        onEditEvidence={projectMode ? undefined : (image, device) => setEditingEvidence({ image, device })}
+        onAddEvidence={setEvidenceDevice}
+        onEditEvidence={(image, device) => setEditingEvidence({ image, device })}
         projectMode={projectMode}
-        evidenceEnabled={!projectMode}
+        evidenceEnabled
       />
 
       <section className="maintenance-detail-footer-actions">
@@ -469,9 +469,9 @@ export default function MaintenanceDetailPage() {
 
       <MaintenanceLocationPickerModal open={locationPickerOpen} maintenanceLocationId={String(pick(row, ['UbicacionID'], ''))} existingLocations={maintenanceLocations} saving={working === 'locations'} onClose={() => setLocationPickerOpen(false)} onSave={addLocation} />
       {quickDeviceLocation && <MaintenanceQuickDeviceCreator maintenanceId={maintenanceId} sessionToken={sessionToken} initialEquipmentLocation={quickDeviceLocation} onClose={() => setQuickDeviceLocation(null)} onCreated={() => load({ silent: true, forceSync: navigator.onLine !== false })} />}
-      {!projectMode && evidenceDevice && <MaintenanceEvidenceUploader device={evidenceDevice} maintenanceId={maintenanceId} sessionToken={sessionToken} onClose={() => setEvidenceDevice(null)} onUploaded={() => load({ silent: true, forceSync: navigator.onLine !== false })} />}
+      {evidenceDevice && <MaintenanceEvidenceUploader device={evidenceDevice} maintenanceId={maintenanceId} sessionToken={sessionToken} projectMode={projectMode} onClose={() => setEvidenceDevice(null)} onUploaded={() => load({ silent: true, forceSync: navigator.onLine !== false })} />}
       {!projectMode && quickEvidenceOpen && <MaintenanceEvidenceUploader devices={devices} maintenanceId={maintenanceId} sessionToken={sessionToken} onClose={() => setQuickEvidenceOpen(false)} onUploaded={() => load({ silent: true, forceSync: navigator.onLine !== false })} />}
-      {!projectMode && editingEvidence && <MaintenanceEvidenceEditor image={editingEvidence.image} device={editingEvidence.device} maintenanceId={maintenanceId} sessionToken={sessionToken} isAdmin={isAdmin} onClose={() => setEditingEvidence(null)} onUpdated={() => load({ silent: true, forceSync: navigator.onLine !== false })} />}
+      {editingEvidence && <MaintenanceEvidenceEditor image={editingEvidence.image} device={editingEvidence.device} maintenanceId={maintenanceId} sessionToken={sessionToken} isAdmin={isAdmin} projectMode={projectMode} onClose={() => setEditingEvidence(null)} onUpdated={() => load({ silent: true, forceSync: navigator.onLine !== false })} />}
     </div>
   );
 }
