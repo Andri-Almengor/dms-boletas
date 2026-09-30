@@ -53,6 +53,7 @@ const RESPONSE_TYPE_OPTIONS = [
 
 const RELATED_FIELD_OPTIONS = [
   ['cantidad', 'Cantidad'],
+  ['nombre', 'Nombre / identificador'],
   ['fabricante', 'Marca / fabricante'],
   ['modelo', 'Modelo'],
   ['serie', 'Serie'],
@@ -80,13 +81,18 @@ function emptyValues(typeIdentifier = '') {
     tipoDispositivoRelacionadoId: '',
     camposRelacionados: ['cantidad', 'fabricante', 'modelo', 'serie'],
     opcionesTexto: '',
+    obligatoria: true,
   };
 }
 
 function QuestionEditorFields({ values, setValues, deviceName, deviceTypes }) {
   function change(event) {
-    const { name, value } = event.target;
-    setValues((current) => ({ ...current, [name]: value }));
+    const { name, value, type, checked } = event.target;
+    setValues((current) => ({
+      ...current,
+      [name]: type === 'checkbox' ? checked : value,
+      ...(name === 'tipoRespuesta' && value === 'RELACION_DISPOSITIVO' ? { obligatoria: false } : {}),
+    }));
   }
 
   function toggleRelatedField(field) {
@@ -137,6 +143,10 @@ function QuestionEditorFields({ values, setValues, deviceName, deviceTypes }) {
       />
       <small className="field-hint">Escriba una opción por línea. En Proyecto se mostrará como un selector, no como texto libre.</small>
     </label>}
+    <label className="maintenance-question-required-toggle">
+      <input type="checkbox" name="obligatoria" checked={Boolean(values.obligatoria)} onChange={change} />
+      <span><strong>Campo obligatorio</strong><small>Si está desactivado, el dispositivo puede guardarse aunque esta respuesta o relación no aplique.</small></span>
+    </label>
     {values.tipoRespuesta === 'RELACION_DISPOSITIVO' && <>
       <label className="field-group">
         <span className="field-label">Tipo de dispositivo relacionado *</span>
@@ -286,6 +296,9 @@ export default function MaintenanceQuestionsPage() {
         opcionesTexto: Array.isArray(parseQuestionConfig(question).options)
           ? parseQuestionConfig(question).options.join('\n')
           : '',
+        obligatoria: typeof parseQuestionConfig(question).required === 'boolean'
+          ? parseQuestionConfig(question).required
+          : clean(question.TipoRespuesta || question.responseType || 'SI_NO').toUpperCase() !== 'RELACION_DISPOSITIVO',
       },
     });
     setManagerError('');
@@ -335,6 +348,7 @@ export default function MaintenanceQuestionsPage() {
           options: editor.values.tipoRespuesta === 'OPCIONES'
             ? configuredOptions
             : [],
+          required: Boolean(editor.values.obligatoria),
         }),
         ...(editor.values.orden !== '' ? { Orden: Number(editor.values.orden) } : {}),
       };
@@ -472,7 +486,7 @@ export default function MaintenanceQuestionsPage() {
               const active = activeRecord(question);
               return <article key={questionId(question)} className={active ? '' : 'is-inactive'}>
                 <span className="maintenance-question-order">{Number(question.Orden || 0)}</span>
-                <div><strong>{questionText(question)}</strong><small>{clean(question.AplicaModo || question.appliesTo || 'MANTENIMIENTO')} · {clean(question.TipoRespuesta || question.responseType || 'SI_NO')} · Clave interna: {clean(question.Clave)}</small></div>
+                <div><strong>{questionText(question)}</strong><small>{clean(question.AplicaModo || question.appliesTo || 'MANTENIMIENTO')} · {clean(question.TipoRespuesta || question.responseType || 'SI_NO')} · {parseQuestionConfig(question).required === false ? 'Opcional' : 'Obligatoria'} · Clave interna: {clean(question.Clave)}</small></div>
                 <span className={`status-chip ${active ? 'status-chip--active' : 'status-chip--inactive'}`}>{active ? 'ACTIVA' : 'INACTIVA'}</span>
                 {canManage && <div className="maintenance-question-actions">
                   <button className="icon-button" type="button" onClick={() => openEdit(question)} disabled={saving} aria-label="Editar pregunta"><Icon name="edit" /></button>
