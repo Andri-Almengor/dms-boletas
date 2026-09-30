@@ -49,11 +49,15 @@ test('las preguntas reutilizan el catálogo existente y aíslan relaciones de Pr
   const conflictPatch = source('backend/src/services/maintenance-sync-conflict.patch.js');
 
   assert.match(service, /RELACION_DISPOSITIVO/);
+  assert.match(service, /OPCIONES/);
   assert.match(service, /maintenanceQuestionAppliesTo/);
   assert.match(module, /assertMaintenanceDeviceType\(relatedTypeId\)/);
+  assert.match(module, /resolveMaintenanceModeForDevice/);
+  assert.match(module, /maintenance\?\.TipoMantenimiento/);
   assert.match(module, /Las relaciones con otros dispositivos deben aplicarse a Proyecto o Ambos/);
   assert.match(hook, /question\.appliesTo === 'AMBOS' \|\| question\.appliesTo === requestedMode/);
   assert.match(admin, /Relacionar otro dispositivo/);
+  assert.match(admin, /Lista de opciones/);
   assert.match(admin, /camposRelacionados/);
   assert.match(admin, /TipoDispositivoRelacionadoID/);
   assert.match(syncBase, /TipoMantenimiento: \['tipoMantenimiento', 'maintenanceType'\]/);
