@@ -3,12 +3,18 @@ import useFormDraft from './useFormDraft';
 
 const SAVE_DELAY_MS = 650;
 
+function cloneDraftValue(value) {
+  if (Array.isArray(value)) return value.map(cloneDraftValue);
+  if (value && typeof value === 'object') return Object.fromEntries(Object.entries(value).map(([key, item]) => [key, cloneDraftValue(item)]));
+  return value;
+}
+
 function serializableDevice(device) {
   if (!device) return null;
   const { newImages: _newImages, ...rest } = device;
   return {
     ...rest,
-    respuestas: { ...(device.respuestas || {}) },
+    respuestas: cloneDraftValue(device.respuestas || {}),
     images: (device.images || []).map(({ dataUrl: _dataUrl, previewUrl: _previewUrl, ...image }) => image),
     newImages: [],
   };
