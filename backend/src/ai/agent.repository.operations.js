@@ -312,6 +312,13 @@ function applyComponentMutations({
       else if(matches.length>1) throw badRequest(`Hay más de un componente llamado “${clean(mutation.name,300)}”. Indique componentId.`);
     }
 
+    if((action==='UPDATE'||requestedId)&&index<0){
+      throw badRequest('No se encontró el componente indicado. Vuelva a consultar el dispositivo antes de preparar la edición.');
+    }
+    if(action==='ADD'&&index>=0){
+      throw badRequest('Ya existe un componente con esa referencia o nombre dentro de la relación.');
+    }
+
     if(action==='DELETE'){
       if(index<0) throw badRequest('No se encontró el componente que desea eliminar.');
       const removed=items.splice(index,1)[0];
