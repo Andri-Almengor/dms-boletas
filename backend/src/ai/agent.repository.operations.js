@@ -1089,11 +1089,17 @@ export async function decideAiOperation(ctx,args={}){
   if(op.Status!=='COMMITTING')return publicOperation(op);
 
   let result;
-  if(op.Action==='MAINTENANCE_DEVICE_BULK_CREATE') result=await commitDeviceBulk(ctx,op);
-  else if(op.Action==='MAINTENANCE_EVIDENCE_UPLOAD') result=await commitEvidence(ctx,op);
-  else{
-    await finishOperation(operationId,'FAILED',{}, {message:'Acción no compatible.'});
-    throw badRequest('La operación no es compatible con esta versión del agente.');
+  try{
+    if(op.Action==='MAINTENANCE_DEVICE_BULK_CREATE') result=await commitDeviceBulk(ctx,op);
+    else if(op.Action==='MAINTENANCE_PROJECT_DEVICE_UPDATE') result=await commitProjectDeviceUpdate(ctx,op);
+    else if(op.Action==='MAINTENANCE_EVIDENCE_UPLOAD') result=await commitEvidence(ctx,op);
+    else throw badRequest('La operación no es compatible con esta versión del agente.');
+  }catch(error){
+    await finishOperation(operationId,'FAILED',operationResult(op)||{}, {
+      code:clean(error?.code||'AI_OPERATION_FAILED',80),
+      message:clean(error?.message||'No se pudo completar la operación.',600),
+    }).catch(()=>{});
+    throw error;
   }
   const current=await findOperation(ctx,operationId);
   return {...publicOperation(current),result};
@@ -1107,6 +1113,7 @@ export async function getAiOperationStatus(ctx,args={}){
 export const operationRepositoryTools=Object.freeze({
   parse_device_import_file:parseDeviceImportFile,
   prepare_maintenance_device_bulk_create:prepareMaintenanceDeviceBulkCreate,
+  prepare_maintenance_project_device_update:prepareMaintenanceProjectDeviceUpdate,
   prepare_maintenance_evidence_upload:prepareMaintenanceEvidenceUpload,
   get_ai_operation_status:getAiOperationStatus,
 });
@@ -1115,6 +1122,8 @@ export const AI_OPERATION_POLICY=Object.freeze({
   modelCanCommit:false,
   frontendCommitArguments:['operationId','decision'],
   idempotentCommit:true,
-  requiresNameTypeZone:true,
-  requiresEvidenceStage:true,
+  requiresNameTypeLocation:true,
+  maintenanceEvidenceRequiresStage:true,
+  projectEvidenceRequiresStage:false,
+  projectDeviceUpdateConcurrencyCheck:true,
 });
