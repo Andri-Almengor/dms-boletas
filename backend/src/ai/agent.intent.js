@@ -70,7 +70,7 @@ export function classifyAiIntent({message='',context={},attachments=[]}={}){
   const value=text(message);
   const lower=value.toLowerCase();
   const hasFiles=Array.isArray(attachments)&&attachments.length>0;
-  const wantsWrite=/\b(crea|crear|agrega|agregar|añade|anade|sube|subir|carga|cargar|pon(?:las|los)?|importa|importar)\b/i.test(value);
+  const wantsWrite=/\b(crea|crear|agrega|agregar|añade|anade|sube|subir|carga|cargar|pon(?:las|los)?|importa|importar|edita|editar|modifica|modificar|actualiza|actualizar|cambia|cambiar|elimina|eliminar|quita|quitar|borra|borrar|reemplaza|reemplazar)\b/i.test(value);
 
   const explicitTicket=TICKET_HINT.test(value);
   const explicitMaintenance=MAINTENANCE_HINT.test(value);
