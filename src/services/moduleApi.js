@@ -535,6 +535,13 @@ function localMaintenanceImage(payload, result = {}) {
     DispositivoMantenimientoRef: pick(payload, ['deviceId', 'DispositivoMantenimientoRef']),
     Tipo: pick(result, ['Tipo'], pick(payload, ['Tipo', 'tipo'], 'Antes')),
     Nota: pick(result, ['Nota'], pick(payload, ['Nota', 'nota'])),
+    ContextoEvidencia: pick(result, ['ContextoEvidencia'], pick(payload, ['ContextoEvidencia', 'contextoEvidencia'], String(pick(payload, ['Tipo'], '')).toLowerCase() === 'proyecto' ? 'PROYECTO' : 'MANTENIMIENTO')),
+    FechaCaptura: pick(result, ['FechaCaptura'], pick(payload, ['FechaCaptura', 'fechaCaptura', 'capturedAt'], new Date().toISOString())),
+    ProyectoDestinoTipo: pick(result, ['ProyectoDestinoTipo'], pick(payload, ['ProyectoDestinoTipo', 'proyectoDestinoTipo', 'projectTargetType'], '')),
+    ProyectoRelacionClave: pick(result, ['ProyectoRelacionClave'], pick(payload, ['ProyectoRelacionClave', 'proyectoRelacionClave', 'projectRelationKey'], '')),
+    ProyectoComponenteLocalID: pick(result, ['ProyectoComponenteLocalID'], pick(payload, ['ProyectoComponenteLocalID', 'proyectoComponenteLocalId', 'projectComponentLocalId'], '')),
+    ProyectoComponenteTipoDispositivoID: pick(result, ['ProyectoComponenteTipoDispositivoID'], ''),
+    ProyectoComponenteNombre: pick(result, ['ProyectoComponenteNombre'], ''),
     Nombre: pick(result, ['Nombre'], pick(payload, ['fileName'], 'Evidencia')),
     MimeType: mimeType,
     DriveFileID: pick(result, ['DriveFileID']),
@@ -579,7 +586,14 @@ async function patchMaintenanceCache(kind, payload, result, sessionToken) {
     devices = devices.map((device) => ({
       ...device,
       Imagenes: (device.Imagenes || []).map((image) => String(pick(image, ['FotoDispositivoID', 'id'])) === imageId
-        ? { ...image, Tipo: pick(payload, ['Tipo', 'tipo'], image.Tipo), Nota: pick(payload, ['Nota', 'nota'], image.Nota) }
+        ? {
+          ...image,
+          Tipo: pick(payload, ['Tipo', 'tipo'], image.Tipo),
+          Nota: pick(payload, ['Nota', 'nota'], image.Nota),
+          ProyectoDestinoTipo: pick(payload, ['ProyectoDestinoTipo', 'proyectoDestinoTipo', 'projectTargetType'], image.ProyectoDestinoTipo),
+          ProyectoRelacionClave: pick(payload, ['ProyectoRelacionClave', 'proyectoRelacionClave', 'projectRelationKey'], image.ProyectoRelacionClave),
+          ProyectoComponenteLocalID: pick(payload, ['ProyectoComponenteLocalID', 'proyectoComponenteLocalId', 'projectComponentLocalId'], image.ProyectoComponenteLocalID),
+        }
         : image),
     }));
   }
