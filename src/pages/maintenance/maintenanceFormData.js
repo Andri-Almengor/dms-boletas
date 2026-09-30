@@ -91,6 +91,13 @@ function parseAnswersBundle(row, categoryName) {
       label: String(item.label || item.Pregunta || item.key || ''),
       order: Number(item.order ?? item.Orden ?? 0),
       responseType: String(item.responseType || item.TipoRespuesta || 'SI_NO'),
+      appliesTo: String(item.appliesTo || item.AplicaModo || 'MANTENIMIENTO'),
+      relatedTypeId: String(item.relatedTypeId || item.TipoDispositivoRelacionadoID || ''),
+      config: item.config && typeof item.config === 'object'
+        ? { ...item.config }
+        : (() => {
+          try { return JSON.parse(item.ConfiguracionJSON || '{}'); } catch { return {}; }
+        })(),
       value: String(item.value ?? ''),
       activeAtSave: item.activeAtSave !== false,
       historical: item.activeAtSave === false,
