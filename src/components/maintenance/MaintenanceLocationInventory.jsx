@@ -605,7 +605,7 @@ export default function MaintenanceLocationInventory({
             </div>}
 
             {group.visibleItems.length ? <>
-              <div className="maintenance-location-device-table-wrap"><table className="maintenance-inventory-table maintenance-location-device-table"><thead><tr>{pending && canEdit && <th className="maintenance-device-selection-column">Sel.</th>}<th>Nombre</th><th>Tipo</th><th>Modelo / Serie</th><th>Estado</th><th>Fotos</th><th>Acciones</th></tr></thead><tbody>{group.visibleItems.map((device) => {
+              <div className="maintenance-location-device-table-wrap"><table className="maintenance-inventory-table maintenance-location-device-table"><thead><tr>{pending && canEdit && <th className="maintenance-device-selection-column">Sel.</th>}<th>Nombre</th><th>Tipo</th><th>Modelo / Serie</th><th>Estado</th><th>{projectMode ? 'Evidencias' : 'Fotos'}</th><th>Acciones</th></tr></thead><tbody>{group.visibleItems.map((device) => {
                 const id = deviceId(device);
                 const expanded = expandedDevice === id;
                 const images = sortedEvidence(device.Imagenes || []);
