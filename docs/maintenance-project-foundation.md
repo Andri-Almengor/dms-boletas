@@ -168,10 +168,42 @@ COMMIT reutiliza `maintenanceEvidenceMetadata` y el archivo ya cargado al chat e
 
 No se agregaron tablas, migraciones, variables de entorno ni cambios de Apps Script en esta etapa.
 
-## Etapa 7 pendiente — cierre y validación integral
+## Etapa 7 — consultas avanzadas y cierre integral
 
-1. realizar una auditoría final de todo el flujo Proyecto de punta a punta;
-2. revisar permisos, sync/offline, auditoría, rendimiento y contratos Gemini;
-3. consolidar pruebas de regresión y documentación de despliegue;
-4. verificar que no existan rutas/servicios duplicados ni comportamiento accidental sobre Mantenimiento normal;
-5. cerrar el PR con el checklist final de migraciones y despliegue.
+La etapa final conserva el mismo Agente y generaliza `get_statistics`; no crea una tool de estadísticas paralela.
+
+### Agregados de Proyecto
+
+`get_statistics` acepta ahora:
+
+- `maintenanceType=MANTENIMIENTO|PROYECTO` para no mezclar ambas modalidades;
+- `maintenanceId` cuando la estadística corresponde a un registro concreto;
+- las métricas existentes `maintenance_count`, `maintenances_by_client`, `devices_with_observations` y `devices_by_type` respetan esos filtros;
+- `maintenance_evidence_count` devuelve el total de evidencias, imágenes y videos y, para Proyecto, separa destinos del dispositivo principal y de componentes relacionados.
+
+Los conteos se realizan con agregaciones PostgreSQL. Gemini no descarga listas completas para contarlas manualmente y debe resolver primero el Proyecto cuando la referencia natural sea ambigua.
+
+### Auditoría final
+
+Se revisó el flujo Proyecto de punta a punta manteniendo estas invariantes:
+
+- no hay rutas v2, repositorios paralelos ni almacenamiento operacional adicional;
+- los componentes siguen dentro de `RespuestasJSON` y las evidencias siguen en `Mantenimiento imagenes`/Drive;
+- no se agregaron permisos; backend continúa validando toda lectura y escritura sensible;
+- PREPARE/COMMIT, `AiPendingOperations`, auditoría y `SyncChanges` permanecen como únicos contratos de escritura del agente;
+- sync/offline conserva tipo de mantenimiento, respuestas, componentes y metadata de evidencias;
+- MANTENIMIENTO normal conserva Antes/Después, firma, finalización, boletas automáticas, correo, Chat y PDFs;
+- PROYECTO continúa sin firma general, finalización automática ni generación de boletas automáticas;
+- no hay nuevas variables de entorno ni cambios de Apps Script.
+
+### Regresión y despliegue
+
+La caracterización de Proyecto cubre fundación, editor, detalle, evidencias, consultas Gemini, escrituras Gemini y estadísticas filtradas por Proyecto.
+
+Para desplegar este PR:
+
+1. ejecutar el flujo normal de migraciones PostgreSQL y confirmar aplicadas `016`, `017` y `018`;
+2. desplegar backend y frontend desde la misma versión del PR;
+3. no crear permisos ni variables nuevas;
+4. no publicar una versión nueva de Apps Script;
+5. validar un MANTENIMIENTO histórico y un PROYECTO nuevo antes de dar por finalizado el rollout.
