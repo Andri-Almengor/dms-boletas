@@ -10,6 +10,7 @@ import MaintenanceQuickDeviceCreator from '../../components/maintenance/Maintena
 import MaintenanceSignatureCard from '../../components/maintenance/MaintenanceSignatureCard';
 import { MODULE_ROUTES, pick, requestAvailable } from '../../services/moduleApi';
 import { isProjectMaintenance } from '../../features/maintenance/maintenanceType';
+import { normalizeProjectChecklist } from '../../features/maintenance/maintenanceProjectChecklist';
 import {
   requestSynchronizedDetail,
   subscribeSyncEntity,
@@ -206,6 +207,10 @@ export default function MaintenanceDetailPage() {
   const maintenanceLocations = useMemo(() => locationGroups(data, row, devices), [data, row, devices]);
   const status = String(pick(row, ['Estado'], 'PENDIENTE')).toUpperCase();
   const projectMode = isProjectMaintenance(pick(row, ['TipoMantenimiento'], 'MANTENIMIENTO'));
+  const projectChecklist = useMemo(
+    () => normalizeProjectChecklist(pick(row, ['ProyectoChecklistJSON'], {})),
+    [row.ProyectoChecklistJSON],
+  );
   const pending = status === 'PENDIENTE';
   const offlinePending = Boolean(pick(row, ['OfflinePendiente'], false));
   const driveFolderUrl = pick(row, ['CarpetaDriveURL', 'MaintenanceFolderURL']);
@@ -458,6 +463,7 @@ export default function MaintenanceDetailPage() {
         onAddEvidence={setEvidenceDevice}
         onEditEvidence={(image, device) => setEditingEvidence({ image, device })}
         projectMode={projectMode}
+        projectChecklist={projectChecklist}
         evidenceEnabled
       />
 
