@@ -1,4 +1,4 @@
-import { createLocalId } from '../../utils/localId';
+import { createLocalId } from '../../utils/localId.js';
 
 export const PROJECT_CHECKLIST_RESPONSE_TYPES = Object.freeze({
   YES_NO: 'SI_NO',
