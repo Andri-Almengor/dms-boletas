@@ -43,19 +43,23 @@ En Proyecto:
 
 Los Proyectos no ejecutan firma general, prueba/finalización de mantenimiento ni generación de boletas automáticas. Estas acciones están ocultas en frontend y rechazadas nuevamente en backend.
 
-## Etapa 3 pendiente — evidencias de Proyecto
+## Etapa 3 — evidencias de Proyecto
 
-La carga de evidencias está intencionalmente deshabilitada en Proyecto hasta implementar el contrato específico solicitado:
+Proyecto reutiliza la tabla y los componentes actuales de evidencias, sin crear almacenamiento paralelo.
 
-- sin Antes/Después;
-- fecha y hora automáticas;
-- orden de más nueva a más vieja;
-- galería;
-- notas editables;
-- clasificación por dispositivo principal o componente relacionado;
-- edición con las mismas capacidades multimedia existentes.
+- No utiliza Antes/Después. El campo histórico `Tipo` se guarda como `Proyecto` únicamente por compatibilidad de la tabla.
+- `FechaCaptura` se asigna automáticamente; si una carga queda offline conserva la hora original capturada por el cliente y el backend la valida.
+- El detalle y la galería ordenan de más nueva a más vieja.
+- Cada evidencia puede corresponder al dispositivo principal o a un componente relacionado.
+- El backend resuelve el componente desde `RespuestasJSON`; no confía en nombre, marca o tipo enviados por frontend.
+- Se conserva un snapshot del componente para mostrar la evidencia incluso después de recargar.
+- La nota sigue siendo editable con el editor existente.
+- Fotos y videos reutilizan la misma validación multimedia, Drive, cargas por lote y carga reanudable actual.
+- Sync/offline conserva fecha, destino, relación y componente.
+- Si un componente tiene evidencias, no puede eliminarse de la relación hasta reasignar o eliminar esas evidencias.
+- Las acciones de Mantenimiento normal conservan Antes/Después sin cambios.
 
-Esto evita guardar fotografías de Proyecto bajo la semántica histórica de evidencias de Mantenimiento.
+La migración `017_maintenance_project_evidence.sql` extiende `Mantenimiento imagenes` con metadatos de Proyecto e índices por dispositivo/fecha y componente/fecha.
 
 ## Etapas posteriores
 
