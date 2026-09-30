@@ -45,6 +45,8 @@ test('las preguntas reutilizan el catálogo existente y aíslan relaciones de Pr
   const module = source('backend/src/modules/maintenance-dynamic-questions.module.js');
   const hook = source('src/hooks/useMaintenanceQuestionCatalog.js');
   const admin = source('src/pages/admin/MaintenanceQuestionsPage.jsx');
+  const syncBase = source('src/services/maintenanceSyncBase.js');
+  const conflictPatch = source('backend/src/services/maintenance-sync-conflict.patch.js');
 
   assert.match(service, /RELACION_DISPOSITIVO/);
   assert.match(service, /maintenanceQuestionAppliesTo/);
@@ -54,4 +56,6 @@ test('las preguntas reutilizan el catálogo existente y aíslan relaciones de Pr
   assert.match(admin, /Relacionar otro dispositivo/);
   assert.match(admin, /camposRelacionados/);
   assert.match(admin, /TipoDispositivoRelacionadoID/);
+  assert.match(syncBase, /TipoMantenimiento: \['tipoMantenimiento', 'maintenanceType'\]/);
+  assert.match(conflictPatch, /TipoMantenimiento: \['tipoMantenimiento', 'maintenanceType'\]/);
 });
