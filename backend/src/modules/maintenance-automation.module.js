@@ -171,6 +171,7 @@ async function deviceCreate(ctx) {
     ModeloID: pick(ctx.payload, ['ModeloID', 'modeloId']),
     Modelo: pick(ctx.payload, ['Modelo', 'modelo']),
     Serie: pick(ctx.payload, ['Serie', 'serie']),
+    DireccionMAC: pick(ctx.payload, ['DireccionMAC', 'macAddress', 'mac']),
     Funcionamiento: pick(ctx.payload, ['Funcionamiento', 'funcionamiento']),
     EnUso: pick(ctx.payload, ['EnUso', 'enUso']),
     Estado: pick(ctx.payload, ['Estado', 'estado']),
