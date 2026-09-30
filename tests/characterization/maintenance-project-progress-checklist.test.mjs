@@ -88,3 +88,13 @@ test('quick device creation receives the same Project checklist as the full form
   assert.ok(quick.includes('projectChecklist={projectChecklist}'));
   assert.ok(form.includes('projectChecklist={state.form.projectChecklist}'));
 });
+
+
+test('backend remains authoritative for Project pending state', () => {
+  const backend = source('backend/src/modules/maintenance.module.js');
+  const policy = source('backend/src/services/maintenance-project-checklist.service.js');
+
+  assert.ok(policy.includes('projectDeviceProgressSummary'));
+  assert.ok(backend.includes("progress.hasChecklist && !progress.complete ? { Estado: 'Pendiente' }"));
+  assert.ok((backend.match(/projectDeviceProgressSummary/g) || []).length >= 4);
+});
