@@ -4,6 +4,7 @@ import Icon from '../common/Icon';
 import FilterDrawer from '../forms/FilterDrawer';
 import AdminEntityModal from '../forms/AdminEntityModal';
 import MaintenanceEvidenceImage from './MaintenanceEvidenceImage';
+import MaintenanceProjectProgressChecklist from './MaintenanceProjectProgressChecklist';
 import { getMaintenanceCategory } from '../../config/maintenanceCategories';
 import { MODULE_ROUTES, pick, requestAvailable } from '../../services/moduleApi';
 import {
@@ -271,6 +272,7 @@ export default function MaintenanceLocationInventory({
   onAddEvidence,
   onEditEvidence,
   projectMode = false,
+  projectChecklist,
   evidenceEnabled = true,
 }) {
   const { hasPermission } = useAuth();
@@ -376,6 +378,7 @@ export default function MaintenanceLocationInventory({
           pick(device, ['Estado']),
           pick(device, ['Observacion']),
           JSON.stringify(parseAnswers(device)),
+          pick(device, ['ProyectoProgresoJSON']),
           ...(device.Imagenes || []).flatMap((image) => [
             pick(image, ['Nota']),
             pick(image, ['Nombre']),
@@ -613,7 +616,10 @@ export default function MaintenanceLocationInventory({
         <div><span>Evidencias</span><strong>{allImages.length}</strong></div>
       </div>}
       {projectMode
-        ? <ProjectDeviceAnswers device={device} />
+        ? <>
+          <ProjectDeviceAnswers device={device} />
+          <MaintenanceProjectProgressChecklist checklist={projectChecklist} device={device} disabled />
+        </>
         : <div className="maintenance-inventory-checklist">
           <div className={stateClass(pick(device, ['Funcionamiento']))}><span>Funcionamiento</span><strong>{pick(device, ['Funcionamiento'], 'Sin responder')}</strong></div>
           <div className={stateClass(pick(device, ['EnUso']))}><span>En uso</span><strong>{pick(device, ['EnUso'], 'Sin responder')}</strong></div>
