@@ -209,5 +209,7 @@ export function projectEvidenceTargetPatch(target = {}) {
     projectTargetType: target.targetType || 'DISPOSITIVO',
     projectRelationKey: target.relationKey || '',
     projectComponentLocalId: target.componentLocalId || '',
+    projectComponentTypeId: target.componentTypeId || '',
+    projectComponentName: target.componentName || '',
   };
 }
