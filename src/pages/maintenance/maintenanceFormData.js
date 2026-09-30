@@ -126,20 +126,24 @@ function mapImage(image, maintenanceId = '') {
 export function createMaintenanceDevice(category = 'Cámara', maintenanceType = 'MANTENIMIENTO') {
   const canonicalCategory = canonicalMaintenanceCategoryName(category);
   const normalizedType = normalizeMaintenanceType(maintenanceType);
-  return {
+  const base = {
     localId: createLocalId(),
     maintenanceType: normalizedType,
     id: '', ubicacionEquipoId: '', ubicacionEquipoNombre: '', zona: '',
     fechaTrabajo: todayInCostaRica(), tecnicoIds: [],
     tipoDispositivoId: '', categoria: canonicalCategory,
     fabricanteId: '', fabricante: '', modeloId: '', modelo: '',
-    nombre: '', serie: '', macAddress: '',
-    funcionamiento: normalizedType === 'PROYECTO' ? 'No aplica' : '',
-    enUso: normalizedType === 'PROYECTO' ? 'No aplica' : '',
-    estado: AUTOMATIC_PENDING_STATE,
-    observacion: '',
-    respuestas: normalizedType === 'PROYECTO' ? {} : createEmptyChecklist(canonicalCategory),
+    nombre: '', serie: '', macAddress: '', funcionamiento: '', enUso: '',
+    estado: AUTOMATIC_PENDING_STATE, observacion: '',
+    respuestas: createEmptyChecklist(canonicalCategory),
     questionDetails: [], images: [], newImages: [], syncBase: null,
+  };
+  if (normalizedType !== 'PROYECTO') return base;
+  return {
+    ...base,
+    funcionamiento: 'No aplica',
+    enUso: 'No aplica',
+    respuestas: {},
   };
 }
 
