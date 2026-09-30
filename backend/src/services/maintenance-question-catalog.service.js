@@ -335,6 +335,19 @@ export function parseMaintenanceAnswers(value) {
   }
 }
 
+function maintenanceQuestionSnapshotValue(value, responseType = 'SI_NO') {
+  if (normalizeMaintenanceQuestionResponseType(responseType) === 'RELACION_DISPOSITIVO') {
+    if (value && typeof value === 'object' && !Array.isArray(value)) return value;
+    try {
+      const parsed = JSON.parse(value || '{}');
+      return parsed && typeof parsed === 'object' && !Array.isArray(parsed) ? parsed : {};
+    } catch {
+      return {};
+    }
+  }
+  return cleanMaintenanceQuestionValue(value);
+}
+
 export async function buildMaintenanceQuestionSnapshot(payload = {}, before = {}) {
   const answers = parseMaintenanceAnswers(
     payload.respuestas
@@ -380,7 +393,10 @@ export async function buildMaintenanceQuestionSnapshot(payload = {}, before = {}
       appliesTo: normalizeMaintenanceQuestionMode(question.AplicaModo || existing.appliesTo, maintenanceMode),
       relatedTypeId: cleanMaintenanceQuestionValue(question.TipoDispositivoRelacionadoID || existing.relatedTypeId),
       config: parseMaintenanceQuestionConfig(question.ConfiguracionJSON || existing.config),
-      value: cleanMaintenanceQuestionValue(answers[key] ?? existing.value),
+      value: maintenanceQuestionSnapshotValue(
+        answers[key] ?? existing.value,
+        question.TipoRespuesta || existing.responseType,
+      ),
       activeAtSave: true,
     };
   });
@@ -389,8 +405,11 @@ export async function buildMaintenanceQuestionSnapshot(payload = {}, before = {}
   for (const item of suppliedSnapshot) {
     const key = cleanMaintenanceQuestionValue(item.key || item.Clave);
     if (!key || activeKeys.has(key)) continue;
-    const value = cleanMaintenanceQuestionValue(answers[key] ?? item.value);
-    if (!value && !item.label) continue;
+    const value = maintenanceQuestionSnapshotValue(
+      answers[key] ?? item.value,
+      item.responseType || item.TipoRespuesta,
+    );
+    if ((value === '' || value === null || value === undefined) && !item.label) continue;
     snapshot.push({
       questionId: cleanMaintenanceQuestionValue(item.questionId || item.PreguntaDispositivoID),
       typeId: cleanMaintenanceQuestionValue(item.typeId || typeId),
