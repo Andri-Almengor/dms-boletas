@@ -90,7 +90,7 @@ function parseAnswersBundle(row, categoryName) {
         : (() => {
           try { return JSON.parse(item.ConfiguracionJSON || '{}'); } catch { return {}; }
         })(),
-      value: String(item.value ?? ''),
+      value: item.value ?? '',
       activeAtSave: item.activeAtSave !== false,
       historical: item.activeAtSave === false,
     })).filter((item) => item.key)
