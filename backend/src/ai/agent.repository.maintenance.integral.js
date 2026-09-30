@@ -3,9 +3,52 @@ import { assertAiCapability } from './agent.permissions.js';
 import {
   active, addRange, aliasQuery, clean, entity, like, many, one, pageLimit, pageOffset, protectedAttachment, source,
 } from './agent.repository.shared.js';
+import { projectMaintenanceComponentsFromAnswers } from '../services/maintenance-evidence-policy.service.js';
 
 function normalize(value) {
   return String(value || '').normalize('NFD').replace(/[\u0300-\u036f]/g, '').toLowerCase().replace(/\s+/g, ' ').trim();
+}
+
+function projectEvidenceFilters(args = {}) {
+  return {
+    query: clean(args.componentQuery, 250),
+    type: clean(args.componentType, 180),
+    manufacturer: clean(args.componentManufacturer, 180),
+    model: clean(args.componentModel, 180),
+    serial: clean(args.componentSerial, 180),
+    mac: clean(args.componentMac, 180),
+  };
+}
+
+function hasProjectEvidenceFilters(args = {}) {
+  return Object.values(projectEvidenceFilters(args)).some(Boolean);
+}
+
+function projectEvidenceComponent(row = {}) {
+  if (String(row.projectTargetType || '').toUpperCase() !== 'COMPONENTE') return null;
+  const componentId = clean(row.projectComponentLocalId, 250);
+  if (!componentId) return null;
+  return projectMaintenanceComponentsFromAnswers(row.answersJson)
+    .find((component) => component.localId === componentId) || null;
+}
+
+function projectEvidenceComponentMatches(component, filters = {}) {
+  if (!component) return false;
+  const includes = (value, expected) => !expected || normalize(value).includes(normalize(expected));
+  if (!includes(component.type, filters.type)) return false;
+  if (!includes(component.manufacturer, filters.manufacturer)) return false;
+  if (!includes(component.model, filters.model)) return false;
+  if (!includes(component.serial, filters.serial)) return false;
+  if (!includes(component.mac, filters.mac)) return false;
+  if (filters.query) {
+    const text = normalize([
+      component.relationLabel, component.type, component.name, component.manufacturer,
+      component.model, component.serial, component.mac,
+      ...Object.entries(component.answers || {}).flatMap(([key, value]) => [key, value]),
+    ].filter(Boolean).join(' '));
+    if (!text.includes(normalize(filters.query))) return false;
+  }
+  return true;
 }
 
 async function maintenanceBase(ctx, idValue) {
