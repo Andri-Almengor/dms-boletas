@@ -484,3 +484,164 @@
     grid-template-columns: 1fr;
   }
 }
+
+
+/* Per-project progress checklist */
+.maintenance-project-checklist-builder {
+  display: grid;
+  gap: 16px;
+  margin-top: 24px;
+  padding-top: 24px;
+  border-top: 1px solid var(--border-color, #dfe3e8);
+}
+
+.maintenance-project-checklist-builder__heading,
+.maintenance-project-checklist-group > header,
+.maintenance-project-progress__heading,
+.maintenance-project-progress-summary,
+.maintenance-project-review-progress > div:first-child {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 16px;
+}
+
+.maintenance-project-checklist-builder__heading h3,
+.maintenance-project-progress__heading h3 {
+  margin: 2px 0 4px;
+}
+
+.maintenance-project-checklist-builder__heading p,
+.maintenance-project-checklist-group small,
+.maintenance-project-review-progress small {
+  margin: 0;
+  color: var(--text-muted, #667085);
+}
+
+.maintenance-project-checklist-builder__groups,
+.maintenance-project-checklist-questions,
+.maintenance-project-progress__questions {
+  display: grid;
+  gap: 12px;
+}
+
+.maintenance-project-checklist-group,
+.maintenance-project-progress,
+.maintenance-project-review-progress {
+  border: 1px solid var(--border-color, #dfe3e8);
+  border-radius: 16px;
+  background: var(--surface, #fff);
+  padding: 16px;
+}
+
+.maintenance-project-checklist-group > header > div {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+}
+
+.maintenance-project-checklist-group > header > div > div {
+  display: grid;
+  gap: 2px;
+}
+
+.maintenance-project-checklist-empty {
+  padding: 16px 0 4px;
+  color: var(--text-muted, #667085);
+}
+
+.maintenance-project-checklist-question {
+  display: grid;
+  grid-template-columns: 32px minmax(0, 1fr) minmax(180px, 240px) 40px;
+  align-items: end;
+  gap: 12px;
+  padding: 12px;
+  border-radius: 12px;
+  background: var(--surface-subtle, #f8fafc);
+}
+
+.maintenance-project-checklist-question__number {
+  display: grid;
+  place-items: center;
+  width: 28px;
+  height: 28px;
+  border-radius: 999px;
+  font-weight: 700;
+  background: var(--surface, #fff);
+}
+
+.maintenance-project-progress {
+  display: grid;
+  gap: 14px;
+}
+
+.maintenance-project-progress__heading > strong {
+  font-size: 1.35rem;
+}
+
+.maintenance-project-progress__track {
+  height: 8px;
+  overflow: hidden;
+  border-radius: 999px;
+  background: var(--surface-subtle, #eef2f6);
+}
+
+.maintenance-project-progress__track > span {
+  display: block;
+  height: 100%;
+  border-radius: inherit;
+  background: currentColor;
+  transition: width 180ms ease;
+}
+
+.maintenance-project-progress__question {
+  display: grid;
+  gap: 12px;
+  padding: 14px;
+  border: 1px solid var(--border-color, #dfe3e8);
+  border-radius: 12px;
+}
+
+.maintenance-project-progress__question.is-complete {
+  border-color: color-mix(in srgb, currentColor 30%, transparent);
+}
+
+.maintenance-project-progress__question-title {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+
+.maintenance-project-progress-summary {
+  padding: 10px 12px;
+  border-radius: 12px;
+  background: var(--surface-subtle, #f8fafc);
+}
+
+.maintenance-project-progress-summary > span {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+}
+
+.maintenance-project-review-progress {
+  display: grid;
+  gap: 8px;
+  margin: 12px 0;
+}
+
+@media (max-width: 760px) {
+  .maintenance-project-checklist-question {
+    grid-template-columns: 30px minmax(0, 1fr) 40px;
+  }
+
+  .maintenance-project-checklist-question .field-group:nth-of-type(2) {
+    grid-column: 2 / -1;
+  }
+
+  .maintenance-project-checklist-builder__heading,
+  .maintenance-project-checklist-group > header {
+    align-items: flex-start;
+    flex-direction: column;
+  }
+}
