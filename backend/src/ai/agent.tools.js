@@ -40,6 +40,15 @@ const COMMON_DATE_PROPERTIES={
   dateTo:{type:'string',description:'Fecha final YYYY-MM-DD.'},
 };
 
+const PROJECT_COMPONENT_PROPERTIES={
+  componentQuery:{type:'string',description:'Texto libre dentro del componente relacionado, incluyendo nombre, relación y respuestas configurables.'},
+  componentType:{type:'string',description:'Tipo del componente relacionado, por ejemplo Lector o Magneto.'},
+  componentManufacturer:{type:'string',description:'Fabricante/marca del componente relacionado, por ejemplo HID.'},
+  componentModel:{type:'string',description:'Modelo del componente relacionado.'},
+  componentSerial:{type:'string',description:'Serie del componente relacionado.'},
+  componentMac:{type:'string',description:'MAC del componente relacionado.'},
+};
+
 function fn(name,description,properties={},required=[]){
   return {type:'function',name,description,parameters:{type:'object',properties,required,additionalProperties:false}};
 }
@@ -68,19 +77,34 @@ export const TOOL_DECLARATIONS=Object.freeze({
   search_evidence_activity:fn('search_evidence_activity','Busca archivos/evidencias subidos a boletas por técnico, fecha o boleta. Útil para preguntas como "qué subió Francisco ayer". Si el nombre es ambiguo, resuelve primero el usuario.',{uploaderId:{type:'string'},technician:{type:'string'},technicianName:{type:'string'},ticketId:{type:'string'},mimeType:{type:'string'},limit:{type:'integer',minimum:1,maximum:50},offset:{type:'integer',minimum:0},...COMMON_DATE_PROPERTIES}),
   resolve_maintenance_reference:fn('resolve_maintenance_reference','Resuelve referencias naturales a un mantenimiento, incluyendo expresiones como "el último mantenimiento de Zeus". No inventa IDs y devuelve candidatos si hay ambigüedad.',{maintenanceId:{type:'string'},reference:{type:'string'},query:{type:'string'},latest:{type:'boolean'}}),
   resolve_maintenance_device:fn('resolve_maintenance_device','Resuelve un dispositivo únicamente dentro de un mantenimiento ya autorizado. Devuelve candidatos si el nombre es ambiguo.',{maintenanceId:{type:'string'},deviceId:{type:'string'},reference:{type:'string'},query:{type:'string'}},['maintenanceId']),
-  search_maintenances:fn('search_maintenances','Busca mantenimientos por cliente, nombre, ubicación, responsable o descripción.',{query:{type:'string'},clientId:{type:'string'},status:{type:'string'},limit:{type:'integer',minimum:1,maximum:50},offset:{type:'integer',minimum:0},...COMMON_DATE_PROPERTIES}),
+  search_maintenances:fn('search_maintenances','Busca mantenimientos o proyectos por cliente, nombre, ubicación, responsable, descripción y tipo.',{query:{type:'string'},clientId:{type:'string'},status:{type:'string'},maintenanceType:{type:'string',enum:['MANTENIMIENTO','PROYECTO']},limit:{type:'integer',minimum:1,maximum:50},offset:{type:'integer',minimum:0},...COMMON_DATE_PROPERTIES}),
   get_maintenance:fn('get_maintenance','Obtiene resumen completo de un mantenimiento, categorías y supervisores.',{maintenanceId:{type:'string'}},['maintenanceId']),
-  get_maintenance_devices:fn('get_maintenance_devices','Lista dispositivos de un mantenimiento y puede filtrar por tipo u observaciones.',{maintenanceId:{type:'string'},query:{type:'string'},type:{type:'string'},observationsOnly:{type:'boolean'},limit:{type:'integer',minimum:1,maximum:50},offset:{type:'integer',minimum:0}},['maintenanceId']),
+  get_maintenance_devices:fn('get_maintenance_devices','Lista dispositivos de un mantenimiento o proyecto. En Proyecto devuelve respuestas y componentes relacionados y puede filtrarlos por tipo, marca, modelo, serie, MAC, campos configurables o notas de evidencias.',{
+    maintenanceId:{type:'string'},query:{type:'string'},type:{type:'string'},observationsOnly:{type:'boolean'},
+    evidenceNote:{type:'string',description:'Texto contenido en notas de evidencias del dispositivo.'},
+    ...PROJECT_COMPONENT_PROPERTIES,
+    limit:{type:'integer',minimum:1,maximum:50},offset:{type:'integer',minimum:0},
+  },['maintenanceId']),
   get_maintenance_evidence:fn('get_maintenance_evidence','Obtiene imágenes, videos o archivos de dispositivos de un mantenimiento como attachments seguros.',{maintenanceId:{type:'string'},deviceIds:{type:'array',items:{type:'string'}},type:{type:'string'},limit:{type:'integer',minimum:1,maximum:50}},['maintenanceId']),
-  search_maintenance_evidence:fn('search_maintenance_evidence','Busca evidencias autorizadas dentro de un mantenimiento por dispositivo, texto, uploader, fecha, tipo de archivo y clasificación ANTES/DESPUÉS.',{
+  search_maintenance_evidence:fn('search_maintenance_evidence','Busca evidencias autorizadas dentro de un mantenimiento o proyecto. Para MANTENIMIENTO admite ANTES/DESPUÉS; para PROYECTO filtra por dispositivo principal o componente relacionado, incluyendo tipo, marca, modelo, serie, MAC y campos configurables. Devuelve attachments protegidos.',{
     maintenanceId:{type:'string'},deviceIds:{type:'array',items:{type:'string'}},type:{type:'string'},
-    stage:{type:'string',enum:['ANTES','DESPUES']},query:{type:'string'},
+    stage:{type:'string',enum:['ANTES','DESPUES'],description:'Solo para mantenimientos normales; Proyecto no usa ANTES/DESPUÉS.'},
+    query:{type:'string',description:'Busca nombre de archivo, nota, dispositivo, zona o nombre/tipo del componente relacionado.'},
+    projectTargetType:{type:'string',enum:['DISPOSITIVO','COMPONENTE']},
+    componentId:{type:'string',description:'ID lógico del componente relacionado cuando ya fue resuelto.'},
+    ...PROJECT_COMPONENT_PROPERTIES,
     uploaderId:{type:'string'},uploaderName:{type:'string'},
     mimeCategory:{type:'string',enum:['IMAGE','VIDEO','PDF']},
     limit:{type:'integer',minimum:1,maximum:50},offset:{type:'integer',minimum:0},...COMMON_DATE_PROPERTIES,
   },['maintenanceId']),
   get_maintenance_history:fn('get_maintenance_history','Obtiene el historial de auditoría de un mantenimiento autorizado.',{maintenanceId:{type:'string'},limit:{type:'integer',minimum:1,maximum:50}},['maintenanceId']),
-  search_devices:fn('search_devices','Busca dispositivos por nombre, tipo, marca, modelo, serie, MAC, zona u observación.',{query:{type:'string'},limit:{type:'integer',minimum:1,maximum:50}},['query']),
+  search_devices:fn('search_devices','Busca dispositivos de mantenimientos/proyectos por campos del dispositivo principal, componentes relacionados y notas de evidencias. Úsala para filtros como "puertas con magneto modelo X".',{
+    query:{type:'string'},type:{type:'string'},manufacturer:{type:'string'},model:{type:'string'},serial:{type:'string'},mac:{type:'string'},zone:{type:'string'},
+    maintenanceType:{type:'string',enum:['MANTENIMIENTO','PROYECTO']},clientId:{type:'string'},
+    evidenceNote:{type:'string',description:'Texto contenido en notas de evidencias.'},
+    ...PROJECT_COMPONENT_PROPERTIES,
+    limit:{type:'integer',minimum:1,maximum:50},offset:{type:'integer',minimum:0},
+  }),
   search_knowledge_base:fn('search_knowledge_base','Busca primero procedimientos y conocimiento interno de DMS.',{query:{type:'string'},limit:{type:'integer',minimum:1,maximum:20}},['query']),
   get_knowledge_article:fn('get_knowledge_article','Obtiene el contenido autorizado de un artículo de Knowledge Base.',{articleId:{type:'string'}},['articleId']),
   search_knowledge_documents:fn('search_knowledge_documents','Busca manuales y documentos adjuntos autorizados de Knowledge por nombre, artículo o texto indexado.',{query:{type:'string'},articleId:{type:'string'},limit:{type:'integer',minimum:1,maximum:20}}),
