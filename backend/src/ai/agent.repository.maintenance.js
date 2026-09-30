@@ -256,6 +256,7 @@ export async function getMaintenanceDevices(ctx,args={}){
       OR d."DireccionMAC" ILIKE ${p} ESCAPE '\\'
       OR d."Zona" ILIKE ${p} ESCAPE '\\'
       OR d."Observacion" ILIKE ${p} ESCAPE '\\'
+      OR COALESCE(d."RespuestasJSON",'') ILIKE ${p} ESCAPE '\\'
       OR EXISTS (
         SELECT 1 FROM "Mantenimiento imagenes" ai_note
          WHERE ${active('ai_note')}
