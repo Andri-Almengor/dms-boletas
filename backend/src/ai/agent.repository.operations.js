@@ -465,25 +465,70 @@ export async function prepareMaintenanceDeviceBulkCreate(ctx,args={}){
   if(!rows.length) throw badRequest('Indique al menos un dispositivo.');
   if(rows.length>aiConfig.maxDeviceCreateBatch) throw badRequest(`El lote supera el máximo de ${aiConfig.maxDeviceCreateBatch} dispositivos.`);
 
-  const [types,existing]=await Promise.all([deviceTypes(),existingDeviceNames(maintenanceId)]);
+  const projectMode=isProjectMaintenanceRow(maintenance);
+  const needsCatalogs=projectMode||rows.some(row=>row.manufacturer||row.model);
+  const [types,existing,locations,catalogs,projectQuestions]=await Promise.all([
+    deviceTypes(),
+    existingDeviceNames(maintenanceId),
+    maintenanceLocationOptions(ctx,maintenanceId),
+    needsCatalogs?loadDeviceCatalogs():Promise.resolve({manufacturers:[],models:[],relations:[]}),
+    projectMode?readMaintenanceQuestions({includeInactive:false,mode:'PROYECTO'}):Promise.resolve([]),
+  ]);
   const typeMap=new Map(types.map(type=>[normalize(type.name),type]));
   const existingMap=new Map(existing.map(item=>[normalize(item.name),item]));
   const seen=new Map(); const valid=[]; const invalid=[]; const duplicates=[];
 
   for(const row of rows){
-    const missing=[];
-    if(!row.name)missing.push('Nombre');
-    if(!row.type)missing.push('Tipo');
-    if(!row.zone)missing.push('Zona');
-    const catalogType=row.type?typeMap.get(normalize(row.type)):null;
-    if(row.type&&!catalogType) missing.push('Tipo no existe en el catálogo');
-    if(missing.length){invalid.push({...row,missing});continue;}
-    const key=normalize(row.name);
-    if(seen.has(key)){duplicates.push({...row,reason:`Duplicado dentro del lote (fila ${seen.get(key)}).`});continue;}
-    seen.set(key,row.row);
-    const current=existingMap.get(key);
-    if(current){duplicates.push({...row,reason:'Ya existe en el mantenimiento.',existingId:current.id});continue;}
-    valid.push({...row,type:catalogType.name,typeId:catalogType.id,deviceId:uuid()});
+    try{
+      const missing=[];
+      if(!row.name)missing.push('Nombre');
+      if(!row.type)missing.push('Tipo');
+      if(!row.locationId&&!row.zone)missing.push('Zona');
+      const catalogType=row.type
+        ? (types.find(type=>type.id===row.type)||typeMap.get(normalize(row.type)))
+        : null;
+      if(row.type&&!catalogType) missing.push('Tipo no existe en el catálogo');
+      if(missing.length){invalid.push({...row,missing});continue;}
+
+      const key=normalize(row.name);
+      if(seen.has(key)){duplicates.push({...row,reason:`Duplicado dentro del lote (fila ${seen.get(key)}).`});continue;}
+      seen.set(key,row.row);
+      const current=existingMap.get(key);
+      if(current){duplicates.push({...row,reason:'Ya existe en el mantenimiento.',existingId:current.id});continue;}
+
+      const location=resolveLocationOption(locations,{locationId:row.locationId,zone:row.zone});
+      const catalog=resolveManufacturerModel(catalogType.id,row,catalogs,{});
+      let answers={}; let componentSummaries=[];
+      if(projectMode){
+        const prepared=await prepareProjectAnswerStructure({
+          typeId:catalogType.id,
+          baseAnswers:{},
+          answerPatches:row.answers,
+          componentMutations:row.components,
+          allProjectQuestions:projectQuestions,
+          types,
+          catalogs,
+        });
+        if(prepared.missing.length){
+          invalid.push({...row,missing:prepared.missing.map(label=>`Pregunta obligatoria: ${label}`)});
+          continue;
+        }
+        answers=prepared.answers;
+        componentSummaries=prepared.componentSummaries;
+      }
+
+      valid.push({
+        ...row,
+        type:catalogType.name,typeId:catalogType.id,deviceId:uuid(),
+        locationId:location.id,zone:location.name,
+        manufacturerId:catalog.manufacturerId,manufacturer:catalog.manufacturer,
+        modelId:catalog.modelId,model:catalog.model,
+        mac:row.mac?normalizeMacAddress(row.mac):'',
+        answers,componentSummaries,
+      });
+    }catch(error){
+      invalid.push({...row,missing:[clean(error?.message||'No se pudo validar el dispositivo.',500)]});
+    }
   }
 
   if(invalid.length){
@@ -492,9 +537,11 @@ export async function prepareMaintenanceDeviceBulkCreate(ctx,args={}){
         ready:false,needsInput:true,maintenance,
         validCount:valid.length,invalidCount:invalid.length,duplicateCount:duplicates.length,
         invalid,duplicates,
-        message:invalid.some(item=>item.missing.includes('Zona'))
-          ? 'Falta Zona en uno o más dispositivos. Solicite la zona antes de preparar la creación.'
-          : 'Hay filas incompletas o tipos que no pertenecen al catálogo real.',
+        message:invalid.some(item=>item.missing.some(value=>/zona|ubicaci/i.test(value)))
+          ? 'Falta o no se pudo resolver la ubicación de uno o más dispositivos.'
+          : projectMode
+            ? 'Hay datos incompletos o ambiguos en la estructura del Proyecto. Complete únicamente lo indicado antes de preparar la creación.'
+            : 'Hay filas incompletas o valores que no pertenecen a los catálogos reales.',
       },
       entities:[],confirmations:[],context:{lastMaintenanceId:maintenance.id,lastMaintenanceName:maintenance.title||''},
     };
@@ -506,12 +553,25 @@ export async function prepareMaintenanceDeviceBulkCreate(ctx,args={}){
     };
   }
 
-  const argsStored={maintenanceId,devices:valid.map(({name,type,typeId,zone,deviceId})=>({name,type,typeId,zone,deviceId}))};
+  const argsStored={
+    maintenanceId,
+    maintenanceType:projectMode?'PROYECTO':'MANTENIMIENTO',
+    devices:valid.map(item=>({
+      name:item.name,type:item.type,typeId:item.typeId,deviceId:item.deviceId,
+      locationId:item.locationId,zone:item.zone,
+      manufacturerId:item.manufacturerId,manufacturer:item.manufacturer,
+      modelId:item.modelId,model:item.model,serial:item.serial||'',mac:item.mac||'',
+      observation:item.observation||'',answers:item.answers||{},
+    })),
+  };
   const preview={
-    maintenance:{id:maintenance.id,title:maintenance.title,client:maintenance.client,status:maintenance.status},
-    newDevices:valid.map(({name,type,zone})=>({name,type,zone})),
+    maintenance:{id:maintenance.id,title:maintenance.title,client:maintenance.client,status:maintenance.status,maintenanceType:projectMode?'PROYECTO':'MANTENIMIENTO'},
+    newDevices:valid.map(item=>({
+      name:item.name,type:item.type,zone:item.zone,manufacturer:item.manufacturer||'',model:item.model||'',serial:item.serial||'',
+      components:item.componentSummaries||[],
+    })),
     existingOrDuplicated:duplicates.map(({name,type,zone,reason})=>({name,type,zone,reason})),
-    initialBehavior:'Se usa exactamente el flujo maintenance.devices.create; no se fuerza un campo Estado adicional.',
+    initialBehavior:'COMMIT reutiliza maintenance.devices.create y sus validaciones autoritativas.',
   };
   const op=await createOperation(ctx,{action:'MAINTENANCE_DEVICE_BULK_CREATE',args:argsStored,preview});
   return {
