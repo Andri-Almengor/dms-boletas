@@ -1,4 +1,4 @@
-import { createLocalId } from '../../utils/localId';
+import { createLocalId } from '../../utils/localId.js';
 
 function clean(value) {
   return String(value ?? '').trim();
