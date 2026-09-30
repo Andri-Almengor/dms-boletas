@@ -9,10 +9,7 @@ import { aiConfig } from '../ai/agent.config.js';
 import { getConfig } from '../modules/config.module.js';
 import { ensureSheetColumns } from './sheet-columns.service.js';
 import { validateEvidenceMediaPayload } from './evidence-media-policy.service.js';
-import {
-  loadMaintenanceEvidenceContext,
-  maintenanceEvidenceMetadata,
-} from './maintenance-evidence-policy.service.js';
+import { loadMaintenanceEvidenceContext, maintenanceEvidenceMetadata } from './maintenance-evidence-policy.service.js';
 
 export const LARGE_VIDEO_THRESHOLD_BYTES = 6 * 1024 * 1024;
 export const LARGE_VIDEO_MAX_BYTES = 300 * 1024 * 1024;
