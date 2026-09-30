@@ -514,6 +514,8 @@ export default function MaintenanceDeviceEditor({
                   ProyectoDestinoTipo: targetPatch.projectTargetType,
                   ProyectoRelacionClave: targetPatch.projectRelationKey,
                   ProyectoComponenteLocalID: targetPatch.projectComponentLocalId,
+                  ProyectoComponenteTipoDispositivoID: targetPatch.projectComponentTypeId,
+                  ProyectoComponenteNombre: targetPatch.projectComponentName,
                 });
               }} disabled={locked}>{projectEvidenceTargetOptions.map((target) => <option key={target.value} value={target.value}>{target.label}</option>)}</select></label>
               <label><span>Nota</span><input value={pick(image, ['Nota'])} onChange={(event) => updateExistingImage(image.id, { Nota: event.target.value })} placeholder="Descripción opcional" disabled={locked} /></label>
