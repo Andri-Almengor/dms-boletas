@@ -434,7 +434,7 @@
     grid-template-columns: minmax(0, 1fr) auto minmax(0, 1fr);
   }
 
-  .maintenance-project-device-detail-navigation > .button:nth-of-type(2) {
+  .maintenance-project-device-detail-navigation__edit {
     grid-column: 1 / -1;
     grid-row: 1;
   }
@@ -445,12 +445,12 @@
     min-width: 64px;
   }
 
-  .maintenance-project-device-detail-navigation > .button:first-of-type {
+  .maintenance-project-device-detail-navigation__previous {
     grid-column: 1;
     grid-row: 2;
   }
 
-  .maintenance-project-device-detail-navigation > .button:last-of-type {
+  .maintenance-project-device-detail-navigation__next {
     grid-column: 3;
     grid-row: 2;
   }
