@@ -460,10 +460,10 @@ export async function searchMaintenanceEvidence(ctx, args = {}) {
   const candidateTotal = Number(counted?.total || 0);
   const exactTotal = !projectFilters || candidateTotal <= candidateLimit;
   const imageCount = projectFilters
-    ? (exactTotal ? selectedRows.filter(({ row }) => String(row.mimeType || '').toLowerCase().startsWith('image/')).length : null)
+    ? (exactTotal ? matchedRows.filter(({ row }) => String(row.mimeType || '').toLowerCase().startsWith('image/')).length : null)
     : Number(counted?.images || 0);
   const videoCount = projectFilters
-    ? (exactTotal ? selectedRows.filter(({ row }) => String(row.mimeType || '').toLowerCase().startsWith('video/')).length : null)
+    ? (exactTotal ? matchedRows.filter(({ row }) => String(row.mimeType || '').toLowerCase().startsWith('video/')).length : null)
     : Number(counted?.videos || 0);
   const normalizedStages = [...new Set(items.map((item) => normalize(item.stage)).filter(Boolean))];
   return {
