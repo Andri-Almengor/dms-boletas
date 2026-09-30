@@ -212,7 +212,8 @@ export async function getMaintenance(ctx,args={}){
 
   const item={
     id:row.id,title:row.title||'Mantenimiento',clientId:row.clientId||'',client:row.client||'',
-    locationId:row.locationId||'',location:row.location||'',status:row.status||'',date:row.date||'',
+    locationId:row.locationId||'',location:row.location||'',status:row.status||'',
+    maintenanceType:String(row.maintenanceType||'MANTENIMIENTO').toUpperCase(),date:row.date||'',
     finishedAt:row.finishedAt||'',responsible:row.responsible||'',description:clean(row.description,4200),
     expectedCounts:clean(row.expectedCounts,3200),
     deviceCount:categories.reduce((sum,x)=>sum+Number(x.total||0),0),
