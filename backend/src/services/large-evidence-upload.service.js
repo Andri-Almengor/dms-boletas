@@ -316,6 +316,7 @@ async function initMaintenance(ctx) {
     uploadToken: createUploadToken({
       kind: 'maintenance',
       sessionUrl,
+      maintenanceId: evidenceContext.maintenanceId,
       deviceId,
       imageId,
       fileName: clean(ctx.payload.fileName),
@@ -497,7 +498,12 @@ async function uploadChunk(ctx, kind) {
     const existing = await findExistingEvidence(token, kind);
     if (existing) {
       if (kind === 'assistant') return { complete: true, ...existing, nextOffset: token.size };
-      return { complete: true, evidence: existing, nextOffset: token.size };
+      return {
+        complete: true,
+        evidence: existing,
+        nextOffset: token.size,
+        ...(kind === 'maintenance' ? { maintenanceId: token.maintenanceId } : {}),
+      };
     }
     const message = await response.text().catch(() => '');
     throw new Error(`Google Drive no pudo recibir un bloque del video (${response.status}). ${message.slice(0, 300)}`.trim());
@@ -513,7 +519,12 @@ async function uploadChunk(ctx, kind) {
   const evidence = kind === 'ticket'
     ? await appendTicketEvidence(token, file)
     : await appendMaintenanceEvidence(token, file);
-  return { complete: true, nextOffset: token.size, evidence };
+  return {
+    complete: true,
+    nextOffset: token.size,
+    evidence,
+    ...(kind === 'maintenance' ? { maintenanceId: token.maintenanceId } : {}),
+  };
 }
 
 export const largeEvidenceUploadHandlers = {
