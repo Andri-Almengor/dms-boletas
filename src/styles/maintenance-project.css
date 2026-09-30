@@ -645,3 +645,48 @@
     flex-direction: column;
   }
 }
+
+
+.maintenance-project-overall-progress {
+  display: grid;
+  gap: 14px;
+  margin-bottom: 18px;
+}
+
+.maintenance-project-overall-progress__heading,
+.maintenance-project-overall-progress__stats {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 16px;
+}
+
+.maintenance-project-overall-progress__heading h2 {
+  margin: 2px 0 4px;
+}
+
+.maintenance-project-overall-progress__heading p {
+  margin: 0;
+  color: var(--text-muted, #667085);
+}
+
+.maintenance-project-overall-progress__heading > strong {
+  font-size: 1.65rem;
+}
+
+.maintenance-project-overall-progress__stats {
+  justify-content: flex-start;
+  flex-wrap: wrap;
+}
+
+.maintenance-project-overall-progress__stats span {
+  display: inline-flex;
+  gap: 5px;
+  color: var(--text-muted, #667085);
+}
+
+@media (max-width: 640px) {
+  .maintenance-project-overall-progress__heading {
+    align-items: flex-start;
+  }
+}
