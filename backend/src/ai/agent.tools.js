@@ -159,8 +159,8 @@ export const TOOL_DECLARATIONS=Object.freeze({
   search_cases:fn('search_cases','Busca casos internos similares. Disponible solo con permisos administrativos.',{query:{type:'string'},status:{type:'string'},limit:{type:'integer',minimum:1,maximum:30},...COMMON_DATE_PROPERTIES}),
   get_case:fn('get_case','Obtiene detalle de un caso interno autorizado.',{caseId:{type:'string'}},['caseId']),
   get_statistics:fn('get_statistics','Ejecuta agregaciones PostgreSQL eficientes para conteos y rankings.',{
-    metric:{type:'string',enum:['ticket_count','tickets_by_technician','tickets_by_client','recent_finished_tickets','maintenance_count','maintenances_by_client','devices_with_observations','devices_by_type']},
-    status:{type:'string'},clientId:{type:'string'},limit:{type:'integer',minimum:1,maximum:50},...COMMON_DATE_PROPERTIES,
+    metric:{type:'string',enum:['ticket_count','tickets_by_technician','tickets_by_client','recent_finished_tickets','maintenance_count','maintenances_by_client','maintenance_evidence_count','devices_with_observations','devices_by_type']},
+    status:{type:'string'},clientId:{type:'string'},maintenanceId:{type:'string'},maintenanceType:{type:'string',enum:['MANTENIMIENTO','PROYECTO']},limit:{type:'integer',minimum:1,maximum:50},...COMMON_DATE_PROPERTIES,
   },['metric']),
 });
 
