@@ -74,12 +74,20 @@ function normalizeCategoryName(value) {
   return text;
 }
 
+function normalizeMaintenanceType(value, fallback = 'MANTENIMIENTO') {
+  const normalized = String(value || fallback || 'MANTENIMIENTO').trim().toUpperCase();
+  return normalized === 'PROYECTO' ? 'PROYECTO' : 'MANTENIMIENTO';
+}
+
 function maintenancePayload(payload, before = {}) {
   const counts = payload.counts || payload.cantidades || (() => {
     try { return JSON.parse(payload.CantidadesJSON || '{}'); } catch { return {}; }
   })();
   const row = {
     TituloMantenimiento: pick(payload, ['TituloMantenimiento', 'titulo'], before.TituloMantenimiento),
+    TipoMantenimiento: normalizeMaintenanceType(
+      pick(payload, ['TipoMantenimiento', 'tipoMantenimiento', 'maintenanceType'], before.TipoMantenimiento || 'MANTENIMIENTO'),
+    ),
     ClienteID: pick(payload, ['ClienteID', 'ClienteRef', 'clienteId'], before.ClienteID),
     Cliente: pick(payload, ['Cliente', 'cliente'], before.Cliente),
     UbicacionID: pick(payload, ['UbicacionID', 'ubicacionId'], before.UbicacionID),
@@ -187,7 +195,7 @@ export const maintenanceHandlers = {
     if (payload.dateFrom) rows = rows.filter((row) => String(row.Fecha).slice(0, 10) >= String(payload.dateFrom));
     if (payload.dateTo) rows = rows.filter((row) => String(row.Fecha).slice(0, 10) <= String(payload.dateTo));
 
-    const result = filterRows(rows, payload, ['TituloMantenimiento', 'Cliente', 'Ubicacion', 'Responsables', 'DescripcionGeneral']);
+    const result = filterRows(rows, payload, ['TituloMantenimiento', 'TipoMantenimiento', 'Cliente', 'Ubicacion', 'Responsables', 'DescripcionGeneral']);
     if (!result.items.length) return result;
 
     const pageIds = new Set(result.items.map((row) => String(row.MantenimientoID)));
