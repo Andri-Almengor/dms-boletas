@@ -66,3 +66,17 @@ test('interfaz conserva Añadir otra visita y agrega selector checkbox con guard
   assert.match(modal, /visitLinkCandidates: true/);
   assert.match(modal, /visitLinkTargetIds: \[\.\.\.selected\]/);
 });
+
+test('seguimiento relacionado inicia cerrado en móvil y conserva acciones en una sola fila', () => {
+  const styles = source('src/styles/ticket-multi-visits.css');
+
+  assert.match(panel, /const \[mobileExpanded, setMobileExpanded\] = useState\(false\)/);
+  assert.match(panel, /ticket-visit-group-panel__toggle/);
+  assert.match(panel, /aria-expanded=\{mobileExpanded\}/);
+  assert.match(panel, /ticket-visit-group-panel__body/);
+  assert.match(styles, /@media \(max-width: 720px\)[\s\S]*\.ticket-visit-group-panel__body\s*\{[^}]*display:\s*none/s);
+  assert.match(styles, /\.ticket-visit-group-panel\.is-mobile-expanded \.ticket-visit-group-panel__body\s*\{[^}]*display:\s*block/s);
+  assert.match(styles, /\.ticket-visit-group-panel__actions\s*\{[^}]*grid-template-columns:\s*repeat\(2, minmax\(0, 1fr\)\)/s);
+  assert.match(styles, /\.ticket-visit-group-panel__toggle\s*\{[^}]*background:\s*var\(--surface-card, #fff\)/s);
+});
+
