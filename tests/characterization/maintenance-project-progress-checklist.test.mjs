@@ -69,10 +69,11 @@ test('Project progress participates in sync conflicts and offline maintenance pa
 test('Project detail and review expose progress while maintenance normal remains separate', () => {
   const detail = source('src/pages/maintenance/MaintenanceDetailPage.jsx');
   const inventory = source('src/components/maintenance/MaintenanceLocationInventory.jsx');
+  const projectDetail = source('src/components/maintenance/MaintenanceProjectDeviceDetail.jsx');
   const review = source('src/components/maintenance/MaintenanceReviewStep.jsx');
 
   assert.ok(detail.includes('ProyectoChecklistJSON'));
-  assert.ok(inventory.includes('<MaintenanceProjectProgressChecklist'));
+  assert.ok(projectDetail.includes('<MaintenanceProjectProgressChecklist'));
   assert.ok(review.includes('projectChecklistOverallProgress'));
   assert.ok(review.includes('progreso checklist'));
   assert.ok(inventory.includes('projectMode'));
