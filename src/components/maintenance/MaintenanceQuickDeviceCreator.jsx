@@ -18,6 +18,7 @@ import {
 } from '../../features/maintenance/maintenanceProjectChecklist';
 import { uploadMaintenanceImagesInBatches } from '../../services/maintenanceImageBatch';
 import { MODULE_ROUTES, normalizeItems, pick, requestAvailable } from '../../services/moduleApi';
+import useOverlaySurface from '../../hooks/useOverlaySurface';
 
 function equipmentOption(row) {
   const value = String(pick(row, ['UbicacionEquipoID', 'id', 'RowID']));
@@ -65,6 +66,7 @@ export default function MaintenanceQuickDeviceCreator({
   const [savedDeviceId, setSavedDeviceId] = useState('');
   const [error, setError] = useState('');
   const deviceRef = useRef(device);
+  useOverlaySurface({ open: true, onClose, busy: saving });
 
   useEffect(() => {
     deviceRef.current = device;
