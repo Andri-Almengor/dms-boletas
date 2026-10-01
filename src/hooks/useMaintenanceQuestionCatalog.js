@@ -46,7 +46,7 @@ function questionView(row = {}) {
     key: clean(row.key || row.Clave),
     label: clean(row.label || row.Pregunta),
     order: Number(row.order ?? row.Orden ?? 0),
-    responseType: clean(row.responseType || row.TipoRespuesta || 'SI_NO'),
+    responseType: clean(row.responseType || row.TipoRespuesta || 'SI_NO').toUpperCase(),
     appliesTo: normalizeMode(row.appliesTo || row.AplicaModo || 'MANTENIMIENTO'),
     relatedTypeId: clean(row.relatedTypeId || row.TipoDispositivoRelacionadoID),
     config: parseConfig(row.config || row.ConfiguracionJSON),
@@ -62,7 +62,7 @@ function savedQuestionView(row = {}) {
     key: clean(row.key || row.Clave),
     label: clean(row.label || row.Pregunta),
     order: Number(row.order ?? row.Orden ?? 0),
-    responseType: clean(row.responseType || row.TipoRespuesta || 'SI_NO'),
+    responseType: clean(row.responseType || row.TipoRespuesta || 'SI_NO').toUpperCase(),
     appliesTo: normalizeMode(row.appliesTo || row.AplicaModo || 'MANTENIMIENTO'),
     relatedTypeId: clean(row.relatedTypeId || row.TipoDispositivoRelacionadoID),
     config: parseConfig(row.config || row.ConfiguracionJSON),
@@ -75,19 +75,34 @@ export function selectMaintenanceQuestionsForDevice(questions = [], device = {},
   const category = normalizedDeviceTypeName(device.categoria || device.TipoDispositivo || device.Categoria);
   const requestedMode = normalizeMode(maintenanceMode);
   const applies = (question) => question.appliesTo === 'AMBOS' || question.appliesTo === requestedMode;
-
+  const applicable = questions.filter(applies);
   const exact = typeId
-    ? questions.filter((question) => question.typeId === typeId && applies(question))
+    ? applicable.filter((question) => question.typeId === typeId)
     : [];
-  if (exact.length) return [...exact].sort((left, right) => left.order - right.order || left.label.localeCompare(right.label, 'es'));
-
-  // Compatibilidad con nombres históricos/alias del mismo tipo (Puerta/Puertas,
-  // Cámara/Cámaras, etc.). Solo se usa cuando el ID exacto no tiene preguntas
-  // aplicables al modo solicitado, para no mezclar configuraciones distintas.
   const compatible = category
-    ? questions.filter((question) => normalizedDeviceTypeName(question.typeName) === category && applies(question))
+    ? applicable.filter((question) => normalizedDeviceTypeName(question.typeName) === category)
     : [];
-  return [...compatible].sort((left, right) => left.order - right.order || left.label.localeCompare(right.label, 'es'));
+
+  // El ID exacto conserva prioridad, pero una variante histórica equivalente
+  // (Puerta/Puertas, Cámara/Cámaras, etc.) puede aportar campos que falten.
+  // Esto evita que un duplicado/alias de catálogo oculte relaciones válidas.
+  const selected = [];
+  const seenKeys = new Set();
+  const seenSignatures = new Set();
+  for (const question of [...exact, ...compatible]) {
+    const key = clean(question.key || question.questionId);
+    const signature = [
+      normalized(question.label),
+      clean(question.responseType).toUpperCase(),
+      clean(question.relatedTypeId),
+    ].join('|');
+    if ((key && seenKeys.has(key)) || (signature !== '||' && seenSignatures.has(signature))) continue;
+    if (key) seenKeys.add(key);
+    if (signature !== '||') seenSignatures.add(signature);
+    selected.push(question);
+  }
+
+  return selected.sort((left, right) => left.order - right.order || left.label.localeCompare(right.label, 'es'));
 }
 
 export default function useMaintenanceQuestionCatalog(sessionToken) {
