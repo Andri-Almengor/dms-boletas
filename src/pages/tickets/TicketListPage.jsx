@@ -151,6 +151,7 @@ export default function TicketListPage({ status }) {
   const manufacturerOptions = useMemo(() => options(catalogs.manufacturers, ['FabricanteID', 'id'], ['Nombre']), [catalogs.manufacturers]);
   const modelOptions = useMemo(() => options(catalogs.models.filter((item) => ((!filters.tipoDispositivoId || String(pick(item, ['TipoDispositivoID'])) === String(filters.tipoDispositivoId)) && (!filters.fabricanteId || String(pick(item, ['FabricanteID'])) === String(filters.fabricanteId)))), ['ModeloID', 'id'], ['Nombre']), [catalogs.models, filters.tipoDispositivoId, filters.fabricanteId]);
   const activeFilterCount = Object.values(filters).filter(Boolean).length;
+  const appliedFilterCount = Object.values(appliedFilters).filter(Boolean).length;
 
   function setFilter(name, value, reset = {}) { setFilters((current) => ({ ...current, [name]: value, ...reset })); }
   function applyFilters() {
@@ -184,11 +185,31 @@ export default function TicketListPage({ status }) {
     <Select label="Modelo" value={filters.modeloId} onChange={(event) => setFilter('modeloId', event.target.value)} options={modelOptions} />
   </>;
 
-  return <div className="page ticket-list-page">
+  return <div className="page page--wide ticket-list-page">
     <div className="list-page-heading"><div><span className="eyebrow">Gestión de servicios</span><h1>{isPending ? 'Boletas pendientes' : 'Boletas finalizadas'}</h1><p>{isPending ? 'Servicios que todavía requieren atención o cierre.' : 'Historial de trabajos completados.'}</p></div>{isPending && hasPermission('BOLETAS_CREAR') && <Link className="button button--primary button--compact" to="/boletas/nueva"><Icon name="add" /> Nueva</Link>}</div>
-    <form className="search-bar" onSubmit={submitSearch}><Icon name="search" /><input value={search} onChange={(event) => setSearch(event.target.value)} placeholder="Buscar boleta o cliente..." /><button type="button" className="icon-button icon-button--primary filter-trigger" onClick={() => setFilterOpen(true)} aria-label="Abrir filtros"><Icon name="tune" className="filter-trigger__glyph" />{activeFilterCount > 0 && <span className="filter-trigger__count">{activeFilterCount}</span>}</button></form>
+    <form className="search-bar ticket-list-search-bar" onSubmit={submitSearch} role="search">
+      <Icon name="search" />
+      <input
+        type="search"
+        value={search}
+        onChange={(event) => setSearch(event.target.value)}
+        placeholder="Buscar boleta o cliente..."
+        aria-label="Buscar boleta o cliente"
+        enterKeyHint="search"
+        autoComplete="off"
+      />
+      <button type="submit" className="icon-button ticket-list-search-submit" aria-label="Buscar"><Icon name="arrow_forward" /></button>
+      <button type="button" className="icon-button icon-button--primary filter-trigger" onClick={() => setFilterOpen(true)} aria-label="Abrir filtros" aria-expanded={filterOpen}><Icon name="tune" className="filter-trigger__glyph" />{activeFilterCount > 0 && <span className="filter-trigger__count">{activeFilterCount}</span>}</button>
+    </form>
     {error && <div className="alert alert--error"><Icon name="error" /><span>{error}</span></div>}
-    {loading ? <div className="state-card state-card--loading"><Icon name="progress_activity" /><span>Cargando boletas...</span></div> : tickets.length ? <><div className="ticket-list-result-count"><span>Mostrando <strong>{tickets.length}</strong>{total > tickets.length ? ` de ${total}` : ''} boletas</span></div><div className="ticket-date-groups">{groups.map((group) => <section className="ticket-date-group" key={group.label}><h2>{group.label}</h2><div className="ticket-stack">{group.items.map((ticket, index) => <TicketCard key={getTicketId(ticket, index)} ticket={ticket} onDelete={isAdmin ? annulTicket : undefined} />)}</div></section>)}</div>{hasMore && <div className="ticket-list-load-more"><button type="button" className="button button--secondary" onClick={loadMore} disabled={loadingMore}><Icon name={loadingMore ? 'progress_activity' : 'expand_more'} />{loadingMore ? 'Cargando...' : 'Cargar más boletas'}</button></div>}</> : <div className="empty-state"><Icon name={isPending ? 'pending_actions' : 'task_alt'} /><h2>{isPending ? 'No hay boletas pendientes' : 'No hay boletas finalizadas'}</h2><p>{error ? 'Revisa la conexión con el backend.' : 'Los registros aparecerán aquí automáticamente.'}</p></div>}
+    {!loading && tickets.length > 0 && <div className="ticket-list-result-count" aria-live="polite">
+      <span>Mostrando <strong>{tickets.length}</strong>{total > tickets.length ? ` de ${total}` : ''} boletas</span>
+      <div className="ticket-list-query-state">
+        {appliedSearch && <span><Icon name="search" />Búsqueda activa</span>}
+        {appliedFilterCount > 0 && <button type="button" onClick={() => setFilterOpen(true)}><Icon name="tune" />{appliedFilterCount} filtro{appliedFilterCount === 1 ? '' : 's'}</button>}
+      </div>
+    </div>}
+    {loading ? <div className="state-card state-card--loading"><Icon name="progress_activity" /><span>Cargando boletas...</span></div> : tickets.length ? <><div className="ticket-date-groups">{groups.map((group) => <section className="ticket-date-group" key={group.label}><h2>{group.label}</h2><div className="ticket-stack">{group.items.map((ticket, index) => <TicketCard key={getTicketId(ticket, index)} ticket={ticket} onDelete={isAdmin ? annulTicket : undefined} />)}</div></section>)}</div>{hasMore && <div className="ticket-list-load-more"><button type="button" className="button button--secondary" onClick={loadMore} disabled={loadingMore}><Icon name={loadingMore ? 'progress_activity' : 'expand_more'} />{loadingMore ? 'Cargando...' : 'Cargar más boletas'}</button></div>}</> : <div className="empty-state"><Icon name={isPending ? 'pending_actions' : 'task_alt'} /><h2>{isPending ? 'No hay boletas pendientes' : 'No hay boletas finalizadas'}</h2><p>{error ? 'Revisa la conexión con el backend.' : 'Los registros aparecerán aquí automáticamente.'}</p></div>}
     <FilterDrawer open={filterOpen} title="Filtros de boletas" onClose={() => setFilterOpen(false)} onApply={applyFilters} onClear={clearFilters}>{filterFields}</FilterDrawer>
   </div>;
 }
