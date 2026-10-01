@@ -12,8 +12,8 @@
 .bottom-nav__fab { width: 54px; height: 54px; border-radius: 999px; display: grid; place-items: center; color: white; background: var(--primary); box-shadow: 0 8px 20px rgba(175,16,26,.24); }
 .drawer-backdrop { position: fixed; inset: 0; z-index: 60; background: rgba(27,28,28,.35); opacity: 0; visibility: hidden; transition: .2s ease; }
 .drawer-backdrop.is-open { opacity: 1; visibility: visible; }
-.side-drawer { width: min(86vw, 340px); min-height: 0; position: fixed; inset: 0 auto 0 0; z-index: 70; padding: calc(28px + var(--safe-area-top)) max(18px, var(--safe-area-right)) calc(28px + var(--safe-area-bottom)) max(18px, var(--safe-area-left)); overflow: hidden; background: white; box-shadow: var(--shadow-md); transform: translateX(-105%); transition: transform .22s ease; display: flex; flex-direction: column; }
-.side-drawer.is-open { transform: translateX(0); }
+.side-drawer { width: min(86vw, 340px); min-height: 0; position: fixed; inset: 0 auto 0 0; z-index: 70; padding: calc(28px + var(--safe-area-top)) max(18px, var(--safe-area-right)) calc(28px + var(--safe-area-bottom)) max(18px, var(--safe-area-left)); overflow: hidden; background: white; box-shadow: var(--shadow-md); transform: translateX(-105%); visibility: hidden; pointer-events: none; transition: transform .22s ease, visibility 0s linear .22s; display: flex; flex-direction: column; }
+.side-drawer.is-open { transform: translateX(0); visibility: visible; pointer-events: auto; transition-delay: 0s; }
 .side-drawer__profile { flex: 0 0 auto; display: flex; align-items: center; gap: 14px; padding: 10px 5px 22px; border-bottom: 1px solid var(--outline-soft); }
 .side-drawer__profile strong, .side-drawer__profile span { display: block; }
 .side-drawer__profile span { color: var(--muted); font-size: .82rem; margin-top: 3px; }
