@@ -1,5 +1,5 @@
 import React, { useCallback, useMemo, useRef, useState } from 'react';
-import { Link } from 'react-router-dom';
+import { Link, useSearchParams } from 'react-router-dom';
 import { useAuth } from '../../AuthContext';
 import ClientCasePortalCard from '../../components/clients/ClientCasePortalCard';
 import ClientRelationsManager from '../../components/clients/ClientRelationsManager';
@@ -85,8 +85,10 @@ function ReadonlyRelations({ related }) {
 export default function ClientsPage() {
   const { sessionToken, hasPermission } = useAuth();
   const isAdmin = hasPermission('USUARIOS_GESTIONAR');
-  const [search, setSearch] = useState('');
-  const [submittedSearch, setSubmittedSearch] = useState('');
+  const [searchParams, setSearchParams] = useSearchParams();
+  const requestedSearch = searchParams.get('q') || '';
+  const [search, setSearch] = useState(requestedSearch);
+  const [submittedSearch, setSubmittedSearch] = useState(requestedSearch);
   const [selected, setSelected] = useState(null);
   const [form, setForm] = useState(EMPTY);
   const [editing, setEditing] = useState(false);
@@ -249,6 +251,10 @@ export default function ClientsPage() {
   function submitSearch(event) {
     event.preventDefault();
     const nextSearch = search.trim();
+    const next = new URLSearchParams(searchParams);
+    if (nextSearch) next.set('q', nextSearch);
+    else next.delete('q');
+    setSearchParams(next, { replace: true });
     if (nextSearch === submittedSearch) reload();
     else setSubmittedSearch(nextSearch);
   }
