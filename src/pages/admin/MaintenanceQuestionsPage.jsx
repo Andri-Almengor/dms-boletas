@@ -1,5 +1,5 @@
 import React, { useEffect, useMemo, useState } from 'react';
-import { Navigate } from 'react-router-dom';
+import { Navigate, useSearchParams } from 'react-router-dom';
 import { useAuth } from '../../AuthContext';
 import Icon from '../../components/common/Icon';
 import useOverlaySurface from '../../hooks/useOverlaySurface';
@@ -177,13 +177,16 @@ function QuestionEditorFields({ values, setValues, deviceName, deviceTypes }) {
 
 export default function MaintenanceQuestionsPage() {
   const { sessionToken, hasPermission } = useAuth();
+  const [searchParams, setSearchParams] = useSearchParams();
+  const requestedSearch = searchParams.get('q') || '';
+  const requestedTypeId = searchParams.get('device') || '';
   const isAdmin = hasPermission('USUARIOS_GESTIONAR');
   const canView = hasPermission('CATALOGOS_VER') || hasPermission('CATALOGOS_GESTIONAR') || isAdmin;
   const canManage = hasPermission('CATALOGOS_GESTIONAR') || isAdmin;
   const [deviceTypes, setDeviceTypes] = useState([]);
   const [questions, setQuestions] = useState([]);
-  const [search, setSearch] = useState('');
-  const [selectedTypeId, setSelectedTypeId] = useState('');
+  const [search, setSearch] = useState(requestedSearch);
+  const [selectedTypeId, setSelectedTypeId] = useState(requestedTypeId);
   const [editor, setEditor] = useState(null);
   const [loading, setLoading] = useState(true);
   const [saving, setSaving] = useState(false);
@@ -249,16 +252,30 @@ export default function MaintenanceQuestionsPage() {
         setEditor(null);
         setManagerError('');
       } else {
-        setSelectedTypeId('');
-        setManagerError('');
+        closeManager();
       }
     },
   });
+
+  function updateQuestionViewQuery({ nextSearch = search, nextTypeId = selectedTypeId } = {}) {
+    const next = new URLSearchParams(searchParams);
+    if (nextSearch) next.set('q', nextSearch);
+    else next.delete('q');
+    if (nextTypeId) next.set('device', nextTypeId);
+    else next.delete('device');
+    setSearchParams(next, { replace: true });
+  }
+
+  function changeSearch(nextSearch) {
+    setSearch(nextSearch);
+    updateQuestionViewQuery({ nextSearch });
+  }
 
   function openManager(group) {
     setSelectedTypeId(group.id);
     setEditor(null);
     setManagerError('');
+    updateQuestionViewQuery({ nextTypeId: group.id });
   }
 
   function closeManager() {
@@ -266,11 +283,13 @@ export default function MaintenanceQuestionsPage() {
     setEditor(null);
     setSelectedTypeId('');
     setManagerError('');
+    updateQuestionViewQuery({ nextTypeId: '' });
   }
 
   function openCreate(group = selectedGroup) {
     if (!group?.id || !canManage) return;
     setSelectedTypeId(group.id);
+    updateQuestionViewQuery({ nextTypeId: group.id });
     setEditor({ mode: 'create', record: null, values: emptyValues(group.id) });
     setManagerError('');
   }
@@ -279,6 +298,7 @@ export default function MaintenanceQuestionsPage() {
     if (!canManage) return;
     const identifier = clean(question.TipoDispositivoID);
     setSelectedTypeId(identifier);
+    updateQuestionViewQuery({ nextTypeId: identifier });
     setEditor({
       mode: 'edit',
       record: question,
@@ -426,8 +446,8 @@ export default function MaintenanceQuestionsPage() {
 
     <label className="maintenance-question-search">
       <Icon name="search" />
-      <input type="search" value={search} onChange={(event) => setSearch(event.target.value)} placeholder="Buscar dispositivo o pregunta" aria-label="Buscar preguntas de mantenimiento" enterKeyHint="search" autoComplete="off" />
-      {search && <button type="button" className="maintenance-question-search__clear" onClick={() => setSearch('')} aria-label="Limpiar búsqueda"><Icon name="close" /></button>}
+      <input type="search" value={search} onChange={(event) => changeSearch(event.target.value)} placeholder="Buscar dispositivo o pregunta" aria-label="Buscar preguntas de mantenimiento" enterKeyHint="search" autoComplete="off" />
+      {search && <button type="button" className="maintenance-question-search__clear" onClick={() => changeSearch('')} aria-label="Limpiar búsqueda"><Icon name="close" /></button>}
     </label>
 
     {!canManage && <div className="readonly-notice"><Icon name="visibility" /><span>Modo consulta: puede revisar las preguntas relacionadas, pero no agregarlas, editarlas ni eliminarlas.</span></div>}
