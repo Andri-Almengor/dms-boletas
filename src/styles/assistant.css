@@ -530,7 +530,7 @@
   position: fixed;
   right: max(18px, env(safe-area-inset-right));
   bottom: calc(82px + env(safe-area-inset-bottom));
-  z-index: 1220;
+  z-index: var(--z-assistant-fab);
   min-height: 52px;
   padding: 0 17px;
   border: 2px solid color-mix(in srgb, var(--surface) 88%, transparent);
