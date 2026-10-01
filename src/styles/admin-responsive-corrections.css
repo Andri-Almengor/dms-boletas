@@ -66,7 +66,7 @@
 .admin-module-page .admin-entity-modal__content::-webkit-scrollbar-thumb {
   border: 3px solid transparent;
   border-radius: 999px;
-  background: color-mix(in srgb, var(--text-muted) 45%, transparent);
+  background: color-mix(in srgb, var(--muted) 45%, transparent);
   background-clip: padding-box;
 }
 
@@ -100,8 +100,8 @@
 
   .admin-module-page .admin-entity-modal {
     width: 100%;
-    height: calc(100dvh - max(8px, env(safe-area-inset-top)));
-    max-height: calc(100dvh - max(8px, env(safe-area-inset-top)));
+    height: var(--overlay-mobile-max-height);
+    max-height: var(--overlay-mobile-max-height);
   }
 
   /*
@@ -116,7 +116,7 @@
     overflow-y: auto;
     overscroll-behavior-y: contain;
     -webkit-overflow-scrolling: touch;
-    padding: 16px 16px calc(30px + env(safe-area-inset-bottom));
+    padding: 16px 16px calc(30px + var(--safe-area-bottom));
   }
 
   .admin-module-page .admin-entity-modal__content > * {
