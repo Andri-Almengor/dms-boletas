@@ -1,5 +1,5 @@
 import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react';
-import { Link } from 'react-router-dom';
+import { Link, useLocation, useNavigate, useSearchParams } from 'react-router-dom';
 import { useAuth } from '../../AuthContext';
 import Icon from '../../components/common/Icon';
 import AdminEntityModal from '../../components/forms/AdminEntityModal';
@@ -17,7 +17,13 @@ function formatDate(value) {
 
 export default function SurveysAdminPage() {
   const { sessionToken } = useAuth();
-  const [tab, setTab] = useState('responses');
+  const routeLocation = useLocation();
+  const navigate = useNavigate();
+  const [searchParams, setSearchParams] = useSearchParams();
+  const requestedTab = searchParams.get('tab') === 'questions' ? 'questions' : 'responses';
+  const requestedSearch = searchParams.get('q') || '';
+  const requestedStatus = ['PENDIENTE', 'RESPONDIDA', 'EXPIRADA'].includes(searchParams.get('status') || '') ? searchParams.get('status') : '';
+  const [tab, setTab] = useState(requestedTab);
   const [questions, setQuestions] = useState([]);
   const [questionsLoaded, setQuestionsLoaded] = useState(false);
   const [questionsLoading, setQuestionsLoading] = useState(false);
@@ -25,8 +31,9 @@ export default function SurveysAdminPage() {
   const [selectedQuestion, setSelectedQuestion] = useState(null);
   const [form, setForm] = useState(EMPTY);
   const [editing, setEditing] = useState(false);
-  const [search, setSearch] = useState('');
-  const [status, setStatus] = useState('');
+  const [search, setSearch] = useState(requestedSearch);
+  const [submittedSearch, setSubmittedSearch] = useState(requestedSearch);
+  const [status, setStatus] = useState(requestedStatus);
   const [saving, setSaving] = useState(false);
   const [modalError, setModalError] = useState('');
   const questionsRequestSequence = useRef(0);
@@ -64,12 +71,12 @@ export default function SurveysAdminPage() {
   const fetchResponses = useCallback(({ page, pageSize, signal }) => requestAvailable(MODULE_ROUTES.surveys.responsesList, {
     page,
     pageSize,
-    search: search.trim(),
+    search: submittedSearch,
     status,
     estado: status,
     sortBy: 'FechaCreacion',
     sortDir: 'desc',
-  }, sessionToken, { signal }), [search, sessionToken, status]);
+  }, sessionToken, { signal }), [sessionToken, status, submittedSearch]);
 
   const {
     items: responses,
@@ -86,7 +93,7 @@ export default function SurveysAdminPage() {
     normalizeResponse: normalizeItems,
     getItemKey: (item, index, source) => item.id || `${source}-${index}`,
     enabled: tab === 'responses',
-    resetKey: `${sessionToken}|${status}|${tab}`,
+    resetKey: `${sessionToken}|${status}|${submittedSearch}|${tab}`, 
   });
 
   useEffect(() => {
@@ -109,13 +116,38 @@ export default function SurveysAdminPage() {
   const loading = tab === 'questions' ? questionsLoading : responsesLoading;
   const error = tab === 'questions' ? questionError : responsesError;
 
+  const currentListUrl = `${routeLocation.pathname}${routeLocation.search || ''}`;
+
+  function listReturnState() {
+    return {
+      surveysListReturnTo: currentListUrl,
+      surveysListScrollY: typeof window === 'undefined' ? 0 : Math.max(0, Number(window.scrollY || 0)),
+    };
+  }
+
+  function updateSurveyQuery({ nextTab = tab, nextSearch = submittedSearch, nextStatus = status } = {}) {
+    const next = new URLSearchParams(searchParams);
+    if (nextTab === 'questions') next.set('tab', 'questions');
+    else next.delete('tab');
+    if (nextSearch) next.set('q', nextSearch);
+    else next.delete('q');
+    if (nextStatus) next.set('status', nextStatus);
+    else next.delete('status');
+    setSearchParams(next, { replace: true });
+  }
+
+  function changeTab(nextTab) {
+    setTab(nextTab);
+    updateSurveyQuery({ nextTab });
+  }
+
   function openCreate() {
     const maxOrder = questions.reduce((max, question) => Math.max(max, Number(question.order || 0)), 0);
     setSelectedQuestion({});
     setForm({ ...EMPTY, order: maxOrder + 1 });
     setEditing(true);
     setModalError('');
-    setTab('questions');
+    changeTab('questions');
   }
 
   function openQuestion(question) {
@@ -182,12 +214,26 @@ export default function SurveysAdminPage() {
 
   function submitResponseSearch(event) {
     event.preventDefault();
-    loadResponses();
+    const nextSearch = search.trim();
+    updateSurveyQuery({ nextSearch });
+    if (nextSearch === submittedSearch) loadResponses();
+    else setSubmittedSearch(nextSearch);
   }
 
   function changeResponseStatus(nextStatus) {
     setStatus(nextStatus);
+    updateSurveyQuery({ nextStatus });
   }
+
+  useEffect(() => {
+    const restoreScrollY = Number(routeLocation.state?.restoreScrollY);
+    if (loading || !Number.isFinite(restoreScrollY) || restoreScrollY <= 0) return undefined;
+    const frame = window.requestAnimationFrame(() => {
+      window.scrollTo({ top: restoreScrollY, behavior: 'auto' });
+      navigate(currentListUrl, { replace: true, state: null });
+    });
+    return () => window.cancelAnimationFrame(frame);
+  }, [currentListUrl, loading, navigate, routeLocation.state?.restoreScrollY]);
 
   return <div className="page page--wide survey-admin-page">
     <div className="list-page-heading">
@@ -196,8 +242,8 @@ export default function SurveysAdminPage() {
     </div>
 
     <div className="survey-admin-tabs" role="tablist">
-      <button type="button" className={tab === 'responses' ? 'is-active' : ''} onClick={() => setTab('responses')}><Icon name="analytics" />Respuestas</button>
-      <button type="button" className={tab === 'questions' ? 'is-active' : ''} onClick={() => setTab('questions')}><Icon name="quiz" />Preguntas</button>
+      <button type="button" className={tab === 'responses' ? 'is-active' : ''} onClick={() => changeTab('responses')}><Icon name="analytics" />Respuestas</button>
+      <button type="button" className={tab === 'questions' ? 'is-active' : ''} onClick={() => changeTab('questions')}><Icon name="quiz" />Preguntas</button>
     </div>
 
     {error && <div className="alert alert--error" role="alert"><Icon name="error" /><span>{error}</span></div>}
@@ -217,7 +263,7 @@ export default function SurveysAdminPage() {
       </form>
       <div className="ticket-list-result-count"><span>Mostrando <strong>{visibleResponses.length}</strong>{total > visibleResponses.length ? ` de ${total}` : ''} encuestas</span></div>
       <div className="survey-response-grid">
-        {visibleResponses.length ? visibleResponses.map((item) => <Link className="survey-response-card" to={`/encuestas/${encodeURIComponent(item.id)}`} key={item.id}>
+        {visibleResponses.length ? visibleResponses.map((item) => <Link className="survey-response-card" to={`/encuestas/${encodeURIComponent(item.id)}`} state={listReturnState()} key={item.id}>
           <div className="survey-response-card__top"><span className="survey-response-card__icon"><Icon name="rate_review" /></span><span className={`status-chip ${item.status === 'RESPONDIDA' ? 'status-chip--active' : item.status === 'EXPIRADA' ? 'status-chip--inactive' : 'status-chip--pending'}`}>{item.status}</span></div>
           <span className="eyebrow">Boleta #{item.ticketNumber}</span><h2>{item.clientName}</h2><p>{item.ticketTitle}</p>
           <div className="survey-response-card__score"><strong>{item.average ?? '—'}</strong><span>Promedio / 5</span></div>
