@@ -310,6 +310,8 @@ export default function MaintenanceQuestionsPage() {
   function openEdit(question) {
     if (!canManage) return;
     const identifier = clean(question.TipoDispositivoID);
+    const responseType = clean(question.TipoRespuesta || question.responseType || 'SI_NO').toUpperCase();
+    const configuredMode = clean(question.AplicaModo || question.appliesTo || 'MANTENIMIENTO').toUpperCase();
     setSelectedTypeId(identifier);
     updateQuestionViewQuery({ nextTypeId: identifier });
     setEditor({
@@ -319,8 +321,10 @@ export default function MaintenanceQuestionsPage() {
         tipoDispositivoId: identifier,
         pregunta: questionText(question),
         orden: String(question.Orden ?? ''),
-        aplicaModo: clean(question.AplicaModo || question.appliesTo || 'MANTENIMIENTO').toUpperCase(),
-        tipoRespuesta: clean(question.TipoRespuesta || question.responseType || 'SI_NO').toUpperCase(),
+        aplicaModo: responseType === 'RELACION_DISPOSITIVO' && configuredMode === 'MANTENIMIENTO'
+          ? 'PROYECTO'
+          : configuredMode,
+        tipoRespuesta: responseType,
         tipoDispositivoRelacionadoId: clean(question.TipoDispositivoRelacionadoID || question.relatedTypeId),
         camposRelacionados: Array.isArray(parseQuestionConfig(question).fields)
           ? parseQuestionConfig(question).fields
@@ -330,7 +334,7 @@ export default function MaintenanceQuestionsPage() {
           : '',
         obligatoria: typeof parseQuestionConfig(question).required === 'boolean'
           ? parseQuestionConfig(question).required
-          : clean(question.TipoRespuesta || question.responseType || 'SI_NO').toUpperCase() !== 'RELACION_DISPOSITIVO',
+          : responseType !== 'RELACION_DISPOSITIVO',
       },
     });
     setManagerError('');
