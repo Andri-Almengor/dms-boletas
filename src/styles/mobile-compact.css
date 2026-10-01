@@ -188,7 +188,10 @@ button {
   position: relative;
   z-index: 1;
   width: min(100%, 430px);
+  max-height: calc(100dvh - var(--safe-area-top));
   padding: 17px 16px calc(16px + env(safe-area-inset-bottom));
+  overflow-y: auto;
+  overscroll-behavior: contain;
   border-radius: 22px 22px 0 0;
   background: var(--surface);
   box-shadow: 0 -12px 36px rgba(0, 0, 0, .2);
@@ -277,9 +280,15 @@ button {
   grid-column: 1 / -1;
 }
 
-@media (min-width: 761px) {
+@media (min-width: 761px) and (hover: hover) and (pointer: fine) {
   .mobile-time-layer {
     display: none;
+  }
+}
+
+@media (hover: none) and (pointer: coarse) {
+  .app-shell :is(input, select, textarea) {
+    font-size: 16px;
   }
 }
 
