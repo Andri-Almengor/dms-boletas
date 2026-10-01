@@ -313,7 +313,7 @@ button {
   }
 
   .page {
-    padding: 16px 12px 28px;
+    padding: var(--space-md) max(var(--page-inline-compact), var(--safe-area-right)) calc(var(--space-lg) + var(--space-2xs)) max(var(--page-inline-compact), var(--safe-area-left));
   }
 
   .app-shell--form .app-content {

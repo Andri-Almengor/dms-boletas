@@ -1,5 +1,5 @@
 .app-shell { min-height: 100vh; min-height: 100dvh; }
-.top-bar { height: var(--top-bar-height); position: fixed; inset: 0 0 auto; z-index: 50; padding: var(--safe-area-top) max(var(--space-md), var(--safe-area-right)) 0 max(var(--space-md), var(--safe-area-left)); background: rgba(246,243,242,.95); backdrop-filter: blur(14px); border-bottom: 1px solid rgba(228,190,186,.52); display: grid; grid-template-columns: 44px minmax(0, 1fr) 44px; align-items: center; gap: 8px; }
+.top-bar { height: var(--top-bar-height); position: fixed; inset: 0 0 auto; z-index: 50; padding: var(--safe-area-top) max(var(--space-md), var(--safe-area-right)) 0 max(var(--space-md), var(--safe-area-left)); background: rgba(246,243,242,.95); backdrop-filter: blur(14px); border-bottom: 1px solid rgba(228,190,186,.52); display: grid; grid-template-columns: var(--touch-target-min) minmax(0, 1fr) var(--touch-target-min); align-items: center; gap: 8px; }
 .top-bar__brand { min-width: 0; overflow: hidden; color: var(--primary); font-size: 1.18rem; font-weight: 800; letter-spacing: -.02em; text-overflow: ellipsis; white-space: nowrap; }
 .app-content { min-width: 0; max-width: 100%; padding-top: var(--top-bar-height); padding-bottom: calc(var(--bottom-nav-height) + var(--safe-area-bottom) + 18px); }
 .page { width: min(100%, var(--page-max-width)); min-width: 0; max-width: 100%; margin: 0 auto; padding: var(--space-lg) max(var(--space-md), var(--safe-area-right)) calc(var(--space-lg) + var(--space-sm)) max(var(--space-md), var(--safe-area-left)); }
@@ -64,7 +64,7 @@
 .profile-summary-card strong, .profile-summary-card span, .profile-summary-card small { display: block; }
 .profile-summary-card strong { margin: 3px 0; }
 .profile-summary-card span:not(.eyebrow), .profile-summary-card small { color: var(--muted); }
-.page-header { display: grid; grid-template-columns: 44px minmax(0, 1fr); align-items: center; gap: 10px; margin-bottom: 18px; }
+.page-header { display: grid; grid-template-columns: var(--touch-target-min) minmax(0, 1fr); align-items: center; gap: 10px; margin-bottom: 18px; }
 .page-header h1 { margin: 3px 0 0; font-size: 1.55rem; overflow-wrap: anywhere; }
 .page > *,
 .page-header > *,

@@ -138,3 +138,18 @@ test('design system responsive centraliza spacing controles overlays y movimient
   assert.doesNotMatch(admin, /var\(--text-muted\)/);
   assert.match(compact, /min-height:\s*var\(--control-height-compact\)/);
 });
+
+
+test('compact mode no anula safe areas ni reduce targets táctiles por debajo del sistema', () => {
+  const compact = source('src/styles/mobile-compact.css');
+  const pages = source('src/styles/pages.css');
+  const admin = source('src/styles/admin-card-modals.css');
+  const controls = source('src/styles/mobile-control-fixes.css');
+
+  assert.match(compact, /\.page\s*\{[^}]*max\(var\(--page-inline-compact\), var\(--safe-area-right\)\)[^}]*max\(var\(--page-inline-compact\), var\(--safe-area-left\)\)/s);
+  assert.doesNotMatch(compact, /\.page\s*\{\s*padding:\s*16px 12px 28px/);
+  assert.match(pages, /\.top-bar\s*\{[^}]*grid-template-columns:\s*var\(--touch-target-min\)[^}]*var\(--touch-target-min\)/s);
+  assert.match(pages, /\.page-header\s*\{[^}]*grid-template-columns:\s*var\(--touch-target-min\)/s);
+  assert.match(admin, /\.admin-mini-card__action\s*\{[^}]*width:\s*var\(--touch-target-min\)[^}]*height:\s*var\(--touch-target-min\)/s);
+  assert.match(controls, /\.searchable-select__option\s*\{[^}]*min-height:\s*var\(--touch-target-min\)/s);
+});

@@ -371,7 +371,7 @@
   .admin-mini-card {
     min-height: 88px;
     padding: 12px;
-    grid-template-columns: 44px minmax(0, 1fr) 40px;
+    grid-template-columns: var(--touch-target-min) minmax(0, 1fr) var(--touch-target-min);
     gap: 10px;
   }
 
@@ -386,7 +386,7 @@
   }
 
   .admin-mini-card__action {
-    width: 40px;
-    height: 40px;
+    width: var(--touch-target-min);
+    height: var(--touch-target-min);
   }
 }
