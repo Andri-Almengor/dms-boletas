@@ -94,3 +94,45 @@ test('firma ampliada evita 100vw y conserva viewport dinámico completo', () => 
   assert.match(styles, /height:\s*100dvh !important/);
   assert.doesNotMatch(styles, /width:\s*100vw !important/);
 });
+
+
+test('Etapa 5 mantiene targets táctiles compartidos en detalle y formularios', () => {
+  const workflow = source('src/styles/workflow.css');
+  const compact = source('src/styles/mobile-compact.css');
+  const quick = source('src/styles/ticket-quick-edit.css');
+
+  assert.match(workflow, /\.field-add-button \{[^}]*min-height:var\(--touch-target-min\)/s);
+  assert.match(workflow, /\.evidence-remove \{[^}]*width:var\(--touch-target-min\)[^}]*height:var\(--touch-target-min\)/s);
+  assert.match(workflow, /\.evidence-detail-card__actions button \{[^}]*width:var\(--touch-target-min\)[^}]*height:var\(--touch-target-min\)/s);
+  assert.match(workflow, /\.technician-chip button \{[^}]*width:var\(--touch-target-min\)[^}]*height:var\(--touch-target-min\)/s);
+  assert.match(compact, /\.ticket-form-header \.icon-button \{[^}]*width: var\(--touch-target-min\)[^}]*height: var\(--touch-target-min\)/s);
+  assert.match(compact, /\.searchable-select__clear \{[^}]*width: var\(--touch-target-min\)[^}]*height: var\(--touch-target-min\)/s);
+  assert.match(compact, /\.mobile-time-picker__header \.icon-button \{[^}]*width: var\(--touch-target-min\)[^}]*height: var\(--touch-target-min\)/s);
+  assert.match(quick, /\.ticket-detail-section__quick-edit \{[^}]*min-height: var\(--touch-target-min\)/s);
+});
+
+test('Etapa 5 mantiene acciones rápidas utilizables con una mano y teclado', () => {
+  const workflow = source('src/styles/workflow.css');
+  const quick = source('src/styles/ticket-quick-edit.css');
+  const modules = source('src/styles/modules.css');
+
+  assert.match(workflow, /scroll-margin-top:\s*calc\(var\(--safe-area-top\) \+ 88px\)/);
+  assert.match(workflow, /scroll-margin-bottom:\s*120px/);
+  assert.match(quick, /@media \(max-width: 620px\)[\s\S]*\.ticket-quick-edit-form__actions\s*\{[^}]*position:\s*sticky[^}]*bottom:\s*max\(5px, var\(--safe-area-bottom\)\)/s);
+  assert.match(quick, /@media \(hover: hover\) and \(pointer: fine\)[\s\S]*\.ticket-detail-section__quick-edit:hover/s);
+  assert.match(modules, /\.ticket-detail-actions\s*\{[^}]*touch-action:\s*pan-x/s);
+  assert.match(modules, /scroll-padding-inline:\s*8px/);
+});
+
+test('Etapa 5 compacta la jerarquía móvil del detalle sin ocultar secciones', () => {
+  const detail = source('src/pages/tickets/TicketDetailPage.jsx');
+  const styles = source('src/styles/ticket-detail-enhancements.css');
+
+  for (const section of ['Información General', 'Cliente', 'Dispositivo / Equipo', 'Trabajo Realizado']) {
+    assert.ok(detail.includes(`title="${section}"`), `Debe conservar la sección ${section}`);
+  }
+
+  assert.match(styles, /@media \(max-width: 560px\)[\s\S]*\.ticket-detail-page \.ticket-detail-section summary\s*\{[^}]*min-height:\s*56px/s);
+  assert.match(styles, /\.ticket-detail-page \.ticket-info-grid div\s*\{[^}]*padding:\s*10px/s);
+  assert.match(styles, /\.ticket-detail-page \.document-links\s*\{[^}]*padding:\s*12px/s);
+});
