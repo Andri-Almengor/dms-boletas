@@ -36,4 +36,9 @@
   --top-bar-content-height: 58px;
   --top-bar-height: calc(var(--top-bar-content-height) + var(--safe-area-top));
   --bottom-nav-height: 72px;
+  --page-max-width: 1060px;
+  --page-narrow-max-width: 690px;
+  --page-wide-max-width: 1280px;
+  --touch-target-min: 44px;
+  --overlay-radius: 22px;
 }
