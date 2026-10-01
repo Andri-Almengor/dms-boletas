@@ -1,6 +1,6 @@
 .offline-status {
   position: fixed;
-  z-index: 95;
+  z-index: var(--z-status-indicator);
   top: calc(var(--top-bar-height, 64px) + 10px);
   left: 50%;
   width: min(680px, calc(100vw - 24px));
@@ -82,7 +82,7 @@
 
 .form-recovery-status {
   position: fixed;
-  z-index: 94;
+  z-index: var(--z-status-indicator);
   right: 18px;
   bottom: 18px;
   width: min(430px, calc(100vw - 24px));
@@ -178,7 +178,7 @@ body.dms-entity-unsynced .maintenance-detail-footer-actions .button--primary {
 @media (max-width: 620px) {
   .offline-status {
     top: calc(var(--top-bar-height, 64px) + 6px);
-    width: calc(100vw - 16px);
+    width: calc(100% - 16px);
     padding: 9px 10px;
     grid-template-columns: 34px minmax(0, 1fr);
   }
