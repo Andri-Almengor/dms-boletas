@@ -107,8 +107,9 @@
 .signature-display { min-height: 165px; padding: 14px; border: 1px solid var(--outline-soft); border-radius: var(--radius-md); background: white; display: grid; place-items: center; }
 .signature-display img { max-width: 100%; max-height: 145px; object-fit: contain; }
 .signature-display span { display: flex; align-items: center; gap: 8px; color: var(--muted); }
-.ticket-detail-actions { position: sticky; bottom: calc(var(--bottom-nav-height) + env(safe-area-inset-bottom) + 8px); z-index: 15; margin-top: 22px; padding: 11px; border: 1px solid var(--outline-soft); border-radius: var(--radius-md); background: rgba(255,255,255,.96); backdrop-filter: blur(12px); box-shadow: var(--shadow-md); display: grid; grid-template-columns: repeat(2, 1fr); gap: 8px; }
-.ticket-detail-actions .button--wide { grid-column: 1 / -1; }
+.ticket-detail-actions { position: sticky; bottom: calc(var(--bottom-nav-height) + var(--safe-area-bottom) + 8px); z-index: 15; margin-top: 22px; padding: 10px; border: 1px solid var(--outline-soft); border-radius: var(--radius-md); background: rgba(255,255,255,.96); backdrop-filter: blur(12px); box-shadow: var(--shadow-md); display: flex; flex-wrap: wrap; align-items: center; gap: 8px; }
+.ticket-detail-actions .button { flex: 1 1 150px; min-width: 0; }
+.ticket-detail-actions .button--wide { width: auto; }
 
 /* Formulario de boletas */
 .ticket-progress { margin-bottom: 15px; }
@@ -121,7 +122,7 @@
 .ticket-form-grid { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 13px; }
 .ticket-form-grid--three { grid-template-columns: 1.1fr 1fr 1fr; }
 .ticket-textarea { min-height: 104px; padding-top: 13px; resize: vertical; }
-.ticket-form-actions { position: sticky; bottom: calc(var(--bottom-nav-height) + env(safe-area-inset-bottom) + 8px); z-index: 18; padding: 10px; border: 1px solid var(--outline-soft); border-radius: var(--radius-md); background: rgba(255,255,255,.97); backdrop-filter: blur(12px); box-shadow: var(--shadow-md); display: grid; grid-template-columns: 1fr 1.5fr; gap: 9px; }
+.ticket-form-actions { position: sticky; bottom: max(8px, var(--safe-area-bottom)); z-index: 18; padding: 10px; border: 1px solid var(--outline-soft); border-radius: var(--radius-md); background: rgba(255,255,255,.97); backdrop-filter: blur(12px); box-shadow: var(--shadow-md); display: grid; grid-template-columns: 1fr 1.5fr; gap: 9px; }
 .ticket-camera-button { min-height: 150px; padding: 22px; border-radius: var(--radius-md); background: var(--primary); color: white; display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 10px; text-align: center; cursor: pointer; box-shadow: 0 10px 24px rgba(175,16,26,.2); }
 .ticket-camera-button input, .ticket-evidence-add input { position: absolute; width: 1px; height: 1px; opacity: 0; }
 .ticket-camera-button .material-symbols-outlined { font-size: 42px; }
@@ -161,7 +162,8 @@
   .ticket-card--compact { min-height: 190px; }
   .ticket-date-group .ticket-stack { grid-template-columns: repeat(auto-fill, minmax(min(100%, 340px), 1fr)); }
   .evidence-gallery, .ticket-evidence-grid { grid-template-columns: repeat(3, minmax(0, 1fr)); }
-  .ticket-detail-actions, .ticket-form-actions { bottom: 18px; }
+  .ticket-detail-actions { bottom: 18px; }
+  .ticket-form-actions { bottom: 18px; }
   .admin-record-grid { grid-template-columns: repeat(auto-fill, minmax(360px, 1fr)); }
 }
 
@@ -179,6 +181,31 @@
     transform: translateY(-2px);
     border-color: color-mix(in srgb, var(--primary) 38%, var(--outline-soft));
     box-shadow: var(--shadow-md);
+  }
+}
+
+@media (max-width: 760px) {
+  .ticket-detail-actions {
+    bottom: calc(var(--bottom-nav-height) + var(--safe-area-bottom) + 6px);
+    flex-wrap: nowrap;
+    overflow-x: auto;
+    overscroll-behavior-x: contain;
+    scrollbar-width: none;
+    scroll-snap-type: x proximity;
+  }
+
+  .ticket-detail-actions::-webkit-scrollbar {
+    display: none;
+  }
+
+  .ticket-detail-actions .button {
+    flex: 0 0 auto;
+    min-width: 138px;
+    scroll-snap-align: start;
+  }
+
+  .ticket-detail-actions .button--wide {
+    width: auto;
   }
 }
 
