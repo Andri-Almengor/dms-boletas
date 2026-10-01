@@ -1,5 +1,5 @@
 import React, { useEffect, useRef, useState } from 'react';
-import { Link, useNavigate, useParams } from 'react-router-dom';
+import { Link, useLocation, useNavigate, useParams } from 'react-router-dom';
 import { useAuth } from '../../AuthContext';
 import Icon from '../../components/common/Icon';
 import ImageViewer from '../../components/tickets/ImageViewer';
@@ -90,6 +90,11 @@ export default function TicketDetailPage() {
   const { boletaUid } = useParams();
   const { sessionToken, user, permissions, hasPermission, securityRevision } = useAuth();
   const navigate = useNavigate();
+  const routeLocation = useLocation();
+  const requestedReturnTo = String(routeLocation.state?.returnTo || '');
+  const validReturnTo = /^\/boletas\/(pendientes|finalizadas)(?:\?|$)/.test(requestedReturnTo) ? requestedReturnTo : '';
+  const returnScrollY = Number(routeLocation.state?.returnScrollY || 0);
+  const listReturnState = Number.isFinite(returnScrollY) && returnScrollY > 0 ? { restoreScrollY: returnScrollY } : undefined;
   const cameraInputRef = useRef(null);
   const videoInputRef = useRef(null);
   const fileInputRef = useRef(null);
@@ -409,7 +414,7 @@ export default function TicketDetailPage() {
   }
 
   if (loading) return <div className="page"><div className="state-card state-card--loading"><Icon name="progress_activity" /><span>Cargando boleta...</span></div></div>;
-  if (!data) return <div className="page page--narrow"><div className="alert alert--error"><Icon name="error" /><span>{error || 'No se encontró la boleta.'}</span></div><button className="button button--secondary" type="button" onClick={() => navigate('/boletas/pendientes')}><Icon name="arrow_back" /> Volver</button></div>;
+  if (!data) return <div className="page page--narrow"><div className="alert alert--error"><Icon name="error" /><span>{error || 'No se encontró la boleta.'}</span></div><button className="button button--secondary" type="button" onClick={() => navigate(validReturnTo || '/boletas/pendientes', { state: listReturnState })}><Icon name="arrow_back" /> Volver</button></div>;
 
   const evidences = data?.evidencias || data?.evidences || [];
   const imageEvidenceItems = evidences.map(ticketImageViewerItem).filter(Boolean);
@@ -423,13 +428,13 @@ export default function TicketDetailPage() {
   const signatureFileId = pick(record, ['FirmaFileID', 'FirmaArchivoID']);
   const signatureUrl = pick(record, ['FirmaURL', 'FirmaUrl', 'Firma', 'signature']);
   const deviceName = pick(record, ['Descripcion', 'Descripción', 'DescripcionEquipo', 'NombreEquipo']);
-  const backTo = status === 'FINALIZADA' ? '/boletas/finalizadas' : '/boletas/pendientes';
+  const backTo = validReturnTo || (status === 'FINALIZADA' ? '/boletas/finalizadas' : '/boletas/pendientes');
   const finalized = status === 'FINALIZADA';
   const canResend = finalized && (canEdit || canFinalize || canAdmin);
 
   return (
     <div className={`page ticket-detail-page${finalized ? ' ticket-detail-page--finalized' : ''}`}>
-      <div className="page-header ticket-detail-header"><button className="icon-button" type="button" onClick={() => navigate(backTo)} aria-label="Volver"><Icon name="arrow_back" /></button><div><span className="eyebrow">Detalle de servicio</span><h1>Boleta #{String(displayId).slice(0, 20)}</h1></div><button className="icon-button" type="button" onClick={() => shareTicket(displayId)} aria-label="Compartir"><Icon name="share" /></button></div>
+      <div className="page-header ticket-detail-header"><button className="icon-button" type="button" onClick={() => navigate(backTo, { state: listReturnState })} aria-label="Volver"><Icon name="arrow_back" /></button><div><span className="eyebrow">Detalle de servicio</span><h1>Boleta #{String(displayId).slice(0, 20)}</h1></div><button className="icon-button" type="button" onClick={() => shareTicket(displayId)} aria-label="Compartir"><Icon name="share" /></button></div>
 
       {error && <div className="alert alert--error" role="alert"><Icon name="error" /><span>{error}</span></div>}
       {notice && <div className="alert alert--success" role="status"><Icon name="check_circle" /><span>{notice}</span></div>}
@@ -499,7 +504,7 @@ export default function TicketDetailPage() {
       <section className="document-links"><h2>Documentos</h2><div>{documentUrl && <a className="button button--secondary" href={documentUrl} target="_blank" rel="noreferrer"><Icon name="description" /> Google Doc</a>}{pdfUrl && <a className="button button--secondary" href={pdfUrl} target="_blank" rel="noreferrer"><Icon name="picture_as_pdf" /> PDF</a>}{folderUrl && <a className="button button--secondary" href={folderUrl} target="_blank" rel="noreferrer"><Icon name="folder" /> Carpeta Drive</a>}</div></section>
 
       <div className="ticket-detail-actions" aria-label="Acciones de la boleta">
-        {canEdit && <Link className="button button--secondary" to={`/boletas/${encodeURIComponent(boletaUid)}/editar`}><Icon name="edit" /> Editar</Link>}
+        {canEdit && <Link className="button button--secondary" to={`/boletas/${encodeURIComponent(boletaUid)}/editar`} state={routeLocation.state}><Icon name="edit" /> Editar</Link>}
         {canTest && !finalized && <button className="button button--secondary" type="button" onClick={() => finalAction('test')} disabled={processing}><Icon name="science" /> Probar</button>}
         {finalized ? <>{pdfUrl && <a className="button button--secondary" href={pdfUrl} target="_blank" rel="noreferrer"><Icon name="picture_as_pdf" /> Abrir PDF</a>}{canResend && <button className="button button--primary button--wide" type="button" onClick={() => finalAction('email')} disabled={processing}><Icon name="mail" /> {processing ? 'Enviando...' : 'Reenviar correo'}</button>}{canResend && <button className="button button--secondary button--wide" type="button" onClick={() => finalAction('resend')} disabled={processing}><Icon name="send" /> {processing ? 'Reenviando...' : 'Reenviar a chats'}</button>}{canAdmin && <button className="button button--secondary" type="button" onClick={() => finalAction('pending')} disabled={processing}><Icon name="undo" /> Volver a pendiente</button>}</> : canFinalize && <button className="button button--primary button--wide" type="button" onClick={() => finalAction('finalize')} disabled={processing}><Icon name="task_alt" /> {processing ? 'Procesando...' : 'Finalizar boleta'}</button>}
       </div>
