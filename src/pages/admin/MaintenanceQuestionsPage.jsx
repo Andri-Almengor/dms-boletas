@@ -42,6 +42,14 @@ function questionText(row = {}) {
   return clean(pick(row, ['Pregunta', 'pregunta', 'label'], 'Pregunta sin texto'));
 }
 
+function upsertQuestion(items, record) {
+  const id = questionId(record);
+  if (!id) return items;
+  const index = items.findIndex((item) => questionId(item) === id);
+  if (index < 0) return [record, ...items];
+  return items.map((item, currentIndex) => currentIndex === index ? { ...item, ...record } : item);
+}
+
 const RESPONSE_TYPE_OPTIONS = [
   ['SI_NO', 'Sí / No'],
   ['TEXTO', 'Texto'],
@@ -198,8 +206,8 @@ export default function MaintenanceQuestionsPage() {
     setError('');
     try {
       const [typeData, questionData] = await Promise.all([
-        requestAvailable(MODULE_ROUTES.deviceTypes.list, { page: 1, pageSize: 1000, includeInactive: canManage, sortBy: 'Nombre', sortDir: 'asc' }, sessionToken),
-        requestAvailable(QUESTION_ROUTES.list, { page: 1, pageSize: 1000, includeInactive: canManage, sortBy: 'Orden', sortDir: 'asc' }, sessionToken),
+        requestAvailable(MODULE_ROUTES.deviceTypes.list, { page: 1, pageSize: 1000, includeTotal: false, includeInactive: canManage, sortBy: 'Nombre', sortDir: 'asc' }, sessionToken),
+        requestAvailable(QUESTION_ROUTES.list, { page: 1, pageSize: 1000, includeTotal: false, includeTypeName: false, includeInactive: canManage, sortBy: 'Orden', sortDir: 'asc' }, sessionToken),
       ]);
       setDeviceTypes(normalizeItems(typeData).sort((left, right) => typeName(left).localeCompare(typeName(right), 'es')));
       setQuestions(normalizeItems(questionData));
@@ -371,17 +379,15 @@ export default function MaintenanceQuestionsPage() {
         }),
         ...(editor.values.orden !== '' ? { Orden: Number(editor.values.orden) } : {}),
       };
-      if (editor.mode === 'edit') {
-        await requestAvailable(QUESTION_ROUTES.update, {
+      const response = editor.mode === 'edit'
+        ? await requestAvailable(QUESTION_ROUTES.update, {
           ...payload,
           questionId: questionId(editor.record),
           PreguntaDispositivoID: questionId(editor.record),
-        }, sessionToken);
-      } else {
-        await requestAvailable(QUESTION_ROUTES.create, payload, sessionToken);
-      }
+        }, sessionToken)
+        : await requestAvailable(QUESTION_ROUTES.create, payload, sessionToken);
+      setQuestions((current) => upsertQuestion(current, response));
       setEditor(null);
-      await load();
     } catch (requestError) {
       setManagerError(requestError?.message || 'No se pudo guardar la pregunta.');
     } finally {
@@ -396,13 +402,13 @@ export default function MaintenanceQuestionsPage() {
     setSaving(true);
     setManagerError('');
     try {
-      await requestAvailable(QUESTION_ROUTES.update, {
+      const response = await requestAvailable(QUESTION_ROUTES.update, {
         questionId: questionId(question),
         PreguntaDispositivoID: questionId(question),
         Activo: !active,
         Estado: active ? 'INACTIVO' : 'ACTIVO',
       }, sessionToken);
-      await load();
+      setQuestions((current) => upsertQuestion(current, response));
     } catch (requestError) {
       setManagerError(requestError?.message || 'No se pudo cambiar el estado de la pregunta.');
     } finally {
@@ -416,11 +422,11 @@ export default function MaintenanceQuestionsPage() {
     setSaving(true);
     setManagerError('');
     try {
-      await requestAvailable(QUESTION_ROUTES.delete, {
+      const response = await requestAvailable(QUESTION_ROUTES.delete, {
         questionId: questionId(question),
         PreguntaDispositivoID: questionId(question),
       }, sessionToken);
-      await load();
+      setQuestions((current) => upsertQuestion(current, response));
     } catch (requestError) {
       setManagerError(requestError?.message || 'No se pudo eliminar la pregunta.');
     } finally {
