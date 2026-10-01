@@ -41,7 +41,7 @@ test('búsqueda de boletas es operable con teclado y tiene acción explícita en
   assert.match(list, /type="submit" className="icon-button ticket-list-search-submit"/);
   assert.match(list, /aria-expanded=\{filterOpen\}/);
   assert.match(styles, /\.ticket-list-search-bar\s*\{[^}]*grid-template-columns:\s*24px minmax\(0, 1fr\) 44px 44px/s);
-  assert.match(styles, /@media \(max-width: 440px\)[\s\S]*\.ticket-list-search-bar[\s\S]*40px 40px/);
+  assert.match(styles, /@media \(max-width: 440px\)[\s\S]*\.ticket-list-search-bar[\s\S]*var\(--touch-target-min\) var\(--touch-target-min\)/);
 });
 
 test('TicketCard acomoda múltiples acciones sin asumir una cantidad fija de botones', () => {
