@@ -101,3 +101,82 @@ test('modal de evidencias usa viewport dinámico para teclado y barras móviles'
   assert.match(styles, /max-height:calc\(100dvh - max\(8px,env\(safe-area-inset-top\)\)\)/);
   assert.match(styles, /env\(safe-area-inset-bottom\)/);
 });
+
+
+test('Etapa 6 conserva consulta y scroll del listado al abrir un mantenimiento', () => {
+  const list = source('src/pages/maintenance/MaintenanceListPage.jsx');
+  const detail = source('src/pages/maintenance/MaintenanceDetailPage.jsx');
+
+  assert.match(list, /readMaintenanceFilters\(searchParams\)/);
+  assert.match(list, /buildMaintenanceListSearch\(status, search, filters\)/);
+  assert.match(list, /maintenanceListReturnTo: currentListUrl/);
+  assert.match(list, /maintenanceListScrollY:/);
+  assert.match(list, /restoreScrollY/);
+  assert.match(detail, /maintenanceListReturnTo = \/\^\\\/mantenimientos\(\?:\\\?\|\$\)\//);
+  assert.match(detail, /maintenanceListReturnState/);
+  assert.match(detail, /navigate\(maintenanceListReturnTo, \{ state: maintenanceListReturnState \}\)/);
+});
+
+test('Etapa 6 mantiene dispositivo de proyecto en ruta independiente con navegación anterior y siguiente', () => {
+  const app = source('src/app/App.jsx');
+  const inventory = source('src/components/maintenance/MaintenanceLocationInventory.jsx');
+  const route = source('src/pages/maintenance/MaintenanceProjectDeviceDetailPage.jsx');
+
+  assert.match(app, /mantenimientos\/:maintenanceId\/dispositivos\/:deviceId/);
+  assert.match(inventory, /if \(projectMode\)[\s\S]*\/dispositivos\/\$\{encodeURIComponent\(id\)\}/s);
+  assert.match(inventory, /deviceIds/);
+  assert.match(inventory, /\.\.\.routeLocation\.state/);
+  assert.match(route, /const previousId =/);
+  assert.match(route, /const nextId =/);
+  assert.match(route, /goToDevice\(previousId\)/);
+  assert.match(route, /goToDevice\(nextId\)/);
+  assert.match(route, /replace: true/);
+});
+
+test('Etapa 6 conserva contexto a través de dispositivo proyecto y edición directa', () => {
+  const route = source('src/pages/maintenance/MaintenanceProjectDeviceDetailPage.jsx');
+  const form = source('src/pages/maintenance/MaintenanceFormPage.jsx');
+  const direct = source('src/features/maintenance/useMaintenanceDirectDevice.js');
+  const base = source('src/hooks/useOptimizedMaintenanceBase.js');
+  const scalable = source('src/hooks/useScalableMaintenanceForm.js');
+
+  assert.match(route, /maintenanceDetailState\(\)/);
+  assert.match(route, /const \{ returnTo: _returnTo, deviceIds: _deviceIds, \.\.\.rest \} = location\.state/);
+  assert.match(route, /\.\.\.location\.state,[\s\S]*returnTo:/s);
+  assert.match(form, /navigationState: location\.state/);
+  assert.match(form, /returnState: location\.state/);
+  assert.match(direct, /state: returnState/);
+  assert.match(base, /navigationState \? \{ state: navigationState \} : undefined/);
+  assert.match(scalable, /navigationState \? \{ state: navigationState \} : undefined/);
+});
+
+test('Etapa 6 usa targets y safe areas compartidos en inventario, evidencias y editor', () => {
+  const locations = source('src/styles/maintenance-location-workflow.css');
+  const enhancements = source('src/styles/maintenance-enhancements.css');
+  const editor = source('src/styles/maintenance-device-mobile-ux.css');
+  const inventory = source('src/styles/maintenance-inventory-mobile.css');
+  const deviceInventory = source('src/styles/maintenance-device-inventory.css');
+  const project = source('src/styles/maintenance-project.css');
+
+  assert.doesNotMatch(locations, /var\(--text-muted\)/);
+  assert.match(locations, /\.maintenance-location-work-group__actions \.icon-button\s*\{[^}]*width:\s*var\(--touch-target-min\)[^}]*height:\s*var\(--touch-target-min\)/s);
+  assert.match(locations, /max-height:\s*var\(--overlay-mobile-max-height\)/);
+  assert.match(enhancements, /button\.maintenance-query-chip\s*\{[^}]*min-height:\s*var\(--touch-target-min\)/s);
+  assert.match(enhancements, /grid-template-columns:\s*22px minmax\(0, 1fr\) var\(--touch-target-min\) var\(--touch-target-min\)/);
+  assert.match(editor, /\.maintenance-image-type-toggle button\s*\{[^}]*min-height:\s*var\(--touch-target-min\)/s);
+  assert.doesNotMatch(editor, /100vw/);
+  assert.match(inventory, /var\(--safe-area-bottom\)/);
+  assert.match(deviceInventory, /\.maintenance-inventory-images figure > button\s*\{[^}]*min-height:\s*var\(--touch-target-min\)/s);
+  assert.match(project, /\.maintenance-project-evidence-filter select\s*\{[^}]*min-height:\s*var\(--control-height-compact\)/s);
+});
+
+test('Etapa 6 conserva la galería de proyecto compacta y el visor de evidencias existente', () => {
+  const detail = source('src/components/maintenance/MaintenanceProjectDeviceDetail.jsx');
+  const project = source('src/styles/maintenance-project.css');
+
+  assert.match(detail, /MaintenanceEvidenceImage/);
+  assert.match(detail, /galleryImages=\{images\}/);
+  assert.match(detail, /maintenance-project-device-gallery/);
+  assert.match(project, /@media \(max-width: 760px\)[\s\S]*\.maintenance-project-device-gallery\s*\{[^}]*repeat\(2, minmax\(0, 1fr\)\)/s);
+  assert.match(project, /aspect-ratio:\s*4 \/ 3/);
+});
