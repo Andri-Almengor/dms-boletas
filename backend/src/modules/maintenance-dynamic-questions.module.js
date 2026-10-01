@@ -4,6 +4,8 @@ import {
   appendRow,
   filterRows,
   findById,
+  findRows,
+  queryPage,
   readTable,
   readTables,
   softDelete,
@@ -310,8 +312,11 @@ async function validateProjectAnswers(snapshot = [], answers = {}, maintenanceMo
   return sanitized;
 }
 
-async function typeNamesMap() {
-  const types = await readTable('TiposDispositivo');
+async function typeNamesMap(typeIds = []) {
+  const requested = [...new Set((typeIds || []).map(cleanMaintenanceQuestionValue).filter(Boolean))];
+  const types = requested.length
+    ? await findRows('TiposDispositivo', { TipoDispositivoID: requested }, { limit: Math.max(1, requested.length) })
+    : await readTable('TiposDispositivo');
   return new Map(types.map((row) => [
     cleanMaintenanceQuestionValue(row.TipoDispositivoID),
     cleanMaintenanceQuestionValue(row.Nombre, 'Tipo de dispositivo'),
@@ -322,13 +327,46 @@ async function list(ctx) {
   await ensureMaintenanceQuestionCatalog(ctx.user?.UsuarioID || 'SYSTEM');
   const includeInactive = Boolean(ctx.payload?.includeInactive) && canManageQuestions(ctx);
   const typeId = cleanMaintenanceQuestionValue(pick(ctx.payload, ['TipoDispositivoID', 'tipoDispositivoId']));
-  const names = await typeNamesMap();
-  const rows = await readMaintenanceQuestions({ includeInactive, typeId });
-  const enriched = rows.map((row) => ({
-    ...row,
-    TipoDispositivo: names.get(cleanMaintenanceQuestionValue(row.TipoDispositivoID)) || 'Tipo no disponible',
-  }));
-  return filterRows(enriched, ctx.payload, ['Pregunta', 'Clave', 'TipoDispositivo']);
+  const search = cleanMaintenanceQuestionValue(pick(ctx.payload, ['search', 'q']));
+
+  // La búsqueda histórica también permite encontrar por nombre del tipo.
+  // Se conserva ese camino únicamente cuando hay texto; la carga normal usa
+  // paginación SQL y evita materializar el catálogo completo.
+  if (search) {
+    const names = await typeNamesMap();
+    const rows = await readMaintenanceQuestions({ includeInactive, typeId });
+    const enriched = rows.map((row) => ({
+      ...row,
+      TipoDispositivo: names.get(cleanMaintenanceQuestionValue(row.TipoDispositivoID)) || 'Tipo no disponible',
+    }));
+    return filterRows(enriched, ctx.payload, ['Pregunta', 'Clave', 'TipoDispositivo']);
+  }
+
+  const page = await queryPage(
+    MAINTENANCE_QUESTION_SHEET,
+    {
+      ...ctx.payload,
+      ...(typeId ? { tipoDispositivoId: typeId } : {}),
+    },
+    {
+      searchFields: ['Pregunta', 'Clave'],
+      excludeInactive: !includeInactive,
+      excludeInactiveState: !includeInactive,
+      defaultOrder: [['Orden', 'ASC', true], ['Pregunta', 'ASC']],
+    },
+  );
+  const names = ctx.payload?.includeTypeName === false
+    ? new Map()
+    : await typeNamesMap(page.items.map((row) => row.TipoDispositivoID));
+  return {
+    ...page,
+    items: page.items.map((row) => ({
+      ...row,
+      ...(ctx.payload?.includeTypeName === false ? {} : {
+        TipoDispositivo: names.get(cleanMaintenanceQuestionValue(row.TipoDispositivoID)) || 'Tipo no disponible',
+      }),
+    })),
+  };
 }
 
 async function nextOrder(typeId) {
