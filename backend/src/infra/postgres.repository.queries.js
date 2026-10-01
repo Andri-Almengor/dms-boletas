@@ -32,14 +32,23 @@ export async function queryPage(table, payload = {}, { searchFields = [], allowe
   if (allowedIds && allowedIds.size && meta.columns.includes(meta.id)) { params.push([...allowedIds].map(String)); clauses.push(`${qi(meta.id)}=ANY($${params.length}::text[])`); }
   else if (allowedIds && allowedIds.size === 0) return { items: [], total: 0, page, pageSize };
   const where = clauses.join(' AND ');
-  const countResult = await query(`SELECT COUNT(*)::bigint AS total FROM ${qi(table)} WHERE ${where}`, params, { label: `page.count.${table}` });
+  const includeTotal = payload.includeTotal !== false;
+  const countPromise = includeTotal
+    ? query(`SELECT COUNT(*)::bigint AS total FROM ${qi(table)} WHERE ${where}`, params, { label: `page.count.${table}` })
+    : null;
   const order = [];
   if (payload.sortBy && meta.columns.includes(String(payload.sortBy))) order.push(`${qi(payload.sortBy)} ${String(payload.sortDir).toLowerCase()==='desc'?'DESC':'ASC'}`);
   else for (const [field,direction='ASC',numeric=false] of defaultOrder) if (meta.columns.includes(field)) order.push(`${numeric ? `NULLIF(${qi(field)},'')::numeric` : qi(field)} ${String(direction).toUpperCase()==='DESC'?'DESC':'ASC'} NULLS LAST`);
   order.push('"__db_id" ASC');
   const itemParams=[...params,pageSize,(page-1)*pageSize];
-  const rows = await query(`SELECT ${selectList(table)} FROM ${qi(table)} WHERE ${where} ORDER BY ${order.join(', ')} LIMIT $${itemParams.length-1} OFFSET $${itemParams.length}`, itemParams, { label: `page.items.${table}` });
-  return { items: rows.rows.map(publicRow), total: Number(countResult.rows[0]?.total || 0), page, pageSize };
+  const rowsPromise = query(`SELECT ${selectList(table)} FROM ${qi(table)} WHERE ${where} ORDER BY ${order.join(', ')} LIMIT $${itemParams.length-1} OFFSET $${itemParams.length}`, itemParams, { label: `page.items.${table}` });
+  const [rows, countResult] = await Promise.all([rowsPromise, countPromise]);
+  return {
+    items: rows.rows.map(publicRow),
+    total: includeTotal ? Number(countResult?.rows?.[0]?.total || 0) : null,
+    page,
+    pageSize,
+  };
 }
 
 export async function queryTicketPage(payload = {}, { assignedUserId = '', allowedIds = null } = {}) {
@@ -230,6 +239,41 @@ export async function queryAgendaTickets({ dates = [], ticketIds = [] } = {}) {
   return result.rows.map(publicRow);
 }
 
+export async function queryKnowledgeCategoryUsageCounts() {
+  const result = await query(
+    `WITH primary_categories AS (
+       SELECT
+         COALESCE(
+           (
+             SELECT NULLIF(rel."CategoriaConocimientoID",'')
+             FROM "KnowledgeArticleCategories" rel
+             WHERE rel."__valid"=TRUE
+               AND rel."TutorialID"=a."TutorialID"
+               AND LOWER(COALESCE(rel."Activo",'true')) <> 'false'
+             ORDER BY
+               CASE
+                 WHEN COALESCE(rel."Orden",'') ~ '^[0-9]+$' THEN rel."Orden"::bigint
+                 ELSE 9223372036854775807
+               END ASC,
+               rel."__db_id" ASC
+             LIMIT 1
+           ),
+           NULLIF(a."CategoriaConocimientoID",'')
+         ) AS category_id
+       FROM "KnowledgeArticles" a
+       WHERE a."__valid"=TRUE
+         AND LOWER(COALESCE(a."Activo",'true')) <> 'false'
+         AND UPPER(COALESCE(NULLIF(a."Estado",''),'PUBLICADO'))='PUBLICADO'
+     )
+     SELECT category_id AS id, COUNT(*)::bigint AS total
+     FROM primary_categories
+     WHERE category_id IS NOT NULL AND category_id <> ''
+     GROUP BY category_id`,
+    [],
+    { label: 'knowledge.categories.usageCounts' },
+  );
+  return Object.fromEntries(result.rows.map((row) => [String(row.id || ''), Number(row.total || 0)]));
+}
 export async function queryKnowledgeArticlePage(payload = {}, { viewerUserId = '', canManage = false } = {}) {
   const page = Math.max(1, Number(payload.page || 1));
   const pageSize = Math.min(1000, Math.max(1, Number(payload.pageSize || 100)));

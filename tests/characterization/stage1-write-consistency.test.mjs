@@ -65,7 +65,7 @@ test('Etapa 1: CRUD conserva su contrato protegido tras la optimización SQL de 
   const crud = source('backend/src/modules/crud.module.js');
   assert.equal(
     createHash('sha256').update(crud).digest('hex'),
-    'd34442574321a7f1596bffacd1d7fecead757ad73557251449f8322590b6f27b',
+    'db4f5826391bdf51b05eba19134a4550f31b60aafb4addf14d9e8c2d3800b7ff',
   );
 });
 

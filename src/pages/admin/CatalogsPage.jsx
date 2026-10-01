@@ -138,6 +138,7 @@ export default function CatalogsPage() {
     const results = await Promise.allSettled(unique.map((key) => requestAvailable(LIST_ROUTES[key], {
       page: 1,
       pageSize: key === 'models' || key === 'relations' ? 1500 : 750,
+      includeTotal: false,
       sortBy: 'Nombre',
       sortDir: 'asc',
       includeInactive: canManage,

@@ -1,4 +1,4 @@
-import { appendRow, filterRows, findById, queryPage, readTable, softDelete, updateRow } from '../infra/sheets.repository.js';
+import { appendRow, findById, findRows, queryKnowledgeCategoryUsageCounts, queryPage, softDelete, updateRow } from '../infra/sheets.repository.js';
 import { audit } from '../services/audit.service.js';
 import { asBool, nowIso, pick, uuid } from '../core/utils.js';
 import { badRequest } from '../core/errors.js';
@@ -86,32 +86,29 @@ async function ensureModelRelationship(ctx, mapped, currentModelId = '') {
     throw badRequest('Para agregar un modelo seleccione primero el tipo de dispositivo y el fabricante.');
   }
 
-  const [deviceTypes, manufacturers, relations, models] = await Promise.all([
-    readTable('TiposDispositivo'),
-    readTable('Fabricantes'),
-    readTable('TipoDispositivoFabricantes'),
-    readTable('Modelos'),
+  const [deviceType, manufacturer, relations, models] = await Promise.all([
+    findById('TiposDispositivo', typeId).catch(() => null),
+    findById('Fabricantes', manufacturerId).catch(() => null),
+    findRows('TipoDispositivoFabricantes', {
+      TipoDispositivoID: typeId,
+      FabricanteID: manufacturerId,
+    }, { limit: 100 }),
+    findRows('Modelos', {
+      TipoDispositivoID: typeId,
+      FabricanteID: manufacturerId,
+    }, { limit: 5000 }),
   ]);
 
-  const deviceType = deviceTypes.find((row) => String(row.TipoDispositivoID) === typeId && isActiveRecord(row));
-  if (!deviceType) throw badRequest('El tipo de dispositivo seleccionado no existe o está inactivo.');
-
-  const manufacturer = manufacturers.find((row) => String(row.FabricanteID) === manufacturerId && isActiveRecord(row));
-  if (!manufacturer) throw badRequest('El fabricante seleccionado no existe o está inactivo.');
+  if (!deviceType || !isActiveRecord(deviceType)) throw badRequest('El tipo de dispositivo seleccionado no existe o está inactivo.');
+  if (!manufacturer || !isActiveRecord(manufacturer)) throw badRequest('El fabricante seleccionado no existe o está inactivo.');
 
   const duplicate = models.find((row) => (
     String(row.ModeloID) !== String(currentModelId || '')
-    && String(row.TipoDispositivoID) === typeId
-    && String(row.FabricanteID) === manufacturerId
     && normalizedName(row.Nombre) === normalizedName(name)
     && isActiveRecord(row)
   ));
 
-  const existingRelation = relations.find((row) => (
-    String(row.TipoDispositivoID) === typeId
-    && String(row.FabricanteID) === manufacturerId
-    && isActiveRecord(row)
-  ));
+  const existingRelation = relations.find((row) => isActiveRecord(row));
 
   if (!existingRelation) {
     const relation = {
@@ -207,51 +204,53 @@ export function crudHandlers(definitionKey) {
     list: async (ctx) => {
       const { payload } = ctx;
       const includeInactive = asBool(payload.includeInactive, false) && canIncludeInactive(ctx, definitionKey);
-      if (['clients', 'clientLocations', 'equipmentLocations', 'contacts'].includes(definitionKey)) {
-        const request = { ...listFilterPayload(definitionKey, payload, includeInactive) };
-        if (def.parent) {
-          const parentValue = payload[def.parent]
-            ?? payload[def.parent.charAt(0).toLowerCase() + def.parent.slice(1)]
-            ?? payload.clienteId
-            ?? payload.ubicacionId;
-          if (parentValue !== undefined && parentValue !== null && String(parentValue).trim()) {
-            if (def.parent === 'ClienteID') request.clienteId = parentValue;
-            if (def.parent === 'UbicacionID') request.ubicacionId = parentValue;
-          }
-        }
-        const result = await queryPage(def.table, request, {
-          searchFields: def.search,
-          excludeInactive: !includeInactive,
-          excludeInactiveState: !includeInactive,
-        });
-        if (definitionKey === 'clients') result.items = result.items.map((row) => sanitizeClientRow(row, ctx));
-        return result;
-      }
-
-      let rows = await readTable(def.table);
-      if (!includeInactive) rows = rows.filter((row) => isActiveRecord(row));
+      const request = { ...listFilterPayload(definitionKey, payload, includeInactive) };
       if (def.parent) {
-        const parentValue = payload[def.parent] ?? payload[def.parent.charAt(0).toLowerCase() + def.parent.slice(1)] ?? payload.clienteId ?? payload.ubicacionId;
-        if (parentValue) rows = rows.filter((row) => String(row[def.parent]) === String(parentValue));
+        const parentValue = payload[def.parent]
+          ?? payload[def.parent.charAt(0).toLowerCase() + def.parent.slice(1)]
+          ?? payload.clienteId
+          ?? payload.ubicacionId;
+        if (parentValue !== undefined && parentValue !== null && String(parentValue).trim()) {
+          if (def.parent === 'ClienteID') request.clienteId = parentValue;
+          if (def.parent === 'UbicacionID') request.ubicacionId = parentValue;
+        }
       }
       if (definitionKey === 'models') {
         const typeId = pick(payload, ['TipoDispositivoID', 'tipoDispositivoId']);
         const manufacturerId = pick(payload, ['FabricanteID', 'fabricanteId']);
-        if (typeId) rows = rows.filter((row) => String(row.TipoDispositivoID) === String(typeId));
-        if (manufacturerId) rows = rows.filter((row) => String(row.FabricanteID) === String(manufacturerId));
+        if (typeId) request.tipoDispositivoId = typeId;
+        if (manufacturerId) request.fabricanteId = manufacturerId;
+      } else if (definitionKey === 'deviceManufacturers') {
+        // El CRUD histórico no filtraba relaciones por estos parámetros.
+        // Mantener esa semántica evita cambiar contratos mientras la lectura
+        // pasa de filtrado en memoria a PostgreSQL.
+        delete request.tipoDispositivoId;
+        delete request.fabricanteId;
       }
-      return filterRows(rows, listFilterPayload(definitionKey, payload, includeInactive), def.search);
+      const usagePromise = definitionKey === 'knowledgeCategories' && asBool(payload.includeUsageCount, false)
+        ? queryKnowledgeCategoryUsageCounts()
+        : Promise.resolve(null);
+      const [result, usageCounts] = await Promise.all([
+        queryPage(def.table, request, {
+          searchFields: def.search,
+          excludeInactive: !includeInactive,
+          excludeInactiveState: !includeInactive,
+        }),
+        usagePromise,
+      ]);
+      if (definitionKey === 'clients') result.items = result.items.map((row) => sanitizeClientRow(row, ctx));
+      if (definitionKey === 'knowledgeCategories' && usageCounts) {
+        result.items = result.items.map((row) => ({
+          ...row,
+          TutorialCount: Number(usageCounts[String(row.CategoriaConocimientoID || '')] || 0),
+        }));
+      }
+      return result;
     },
     get: async (ctx) => {
       const { payload } = ctx;
       const id = pick(payload, idAliases);
-      let row;
-      if (['clients', 'clientLocations', 'equipmentLocations', 'contacts'].includes(definitionKey)) {
-        row = await findById(def.table, id).catch(() => null);
-      } else {
-        const rows = await readTable(def.table);
-        row = rows.find((item) => String(item[def.id]) === String(id));
-      }
+      const row = await findById(def.table, id).catch(() => null);
       if (!row) throw badRequest('No se encontró el registro.');
       return definitionKey === 'clients' ? sanitizeClientRow(row, ctx) : row;
     },
@@ -271,9 +270,7 @@ export function crudHandlers(definitionKey) {
     },
     update: async (ctx) => {
       const id = pick(ctx.payload, idAliases); if (!id) throw badRequest('Falta el identificador.');
-      const before = ['clients', 'clientLocations', 'equipmentLocations', 'contacts'].includes(definitionKey)
-        ? await findById(def.table, id).catch(() => null)
-        : (await readTable(def.table)).find((row) => String(row[def.id]) === String(id));
+      const before = await findById(def.table, id).catch(() => null);
       if (!before) throw badRequest('No se encontró el registro.');
       const mapped = mappedUpdatePatch(definitionKey, def, ctx.payload);
 
@@ -296,9 +293,7 @@ export function crudHandlers(definitionKey) {
     delete: async (ctx) => {
       const id = pick(ctx.payload, idAliases);
       if (!id) throw badRequest('Falta el identificador.');
-      const before = ['clients', 'clientLocations', 'equipmentLocations', 'contacts'].includes(definitionKey)
-        ? await findById(def.table, id).catch(() => null)
-        : (await readTable(def.table)).find((row) => String(row[def.id]) === String(id));
+      const before = await findById(def.table, id).catch(() => null);
       if (!before) throw badRequest('No se encontró el registro.');
       const after = await softDelete(def.table, id, ctx.user.UsuarioID);
       await audit(ctx, `ELIMINAR_${def.table.toUpperCase()}`, def.table, id, before, after);

@@ -4,6 +4,8 @@ import {
   appendRow,
   filterRows,
   findById,
+  findRows,
+  queryPage,
   readTable,
   readTables,
   softDelete,
@@ -310,8 +312,11 @@ async function validateProjectAnswers(snapshot = [], answers = {}, maintenanceMo
   return sanitized;
 }
 
-async function typeNamesMap() {
-  const types = await readTable('TiposDispositivo');
+async function typeNamesMap(typeIds = []) {
+  const requested = [...new Set((typeIds || []).map(cleanMaintenanceQuestionValue).filter(Boolean))];
+  const types = requested.length
+    ? await findRows('TiposDispositivo', { TipoDispositivoID: requested }, { limit: Math.max(1, requested.length) })
+    : await readTable('TiposDispositivo');
   return new Map(types.map((row) => [
     cleanMaintenanceQuestionValue(row.TipoDispositivoID),
     cleanMaintenanceQuestionValue(row.Nombre, 'Tipo de dispositivo'),
@@ -322,24 +327,58 @@ async function list(ctx) {
   await ensureMaintenanceQuestionCatalog(ctx.user?.UsuarioID || 'SYSTEM');
   const includeInactive = Boolean(ctx.payload?.includeInactive) && canManageQuestions(ctx);
   const typeId = cleanMaintenanceQuestionValue(pick(ctx.payload, ['TipoDispositivoID', 'tipoDispositivoId']));
-  const names = await typeNamesMap();
-  const rows = await readMaintenanceQuestions({ includeInactive, typeId });
-  const enriched = rows.map((row) => ({
-    ...row,
-    TipoDispositivo: names.get(cleanMaintenanceQuestionValue(row.TipoDispositivoID)) || 'Tipo no disponible',
-  }));
-  return filterRows(enriched, ctx.payload, ['Pregunta', 'Clave', 'TipoDispositivo']);
+  const search = cleanMaintenanceQuestionValue(pick(ctx.payload, ['search', 'q']));
+
+  // La búsqueda histórica también permite encontrar por nombre del tipo.
+  // Se conserva ese camino únicamente cuando hay texto; la carga normal usa
+  // paginación SQL y evita materializar el catálogo completo.
+  if (search) {
+    const names = await typeNamesMap();
+    const rows = await readMaintenanceQuestions({ includeInactive, typeId });
+    const enriched = rows.map((row) => ({
+      ...row,
+      TipoDispositivo: names.get(cleanMaintenanceQuestionValue(row.TipoDispositivoID)) || 'Tipo no disponible',
+    }));
+    return filterRows(enriched, ctx.payload, ['Pregunta', 'Clave', 'TipoDispositivo']);
+  }
+
+  const page = await queryPage(
+    MAINTENANCE_QUESTION_SHEET,
+    {
+      ...ctx.payload,
+      ...(typeId ? { tipoDispositivoId: typeId } : {}),
+    },
+    {
+      searchFields: ['Pregunta', 'Clave'],
+      excludeInactive: !includeInactive,
+      excludeInactiveState: !includeInactive,
+      defaultOrder: [['Orden', 'ASC', true], ['Pregunta', 'ASC']],
+    },
+  );
+  const names = ctx.payload?.includeTypeName === false
+    ? new Map()
+    : await typeNamesMap(page.items.map((row) => row.TipoDispositivoID));
+  return {
+    ...page,
+    items: page.items.map((row) => ({
+      ...row,
+      ...(ctx.payload?.includeTypeName === false ? {} : {
+        TipoDispositivo: names.get(cleanMaintenanceQuestionValue(row.TipoDispositivoID)) || 'Tipo no disponible',
+      }),
+    })),
+  };
 }
 
-async function nextOrder(typeId) {
-  const rows = await readMaintenanceQuestions({ includeInactive: true, typeId });
+async function nextOrder(typeId, existingRows = null) {
+  const rows = existingRows || await readMaintenanceQuestions({ includeInactive: true, typeId });
   return rows.reduce((max, row) => Math.max(max, Number(row.Orden || 0)), 0) + 10;
 }
 
-async function assertUniqueQuestion(typeId, text, currentId = '') {
-  const rows = await readMaintenanceQuestions({ includeInactive: false, typeId });
+async function assertUniqueQuestion(typeId, text, currentId = '', existingRows = null) {
+  const rows = existingRows || await readMaintenanceQuestions({ includeInactive: false, typeId });
   const duplicate = rows.find((row) => (
-    cleanMaintenanceQuestionValue(row.PreguntaDispositivoID) !== cleanMaintenanceQuestionValue(currentId)
+    isActiveMaintenanceQuestion(row)
+    && cleanMaintenanceQuestionValue(row.PreguntaDispositivoID) !== cleanMaintenanceQuestionValue(currentId)
     && normalizeMaintenanceQuestionValue(row.Pregunta) === normalizeMaintenanceQuestionValue(text)
   ));
   if (duplicate) throw badRequest('Ya existe una pregunta activa con el mismo texto para este tipo de dispositivo.');
@@ -350,10 +389,11 @@ async function create(ctx) {
   return withQuestionWriteLock(async () => {
     await ensureMaintenanceQuestionCatalog(ctx.user.UsuarioID);
     const typeId = cleanMaintenanceQuestionValue(pick(ctx.payload, ['TipoDispositivoID', 'tipoDispositivoId']));
-    await assertMaintenanceDeviceType(typeId);
+    const deviceType = await assertMaintenanceDeviceType(typeId);
     const text = questionText(ctx.payload);
     if (!text) throw badRequest('Escriba la pregunta o campo que se mostrará para este tipo de dispositivo.');
-    await assertUniqueQuestion(typeId, text);
+    const existingQuestions = await readMaintenanceQuestions({ includeInactive: true, typeId });
+    await assertUniqueQuestion(typeId, text, '', existingQuestions);
     const metadata = await validateQuestionMetadata(ctx.payload);
     const timestamp = nowIso();
     const row = {
@@ -361,7 +401,7 @@ async function create(ctx) {
       TipoDispositivoID: typeId,
       Clave: `q_${uuid().replace(/-/g, '')}`,
       Pregunta: text,
-      Orden: hasOwn(ctx.payload, ['Orden', 'orden']) ? questionOrder(ctx.payload) : await nextOrder(typeId),
+      Orden: hasOwn(ctx.payload, ['Orden', 'orden']) ? questionOrder(ctx.payload) : await nextOrder(typeId, existingQuestions),
       TipoRespuesta: metadata.responseType,
       AplicaModo: metadata.mode,
       TipoDispositivoRelacionadoID: metadata.relatedTypeId,
@@ -375,8 +415,7 @@ async function create(ctx) {
     };
     await appendRow(MAINTENANCE_QUESTION_SHEET, row);
     await audit(ctx, 'CREAR_PREGUNTA_MANTENIMIENTO', MAINTENANCE_QUESTION_SHEET, row.PreguntaDispositivoID, null, row);
-    const names = await typeNamesMap();
-    return { ...row, TipoDispositivo: names.get(typeId) || '' };
+    return { ...row, TipoDispositivo: cleanMaintenanceQuestionValue(deviceType.Nombre) };
   });
 }
 
@@ -419,8 +458,8 @@ async function update(ctx) {
     patch.FechaActualizacion = nowIso();
     const after = await updateRow(MAINTENANCE_QUESTION_SHEET, id, patch);
     await audit(ctx, 'EDITAR_PREGUNTA_MANTENIMIENTO', MAINTENANCE_QUESTION_SHEET, id, before, after);
-    const names = await typeNamesMap();
-    return { ...after, TipoDispositivo: names.get(typeId) || '' };
+    const deviceType = await findById('TiposDispositivo', typeId).catch(() => null);
+    return { ...after, TipoDispositivo: cleanMaintenanceQuestionValue(deviceType?.Nombre) };
   });
 }
 
