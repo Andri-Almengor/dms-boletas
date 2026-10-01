@@ -40,6 +40,10 @@ test('superficies compartidas de detalle, filtros y media quedan limitadas por 1
   assert.match(workflow, /\.inline-modal[^}]*100dvh[^}]*safe-area-top/s);
   assert.match(workflow, /\.filter-drawer[^}]*height:100dvh[^}]*minmax\(0,1fr\)/s);
   assert.match(workflow, /\.image-viewer[^}]*safe-area-top[^}]*safe-area-bottom/s);
+
+  const deviceDetail = source('src/styles/maintenance-project.css');
+  assert.match(deviceDetail, /\.maintenance-device-detail-modal \.admin-entity-modal[^}]*width:\s*min\(100%, 1180px\)/s);
+  assert.match(deviceDetail, /\.maintenance-device-detail-modal \.admin-entity-modal[^}]*100dvh/s);
 });
 
 test('asistente y superficies públicas también respetan safe areas', () => {
