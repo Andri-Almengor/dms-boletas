@@ -5,7 +5,7 @@
 .maintenance-device-editor {
   min-width: 0;
   width: 100%;
-  padding-bottom: max(18px, env(safe-area-inset-bottom));
+  padding-bottom: max(18px, var(--safe-area-bottom));
 }
 
 .maintenance-device-editor__header {
@@ -225,7 +225,7 @@
 }
 
 .maintenance-image-type-toggle button {
-  min-height: 40px;
+  min-height: var(--touch-target-min);
   padding: 6px 8px;
   border: 1px solid var(--outline-soft);
   border-radius: 9px;
@@ -264,7 +264,7 @@
 .maintenance-device-editor__actions {
   position: sticky;
   z-index: 28;
-  bottom: max(8px,env(safe-area-inset-bottom));
+  bottom: max(8px,var(--safe-area-bottom));
   padding: 10px;
   border: 1px solid var(--outline-soft);
   border-radius: 16px;
@@ -285,9 +285,9 @@
 body.maintenance-device-editor-open .offline-status {
   top: auto;
   right: 12px;
-  bottom: calc(88px + env(safe-area-inset-bottom,0px));
+  bottom: calc(88px + var(--safe-area-bottom));
   left: auto;
-  width: min(330px,calc(100vw - 24px));
+  width: min(330px,calc(100% - 24px));
   transform: none;
   padding: 8px 10px;
   grid-template-columns: 32px minmax(0,1fr);
@@ -306,7 +306,7 @@ body.maintenance-device-editor-open .offline-status:not(.is-offline) .offline-st
 body.maintenance-device-editor-open .offline-status > button {
   grid-column: 1 / -1;
   width: 100%;
-  min-height: 38px;
+  min-height: var(--touch-target-min);
 }
 
 @media (max-width: 760px) {
@@ -326,13 +326,13 @@ body.maintenance-device-editor-open .offline-status > button {
   }
 
   .maintenance-device-editor {
-    padding-bottom: max(8px,env(safe-area-inset-bottom));
+    padding-bottom: max(8px,var(--safe-area-bottom));
   }
 
   .maintenance-device-editor__header {
     top: 0;
     margin: 0 0 10px;
-    padding: calc(7px + env(safe-area-inset-top,0px)) 10px 8px;
+    padding: calc(7px + var(--safe-area-top)) 10px 8px;
     grid-template-columns: 44px minmax(0,1fr) 44px;
     grid-template-areas: 'back title delete';
     gap: 6px;
@@ -394,7 +394,7 @@ body.maintenance-device-editor-open .offline-status > button {
   }
 
   .maintenance-device-editor__actions {
-    bottom: max(4px,env(safe-area-inset-bottom));
+    bottom: max(4px,var(--safe-area-bottom));
     margin: 0 -2px;
     padding: 9px;
     border-radius: 14px;
@@ -433,8 +433,8 @@ body.maintenance-device-editor-open .offline-status > button {
 
   body.maintenance-device-editor-open .offline-status {
     right: 8px;
-    bottom: calc(142px + env(safe-area-inset-bottom,0px));
-    width: min(290px,calc(100vw - 16px));
+    bottom: calc(142px + var(--safe-area-bottom));
+    width: min(290px,calc(100% - 16px));
     padding: 7px 8px;
   }
 
@@ -443,13 +443,13 @@ body.maintenance-device-editor-open .offline-status > button {
   }
 
   body.maintenance-device-editor-open .offline-status.is-offline {
-    width: calc(100vw - 16px);
+    width: calc(100% - 16px);
   }
 
   .maintenance-device-manager__actions {
     position: sticky;
     z-index: 18;
-    bottom: max(6px,env(safe-area-inset-bottom));
+    bottom: max(6px,var(--safe-area-bottom));
     margin: 12px 0;
     padding: 8px;
     border: 1px solid var(--outline-soft);
