@@ -161,6 +161,7 @@ function FilterSelect({ label, value, onChange, children }) {
 }
 
 export default function MaintenanceLocationInventory({
+  maintenanceId = '',
   devices = [],
   locations = [],
   status,
@@ -327,7 +328,7 @@ export default function MaintenanceLocationInventory({
     if (projectMode) {
       const deviceIds = visibleGroups.flatMap((group) => group.visibleItems.map(deviceId).filter(Boolean));
       navigate(
-        `/mantenimientos/${encodeURIComponent(pick(device, ['MantenimientoRef', 'maintenanceId'], ''))}/dispositivos/${encodeURIComponent(id)}`,
+        `/mantenimientos/${encodeURIComponent(maintenanceId || pick(device, ['MantenimientoRef', 'maintenanceId'], ''))}/dispositivos/${encodeURIComponent(id)}`,
         {
           state: {
             returnTo: `${routeLocation.pathname}${routeLocation.search || ''}`,
