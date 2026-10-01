@@ -64,7 +64,7 @@ export default function UserFormPage({ mode }) {
 
   if (temporaryPassword) {
     return (
-      <div className="page page--narrow">
+      <div className="page page--narrow user-form-page">
         <section className="success-card">
           <span className="success-card__icon"><Icon name="check_circle" filled /></span>
           <h1>Usuario creado</h1>
@@ -80,7 +80,7 @@ export default function UserFormPage({ mode }) {
   }
 
   return (
-    <div className="page page--narrow">
+    <div className="page page--narrow user-form-page">
       <header className="page-header">
         <Link to="/usuarios" className="icon-button" aria-label="Cancelar"><Icon name="close" /></Link>
         <div><span className="eyebrow">Administración</span><h1>{mode === 'create' ? 'Crear usuario' : 'Editar usuario'}</h1></div>
