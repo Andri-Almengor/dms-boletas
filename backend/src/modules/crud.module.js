@@ -1,4 +1,4 @@
-import { appendRow, findById, findRows, queryPage, softDelete, updateRow } from '../infra/sheets.repository.js';
+import { appendRow, findById, findRows, queryKnowledgeCategoryUsageCounts, queryPage, softDelete, updateRow } from '../infra/sheets.repository.js';
 import { audit } from '../services/audit.service.js';
 import { asBool, nowIso, pick, uuid } from '../core/utils.js';
 import { badRequest } from '../core/errors.js';
@@ -215,12 +215,24 @@ export function crudHandlers(definitionKey) {
           if (def.parent === 'UbicacionID') request.ubicacionId = parentValue;
         }
       }
-      const result = await queryPage(def.table, request, {
-        searchFields: def.search,
-        excludeInactive: !includeInactive,
-        excludeInactiveState: !includeInactive,
-      });
+      const usagePromise = definitionKey === 'knowledgeCategories' && asBool(payload.includeUsageCount, false)
+        ? queryKnowledgeCategoryUsageCounts()
+        : Promise.resolve(null);
+      const [result, usageCounts] = await Promise.all([
+        queryPage(def.table, request, {
+          searchFields: def.search,
+          excludeInactive: !includeInactive,
+          excludeInactiveState: !includeInactive,
+        }),
+        usagePromise,
+      ]);
       if (definitionKey === 'clients') result.items = result.items.map((row) => sanitizeClientRow(row, ctx));
+      if (definitionKey === 'knowledgeCategories' && usageCounts) {
+        result.items = result.items.map((row) => ({
+          ...row,
+          TutorialCount: Number(usageCounts[String(row.CategoriaConocimientoID || '')] || 0),
+        }));
+      }
       return result;
     },
     get: async (ctx) => {
