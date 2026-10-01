@@ -57,3 +57,37 @@ test('asistente y superficies públicas también respetan safe areas', () => {
   assert.match(surveys, /public-survey-page[\s\S]*var\(--safe-area-top\)[\s\S]*var\(--safe-area-bottom\)/);
   assert.match(cases, /customer-case-public-brand[^}]*var\(--safe-area-top\)[^}]*var\(--safe-area-right\)/s);
 });
+
+
+test('overlays compartidos centralizan Escape bloqueo de scroll y devolución de foco', () => {
+  const hook = source('src/hooks/useOverlaySurface.js');
+  const modal = source('src/components/forms/AdminEntityModal.jsx');
+  const filters = source('src/components/forms/FilterDrawer.jsx');
+  const shell = source('src/components/layout/AppShell.jsx');
+
+  assert.match(hook, /scrollLockDepth/);
+  assert.match(hook, /document\.body\.style\.overflow = 'hidden'/);
+  assert.match(hook, /event\.key !== 'Escape'/);
+  assert.match(hook, /previous\.focus\(\{ preventScroll: true \}\)/);
+
+  assert.match(modal, /useOverlaySurface\(\{ open, onClose, busy \}\)/);
+  assert.match(filters, /useOverlaySurface\(\{ open, onClose \}\)/);
+  assert.match(shell, /useOverlaySurface\(\{ open: drawerOpen/);
+});
+
+test('drawer principal y filtros siguen utilizables en pantallas bajas y teléfonos estrechos', () => {
+  const pages = source('src/styles/pages.css');
+  const workflow = source('src/styles/workflow.css');
+  const tokens = source('src/styles/tokens.css');
+
+  assert.match(tokens, /--page-wide-max-width:\s*1280px/);
+  assert.match(tokens, /--touch-target-min:\s*44px/);
+  assert.match(pages, /\.page--wide\s*\{[^}]*--page-wide-max-width/s);
+  assert.match(pages, /\.side-drawer__nav\s*\{[^}]*overflow-y:\s*auto/s);
+  assert.match(pages, /\.side-drawer__nav\s*\{[^}]*overscroll-behavior:\s*contain/s);
+
+  assert.match(workflow, /@media \(max-width: 760px\)[\s\S]*\.filter-drawer\s*\{[\s\S]*inset:\s*auto 0 0/);
+  assert.match(workflow, /height:\s*min\(88dvh,/);
+  assert.match(workflow, /border-radius:\s*var\(--overlay-radius\) var\(--overlay-radius\) 0 0/);
+  assert.match(workflow, /@media \(max-width: 390px\)[\s\S]*\.filter-drawer footer[\s\S]*grid-template-columns:\s*1fr/);
+});
