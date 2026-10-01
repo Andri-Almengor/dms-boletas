@@ -464,3 +464,42 @@
     align-self: end;
   }
 }
+
+
+@media (max-width: 720px) {
+  .assistant-attachment-grid {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
+
+  .assistant-attachment-card--pdf,
+  .assistant-attachment-card--file,
+  .assistant-attachment-card--video {
+    grid-column: 1 / -1;
+  }
+
+  .assistant-attachment-card img {
+    aspect-ratio: 4 / 3;
+    max-height: 190px;
+    object-fit: contain;
+  }
+
+  .assistant-attachment-card header {
+    min-width: 0;
+  }
+
+  .assistant-attachment-card header strong,
+  .assistant-attachment-card header span {
+    min-width: 0;
+    overflow-wrap: anywhere;
+  }
+}
+
+@media (max-width: 390px) {
+  .assistant-attachment-grid {
+    gap: 7px;
+  }
+
+  .assistant-attachment-card header {
+    padding: 8px;
+  }
+}
