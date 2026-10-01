@@ -264,7 +264,7 @@
 }
 
 .app-shell--assistant .assistant-composer {
-  padding: 12px 14px calc(12px + env(safe-area-inset-bottom));
+  padding: 12px 14px calc(12px + var(--safe-area-bottom));
   border-top-color: var(--outline-soft);
   background: color-mix(in srgb, var(--surface-card) 97%, transparent);
   backdrop-filter: blur(16px);
@@ -426,7 +426,7 @@
   }
 
   .app-shell--assistant .assistant-composer__row {
-    grid-template-columns: 40px minmax(0, 1fr) 46px;
+    grid-template-columns: var(--touch-target-min) minmax(0, 1fr) 46px;
     gap: 6px;
     padding: 5px;
   }
@@ -450,9 +450,9 @@
   }
 
   .app-shell--assistant .assistant-attach-button {
-    width: 40px;
-    height: 44px;
-    flex-basis: 40px;
+    width: var(--touch-target-min);
+    height: var(--touch-target-min);
+    flex-basis: var(--touch-target-min);
   }
 
   .app-shell--assistant .assistant-composer small {
@@ -501,9 +501,9 @@
 
   .assistant-route-bar__bot,
   .assistant-route-bar__close {
-    flex-basis: 40px;
-    width: 40px;
-    height: 40px;
+    flex-basis: var(--touch-target-min);
+    width: var(--touch-target-min);
+    height: var(--touch-target-min);
   }
 
   .assistant-route-bar__identity strong {
