@@ -1,6 +1,7 @@
 import React, { useEffect, useRef, useState } from 'react';
 import Icon from '../common/Icon';
 import MaintenanceQuickDeviceCreator from './MaintenanceQuickDeviceCreator';
+import useOverlaySurface from '../../hooks/useOverlaySurface';
 import { pick } from '../../services/moduleApi';
 import { uploadMaintenanceImagesInBatches } from '../../services/maintenanceImageBatch';
 import {
@@ -41,6 +42,7 @@ function DeviceEvidenceUploader({ device, maintenanceId, sessionToken, onClose, 
   const [evidences, setEvidences] = useState([]);
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState('');
+  useOverlaySurface({ open: true, onClose, busy: saving });
   const targets = projectMode ? projectEvidenceTargets(device) : [];
   const defaultTarget = targets[0] || null;
   const evidencesRef = useRef([]);
