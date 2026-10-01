@@ -189,7 +189,7 @@ export default function SurveysAdminPage() {
     setStatus(nextStatus);
   }
 
-  return <div className="page survey-admin-page">
+  return <div className="page page--wide survey-admin-page">
     <div className="list-page-heading">
       <div><span className="eyebrow">Experiencia del cliente</span><h1>Encuestas de servicio</h1><p>Administra las preguntas y revisa las respuestas relacionadas con cada boleta.</p></div>
       {tab === 'questions' && <button className="button button--primary button--compact" type="button" onClick={openCreate}><Icon name="add" />Nueva pregunta</button>}
@@ -200,7 +200,7 @@ export default function SurveysAdminPage() {
       <button type="button" className={tab === 'questions' ? 'is-active' : ''} onClick={() => setTab('questions')}><Icon name="quiz" />Preguntas</button>
     </div>
 
-    {error && <div className="alert alert--error"><Icon name="error" /><span>{error}</span></div>}
+    {error && <div className="alert alert--error" role="alert"><Icon name="error" /><span>{error}</span></div>}
     {loading ? <div className="state-card state-card--loading"><Icon name="progress_activity" />Cargando encuestas...</div> : tab === 'questions' ? (
       <div className="admin-mini-card-grid admin-mini-card-grid--questions">
         {sortedQuestions.map((question) => <article className={`admin-mini-card admin-mini-card--question${question.status === 'INACTIVO' ? ' is-inactive' : ''}`} key={question.id}>
@@ -212,7 +212,7 @@ export default function SurveysAdminPage() {
       </div>
     ) : <>
       <form className="survey-response-filters" onSubmit={submitResponseSearch}>
-        <div className="knowledge-search"><Icon name="search" /><input value={search} onChange={(event) => setSearch(event.target.value)} placeholder="Buscar cliente, boleta o título..." /><button className="icon-button" aria-label="Buscar"><Icon name="search" /></button></div>
+        <div className="knowledge-search"><Icon name="search" /><input type="search" value={search} onChange={(event) => setSearch(event.target.value)} placeholder="Buscar cliente, boleta o título..." aria-label="Buscar encuestas" enterKeyHint="search" autoComplete="off" /><button className="icon-button" type="submit" aria-label="Buscar"><Icon name="arrow_forward" /></button></div>
         <select className="form-control" value={status} onChange={(event) => changeResponseStatus(event.target.value)}><option value="">Todos los estados</option><option value="PENDIENTE">Pendientes</option><option value="RESPONDIDA">Respondidas</option><option value="EXPIRADA">Expiradas</option></select>
       </form>
       <div className="ticket-list-result-count"><span>Mostrando <strong>{visibleResponses.length}</strong>{total > visibleResponses.length ? ` de ${total}` : ''} encuestas</span></div>
@@ -229,7 +229,7 @@ export default function SurveysAdminPage() {
     </>}
 
     <AdminEntityModal open={Boolean(selectedQuestion)} title={form.text || 'Nueva pregunta'} subtitle={form.id ? `Orden ${form.order} · ${form.status}` : 'El cliente calificará esta pregunta del 1 al 5'} eyebrow={editing ? (form.id ? 'Editar pregunta' : 'Nueva pregunta') : 'Detalle de pregunta'} icon="quiz" onClose={closeQuestion} busy={saving} footer={!editing && form.id ? <><button className="button button--secondary" type="button" onClick={changeQuestionStatus} disabled={saving}><Icon name={form.status === 'INACTIVO' ? 'refresh' : 'block'} />{form.status === 'INACTIVO' ? 'Reactivar' : 'Desactivar'}</button><button className="button button--primary" type="button" onClick={() => setEditing(true)} disabled={saving}><Icon name="edit" />Editar</button></> : null}>
-      {modalError && <div className="alert alert--error"><Icon name="error" /><span>{modalError}</span></div>}
+      {modalError && <div className="alert alert--error" role="alert"><Icon name="error" /><span>{modalError}</span></div>}
       {editing ? <form className="stack-form" onSubmit={saveQuestion}>
         <label className="field-group"><span className="field-label">Pregunta *</span><textarea className="form-control ticket-textarea" rows="4" value={form.text} onChange={(event) => setForm({ ...form, text: event.target.value })} required /></label>
         <div className="ticket-form-grid"><label className="field-group"><span className="field-label">Orden</span><input className="form-control" type="number" min="1" value={form.order} onChange={(event) => setForm({ ...form, order: event.target.value })} required /></label><label className="field-group"><span className="field-label">Estado</span><select className="form-control" value={form.status} onChange={(event) => setForm({ ...form, status: event.target.value })}><option>ACTIVO</option><option>INACTIVO</option></select></label></div>
