@@ -13,7 +13,16 @@ function initials(name = '') {
   return `${parts[0]?.[0] || ''}${parts[1]?.[0] || ''}`.toUpperCase();
 }
 function NavigationItem({ to, icon, label, end = false, prominent = false }) {
-  return <NavLink to={to} end={end} className={({ isActive }) => `bottom-nav__item${isActive ? ' is-active' : ''}${prominent ? ' bottom-nav__item--prominent' : ''}`}><span className={prominent ? 'bottom-nav__fab' : ''}><Icon name={icon} filled={!prominent} /></span><span>{label}</span></NavLink>;
+  return <NavLink
+    to={to}
+    end={end}
+    className={({ isActive }) => `bottom-nav__item${isActive ? ' is-active' : ''}${prominent ? ' bottom-nav__item--prominent' : ''}`}
+  >
+    {({ isActive }) => <>
+      <span className={`bottom-nav__icon${prominent ? ' bottom-nav__fab' : ''}`}><Icon name={icon} filled={isActive && !prominent} /></span>
+      <span>{label}</span>
+    </>}
+  </NavLink>;
 }
 
 export default function AppShell() {
@@ -36,29 +45,30 @@ export default function AppShell() {
     || /\/boletas\/[^/]+\/nueva-visita$/.test(location.pathname)
     || location.pathname === '/mantenimientos/nuevo'
     || /^\/mantenimientos\/[^/]+\/editar$/.test(location.pathname);
-  const assistantUrl = `/asistente?from=${encodeURIComponent(location.pathname)}`;
+  const currentRoute = `${location.pathname}${location.search || ''}${location.hash || ''}`;
+  const assistantUrl = `/asistente?from=${encodeURIComponent(currentRoute)}`;
   const assistantFrom = new URLSearchParams(location.search).get('from') || '/';
-  const assistantReturnUrl = assistantFrom.startsWith('/') ? assistantFrom : '/';
+  const assistantReturnUrl = assistantFrom.startsWith('/') && !assistantFrom.startsWith('//') ? assistantFrom : '/';
   const showAssistantFab = !isAssistantPage && location.pathname !== '/cambiar-contrasena';
 
   useEffect(() => {
     if (user?.CambioPasswordObligatorio && location.pathname !== '/cambiar-contrasena') navigate('/cambiar-contrasena', { replace: true });
   }, [user, location.pathname, navigate]);
-  useEffect(() => { setDrawerOpen(false); }, [location.pathname]);
+  useEffect(() => { setDrawerOpen(false); }, [location.key]);
   useOverlaySurface({ open: drawerOpen, onClose: () => setDrawerOpen(false) });
   async function handleLogout() { await logout(); navigate('/login', { replace: true }); }
 
   return <div className={`app-shell${isWorkflowForm ? ' app-shell--form' : ''}${isAssistantPage ? ' app-shell--assistant' : ''}`}>
-    {!isWorkflowForm && !isAssistantPage && <header className="top-bar"><button type="button" className="icon-button" onClick={() => setDrawerOpen(true)} aria-label="Abrir menú" aria-expanded={drawerOpen}><Icon name="menu" /></button><NavLink to="/" className="top-bar__brand">DMS Boletas</NavLink><NavLink to="/mas" className="avatar avatar--small" aria-label="Abrir perfil">{initials(user?.NombreCompleto)}</NavLink></header>}
+    {!isWorkflowForm && !isAssistantPage && <header className="top-bar"><button type="button" className="icon-button" onClick={() => setDrawerOpen(true)} aria-label="Abrir menú" aria-expanded={drawerOpen} aria-controls="dms-main-drawer"><Icon name="menu" /></button><NavLink to="/" className="top-bar__brand" aria-label="Ir al inicio">DMS Boletas</NavLink><NavLink to="/mas" className="avatar avatar--small" aria-label="Abrir perfil">{initials(user?.NombreCompleto)}</NavLink></header>}
     {isAssistantPage && <header className="assistant-route-bar">
       <div className="assistant-route-bar__identity"><span className="assistant-route-bar__bot"><Icon name="smart_toy" filled /></span><div><strong>DMS Assistant</strong><span><i />En línea</span></div></div>
       <NavLink className="assistant-route-bar__close" to={assistantReturnUrl} aria-label="Cerrar Asistente DMS" title="Cerrar"><Icon name="close" /></NavLink>
     </header>}
     {offlineEnabled && <Suspense fallback={null}><OfflineSyncManager /></Suspense>}
-    <div className={`drawer-backdrop${drawerOpen ? ' is-open' : ''}`} onClick={() => setDrawerOpen(false)} aria-hidden="true" />
-    <aside className={`side-drawer${drawerOpen ? ' is-open' : ''}`} aria-hidden={!drawerOpen}>
+    <button type="button" className={`drawer-backdrop${drawerOpen ? ' is-open' : ''}`} onClick={() => setDrawerOpen(false)} aria-label="Cerrar menú" tabIndex={drawerOpen ? 0 : -1} />
+    <aside id="dms-main-drawer" className={`side-drawer${drawerOpen ? ' is-open' : ''}`} role="dialog" aria-modal={drawerOpen ? 'true' : undefined} aria-label="Menú principal" aria-hidden={!drawerOpen}>
       <div className="side-drawer__profile"><div className="avatar avatar--large">{initials(user?.NombreCompleto)}</div><div><strong>{user?.NombreCompleto}</strong><span>{isAdmin ? 'Administrador' : 'Técnico'}</span></div></div>
-      <nav className="side-drawer__nav">
+      <nav className="side-drawer__nav" aria-label="Secciones de DMS Boletas" onClick={() => setDrawerOpen(false)}>
         <NavLink to="/" end><Icon name="home" /> Inicio</NavLink>
         <NavLink to="/agenda"><Icon name="calendar_month" /> Agenda</NavLink>
         <NavLink to="/asistente"><Icon name="smart_toy" /> Asistente DMS</NavLink>

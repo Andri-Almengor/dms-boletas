@@ -9,6 +9,7 @@ import './agenda-editor-mobile-ui.test.mjs';
 import './agenda-responsive-stage.test.mjs';
 import './app-recovery.test.mjs';
 import './app-responsive-foundation.test.mjs';
+import './app-shell-mobile-navigation.test.mjs';
 import './responsive-final-qa.test.mjs';
 import './admin-responsive-stage.test.mjs';
 import './knowledge-assistant-aux-responsive-stage.test.mjs';
