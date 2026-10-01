@@ -13,12 +13,14 @@ function lockBodyScroll() {
 }
 
 function unlockBodyScroll() {
-  if (typeof document === 'undefined' || scrollLockDepth <= 0) return;
+  if (typeof document === 'undefined' || scrollLockDepth <= 0) return true;
   scrollLockDepth -= 1;
   if (scrollLockDepth === 0) {
     document.body.style.overflow = previousBodyOverflow;
     previousBodyOverflow = '';
+    return true;
   }
+  return false;
 }
 
 /**
@@ -64,9 +66,9 @@ export default function useOverlaySurface({
 
     return () => {
       window.removeEventListener('keydown', handleKeyDown);
-      unlockBodyScroll();
+      const noOverlaysRemain = unlockBodyScroll();
 
-      if (!restoreFocus) return;
+      if (!restoreFocus || !noOverlaysRemain) return;
       const previous = previousFocusRef.current;
       if (!previous || !document.contains(previous)) return;
       window.requestAnimationFrame(() => previous.focus({ preventScroll: true }));
