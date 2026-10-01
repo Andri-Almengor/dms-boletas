@@ -22,7 +22,7 @@ import {
 } from '../services/maintenanceDevicePersistence';
 import { MODULE_ROUTES, pick, requestAvailable } from '../services/moduleApi';
 
-export default function useMaintenanceForm({ editing, maintenanceId }) {
+export default function useMaintenanceForm({ editing, maintenanceId, navigationState }) {
   const navigate = useNavigate();
   const { sessionToken, user, hasPermission } = useAuth();
   const isAdmin = hasPermission('USUARIOS_GESTIONAR')
@@ -203,7 +203,7 @@ export default function useMaintenanceForm({ editing, maintenanceId }) {
         await requestAvailable(MODULE_ROUTES.maintenance.finalize, { maintenanceId: id }, sessionToken);
       }
       editor.clearDeviceDraft();
-      navigate(`/mantenimientos/${encodeURIComponent(id)}`);
+      navigate(`/mantenimientos/${encodeURIComponent(id)}`, navigationState ? { state: navigationState } : undefined);
     } catch (requestError) {
       setError(requestError.message);
     } finally {
@@ -214,7 +214,7 @@ export default function useMaintenanceForm({ editing, maintenanceId }) {
   function cancelMaintenanceChanges() {
     if (maintenanceDirty && !window.confirm('¿Cancelar la edición y descartar los cambios del mantenimiento?')) return false;
     editor.clearDeviceDraft();
-    navigate(editing ? `/mantenimientos/${encodeURIComponent(maintenanceId)}` : '/mantenimientos');
+    navigate(editing ? `/mantenimientos/${encodeURIComponent(maintenanceId)}` : '/mantenimientos', editing && navigationState ? { state: navigationState } : undefined);
     return true;
   }
 
