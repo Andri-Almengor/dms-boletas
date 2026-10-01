@@ -1,5 +1,5 @@
 import React, { useEffect, useMemo, useState } from 'react';
-import { Link, useNavigate, useParams } from 'react-router-dom';
+import { Link, useLocation, useNavigate, useParams } from 'react-router-dom';
 import { useAuth } from '../../AuthContext';
 import Icon from '../../components/common/Icon';
 import MaintenanceLocationInventory from '../../components/maintenance/MaintenanceLocationInventory';
@@ -116,6 +116,14 @@ function MaintenanceMobileFold({
 export default function MaintenanceDetailPage() {
   const { maintenanceId } = useParams();
   const navigate = useNavigate();
+  const routeLocation = useLocation();
+  const requestedListReturnTo = String(routeLocation.state?.maintenanceListReturnTo || '');
+  const maintenanceListReturnTo = /^\/mantenimientos(?:\?|$)/.test(requestedListReturnTo) ? requestedListReturnTo : '/mantenimientos';
+  const maintenanceListScrollY = Number(routeLocation.state?.maintenanceListScrollY || 0);
+  const maintenanceListReturnState = Number.isFinite(maintenanceListScrollY) && maintenanceListScrollY > 0
+    ? { restoreScrollY: maintenanceListScrollY }
+    : undefined;
+  const detailUrl = `/mantenimientos/${encodeURIComponent(maintenanceId)}`;
   const { sessionToken, user, permissions, hasPermission, securityRevision } = useAuth();
   const isAdministrator = hasPermission('USUARIOS_GESTIONAR');
   const isAdmin = isAdministrator
@@ -258,7 +266,7 @@ export default function MaintenanceDetailPage() {
       }
       if (type === 'delete') {
         await requestAvailable(MODULE_ROUTES.maintenance.delete, { maintenanceId }, sessionToken);
-        navigate('/mantenimientos');
+        navigate(maintenanceListReturnTo, { state: maintenanceListReturnState });
         return;
       }
       if (type === 'sheet') {
@@ -363,7 +371,9 @@ export default function MaintenanceDetailPage() {
       setError('No fue posible identificar el dispositivo seleccionado.');
       return;
     }
-    navigate(`/mantenimientos/${encodeURIComponent(maintenanceId)}/editar?directDevice=1&device=${encodeURIComponent(id)}`);
+    navigate(`/mantenimientos/${encodeURIComponent(maintenanceId)}/editar?directDevice=1&device=${encodeURIComponent(id)}`, {
+      state: { ...routeLocation.state, returnTo: detailUrl },
+    });
   }
 
   if (loading) return <div className="page"><div className="state-card state-card--loading"><Icon name="progress_activity" />Cargando mantenimiento...</div></div>;
@@ -372,10 +382,10 @@ export default function MaintenanceDetailPage() {
   return (
     <div className="page maintenance-detail-page maintenance-detail-page--inventory">
       <div className="page-header knowledge-detail-header">
-        <button className="icon-button" type="button" onClick={() => navigate('/mantenimientos')} aria-label="Volver a mantenimientos"><Icon name="arrow_back" /></button>
+        <button className="icon-button" type="button" onClick={() => navigate(maintenanceListReturnTo, { state: maintenanceListReturnState })} aria-label="Volver a mantenimientos"><Icon name="arrow_back" /></button>
         <div><span className="eyebrow">{projectMode ? 'Proyecto técnico' : 'Mantenimiento técnico'}</span><h1>{pick(row, ['TituloMantenimiento'], projectMode ? 'Proyecto' : 'Mantenimiento')}</h1></div>
         {pending && canEdit
-          ? <Link className="icon-button" to={`/mantenimientos/${encodeURIComponent(maintenanceId)}/editar`} aria-label="Editar"><Icon name="edit" /></Link>
+          ? <Link className="icon-button" to={`/mantenimientos/${encodeURIComponent(maintenanceId)}/editar`} state={routeLocation.state} aria-label="Editar"><Icon name="edit" /></Link>
           : <span />}
       </div>
 
