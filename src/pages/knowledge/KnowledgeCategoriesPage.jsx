@@ -1,5 +1,5 @@
 import React, { useEffect, useMemo, useState } from 'react';
-import { Navigate, useNavigate } from 'react-router-dom';
+import { Navigate, useLocation, useNavigate } from 'react-router-dom';
 import { useAuth } from '../../AuthContext';
 import Icon from '../../components/common/Icon';
 import AdminEntityModal from '../../components/forms/AdminEntityModal';
@@ -18,6 +18,13 @@ function viewCategory(record = {}) {
 
 export default function KnowledgeCategoriesPage() {
   const navigate = useNavigate();
+  const routeLocation = useLocation();
+  const requestedListReturnTo = String(routeLocation.state?.knowledgeListReturnTo || '');
+  const knowledgeListReturnTo = /^\/conocimiento(?:\?|$)/.test(requestedListReturnTo) ? requestedListReturnTo : '/conocimiento';
+  const knowledgeListScrollY = Number(routeLocation.state?.knowledgeListScrollY || 0);
+  const knowledgeListReturnState = Number.isFinite(knowledgeListScrollY) && knowledgeListScrollY > 0
+    ? { restoreScrollY: knowledgeListScrollY }
+    : undefined;
   const { sessionToken, hasPermission } = useAuth();
   const canManage = hasPermission('CONOCIMIENTO_CATEGORIAS_GESTIONAR') || hasPermission('USUARIOS_GESTIONAR');
   const [items, setItems] = useState([]);
@@ -142,12 +149,12 @@ export default function KnowledgeCategoriesPage() {
     }
   }
 
-  if (!canManage) return <Navigate to="/conocimiento" replace />;
+  if (!canManage) return <Navigate to={knowledgeListReturnTo} replace state={knowledgeListReturnState} />;
 
   const tutorialCount = form.id ? counts.get(String(form.id)) || 0 : 0;
 
   return <div className="page knowledge-categories-page">
-    <div className="page-header"><button className="icon-button" type="button" onClick={() => navigate('/conocimiento')}><Icon name="arrow_back" /></button><div><span className="eyebrow">Base de conocimientos</span><h1>Categorías</h1></div></div>
+    <div className="page-header"><button className="icon-button" type="button" onClick={() => navigate(knowledgeListReturnTo, { state: knowledgeListReturnState })}><Icon name="arrow_back" /></button><div><span className="eyebrow">Base de conocimientos</span><h1>Categorías</h1></div></div>
     <div className="list-page-heading"><p>Organiza los tutoriales por plataforma, producto o tecnología.</p><button className="button button--primary button--compact" type="button" onClick={openCreate}><Icon name="add" />Nueva categoría</button></div>
 
     <label className="search-bar"><Icon name="search" /><input value={search} onChange={(event) => setSearch(event.target.value)} placeholder="Buscar categoría o descripción..." /><button className="icon-button" type="button" onClick={load} aria-label="Actualizar"><Icon name="refresh" /></button></label>
