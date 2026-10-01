@@ -159,6 +159,43 @@
 }
 
 @media (max-width: 560px) {
+  .ticket-detail-page .ticket-status-card {
+    padding: 12px;
+    gap: 10px;
+  }
+
+  .ticket-detail-page .ticket-detail-section {
+    margin-bottom: 10px;
+    border-radius: 14px;
+  }
+
+  .ticket-detail-page .ticket-detail-section summary {
+    min-height: 56px;
+    padding: 10px 12px;
+    gap: 8px;
+  }
+
+  .ticket-detail-page .ticket-detail-section__content {
+    padding: 0 12px 12px;
+  }
+
+  .ticket-detail-page .ticket-info-grid {
+    gap: 8px;
+  }
+
+  .ticket-detail-page .ticket-info-grid div {
+    padding: 10px;
+  }
+
+  .ticket-detail-page .section-block {
+    margin-top: 20px;
+  }
+
+  .ticket-detail-page .document-links {
+    margin-top: 20px;
+    padding: 12px;
+  }
+
   .ticket-detail-capture-actions {
     grid-template-columns: 1fr;
   }
