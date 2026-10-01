@@ -1,3 +1,7 @@
+.customer-cases-page {
+  width: min(100%, var(--page-wide-max-width));
+}
+
 .case-dashboard-heading__actions .button {
   white-space: nowrap;
 }
@@ -133,5 +137,12 @@
 
   .case-status-tabs button {
     font-size: .73rem;
+  }
+}
+
+
+@media (min-width: 1180px) {
+  .customer-case-card-grid {
+    grid-template-columns: repeat(3, minmax(0, 1fr));
   }
 }
