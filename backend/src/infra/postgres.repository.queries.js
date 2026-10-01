@@ -239,16 +239,10 @@ export async function queryAgendaTickets({ dates = [], ticketIds = [] } = {}) {
   return result.rows.map(publicRow);
 }
 
-export async function queryKnowledgeCategoryUsageCounts(categoryIds = []) {
-  const requested = [...new Set((categoryIds || []).map((value) => String(value || '').trim()).filter(Boolean))];
-  const params = [];
-  const categoryFilter = requested.length
-    ? (params.push(requested), `WHERE primary_categories.category_id=ANY(${params.length}::text[])`)
-    : '';
+export async function queryKnowledgeCategoryUsageCounts() {
   const result = await query(
     `WITH primary_categories AS (
        SELECT
-         a."TutorialID" AS tutorial_id,
          COALESCE(
            (
              SELECT NULLIF(rel."CategoriaConocimientoID",'')
@@ -258,7 +252,7 @@ export async function queryKnowledgeCategoryUsageCounts(categoryIds = []) {
                AND LOWER(COALESCE(rel."Activo",'true')) <> 'false'
              ORDER BY
                CASE
-                 WHEN COALESCE(rel."Orden",'') ~ '^-?[0-9]+(?:\\.[0-9]+)?
+                 WHEN COALESCE(rel."Orden",'') ~ '^[0-9]+
   const page = Math.max(1, Number(payload.page || 1));
   const pageSize = Math.min(1000, Math.max(1, Number(payload.pageSize || 100)));
   const params = [];
@@ -601,9 +595,8 @@ export function filterRows(rows, payload = {}, searchFields = []) {
   return {items:items.map(({__rowNumber,...row})=>row),total,page,pageSize};
 }
 
-
-                 THEN rel."Orden"::numeric
-                 ELSE 999999999
+ THEN rel."Orden"::bigint
+                 ELSE 9223372036854775807
                END ASC,
                rel."__db_id" ASC
              LIMIT 1
@@ -615,23 +608,15 @@ export function filterRows(rows, payload = {}, searchFields = []) {
          AND LOWER(COALESCE(a."Activo",'true')) <> 'false'
          AND UPPER(COALESCE(NULLIF(a."Estado",''),'PUBLICADO'))='PUBLICADO'
      )
-     SELECT primary_categories.category_id AS id, COUNT(*)::bigint AS total
+     SELECT category_id AS id, COUNT(*)::bigint AS total
      FROM primary_categories
-     ${categoryFilter}
-     WHERE primary_categories.category_id IS NOT NULL
-       AND primary_categories.category_id <> ''
-     GROUP BY primary_categories.category_id`.replace(
-       categoryFilter ? '\n     WHERE primary_categories.category_id IS NOT NULL' : '__NO_CATEGORY_FILTER__',
-       categoryFilter
-         ? '\n       AND primary_categories.category_id IS NOT NULL'
-         : '__NO_CATEGORY_FILTER__',
-     ).replace('__NO_CATEGORY_FILTER__', 'WHERE primary_categories.category_id IS NOT NULL'),
-    params,
+     WHERE category_id IS NOT NULL AND category_id <> ''
+     GROUP BY category_id`,
+    [],
     { label: 'knowledge.categories.usageCounts' },
   );
   return Object.fromEntries(result.rows.map((row) => [String(row.id || ''), Number(row.total || 0)]));
 }
-
 export async function queryKnowledgeArticlePage(payload = {}, { viewerUserId = '', canManage = false } = {}) {
   const page = Math.max(1, Number(payload.page || 1));
   const pageSize = Math.min(1000, Math.max(1, Number(payload.pageSize || 100)));
