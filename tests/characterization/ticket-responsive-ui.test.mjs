@@ -82,3 +82,62 @@ test('tarjetas completas siguen siendo accesibles por click Enter y Espacio', ()
   assert.match(card, /tabIndex=\{detailUrl \? 0/);
   assert.match(card, /aria-label=\{detailUrl \? `Abrir detalle de la boleta/);
 });
+
+
+test('Pendientes y Finalizadas persisten búsqueda y filtros en la URL sin cambiar la consulta existente', () => {
+  const list = source('src/pages/tickets/TicketListPage.jsx');
+
+  assert.match(list, /FILTER_QUERY_KEYS/);
+  assert.match(list, /readListQuery\(routeLocation\.search\)/);
+  assert.match(list, /buildListQuery\(nextSearch, nextFilters\)/);
+  assert.match(list, /navigate\(\`\$\{routeLocation\.pathname\}\$\{query \? \`\?\$\{query\}\` : ''\}\`, \{ replace: true \}\)/);
+  assert.match(list, /requestSynchronizedCollection/);
+  assert.match(list, /usePaginatedResource/);
+});
+
+test('TicketCard conserva origen y scroll para detalle y edición sin duplicar tarjetas', () => {
+  const card = source('src/components/tickets/TicketCard.jsx');
+  const list = source('src/pages/tickets/TicketListPage.jsx');
+
+  assert.match(card, /returnTo = ''/);
+  assert.match(card, /returnScrollY:/);
+  assert.match(card, /window\.scrollY/);
+  assert.match(card, /navigate\(detailUrl, \{ state: returnState\(\) \}\)/);
+  assert.match(list, /returnTo=\{currentListUrl\}/);
+  assert.doesNotMatch(card, /MobileTicketCard|DesktopTicketCard/);
+});
+
+test('detalle y ediciones conservan el contexto del listado al regresar', () => {
+  const detail = source('src/pages/tickets/TicketDetailPage.jsx');
+  const wrapper = source('src/pages/tickets/TicketDetailWithQuickEdit.jsx');
+  const quick = source('src/pages/tickets/TicketQuickEditPage.jsx');
+  const form = source('src/pages/tickets/TicketFormPage.jsx');
+  const persistence = source('src/features/tickets/useTicketPersistence.js');
+
+  assert.match(detail, /validReturnTo = \/\^\\\/boletas\\\/\(pendientes\|finalizadas\)/);
+  assert.match(detail, /restoreScrollY: returnScrollY/);
+  assert.match(detail, /state=\{routeLocation\.state\}/);
+  assert.match(wrapper, /navigate\([^\n]*editar-rapido[^\n]*\{ state: location\.state \}/);
+  assert.match(quick, /const returnState = location\.state/);
+  assert.match(form, /navigationState: returnState/);
+  assert.match(persistence, /navigationState \? \{ state: navigationState \} : undefined/);
+});
+
+test('Home compacto conserva equipo y responsable dentro del TicketCard compartido', () => {
+  const card = source('src/components/tickets/TicketCard.jsx');
+  const styles = source('src/styles/modules.css');
+
+  assert.match(card, /ticket-card__compact-data/);
+  assert.match(card, /<Icon name="devices_other"/);
+  assert.match(card, /<Icon name="engineering"/);
+  assert.match(styles, /\.ticket-card__compact-data\s*\{/);
+});
+
+test('acciones móviles de búsqueda y consulta respetan el target táctil compartido', () => {
+  const styles = source('src/styles/modules.css');
+
+  assert.match(styles, /ticket-list-search-bar[\s\S]*var\(--touch-target-min\) var\(--touch-target-min\)/);
+  assert.match(styles, /\.ticket-list-search-bar \.icon-button \{ width: var\(--touch-target-min\); height: var\(--touch-target-min\); \}/);
+  assert.match(styles, /\.ticket-list-query-state > button \{ min-height: var\(--touch-target-min\)/);
+  assert.match(styles, /\.page--home \.stat-card \{ min-height: 112px/);
+});
