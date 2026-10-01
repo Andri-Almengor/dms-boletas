@@ -1,5 +1,6 @@
 import React, { useEffect, useMemo, useRef, useState } from 'react';
 import Icon from '../common/Icon';
+import useOverlaySurface from '../../hooks/useOverlaySurface';
 import { MODULE_ROUTES, pick, requestAvailable } from '../../services/moduleApi';
 import { evidenceMediaKind } from '../../utils/evidenceMedia';
 
@@ -96,6 +97,8 @@ export default function MaintenanceEvidenceImage({
   const activePreviewSource = evidenceSource(activeImage);
   const canGoPrevious = activeIndex > 0;
   const canGoNext = activeIndex < gallery.length - 1;
+
+  useOverlaySurface({ open, onClose: closeFullImage });
 
   async function loadProtectedMedia(force = false) {
     if (!imageId || (!force && attemptedRef.current)) {
@@ -265,12 +268,8 @@ export default function MaintenanceEvidenceImage({
       if (neighborId) requestProtectedSource(neighborId, sessionToken).catch(() => {});
     });
 
-    const previousOverflow = document.body.style.overflow;
-    document.body.style.overflow = 'hidden';
-
     function handleKeyDown(event) {
-      if (event.key === 'Escape') closeFullImage();
-      else if (event.key === 'ArrowLeft') showPrevious();
+      if (event.key === 'ArrowLeft') showPrevious();
       else if (event.key === 'ArrowRight') showNext();
       else if (event.key === '+' || event.key === '=') zoomBy(ZOOM_STEP);
       else if (event.key === '-') zoomBy(-ZOOM_STEP);
@@ -279,7 +278,6 @@ export default function MaintenanceEvidenceImage({
 
     window.addEventListener('keydown', handleKeyDown);
     return () => {
-      document.body.style.overflow = previousOverflow;
       window.removeEventListener('keydown', handleKeyDown);
     };
   });
