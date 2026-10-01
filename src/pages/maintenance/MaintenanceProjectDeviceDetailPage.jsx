@@ -146,8 +146,14 @@ export default function MaintenanceProjectDeviceDetailPage() {
     || requestedReturnUrl.startsWith(`${maintenanceDetailUrl}?`)
   ) ? requestedReturnUrl : maintenanceDetailUrl;
 
+  function maintenanceDetailState() {
+    if (!location.state) return undefined;
+    const { returnTo: _returnTo, deviceIds: _deviceIds, ...rest } = location.state;
+    return Object.keys(rest).length ? rest : undefined;
+  }
+
   function goBack() {
-    navigate(returnUrl, { replace: true });
+    navigate(returnUrl, { replace: true, state: maintenanceDetailState() });
   }
 
   function goToDevice(nextDeviceId) {
@@ -172,6 +178,7 @@ export default function MaintenanceProjectDeviceDetailPage() {
       `/mantenimientos/${encodeURIComponent(maintenanceId)}/editar?directDevice=1&device=${encodeURIComponent(id)}`,
       {
         state: {
+          ...location.state,
           returnTo: `/mantenimientos/${encodeURIComponent(maintenanceId)}/dispositivos/${encodeURIComponent(id)}`,
         },
       },
