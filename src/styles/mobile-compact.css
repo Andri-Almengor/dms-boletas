@@ -199,7 +199,7 @@ button {
 
 .mobile-time-picker__header {
   display: grid;
-  grid-template-columns: minmax(0, 1fr) 40px;
+  grid-template-columns: minmax(0, 1fr) var(--touch-target-min);
   align-items: start;
   gap: 12px;
 }
@@ -210,8 +210,8 @@ button {
 }
 
 .mobile-time-picker__header .icon-button {
-  width: 40px;
-  height: 40px;
+  width: var(--touch-target-min);
+  height: var(--touch-target-min);
 }
 
 .mobile-time-picker__display {
@@ -325,15 +325,15 @@ button {
   }
 
   .ticket-form-header {
-    grid-template-columns: 36px minmax(0, 1fr) !important;
+    grid-template-columns: var(--touch-target-min) minmax(0, 1fr) !important;
     gap: 8px;
     margin: -12px -12px 12px !important;
     padding: 10px 12px !important;
   }
 
   .ticket-form-header .icon-button {
-    width: 36px;
-    height: 36px;
+    width: var(--touch-target-min);
+    height: var(--touch-target-min);
   }
 
   .ticket-form-header h1 {
@@ -418,8 +418,8 @@ button {
   }
 
   .field-add-button {
-    min-height: 30px;
-    padding: 0 3px;
+    min-height: var(--touch-target-min);
+    padding: 0 6px;
     font-size: .68rem;
   }
 
@@ -455,7 +455,9 @@ button {
   }
 
   .searchable-select__clear {
-    right: 3px;
+    right: 1px;
+    width: var(--touch-target-min);
+    height: var(--touch-target-min);
   }
 
   .searchable-select__menu {
@@ -463,7 +465,7 @@ button {
   }
 
   .searchable-select__option {
-    min-height: 42px;
+    min-height: var(--touch-target-min);
     padding: 8px 9px;
     font-size: .82rem;
   }
