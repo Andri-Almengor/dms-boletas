@@ -111,12 +111,13 @@ function CredentialCard({ item, canManage, revealed, onReveal, onCopy, onEdit, o
 export default function PasswordVaultPage() {
   const { sessionToken, hasPermission } = useAuth();
   const [searchParams, setSearchParams] = useSearchParams();
+  const requestedSearch = searchParams.get('q') || '';
   const [data, setData] = useState({ clients: [], categories: [], credentials: [], canManage: false, encryptionConfigured: true });
   const [loading, setLoading] = useState(true);
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState('');
   const [message, setMessage] = useState('');
-  const [search, setSearch] = useState('');
+  const [search, setSearch] = useState(requestedSearch);
   const [clientFilter, setClientFilter] = useState(searchParams.get('cliente') || '');
   const [openClients, setOpenClients] = useState(() => new Set());
   const [openCategories, setOpenCategories] = useState(() => new Set());
@@ -174,6 +175,14 @@ export default function PasswordVaultPage() {
     }
     return byClient;
   }, [filteredCredentials]);
+
+  function changeSearch(value) {
+    setSearch(value);
+    const next = new URLSearchParams(searchParams);
+    if (value) next.set('q', value);
+    else next.delete('q');
+    setSearchParams(next, { replace: true });
+  }
 
   function changeClientFilter(value) {
     setClientFilter(value);
@@ -359,7 +368,7 @@ export default function PasswordVaultPage() {
     {message && <div className="password-vault-alert is-success"><Icon name="check_circle" /><span>{message}</span></div>}
 
     <section className="password-vault-toolbar">
-      <label><Icon name="search" /><input type="search" value={search} onChange={(event) => setSearch(event.target.value)} placeholder="Buscar cliente, categoría, sistema, usuario, URL o nota..." aria-label="Buscar credenciales" enterKeyHint="search" autoComplete="off" /></label>
+      <label><Icon name="search" /><input type="search" value={search} onChange={(event) => changeSearch(event.target.value)} placeholder="Buscar cliente, categoría, sistema, usuario, URL o nota..." aria-label="Buscar credenciales" enterKeyHint="search" autoComplete="off" /></label>
       <select value={clientFilter} onChange={(event) => changeClientFilter(event.target.value)}><option value="">Todos los clientes</option>{data.clients.map((client) => <option key={client.id} value={client.id}>{client.name} ({client.credentialCount})</option>)}</select>
       <button type="button" className="button button--secondary button--compact" onClick={() => load()} disabled={loading}><Icon name={loading ? 'progress_activity' : 'refresh'} />Actualizar</button>
     </section>
