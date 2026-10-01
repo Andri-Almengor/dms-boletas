@@ -3,7 +3,7 @@
 .form-recovery-status,
 .form-recovery-status.is-mobile-expanded {
   position: fixed !important;
-  z-index: 1240 !important;
+  z-index: var(--z-status-indicator) !important;
   top: calc(var(--top-bar-height, 64px) + env(safe-area-inset-top, 0px) + 10px) !important;
   right: max(12px, env(safe-area-inset-right, 0px)) !important;
   bottom: auto !important;
