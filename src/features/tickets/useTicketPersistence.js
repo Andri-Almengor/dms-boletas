@@ -20,6 +20,7 @@ export default function useTicketPersistence({
   sessionToken,
   clearDraft,
   navigate,
+  navigationState,
   setError,
 }) {
   const { user } = useAuth();
@@ -106,7 +107,7 @@ export default function useTicketPersistence({
       await deleteDraft(recoveryDraftKey);
 
       completed = true;
-      navigate(`/boletas/${encodeURIComponent(uid)}`);
+      navigate(`/boletas/${encodeURIComponent(uid)}`, navigationState ? { state: navigationState } : undefined);
       return uid;
     } catch (error) {
       // Un fallo real permite reintentar, pero conserva el mismo BoletaUID para
@@ -124,7 +125,7 @@ export default function useTicketPersistence({
         setActiveAction('');
       }
     }
-  }, [boletaUid, clearDraft, editing, evidences, form, navigate, recoveryDraftKey, sessionToken, setError]);
+  }, [boletaUid, clearDraft, editing, evidences, form, navigate, navigationState, recoveryDraftKey, sessionToken, setError]);
 
   return {
     action,
