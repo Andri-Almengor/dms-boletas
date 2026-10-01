@@ -147,7 +147,6 @@ export default function MaintenanceFormPage({ mode = 'create' }) {
         onChange={state.updateCount}
         projectMode={projectMode}
         projectChecklist={state.form.projectChecklist}
-        projectChecklistLocked={editing && state.devices.length > 0}
         onProjectChecklistChange={(projectChecklist) => state.setForm((current) => ({ ...current, projectChecklist }))}
       />}
       {step === 2 && <MaintenanceDevicesStep devices={state.devices} expectedTotal={state.expectedTotal} disabled={state.readOnly} canAddDevice={canAddExpectedDevice} canCreateEquipment={state.canCreateLocation && Boolean(state.form.ubicacionId)} onAddEquipment={() => quickCreate.openModal('equipment')} onAddDevice={addDevice} onOpenDevice={state.openDevice} />}

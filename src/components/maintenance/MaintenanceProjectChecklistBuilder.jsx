@@ -17,12 +17,11 @@ export default function MaintenanceProjectChecklistBuilder({
   counts = {},
   value,
   disabled = false,
-  locked = false,
   onChange,
 }) {
   const schema = useMemo(() => normalizeProjectChecklist(value), [value]);
   const selected = useMemo(() => selectedCategories(categories, counts), [categories, counts]);
-  const readOnly = disabled || locked;
+  const readOnly = disabled;
 
   function patchGroup(category, updater) {
     onChange?.(upsertProjectChecklistGroup(schema, category, updater));
@@ -68,7 +67,6 @@ export default function MaintenanceProjectChecklistBuilder({
       <Icon name="checklist" />
     </div>
 
-    {locked && <div className="alert alert--warning"><Icon name="lock" /><span>El checklist queda bloqueado cuando ya existen dispositivos para evitar reinterpretar avances registrados.</span></div>}
 
     <div className="maintenance-project-checklist-builder__groups">
       {selected.map((category) => {

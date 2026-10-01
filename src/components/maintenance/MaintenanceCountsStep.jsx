@@ -12,7 +12,6 @@ export default function MaintenanceCountsStep({
   onChange,
   projectMode = false,
   projectChecklist,
-  projectChecklistLocked = false,
   onProjectChecklistChange,
 }) {
   const { sessionToken } = useAuth();
@@ -64,7 +63,6 @@ export default function MaintenanceCountsStep({
       counts={counts}
       value={projectChecklist}
       disabled={disabled}
-      locked={projectChecklistLocked}
       onChange={onProjectChecklistChange}
     />}
   </div>;

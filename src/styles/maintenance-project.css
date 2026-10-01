@@ -492,7 +492,7 @@
   gap: 16px;
   margin-top: 24px;
   padding-top: 24px;
-  border-top: 1px solid var(--border-color, #dfe3e8);
+  border-top: 1px solid var(--outline-soft, #dfe3e8);
 }
 
 .maintenance-project-checklist-builder__heading,
@@ -515,7 +515,7 @@
 .maintenance-project-checklist-group small,
 .maintenance-project-review-progress small {
   margin: 0;
-  color: var(--text-muted, #667085);
+  color: var(--muted, #667085);
 }
 
 .maintenance-project-checklist-builder__groups,
@@ -528,9 +528,9 @@
 .maintenance-project-checklist-group,
 .maintenance-project-progress,
 .maintenance-project-review-progress {
-  border: 1px solid var(--border-color, #dfe3e8);
+  border: 1px solid var(--outline-soft, #dfe3e8);
   border-radius: 16px;
-  background: var(--surface, #fff);
+  background: var(--surface-card, #fff);
   padding: 16px;
 }
 
@@ -547,7 +547,7 @@
 
 .maintenance-project-checklist-empty {
   padding: 16px 0 4px;
-  color: var(--text-muted, #667085);
+  color: var(--muted, #667085);
 }
 
 .maintenance-project-checklist-question {
@@ -556,8 +556,10 @@
   align-items: end;
   gap: 12px;
   padding: 12px;
+  border: 1px solid var(--outline-soft, #dfe3e8);
   border-radius: 12px;
-  background: var(--surface-subtle, #f8fafc);
+  background: var(--surface-low, #f8fafc);
+  color: var(--text, #1f2937);
 }
 
 .maintenance-project-checklist-question__number {
@@ -567,7 +569,7 @@
   height: 28px;
   border-radius: 999px;
   font-weight: 700;
-  background: var(--surface, #fff);
+  background: var(--surface-card, #fff);
 }
 
 .maintenance-project-progress {
@@ -583,7 +585,7 @@
   height: 8px;
   overflow: hidden;
   border-radius: 999px;
-  background: var(--surface-subtle, #eef2f6);
+  background: var(--surface-low, #eef2f6);
 }
 
 .maintenance-project-progress__track > span {
@@ -598,7 +600,7 @@
   display: grid;
   gap: 12px;
   padding: 14px;
-  border: 1px solid var(--border-color, #dfe3e8);
+  border: 1px solid var(--outline-soft, #dfe3e8);
   border-radius: 12px;
 }
 
@@ -615,7 +617,7 @@
 .maintenance-project-progress-summary {
   padding: 10px 12px;
   border-radius: 12px;
-  background: var(--surface-subtle, #f8fafc);
+  background: var(--surface-low, #f8fafc);
 }
 
 .maintenance-project-progress-summary > span {
@@ -667,7 +669,7 @@
 
 .maintenance-project-overall-progress__heading p {
   margin: 0;
-  color: var(--text-muted, #667085);
+  color: var(--muted, #667085);
 }
 
 .maintenance-project-overall-progress__heading > strong {
@@ -682,7 +684,7 @@
 .maintenance-project-overall-progress__stats span {
   display: inline-flex;
   gap: 5px;
-  color: var(--text-muted, #667085);
+  color: var(--muted, #667085);
 }
 
 @media (max-width: 640px) {
