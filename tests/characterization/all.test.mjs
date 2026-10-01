@@ -62,6 +62,7 @@ import './maintenance-progress-chat.test.mjs';
 import './maintenance-responsive-stage.test.mjs';
 import './maintenance-project-foundation.test.mjs';
 import './maintenance-project-device-editor.test.mjs';
+import './maintenance-project-relation-resolution.test.mjs';
 import './maintenance-project-device-detail.test.mjs';
 import './maintenance-project-ai-query.test.mjs';
 import './maintenance-project-ai-write.test.mjs';
