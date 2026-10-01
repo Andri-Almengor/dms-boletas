@@ -127,3 +127,49 @@ test('QA final: Proyecto reutiliza los tokens gráficos existentes', () => {
   assert.match(styles, /var\(--muted\)/);
   assert.match(styles, /var\(--text\)/);
 });
+
+
+test('Etapa 10: selector móvil compartido reutiliza tokens de safe area overlay y touch target', () => {
+  const compact = source('src/styles/mobile-compact.css');
+  const picker = source('src/components/forms/MobileTimePickerBridge.jsx');
+
+  assert.match(picker, /useOverlaySurface\(\{/);
+  assert.match(compact, /\.searchable-select__clear\s*\{[^}]*width:\s*var\(--touch-target-min\)[^}]*height:\s*var\(--touch-target-min\)/s);
+  assert.match(compact, /\.mobile-time-layer\s*\{[^}]*padding-top:\s*var\(--safe-area-top\)/s);
+  assert.match(compact, /\.mobile-time-backdrop\s*\{[^}]*background:\s*var\(--overlay-backdrop\)/s);
+  assert.match(compact, /\.mobile-time-picker\s*\{[^}]*var\(--safe-area-bottom\)[^}]*var\(--overlay-radius\)/s);
+  assert.doesNotMatch(compact, /env\(safe-area-inset-(?:top|right|bottom|left)\)/);
+});
+
+test('Etapa 10: visores de evidencia de boletas y mantenimientos comparten safe areas y targets táctiles', () => {
+  const ticket = source('src/styles/ticket-evidence-viewer.css');
+  const maintenance = source('src/styles/maintenance-evidence-gallery.css');
+
+  for (const styles of [ticket, maintenance]) {
+    assert.doesNotMatch(styles, /env\(safe-area-inset-(?:top|right|bottom|left)\)/);
+    assert.match(styles, /var\(--safe-area-top\)/);
+    assert.match(styles, /var\(--safe-area-right\)/);
+    assert.match(styles, /var\(--safe-area-bottom\)/);
+    assert.match(styles, /var\(--safe-area-left\)/);
+    assert.match(styles, /__zoom-controls button\s*\{[^}]*width:\s*var\(--touch-target-min\)[^}]*height:\s*var\(--touch-target-min\)/s);
+    assert.match(styles, /@media \(max-width: 430px\)[\s\S]*__nav\s*\{[^}]*width:\s*var\(--touch-target-min\)/s);
+  }
+
+  assert.match(ticket, /\.image-viewer__error button\s*\{[^}]*min-height:\s*var\(--touch-target-min\)/s);
+  assert.match(maintenance, /\.maintenance-lightbox__error button\s*\{[^}]*min-height:\s*var\(--touch-target-min\)/s);
+});
+
+test('Etapa 10: controles heredados de mantenimiento respetan el design system compartido', () => {
+  const maintenance = source('src/styles/maintenance.css');
+  const enhancements = source('src/styles/maintenance-enhancements.css');
+  const workflow = source('src/styles/workflow.css');
+  const locations = source('src/styles/maintenance-location-workflow.css');
+
+  assert.match(maintenance, /\.maintenance-status-tabs button\{min-height:var\(--touch-target-min\)/);
+  assert.match(maintenance, /\.maintenance-image-grid select,\.maintenance-image-grid input\{min-height:var\(--touch-target-min\)/);
+  assert.match(workflow, /\.evidence-edit-card__fields \.form-control \{ min-height:var\(--touch-target-min\)/);
+  assert.match(enhancements, /max-height:var\(--overlay-mobile-max-height\)/);
+  assert.match(enhancements, /background:var\(--overlay-backdrop\)/);
+  assert.doesNotMatch(enhancements, /env\(safe-area-inset-(?:top|right|bottom|left)\)/);
+  assert.doesNotMatch(locations, /var\(--text-main\)|var\(--text-muted\)/);
+});
