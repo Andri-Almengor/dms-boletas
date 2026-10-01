@@ -25,7 +25,7 @@ export function TicketStatusChip({ status }) {
   return <span className={`ticket-status ticket-status--${normalized === 'FINALIZADA' ? 'finished' : normalized === 'ANULADA' ? 'cancelled' : 'pending'}`}>{normalized === 'FINALIZADA' ? 'Finalizado' : normalized === 'ANULADA' ? 'Anulado' : 'Pendiente'}</span>;
 }
 
-function TicketCard({ ticket, compact = false, onDelete }) {
+function TicketCard({ ticket, compact = false, onDelete, returnTo = '' }) {
   const navigate = useNavigate();
   const id = getTicketId(ticket);
   const uid = pick(ticket, ['BoletaUID', 'TicketUID', 'boletaUid', 'uid'], id);
@@ -41,15 +41,29 @@ function TicketCard({ ticket, compact = false, onDelete }) {
   const encodedUid = encodeURIComponent(uid || 'sin-id');
   const detailUrl = uid ? `/boletas/${encodedUid}` : '';
 
+  function returnState() {
+    if (!returnTo) return undefined;
+    return {
+      returnTo,
+      returnScrollY: typeof window === 'undefined' ? 0 : Math.max(0, Number(window.scrollY || 0)),
+    };
+  }
+
   function openDetail(event) {
     if (!detailUrl || event.target.closest('a, button, input, select, textarea, label')) return;
-    navigate(detailUrl);
+    navigate(detailUrl, { state: returnState() });
   }
 
   function openWithKeyboard(event) {
     if (!detailUrl || !['Enter', ' '].includes(event.key)) return;
     event.preventDefault();
-    navigate(detailUrl);
+    navigate(detailUrl, { state: returnState() });
+  }
+
+  function openLinkWithContext(event, target) {
+    if (!returnTo) return;
+    event.preventDefault();
+    navigate(target, { state: returnState() });
   }
 
   return <article
@@ -62,8 +76,9 @@ function TicketCard({ ticket, compact = false, onDelete }) {
   >
     <div className="ticket-card__header"><div className="ticket-card__identity"><span className="ticket-card__number">#{String(id || 'SIN-ID').slice(0, 20)}</span><h3>{title}</h3>{compact && <p>Cliente: {client}</p>}</div><TicketStatusChip status={status} /></div>
     {!compact && <dl className="ticket-card__data"><div><dt>Cliente</dt><dd>{client}</dd></div><div><dt>Equipo</dt><dd>{equipment}</dd></div>{assigned && <div className="ticket-card__data-wide"><dt>Asignados</dt><dd>{assigned}</dd></div>}</dl>}
+    {compact && <div className="ticket-card__compact-data"><span><Icon name="devices_other" />{equipment}</span>{assigned && <span><Icon name="engineering" />{assigned}</span>}</div>}
     <div className="ticket-card__meta"><span><Icon name="calendar_today" /> {formatDate(date)}</span>{time && <span><Icon name="schedule" /> {formatTime(time)}</span>}{location && <span className="ticket-card__meta-location"><Icon name="location_on" /> {location}</span>}</div>
-    {!compact && uid && <div className="ticket-card__actions"><Link className="button button--primary button--compact ticket-card__primary-action" to={detailUrl}>Ver detalle</Link><div className="ticket-card__secondary-actions">{status !== 'FINALIZADA' && <Link className="icon-button icon-button--outlined" to={`${detailUrl}/editar`} aria-label="Editar boleta"><Icon name="edit" /></Link>}{status === 'FINALIZADA' && pdfUrl && <a className="icon-button icon-button--outlined" href={pdfUrl} target="_blank" rel="noreferrer" aria-label="Abrir PDF"><Icon name="picture_as_pdf" /></a>}{onDelete && <button className="icon-button icon-button--danger" type="button" onClick={() => onDelete(ticket)} aria-label="Anular boleta"><Icon name="delete" /></button>}</div></div>}
+    {!compact && uid && <div className="ticket-card__actions"><Link className="button button--primary button--compact ticket-card__primary-action" to={detailUrl} onClick={(event) => openLinkWithContext(event, detailUrl)}>Ver detalle</Link><div className="ticket-card__secondary-actions">{status !== 'FINALIZADA' && <Link className="icon-button icon-button--outlined" to={`${detailUrl}/editar`} onClick={(event) => openLinkWithContext(event, `${detailUrl}/editar`)} aria-label="Editar boleta"><Icon name="edit" /></Link>}{status === 'FINALIZADA' && pdfUrl && <a className="icon-button icon-button--outlined" href={pdfUrl} target="_blank" rel="noreferrer" aria-label="Abrir PDF"><Icon name="picture_as_pdf" /></a>}{onDelete && <button className="icon-button icon-button--danger" type="button" onClick={() => onDelete(ticket)} aria-label="Anular boleta"><Icon name="delete" /></button>}</div></div>}
   </article>;
 }
 
