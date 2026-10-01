@@ -95,6 +95,7 @@ import './stage7-indexeddb-offline.test.mjs';
 import './stage8-finalization.test.mjs';
 import './technician-delete-weekly-backup.test.mjs';
 import './ticket-responsive-ui.test.mjs';
+import './ticket-detail-responsive-stage.test.mjs';
 import './ticket-detail-evidence-ui.test.mjs';
 import './ticket-detail-performance.test.mjs';
 import './ticket-form-domain.test.mjs';
