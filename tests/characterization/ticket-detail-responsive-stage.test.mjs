@@ -82,9 +82,9 @@ test('modales y processing del formulario comparten bloqueo de scroll anidable',
 test('visor móvil aprovecha el ancho disponible y conserva safe areas', () => {
   const styles = source('src/styles/ticket-evidence-viewer.css');
 
-  assert.match(styles, /@media \(max-width: 760px\)[\s\S]*\.image-viewer--gallery[\s\S]*env\(safe-area-inset-left\)/s);
+  assert.match(styles, /@media \(max-width: 760px\)[\s\S]*\.image-viewer--gallery[\s\S]*var\(--safe-area-left\)/s);
   assert.match(styles, /\.image-viewer__canvas img\s*\{[^}]*max-width:\s*100%[^}]*100dvh/s);
-  assert.match(styles, /@media \(max-width: 430px\)[\s\S]*padding-left:\s*max\(6px, env\(safe-area-inset-left\)\)/s);
+  assert.match(styles, /@media \(max-width: 430px\)[\s\S]*padding-left:\s*max\(6px, var\(--safe-area-left\)\)/s);
 });
 
 test('firma ampliada evita 100vw y conserva viewport dinámico completo', () => {
