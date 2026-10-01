@@ -1,4 +1,5 @@
 import { useEffect, useMemo, useState } from 'react';
+import { canonicalMaintenanceCategoryName } from '../config/maintenanceCategories';
 import { requestAvailable } from '../services/moduleApi';
 
 const CONFIG_ROUTES = ['maintenance.config', 'mantenimientos.config'];
@@ -15,6 +16,20 @@ function normalized(value) {
     .replace(/[^a-z0-9]+/g, ' ')
     .replace(/\s+/g, ' ')
     .trim();
+}
+
+function typeIdentity(value) {
+  return normalized(canonicalMaintenanceCategoryName(value));
+}
+
+function mergeEquivalentQuestions(exact = [], equivalent = []) {
+  const seen = new Set();
+  return [...exact, ...equivalent].filter((question) => {
+    const key = clean(question.key || question.questionId || question.id);
+    if (!key || seen.has(key)) return false;
+    seen.add(key);
+    return true;
+  });
 }
 
 function normalizeMode(value = 'MANTENIMIENTO') {
@@ -108,14 +123,26 @@ export default function useMaintenanceQuestionCatalog(sessionToken) {
     return map;
   }, [questions]);
 
+  const byTypeIdentity = useMemo(() => {
+    const map = new Map();
+    questions.forEach((question) => {
+      const identity = typeIdentity(question.typeName);
+      if (!identity) return;
+      if (!map.has(identity)) map.set(identity, []);
+      map.get(identity).push(question);
+    });
+    map.forEach((items) => items.sort((left, right) => left.order - right.order || left.label.localeCompare(right.label, 'es')));
+    return map;
+  }, [questions]);
+
   function forDevice(device = {}, maintenanceMode = 'MANTENIMIENTO') {
     const typeId = clean(device.tipoDispositivoId || device.TipoDispositivoID);
-    const category = normalized(device.categoria || device.TipoDispositivo || device.Categoria);
+    const category = clean(device.categoria || device.TipoDispositivo || device.Categoria);
+    const identity = typeIdentity(category);
     const requestedMode = normalizeMode(maintenanceMode);
-    const selected = (typeId && byTypeId.has(typeId)
-      ? byTypeId.get(typeId)
-      : questions
-        .filter((question) => normalized(question.typeName) === category))
+    const exact = typeId && byTypeId.has(typeId) ? byTypeId.get(typeId) : [];
+    const equivalent = identity && byTypeIdentity.has(identity) ? byTypeIdentity.get(identity) : [];
+    const selected = mergeEquivalentQuestions(exact, equivalent)
       .filter((question) => question.appliesTo === 'AMBOS' || question.appliesTo === requestedMode)
       .sort((left, right) => left.order - right.order || left.label.localeCompare(right.label, 'es'));
     const savedByKey = new Map((device.questionDetails || [])
