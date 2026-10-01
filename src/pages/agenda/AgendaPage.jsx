@@ -334,14 +334,12 @@ export default function AgendaPage() {
   const agendaPayload = useMemo(() => ({ from: range.from, to: range.to }), [range.from, range.to]);
 
   useEffect(() => {
-    if (/^\d{4}-\d{2}$/.test(requestedMonth) && requestedMonth !== month) {
-      setMonth(requestedMonth);
-    }
-  }, [month, requestedMonth]);
+    if (/^\d{4}-\d{2}$/.test(requestedMonth)) setMonth(requestedMonth);
+  }, [requestedMonth]);
 
   useEffect(() => {
-    if (requestedSearch !== search) setSearch(requestedSearch);
-  }, [requestedSearch, search]);
+    setSearch(requestedSearch);
+  }, [requestedSearch]);
 
   const load = useCallback(async ({ silent = false } = {}) => {
     if (!agendaPayload.from || !agendaPayload.to) return;
