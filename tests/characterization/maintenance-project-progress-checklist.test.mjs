@@ -23,20 +23,35 @@ test('Project checklist reuses existing maintenance and device write routes', ()
   assert.equal(api.includes('maintenance.projectProgress.'), false);
 });
 
-test('Project checklist is configured from selected device groups and locked after devices exist', () => {
+test('Project checklist stays editable after devices exist and reuses the existing maintenance update', () => {
   const page = source('src/pages/maintenance/MaintenanceFormPage.jsx');
   const counts = source('src/components/maintenance/MaintenanceCountsStep.jsx');
   const builder = source('src/components/maintenance/MaintenanceProjectChecklistBuilder.jsx');
   const backend = source('backend/src/modules/maintenance.module.js');
 
-  assert.ok(page.includes('projectChecklistLocked={editing && state.devices.length > 0}'));
   assert.ok(counts.includes('<MaintenanceProjectChecklistBuilder'));
   assert.ok(builder.includes("Pendiente / Realizado"));
   assert.ok(builder.includes("Sí / No"));
   assert.ok(builder.includes('selectedCategories(categories, counts)'));
   assert.ok(builder.includes('Number(counts?.[item.countField] || 0) > 0'));
-  assert.ok(backend.includes('No se puede modificar el checklist de progreso del Proyecto después de registrar dispositivos'));
-  assert.ok(backend.includes('sameProjectChecklist(before.ProyectoChecklistJSON'));
+  assert.equal(page.includes('projectChecklistLocked='), false);
+  assert.equal(counts.includes('projectChecklistLocked'), false);
+  assert.equal(builder.includes('locked = false'), false);
+  assert.equal(backend.includes('No se puede modificar el checklist de progreso del Proyecto después de registrar dispositivos'), false);
+  assert.ok(backend.includes("await audit(ctx, 'EDITAR_MANTENIMIENTO'"));
+});
+
+test('Project checklist uses the shared surface tokens in dark mode instead of light-only fallbacks', () => {
+  const styles = source('src/styles/maintenance-project.css');
+  const start = styles.indexOf('/* Per-project progress checklist */');
+  const end = styles.indexOf('/* Dedicated project-device route.', start);
+  const checklistStyles = styles.slice(start, end);
+
+  assert.ok(checklistStyles.includes('background: var(--surface-card, #fff);'));
+  assert.ok(checklistStyles.includes('background: var(--surface-low, #f8fafc);'));
+  assert.ok(checklistStyles.includes('border: 1px solid var(--outline-soft, #dfe3e8);'));
+  assert.equal(checklistStyles.includes('var(--surface-subtle'), false);
+  assert.equal(checklistStyles.includes('var(--text-muted'), false);
 });
 
 test('Project device progress supports pending notes without blocking device save', () => {
