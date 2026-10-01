@@ -91,6 +91,26 @@ test('frontend de preguntas parchea el registro devuelto y no recarga todo despu
   }
 });
 
+test('categorías de Knowledge obtienen conteos agregados sin descargar tutoriales completos', () => {
+  const repository = source('backend/src/infra/postgres.repository.queries.js');
+  const crud = source('backend/src/modules/crud.module.js');
+  const page = source('src/pages/knowledge/KnowledgeCategoriesPage.jsx');
+
+  assert.match(repository, /queryKnowledgeCategoryUsageCounts/);
+  assert.match(repository, /knowledge\.categories\.usageCounts/);
+  assert.match(repository, /GROUP BY category_id/);
+  assert.match(crud, /includeUsageCount/);
+  assert.match(crud, /TutorialCount/);
+
+  assert.match(page, /includeUsageCount:\s*true/);
+  assert.match(page, /includeTotal:\s*false/);
+  assert.match(page, /TutorialCount/);
+  assert.match(page, /upsertCategory/);
+  assert.doesNotMatch(page, /MODULE_ROUTES\.knowledge\.list/);
+  assert.doesNotMatch(page, /setTutorials|\[tutorials,/);
+  assert.doesNotMatch(page, /await load\(\);/);
+});
+
 test('permisos backend de configuración permanecen sin cambios', () => {
   const router = source('backend/src/core/action-router.js');
 
