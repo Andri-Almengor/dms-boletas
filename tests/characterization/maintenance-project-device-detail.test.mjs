@@ -43,17 +43,32 @@ test('ruta de dispositivo reutiliza la lectura sincronizada y el flujo offline d
   assert.match(page, /security-invalidated/);
 });
 
-test('ruta permite desplazarse al dispositivo anterior o siguiente sin apilar historial', () => {
+test('ruta permite desplazarse y volver al origen sin depender del historial del navegador', () => {
   const page = source('src/pages/maintenance/MaintenanceProjectDeviceDetailPage.jsx');
 
   assert.match(page, /normalizedNavigationIds\(location\.state\?\.deviceIds, devices\)/);
   assert.match(page, /const previousId =/);
   assert.match(page, /const nextId =/);
   assert.match(page, /function goToDevice/);
+  assert.match(page, /requestedReturnUrl === maintenanceDetailUrl/);
+  assert.match(page, /requestedReturnUrl\.startsWith\(\`\$\{maintenanceDetailUrl\}\?\`\)/);
+  assert.match(page, /navigate\(returnUrl, \{ replace: true \}\)/);
+  assert.doesNotMatch(page, /navigate\(-1\)/);
   assert.match(page, /replace: true/);
   assert.match(page, />Anterior</);
   assert.match(page, />Siguiente</);
   assert.match(page, /Volver a dispositivos/);
+});
+
+test('editar desde la ruta dedicada conserva retorno al mismo dispositivo', () => {
+  const page = source('src/pages/maintenance/MaintenanceProjectDeviceDetailPage.jsx');
+  const form = source('src/pages/maintenance/MaintenanceFormPage.jsx');
+  const hook = source('src/features/maintenance/useMaintenanceDirectDevice.js');
+
+  assert.match(page, /state:\s*\{[\s\S]*returnTo:\s*\`\/mantenimientos\/\$\{encodeURIComponent\(maintenanceId\)\}\/dispositivos\/\$\{encodeURIComponent\(id\)\}\`/s);
+  assert.match(form, /returnTo: location\.state\?\.returnTo/);
+  assert.match(hook, /requestedReturnUrl\.startsWith\(\`\$\{detailUrl\}\/\`\)/);
+  assert.match(hook, /navigate\(returnUrl, \{ replace: true \}\)/);
 });
 
 test('detalle reutilizable muestra identificación completa, relaciones configurables y progreso', () => {
