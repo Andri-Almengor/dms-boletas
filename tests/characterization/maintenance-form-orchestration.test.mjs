@@ -75,9 +75,10 @@ test('el hook directo conserva aperturas y vuelve a una ruta segura del mismo ma
   assert.match(hook, /returnTo = ''/);
   assert.match(hook, /requestedReturnUrl\.startsWith\(\`\$\{detailUrl\}\?\`\)/);
   assert.match(hook, /requestedReturnUrl\.startsWith\(\`\$\{detailUrl\}\/\`\)/);
-  assert.match(hook, /navigate\(returnUrl, \{ replace: true \}\)/);
+  assert.match(hook, /navigate\(returnUrl, \{ replace: true, state: returnState \}\)/);
   assert.match(page, /useLocation/);
   assert.match(page, /returnTo: location\.state\?\.returnTo/);
+  assert.match(page, /returnState: location\.state/);
 });
 
 test('la creación rápida conserva rutas, payloads y selección automática', () => {
