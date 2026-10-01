@@ -1,16 +1,12 @@
 import React, { useEffect, useMemo, useState } from 'react';
+import { useLocation, useNavigate } from 'react-router-dom';
 import { useAuth } from '../../AuthContext';
 import Icon from '../common/Icon';
 import FilterDrawer from '../forms/FilterDrawer';
 import AdminEntityModal from '../forms/AdminEntityModal';
 import MaintenanceEvidenceImage from './MaintenanceEvidenceImage';
-import MaintenanceProjectProgressChecklist from './MaintenanceProjectProgressChecklist';
 import { getMaintenanceCategory } from '../../config/maintenanceCategories';
 import { MODULE_ROUTES, pick, requestAvailable } from '../../services/moduleApi';
-import {
-  projectEvidenceTargets,
-  projectEvidenceTargetValue,
-} from '../../features/maintenance/maintenanceProjectRelations';
 
 const NATURAL_COLLATOR = new Intl.Collator('es', {
   numeric: true,
@@ -57,21 +53,6 @@ function deviceId(device) {
   return String(pick(device, ['EvidenciaMantenimientoID', 'deviceId', 'id'], '')).trim();
 }
 
-function deviceTechnicians(device) {
-  const value = pick(device, ['Tecnicos', 'TecnicoNombres', 'tecnicos'], '');
-  if (Array.isArray(value)) {
-    const names = value.map((item) => {
-      if (typeof item === 'string') return item.trim();
-      return String(pick(item, ['NombreCompleto', 'Nombre', 'NombreUsuario', 'name'], '')).trim();
-    }).filter(Boolean);
-    return names.join(', ') || 'Sin dato';
-  }
-  if (value && typeof value === 'object') {
-    return String(pick(value, ['NombreCompleto', 'Nombre', 'NombreUsuario', 'name'], 'Sin dato'));
-  }
-  return String(value || 'Sin dato');
-}
-
 function stateClass(value) {
   const text = normalized(value);
   if (text.startsWith('si') || text === 'correcto') return 'is-good';
@@ -100,86 +81,6 @@ function evidenceTimestamp(image = {}) {
 
 function sortedEvidence(images = []) {
   return [...images].sort((left, right) => evidenceTimestamp(right) - evidenceTimestamp(left));
-}
-
-function projectEvidenceLabel(device, image) {
-  const value = projectEvidenceTargetValue(image);
-  const target = projectEvidenceTargets(device).find((item) => item.value === value);
-  return target?.label || pick(image, ['ProyectoComponenteNombre'], 'Dispositivo principal');
-}
-
-function evidenceDateLabel(image = {}) {
-  const value = pick(image, ['FechaCaptura', 'FechaCreacion'], '');
-  const parsed = new Date(value);
-  if (Number.isNaN(parsed.getTime())) return 'Sin fecha';
-  return new Intl.DateTimeFormat('es-CR', { dateStyle: 'short', timeStyle: 'short' }).format(parsed);
-}
-
-function projectQuestionDetails(answers = {}) {
-  return Array.isArray(answers.__preguntas) ? answers.__preguntas : [];
-}
-
-function projectAnswerLabel(question = {}) {
-  return String(question.label || question.Pregunta || question.key || question.Clave || 'Campo').trim();
-}
-
-function projectRelationValue(value) {
-  if (value && typeof value === 'object' && !Array.isArray(value)) return value;
-  try {
-    const parsed = JSON.parse(value || '{}');
-    return parsed && typeof parsed === 'object' && !Array.isArray(parsed) ? parsed : {};
-  } catch {
-    return {};
-  }
-}
-
-function ProjectDeviceAnswers({ device }) {
-  const answers = parseAnswers(device);
-  const details = projectQuestionDetails(answers)
-    .filter((question) => question.activeAtSave !== false)
-    .sort((left, right) => Number(left.order || 0) - Number(right.order || 0));
-  if (!details.length) return <div className="info-box"><Icon name="info" /><p>Este dispositivo no tiene campos adicionales configurados.</p></div>;
-
-  return <div className="maintenance-project-detail-fields">
-    {details.map((question) => {
-      const key = String(question.key || question.Clave || '');
-      const responseType = String(question.responseType || question.TipoRespuesta || 'SI_NO').toUpperCase();
-      const value = answers[key] ?? question.value ?? '';
-      if (responseType !== 'RELACION_DISPOSITIVO') {
-        return <div className="maintenance-project-detail-value" key={key || projectAnswerLabel(question)}>
-          <span>{projectAnswerLabel(question)}</span>
-          <strong>{String(value || 'Sin dato')}</strong>
-        </div>;
-      }
-
-      const relation = projectRelationValue(value);
-      const items = relation.enabled && Array.isArray(relation.items) ? relation.items : [];
-      return <section className="maintenance-project-detail-relation" key={key || projectAnswerLabel(question)}>
-        <header><div><span>{projectAnswerLabel(question)}</span><strong>{items.length ? `${items.length} relacionado${items.length === 1 ? '' : 's'}` : 'No aplica'}</strong></div></header>
-        {items.length > 0 && <div className="maintenance-project-detail-components">
-          {items.map((item, index) => {
-            const nestedAnswers = item.respuestas && typeof item.respuestas === 'object' ? item.respuestas : {};
-            const nestedDetails = Array.isArray(item.questionDetails) ? item.questionDetails : [];
-            return <article key={item.localId || `${key}-${index}`}>
-              <div className="maintenance-project-detail-component__heading"><Icon name="extension" /><div><strong>{item.nombre || `${item.categoria || relation.relatedTypeName || 'Componente'} ${index + 1}`}</strong><small>{item.categoria || relation.relatedTypeName || 'Dispositivo relacionado'}</small></div></div>
-              <dl>
-                {item.fabricante && <><dt>Marca</dt><dd>{item.fabricante}</dd></>}
-                {item.modelo && <><dt>Modelo</dt><dd>{item.modelo}</dd></>}
-                {item.serie && <><dt>Serie</dt><dd>{item.serie}</dd></>}
-                {item.macAddress && <><dt>MAC</dt><dd>{item.macAddress}</dd></>}
-              </dl>
-              {nestedDetails.length > 0 && <div className="maintenance-project-detail-component__answers">
-                {nestedDetails.filter((entry) => entry.activeAtSave !== false).map((entry) => {
-                  const nestedKey = String(entry.key || entry.Clave || '');
-                  return <div key={nestedKey}><span>{projectAnswerLabel(entry)}</span><strong>{String(nestedAnswers[nestedKey] ?? entry.value ?? 'Sin dato')}</strong></div>;
-                })}
-              </div>}
-            </article>;
-          })}
-        </div>}
-      </section>;
-    })}
-  </div>;
 }
 
 function isOffline(device) {
@@ -272,16 +173,16 @@ export default function MaintenanceLocationInventory({
   onAddEvidence,
   onEditEvidence,
   projectMode = false,
-  projectChecklist,
   evidenceEnabled = true,
 }) {
   const { hasPermission } = useAuth();
+  const navigate = useNavigate();
+  const routeLocation = useLocation();
   const [query, setQuery] = useState('');
   const [category, setCategory] = useState('TODAS');
   const [location, setLocation] = useState('TODAS');
   const [stateFilter, setStateFilter] = useState('TODOS');
   const [detailDeviceId, setDetailDeviceId] = useState('');
-  const [projectEvidenceTargetFilter, setProjectEvidenceTargetFilter] = useState('TODAS');
   const [openGroups, setOpenGroups] = useState(() => new Set());
   const [filterOpen, setFilterOpen] = useState(false);
   const [selectionGroupId, setSelectionGroupId] = useState('');
@@ -422,20 +323,32 @@ export default function MaintenanceLocationInventory({
   function openDeviceDetail(device) {
     const id = deviceId(device);
     if (!id) return;
-    setProjectEvidenceTargetFilter('TODAS');
+
+    if (projectMode) {
+      const deviceIds = visibleGroups.flatMap((group) => group.visibleItems.map(deviceId).filter(Boolean));
+      navigate(
+        `/mantenimientos/${encodeURIComponent(pick(device, ['MantenimientoRef', 'maintenanceId'], ''))}/dispositivos/${encodeURIComponent(id)}`,
+        {
+          state: {
+            returnTo: `${routeLocation.pathname}${routeLocation.search || ''}`,
+            deviceIds,
+          },
+        },
+      );
+      return;
+    }
+
     setDetailDeviceId(id);
   }
 
   function closeDeviceDetail() {
     setDetailDeviceId('');
-    setProjectEvidenceTargetFilter('TODAS');
   }
 
   function navigateDeviceDetail(offset) {
     if (!detailDevices.length || activeDetailDeviceIndex < 0) return;
     const nextIndex = activeDetailDeviceIndex + offset;
     if (nextIndex < 0 || nextIndex >= detailDevices.length) return;
-    setProjectEvidenceTargetFilter('TODAS');
     setDetailDeviceId(deviceId(detailDevices[nextIndex]));
   }
 
@@ -583,51 +496,33 @@ export default function MaintenanceLocationInventory({
   function deviceDetailContent(device, { detailView = false } = {}) {
     const config = getMaintenanceCategory(deviceType(device));
     const answers = parseAnswers(device);
-    const allImages = sortedEvidence(device.Imagenes || []);
-    const targetOptions = projectMode ? projectEvidenceTargets(device) : [];
-    const images = projectMode && detailView && projectEvidenceTargetFilter !== 'TODAS'
-      ? allImages.filter((image) => projectEvidenceTargetValue(image) === projectEvidenceTargetFilter)
-      : allImages;
+    const images = sortedEvidence(device.Imagenes || []);
     const id = deviceId(device);
+
     return <div className={`maintenance-inventory-expanded${detailView ? ' maintenance-device-detail-content' : ''}`}>
       <div className="maintenance-inventory-expanded__heading">
         <div><span className="eyebrow">Detalle del dispositivo</span><strong>{deviceName(device)}</strong></div>
         {pending && canEdit && <button className="button button--secondary button--compact" type="button" onClick={() => detailView ? editDeviceFromDetail(device) : onEditDevice(device)}><Icon name="edit" />Editar dispositivo</button>}
       </div>
-      {projectMode && <div className="maintenance-project-device-summary-grid">
-        <div><span>Tipo</span><strong>{deviceType(device)}</strong></div>
-        <div><span>Ubicación</span><strong>{deviceLocationName(device)}</strong></div>
-        <div><span>Marca</span><strong>{pick(device, ['Fabricante'], 'Sin dato')}</strong></div>
-        <div><span>Modelo</span><strong>{pick(device, ['Modelo'], 'Sin dato')}</strong></div>
-        <div><span>Serie</span><strong>{pick(device, ['Serie'], 'Sin dato')}</strong></div>
-        <div><span>Dirección MAC</span><strong>{pick(device, ['DireccionMAC', 'macAddress'], 'Sin dato')}</strong></div>
-        <div><span>Fecha de trabajo</span><strong>{pick(device, ['FechaTrabajo'], 'Sin dato')}</strong></div>
-        <div><span>Técnicos</span><strong>{deviceTechnicians(device)}</strong></div>
-        <div><span>Estado</span><strong>{stateText(pick(device, ['Estado']))}</strong></div>
-        <div><span>Evidencias</span><strong>{allImages.length}</strong></div>
-      </div>}
-      {projectMode
-        ? <>
-          <ProjectDeviceAnswers device={device} />
-          <MaintenanceProjectProgressChecklist checklist={projectChecklist} device={device} disabled />
-        </>
-        : <div className="maintenance-inventory-checklist">
-          <div className={stateClass(pick(device, ['Funcionamiento']))}><span>Funcionamiento</span><strong>{pick(device, ['Funcionamiento'], 'Sin responder')}</strong></div>
-          <div className={stateClass(pick(device, ['EnUso']))}><span>En uso</span><strong>{pick(device, ['EnUso'], 'Sin responder')}</strong></div>
-          {config.questions.map(([key, label]) => <div className={stateClass(answers[key])} key={key}><span>{label.replace(/^¿|\?$/g, '')}</span><strong>{answers[key] || 'Sin responder'}</strong></div>)}
-        </div>}
-      {pick(device, ['Observacion']) && <div className="maintenance-inventory-observation"><Icon name="notes" /><p>{pick(device, ['Observacion'])}</p></div>}
-      <div className="maintenance-inventory-evidence-heading">
-        <div><strong>Evidencias</strong><span>{projectMode && detailView ? `${images.length} de ${allImages.length}` : allImages.length} archivo{allImages.length === 1 ? '' : 's'} · más reciente primero</span></div>
-        <div className="maintenance-project-evidence-heading-actions">
-          {projectMode && detailView && targetOptions.length > 1 && <label className="maintenance-project-evidence-filter"><span>Mostrar</span><select value={projectEvidenceTargetFilter} onChange={(event) => setProjectEvidenceTargetFilter(event.target.value)}><option value="TODAS">Todas las evidencias</option>{targetOptions.map((target) => <option key={target.value} value={target.value}>{target.label}</option>)}</select></label>}
-          {evidenceEnabled && pending && canEdit && onAddEvidence && <button className="button button--secondary button--compact" type="button" onClick={() => detailView ? addEvidenceFromDetail(device) : onAddEvidence(device)}><Icon name="add_a_photo" />Agregar</button>}
-        </div>
+
+      <div className="maintenance-inventory-checklist">
+        <div className={stateClass(pick(device, ['Funcionamiento']))}><span>Funcionamiento</span><strong>{pick(device, ['Funcionamiento'], 'Sin responder')}</strong></div>
+        <div className={stateClass(pick(device, ['EnUso']))}><span>En uso</span><strong>{pick(device, ['EnUso'], 'Sin responder')}</strong></div>
+        {config.questions.map(([key, label]) => <div className={stateClass(answers[key])} key={key}><span>{label.replace(/^¿|\?$/g, '')}</span><strong>{answers[key] || 'Sin responder'}</strong></div>)}
       </div>
+
+      {pick(device, ['Observacion']) && <div className="maintenance-inventory-observation"><Icon name="notes" /><p>{pick(device, ['Observacion'])}</p></div>}
+
+      <div className="maintenance-inventory-evidence-heading">
+        <div><strong>Evidencias</strong><span>{images.length} archivo{images.length === 1 ? '' : 's'} · más reciente primero</span></div>
+        {evidenceEnabled && pending && canEdit && onAddEvidence && <button className="button button--secondary button--compact" type="button" onClick={() => detailView ? addEvidenceFromDetail(device) : onAddEvidence(device)}><Icon name="add_a_photo" />Agregar</button>}
+      </div>
+
       {evidenceEnabled && <div className="maintenance-inventory-images">
-        {images.map((image) => <figure key={pick(image, ['FotoDispositivoID', 'id'])}><MaintenanceEvidenceImage image={image} galleryImages={images} sessionToken={sessionToken} alt={pick(image, ['Nombre'], 'Evidencia')} /><figcaption>{projectMode ? <><strong>{projectEvidenceLabel(device, image)}</strong><span>{evidenceDateLabel(image)}</span><span>{pick(image, ['Nota'], 'Sin nota')}</span></> : <><strong>{pick(image, ['Tipo'], 'Evidencia')}</strong><span>{pick(image, ['Nota'], 'Sin nota')}</span></>}</figcaption>{evidenceEnabled && pending && canEdit && onEditEvidence && <button type="button" onClick={() => detailView ? editEvidenceFromDetail(image, device) : onEditEvidence(image, device)}><Icon name="edit" />Editar evidencia</button>}</figure>)}
+        {images.map((image) => <figure key={pick(image, ['FotoDispositivoID', 'id'])}><MaintenanceEvidenceImage image={image} galleryImages={images} sessionToken={sessionToken} alt={pick(image, ['Nombre'], 'Evidencia')} /><figcaption><strong>{pick(image, ['Tipo'], 'Evidencia')}</strong><span>{pick(image, ['Nota'], 'Sin nota')}</span></figcaption>{pending && canEdit && onEditEvidence && <button type="button" onClick={() => detailView ? editEvidenceFromDetail(image, device) : onEditEvidence(image, device)}><Icon name="edit" />Editar evidencia</button>}</figure>)}
         {!images.length && <div className="maintenance-inventory-no-images"><Icon name="photo_library" /><span>Sin fotografías registradas.</span></div>}
       </div>}
+
       {!evidenceEnabled && <div className="info-box"><Icon name="photo_library" /><p>La carga de evidencias no está disponible en esta vista.</p></div>}
       {isOffline(device) && <div className="maintenance-inventory-offline-note"><Icon name="cloud_off" />Este dispositivo y sus evidencias están guardados en este equipo y se enviarán al recuperar conexión.</div>}
       <span className="maintenance-inventory-device-id">ID: {id}</span>
@@ -706,16 +601,16 @@ export default function MaintenanceLocationInventory({
                   data-device-row
                   className={selected ? 'is-selected-for-move' : ''}
                   tabIndex="0"
-                  aria-haspopup="dialog"
+                  aria-haspopup={projectMode ? undefined : 'dialog'}
                   onClick={(event) => { if (!hasOwnInteraction(event.target)) toggleDevice(device); }}
                   onKeyDown={(event) => toggleRowFromKeyboard(event, () => toggleDevice(device))}
-                >{pending && canEdit && <td className="maintenance-device-selection-cell"><label title={`Seleccionar ${deviceName(device)}`}><input type="checkbox" checked={selected} onChange={() => toggleDeviceSelection(group, device)} disabled={moving || !id} /><Icon name={selected ? 'check_box' : 'check_box_outline_blank'} /></label></td>}<td><button type="button" className="maintenance-inventory-name" onClick={() => toggleDevice(device)}><span className="maintenance-device-list__icon"><Icon name={getMaintenanceCategory(deviceType(device)).icon} /></span><span><strong>{deviceName(device)}</strong>{isOffline(device) && <small><Icon name="cloud_off" />Offline</small>}</span></button></td><td>{deviceType(device)}</td><td>{[pick(device, ['Modelo']), pick(device, ['Serie'])].filter(Boolean).join(' · ') || 'Sin datos'}</td><td><span className={`maintenance-device-compact-state ${stateClass(pick(device, ['Estado']))}`}>{stateText(pick(device, ['Estado']))}</span></td><td><span className="maintenance-device-evidence-count"><Icon name="photo_library" />{images.length}</span></td><td><div className="maintenance-inventory-row-actions">{pending && canEdit && <button type="button" className="icon-button" onClick={() => onEditDevice(device)} aria-label={`Editar ${deviceName(device)}`} disabled={moving}><Icon name="edit" /></button>}<button type="button" className="icon-button" onClick={() => toggleDevice(device)} aria-haspopup="dialog" aria-label={`Ver detalle de ${deviceName(device)}`}><Icon name="open_in_new" /></button></div></td></tr></React.Fragment>;
+                >{pending && canEdit && <td className="maintenance-device-selection-cell"><label title={`Seleccionar ${deviceName(device)}`}><input type="checkbox" checked={selected} onChange={() => toggleDeviceSelection(group, device)} disabled={moving || !id} /><Icon name={selected ? 'check_box' : 'check_box_outline_blank'} /></label></td>}<td><button type="button" className="maintenance-inventory-name" onClick={() => toggleDevice(device)}><span className="maintenance-device-list__icon"><Icon name={getMaintenanceCategory(deviceType(device)).icon} /></span><span><strong>{deviceName(device)}</strong>{isOffline(device) && <small><Icon name="cloud_off" />Offline</small>}</span></button></td><td>{deviceType(device)}</td><td>{[pick(device, ['Modelo']), pick(device, ['Serie'])].filter(Boolean).join(' · ') || 'Sin datos'}</td><td><span className={`maintenance-device-compact-state ${stateClass(pick(device, ['Estado']))}`}>{stateText(pick(device, ['Estado']))}</span></td><td><span className="maintenance-device-evidence-count"><Icon name="photo_library" />{images.length}</span></td><td><div className="maintenance-inventory-row-actions">{pending && canEdit && <button type="button" className="icon-button" onClick={() => onEditDevice(device)} aria-label={`Editar ${deviceName(device)}`} disabled={moving}><Icon name="edit" /></button>}<button type="button" className="icon-button" onClick={() => toggleDevice(device)} aria-haspopup={projectMode ? undefined : 'dialog'} aria-label={`Ver detalle de ${deviceName(device)}`}><Icon name="open_in_new" /></button></div></td></tr></React.Fragment>;
               })}</tbody></table></div>
 
               <div className="maintenance-inventory-mobile-list maintenance-location-mobile-devices">{group.visibleItems.map((device) => {
                 const id = deviceId(device);
                 const selected = selectionGroupId === group.id && selectedDeviceIds.has(id);
-                return <article key={id} className={`maintenance-inventory-mobile-card${selected ? ' is-selected-for-move' : ''}`}>{pending && canEdit && <label className="maintenance-device-mobile-selection" title={`Seleccionar ${deviceName(device)}`}><input type="checkbox" checked={selected} onChange={() => toggleDeviceSelection(group, device)} disabled={moving || !id} /><Icon name={selected ? 'check_box' : 'check_box_outline_blank'} /><span>Seleccionar</span></label>}<button type="button" className="maintenance-inventory-mobile-toggle" onClick={() => toggleDevice(device)} aria-haspopup="dialog"><span className="maintenance-device-list__icon"><Icon name={getMaintenanceCategory(deviceType(device)).icon} /></span><span><strong>{deviceName(device)}</strong><small>{deviceType(device)} · {[pick(device, ['Modelo']), pick(device, ['Serie'])].filter(Boolean).join(' · ') || 'Sin modelo o serie'}</small><span><em className={stateClass(pick(device, ['Estado']))}>{stateText(pick(device, ['Estado']))}</em><em><Icon name="photo_library" />{(device.Imagenes || []).length}</em>{isOffline(device) && <em className="is-offline"><Icon name="cloud_off" />Offline</em>}</span></span><Icon name="open_in_new" /></button>{pending && canEdit && <button type="button" className="maintenance-inventory-mobile-edit" onClick={() => onEditDevice(device)} disabled={moving}><Icon name="edit" />Editar dispositivo y evidencias</button>}</article>;
+                return <article key={id} className={`maintenance-inventory-mobile-card${selected ? ' is-selected-for-move' : ''}`}>{pending && canEdit && <label className="maintenance-device-mobile-selection" title={`Seleccionar ${deviceName(device)}`}><input type="checkbox" checked={selected} onChange={() => toggleDeviceSelection(group, device)} disabled={moving || !id} /><Icon name={selected ? 'check_box' : 'check_box_outline_blank'} /><span>Seleccionar</span></label>}<button type="button" className="maintenance-inventory-mobile-toggle" onClick={() => toggleDevice(device)} aria-haspopup={projectMode ? undefined : 'dialog'}><span className="maintenance-device-list__icon"><Icon name={getMaintenanceCategory(deviceType(device)).icon} /></span><span><strong>{deviceName(device)}</strong><small>{deviceType(device)} · {[pick(device, ['Modelo']), pick(device, ['Serie'])].filter(Boolean).join(' · ') || 'Sin modelo o serie'}</small><span><em className={stateClass(pick(device, ['Estado']))}>{stateText(pick(device, ['Estado']))}</em><em><Icon name="photo_library" />{(device.Imagenes || []).length}</em>{isOffline(device) && <em className="is-offline"><Icon name="cloud_off" />Offline</em>}</span></span><Icon name="open_in_new" /></button>{pending && canEdit && <button type="button" className="maintenance-inventory-mobile-edit" onClick={() => onEditDevice(device)} disabled={moving}><Icon name="edit" />Editar dispositivo y evidencias</button>}</article>;
               })}</div>
             </> : <div className="maintenance-location-work-group__empty"><Icon name="devices_other" /><div><strong>{group.items.length ? 'No hay dispositivos que coincidan con los filtros' : 'Ubicación sin dispositivos'}</strong><span>{group.items.length ? 'Cambie los filtros para mostrar otros equipos.' : 'Agregue el primer dispositivo y la ubicación ya vendrá seleccionada.'}</span></div>{pending && canEdit && group.available && !group.legacy && !group.items.length && <button className="button button--primary button--compact" type="button" onClick={() => onAddDevice(group)}><Icon name="add" />Agregar dispositivo</button>}</div>}
           </div>}
@@ -725,7 +620,7 @@ export default function MaintenanceLocationInventory({
 
     <FilterDrawer open={filterOpen} title="Filtros de dispositivos" onClose={() => setFilterOpen(false)} onApply={() => setFilterOpen(false)} onClear={clearFilters}>{drawerFields}</FilterDrawer>
 
-    {activeDetailDevice && <AdminEntityModal
+    {!projectMode && activeDetailDevice && <AdminEntityModal
       open
       title={deviceName(activeDetailDevice)}
       subtitle={`${deviceType(activeDetailDevice)} · ${deviceLocationName(activeDetailDevice)} · ${activeDetailDeviceIndex + 1} de ${detailDevices.length}`}
