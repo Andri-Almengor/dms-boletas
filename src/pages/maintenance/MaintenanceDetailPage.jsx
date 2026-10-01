@@ -467,6 +467,7 @@ export default function MaintenanceDetailPage() {
       </section>}
 
       <MaintenanceLocationInventory
+        maintenanceId={maintenanceId}
         devices={devices}
         locations={maintenanceLocations}
         status={status}
