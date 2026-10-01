@@ -102,16 +102,16 @@ export default function UsersPage() {
   }
 
   return (
-    <div className="page">
+    <div className="page page--wide users-page">
       <header className="list-page-heading">
         <div><span className="eyebrow">Administración</span><h1>Usuarios</h1><p>Gestiona accesos, roles y estado de las cuentas.</p></div>
         {hasPermission('USUARIOS_GESTIONAR') && <Link to="/usuarios/nuevo" className="button button--primary"><Icon name="person_add" /> Crear usuario</Link>}
       </header>
 
-      <form className="search-bar" onSubmit={(event) => { event.preventDefault(); loadFirst(); }}>
+      <form className="search-bar users-search-bar" role="search" onSubmit={(event) => { event.preventDefault(); loadFirst(); }}>
         <Icon name="search" />
-        <input value={search} onChange={(event) => setSearch(event.target.value)} placeholder="Buscar por nombre, usuario o correo..." aria-label="Buscar usuarios" />
-        <button className="icon-button icon-button--primary" aria-label="Buscar"><Icon name="search" /></button>
+        <input type="search" value={search} onChange={(event) => setSearch(event.target.value)} placeholder="Buscar por nombre, usuario o correo..." aria-label="Buscar usuarios" enterKeyHint="search" autoComplete="off" />
+        <button className="icon-button icon-button--primary" type="submit" aria-label="Buscar"><Icon name="arrow_forward" /></button>
       </form>
 
       <ErrorMessage message={error} />
@@ -144,11 +144,13 @@ export default function UsersPage() {
                   <span className={`status-chip ${active ? 'status-chip--active' : 'status-chip--inactive'}`}>{record.Estado}</span>
                 </div>
                 <dl className="user-card__details"><div><dt>Correo</dt><dd>{record.Correo}</dd></div><div><dt>Rol</dt><dd>{roleById[record.RolID] || record.RolID}</dd></div></dl>
-                <div className="card-actions">
-                  <Link to={detailUrl} className="button button--primary button--compact">Ver detalle</Link>
-                  {hasPermission('USUARIOS_GESTIONAR') && <Link to={`${detailUrl}/editar`} className="icon-button icon-button--outlined" aria-label="Editar"><Icon name="edit" /></Link>}
-                  {hasPermission('USUARIOS_GESTIONAR') && active && !isCurrentUser && <button type="button" className="icon-button icon-button--outlined user-card__reset-password" onClick={() => resetPassword(record)} aria-label={`Restablecer contraseña de ${record.NombreCompleto}`} title="Restablecer contraseña y enviarla por correo" disabled={Boolean(resettingUserId)}><Icon name={resetting ? 'progress_activity' : 'lock_reset'} /></button>}
-                  {hasPermission('USUARIOS_GESTIONAR') && active && <button type="button" className="icon-button icon-button--danger" onClick={() => deactivateUser(record)} aria-label="Desactivar"><Icon name="person_remove" /></button>}
+                <div className="card-actions user-card__actions">
+                  <Link to={detailUrl} className="button button--primary button--compact user-card__primary-action">Ver detalle</Link>
+                  <div className="user-card__secondary-actions">
+                    {hasPermission('USUARIOS_GESTIONAR') && <Link to={`${detailUrl}/editar`} className="icon-button icon-button--outlined" aria-label="Editar"><Icon name="edit" /></Link>}
+                    {hasPermission('USUARIOS_GESTIONAR') && active && !isCurrentUser && <button type="button" className="icon-button icon-button--outlined user-card__reset-password" onClick={() => resetPassword(record)} aria-label={`Restablecer contraseña de ${record.NombreCompleto}`} title="Restablecer contraseña y enviarla por correo" disabled={Boolean(resettingUserId)}><Icon name={resetting ? 'progress_activity' : 'lock_reset'} /></button>}
+                    {hasPermission('USUARIOS_GESTIONAR') && active && <button type="button" className="icon-button icon-button--danger" onClick={() => deactivateUser(record)} aria-label="Desactivar"><Icon name="person_remove" /></button>}
+                  </div>
                 </div>
               </article>
             );
