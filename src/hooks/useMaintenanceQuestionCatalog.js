@@ -1,4 +1,5 @@
 import { useEffect, useMemo, useState } from 'react';
+import { canonicalMaintenanceCategoryName } from '../config/maintenanceCategories';
 import { requestAvailable } from '../services/moduleApi';
 
 const CONFIG_ROUTES = ['maintenance.config', 'mantenimientos.config'];
@@ -15,6 +16,10 @@ function normalized(value) {
     .replace(/[^a-z0-9]+/g, ' ')
     .replace(/\s+/g, ' ')
     .trim();
+}
+
+function normalizedDeviceTypeName(value) {
+  return normalized(canonicalMaintenanceCategoryName(value));
 }
 
 function normalizeMode(value = 'MANTENIMIENTO') {
@@ -65,6 +70,26 @@ function savedQuestionView(row = {}) {
   };
 }
 
+export function selectMaintenanceQuestionsForDevice(questions = [], device = {}, maintenanceMode = 'MANTENIMIENTO') {
+  const typeId = clean(device.tipoDispositivoId || device.TipoDispositivoID);
+  const category = normalizedDeviceTypeName(device.categoria || device.TipoDispositivo || device.Categoria);
+  const requestedMode = normalizeMode(maintenanceMode);
+  const applies = (question) => question.appliesTo === 'AMBOS' || question.appliesTo === requestedMode;
+
+  const exact = typeId
+    ? questions.filter((question) => question.typeId === typeId && applies(question))
+    : [];
+  if (exact.length) return [...exact].sort((left, right) => left.order - right.order || left.label.localeCompare(right.label, 'es'));
+
+  // Compatibilidad con nombres históricos/alias del mismo tipo (Puerta/Puertas,
+  // Cámara/Cámaras, etc.). Solo se usa cuando el ID exacto no tiene preguntas
+  // aplicables al modo solicitado, para no mezclar configuraciones distintas.
+  const compatible = category
+    ? questions.filter((question) => normalizedDeviceTypeName(question.typeName) === category && applies(question))
+    : [];
+  return [...compatible].sort((left, right) => left.order - right.order || left.label.localeCompare(right.label, 'es'));
+}
+
 export default function useMaintenanceQuestionCatalog(sessionToken) {
   const [questions, setQuestions] = useState([]);
   const [loading, setLoading] = useState(Boolean(sessionToken));
@@ -110,14 +135,7 @@ export default function useMaintenanceQuestionCatalog(sessionToken) {
 
   function forDevice(device = {}, maintenanceMode = 'MANTENIMIENTO') {
     const typeId = clean(device.tipoDispositivoId || device.TipoDispositivoID);
-    const category = normalized(device.categoria || device.TipoDispositivo || device.Categoria);
-    const requestedMode = normalizeMode(maintenanceMode);
-    const selected = (typeId && byTypeId.has(typeId)
-      ? byTypeId.get(typeId)
-      : questions
-        .filter((question) => normalized(question.typeName) === category))
-      .filter((question) => question.appliesTo === 'AMBOS' || question.appliesTo === requestedMode)
-      .sort((left, right) => left.order - right.order || left.label.localeCompare(right.label, 'es'));
+    const selected = selectMaintenanceQuestionsForDevice(questions, device, maintenanceMode);
     const savedByKey = new Map((device.questionDetails || [])
       .map(savedQuestionView)
       .filter((item) => item.key && (!item.typeId || !typeId || item.typeId === typeId))
