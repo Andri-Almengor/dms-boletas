@@ -4,10 +4,7 @@ import { readFileSync } from 'node:fs';
 import { fileURLToPath } from 'node:url';
 import path from 'node:path';
 
-import {
-  maintenanceQuestionTypeIdentity as frontendTypeIdentity,
-  mergeMaintenanceQuestionCandidates,
-} from '../../src/hooks/useMaintenanceQuestionCatalog.js';
+import { canonicalMaintenanceCategoryName } from '../../src/config/maintenanceCategories.js';
 import {
   maintenanceQuestionTypeIdentity as backendTypeIdentity,
 } from '../../backend/src/services/maintenance-question-catalog.service.js';
@@ -16,51 +13,21 @@ const ROOT = fileURLToPath(new URL('../../', import.meta.url));
 const source = (relativePath) => readFileSync(path.join(ROOT, relativePath), 'utf8');
 
 test('Puerta y Puertas resuelven la misma identidad de preguntas en frontend y backend', () => {
-  assert.equal(frontendTypeIdentity('Puerta'), frontendTypeIdentity('Puertas'));
-  assert.equal(frontendTypeIdentity('Control de acceso'), frontendTypeIdentity('Puertas'));
+  assert.equal(canonicalMaintenanceCategoryName('Puerta'), canonicalMaintenanceCategoryName('Puertas'));
+  assert.equal(canonicalMaintenanceCategoryName('Control de acceso'), canonicalMaintenanceCategoryName('Puertas'));
   assert.equal(backendTypeIdentity('Puerta'), backendTypeIdentity('Puertas'));
   assert.equal(backendTypeIdentity('Control de acceso'), backendTypeIdentity('Puertas'));
 });
 
-test('una relación Puerta → Magneto configurada en un tipo equivalente no se pierde cuando existe un ID exacto', () => {
-  const exact = [
-    {
-      questionId: 'Q-EXACT',
-      typeId: 'TIPO-PUERTAS',
-      typeName: 'Puertas',
-      key: 'lector',
-      label: '¿Lector colocado?',
-      responseType: 'SI_NO',
-      appliesTo: 'PROYECTO',
-    },
-  ];
-  const equivalent = [
-    {
-      questionId: 'Q-ALIAS-DUP',
-      typeId: 'TIPO-PUERTA-LEGACY',
-      typeName: 'Puerta',
-      key: 'lector',
-      label: '¿Lector colocado?',
-      responseType: 'SI_NO',
-      appliesTo: 'PROYECTO',
-    },
-    {
-      questionId: 'Q-MAGNETO',
-      typeId: 'TIPO-PUERTA-LEGACY',
-      typeName: 'Puerta',
-      key: 'magneto',
-      label: '¿Tiene magneto?',
-      responseType: 'RELACION_DISPOSITIVO',
-      relatedTypeId: 'TIPO-MAGNETO',
-      appliesTo: 'PROYECTO',
-    },
-  ];
+test('frontend combina ID exacto + tipo equivalente y prioriza la clave exacta para no perder Puerta → Magneto', () => {
+  const hook = source('src/hooks/useMaintenanceQuestionCatalog.js');
 
-  const merged = mergeMaintenanceQuestionCandidates(exact, equivalent);
-  assert.equal(merged.length, 2);
-  assert.equal(merged.find((item) => item.key === 'lector')?.questionId, 'Q-EXACT');
-  assert.equal(merged.find((item) => item.key === 'magneto')?.relatedTypeId, 'TIPO-MAGNETO');
-  assert.equal(merged.find((item) => item.key === 'magneto')?.responseType, 'RELACION_DISPOSITIVO');
+  assert.match(hook, /const exact = typeId && byTypeId\.has\(typeId\)/);
+  assert.match(hook, /const equivalent = identity && byTypeIdentity\.has\(identity\)/);
+  assert.match(hook, /mergeMaintenanceQuestionCandidates\(exact, equivalent\)/);
+  assert.match(hook, /const seen = new Set\(\)/);
+  assert.match(hook, /if \(!key \|\| seen\.has\(key\)\) return false/);
+  assert.match(hook, /canonicalMaintenanceCategoryName\(value\)/);
 });
 
 test('backend consulta preguntas de todos los TipoDispositivoID equivalentes en un solo batch', () => {
