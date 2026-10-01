@@ -5,9 +5,9 @@ import { maintenancePayload } from '../pages/maintenance/maintenanceFormData';
 import { MODULE_ROUTES, pick, requestAvailable } from '../services/moduleApi';
 import { requestMaintenanceFinalization } from '../services/maintenanceFinalization';
 
-export default function useOptimizedMaintenanceBase({ editing, maintenanceId }) {
+export default function useOptimizedMaintenanceBase({ editing, maintenanceId, navigationState }) {
   const navigate = useNavigate();
-  const base = useMaintenanceForm({ editing, maintenanceId });
+  const base = useMaintenanceForm({ editing, maintenanceId, navigationState });
   const [headerSaving, setHeaderSaving] = useState(false);
 
   const persist = useCallback(async (action) => {
@@ -30,7 +30,7 @@ export default function useOptimizedMaintenanceBase({ editing, maintenanceId }) 
       if (action === 'finalize') {
         await requestMaintenanceFinalization({ maintenanceId: id, sessionToken: base.sessionToken });
       }
-      navigate(`/mantenimientos/${encodeURIComponent(id)}`);
+      navigate(`/mantenimientos/${encodeURIComponent(id)}`, navigationState ? { state: navigationState } : undefined);
       return saved;
     } catch (error) {
       base.setError(error.message);
@@ -38,7 +38,7 @@ export default function useOptimizedMaintenanceBase({ editing, maintenanceId }) 
     } finally {
       setHeaderSaving(false);
     }
-  }, [base, editing, maintenanceId, navigate]);
+  }, [base, editing, maintenanceId, navigate, navigationState]);
 
   return {
     ...base,
