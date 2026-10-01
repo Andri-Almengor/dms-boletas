@@ -1,5 +1,5 @@
 import { useEffect, useMemo, useState } from 'react';
-import { canonicalMaintenanceCategoryName } from '../config/maintenanceCategories';
+import { canonicalMaintenanceCategoryName } from '../config/maintenanceCategories.js';
 import { requestAvailable } from '../services/moduleApi';
 
 const CONFIG_ROUTES = ['maintenance.config', 'mantenimientos.config'];
