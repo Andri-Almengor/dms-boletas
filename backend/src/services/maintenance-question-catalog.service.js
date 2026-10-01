@@ -182,8 +182,19 @@ export function parseMaintenanceQuestionConfig(value) {
   }
 }
 
+function effectiveMaintenanceQuestionMode(row = {}) {
+  const configured = normalizeMaintenanceQuestionMode(row.AplicaModo || row.appliesTo || row.mode, 'MANTENIMIENTO');
+  const responseType = normalizeMaintenanceQuestionResponseType(row.TipoRespuesta || row.responseType, 'SI_NO');
+  // Compatibilidad defensiva: una relación nunca es válida en mantenimiento
+  // normal. Si existe una fila histórica con ese modo, se interpreta como
+  // Proyecto sin reescribir el valor almacenado.
+  return responseType === 'RELACION_DISPOSITIVO' && configured === 'MANTENIMIENTO'
+    ? 'PROYECTO'
+    : configured;
+}
+
 export function maintenanceQuestionAppliesTo(row = {}, mode = 'MANTENIMIENTO') {
-  const appliesTo = normalizeMaintenanceQuestionMode(row.AplicaModo || row.appliesTo || row.mode, 'MANTENIMIENTO');
+  const appliesTo = effectiveMaintenanceQuestionMode(row);
   const requested = normalizeMaintenanceQuestionMode(mode, 'MANTENIMIENTO');
   return appliesTo === 'AMBOS' || appliesTo === requested;
 }
@@ -310,7 +321,7 @@ export function maintenanceQuestionClientView(row = {}, typeName = '') {
     label: cleanMaintenanceQuestionValue(row.Pregunta),
     order: Number(row.Orden || 0),
     responseType: normalizeMaintenanceQuestionResponseType(row.TipoRespuesta, 'SI_NO'),
-    appliesTo: normalizeMaintenanceQuestionMode(row.AplicaModo, 'MANTENIMIENTO'),
+    appliesTo: effectiveMaintenanceQuestionMode(row),
     relatedTypeId: cleanMaintenanceQuestionValue(row.TipoDispositivoRelacionadoID),
     config: parseMaintenanceQuestionConfig(row.ConfiguracionJSON),
     active: isActiveMaintenanceQuestion(row),
