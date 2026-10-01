@@ -31,7 +31,7 @@ export default function MaintenanceFormPage({ mode = 'create' }) {
   const editing = mode === 'edit';
   const isAdministrator = hasPermission('USUARIOS_GESTIONAR');
   const initialRequest = resolveMaintenanceDirectRequest(searchParams, editing);
-  const state = useMaintenanceForm({ editing, maintenanceId });
+  const state = useMaintenanceForm({ editing, maintenanceId, navigationState: location.state });
   const [step, setStep] = useState(initialRequest.requestedStep);
   const [processingAction, setProcessingAction] = useState('');
   const projectMode = isProjectMaintenance(state.form.tipoMantenimiento);
@@ -46,6 +46,7 @@ export default function MaintenanceFormPage({ mode = 'create' }) {
     state,
     canAddExpectedDevice,
     returnTo: location.state?.returnTo,
+    returnState: location.state,
   });
 
   const quickCreate = useMaintenanceQuickCreate({
