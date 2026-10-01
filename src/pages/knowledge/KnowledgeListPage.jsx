@@ -80,7 +80,7 @@ export default function KnowledgeListPage() {
     loadFirst();
   }
 
-  return <div className="page knowledge-page">
+  return <div className="page page--wide knowledge-page">
     <div className="knowledge-hero">
       <div><span className="eyebrow">Documentación técnica</span><h1>Base de conocimientos</h1><p>Tutoriales, procedimientos, videos y documentos creados por el equipo técnico.</p></div>
       <div className="knowledge-hero__actions">
@@ -89,10 +89,10 @@ export default function KnowledgeListPage() {
       </div>
     </div>
 
-    <form className="knowledge-search" onSubmit={submit}>
+    <form className="knowledge-search" role="search" onSubmit={submit}>
       <Icon name="search" />
-      <input value={search} onChange={(event) => setSearch(event.target.value)} placeholder="Buscar por problema, producto o procedimiento..." />
-      <button className="icon-button icon-button--primary" aria-label="Buscar"><Icon name="search" /></button>
+      <input type="search" value={search} onChange={(event) => setSearch(event.target.value)} placeholder="Buscar por problema, producto o procedimiento..." aria-label="Buscar en la base de conocimientos" enterKeyHint="search" autoComplete="off" />
+      <button className="icon-button icon-button--primary" type="submit" aria-label="Buscar"><Icon name="arrow_forward" /></button>
     </form>
 
     <div className="knowledge-filter-row">
@@ -104,7 +104,7 @@ export default function KnowledgeListPage() {
       <label className="knowledge-mine-toggle"><input type="checkbox" checked={mineOnly} onChange={(event) => setMineOnly(event.target.checked)} /><span><Icon name="person" /> Mis tutoriales</span></label>
     </div>
 
-    {error && <div className="alert alert--error"><Icon name="error" /><span>{error}</span></div>}
+    {error && <div className="alert alert--error" role="alert"><Icon name="error" /><span>{error}</span></div>}
     {loading ? <div className="state-card state-card--loading"><Icon name="progress_activity" /><span>Cargando documentación...</span></div> : visibleItems.length ? <>
       <div className="ticket-list-result-count"><span>Mostrando <strong>{visibleItems.length}</strong>{total > visibleItems.length ? ` de ${total}` : ''} tutoriales</span></div>
       <div className="knowledge-grid">{visibleItems.map((item, index) => <KnowledgeCard key={normalizeKnowledge(item).id || index} record={item} />)}</div>
