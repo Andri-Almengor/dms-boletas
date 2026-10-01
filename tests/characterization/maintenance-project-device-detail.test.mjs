@@ -52,7 +52,7 @@ test('ruta permite desplazarse y volver al origen sin depender del historial del
   assert.match(page, /function goToDevice/);
   assert.match(page, /requestedReturnUrl === maintenanceDetailUrl/);
   assert.match(page, /requestedReturnUrl\.startsWith\(\`\$\{maintenanceDetailUrl\}\?\`\)/);
-  assert.match(page, /navigate\(returnUrl, \{ replace: true \}\)/);
+  assert.match(page, /navigate\(returnUrl, \{ replace: true, state: maintenanceDetailState\(\) \}\)/);
   assert.doesNotMatch(page, /navigate\(-1\)/);
   assert.match(page, /replace: true/);
   assert.match(page, />Anterior</);
@@ -67,8 +67,9 @@ test('editar desde la ruta dedicada conserva retorno al mismo dispositivo', () =
 
   assert.match(page, /state:\s*\{[\s\S]*returnTo:\s*\`\/mantenimientos\/\$\{encodeURIComponent\(maintenanceId\)\}\/dispositivos\/\$\{encodeURIComponent\(id\)\}\`/s);
   assert.match(form, /returnTo: location\.state\?\.returnTo/);
+  assert.match(form, /returnState: location\.state/);
   assert.match(hook, /requestedReturnUrl\.startsWith\(\`\$\{detailUrl\}\/\`\)/);
-  assert.match(hook, /navigate\(returnUrl, \{ replace: true \}\)/);
+  assert.match(hook, /navigate\(returnUrl, \{ replace: true, state: returnState \}\)/);
 });
 
 test('detalle reutilizable muestra identificación completa, relaciones configurables y progreso', () => {
