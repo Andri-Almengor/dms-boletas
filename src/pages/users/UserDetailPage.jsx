@@ -53,7 +53,7 @@ export default function UserDetailPage() {
     }
   }
 
-  if (error && !record) return <div className="page page--narrow"><ErrorMessage message={error} /></div>;
+  if (error && !record) return <div className="page page--narrow user-detail-page"><ErrorMessage message={error} /></div>;
   if (!record) return <div className="page page--narrow"><Loading label="Cargando detalle..." /></div>;
 
   const role = roles.find((item) => item.RolID === record.user.RolID);
