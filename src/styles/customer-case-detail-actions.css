@@ -1,6 +1,6 @@
 .case-notification-panel .case-notification-resend {
   width: 100%;
-  min-height: 42px;
+  min-height: var(--touch-target-min);
   margin-top: 12px;
   justify-content: center;
 }
