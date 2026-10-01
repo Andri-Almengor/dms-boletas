@@ -202,9 +202,19 @@ export default function MaintenanceListPage() {
     && !records.length
     && error === OFFLINE_MAINTENANCE_NOT_DOWNLOADED_MESSAGE;
 
+  useEffect(() => {
+    const restoreScrollY = Number(routeLocation.state?.restoreScrollY);
+    if (loading || !Number.isFinite(restoreScrollY) || restoreScrollY <= 0) return undefined;
+    const frame = window.requestAnimationFrame(() => {
+      window.scrollTo({ top: restoreScrollY, behavior: 'auto' });
+      navigate(currentListUrl, { replace: true, state: null });
+    });
+    return () => window.cancelAnimationFrame(frame);
+  }, [currentListUrl, loading, navigate, routeLocation.state?.restoreScrollY]);
+
   return <div className="page page--wide maintenance-page">
     <div className="list-page-heading maintenance-heading"><div><span className="eyebrow">Gestión técnica</span><h1>Mantenimientos</h1><p>Inspecciones por dispositivo, evidencias y reportes.</p></div>{canCreate && <Link className="button button--primary button--compact" to="/mantenimientos/nuevo"><Icon name="add" />Nuevo</Link>}</div>
-    <div className="maintenance-status-tabs" role="tablist"><button type="button" className={status === 'PENDIENTE' ? 'is-active' : ''} onClick={() => selectStatus('PENDIENTE')}><Icon name="pending_actions" />Pendientes</button><button type="button" className={status === 'FINALIZADO' ? 'is-active' : ''} onClick={() => selectStatus('FINALIZADO')}><Icon name="task_alt" />Finalizados</button></div>
+    <div className="maintenance-status-tabs" role="tablist"><button type="button" role="tab" aria-selected={status === 'PENDIENTE'} className={status === 'PENDIENTE' ? 'is-active' : ''} onClick={() => selectStatus('PENDIENTE')}><Icon name="pending_actions" />Pendientes</button><button type="button" role="tab" aria-selected={status === 'FINALIZADO'} className={status === 'FINALIZADO' ? 'is-active' : ''} onClick={() => selectStatus('FINALIZADO')}><Icon name="task_alt" />Finalizados</button></div>
     <form className="search-bar maintenance-list-search-bar" onSubmit={submitSearch} role="search"><Icon name="search" /><input type="search" value={search} onChange={(event) => setSearch(event.target.value)} placeholder="Buscar título, cliente o responsable..." aria-label="Buscar mantenimientos" enterKeyHint="search" autoComplete="off" /><button type="submit" className="icon-button maintenance-list-search-submit" aria-label="Buscar mantenimientos"><Icon name="arrow_forward" /></button><button type="button" className="icon-button icon-button--primary filter-trigger" onClick={openFilters} aria-label="Abrir filtros de mantenimientos" aria-expanded={filterOpen}><Icon name="tune" className="filter-trigger__glyph" />{activeFilterCount > 0 && <span className="filter-trigger__count">{activeFilterCount}</span>}</button></form>
     <div className="maintenance-results-summary" aria-live="polite"><span>Mostrando <strong>{records.length}</strong>{total > records.length ? ` de ${total}` : ''} mantenimiento{total === 1 ? '' : 's'}</span><div className="maintenance-results-summary__actions">{appliedSearch && <span className="maintenance-query-chip"><Icon name="search" />Búsqueda activa</span>}{appliedFilterCount > 0 && <button className="maintenance-query-chip" type="button" onClick={openFilters}><Icon name="tune" />{appliedFilterCount} filtro{appliedFilterCount === 1 ? '' : 's'}</button>}<button className="icon-button icon-button--outlined" type="button" onClick={reload} disabled={loading} aria-label="Actualizar mantenimientos"><Icon name={loading ? 'progress_activity' : 'refresh'} /></button></div></div>
     {error && !offlineUnavailable && <div className="alert alert--error"><Icon name="error" /><span>{error}</span></div>}
