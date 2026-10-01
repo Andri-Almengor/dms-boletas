@@ -79,9 +79,9 @@ test('detalle y diálogo diario usan viewport dinámico y safe areas en teléfon
   const polish = source('src/styles/ui-phase3-polish.css');
 
   assert.match(agenda, /\.agenda-detail-sheet\s*\{[^}]*100dvh[^}]*overscroll-behavior:\s*contain/s);
-  assert.match(agenda, /\.agenda-detail-sheet \.agenda-sheet-actions\s*\{[^}]*position:\s*sticky[^}]*env\(safe-area-inset-bottom\)/s);
-  assert.match(polish, /\.agenda-day-dialog\{[^}]*100dvh[^}]*safe-area-inset-top/s);
-  assert.match(polish, /\.agenda-day-dialog__list\{[^}]*safe-area-inset-bottom[^}]*overscroll-behavior:contain/s);
+  assert.match(agenda, /\.agenda-detail-sheet \.agenda-sheet-actions\s*\{[^}]*position:\s*sticky[^}]*var\(--safe-area-bottom\)/s);
+  assert.match(polish, /\.agenda-day-dialog\{[^}]*100dvh[^}]*var\(--safe-area-top\)/s);
+  assert.match(polish, /\.agenda-day-dialog__list\{[^}]*var\(--safe-area-bottom\)[^}]*overscroll-behavior:contain/s);
 });
 
 test('editor móvil mantiene Cancelar visible y apila acciones únicamente en teléfonos muy estrechos', () => {
@@ -103,4 +103,33 @@ test('separación por persona evita zoom de inputs en móvil y conserva cliente 
   assert.match(dialog, /horaFin: item\.HoraFin/);
   assert.match(dialog, /clienteId: clean\(item\.ClienteID\)/);
   assert.match(dialog, /clienteNombre: clean\(item\.ClienteNombre\)/);
+});
+
+
+test('Etapa 7 conserva mes y búsqueda de Agenda en la URL para volver al mismo contexto', () => {
+  const page = source('src/pages/agenda/AgendaPage.jsx');
+
+  assert.match(page, /const requestedSearch = searchParams\.get\('q'\) \|\| ''/);
+  assert.match(page, /const \[search, setSearch\] = useState\(requestedSearch\)/);
+  assert.match(page, /function updateAgendaViewQuery/);
+  assert.match(page, /next\.set\('month', nextMonth\)/);
+  assert.match(page, /next\.set\('q', query\)/);
+  assert.match(page, /function changeMonth\(nextMonth\)/);
+  assert.match(page, /function changeSearch\(nextSearch\)/);
+  assert.match(page, /changeMonth\(shiftMonth\(month, -1\)\)/);
+  assert.match(page, /changeMonth\(shiftMonth\(month, 1\)\)/);
+  assert.match(page, /changeSearch\(event\.target\.value\)/);
+});
+
+test('Etapa 7 reutiliza targets táctiles y safe areas globales en Agenda móvil', () => {
+  const agenda = source('src/styles/agenda.css');
+  const editor = source('src/styles/agenda-editor-mobile.css');
+  const polish = source('src/styles/ui-phase3-polish.css');
+
+  assert.match(agenda, /\.agenda-month-navigation \.icon-button\s*\{[^}]*width:\s*var\(--touch-target-min\)[^}]*height:\s*var\(--touch-target-min\)/s);
+  assert.match(editor, /\.agenda-editor > \.agenda-sheet-header \.icon-button\s*\{[^}]*var\(--touch-target-min\)/s);
+  assert.match(editor, /\.agenda-user-selector__tools \.button\s*\{[^}]*min-height:\s*var\(--touch-target-min\)/s);
+  assert.doesNotMatch(agenda, /env\(safe-area-inset-(?:top|bottom)\)/);
+  assert.doesNotMatch(editor, /env\(safe-area-inset-(?:top|bottom)\)/);
+  assert.doesNotMatch(polish, /env\(safe-area-inset-(?:top|bottom)\)/);
 });
