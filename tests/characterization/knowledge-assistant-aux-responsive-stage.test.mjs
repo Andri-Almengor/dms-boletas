@@ -89,7 +89,7 @@ test('Password Vault reutiliza overlay compartido sin cambiar protección de sec
   assert.match(page, /enterKeyHint="search"/);
 
   assert.match(styles, /@media \(min-width: 1180px\)[\s\S]*\.password-vault-credential-grid\s*\{[^}]*repeat\(3, minmax\(0, 1fr\)\)/s);
-  assert.match(styles, /\.password-vault-modal\s*\{[^}]*100dvh[^}]*safe-area-top/s);
+  assert.match(styles, /\.password-vault-modal\s*\{[^}]*height:\s*var\(--overlay-mobile-max-height\)[^}]*max-height:\s*var\(--overlay-mobile-max-height\)/s);
 });
 
 test('Casos reutiliza overlay compartido y mantiene correo y procesamiento existentes', () => {
@@ -156,4 +156,83 @@ test('Etapa 8 no crea servicios ni rutas Gemini paralelas en frontend', () => {
   assert.doesNotMatch(editor, /knowledge\.ai\.v2|geminiV2/i);
   assert.match(assistant, /apiRequest\('assistant\.chat'/);
   assert.match(editor, /requestAvailable\(KNOWLEDGE_AI_ROUTES/);
+});
+
+
+test('Etapa 9 conserva contexto de Knowledge durante listado detalle y edición', () => {
+  const list = source('src/pages/knowledge/KnowledgeListPage.jsx');
+  const card = source('src/components/knowledge/KnowledgeCard.jsx');
+  const detail = source('src/pages/knowledge/KnowledgeDetailPage.jsx');
+  const editor = source('src/pages/knowledge/KnowledgeEditorPage.jsx');
+
+  assert.match(list, /const requestedSearch = searchParams\.get\('q'\) \|\| ''/);
+  assert.match(list, /const requestedCategoryId = searchParams\.get\('category'\) \|\| ''/);
+  assert.match(list, /const requestedMineOnly = searchParams\.get\('mine'\) === '1'/);
+  assert.match(list, /search: submittedSearch/);
+  assert.match(list, /knowledgeListReturnTo: currentListUrl/);
+  assert.match(list, /knowledgeListScrollY:/);
+  assert.match(list, /navigationState=\{listReturnState\(\)\}/);
+
+  assert.match(card, /navigationState = undefined/);
+  assert.match(card, /navigate\(detailUrl, navigationState \? \{ state: navigationState \} : undefined\)/);
+  assert.match(detail, /knowledgeListReturnTo = \/\^\\\/conocimiento/);
+  assert.match(detail, /navigate\(knowledgeListReturnTo, \{ state: knowledgeListReturnState \}\)/);
+  assert.match(editor, /state: routeLocation\.state \|\| undefined/);
+});
+
+test('Etapa 9 conserva modo filtros búsqueda y scroll de Casos', () => {
+  const list = source('src/pages/cases/CustomerCasesPage.jsx');
+  const detail = source('src/pages/cases/CustomerCaseDetailPage.jsx');
+
+  assert.match(list, /const requestedMode = searchParams\.get\('mode'\) === 'TEST'/);
+  assert.match(list, /const requestedStatus = String\(searchParams\.get\('status'\) \|\| ''\)/);
+  assert.match(list, /const requestedSearch = searchParams\.get\('q'\) \|\| ''/);
+  assert.match(list, /function updateCaseQuery/);
+  assert.match(list, /casesListReturnTo: currentListUrl/);
+  assert.match(list, /casesListScrollY:/);
+  assert.match(list, /state=\{listReturnState\(\)\}/);
+
+  assert.match(detail, /casesListReturnTo = \/\^\\\/casos/);
+  assert.match(detail, /navigate\(casesListReturnTo, \{ state: casesListReturnState \}\)/);
+});
+
+test('Etapa 9 conserva contexto de Encuestas y búsqueda de Password Vault', () => {
+  const surveys = source('src/pages/surveys/SurveysAdminPage.jsx');
+  const surveyDetail = source('src/pages/surveys/SurveyDetailPage.jsx');
+  const vault = source('src/pages/security/PasswordVaultPage.jsx');
+
+  assert.match(surveys, /const requestedTab = searchParams\.get\('tab'\) === 'questions'/);
+  assert.match(surveys, /const requestedSearch = searchParams\.get\('q'\) \|\| ''/);
+  assert.match(surveys, /const \[submittedSearch, setSubmittedSearch\] = useState\(requestedSearch\)/);
+  assert.match(surveys, /function updateSurveyQuery/);
+  assert.match(surveys, /surveysListReturnTo: currentListUrl/);
+  assert.match(surveys, /state=\{listReturnState\(\)\}/);
+  assert.match(surveyDetail, /surveysListReturnTo = \/\^\\\/encuestas/);
+
+  assert.match(vault, /const requestedSearch = searchParams\.get\('q'\) \|\| ''/);
+  assert.match(vault, /function changeSearch\(value\)/);
+  assert.match(vault, /next\.set\('q', value\)/);
+  assert.match(vault, /changeSearch\(event\.target\.value\)/);
+});
+
+test('Etapa 9 reutiliza targets táctiles y tokens compartidos en superficies auxiliares', () => {
+  const knowledge = source('src/styles/knowledge.css');
+  const assistant = source('src/styles/assistant-experience.css');
+  const sensitive = source('src/styles/assistant-sensitive.css');
+  const vault = source('src/styles/password-vault.css');
+  const cases = source('src/styles/customer-cases-dashboard-responsive.css');
+  const caseActions = source('src/styles/customer-case-detail-actions.css');
+  const surveys = source('src/styles/surveys.css');
+
+  assert.match(knowledge, /\.knowledge-search \.icon-button\s*\{[^}]*var\(--touch-target-min\)/s);
+  assert.doesNotMatch(knowledge, /env\(safe-area-inset-bottom\)/);
+  assert.match(assistant, /\.assistant-route-bar__bot,[\s\S]*\.assistant-route-bar__close\s*\{[^}]*var\(--touch-target-min\)/s);
+  assert.match(sensitive, /\.assistant-attach-button\s*\{[^}]*var\(--touch-target-min\)/s);
+
+  assert.match(vault, /\.password-vault-modal > header > button[^}]*var\(--touch-target-min\)/s);
+  assert.match(vault, /\.password-vault-credential-card__admin button,[\s\S]*\.password-vault-credential-card__fields button\s*\{[^}]*var\(--touch-target-min\)/s);
+  assert.doesNotMatch(vault, /env\(safe-area-inset-bottom\)/);
+  assert.match(cases, /\.case-status-tabs button\s*\{[^}]*min-height:\s*var\(--touch-target-min\)/s);
+  assert.match(caseActions, /min-height:\s*var\(--touch-target-min\)/);
+  assert.match(surveys, /\.survey-response-search \.icon-button\s*\{[^}]*var\(--touch-target-min\)/s);
 });
