@@ -139,12 +139,15 @@ export default function MaintenanceProjectDeviceDetailPage() {
   const previousId = activeIndex > 0 ? navigationIds[activeIndex - 1] : '';
   const nextId = activeIndex >= 0 && activeIndex < navigationIds.length - 1 ? navigationIds[activeIndex + 1] : '';
 
+  const maintenanceDetailUrl = `/mantenimientos/${encodeURIComponent(maintenanceId)}`;
+  const requestedReturnUrl = String(location.state?.returnTo || '').trim();
+  const returnUrl = (
+    requestedReturnUrl === maintenanceDetailUrl
+    || requestedReturnUrl.startsWith(`${maintenanceDetailUrl}?`)
+  ) ? requestedReturnUrl : maintenanceDetailUrl;
+
   function goBack() {
-    if (location.state?.returnTo) {
-      navigate(-1);
-      return;
-    }
-    navigate(`/mantenimientos/${encodeURIComponent(maintenanceId)}`);
+    navigate(returnUrl, { replace: true });
   }
 
   function goToDevice(nextDeviceId) {
@@ -181,21 +184,21 @@ export default function MaintenanceProjectDeviceDetailPage() {
 
   if (!data) {
     return <div className="page maintenance-project-device-detail-page">
-      <div className="page-header"><button className="icon-button" type="button" onClick={goBack}><Icon name="arrow_back" /></button><div><span className="eyebrow">Proyecto técnico</span><h1>Detalle del dispositivo</h1></div></div>
+      <div className="page-header"><button className="icon-button" type="button" onClick={goBack} aria-label="Volver al proyecto"><Icon name="arrow_back" /></button><div><span className="eyebrow">Proyecto técnico</span><h1>Detalle del dispositivo</h1></div></div>
       <div className="empty-state"><Icon name="error" /><h2>No se pudo abrir el proyecto</h2><p>{error || 'No hay información disponible.'}</p></div>
     </div>;
   }
 
   if (!projectMode) {
     return <div className="page maintenance-project-device-detail-page">
-      <div className="page-header"><button className="icon-button" type="button" onClick={goBack}><Icon name="arrow_back" /></button><div><span className="eyebrow">Mantenimiento técnico</span><h1>Detalle del dispositivo</h1></div></div>
+      <div className="page-header"><button className="icon-button" type="button" onClick={goBack} aria-label="Volver al proyecto"><Icon name="arrow_back" /></button><div><span className="eyebrow">Mantenimiento técnico</span><h1>Detalle del dispositivo</h1></div></div>
       <div className="empty-state"><Icon name="info" /><h2>Esta vista corresponde a dispositivos de proyecto</h2><p>Abra el dispositivo desde el detalle del mantenimiento.</p><button type="button" className="button button--primary" onClick={goBack}>Volver al mantenimiento</button></div>
     </div>;
   }
 
   if (!activeDevice) {
     return <div className="page maintenance-project-device-detail-page">
-      <div className="page-header"><button className="icon-button" type="button" onClick={goBack}><Icon name="arrow_back" /></button><div><span className="eyebrow">Proyecto técnico</span><h1>Dispositivo no disponible</h1></div></div>
+      <div className="page-header"><button className="icon-button" type="button" onClick={goBack} aria-label="Volver al proyecto"><Icon name="arrow_back" /></button><div><span className="eyebrow">Proyecto técnico</span><h1>Dispositivo no disponible</h1></div></div>
       <div className="empty-state"><Icon name="devices_other" /><h2>No se encontró este dispositivo</h2><p>Puede haber sido eliminado, movido o todavía no estar disponible en la caché local.</p><button type="button" className="button button--primary" onClick={goBack}>Volver al proyecto</button></div>
     </div>;
   }
@@ -215,7 +218,7 @@ export default function MaintenanceProjectDeviceDetailPage() {
       {pending && canEdit && <button className="button button--secondary button--compact maintenance-project-device-route-header__edit" type="button" onClick={() => editDevice(activeDevice)}><Icon name="edit" />Editar</button>}
     </header>
 
-    {error && <div className="alert alert--error"><Icon name="error" /><span>{error}</span></div>}
+    {error && <div className="alert alert--error" role="alert"><Icon name="error" /><span>{error}</span></div>}
 
     <nav className="maintenance-project-device-route-navigation" aria-label="Navegación entre dispositivos">
       <button className="button button--secondary" type="button" onClick={() => goToDevice(previousId)} disabled={!previousId}><Icon name="arrow_back" /><span>Anterior</span></button>
