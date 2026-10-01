@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useState } from 'react';
+import { useEffect, useState } from 'react';
 import { canonicalMaintenanceCategoryName } from '../config/maintenanceCategories';
 import { requestAvailable } from '../services/moduleApi';
 
@@ -121,17 +121,6 @@ export default function useMaintenanceQuestionCatalog(sessionToken) {
 
     return () => { active = false; };
   }, [sessionToken]);
-
-  const byTypeId = useMemo(() => {
-    const map = new Map();
-    questions.forEach((question) => {
-      if (!question.typeId) return;
-      if (!map.has(question.typeId)) map.set(question.typeId, []);
-      map.get(question.typeId).push(question);
-    });
-    map.forEach((items) => items.sort((left, right) => left.order - right.order || left.label.localeCompare(right.label, 'es')));
-    return map;
-  }, [questions]);
 
   function forDevice(device = {}, maintenanceMode = 'MANTENIMIENTO') {
     const typeId = clean(device.tipoDispositivoId || device.TipoDispositivoID);
