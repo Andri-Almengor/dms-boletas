@@ -105,6 +105,35 @@ test('los componentes relacionados reutilizan catálogos tipo marca modelo y cre
   assert.match(sharedHook, /MODULE_ROUTES\.deviceManufacturers\.list/);
 });
 
+test('las relaciones de Proyecto sobreviven alias equivalentes del tipo de dispositivo', () => {
+  const catalogHook = source('src/hooks/useMaintenanceQuestionCatalog.js');
+  const editor = source('src/components/maintenance/MaintenanceDeviceEditor.jsx');
+
+  assert.match(catalogHook, /canonicalMaintenanceCategoryName/);
+  assert.match(catalogHook, /selectMaintenanceQuestionsForDevice/);
+  assert.match(catalogHook, /const exact = typeId/);
+  assert.match(catalogHook, /const compatible = category/);
+  assert.match(catalogHook, /for \(const question of \[\.\.\.exact, \.\.\.compatible\]\)/);
+  assert.match(catalogHook, /seenSignatures/);
+  assert.match(editor, /question\.responseType === 'RELACION_DISPOSITIVO'/);
+  assert.match(editor, /<MaintenanceProjectRelationField/);
+});
+
+test('una relación se mantiene en modo Proyecto y recupera filas históricas mal marcadas como Mantenimiento', () => {
+  const admin = source('src/pages/admin/MaintenanceQuestionsPage.jsx');
+  const service = source('backend/src/services/maintenance-question-catalog.service.js');
+  const backend = source('backend/src/modules/maintenance-dynamic-questions.module.js');
+
+  assert.match(admin, /aplicaModo: current\.aplicaModo === 'MANTENIMIENTO' \? 'PROYECTO' : current\.aplicaModo/);
+  assert.match(admin, /value="MANTENIMIENTO" disabled=\{values\.tipoRespuesta === 'RELACION_DISPOSITIVO'\}/);
+  assert.match(admin, /responseType === 'RELACION_DISPOSITIVO' && configuredMode === 'MANTENIMIENTO'[\s\S]*\? 'PROYECTO'/);
+
+  assert.match(service, /function effectiveMaintenanceQuestionMode/);
+  assert.match(service, /responseType === 'RELACION_DISPOSITIVO' && configured === 'MANTENIMIENTO'/);
+  assert.match(service, /appliesTo: effectiveMaintenanceQuestionMode\(row\)/);
+  assert.match(backend, /Las relaciones con otros dispositivos deben aplicarse a Proyecto o Ambos/);
+});
+
 test('el backend valida modo, catálogos y preguntas de componentes sin N+1', () => {
   const backend = source('backend/src/modules/maintenance-dynamic-questions.module.js');
   const automation = source('backend/src/modules/maintenance-automation.module.js');
