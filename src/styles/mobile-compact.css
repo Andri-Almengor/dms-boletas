@@ -91,8 +91,8 @@ button {
   right: 5px;
   top: 50%;
   z-index: 3;
-  width: 36px;
-  height: 36px;
+  width: var(--touch-target-min);
+  height: var(--touch-target-min);
   padding: 0;
   border: 0;
   border-radius: 999px;
@@ -168,7 +168,7 @@ button {
   position: fixed;
   inset: 0;
   z-index: 250;
-  padding-top: env(safe-area-inset-top);
+  padding-top: var(--safe-area-top);
   display: flex;
   align-items: flex-end;
   justify-content: center;
@@ -181,7 +181,7 @@ button {
   height: 100%;
   padding: 0;
   border: 0;
-  background: rgba(20, 20, 22, .56);
+  background: var(--overlay-backdrop);
 }
 
 .mobile-time-picker {
@@ -189,10 +189,10 @@ button {
   z-index: 1;
   width: min(100%, 430px);
   max-height: calc(100dvh - var(--safe-area-top));
-  padding: 17px 16px calc(16px + env(safe-area-inset-bottom));
+  padding: 17px 16px calc(16px + var(--safe-area-bottom));
   overflow-y: auto;
   overscroll-behavior: contain;
-  border-radius: 22px 22px 0 0;
+  border-radius: var(--overlay-radius) var(--overlay-radius) 0 0;
   background: var(--surface);
   box-shadow: 0 -12px 36px rgba(0, 0, 0, .2);
 }
