@@ -1,5 +1,5 @@
 import React, { useCallback, useEffect, useMemo, useState } from 'react';
-import { Link } from 'react-router-dom';
+import { Link, useLocation, useNavigate, useSearchParams } from 'react-router-dom';
 import { useAuth } from '../../AuthContext';
 import Icon from '../../components/common/Icon';
 import NotificationEmailSettingsPanel from '../../components/cases/NotificationEmailSettingsPanel';
@@ -50,13 +50,20 @@ function evidenceLabel(item) {
 
 export default function CustomerCasesPage() {
   const { sessionToken } = useAuth();
+  const routeLocation = useLocation();
+  const navigate = useNavigate();
+  const [searchParams, setSearchParams] = useSearchParams();
+  const requestedMode = searchParams.get('mode') === 'TEST' ? 'TEST' : 'REAL';
+  const requestedStatus = String(searchParams.get('status') || '');
+  const initialStatus = STATUS_TABS.some((tab) => tab.value === requestedStatus) ? requestedStatus : '';
+  const requestedSearch = searchParams.get('q') || '';
   const [cases, setCases] = useState([]);
   const [counts, setCounts] = useState({ ...EMPTY_COUNTS });
   const [modeCounts, setModeCounts] = useState({ ...EMPTY_MODE_COUNTS });
-  const [mode, setMode] = useState('REAL');
-  const [status, setStatus] = useState('');
-  const [search, setSearch] = useState('');
-  const [submittedSearch, setSubmittedSearch] = useState('');
+  const [mode, setMode] = useState(requestedMode);
+  const [status, setStatus] = useState(initialStatus);
+  const [search, setSearch] = useState(requestedSearch);
+  const [submittedSearch, setSubmittedSearch] = useState(requestedSearch);
   const [loading, setLoading] = useState(true);
   const [refreshing, setRefreshing] = useState(false);
   const [settingsOpen, setSettingsOpen] = useState(false);
@@ -113,11 +120,32 @@ export default function CustomerCasesPage() {
     return cases.filter((item) => `${item.number} ${item.client} ${item.reason} ${item.problem} ${item.requesterName} ${item.requesterEmail}`.toLowerCase().includes(query));
   }, [cases, search, submittedSearch]);
 
+  const currentListUrl = `${routeLocation.pathname}${routeLocation.search || ''}`;
+
+  function listReturnState() {
+    return {
+      casesListReturnTo: currentListUrl,
+      casesListScrollY: typeof window === 'undefined' ? 0 : Math.max(0, Number(window.scrollY || 0)),
+    };
+  }
+
+  function updateCaseQuery({ nextMode = mode, nextStatus = status, nextSearch = submittedSearch } = {}) {
+    const next = new URLSearchParams(searchParams);
+    if (nextMode === 'TEST') next.set('mode', 'TEST');
+    else next.delete('mode');
+    if (nextStatus) next.set('status', nextStatus);
+    else next.delete('status');
+    if (nextSearch) next.set('q', nextSearch);
+    else next.delete('q');
+    setSearchParams(next, { replace: true });
+  }
+
   function submitSearch(event) {
     event.preventDefault();
-    const next = search.trim();
-    if (next === submittedSearch) load({ quiet: true });
-    else setSubmittedSearch(next);
+    const nextSearch = search.trim();
+    updateCaseQuery({ nextSearch });
+    if (nextSearch === submittedSearch) load({ quiet: true });
+    else setSubmittedSearch(nextSearch);
   }
 
   function changeMode(nextMode) {
@@ -125,7 +153,23 @@ export default function CustomerCasesPage() {
     setStatus('');
     setSearch('');
     setSubmittedSearch('');
+    updateCaseQuery({ nextMode, nextStatus: '', nextSearch: '' });
   }
+
+  function changeStatus(nextStatus) {
+    setStatus(nextStatus);
+    updateCaseQuery({ nextStatus });
+  }
+
+  useEffect(() => {
+    const restoreScrollY = Number(routeLocation.state?.restoreScrollY);
+    if (loading || !Number.isFinite(restoreScrollY) || restoreScrollY <= 0) return undefined;
+    const frame = window.requestAnimationFrame(() => {
+      window.scrollTo({ top: restoreScrollY, behavior: 'auto' });
+      navigate(currentListUrl, { replace: true, state: null });
+    });
+    return () => window.cancelAnimationFrame(frame);
+  }, [currentListUrl, loading, navigate, routeLocation.state?.restoreScrollY]);
 
   return <div className="page page--wide customer-cases-page">
     <header className="case-dashboard-heading">
@@ -151,7 +195,7 @@ export default function CustomerCasesPage() {
 
     <section className="case-dashboard-toolbar">
       <div className="case-status-tabs" role="tablist" aria-label="Filtrar casos por estado">
-        {STATUS_TABS.map((tab) => <button key={tab.value || 'all'} type="button" className={status === tab.value ? 'is-active' : ''} onClick={() => setStatus(tab.value)} role="tab" aria-selected={status === tab.value}><Icon name={tab.icon} /><span>{tab.label}</span><b>{counts[tab.countKey] || 0}</b></button>)}
+        {STATUS_TABS.map((tab) => <button key={tab.value || 'all'} type="button" className={status === tab.value ? 'is-active' : ''} onClick={() => changeStatus(tab.value)} role="tab" aria-selected={status === tab.value}><Icon name={tab.icon} /><span>{tab.label}</span><b>{counts[tab.countKey] || 0}</b></button>)}
       </div>
       <form className="case-search" role="search" onSubmit={submitSearch}><Icon name="search" /><input type="search" value={search} onChange={(event) => setSearch(event.target.value)} placeholder="Buscar caso, cliente o solicitante..." aria-label="Buscar casos" enterKeyHint="search" autoComplete="off" /><button type="submit" aria-label="Buscar"><Icon name="arrow_forward" /></button></form>
     </section>
@@ -162,7 +206,7 @@ export default function CustomerCasesPage() {
         {visibleCases.map((item) => {
           const evidenceWarning = item.failedEvidenceCount > 0
             || item.evidenceCount < Number(item.requestedEvidenceCount || 0);
-          return <Link to={`/casos/${encodeURIComponent(item.id)}`} className={`customer-case-card ${stateClass(item.state)}${evidenceWarning ? ' has-evidence-warning' : ''}`} key={item.id}>
+          return <Link to={`/casos/${encodeURIComponent(item.id)}`} state={listReturnState()} className={`customer-case-card ${stateClass(item.state)}${evidenceWarning ? ' has-evidence-warning' : ''}`} key={item.id}>
             <header><div><span className="customer-case-card__number">{item.number}</span>{item.testMode && <span className="customer-case-card__test"><Icon name="science" />Prueba</span>}<strong>{item.client}</strong></div><span className={`case-status-pill ${stateClass(item.state)}`}><Icon name={item.state === 'FINALIZADO' ? 'task_alt' : item.state === 'EN_PROCESO' ? 'engineering' : 'schedule'} />{customerCaseStateLabel(item.state)}</span></header>
             <h2>{item.reason || 'Solicitud técnica'}</h2>
             <p>{item.problem || 'Sin descripción del problema.'}</p>
