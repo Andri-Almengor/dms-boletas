@@ -120,7 +120,7 @@ test('gestor de preguntas usa el overlay compartido y conserva Escape editor→g
   assert.doesNotMatch(page, /document\.body\.classList\.add\('maintenance-question-manager-open'\)/);
   assert.doesNotMatch(styles, /body\.maintenance-question-manager-open/);
 
-  assert.match(styles, /height:\s*calc\(100dvh - max\(8px, var\(--safe-area-top\)\)\)/);
+  assert.match(styles, /height:\s*var\(--overlay-mobile-max-height\)/);
   assert.match(styles, /\.maintenance-question-manager__editor \.form-control,[\s\S]*\.maintenance-question-search input[\s\S]*font-size:\s*16px/s);
 });
 
@@ -142,4 +142,67 @@ test('administración escala a tres columnas únicamente cuando existe espacio a
   const styles = source('src/styles/admin-responsive-corrections.css');
 
   assert.match(styles, /@media \(min-width: 1180px\)[\s\S]*\.users-page \.user-grid,[\s\S]*\.clients-admin-page \.admin-mini-card-grid,[\s\S]*\.catalog-page \.admin-mini-card-grid[\s\S]*repeat\(3, minmax\(0, 1fr\)\)/s);
+});
+
+
+test('Etapa 8 conserva búsqueda y retorno contextual en Usuarios', () => {
+  const list = source('src/pages/users/UsersPage.jsx');
+  const detail = source('src/pages/users/UserDetailPage.jsx');
+  const form = source('src/pages/users/UserFormPage.jsx');
+
+  assert.match(list, /const requestedSearch = searchParams\.get\('q'\) \|\| ''/);
+  assert.match(list, /const \[submittedSearch, setSubmittedSearch\] = useState\(requestedSearch\)/);
+  assert.match(list, /usersListReturnTo: currentListUrl/);
+  assert.match(list, /usersListScrollY:/);
+  assert.match(list, /restoreScrollY/);
+  assert.match(list, /state=\{listReturnState\(\)\}/);
+
+  assert.match(detail, /usersListReturnTo = \/\^\\\/usuarios\(\?:\\\?\|\$\)\//);
+  assert.match(detail, /navigate\(usersListReturnTo, \{ state: usersListReturnState \}\)/);
+  assert.match(detail, /state=\{routeLocation\.state\}/);
+
+  assert.match(form, /navigation|routeLocation\.state/);
+  assert.match(form, /usersListReturnState/);
+  assert.match(form, /navigate\(detailUrl, routeLocation\.state \? \{ state: routeLocation\.state \} : undefined\)/);
+});
+
+test('Etapa 8 conserva contexto de Clientes Catálogos y Preguntas sin rutas paralelas', () => {
+  const clients = source('src/pages/admin/ClientsPage.jsx');
+  const catalogs = source('src/pages/admin/CatalogsPage.jsx');
+  const questions = source('src/pages/admin/MaintenanceQuestionsPage.jsx');
+
+  assert.match(clients, /const requestedSearch = searchParams\.get\('q'\) \|\| ''/);
+  assert.match(clients, /setSearchParams\(next, \{ replace: true \}\)/);
+
+  assert.match(catalogs, /const requestedTab = String\(searchParams\.get\('tab'\) \|\| ''\)/);
+  assert.match(catalogs, /const requestedSearch = searchParams\.get\('q'\) \|\| ''/);
+  assert.match(catalogs, /TABS\.some\(\(\[key\]\) => key === requestedTab\)/);
+  assert.match(catalogs, /next\.set\('tab', nextTab\)/);
+  assert.match(catalogs, /function changeSearch\(nextSearch\)/);
+  assert.match(catalogs, /<AdminEntityModal/);
+
+  assert.match(questions, /const requestedSearch = searchParams\.get\('q'\) \|\| ''/);
+  assert.match(questions, /const requestedTypeId = searchParams\.get\('device'\) \|\| ''/);
+  assert.match(questions, /function updateQuestionViewQuery/);
+  assert.match(questions, /next\.set\('device', nextTypeId\)/);
+  assert.match(questions, /function changeSearch\(nextSearch\)/);
+  assert.match(questions, /useOverlaySurface\(\{/);
+});
+
+test('Etapa 8 reutiliza tokens globales para modales y targets administrativos', () => {
+  const modal = source('src/styles/admin-card-modals.css');
+  const admin = source('src/styles/admin-responsive-corrections.css');
+  const questions = source('src/styles/maintenance-question-cards.css');
+
+  assert.match(modal, /\.admin-mini-card__action\s*\{[^}]*width:\s*var\(--touch-target-min\)[^}]*height:\s*var\(--touch-target-min\)/s);
+  assert.match(modal, /max-height:\s*var\(--overlay-mobile-max-height\)/);
+  assert.doesNotMatch(admin, /var\(--text-muted\)/);
+  assert.match(admin, /height:\s*var\(--overlay-mobile-max-height\)/);
+  assert.match(admin, /var\(--safe-area-bottom\)/);
+
+  assert.doesNotMatch(questions, /var\(--text-muted\)/);
+  assert.match(questions, /\.maintenance-question-device-card__edit\s*\{[^}]*width:\s*var\(--touch-target-min\)[^}]*height:\s*var\(--touch-target-min\)/s);
+  assert.match(questions, /background:\s*var\(--overlay-backdrop\)/);
+  assert.match(questions, /height:\s*var\(--overlay-mobile-max-height\)/);
+  assert.match(questions, /\.maintenance-question-related-fields \.checkbox-row\s*\{[^}]*min-height:\s*var\(--touch-target-min\)/s);
 });
