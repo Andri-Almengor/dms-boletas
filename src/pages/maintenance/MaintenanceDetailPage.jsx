@@ -372,15 +372,15 @@ export default function MaintenanceDetailPage() {
   return (
     <div className="page maintenance-detail-page maintenance-detail-page--inventory">
       <div className="page-header knowledge-detail-header">
-        <button className="icon-button" type="button" onClick={() => navigate('/mantenimientos')}><Icon name="arrow_back" /></button>
+        <button className="icon-button" type="button" onClick={() => navigate('/mantenimientos')} aria-label="Volver a mantenimientos"><Icon name="arrow_back" /></button>
         <div><span className="eyebrow">{projectMode ? 'Proyecto técnico' : 'Mantenimiento técnico'}</span><h1>{pick(row, ['TituloMantenimiento'], projectMode ? 'Proyecto' : 'Mantenimiento')}</h1></div>
         {pending && canEdit
           ? <Link className="icon-button" to={`/mantenimientos/${encodeURIComponent(maintenanceId)}/editar`} aria-label="Editar"><Icon name="edit" /></Link>
           : <span />}
       </div>
 
-      {error && <div className="alert alert--error"><Icon name="error" /><span>{error}</span></div>}
-      {notice && <div className="alert alert--success"><Icon name="check_circle" /><span>{notice}</span></div>}
+      {error && <div className="alert alert--error" role="alert"><Icon name="error" /><span>{error}</span></div>}
+      {notice && <div className="alert alert--success" role="status"><Icon name="check_circle" /><span>{notice}</span></div>}
       {offlinePending && <div className="alert alert--warning maintenance-offline-edit-notice"><Icon name="cloud_off" /><span>Este mantenimiento está guardado en el dispositivo. Puede agregar ubicaciones, equipos y evidencias. Finalizar y generar reportes aparecerán cuando todo se sincronice.</span></div>}
 
       <MaintenanceMobileFold
