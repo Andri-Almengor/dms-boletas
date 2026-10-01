@@ -123,10 +123,6 @@
     min-height: 0;
     overscroll-behavior: contain;
   }
-
-  .filter-drawer footer {
-    padding-bottom: max(0px, var(--safe-area-bottom));
-  }
 }
 
 @media (max-width: 390px) {
