@@ -129,8 +129,10 @@ test('la firma puede ampliarse sin crear un segundo formulario ni perder el traz
   assert.match(component, /Ampliar firma/);
   assert.match(component, /Reducir firma/);
   assert.match(component, /aria-modal=\{expanded \? 'true' : undefined\}/);
-  assert.match(component, /event\.key === 'Escape'/);
-  assert.match(component, /document\.body\.style\.overflow = 'hidden'/);
+  assert.match(component, /useOverlaySurface\(\{ open: expanded, onClose:/);
+  const overlay = source('src/hooks/useOverlaySurface.js');
+  assert.match(overlay, /event\.key !== 'Escape'/);
+  assert.match(overlay, /document\.body\.style\.overflow = 'hidden'/);
   assert.match(component, /className=\{`signature-pad\$\{expanded \? ' is-expanded' : ''\}`\}/);
 
   assert.match(routeStyles, /signature-pad-expanded\.css/);
