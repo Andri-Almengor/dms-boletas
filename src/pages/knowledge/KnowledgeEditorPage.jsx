@@ -382,8 +382,8 @@ export default function KnowledgeEditorPage({ mode }) {
   }
 
   if (!isEdit && !canCreate) return <Navigate to="/conocimiento" replace />;
-  if (loading) return <div className="page page--narrow"><div className="state-card state-card--loading"><Icon name="progress_activity" /> Cargando documento...</div></div>;
-  if (loadError) return <div className="page page--narrow"><div className="alert alert--error"><Icon name="error" /><span>{loadError}</span></div><button className="button button--secondary" type="button" onClick={() => navigate('/conocimiento')}><Icon name="arrow_back" /> Volver</button></div>;
+  if (loading) return <div className="page page--narrow knowledge-editor-page"><div className="state-card state-card--loading"><Icon name="progress_activity" /> Cargando documento...</div></div>;
+  if (loadError) return <div className="page page--narrow knowledge-editor-page"><div className="alert alert--error"><Icon name="error" /><span>{loadError}</span></div><button className="button button--secondary" type="button" onClick={() => navigate('/conocimiento')}><Icon name="arrow_back" /> Volver</button></div>;
 
   const aiDisabled = saving || Boolean(aiBusy);
 
@@ -394,8 +394,8 @@ export default function KnowledgeEditorPage({ mode }) {
       <span className={`autosave-indicator${savedLocally ? ' autosave-indicator--local' : ''}`}><Icon name={savedLocally ? 'cloud_done' : 'cloud'} /> {savedLocally ? 'Borrador guardado' : 'Autoguardado local'}</span>
     </div>
 
-    {error && <div className="alert alert--error"><Icon name="error" /><span>{error}</span></div>}
-    {aiNotice && <div className="alert alert--success"><Icon name="auto_awesome" /><span>{aiNotice}</span></div>}
+    {error && <div className="alert alert--error" role="alert"><Icon name="error" /><span>{error}</span></div>}
+    {aiNotice && <div className="alert alert--success" role="status"><Icon name="auto_awesome" /><span>{aiNotice}</span></div>}
 
     <form onSubmit={(event) => save(event, form.status)}>
       <section className="form-card knowledge-basics-card">
