@@ -18,11 +18,11 @@ function normalized(value) {
     .trim();
 }
 
-function typeIdentity(value) {
+export function maintenanceQuestionTypeIdentity(value) {
   return normalized(canonicalMaintenanceCategoryName(value));
 }
 
-function mergeEquivalentQuestions(exact = [], equivalent = []) {
+export function mergeMaintenanceQuestionCandidates(exact = [], equivalent = []) {
   const seen = new Set();
   return [...exact, ...equivalent].filter((question) => {
     const key = clean(question.key || question.questionId || question.id);
@@ -126,7 +126,7 @@ export default function useMaintenanceQuestionCatalog(sessionToken) {
   const byTypeIdentity = useMemo(() => {
     const map = new Map();
     questions.forEach((question) => {
-      const identity = typeIdentity(question.typeName);
+      const identity = maintenanceQuestionTypeIdentity(question.typeName);
       if (!identity) return;
       if (!map.has(identity)) map.set(identity, []);
       map.get(identity).push(question);
@@ -138,11 +138,11 @@ export default function useMaintenanceQuestionCatalog(sessionToken) {
   function forDevice(device = {}, maintenanceMode = 'MANTENIMIENTO') {
     const typeId = clean(device.tipoDispositivoId || device.TipoDispositivoID);
     const category = clean(device.categoria || device.TipoDispositivo || device.Categoria);
-    const identity = typeIdentity(category);
+    const identity = maintenanceQuestionTypeIdentity(category);
     const requestedMode = normalizeMode(maintenanceMode);
     const exact = typeId && byTypeId.has(typeId) ? byTypeId.get(typeId) : [];
     const equivalent = identity && byTypeIdentity.has(identity) ? byTypeIdentity.get(identity) : [];
-    const selected = mergeEquivalentQuestions(exact, equivalent)
+    const selected = mergeMaintenanceQuestionCandidates(exact, equivalent)
       .filter((question) => question.appliesTo === 'AMBOS' || question.appliesTo === requestedMode)
       .sort((left, right) => left.order - right.order || left.label.localeCompare(right.label, 'es'));
     const savedByKey = new Map((device.questionDetails || [])
