@@ -42,3 +42,10 @@
 .status-chip--neutral { color: var(--muted); background: var(--surface-container); }
 .section-marker { display: block; width: 4px; min-height: 29px; background: var(--primary); border-radius: 999px; }
 .section-marker--secondary { background: var(--muted); }
+
+
+/* Indicador consistente para navegación por teclado en superficies compartidas. */
+:is(.button, .icon-button, .quick-card, .menu-row, .logout-row, .primary-cta, .bottom-nav__item, .side-drawer__nav a):focus-visible {
+  outline: 3px solid color-mix(in srgb, var(--primary) 32%, transparent);
+  outline-offset: 2px;
+}
