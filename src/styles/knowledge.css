@@ -1,4 +1,4 @@
-.knowledge-page { width:min(100%,1120px); }
+.knowledge-page { width:min(100%,var(--page-wide-max-width)); }
 .knowledge-hero { margin-bottom:18px; display:flex; align-items:flex-end; justify-content:space-between; gap:18px; }
 .knowledge-hero h1 { margin:4px 0 7px; }
 .knowledge-hero p { margin:0; color:var(--muted); }
@@ -27,7 +27,7 @@
 .knowledge-card__meta { margin-top:auto; padding-top:12px; border-top:1px solid var(--surface-container); }
 .knowledge-card__meta span, .knowledge-card__resources span { display:inline-flex; align-items:center; gap:4px; }
 .knowledge-card__meta .material-symbols-outlined, .knowledge-card__resources .material-symbols-outlined { font-size:16px; color:var(--primary); }
-.knowledge-detail-page { width:min(100%,900px); }
+.knowledge-detail-page { width:min(100%,1120px); }
 .knowledge-detail-header { grid-template-columns:44px minmax(0,1fr) 44px; }
 .knowledge-detail-meta { margin-bottom:15px; padding:15px; border:1px solid var(--outline-soft); border-radius:var(--radius-md); background:white; display:flex; flex-wrap:wrap; align-items:center; gap:9px 12px; box-shadow:var(--shadow-sm); }
 .knowledge-detail-meta > div { flex:1 1 100%; display:flex; flex-wrap:wrap; gap:8px 18px; color:var(--muted); font-size:.76rem; }
@@ -57,7 +57,7 @@
 .knowledge-attachment-list strong, .knowledge-attachment-list small { display:block; }
 .knowledge-attachment-list small { margin-top:3px; color:var(--muted); }
 .knowledge-attachment-list > button > .material-symbols-outlined { color:var(--muted); }
-.knowledge-editor-page { width:min(100%,980px); }
+.knowledge-editor-page { width:min(100%,1120px); }
 .knowledge-editor-header { grid-template-columns:44px minmax(0,1fr) auto; }
 .knowledge-basics-grid { display:grid; grid-template-columns:repeat(2,minmax(0,1fr)); gap:13px; }
 .knowledge-basics-grid .is-wide { grid-column:1 / -1; }
@@ -110,4 +110,113 @@
 @media (max-width:420px) {
   .knowledge-hero__actions, .knowledge-editor-actions { grid-template-columns:1fr; }
   .knowledge-editor__toolbar { max-height:104px; overflow:auto; }
+}
+
+
+.knowledge-search input {
+  min-width: 0;
+}
+
+.knowledge-filter-row {
+  overscroll-behavior-x: contain;
+  scroll-snap-type: x proximity;
+}
+
+.knowledge-filter-row > button,
+.knowledge-mine-toggle {
+  scroll-snap-align: start;
+}
+
+@media (min-width: 1180px) {
+  .knowledge-grid {
+    grid-template-columns: repeat(3, minmax(0, 1fr));
+  }
+
+  .knowledge-video-grid {
+    grid-template-columns: repeat(3, minmax(0, 1fr));
+  }
+}
+
+@media (max-width: 720px) {
+  .knowledge-search {
+    min-height: 52px;
+    padding-right: 4px;
+    padding-left: 11px;
+    grid-template-columns: 22px minmax(0, 1fr) 40px;
+    gap: 6px;
+  }
+
+  .knowledge-search input {
+    height: 48px;
+    font-size: 16px;
+  }
+
+  .knowledge-search .icon-button {
+    width: 40px;
+    height: 40px;
+  }
+
+  .knowledge-filter-row > button,
+  .knowledge-mine-toggle span {
+    min-height: 44px;
+  }
+
+  .knowledge-editor-actions {
+    bottom: calc(var(--bottom-nav-height) + var(--safe-area-bottom) + 6px);
+    display: flex;
+    flex-wrap: nowrap;
+    gap: 8px;
+    overflow-x: auto;
+    overscroll-behavior-x: contain;
+    scroll-snap-type: x proximity;
+    scrollbar-width: none;
+  }
+
+  .knowledge-editor-actions::-webkit-scrollbar {
+    display: none;
+  }
+
+  .knowledge-editor-actions .button {
+    flex: 0 0 auto;
+    min-width: 150px;
+    scroll-snap-align: start;
+  }
+
+  .knowledge-file-list article {
+    grid-template-columns: 36px minmax(0, 1fr) repeat(2, 40px);
+  }
+
+  .knowledge-document,
+  .knowledge-editor__document {
+    overflow-wrap: anywhere;
+  }
+
+  .knowledge-document pre,
+  .knowledge-editor__document pre {
+    max-width: 100%;
+    overflow-x: auto;
+  }
+}
+
+@media (max-width: 420px) {
+  .knowledge-editor-actions {
+    grid-template-columns: none;
+  }
+
+  .knowledge-file-list article {
+    grid-template-columns: 34px minmax(0, 1fr) 38px;
+  }
+
+  .knowledge-file-list article > label.icon-button {
+    grid-column: 1 / -1;
+    width: 100%;
+    min-height: 40px;
+  }
+
+  .knowledge-file-list article > label.icon-button::after {
+    content: 'Reemplazar';
+    margin-left: 6px;
+    font-size: .72rem;
+    font-weight: 750;
+  }
 }
