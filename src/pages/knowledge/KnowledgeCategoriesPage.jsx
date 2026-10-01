@@ -16,6 +16,29 @@ function viewCategory(record = {}) {
   };
 }
 
+function categoryId(record = {}) {
+  return String(pick(record, ['CategoriaConocimientoID', 'CategoriaID', 'id'], ''));
+}
+
+function categoryWithUsage(items, record) {
+  const id = categoryId(record);
+  const current = items.find((item) => categoryId(item) === id) || {};
+  return {
+    ...current,
+    ...record,
+    TutorialCount: Number(pick(record, ['TutorialCount', 'tutorialCount'], pick(current, ['TutorialCount', 'tutorialCount'], 0)) || 0),
+  };
+}
+
+function upsertCategory(items, record) {
+  const id = categoryId(record);
+  if (!id) return items;
+  const next = categoryWithUsage(items, record);
+  const index = items.findIndex((item) => categoryId(item) === id);
+  if (index < 0) return [next, ...items];
+  return items.map((item, currentIndex) => currentIndex === index ? next : item);
+}
+
 export default function KnowledgeCategoriesPage() {
   const navigate = useNavigate();
   const routeLocation = useLocation();
@@ -28,7 +51,6 @@ export default function KnowledgeCategoriesPage() {
   const { sessionToken, hasPermission } = useAuth();
   const canManage = hasPermission('CONOCIMIENTO_CATEGORIAS_GESTIONAR') || hasPermission('USUARIOS_GESTIONAR');
   const [items, setItems] = useState([]);
-  const [tutorials, setTutorials] = useState([]);
   const [search, setSearch] = useState('');
   const [selected, setSelected] = useState(null);
   const [form, setForm] = useState(EMPTY);
@@ -41,26 +63,30 @@ export default function KnowledgeCategoriesPage() {
   async function load() {
     setLoading(true);
     setError('');
-    const [categoriesResult, tutorialsResult] = await Promise.allSettled([
-      requestAvailable(MODULE_ROUTES.knowledgeCategories.list, { page: 1, pageSize: 1000, includeInactive: true, sortBy: 'Nombre', sortDir: 'asc' }, sessionToken),
-      requestAvailable(MODULE_ROUTES.knowledge.list, { page: 1, pageSize: 2000, includeInactive: true }, sessionToken),
-    ]);
-    if (categoriesResult.status === 'fulfilled') setItems(normalizeItems(categoriesResult.value));
-    else setError(categoriesResult.reason?.message || 'No se pudieron cargar las categorías.');
-    if (tutorialsResult.status === 'fulfilled') setTutorials(normalizeItems(tutorialsResult.value));
-    setLoading(false);
+    try {
+      const result = await requestAvailable(MODULE_ROUTES.knowledgeCategories.list, {
+        page: 1,
+        pageSize: 1000,
+        includeTotal: false,
+        includeUsageCount: true,
+        includeInactive: true,
+        sortBy: 'Nombre',
+        sortDir: 'asc',
+      }, sessionToken);
+      setItems(normalizeItems(result));
+    } catch (loadError) {
+      setError(loadError?.message || 'No se pudieron cargar las categorías.');
+    } finally {
+      setLoading(false);
+    }
   }
 
   useEffect(() => { if (canManage) load(); }, [sessionToken, canManage]);
 
-  const counts = useMemo(() => tutorials.reduce((map, tutorial) => {
-    const ids = [
-      pick(tutorial, ['CategoriaConocimientoID', 'CategoriaID', 'categoriaId']),
-      ...(Array.isArray(tutorial.Categorias) ? tutorial.Categorias : []),
-    ].filter(Boolean).map(String);
-    ids.forEach((id) => map.set(id, (map.get(id) || 0) + 1));
-    return map;
-  }, new Map()), [tutorials]);
+  const counts = useMemo(() => new Map(items.map((record) => [
+    categoryId(record),
+    Number(pick(record, ['TutorialCount', 'tutorialCount'], 0) || 0),
+  ])), [items]);
 
   const visible = useMemo(() => {
     const query = search.trim().toLowerCase();
@@ -114,10 +140,11 @@ export default function KnowledgeCategoriesPage() {
       };
       const response = await requestAvailable(form.id ? MODULE_ROUTES.knowledgeCategories.update : MODULE_ROUTES.knowledgeCategories.create, payload, sessionToken);
       const saved = response?.item || response?.data || response;
-      setSelected(saved);
-      setForm(viewCategory(saved));
+      const next = categoryWithUsage(items, saved);
+      setItems((current) => upsertCategory(current, saved));
+      setSelected(next);
+      setForm(viewCategory(next));
       setEditing(false);
-      await load();
     } catch (saveError) {
       setModalError(saveError.message);
     } finally {
@@ -139,9 +166,10 @@ export default function KnowledgeCategoriesPage() {
         activo: nextActive,
         Estado: nextActive ? 'ACTIVO' : 'INACTIVO',
       }, sessionToken);
-      setSelected(response);
-      setForm(viewCategory(response));
-      await load();
+      const next = categoryWithUsage(items, response);
+      setItems((current) => upsertCategory(current, response));
+      setSelected(next);
+      setForm(viewCategory(next));
     } catch (statusError) {
       setModalError(statusError.message);
     } finally {
