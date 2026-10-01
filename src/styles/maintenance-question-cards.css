@@ -69,10 +69,6 @@
   grid-column: 1 / -1;
 }
 
-body.maintenance-question-manager-open {
-  overflow: hidden;
-}
-
 .maintenance-question-manager-layer {
   position: fixed;
   inset: 0;
@@ -237,13 +233,14 @@ body.maintenance-question-manager-open {
   }
 
   .maintenance-question-manager-layer {
-    padding: 0;
+    padding: max(8px, var(--safe-area-top)) 0 0;
     place-items: end center;
   }
 
   .maintenance-question-manager {
     width: 100%;
-    max-height: 94dvh;
+    height: calc(100dvh - max(8px, var(--safe-area-top)));
+    max-height: calc(100dvh - max(8px, var(--safe-area-top)));
     border-radius: 22px 22px 0 0;
     border-bottom: 0;
   }
@@ -307,5 +304,23 @@ body.maintenance-question-manager-open {
   .maintenance-question-device-card__icon {
     width: 44px;
     height: 44px;
+  }
+}
+
+
+@media (max-width: 700px) {
+  .maintenance-question-manager__list {
+    padding-bottom: var(--safe-area-bottom);
+    -webkit-overflow-scrolling: touch;
+  }
+
+  .maintenance-question-manager__editor {
+    padding-bottom: calc(18px + var(--safe-area-bottom));
+    -webkit-overflow-scrolling: touch;
+  }
+
+  .maintenance-question-manager__editor .form-control,
+  .maintenance-question-search input {
+    font-size: 16px;
   }
 }
