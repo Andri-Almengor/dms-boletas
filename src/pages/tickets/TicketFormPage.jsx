@@ -1,5 +1,5 @@
 import React, { useCallback, useEffect, useState } from 'react';
-import { Navigate, useNavigate, useParams, useSearchParams } from 'react-router-dom';
+import { Navigate, useLocation, useNavigate, useParams, useSearchParams } from 'react-router-dom';
 import { useAuth } from '../../AuthContext';
 import Icon from '../../components/common/Icon';
 import AutosaveIndicator from '../../components/feedback/AutosaveIndicator';
@@ -57,7 +57,9 @@ export default function TicketFormPage({ mode = 'create' }) {
   const [searchParams] = useSearchParams();
   const { sessionToken, user, hasPermission } = useAuth();
   const navigate = useNavigate();
+  const location = useLocation();
   const editing = mode === 'edit';
+  const returnState = editing ? location.state : undefined;
   const agendaId = editing ? '' : String(searchParams.get('agendaId') || '').trim();
   const allowed = editing ? hasPermission('BOLETAS_EDITAR') : hasPermission('BOLETAS_CREAR');
   const manageCatalogs = hasPermission('CATALOGOS_GESTIONAR') || hasPermission('BOLETAS_CREAR') || hasPermission('BOLETAS_EDITAR');
@@ -156,6 +158,7 @@ export default function TicketFormPage({ mode = 'create' }) {
     sessionToken,
     clearDraft: draft.clearDraft,
     navigate,
+    navigationState: returnState,
     setError,
   });
   const autosaveStatus = editing && serverStatus !== 'idle' ? serverStatus : draft.status;
@@ -246,7 +249,7 @@ export default function TicketFormPage({ mode = 'create' }) {
       <ProcessingOverlay open={saving} title={processingCopy.title} message={processingCopy.message} />
 
       <div className="page-header ticket-form-header">
-        <button className="icon-button" type="button" onClick={() => navigate(editing ? `/boletas/${encodeURIComponent(boletaUid)}` : cancelTarget)}>
+        <button className="icon-button" type="button" onClick={() => navigate(editing ? `/boletas/${encodeURIComponent(boletaUid)}` : cancelTarget, editing ? { state: returnState } : undefined)}>
           <Icon name="close" />
         </button>
         <div><span className="eyebrow">Flujo de trabajo</span><h1>{editing ? 'Editar Boleta' : 'Crear Boleta'}</h1></div>
