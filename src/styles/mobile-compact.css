@@ -491,7 +491,7 @@ button {
   }
 
   .ticket-form-actions {
-    bottom: calc(var(--bottom-nav-height) + env(safe-area-inset-bottom) + 5px);
+    bottom: max(5px, var(--safe-area-bottom));
     padding: 8px;
     gap: 7px;
     border-radius: 14px;
