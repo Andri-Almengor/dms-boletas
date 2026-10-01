@@ -114,6 +114,14 @@
   color: var(--muted, #6b7280);
 }
 
+.ticket-visit-group-panel__toggle {
+  display: none;
+}
+
+.ticket-visit-group-panel__body {
+  min-width: 0;
+}
+
 .ticket-visit-group-panel__actions {
   display: flex;
   flex-wrap: wrap;
@@ -426,16 +434,68 @@
 
   .ticket-visit-group-panel__heading {
     display: grid;
+    grid-template-columns: minmax(0, 1fr) auto;
+    align-items: start;
+    gap: 10px;
+    margin-bottom: 0;
+  }
+
+  .ticket-visit-group-panel__heading > div:first-child {
+    min-width: 0;
+  }
+
+  .ticket-visit-group-panel__toggle {
+    min-width: var(--touch-target-min, 44px);
+    min-height: var(--touch-target-min, 44px);
+    padding: 0 9px;
+    border: 1px solid var(--border, #e5e7eb);
+    border-radius: 11px;
+    background: var(--surface, #fff);
+    color: var(--text, #1f2937);
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    gap: 4px;
+    font: inherit;
+    font-size: .76rem;
+    font-weight: 750;
+  }
+
+  .ticket-visit-group-panel__toggle .material-symbols-outlined {
+    font-size: 20px;
+  }
+
+  .ticket-visit-group-panel__body {
+    display: none;
+  }
+
+  .ticket-visit-group-panel:not(.is-mobile-expanded) .ticket-visit-group-panel__heading p,
+  .ticket-visit-group-panel:not(.is-mobile-expanded) .ticket-visit-group-panel__actions {
+    display: none;
+  }
+
+  .ticket-visit-group-panel.is-mobile-expanded .ticket-visit-group-panel__heading {
+    margin-bottom: 14px;
+  }
+
+  .ticket-visit-group-panel.is-mobile-expanded .ticket-visit-group-panel__body {
+    display: block;
   }
 
   .ticket-visit-group-panel__actions {
+    grid-column: 1 / -1;
     display: grid;
+    grid-template-columns: repeat(2, minmax(0, 1fr));
     width: 100%;
+    gap: 8px;
   }
 
-  .ticket-visit-group-panel__heading .button,
   .ticket-visit-group-panel__actions .button {
     width: 100%;
+    min-width: 0;
+    padding-inline: 9px;
+    font-size: .78rem;
+    white-space: nowrap;
   }
 
   .ticket-visit-card {
