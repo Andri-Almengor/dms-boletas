@@ -53,6 +53,7 @@ import './maintenance-inline-location-routes.test.mjs';
 import './maintenance-optional-signature-finalization.test.mjs';
 import './maintenance-signature-public-url.test.mjs';
 import './maintenance-progress-chat.test.mjs';
+import './maintenance-responsive-stage.test.mjs';
 import './maintenance-project-foundation.test.mjs';
 import './maintenance-project-device-editor.test.mjs';
 import './maintenance-project-device-detail.test.mjs';
