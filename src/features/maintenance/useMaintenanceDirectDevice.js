@@ -13,6 +13,7 @@ export default function useMaintenanceDirectDevice({
   state,
   canAddExpectedDevice,
   returnTo = '',
+  returnState,
 }) {
   const query = searchParams?.toString?.() || '';
   const request = useMemo(
@@ -72,19 +73,19 @@ export default function useMaintenanceDirectDevice({
 
   async function saveDevice() {
     const saved = await actionsRef.current.closeActiveDevice();
-    if (saved && request.directDeviceMode) navigate(returnUrl, { replace: true });
+    if (saved && request.directDeviceMode) navigate(returnUrl, { replace: true, state: returnState });
     return saved;
   }
 
   function cancelDevice() {
     const cancelled = actionsRef.current.cancelActiveDevice();
-    if (cancelled && request.directDeviceMode) navigate(returnUrl, { replace: true });
+    if (cancelled && request.directDeviceMode) navigate(returnUrl, { replace: true, state: returnState });
     return cancelled;
   }
 
   async function deleteDevice() {
     await actionsRef.current.removeDevice(state.activeDevice);
-    if (request.directDeviceMode) navigate(returnUrl, { replace: true });
+    if (request.directDeviceMode) navigate(returnUrl, { replace: true, state: returnState });
   }
 
   return {
