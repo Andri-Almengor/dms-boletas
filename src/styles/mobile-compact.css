@@ -36,6 +36,7 @@ select,
 textarea,
 button {
   min-width: 0;
+  max-width: 100%;
 }
 
 /* Selector con búsqueda, usado automáticamente en el campo Cliente. */
@@ -282,6 +283,21 @@ button {
   }
 }
 
+@media (max-width: 760px) {
+  .app-shell :is(input, select, textarea) {
+    font-size: 16px;
+  }
+
+  .page > *,
+  .form-card > *,
+  .detail-card > *,
+  .stack-form > *,
+  .field-group > * {
+    min-width: 0;
+    max-width: 100%;
+  }
+}
+
 @media (max-width: 560px) {
   html {
     font-size: 15px;
@@ -503,8 +519,8 @@ button {
   }
 
   .inline-modal {
-    max-height: 88dvh;
-    padding: 16px 14px calc(14px + env(safe-area-inset-bottom));
+    max-height: min(88dvh, calc(100dvh - var(--safe-area-top)));
+    padding: 16px max(14px, var(--safe-area-right)) calc(14px + var(--safe-area-bottom)) max(14px, var(--safe-area-left));
   }
 }
 

@@ -8,7 +8,7 @@
 }
 
 .app-shell--assistant .app-content {
-  height: calc(100dvh - 72px);
+  height: calc(100dvh - 72px - var(--safe-area-top));
   min-height: 0;
   padding: 0;
   overflow: hidden;
@@ -18,8 +18,8 @@
   position: relative;
   z-index: 1250;
   width: 100%;
-  height: 72px;
-  padding: 0 max(18px, env(safe-area-inset-right)) 0 max(18px, env(safe-area-inset-left));
+  height: calc(72px + var(--safe-area-top));
+  padding: var(--safe-area-top) max(18px, var(--safe-area-right)) 0 max(18px, var(--safe-area-left));
   border-bottom: 1px solid var(--outline-soft);
   background: color-mix(in srgb, var(--surface-card) 96%, transparent);
   color: var(--text);
@@ -356,12 +356,12 @@
 
 @media (max-width: 760px) {
   .assistant-route-bar {
-    height: 66px;
-    padding-top: env(safe-area-inset-top);
+    height: calc(66px + var(--safe-area-top));
+    padding-top: var(--safe-area-top);
   }
 
   .app-shell--assistant .app-content {
-    height: calc(100dvh - 66px - env(safe-area-inset-top));
+    height: calc(100dvh - 66px - var(--safe-area-top));
   }
 
   .app-shell--assistant .assistant-page {
@@ -422,7 +422,7 @@
   }
 
   .app-shell--assistant .assistant-composer {
-    padding: 9px 10px calc(9px + env(safe-area-inset-bottom));
+    padding: 9px 10px calc(9px + var(--safe-area-bottom));
   }
 
   .app-shell--assistant .assistant-composer__row {
@@ -495,7 +495,8 @@
 
 @media (max-width: 430px) {
   .assistant-route-bar {
-    padding-inline: 12px;
+    padding-right: max(12px, var(--safe-area-right));
+    padding-left: max(12px, var(--safe-area-left));
   }
 
   .assistant-route-bar__bot,

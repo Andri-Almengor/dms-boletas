@@ -272,13 +272,13 @@
 
 
 
-.maintenance-project-device-detail-modal .admin-entity-modal {
-  width: min(calc(100vw - 24px), 1180px);
+.maintenance-device-detail-modal .admin-entity-modal {
+  width: min(100%, 1180px);
   height: min(calc(100dvh - 24px), 980px);
   max-height: calc(100dvh - 24px);
 }
 
-.maintenance-project-device-detail-modal .admin-entity-modal__content {
+.maintenance-device-detail-modal .admin-entity-modal__content {
   display: block;
   min-height: 0;
   overflow-x: hidden;
@@ -288,14 +288,14 @@
   padding: 18px 20px 28px;
 }
 
-.maintenance-project-device-detail-content {
+.maintenance-device-detail-content {
   padding: 0;
   border: 0;
   background: transparent;
   box-shadow: none;
 }
 
-.maintenance-project-device-detail-content > * + * {
+.maintenance-device-detail-content > * + * {
   margin-top: 16px;
 }
 
@@ -360,15 +360,15 @@
   font-size: .75rem;
 }
 
-.maintenance-project-device-detail-modal .maintenance-inventory-images {
+.maintenance-device-detail-modal .maintenance-inventory-images {
   grid-template-columns: repeat(auto-fit, minmax(min(100%, 220px), 1fr));
 }
 
-.maintenance-project-device-detail-modal .admin-entity-modal__footer {
+.maintenance-device-detail-modal .admin-entity-modal__footer {
   justify-content: stretch;
 }
 
-.maintenance-project-device-detail-navigation {
+.maintenance-device-detail-navigation {
   width: 100%;
   display: grid;
   grid-template-columns: minmax(120px, auto) minmax(70px, 1fr) auto minmax(120px, auto);
@@ -376,18 +376,18 @@
   gap: 9px;
 }
 
-.maintenance-project-device-detail-navigation > span {
+.maintenance-device-detail-navigation > span {
   color: var(--text-muted);
   text-align: center;
   font-size: .76rem;
   font-variant-numeric: tabular-nums;
 }
 
-.maintenance-project-device-detail-navigation > span strong {
+.maintenance-device-detail-navigation > span strong {
   color: var(--text-main);
 }
 
-.maintenance-project-device-detail-navigation .button {
+.maintenance-device-detail-navigation .button {
   min-width: 0;
 }
 
@@ -398,14 +398,14 @@
 }
 
 @media (max-width: 700px) {
-  .maintenance-project-device-detail-modal .admin-entity-modal {
+  .maintenance-device-detail-modal .admin-entity-modal {
     width: 100%;
-    height: calc(100dvh - max(8px, env(safe-area-inset-top)));
-    max-height: calc(100dvh - max(8px, env(safe-area-inset-top)));
+    height: calc(100dvh - max(8px, var(--safe-area-top)));
+    max-height: calc(100dvh - max(8px, var(--safe-area-top)));
   }
 
-  .maintenance-project-device-detail-modal .admin-entity-modal__content {
-    padding: 15px 14px calc(24px + env(safe-area-inset-bottom));
+  .maintenance-device-detail-modal .admin-entity-modal__content {
+    padding: 15px 14px calc(24px + var(--safe-area-bottom));
   }
 
   .maintenance-project-device-summary-grid {
@@ -426,36 +426,36 @@
     width: 100%;
   }
 
-  .maintenance-project-device-detail-modal .admin-entity-modal__footer {
-    padding-bottom: calc(12px + env(safe-area-inset-bottom));
+  .maintenance-device-detail-modal .admin-entity-modal__footer {
+    padding-bottom: calc(12px + var(--safe-area-bottom));
   }
 
-  .maintenance-project-device-detail-navigation {
+  .maintenance-device-detail-navigation {
     grid-template-columns: minmax(0, 1fr) auto minmax(0, 1fr);
   }
 
-  .maintenance-project-device-detail-navigation__edit {
+  .maintenance-device-detail-navigation__edit {
     grid-column: 1 / -1;
     grid-row: 1;
   }
 
-  .maintenance-project-device-detail-navigation > span {
+  .maintenance-device-detail-navigation > span {
     grid-column: 2;
     grid-row: 2;
     min-width: 64px;
   }
 
-  .maintenance-project-device-detail-navigation__previous {
+  .maintenance-device-detail-navigation__previous {
     grid-column: 1;
     grid-row: 2;
   }
 
-  .maintenance-project-device-detail-navigation__next {
+  .maintenance-device-detail-navigation__next {
     grid-column: 3;
     grid-row: 2;
   }
 
-  .maintenance-project-device-detail-navigation .button {
+  .maintenance-device-detail-navigation .button {
     width: 100%;
   }
 }

@@ -6,14 +6,12 @@
   .bottom-nav {
     position: fixed;
     inset: auto 0 0 0;
-    width: 100vw;
-    width: 100dvw;
+    width: 100%;
     min-width: 0;
-    max-width: 100vw;
-    max-width: 100dvw;
+    max-width: 100%;
     margin: 0;
-    padding-right: max(6px, env(safe-area-inset-right));
-    padding-left: max(6px, env(safe-area-inset-left));
+    padding-right: max(6px, var(--safe-area-right));
+    padding-left: max(6px, var(--safe-area-left));
     transform: none;
     display: flex;
     align-items: center;
@@ -52,8 +50,8 @@
   .bottom-nav {
     right: auto;
     left: 50%;
-    width: min(680px, calc(100vw - 40px));
-    max-width: calc(100vw - 40px);
+    width: min(680px, calc(100% - 40px));
+    max-width: calc(100% - 40px);
     transform: translateX(-50%);
   }
 
