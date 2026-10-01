@@ -331,6 +331,7 @@ export default function MaintenanceLocationInventory({
         `/mantenimientos/${encodeURIComponent(maintenanceId || pick(device, ['MantenimientoRef', 'maintenanceId'], ''))}/dispositivos/${encodeURIComponent(id)}`,
         {
           state: {
+            ...routeLocation.state,
             returnTo: `${routeLocation.pathname}${routeLocation.search || ''}`,
             deviceIds,
           },
