@@ -117,3 +117,12 @@ test('QA final: no se reintroducen anchos de viewport que provoquen scroll horiz
     assert.doesNotMatch(source(file), /width:\s*100d?vw/, `${file} no debe forzar 100vw`);
   }
 });
+
+
+test('QA final: Proyecto reutiliza los tokens gráficos existentes', () => {
+  const styles = source('src/styles/maintenance-project.css');
+  assert.doesNotMatch(styles, /var\(--text-muted\)/);
+  assert.doesNotMatch(styles, /var\(--text-main\)/);
+  assert.match(styles, /var\(--muted\)/);
+  assert.match(styles, /var\(--text\)/);
+});
