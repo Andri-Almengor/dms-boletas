@@ -15,8 +15,11 @@ test('QA final: el Asistente permanece debajo de drawers, visores y modales', ()
   const tickets = source('src/styles/ticket-evidence-viewer.css');
   const maintenance = source('src/styles/maintenance-evidence-gallery.css');
   const admin = source('src/styles/admin-card-modals.css');
+  const offline = source('src/styles/offline.css');
+  const recovery = source('src/styles/form-recovery-mobile-compact.css');
 
   assert.match(tokens, /--z-assistant-fab:\s*55/);
+  assert.match(tokens, /--z-status-indicator:\s*58/);
   assert.match(fab, /z-index:\s*var\(--z-assistant-fab\)/);
   assert.match(assistant, /z-index:\s*var\(--z-assistant-fab\)/);
   assert.doesNotMatch(fab, /z-index:\s*1220/);
@@ -26,6 +29,9 @@ test('QA final: el Asistente permanece debajo de drawers, visores y modales', ()
   assert.match(tickets, /\.image-viewer--gallery\s*\{[^}]*z-index:\s*1200/s);
   assert.match(maintenance, /\.maintenance-lightbox__nav\s*\{[^}]*z-index:\s*1202/s);
   assert.match(admin, /\.admin-entity-modal-layer\s*\{[^}]*z-index:\s*1500/s);
+  assert.match(offline, /\.offline-status\s*\{[^}]*z-index:\s*var\(--z-status-indicator\)/s);
+  assert.match(recovery, /z-index:\s*var\(--z-status-indicator\) !important/);
+  assert.doesNotMatch(recovery, /z-index:\s*1240/);
 });
 
 test('QA final: overlays interactivos reutilizan el bloqueo de scroll compartido', () => {
@@ -104,6 +110,7 @@ test('QA final: no se reintroducen anchos de viewport que provoquen scroll horiz
     'src/styles/ticket-evidence-viewer.css',
     'src/styles/maintenance-evidence-gallery.css',
     'src/styles/assistant-fab.css',
+    'src/styles/offline.css',
   ];
 
   for (const file of files) {
