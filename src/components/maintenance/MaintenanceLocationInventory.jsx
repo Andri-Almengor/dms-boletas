@@ -564,7 +564,6 @@ export default function MaintenanceLocationInventory({
         return next;
       });
       setOpenGroups((current) => new Set([...current, target.id]));
-      setExpandedDevice('');
       setMoveNotice(`${moved.length} dispositivo${moved.length === 1 ? '' : 's'} movido${moved.length === 1 ? '' : 's'} a “${target.name}”.`);
       window.dispatchEvent(new CustomEvent('dms-offline-queue-change'));
     }
@@ -581,7 +580,7 @@ export default function MaintenanceLocationInventory({
     setMoving(false);
   }
 
-  function expandedContent(device, { detailView = false } = {}) {
+  function deviceDetailContent(device, { detailView = false } = {}) {
     const config = getMaintenanceCategory(deviceType(device));
     const answers = parseAnswers(device);
     const allImages = sortedEvidence(device.Imagenes || []);
@@ -590,7 +589,7 @@ export default function MaintenanceLocationInventory({
       ? allImages.filter((image) => projectEvidenceTargetValue(image) === projectEvidenceTargetFilter)
       : allImages;
     const id = deviceId(device);
-    return <div className={`maintenance-inventory-expanded${detailView ? ' maintenance-project-device-detail-content' : ''}`}>
+    return <div className={`maintenance-inventory-expanded${detailView ? ' maintenance-device-detail-content' : ''}`}>
       <div className="maintenance-inventory-expanded__heading">
         <div><span className="eyebrow">Detalle del dispositivo</span><strong>{deviceName(device)}</strong></div>
         {pending && canEdit && <button className="button button--secondary button--compact" type="button" onClick={() => detailView ? editDeviceFromDetail(device) : onEditDevice(device)}><Icon name="edit" />Editar dispositivo</button>}
@@ -734,14 +733,14 @@ export default function MaintenanceLocationInventory({
       icon={getMaintenanceCategory(deviceType(activeDetailDevice)).icon}
       className="maintenance-device-detail-modal"
       onClose={closeDeviceDetail}
-      footer={<div className="maintenance-project-device-detail-navigation">
-        <button className="button button--secondary maintenance-project-device-detail-navigation__previous" type="button" onClick={() => navigateDeviceDetail(-1)} disabled={activeDetailDeviceIndex <= 0}><Icon name="arrow_back" />Anterior</button>
+      footer={<div className="maintenance-device-detail-navigation">
+        <button className="button button--secondary maintenance-device-detail-navigation__previous" type="button" onClick={() => navigateDeviceDetail(-1)} disabled={activeDetailDeviceIndex <= 0}><Icon name="arrow_back" />Anterior</button>
         <span><strong>{activeDetailDeviceIndex + 1}</strong> / {detailDevices.length}</span>
-        {pending && canEdit && <button className="button button--primary maintenance-project-device-detail-navigation__edit" type="button" onClick={() => editDeviceFromDetail(activeDetailDevice)}><Icon name="edit" />Editar</button>}
-        <button className="button button--secondary maintenance-project-device-detail-navigation__next" type="button" onClick={() => navigateDeviceDetail(1)} disabled={activeDetailDeviceIndex < 0 || activeDetailDeviceIndex >= detailDevices.length - 1}>Siguiente<Icon name="arrow_forward" /></button>
+        {pending && canEdit && <button className="button button--primary maintenance-device-detail-navigation__edit" type="button" onClick={() => editDeviceFromDetail(activeDetailDevice)}><Icon name="edit" />Editar</button>}
+        <button className="button button--secondary maintenance-device-detail-navigation__next" type="button" onClick={() => navigateDeviceDetail(1)} disabled={activeDetailDeviceIndex < 0 || activeDetailDeviceIndex >= detailDevices.length - 1}>Siguiente<Icon name="arrow_forward" /></button>
       </div>}
     >
-      {expandedContent(activeDetailDevice, { detailView: true })}
+      {deviceDetailContent(activeDetailDevice, { detailView: true })}
     </AdminEntityModal>}
   </section>;
 }
