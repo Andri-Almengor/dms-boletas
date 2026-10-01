@@ -441,7 +441,7 @@
     min-height: 52px;
     padding-right: 4px;
     padding-left: 11px;
-    grid-template-columns: 22px minmax(0, 1fr) 40px;
+    grid-template-columns: 22px minmax(0, 1fr) var(--touch-target-min);
     gap: 6px;
   }
 
@@ -451,7 +451,7 @@
   }
 
   .survey-response-search .icon-button {
-    width: 40px;
-    height: 40px;
+    width: var(--touch-target-min);
+    height: var(--touch-target-min);
   }
 }
