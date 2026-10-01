@@ -1,5 +1,5 @@
 import React, { useState } from 'react';
-import { Navigate, useNavigate, useParams, useSearchParams } from 'react-router-dom';
+import { Navigate, useLocation, useNavigate, useParams, useSearchParams } from 'react-router-dom';
 import { useAuth } from '../../AuthContext';
 import Icon from '../../components/common/Icon';
 import ProcessingOverlay from '../../components/feedback/ProcessingOverlay';
@@ -25,6 +25,7 @@ import { MAINTENANCE_STEPS } from './maintenanceFormData';
 export default function MaintenanceFormPage({ mode = 'create' }) {
   const { maintenanceId } = useParams();
   const navigate = useNavigate();
+  const location = useLocation();
   const { hasPermission } = useAuth();
   const [searchParams] = useSearchParams();
   const editing = mode === 'edit';
@@ -44,6 +45,7 @@ export default function MaintenanceFormPage({ mode = 'create' }) {
     setStep,
     state,
     canAddExpectedDevice,
+    returnTo: location.state?.returnTo,
   });
 
   const quickCreate = useMaintenanceQuickCreate({
