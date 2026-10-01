@@ -2,6 +2,7 @@ import React, { useEffect, useMemo, useState } from 'react';
 import { Navigate } from 'react-router-dom';
 import { useAuth } from '../../AuthContext';
 import Icon from '../../components/common/Icon';
+import useOverlaySurface from '../../hooks/useOverlaySurface';
 import { getMaintenanceCategory } from '../../config/maintenanceCategories';
 import { MODULE_ROUTES, normalizeItems, pick, requestAvailable, toBoolean } from '../../services/moduleApi';
 
@@ -212,22 +213,6 @@ export default function MaintenanceQuestionsPage() {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [sessionToken, canView, canManage]);
 
-  useEffect(() => {
-    if (!selectedTypeId) return undefined;
-    document.body.classList.add('maintenance-question-manager-open');
-    function handleKey(event) {
-      if (event.key === 'Escape' && !saving) {
-        if (editor) setEditor(null);
-        else setSelectedTypeId('');
-      }
-    }
-    window.addEventListener('keydown', handleKey);
-    return () => {
-      document.body.classList.remove('maintenance-question-manager-open');
-      window.removeEventListener('keydown', handleKey);
-    };
-  }, [selectedTypeId, editor, saving]);
-
   const allGroups = useMemo(() => deviceTypes.map((type) => {
     const id = typeId(type);
     const rows = questions
@@ -255,6 +240,20 @@ export default function MaintenanceQuestionsPage() {
     () => allGroups.find((group) => group.id === selectedTypeId) || null,
     [allGroups, selectedTypeId],
   );
+
+  useOverlaySurface({
+    open: Boolean(selectedGroup),
+    busy: saving,
+    onClose: () => {
+      if (editor) {
+        setEditor(null);
+        setManagerError('');
+      } else {
+        setSelectedTypeId('');
+        setManagerError('');
+      }
+    },
+  });
 
   function openManager(group) {
     setSelectedTypeId(group.id);
@@ -411,7 +410,7 @@ export default function MaintenanceQuestionsPage() {
 
   if (!canView) return <Navigate to="/mas" replace />;
 
-  return <div className="page maintenance-questions-page">
+  return <div className="page page--wide maintenance-questions-page">
     <div className="list-page-heading maintenance-questions-heading">
       <div>
         <span className="eyebrow">Catálogos relacionados</span>
@@ -427,12 +426,12 @@ export default function MaintenanceQuestionsPage() {
 
     <label className="maintenance-question-search">
       <Icon name="search" />
-      <input value={search} onChange={(event) => setSearch(event.target.value)} placeholder="Buscar dispositivo o pregunta" aria-label="Buscar preguntas de mantenimiento" />
+      <input type="search" value={search} onChange={(event) => setSearch(event.target.value)} placeholder="Buscar dispositivo o pregunta" aria-label="Buscar preguntas de mantenimiento" enterKeyHint="search" autoComplete="off" />
       {search && <button type="button" className="maintenance-question-search__clear" onClick={() => setSearch('')} aria-label="Limpiar búsqueda"><Icon name="close" /></button>}
     </label>
 
     {!canManage && <div className="readonly-notice"><Icon name="visibility" /><span>Modo consulta: puede revisar las preguntas relacionadas, pero no agregarlas, editarlas ni eliminarlas.</span></div>}
-    {error && <div className="alert alert--error"><Icon name="error" /><span>{error}</span></div>}
+    {error && <div className="alert alert--error" role="alert"><Icon name="error" /><span>{error}</span></div>}
 
     {loading ? <div className="state-card state-card--loading"><Icon name="progress_activity" /> Cargando tipos y preguntas...</div> : (
       <div className="maintenance-question-device-grid">
@@ -463,7 +462,7 @@ export default function MaintenanceQuestionsPage() {
           <button className="icon-button" type="button" onClick={closeManager} disabled={saving} aria-label="Cerrar"><Icon name="close" /></button>
         </header>
 
-        {managerError && <div className="alert alert--error maintenance-question-manager__alert"><Icon name="error" /><span>{managerError}</span></div>}
+        {managerError && <div className="alert alert--error maintenance-question-manager__alert" role="alert"><Icon name="error" /><span>{managerError}</span></div>}
 
         {editor ? <form className="maintenance-question-manager__editor stack-form" onSubmit={submit}>
           <div className="maintenance-question-manager__editor-heading">
