@@ -2,6 +2,7 @@ import React, { useState } from 'react';
 import { useAuth } from '../../AuthContext';
 import Icon from '../common/Icon';
 import MaintenanceEvidenceImage from './MaintenanceEvidenceImage';
+import useOverlaySurface from '../../hooks/useOverlaySurface';
 import { MODULE_ROUTES, pick, requestAvailable } from '../../services/moduleApi';
 import {
   projectEvidenceTargets,
@@ -30,6 +31,7 @@ export default function MaintenanceEvidenceEditor({
   const [note, setNote] = useState(pick(image, ['Nota']));
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState('');
+  useOverlaySurface({ open: true, onClose, busy: saving });
 
   async function save() {
     setSaving(true);
