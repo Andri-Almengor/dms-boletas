@@ -350,7 +350,7 @@
 
 .maintenance-project-evidence-filter select {
   width: 100%;
-  min-height: 38px;
+  min-height: var(--control-height-compact);
   padding: 0 34px 0 10px;
   border: 1px solid var(--outline-soft);
   border-radius: 10px;
@@ -870,14 +870,14 @@
 
 @media (max-width: 760px) {
   .maintenance-project-device-detail-page {
-    padding-right: max(12px, var(--safe-area-right));
-    padding-left: max(12px, var(--safe-area-left));
+    padding-right: max(var(--page-inline-compact), var(--safe-area-right));
+    padding-left: max(var(--page-inline-compact), var(--safe-area-left));
     padding-bottom: calc(var(--bottom-nav-height) + var(--safe-area-bottom) + 26px);
   }
 
   .maintenance-project-device-route-header {
     padding: 12px;
-    grid-template-columns: 42px 44px minmax(0, 1fr);
+    grid-template-columns: var(--touch-target-min) 44px minmax(0, 1fr);
     gap: 9px;
   }
 
@@ -945,7 +945,7 @@
   }
 
   .maintenance-project-device-route-header {
-    grid-template-columns: 42px minmax(0, 1fr);
+    grid-template-columns: var(--touch-target-min) minmax(0, 1fr);
   }
 
   .maintenance-project-device-route-navigation .button span {
