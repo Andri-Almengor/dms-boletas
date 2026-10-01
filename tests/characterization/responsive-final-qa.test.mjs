@@ -89,15 +89,16 @@ test('QA final: ruta de Proyecto conserva regreso, anterior y siguiente al edita
   assert.match(inventory, /deviceIds/);
 
   assert.match(page, /const returnUrl =/);
-  assert.match(page, /navigate\(returnUrl, \{ replace: true \}\)/);
+  assert.match(page, /navigate\(returnUrl, \{ replace: true, state: maintenanceDetailState\(\) \}\)/);
   assert.doesNotMatch(page, /navigate\(-1\)/);
   assert.match(page, /replace:\s*true/);
   assert.match(page, /returnTo:\s*`\/mantenimientos\/\$\{encodeURIComponent\(maintenanceId\)\}\/dispositivos\/\$\{encodeURIComponent\(id\)\}`/);
 
   assert.match(form, /useLocation/);
   assert.match(form, /returnTo:\s*location\.state\?\.returnTo/);
+  assert.match(form, /returnState:\s*location\.state/);
   assert.match(hook, /requestedReturnUrl\.startsWith\(`\$\{detailUrl\}\/`\)/);
-  assert.match(hook, /navigate\(returnUrl, \{ replace: true \}\)/);
+  assert.match(hook, /navigate\(returnUrl, \{ replace: true, state: returnState \}\)/);
 });
 
 test('QA final: no se reintroducen anchos de viewport que provoquen scroll horizontal', () => {
