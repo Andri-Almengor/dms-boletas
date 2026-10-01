@@ -28,7 +28,7 @@
   width: auto;
   height: auto;
   max-width: min(100%, 1200px);
-  max-height: calc(100vh - 140px);
+  max-height: calc(100dvh - 140px);
   object-fit: contain;
   transform-origin: center center;
   transition: transform .2s ease;
@@ -251,7 +251,11 @@
 
 @media (max-width: 760px) {
   .image-viewer--gallery {
-    padding: 58px 50px 82px;
+    padding:
+      calc(54px + env(safe-area-inset-top))
+      max(8px, env(safe-area-inset-right))
+      calc(76px + env(safe-area-inset-bottom))
+      max(8px, env(safe-area-inset-left));
   }
 
   .image-viewer__nav {
@@ -273,7 +277,8 @@
   }
 
   .image-viewer__canvas img {
-    max-height: calc(100dvh - 150px);
+    max-width: 100%;
+    max-height: calc(100dvh - 138px - env(safe-area-inset-top) - env(safe-area-inset-bottom));
   }
 
   .image-viewer__zoom-controls {
@@ -289,7 +294,8 @@
 
 @media (max-width: 430px) {
   .image-viewer--gallery {
-    padding-inline: 44px;
+    padding-right: max(6px, env(safe-area-inset-right));
+    padding-left: max(6px, env(safe-area-inset-left));
   }
 
   .image-viewer__nav {
