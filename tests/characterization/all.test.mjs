@@ -12,6 +12,7 @@ import './app-responsive-foundation.test.mjs';
 import './app-shell-mobile-navigation.test.mjs';
 import './responsive-final-qa.test.mjs';
 import './admin-responsive-stage.test.mjs';
+import './admin-config-performance.test.mjs';
 import './knowledge-assistant-aux-responsive-stage.test.mjs';
 import './assistant-history-retention.test.mjs';
 import './assistant-integral-agent-ui.test.mjs';
