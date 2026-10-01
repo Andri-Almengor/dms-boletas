@@ -3,6 +3,7 @@ import { NavLink, Outlet, useLocation, useNavigate } from 'react-router-dom';
 import { useAuth } from '../../AuthContext';
 import useOfflineMode from '../../hooks/useOfflineMode';
 import Icon from '../common/Icon';
+import useOverlaySurface from '../../hooks/useOverlaySurface';
 
 const OfflineSyncManager = lazy(() => import('../offline/OfflineSyncRuntime'));
 
@@ -44,17 +45,7 @@ export default function AppShell() {
     if (user?.CambioPasswordObligatorio && location.pathname !== '/cambiar-contrasena') navigate('/cambiar-contrasena', { replace: true });
   }, [user, location.pathname, navigate]);
   useEffect(() => { setDrawerOpen(false); }, [location.pathname]);
-  useEffect(() => {
-    if (!drawerOpen) return undefined;
-    const previousOverflow = document.body.style.overflow;
-    document.body.style.overflow = 'hidden';
-    const closeOnEscape = (event) => { if (event.key === 'Escape') setDrawerOpen(false); };
-    window.addEventListener('keydown', closeOnEscape);
-    return () => {
-      document.body.style.overflow = previousOverflow;
-      window.removeEventListener('keydown', closeOnEscape);
-    };
-  }, [drawerOpen]);
+  useOverlaySurface({ open: drawerOpen, onClose: () => setDrawerOpen(false) });
   async function handleLogout() { await logout(); navigate('/login', { replace: true }); }
 
   return <div className={`app-shell${isWorkflowForm ? ' app-shell--form' : ''}${isAssistantPage ? ' app-shell--assistant' : ''}`}>
