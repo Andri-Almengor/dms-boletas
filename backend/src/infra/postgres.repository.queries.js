@@ -41,7 +41,7 @@ export async function queryPage(table, payload = {}, { searchFields = [], allowe
   else for (const [field,direction='ASC',numeric=false] of defaultOrder) if (meta.columns.includes(field)) order.push(`${numeric ? `NULLIF(${qi(field)},'')::numeric` : qi(field)} ${String(direction).toUpperCase()==='DESC'?'DESC':'ASC'} NULLS LAST`);
   order.push('"__db_id" ASC');
   const itemParams=[...params,pageSize,(page-1)*pageSize];
-  const rowsPromise = query(`SELECT ${selectList(table)} FROM ${qi(table)} WHERE ${where} ORDER BY ${order.join(', ')} LIMIT ${itemParams.length-1} OFFSET ${itemParams.length}`, itemParams, { label: `page.items.${table}` });
+  const rowsPromise = query(`SELECT ${selectList(table)} FROM ${qi(table)} WHERE ${where} ORDER BY ${order.join(', ')} LIMIT $${itemParams.length-1} OFFSET $${itemParams.length}`, itemParams, { label: `page.items.${table}` });
   const [rows, countResult] = await Promise.all([rowsPromise, countPromise]);
   return {
     items: rows.rows.map(publicRow),
