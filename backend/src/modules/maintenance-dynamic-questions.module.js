@@ -369,15 +369,16 @@ async function list(ctx) {
   };
 }
 
-async function nextOrder(typeId) {
-  const rows = await readMaintenanceQuestions({ includeInactive: true, typeId });
+async function nextOrder(typeId, existingRows = null) {
+  const rows = existingRows || await readMaintenanceQuestions({ includeInactive: true, typeId });
   return rows.reduce((max, row) => Math.max(max, Number(row.Orden || 0)), 0) + 10;
 }
 
-async function assertUniqueQuestion(typeId, text, currentId = '') {
-  const rows = await readMaintenanceQuestions({ includeInactive: false, typeId });
+async function assertUniqueQuestion(typeId, text, currentId = '', existingRows = null) {
+  const rows = existingRows || await readMaintenanceQuestions({ includeInactive: false, typeId });
   const duplicate = rows.find((row) => (
-    cleanMaintenanceQuestionValue(row.PreguntaDispositivoID) !== cleanMaintenanceQuestionValue(currentId)
+    isActiveMaintenanceQuestion(row)
+    && cleanMaintenanceQuestionValue(row.PreguntaDispositivoID) !== cleanMaintenanceQuestionValue(currentId)
     && normalizeMaintenanceQuestionValue(row.Pregunta) === normalizeMaintenanceQuestionValue(text)
   ));
   if (duplicate) throw badRequest('Ya existe una pregunta activa con el mismo texto para este tipo de dispositivo.');
@@ -388,10 +389,11 @@ async function create(ctx) {
   return withQuestionWriteLock(async () => {
     await ensureMaintenanceQuestionCatalog(ctx.user.UsuarioID);
     const typeId = cleanMaintenanceQuestionValue(pick(ctx.payload, ['TipoDispositivoID', 'tipoDispositivoId']));
-    await assertMaintenanceDeviceType(typeId);
+    const deviceType = await assertMaintenanceDeviceType(typeId);
     const text = questionText(ctx.payload);
     if (!text) throw badRequest('Escriba la pregunta o campo que se mostrará para este tipo de dispositivo.');
-    await assertUniqueQuestion(typeId, text);
+    const existingQuestions = await readMaintenanceQuestions({ includeInactive: true, typeId });
+    await assertUniqueQuestion(typeId, text, '', existingQuestions);
     const metadata = await validateQuestionMetadata(ctx.payload);
     const timestamp = nowIso();
     const row = {
@@ -399,7 +401,7 @@ async function create(ctx) {
       TipoDispositivoID: typeId,
       Clave: `q_${uuid().replace(/-/g, '')}`,
       Pregunta: text,
-      Orden: hasOwn(ctx.payload, ['Orden', 'orden']) ? questionOrder(ctx.payload) : await nextOrder(typeId),
+      Orden: hasOwn(ctx.payload, ['Orden', 'orden']) ? questionOrder(ctx.payload) : await nextOrder(typeId, existingQuestions),
       TipoRespuesta: metadata.responseType,
       AplicaModo: metadata.mode,
       TipoDispositivoRelacionadoID: metadata.relatedTypeId,
@@ -413,8 +415,7 @@ async function create(ctx) {
     };
     await appendRow(MAINTENANCE_QUESTION_SHEET, row);
     await audit(ctx, 'CREAR_PREGUNTA_MANTENIMIENTO', MAINTENANCE_QUESTION_SHEET, row.PreguntaDispositivoID, null, row);
-    const names = await typeNamesMap();
-    return { ...row, TipoDispositivo: names.get(typeId) || '' };
+    return { ...row, TipoDispositivo: cleanMaintenanceQuestionValue(deviceType.Nombre) };
   });
 }
 
@@ -457,8 +458,8 @@ async function update(ctx) {
     patch.FechaActualizacion = nowIso();
     const after = await updateRow(MAINTENANCE_QUESTION_SHEET, id, patch);
     await audit(ctx, 'EDITAR_PREGUNTA_MANTENIMIENTO', MAINTENANCE_QUESTION_SHEET, id, before, after);
-    const names = await typeNamesMap();
-    return { ...after, TipoDispositivo: names.get(typeId) || '' };
+    const deviceType = await findById('TiposDispositivo', typeId).catch(() => null);
+    return { ...after, TipoDispositivo: cleanMaintenanceQuestionValue(deviceType?.Nombre) };
   });
 }
 
