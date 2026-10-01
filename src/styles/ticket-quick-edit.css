@@ -7,7 +7,7 @@
 }
 
 .ticket-detail-section__quick-edit {
-  min-height: 34px;
+  min-height: var(--touch-target-min);
   padding: 6px 10px;
   border: 1px solid color-mix(in srgb, var(--primary) 34%, transparent);
   border-radius: 9px;
@@ -23,13 +23,20 @@
   cursor: pointer;
 }
 
-.ticket-detail-section__quick-edit:hover,
 .ticket-detail-section__quick-edit:focus-visible {
   border-color: var(--primary);
   background: var(--surface-card);
   color: var(--primary);
   outline: none;
   box-shadow: 0 0 0 3px color-mix(in srgb, var(--primary) 15%, transparent);
+}
+
+@media (hover: hover) and (pointer: fine) {
+  .ticket-detail-section__quick-edit:hover {
+    border-color: var(--primary);
+    background: var(--surface-card);
+    color: var(--primary);
+  }
 }
 
 .ticket-detail-section__quick-edit .material-symbols-outlined {
@@ -103,9 +110,9 @@
   }
 
   .ticket-detail-section__quick-edit {
-    width: 34px;
-    min-width: 34px;
-    height: 34px;
+    width: var(--touch-target-min);
+    min-width: var(--touch-target-min);
+    height: var(--touch-target-min);
     padding: 0;
   }
 
@@ -123,6 +130,17 @@
   }
 
   .ticket-quick-edit-form__actions {
+    position: sticky;
+    bottom: max(5px, var(--safe-area-bottom));
+    z-index: 18;
+    margin: 18px -4px -4px;
+    padding: 8px;
+    border: 1px solid var(--outline-soft);
+    border-radius: 14px;
+    background: rgba(255,255,255,.97);
+    -webkit-backdrop-filter: blur(12px);
+    backdrop-filter: blur(12px);
+    box-shadow: var(--shadow-md);
     flex-direction: column-reverse;
   }
 
