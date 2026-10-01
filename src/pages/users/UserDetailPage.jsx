@@ -1,5 +1,5 @@
 import React, { useEffect, useState } from 'react';
-import { Link, useParams } from 'react-router-dom';
+import { Link, useLocation, useNavigate, useParams } from 'react-router-dom';
 import { apiRequest } from '../../api';
 import { useAuth } from '../../AuthContext';
 import ErrorMessage from '../../components/common/ErrorMessage';
@@ -10,6 +10,14 @@ import useRoles from '../../hooks/useRoles';
 
 export default function UserDetailPage() {
   const { usuarioId } = useParams();
+  const routeLocation = useLocation();
+  const navigate = useNavigate();
+  const requestedListReturnTo = String(routeLocation.state?.usersListReturnTo || '');
+  const usersListReturnTo = /^\/usuarios(?:\?|$)/.test(requestedListReturnTo) ? requestedListReturnTo : '/usuarios';
+  const usersListScrollY = Number(routeLocation.state?.usersListScrollY || 0);
+  const usersListReturnState = Number.isFinite(usersListScrollY) && usersListScrollY > 0
+    ? { restoreScrollY: usersListScrollY }
+    : undefined;
   const { sessionToken, hasPermission, user: currentUser } = useAuth();
   const { roles } = useRoles();
   const [record, setRecord] = useState(null);
@@ -64,7 +72,7 @@ export default function UserDetailPage() {
   return (
     <div className="page page--narrow user-detail-page">
       <header className="page-header">
-        <Link to="/usuarios" className="icon-button" aria-label="Volver"><Icon name="arrow_back" /></Link>
+        <button type="button" className="icon-button" onClick={() => navigate(usersListReturnTo, { state: usersListReturnState })} aria-label="Volver"><Icon name="arrow_back" /></button>
         <div><span className="eyebrow">Usuarios</span><h1>Detalle del usuario</h1></div>
       </header>
 
@@ -97,7 +105,7 @@ export default function UserDetailPage() {
 
       {canManage && (
         <div className="user-detail-actions">
-          <Link to={`/usuarios/${usuarioId}/editar`} className="button button--primary"><Icon name="edit" /> Editar usuario</Link>
+          <Link to={`/usuarios/${usuarioId}/editar`} state={routeLocation.state} className="button button--primary"><Icon name="edit" /> Editar usuario</Link>
           {active && !isCurrentUser && (
             <button type="button" className="button button--secondary" onClick={resetPassword} disabled={resetting}>
               <Icon name={resetting ? 'progress_activity' : 'lock_reset'} /> {resetting ? 'Restableciendo...' : 'Restablecer contraseña'}
