@@ -215,6 +215,18 @@ export function crudHandlers(definitionKey) {
           if (def.parent === 'UbicacionID') request.ubicacionId = parentValue;
         }
       }
+      if (definitionKey === 'models') {
+        const typeId = pick(payload, ['TipoDispositivoID', 'tipoDispositivoId']);
+        const manufacturerId = pick(payload, ['FabricanteID', 'fabricanteId']);
+        if (typeId) request.tipoDispositivoId = typeId;
+        if (manufacturerId) request.fabricanteId = manufacturerId;
+      } else if (definitionKey === 'deviceManufacturers') {
+        // El CRUD histórico no filtraba relaciones por estos parámetros.
+        // Mantener esa semántica evita cambiar contratos mientras la lectura
+        // pasa de filtrado en memoria a PostgreSQL.
+        delete request.tipoDispositivoId;
+        delete request.fabricanteId;
+      }
       const usagePromise = definitionKey === 'knowledgeCategories' && asBool(payload.includeUsageCount, false)
         ? queryKnowledgeCategoryUsageCounts()
         : Promise.resolve(null);
