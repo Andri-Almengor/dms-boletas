@@ -428,11 +428,11 @@ export default function TicketDetailPage() {
   const canResend = finalized && (canEdit || canFinalize || canAdmin);
 
   return (
-    <div className="page page--narrow ticket-detail-page">
+    <div className={`page ticket-detail-page${finalized ? ' ticket-detail-page--finalized' : ''}`}>
       <div className="page-header ticket-detail-header"><button className="icon-button" type="button" onClick={() => navigate(backTo)} aria-label="Volver"><Icon name="arrow_back" /></button><div><span className="eyebrow">Detalle de servicio</span><h1>Boleta #{String(displayId).slice(0, 20)}</h1></div><button className="icon-button" type="button" onClick={() => shareTicket(displayId)} aria-label="Compartir"><Icon name="share" /></button></div>
 
-      {error && <div className="alert alert--error"><Icon name="error" /><span>{error}</span></div>}
-      {notice && <div className="alert alert--success"><Icon name="check_circle" /><span>{notice}</span></div>}
+      {error && <div className="alert alert--error" role="alert"><Icon name="error" /><span>{error}</span></div>}
+      {notice && <div className="alert alert--success" role="status"><Icon name="check_circle" /><span>{notice}</span></div>}
       {finalized && canEdit && <div className="info-box"><Icon name="edit_note" /><p>Esta boleta está finalizada, pero puede corregir sus datos, firma y evidencias. Después use <strong>Reenviar correo</strong> y/o <strong>Reenviar a chats</strong> para generar y publicar el reporte actualizado.</p></div>}
 
       <section className="ticket-status-card"><div><span>Estado actual</span><TicketStatusChip status={status} /></div><div><span>Fecha de asignación</span><strong>{formatDate(pick(record, ['Fecha', 'FechaCreacion']))}</strong></div></section>
@@ -453,7 +453,7 @@ export default function TicketDetailPage() {
         ['Razón de visita', pick(record, ['RazonVisita', 'Razon_visita']), true], ['Pruebas realizadas', pick(record, ['PruebasRealizadas', 'Pruebas realizadas']), true], ['Resultado', pick(record, ['Resultado']), true], ['Recomendaciones', pick(record, ['Recomendaciones']), true], ['Técnicos asignados', assigned, true],
       ]} /></DetailSection>
 
-      <section className="section-block">
+      <section className="section-block ticket-detail-evidence-section">
         <div className="section-heading"><div><span className="eyebrow">Archivos</span><h2>Evidencias</h2></div></div>
         {evidences.length ? <div className="evidence-gallery">{evidences.map((item, index) => {
           const evidenceId = pick(item, ['EvidenciaID', 'id']);
@@ -485,7 +485,7 @@ export default function TicketDetailPage() {
         </form>}
       </section>
 
-      <section className="section-block">
+      <section className="section-block ticket-detail-signature-section">
         <div className="section-heading ticket-signature-heading">
           <div><span className="eyebrow">Conformidad</span><h2>Firma del Cliente</h2></div>
           {!signatureEditorOpen && <div className="ticket-public-signature-card__actions">
@@ -498,7 +498,7 @@ export default function TicketDetailPage() {
 
       <section className="document-links"><h2>Documentos</h2><div>{documentUrl && <a className="button button--secondary" href={documentUrl} target="_blank" rel="noreferrer"><Icon name="description" /> Google Doc</a>}{pdfUrl && <a className="button button--secondary" href={pdfUrl} target="_blank" rel="noreferrer"><Icon name="picture_as_pdf" /> PDF</a>}{folderUrl && <a className="button button--secondary" href={folderUrl} target="_blank" rel="noreferrer"><Icon name="folder" /> Carpeta Drive</a>}</div></section>
 
-      <div className="ticket-detail-actions">
+      <div className="ticket-detail-actions" aria-label="Acciones de la boleta">
         {canEdit && <Link className="button button--secondary" to={`/boletas/${encodeURIComponent(boletaUid)}/editar`}><Icon name="edit" /> Editar</Link>}
         {canTest && !finalized && <button className="button button--secondary" type="button" onClick={() => finalAction('test')} disabled={processing}><Icon name="science" /> Probar</button>}
         {finalized ? <>{pdfUrl && <a className="button button--secondary" href={pdfUrl} target="_blank" rel="noreferrer"><Icon name="picture_as_pdf" /> Abrir PDF</a>}{canResend && <button className="button button--primary button--wide" type="button" onClick={() => finalAction('email')} disabled={processing}><Icon name="mail" /> {processing ? 'Enviando...' : 'Reenviar correo'}</button>}{canResend && <button className="button button--secondary button--wide" type="button" onClick={() => finalAction('resend')} disabled={processing}><Icon name="send" /> {processing ? 'Reenviando...' : 'Reenviar a chats'}</button>}{canAdmin && <button className="button button--secondary" type="button" onClick={() => finalAction('pending')} disabled={processing}><Icon name="undo" /> Volver a pendiente</button>}</> : canFinalize && <button className="button button--primary button--wide" type="button" onClick={() => finalAction('finalize')} disabled={processing}><Icon name="task_alt" /> {processing ? 'Procesando...' : 'Finalizar boleta'}</button>}
