@@ -22,7 +22,6 @@ import {
 import {
   projectChecklistJson,
   projectDeviceProgressSummary,
-  sameProjectChecklist,
   validateProjectDeviceProgress,
 } from '../services/maintenance-project-checklist.service.js';
 
@@ -285,15 +284,6 @@ export const maintenanceHandlers = {
         String(device.MantenimientoRef) === String(id) && device.Activo !== false
       ));
       if (hasDevices) throw badRequest('No se puede cambiar entre Mantenimiento y Proyecto después de registrar dispositivos. Cree otro registro o elimine primero los dispositivos.');
-    }
-    const projectDevicesExist = requestedType === 'PROYECTO' && (tables.Evidencia_Mantenimientos || []).some((device) => (
-      String(device.MantenimientoRef) === String(id) && device.Activo !== false
-    ));
-    if (
-      projectDevicesExist
-      && !sameProjectChecklist(before.ProyectoChecklistJSON, payload.ProyectoChecklistJSON)
-    ) {
-      throw badRequest('No se puede modificar el checklist de progreso del Proyecto después de registrar dispositivos. Defínalo antes de comenzar el inventario.');
     }
     const usersById = indexRowsBy(tables.Usuarios || [], (user) => user.UsuarioID);
     payload.Responsables = asArray(payload.ResponsableIDsJSON)
