@@ -87,7 +87,8 @@ test('drawer principal y filtros siguen utilizables en pantallas bajas y teléfo
   assert.match(pages, /\.side-drawer__nav\s*\{[^}]*overscroll-behavior:\s*contain/s);
 
   assert.match(workflow, /@media \(max-width: 760px\)[\s\S]*\.filter-drawer\s*\{[\s\S]*inset:\s*auto 0 0/);
-  assert.match(workflow, /height:\s*min\(88dvh,/);
+  assert.match(tokens, /--sheet-max-height:\s*min\(88dvh,/);
+  assert.match(workflow, /height:\s*var\(--sheet-max-height\)/);
   assert.match(workflow, /border-radius:\s*var\(--overlay-radius\) var\(--overlay-radius\) 0 0/);
   assert.match(workflow, /@media \(max-width: 390px\)[\s\S]*\.filter-drawer footer[\s\S]*grid-template-columns:\s*1fr/);
 });
