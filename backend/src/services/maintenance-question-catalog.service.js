@@ -2,6 +2,8 @@ import { badRequest } from '../core/errors.js';
 import { nowIso, pick, uuid } from '../core/utils.js';
 import {
   appendRows,
+  findById,
+  findRows,
   readTable,
 } from '../infra/sheets.repository.js';
 import { ensureSheetColumns } from './sheet-columns.service.js';
@@ -264,9 +266,11 @@ export async function ensureMaintenanceQuestionCatalog(actor = 'SYSTEM') {
 
 export async function readMaintenanceQuestions({ includeInactive = false, typeId = '', mode = '' } = {}) {
   await ensureMaintenanceQuestionCatalog();
-  let rows = await readTable(MAINTENANCE_QUESTION_SHEET);
+  const requestedTypeId = cleanMaintenanceQuestionValue(typeId);
+  let rows = requestedTypeId
+    ? await findRows(MAINTENANCE_QUESTION_SHEET, { TipoDispositivoID: requestedTypeId }, { limit: 50_000 })
+    : await readTable(MAINTENANCE_QUESTION_SHEET);
   if (!includeInactive) rows = rows.filter(isActiveMaintenanceQuestion);
-  if (typeId) rows = rows.filter((row) => cleanMaintenanceQuestionValue(row.TipoDispositivoID) === cleanMaintenanceQuestionValue(typeId));
   if (mode) rows = rows.filter((row) => maintenanceQuestionAppliesTo(row, mode));
   return [...rows].sort((left, right) => (
     Number(left.Orden || 0) - Number(right.Orden || 0)
@@ -431,8 +435,7 @@ export async function buildMaintenanceQuestionSnapshot(payload = {}, before = {}
 export async function assertMaintenanceDeviceType(typeId) {
   const cleanTypeId = cleanMaintenanceQuestionValue(typeId);
   if (!cleanTypeId) throw badRequest('Seleccione el tipo de dispositivo relacionado con la pregunta.');
-  const types = await readTable('TiposDispositivo');
-  const type = types.find((row) => cleanMaintenanceQuestionValue(row.TipoDispositivoID) === cleanTypeId);
+  const type = await findById('TiposDispositivo', cleanTypeId).catch(() => null);
   if (!type) throw badRequest('El tipo de dispositivo seleccionado no existe.');
   return type;
 }
