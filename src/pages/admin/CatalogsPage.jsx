@@ -1,5 +1,5 @@
 import React, { useCallback, useEffect, useMemo, useState } from 'react';
-import { Navigate } from 'react-router-dom';
+import { Navigate, useSearchParams } from 'react-router-dom';
 import { useAuth } from '../../AuthContext';
 import Icon from '../../components/common/Icon';
 import AdminEntityModal from '../../components/forms/AdminEntityModal';
@@ -112,13 +112,17 @@ function CatalogFields({ tab, values, setEditor, data }) {
 
 export default function CatalogsPage() {
   const { sessionToken, hasPermission } = useAuth();
+  const [searchParams, setSearchParams] = useSearchParams();
+  const requestedTab = String(searchParams.get('tab') || '');
+  const initialTab = TABS.some(([key]) => key === requestedTab) ? requestedTab : 'categories';
+  const requestedSearch = searchParams.get('q') || '';
   const isAdmin = hasPermission('USUARIOS_GESTIONAR');
   const canView = hasPermission('CATALOGOS_VER') || hasPermission('CATALOGOS_GESTIONAR') || isAdmin;
   const canManage = hasPermission('CATALOGOS_GESTIONAR') || isAdmin;
-  const [tab, setTab] = useState('categories');
+  const [tab, setTab] = useState(initialTab);
   const [data, setData] = useState(EMPTY_DATA);
   const [loaded, setLoaded] = useState({});
-  const [search, setSearch] = useState('');
+  const [search, setSearch] = useState(requestedSearch);
   const [selected, setSelected] = useState(null);
   const [editor, setEditor] = useState(null);
   const [loading, setLoading] = useState(true);
@@ -175,6 +179,19 @@ export default function CatalogsPage() {
     setEditor(null);
     setModalError('');
     setSearch('');
+    const next = new URLSearchParams(searchParams);
+    next.set('tab', nextTab);
+    next.delete('q');
+    setSearchParams(next, { replace: true });
+  }
+
+  function changeSearch(nextSearch) {
+    setSearch(nextSearch);
+    const next = new URLSearchParams(searchParams);
+    next.set('tab', tab);
+    if (nextSearch) next.set('q', nextSearch);
+    else next.delete('q');
+    setSearchParams(next, { replace: true });
   }
 
   function openCreate() {
@@ -280,7 +297,7 @@ export default function CatalogsPage() {
     <div className="list-page-heading"><div><span className="eyebrow">Administración</span><h1>Catálogos</h1><p>Valores operativos utilizados por boletas y mantenimientos.</p></div>{canManage && <button className="button button--primary button--compact" type="button" onClick={openCreate}><Icon name="add" />Nuevo</button>}</div>
     <div className="catalog-tabs" role="tablist" aria-label="Tipos de catálogo">{TABS.map(([key, label, icon]) => <button key={key} className={tab === key ? 'is-active' : ''} type="button" role="tab" aria-selected={tab === key} onClick={() => switchTab(key)}><Icon name={icon} /><span>{label}</span></button>)}</div>
     {!canManage && <div className="readonly-notice"><Icon name="visibility" /><span>Modo consulta: puede revisar los catálogos, pero no modificarlos.</span></div>}
-    <label className="search-bar admin-search-bar"><Icon name="search" /><input type="search" value={search} onChange={(event) => setSearch(event.target.value)} placeholder={`Buscar en ${tabLabel.toLowerCase()}...`} aria-label={`Buscar en ${tabLabel.toLowerCase()}`} enterKeyHint="search" autoComplete="off" /><button className="icon-button" type="button" onClick={() => loadKeys([tab], { force: true })} aria-label={`Actualizar ${tabLabel.toLowerCase()}`}><Icon name="refresh" /></button></label>
+    <label className="search-bar admin-search-bar"><Icon name="search" /><input type="search" value={search} onChange={(event) => changeSearch(event.target.value)} placeholder={`Buscar en ${tabLabel.toLowerCase()}...`} aria-label={`Buscar en ${tabLabel.toLowerCase()}`} enterKeyHint="search" autoComplete="off" /><button className="icon-button" type="button" onClick={() => loadKeys([tab], { force: true })} aria-label={`Actualizar ${tabLabel.toLowerCase()}`}><Icon name="refresh" /></button></label>
     {error && <div className="alert alert--error" role="alert"><Icon name="error" /><span>{error}</span></div>}
     {loading && !loaded[tab] ? <div className="state-card state-card--loading"><Icon name="progress_activity" />Cargando {tabLabel.toLowerCase()}...</div> : <div className="admin-mini-card-grid">
       {visibleItems.map((record, index) => {
