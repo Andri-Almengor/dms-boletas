@@ -1,6 +1,7 @@
 import React from 'react';
 import { createPortal } from 'react-dom';
 import Icon from '../common/Icon';
+import useOverlaySurface from '../../hooks/useOverlaySurface';
 
 export default function ProcessingOverlay({
   open,
@@ -8,6 +9,7 @@ export default function ProcessingOverlay({
   message = 'Espere mientras se completa la operación.',
   detail = 'No cierre ni recargue esta pantalla.',
 }) {
+  useOverlaySurface({ open, closeOnEscape: false, restoreFocus: false });
   if (!open || typeof document === 'undefined') return null;
 
   return createPortal(
