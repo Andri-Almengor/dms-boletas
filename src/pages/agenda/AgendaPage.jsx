@@ -30,6 +30,7 @@ import AgendaClientAssignment from './AgendaClientAssignment';
 import AgendaDayDialog from './AgendaDayDialog';
 import AgendaResendActions from './AgendaResendActions';
 import AgendaSplitDialog from './AgendaSplitDialog';
+import useOverlaySurface from '../../hooks/useOverlaySurface';
 import '../../styles/agenda.css';
 import '../../styles/agenda-split.css';
 
@@ -87,6 +88,7 @@ function AgendaCard({ item, onOpen, compact = false }) {
 }
 
 function AgendaDetail({ item, isAdmin, onClose, onEdit, onSplit, onSaved }) {
+  useOverlaySurface({ open: Boolean(item), onClose, closeOnEscape: false });
   if (!item) return null;
   const meta = statusMeta(item.status);
   const canSplit = isAdmin && item.Estado !== 'CANCELADA' && (item.asignados || []).length > 1;
@@ -161,7 +163,7 @@ function UserSelector({ users, selected, onChange }) {
 
   return <div className="agenda-user-selector">
     <div className="agenda-user-selector__tools">
-      <label className="agenda-search-field"><Icon name="search" /><input value={search} onChange={(event) => setSearch(event.target.value)} placeholder="Buscar persona" /></label>
+      <label className="agenda-search-field"><Icon name="search" /><input type="search" value={search} onChange={(event) => setSearch(event.target.value)} placeholder="Buscar persona" aria-label="Buscar persona para asignar" enterKeyHint="search" autoComplete="off" /></label>
       <button type="button" className="button button--secondary button--compact" onClick={() => onChange(allSelected ? [] : users.map((user) => String(user.UsuarioID)))}>{allSelected ? 'Quitar todos' : 'Seleccionar todos'}</button>
     </div>
     <div className="agenda-user-grid">
@@ -191,6 +193,7 @@ function AgendaEditor({ users, editItem, onClose, onSaved, sessionToken, ticketE
   const [queueEditIndex, setQueueEditIndex] = useState(-1);
   const [busy, setBusy] = useState(false);
   const [message, setMessage] = useState('');
+  useOverlaySurface({ open: true, onClose, busy, closeOnEscape: false });
   const requiresTicket = agendaRequiresTicket(draft.detalle, ticketExceptions);
 
   function updateField(field, value) {
@@ -504,8 +507,8 @@ export default function AgendaPage() {
       {isAdmin && <button type="button" className="button button--primary" onClick={() => setEditor({ mode: 'create' })}><Icon name="add_task" /> Nueva agenda</button>}
     </header>
 
-    {notice && <div className="agenda-notice"><Icon name="info" /><span>{notice}</span><button type="button" className="icon-button" onClick={() => setNotice('')} aria-label="Cerrar"><Icon name="close" /></button></div>}
-    {error && <div className="state-card state-card--error"><Icon name="error" /><span>{error}</span><button type="button" className="button button--secondary button--compact" onClick={() => load()}>Reintentar</button></div>}
+    {notice && <div className="agenda-notice" role="status"><Icon name="info" /><span>{notice}</span><button type="button" className="icon-button" onClick={() => setNotice('')} aria-label="Cerrar"><Icon name="close" /></button></div>}
+    {error && <div className="state-card state-card--error" role="alert"><Icon name="error" /><span>{error}</span><button type="button" className="button button--secondary button--compact" onClick={() => load()}>Reintentar</button></div>}
 
     <section className="agenda-toolbar">
       <div className="agenda-month-navigation">
@@ -514,7 +517,7 @@ export default function AgendaPage() {
         <button type="button" className="icon-button" onClick={() => setMonth((current) => shiftMonth(current, 1))} aria-label="Mes siguiente"><Icon name="chevron_right" /></button>
         <button type="button" className="button button--secondary button--compact" onClick={goToday}>Hoy</button>
       </div>
-      <label className="agenda-search-field agenda-search-field--main"><Icon name="search" /><input value={search} onChange={(event) => setSearch(event.target.value)} placeholder="Buscar por detalle, cliente o persona" /></label>
+      <label className="agenda-search-field agenda-search-field--main"><Icon name="search" /><input type="search" value={search} onChange={(event) => setSearch(event.target.value)} placeholder="Buscar por detalle, cliente o persona" aria-label="Buscar en la agenda" enterKeyHint="search" autoComplete="off" /></label>
     </section>
 
     {!loading && <AgendaCalendarSummary items={filtered} month={month} searching={Boolean(search.trim())} />}
