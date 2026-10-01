@@ -148,7 +148,7 @@ function AgendaDetail({ item, isAdmin, onClose, onEdit, onSplit, onSaved }) {
 }
 
 function UserSelector({ users, selected, onChange }) {
-  const [search, setSearch] = useState(requestedSearch);
+  const [search, setSearch] = useState('');
   const filtered = useMemo(() => {
     const query = normalizeAgendaText(search);
     return query ? users.filter((user) => normalizeAgendaText(`${personName(user)} ${user.Correo || ''}`).includes(query)) : users;
@@ -324,7 +324,7 @@ export default function AgendaPage() {
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState('');
   const [notice, setNotice] = useState('');
-  const [search, setSearch] = useState('');
+  const [search, setSearch] = useState(requestedSearch);
   const [selected, setSelected] = useState(null);
   const [editor, setEditor] = useState(null);
   const [splitItem, setSplitItem] = useState(null);
