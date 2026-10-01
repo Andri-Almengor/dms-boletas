@@ -54,7 +54,7 @@ export default function UserDetailPage() {
   }
 
   if (error && !record) return <div className="page page--narrow user-detail-page"><ErrorMessage message={error} /></div>;
-  if (!record) return <div className="page page--narrow"><Loading label="Cargando detalle..." /></div>;
+  if (!record) return <div className="page page--narrow user-detail-page"><Loading label="Cargando detalle..." /></div>;
 
   const role = roles.find((item) => item.RolID === record.user.RolID);
   const active = record.user.Estado === 'ACTIVO';
@@ -62,7 +62,7 @@ export default function UserDetailPage() {
   const isCurrentUser = String(record.user.UsuarioID) === String(currentUser?.UsuarioID);
 
   return (
-    <div className="page page--narrow">
+    <div className="page page--narrow user-detail-page">
       <header className="page-header">
         <Link to="/usuarios" className="icon-button" aria-label="Volver"><Icon name="arrow_back" /></Link>
         <div><span className="eyebrow">Usuarios</span><h1>Detalle del usuario</h1></div>
