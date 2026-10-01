@@ -4,7 +4,7 @@
 
 .maintenance-project-questions__intro {
   margin: -4px 0 2px;
-  color: var(--text-muted);
+  color: var(--muted);
   font-size: .82rem;
   line-height: 1.5;
 }
@@ -32,7 +32,7 @@
 }
 
 .maintenance-project-relation__heading small {
-  color: var(--text-muted);
+  color: var(--muted);
 }
 
 .maintenance-project-relation__toggle {
@@ -74,7 +74,7 @@
 
 .maintenance-project-component > header small,
 .maintenance-project-detail-component__heading small {
-  color: var(--text-muted);
+  color: var(--muted);
 }
 
 .maintenance-project-component__icon,
@@ -117,7 +117,7 @@
 }
 
 .maintenance-question-required-toggle small {
-  color: var(--text-muted);
+  color: var(--muted);
   line-height: 1.35;
 }
 
@@ -141,7 +141,7 @@
 
 .maintenance-project-detail-value span,
 .maintenance-project-detail-relation > header span {
-  color: var(--text-muted);
+  color: var(--muted);
   font-size: .7rem;
 }
 
@@ -175,7 +175,7 @@
 }
 
 .maintenance-project-detail-components dt {
-  color: var(--text-muted);
+  color: var(--muted);
 }
 
 .maintenance-project-detail-components dd {
@@ -197,7 +197,7 @@
 }
 
 .maintenance-project-detail-component__answers span {
-  color: var(--text-muted);
+  color: var(--muted);
   font-size: .67rem;
 }
 
@@ -219,7 +219,7 @@
 
 .maintenance-project-evidence-meta {
   min-height: 24px;
-  color: var(--text-muted);
+  color: var(--muted);
   display: inline-flex;
   align-items: center;
   gap: 5px;
@@ -252,7 +252,7 @@
 }
 
 .maintenance-project-evidence-time span {
-  color: var(--text-muted);
+  color: var(--muted);
   font-size: .68rem;
   font-weight: 700;
 }
@@ -316,7 +316,7 @@
 }
 
 .maintenance-project-device-summary-grid span {
-  color: var(--text-muted);
+  color: var(--muted);
   font-size: .67rem;
   font-weight: 700;
 }
@@ -343,7 +343,7 @@
 }
 
 .maintenance-project-evidence-filter > span {
-  color: var(--text-muted);
+  color: var(--muted);
   font-size: .66rem;
   font-weight: 750;
 }
@@ -355,7 +355,7 @@
   border: 1px solid var(--outline-soft);
   border-radius: 10px;
   background: var(--surface-card);
-  color: var(--text-main);
+  color: var(--text);
   font: inherit;
   font-size: .75rem;
 }
@@ -377,14 +377,14 @@
 }
 
 .maintenance-device-detail-navigation > span {
-  color: var(--text-muted);
+  color: var(--muted);
   text-align: center;
   font-size: .76rem;
   font-variant-numeric: tabular-nums;
 }
 
 .maintenance-device-detail-navigation > span strong {
-  color: var(--text-main);
+  color: var(--text);
 }
 
 .maintenance-device-detail-navigation .button {
@@ -747,7 +747,7 @@
 }
 
 .maintenance-project-device-route-header__identity p {
-  color: var(--text-muted);
+  color: var(--muted);
   font-size: .78rem;
 }
 
@@ -772,7 +772,7 @@
 }
 
 .maintenance-project-device-route-navigation > div span {
-  color: var(--text-muted);
+  color: var(--muted);
   font-size: .65rem;
   font-weight: 750;
   text-transform: uppercase;
@@ -834,7 +834,7 @@
 }
 
 .maintenance-project-device-detail-card__heading p {
-  color: var(--text-muted);
+  color: var(--muted);
   font-size: .78rem;
 }
 
