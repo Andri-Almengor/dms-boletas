@@ -127,7 +127,7 @@ export default function CustomerCasesPage() {
     setSubmittedSearch('');
   }
 
-  return <div className="page customer-cases-page">
+  return <div className="page page--wide customer-cases-page">
     <header className="case-dashboard-heading">
       <div><span className="eyebrow">Mesa de ayuda</span><h1>Casos de clientes</h1><p>Solicitudes enviadas desde los enlaces reutilizables de cada cliente.</p></div>
       <div className="case-dashboard-heading__actions">
@@ -153,10 +153,10 @@ export default function CustomerCasesPage() {
       <div className="case-status-tabs" role="tablist" aria-label="Filtrar casos por estado">
         {STATUS_TABS.map((tab) => <button key={tab.value || 'all'} type="button" className={status === tab.value ? 'is-active' : ''} onClick={() => setStatus(tab.value)} role="tab" aria-selected={status === tab.value}><Icon name={tab.icon} /><span>{tab.label}</span><b>{counts[tab.countKey] || 0}</b></button>)}
       </div>
-      <form className="case-search" onSubmit={submitSearch}><Icon name="search" /><input value={search} onChange={(event) => setSearch(event.target.value)} placeholder="Buscar caso, cliente o solicitante..." /><button type="submit" aria-label="Buscar"><Icon name="search" /></button></form>
+      <form className="case-search" role="search" onSubmit={submitSearch}><Icon name="search" /><input type="search" value={search} onChange={(event) => setSearch(event.target.value)} placeholder="Buscar caso, cliente o solicitante..." aria-label="Buscar casos" enterKeyHint="search" autoComplete="off" /><button type="submit" aria-label="Buscar"><Icon name="arrow_forward" /></button></form>
     </section>
 
-    {error && <div className="alert alert--error"><Icon name="error" /><span>{error}</span></div>}
+    {error && <div className="alert alert--error" role="alert"><Icon name="error" /><span>{error}</span></div>}
     {loading ? <div className="state-card state-card--loading"><Icon name="progress_activity" />Cargando casos...</div>
       : visibleCases.length ? <section className="customer-case-card-grid">
         {visibleCases.map((item) => {
