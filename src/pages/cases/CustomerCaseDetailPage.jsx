@@ -1,5 +1,5 @@
 import React, { useEffect, useMemo, useState } from 'react';
-import { Link, useNavigate, useParams } from 'react-router-dom';
+import { Link, useLocation, useNavigate, useParams } from 'react-router-dom';
 import { useAuth } from '../../AuthContext';
 import Icon from '../../components/common/Icon';
 import CustomerCaseProcessingOverlay from '../../components/cases/CustomerCaseProcessingOverlay';
@@ -64,6 +64,13 @@ function dateDisplay(value) {
 export default function CustomerCaseDetailPage() {
   const { caseId = '' } = useParams();
   const navigate = useNavigate();
+  const routeLocation = useLocation();
+  const requestedListReturnTo = String(routeLocation.state?.casesListReturnTo || '');
+  const casesListReturnTo = /^\/casos(?:\?|$)/.test(requestedListReturnTo) ? requestedListReturnTo : '/casos';
+  const casesListScrollY = Number(routeLocation.state?.casesListScrollY || 0);
+  const casesListReturnState = Number.isFinite(casesListScrollY) && casesListScrollY > 0
+    ? { restoreScrollY: casesListScrollY }
+    : undefined;
   const { sessionToken } = useAuth();
   const [bundle, setBundle] = useState(null);
   const [technicians, setTechnicians] = useState([]);
@@ -196,7 +203,7 @@ export default function CustomerCaseDetailPage() {
   }
 
   if (loading) return <><div className="page"><div className="state-card state-card--loading"><Icon name="progress_activity" />Cargando caso...</div></div><CustomerCaseProcessingOverlay open title="Preparando el caso" message="Estamos cargando la solicitud, sus evidencias y los técnicos disponibles." steps={['Consultando la solicitud', 'Cargando evidencias', 'Preparando el detalle']} /></>;
-  if (!item) return <div className="page"><div className="state-card state-card--error"><Icon name="error" /><h1>No se encontró el caso</h1><p>{error}</p><button className="button button--secondary" onClick={() => navigate('/casos')}>Volver</button></div></div>;
+  if (!item) return <div className="page"><div className="state-card state-card--error"><Icon name="error" /><h1>No se encontró el caso</h1><p>{error}</p><button className="button button--secondary" onClick={() => navigate(casesListReturnTo, { state: casesListReturnState })}>Volver</button></div></div>;
 
   const processSteps = item.testMode
     ? ['Validando la asignación', 'Creando boleta de prueba', 'Asignando técnicos', 'Redactando correo con Gemini', 'Enviando correo a los técnicos']
@@ -206,7 +213,7 @@ export default function CustomerCaseDetailPage() {
     <CustomerCaseProcessingOverlay open={saving} testMode={item.testMode} title={item.testMode ? 'Preparando la prueba' : 'Pasando el caso a proceso'} message={item.testMode ? 'La boleta de prueba no consumirá el consecutivo real. Los técnicos seleccionados sí recibirán el correo.' : 'Estamos creando la boleta, guardando la asignación y notificando a los técnicos.'} steps={processSteps} />
 
     <header className="case-detail-heading">
-      <button type="button" className="icon-button icon-button--outlined" onClick={() => navigate('/casos')} aria-label="Volver a casos"><Icon name="arrow_back" /></button>
+      <button type="button" className="icon-button icon-button--outlined" onClick={() => navigate(casesListReturnTo, { state: casesListReturnState })} aria-label="Volver a casos"><Icon name="arrow_back" /></button>
       <div><span className="eyebrow">{item.number}</span>{item.testMode && <span className="case-detail-heading__test"><Icon name="science" />Modo prueba</span>}<h1>{item.reason || 'Caso de cliente'}</h1><p>{item.client}</p></div>
       <span className={`case-status-pill ${item.state === 'FINALIZADO' ? 'is-finished' : item.state === 'EN_PROCESO' ? 'is-process' : 'is-waiting'}`}><Icon name={item.state === 'FINALIZADO' ? 'task_alt' : item.state === 'EN_PROCESO' ? 'engineering' : 'schedule'} />{customerCaseStateLabel(item.state)}</span>
     </header>
