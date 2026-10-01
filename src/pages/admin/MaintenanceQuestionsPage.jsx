@@ -100,7 +100,12 @@ function QuestionEditorFields({ values, setValues, deviceName, deviceTypes }) {
     setValues((current) => ({
       ...current,
       [name]: type === 'checkbox' ? checked : value,
-      ...(name === 'tipoRespuesta' && value === 'RELACION_DISPOSITIVO' ? { obligatoria: false } : {}),
+      ...(name === 'tipoRespuesta' && value === 'RELACION_DISPOSITIVO'
+        ? {
+          obligatoria: false,
+          aplicaModo: current.aplicaModo === 'MANTENIMIENTO' ? 'PROYECTO' : current.aplicaModo,
+        }
+        : {}),
     }));
   }
 
@@ -127,7 +132,7 @@ function QuestionEditorFields({ values, setValues, deviceName, deviceTypes }) {
       <label className="field-group">
         <span className="field-label">Aplica en</span>
         <select className="form-control" name="aplicaModo" value={values.aplicaModo} onChange={change}>
-          <option value="MANTENIMIENTO">Mantenimiento</option>
+          <option value="MANTENIMIENTO" disabled={values.tipoRespuesta === 'RELACION_DISPOSITIVO'}>Mantenimiento</option>
           <option value="PROYECTO">Proyecto</option>
           <option value="AMBOS">Ambos</option>
         </select>
