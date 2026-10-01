@@ -49,8 +49,8 @@
 .review-action-grid .button:last-child { grid-column:1 / -1; }
 .modal-layer { position:fixed; inset:0; z-index:1400; padding-top:var(--safe-area-top); display:flex; align-items:flex-end; justify-content:center; }
 .filter-drawer-layer { position:fixed; inset:0; z-index:100; display:flex; align-items:flex-end; justify-content:center; }
-.modal-backdrop { position:absolute; inset:0; border:0; background:rgba(27,28,28,.48); }
-.inline-modal { width:min(100%,620px); max-width:100%; max-height:min(92vh,calc(100dvh - var(--safe-area-top) - var(--safe-area-bottom))); overflow:auto; overscroll-behavior:contain; position:relative; z-index:1; padding:20px max(20px,var(--safe-area-right)) calc(20px + var(--safe-area-bottom)) max(20px,var(--safe-area-left)); border-radius:22px 22px 0 0; background:var(--surface); box-shadow:var(--shadow-md); }
+.modal-backdrop { position:absolute; inset:0; border:0; background:var(--overlay-backdrop); }
+.inline-modal { width:min(100%,620px); max-width:100%; max-height:min(92vh,calc(100dvh - var(--safe-area-top) - var(--safe-area-bottom))); overflow:auto; overscroll-behavior:contain; position:relative; z-index:1; padding:20px max(20px,var(--safe-area-right)) calc(20px + var(--safe-area-bottom)) max(20px,var(--safe-area-left)); border-radius:var(--overlay-radius) var(--overlay-radius) 0 0; background:var(--surface); box-shadow:var(--shadow-md); }
 .inline-modal__header { display:flex; align-items:flex-start; justify-content:space-between; gap:12px; margin-bottom:18px; }
 .inline-modal__header h2 { margin:3px 0; }
 .inline-modal__header p { margin:0; color:var(--muted); }
@@ -107,8 +107,8 @@
   .filter-drawer {
     inset: auto 0 0;
     width: 100%;
-    height: min(88dvh, calc(100dvh - max(8px, var(--safe-area-top))));
-    max-height: calc(100dvh - max(8px, var(--safe-area-top)));
+    height: var(--sheet-max-height);
+    max-height: var(--overlay-mobile-max-height);
     padding: 16px max(16px, var(--safe-area-right)) calc(14px + var(--safe-area-bottom)) max(16px, var(--safe-area-left));
     border-radius: var(--overlay-radius) var(--overlay-radius) 0 0;
   }

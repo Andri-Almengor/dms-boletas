@@ -91,3 +91,49 @@ test('drawer principal y filtros siguen utilizables en pantallas bajas y teléfo
   assert.match(workflow, /border-radius:\s*var\(--overlay-radius\) var\(--overlay-radius\) 0 0/);
   assert.match(workflow, /@media \(max-width: 390px\)[\s\S]*\.filter-drawer footer[\s\S]*grid-template-columns:\s*1fr/);
 });
+
+
+test('design system responsive centraliza spacing controles overlays y movimiento', () => {
+  const tokens = source('src/styles/tokens.css');
+  const components = source('src/styles/components.css');
+  const pages = source('src/styles/pages.css');
+  const workflow = source('src/styles/workflow.css');
+  const admin = source('src/styles/admin-card-modals.css');
+  const compact = source('src/styles/mobile-compact.css');
+
+  for (const token of [
+    '--space-xs',
+    '--space-sm',
+    '--space-md',
+    '--space-lg',
+    '--space-xl',
+    '--page-inline-mobile',
+    '--page-inline-tablet',
+    '--touch-target-min',
+    '--control-height',
+    '--control-height-compact',
+    '--button-height',
+    '--overlay-mobile-max-height',
+    '--sheet-max-height',
+    '--overlay-backdrop',
+    '--motion-fast',
+  ]) {
+    assert.ok(tokens.includes(token), `Falta el token compartido ${token}`);
+  }
+
+  assert.match(components, /\.icon-button \{[^}]*var\(--touch-target-min\)/s);
+  assert.match(components, /\.button \{[^}]*var\(--button-height\)/s);
+  assert.match(components, /\.button--compact \{[^}]*var\(--control-height-compact\)/s);
+  assert.match(components, /\.form-control \{[^}]*var\(--control-height\)/s);
+  assert.match(components, /@media \(hover: hover\) and \(pointer: fine\)/);
+  assert.match(components, /@media \(prefers-reduced-motion: reduce\)/);
+
+  assert.match(pages, /max\(var\(--page-inline-mobile\), var\(--safe-area-right\)\)/);
+  assert.match(pages, /max\(var\(--page-inline-tablet\), var\(--safe-area-right\)\)/);
+  assert.match(workflow, /height:\s*var\(--sheet-max-height\)/);
+  assert.match(workflow, /max-height:\s*var\(--overlay-mobile-max-height\)/);
+  assert.match(admin, /background:\s*var\(--overlay-backdrop\)/);
+  assert.match(admin, /max-height:\s*var\(--overlay-mobile-max-height\)/);
+  assert.doesNotMatch(admin, /var\(--text-muted\)/);
+  assert.match(compact, /min-height:\s*var\(--control-height-compact\)/);
+});

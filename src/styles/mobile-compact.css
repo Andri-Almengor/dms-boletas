@@ -424,7 +424,7 @@ button {
   }
 
   .form-control {
-    min-height: 44px;
+    min-height: var(--control-height-compact);
     padding: 0 11px;
     border-radius: 10px;
     font-size: 16px;
@@ -483,13 +483,13 @@ button {
   .ticket-form-page input[type='time'] {
     width: 100%;
     min-width: 0;
-    height: 44px;
+    height: var(--control-height-compact);
     line-height: normal;
     text-align: left;
   }
 
   .button {
-    min-height: 44px;
+    min-height: var(--touch-target-min);
     padding: 0 13px;
     gap: 6px;
     font-size: .8rem;
