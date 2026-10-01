@@ -69,9 +69,9 @@ test('galería técnica mantiene dos miniaturas en móvil y el lightbox aprovech
   const gallery = source('src/styles/maintenance-evidence-gallery.css');
 
   assert.match(groups, /\.maintenance-inventory-images\s*\{[^}]*repeat\(2, minmax\(0, 1fr\)\)/s);
-  assert.match(gallery, /@media \(max-width: 760px\)[\s\S]*\.maintenance-lightbox--gallery[\s\S]*env\(safe-area-inset-left\)/s);
+  assert.match(gallery, /@media \(max-width: 760px\)[\s\S]*\.maintenance-lightbox--gallery[\s\S]*var\(--safe-area-left\)/s);
   assert.match(gallery, /\.maintenance-lightbox__image\s*\{[^}]*max-width:\s*100% !important[^}]*100dvh/s);
-  assert.match(gallery, /@media \(max-width: 430px\)[\s\S]*padding-left:\s*max\(6px, env\(safe-area-inset-left\)\)/s);
+  assert.match(gallery, /@media \(max-width: 430px\)[\s\S]*padding-left:\s*max\(6px, var\(--safe-area-left\)\)/s);
 });
 
 test('overlays de mantenimientos reutilizan bloqueo compartido sin tocar sus operaciones', () => {
@@ -98,8 +98,8 @@ test('modal de evidencias usa viewport dinámico para teclado y barras móviles'
   const styles = source('src/styles/maintenance-enhancements.css');
 
   assert.match(styles, /max-height:calc\(100dvh - 36px\)/);
-  assert.match(styles, /max-height:calc\(100dvh - max\(8px,env\(safe-area-inset-top\)\)\)/);
-  assert.match(styles, /env\(safe-area-inset-bottom\)/);
+  assert.match(styles, /max-height:var\(--overlay-mobile-max-height\)/);
+  assert.match(styles, /var\(--safe-area-bottom\)/);
 });
 
 
@@ -159,6 +159,7 @@ test('Etapa 6 usa targets y safe areas compartidos en inventario, evidencias y e
   const project = source('src/styles/maintenance-project.css');
 
   assert.doesNotMatch(locations, /var\(--text-muted\)/);
+  assert.doesNotMatch(locations, /var\(--text-main\)/);
   assert.match(locations, /\.maintenance-location-work-group__actions \.icon-button\s*\{[^}]*width:\s*var\(--touch-target-min\)[^}]*height:\s*var\(--touch-target-min\)/s);
   assert.match(locations, /max-height:\s*var\(--overlay-mobile-max-height\)/);
   assert.match(enhancements, /button\.maintenance-query-chip\s*\{[^}]*min-height:\s*var\(--touch-target-min\)/s);
