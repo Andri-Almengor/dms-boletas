@@ -448,9 +448,9 @@
     min-width: var(--touch-target-min, 44px);
     min-height: var(--touch-target-min, 44px);
     padding: 0 9px;
-    border: 1px solid var(--border, #e5e7eb);
+    border: 1px solid var(--outline-soft, #e5e7eb);
     border-radius: 11px;
-    background: var(--surface, #fff);
+    background: var(--surface-card, #fff);
     color: var(--text, #1f2937);
     display: inline-flex;
     align-items: center;
