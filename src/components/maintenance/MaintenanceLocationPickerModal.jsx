@@ -2,6 +2,7 @@ import React, { useMemo, useState } from 'react';
 import Icon from '../common/Icon';
 import ProcessingOverlay from '../feedback/ProcessingOverlay';
 import MaintenanceEquipmentLocationSelect from './MaintenanceEquipmentLocationSelect';
+import useOverlaySurface from '../../hooks/useOverlaySurface';
 
 export default function MaintenanceLocationPickerModal({
   open,
@@ -12,6 +13,7 @@ export default function MaintenanceLocationPickerModal({
   saving = false,
 }) {
   const [selection, setSelection] = useState(null);
+  useOverlaySurface({ open, onClose, busy: saving });
   const existingIds = useMemo(
     () => new Set(existingLocations.map((item) => String(item.id || item.UbicacionEquipoID || '')).filter(Boolean)),
     [existingLocations],

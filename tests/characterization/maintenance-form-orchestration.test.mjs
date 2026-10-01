@@ -64,14 +64,21 @@ test('la página delega navegación directa y creación rápida sin cambiar paso
   assert.doesNotMatch(page, /function Field\(/);
 });
 
-test('el hook directo conserva aperturas, mensajes y retorno al detalle', () => {
+test('el hook directo conserva aperturas y vuelve a una ruta segura del mismo mantenimiento', () => {
   const hook = source('src/features/maintenance/useMaintenanceDirectDevice.js');
+  const page = source('src/pages/maintenance/MaintenanceFormPage.jsx');
   assert.match(hook, /Primero indique una cantidad mayor que cero/);
   assert.match(hook, /No se encontró el dispositivo solicitado/);
   assert.match(hook, /closeActiveDevice/);
   assert.match(hook, /cancelActiveDevice/);
   assert.match(hook, /removeDevice/);
-  assert.match(hook, /navigate\(detailUrl, \{ replace: true \}\)/);
+  assert.match(hook, /returnTo = ''/);
+  assert.match(hook, /requestedReturnUrl\.startsWith\(\`\$\{detailUrl\}\?\`\)/);
+  assert.match(hook, /requestedReturnUrl\.startsWith\(\`\$\{detailUrl\}\/\`\)/);
+  assert.match(hook, /navigate\(returnUrl, \{ replace: true, state: returnState \}\)/);
+  assert.match(page, /useLocation/);
+  assert.match(page, /returnTo: location\.state\?\.returnTo/);
+  assert.match(page, /returnState: location\.state/);
 });
 
 test('la creación rápida conserva rutas, payloads y selección automática', () => {

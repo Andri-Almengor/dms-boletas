@@ -1,8 +1,8 @@
 .assistant-fab {
   position: fixed;
-  right: max(18px, env(safe-area-inset-right));
-  bottom: calc(82px + env(safe-area-inset-bottom));
-  z-index: 1220;
+  right: max(18px, var(--safe-area-right));
+  bottom: calc(var(--bottom-nav-height) + var(--space-sm) + var(--safe-area-bottom));
+  z-index: var(--z-assistant-fab);
   min-height: 52px;
   padding: 0 17px;
   border: 2px solid color-mix(in srgb, var(--surface) 88%, transparent);
@@ -23,10 +23,16 @@
   isolation: isolate;
 }
 
-.assistant-fab:hover,
 .assistant-fab:focus-visible {
   transform: translateY(-2px);
   background: var(--primary-strong, var(--primary));
+}
+
+@media (hover: hover) and (pointer: fine) {
+  .assistant-fab:hover {
+    transform: translateY(-2px);
+    background: var(--primary-strong, var(--primary));
+  }
 }
 
 .assistant-fab__icon {
@@ -62,11 +68,11 @@ body:has(.form-recovery-status) .assistant-fab {
 }
 
 .app-shell--form .assistant-fab {
-  bottom: calc(94px + env(safe-area-inset-bottom));
+  bottom: calc(94px + var(--safe-area-bottom));
 }
 
 body:has(.app-shell--form):has(.form-recovery-status) .assistant-fab {
-  bottom: calc(154px + env(safe-area-inset-bottom));
+  bottom: calc(154px + var(--safe-area-bottom));
 }
 
 @media (min-width: 900px) {
@@ -78,8 +84,8 @@ body:has(.app-shell--form):has(.form-recovery-status) .assistant-fab {
 
 @media (max-width: 620px) {
   .assistant-fab {
-    right: max(13px, env(safe-area-inset-right));
-    bottom: calc(84px + env(safe-area-inset-bottom));
+    right: max(13px, var(--safe-area-right));
+    bottom: calc(var(--bottom-nav-height) + var(--space-sm) + var(--safe-area-bottom));
     width: 58px;
     height: 58px;
     min-width: 58px;
@@ -111,12 +117,12 @@ body:has(.app-shell--form):has(.form-recovery-status) .assistant-fab {
   }
 
   body:has(.form-recovery-status) .assistant-fab {
-    bottom: calc(84px + env(safe-area-inset-bottom));
+    bottom: calc(var(--bottom-nav-height) + var(--space-sm) + var(--safe-area-bottom));
   }
 
   .app-shell--form .assistant-fab,
   body:has(.app-shell--form):has(.form-recovery-status) .assistant-fab {
-    bottom: calc(94px + env(safe-area-inset-bottom));
+    bottom: calc(94px + var(--safe-area-bottom));
   }
 }
 

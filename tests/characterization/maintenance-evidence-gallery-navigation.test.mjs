@@ -19,7 +19,10 @@ test('el lightbox de evidencias permite navegar y hacer zoom sin cerrarlo', () =
   assert.match(component, /maintenance-lightbox__zoom-controls/);
   assert.match(component, /event\.key === 'ArrowLeft'/);
   assert.match(component, /event\.key === 'ArrowRight'/);
-  assert.match(component, /event\.key === 'Escape'/);
+  assert.match(component, /useOverlaySurface\(\{ open, onClose: closeFullImage \}\)/);
+  const overlay = source('src/hooks/useOverlaySurface.js');
+  assert.match(overlay, /event\.key !== 'Escape'/);
+  assert.match(overlay, /document\.body\.style\.overflow = 'hidden'/);
   assert.match(component, /onDoubleClick=\{toggleZoom\}/);
   assert.match(component, /MAX_ZOOM = 4/);
   assert.match(component, /setFullSource\(fallback \|\| ''\)/);

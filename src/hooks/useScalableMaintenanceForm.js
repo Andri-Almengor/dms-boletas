@@ -11,9 +11,9 @@ function clean(value) {
   return String(value ?? '').trim();
 }
 
-export default function useScalableMaintenanceForm({ editing, maintenanceId }) {
+export default function useScalableMaintenanceForm({ editing, maintenanceId, navigationState }) {
   const navigate = useNavigate();
-  const base = useOptimizedMaintenanceBase({ editing, maintenanceId });
+  const base = useOptimizedMaintenanceBase({ editing, maintenanceId, navigationState });
   const [batchSaving, setBatchSaving] = useState(false);
   const newMaintenanceIdRef = useRef(clean(maintenanceId) || createLocalId('mantenimiento'));
 
@@ -63,7 +63,7 @@ export default function useScalableMaintenanceForm({ editing, maintenanceId }) {
         await requestMaintenanceFinalization({ maintenanceId: id, sessionToken: base.sessionToken });
       }
       base.clearDeviceDraft();
-      navigate(`/mantenimientos/${encodeURIComponent(id)}`);
+      navigate(`/mantenimientos/${encodeURIComponent(id)}`, navigationState ? { state: navigationState } : undefined);
       return created;
     } catch (error) {
       base.setError(`${error.message} Puede volver a guardar: el mantenimiento, los dispositivos y las evidencias ya procesadas conservarán sus mismos identificadores y no se duplicarán.`);
@@ -71,7 +71,7 @@ export default function useScalableMaintenanceForm({ editing, maintenanceId }) {
     } finally {
       setBatchSaving(false);
     }
-  }, [base, editing, navigate]);
+  }, [base, editing, navigate, navigationState]);
 
   return {
     ...base,

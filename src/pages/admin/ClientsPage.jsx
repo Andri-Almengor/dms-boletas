@@ -1,5 +1,5 @@
 import React, { useCallback, useMemo, useRef, useState } from 'react';
-import { Link } from 'react-router-dom';
+import { Link, useSearchParams } from 'react-router-dom';
 import { useAuth } from '../../AuthContext';
 import ClientCasePortalCard from '../../components/clients/ClientCasePortalCard';
 import ClientRelationsManager from '../../components/clients/ClientRelationsManager';
@@ -85,8 +85,10 @@ function ReadonlyRelations({ related }) {
 export default function ClientsPage() {
   const { sessionToken, hasPermission } = useAuth();
   const isAdmin = hasPermission('USUARIOS_GESTIONAR');
-  const [search, setSearch] = useState('');
-  const [submittedSearch, setSubmittedSearch] = useState('');
+  const [searchParams, setSearchParams] = useSearchParams();
+  const requestedSearch = searchParams.get('q') || '';
+  const [search, setSearch] = useState(requestedSearch);
+  const [submittedSearch, setSubmittedSearch] = useState(requestedSearch);
   const [selected, setSelected] = useState(null);
   const [form, setForm] = useState(EMPTY);
   const [editing, setEditing] = useState(false);
@@ -249,6 +251,10 @@ export default function ClientsPage() {
   function submitSearch(event) {
     event.preventDefault();
     const nextSearch = search.trim();
+    const next = new URLSearchParams(searchParams);
+    if (nextSearch) next.set('q', nextSearch);
+    else next.delete('q');
+    setSearchParams(next, { replace: true });
     if (nextSearch === submittedSearch) reload();
     else setSubmittedSearch(nextSearch);
   }
@@ -256,7 +262,7 @@ export default function ClientsPage() {
   const selectedView = selected ? form : null;
   const supervisors = related.contacts.filter((row) => toBoolean(pick(row, ['EsSupervisor', 'esSupervisor'], false), false));
 
-  return <div className="page admin-module-page">
+  return <div className="page page--wide admin-module-page clients-admin-page">
     <div className="list-page-heading">
       <div><span className="eyebrow">Administración</span><h1>Clientes</h1><p>Consulta clientes, sedes, ubicaciones del equipo y supervisores relacionados.</p></div>
       {isAdmin && <button className="button button--primary button--compact" type="button" onClick={openCreate}><Icon name="add" />Nuevo cliente</button>}
@@ -264,13 +270,13 @@ export default function ClientsPage() {
 
     {!isAdmin && <div className="readonly-notice"><Icon name="visibility" /><span>Modo consulta: puede revisar toda la información del cliente, pero solo un administrador puede modificarla.</span></div>}
 
-    <form className="search-bar" onSubmit={submitSearch}>
+    <form className="search-bar admin-search-bar" role="search" onSubmit={submitSearch}>
       <Icon name="search" />
-      <input value={search} onChange={(event) => setSearch(event.target.value)} placeholder="Buscar cliente, contacto, correo o dirección..." />
-      <button className="icon-button icon-button--primary" aria-label="Buscar"><Icon name="search" /></button>
+      <input type="search" value={search} onChange={(event) => setSearch(event.target.value)} placeholder="Buscar cliente, contacto, correo o dirección..." aria-label="Buscar clientes" enterKeyHint="search" autoComplete="off" />
+      <button className="icon-button icon-button--primary" type="submit" aria-label="Buscar"><Icon name="arrow_forward" /></button>
     </form>
 
-    {error && <div className="alert alert--error"><Icon name="error" /><span>{error}</span></div>}
+    {error && <div className="alert alert--error" role="alert"><Icon name="error" /><span>{error}</span></div>}
     {loading ? <div className="state-card state-card--loading"><Icon name="progress_activity" />Cargando clientes...</div> : <>
       <div className="ticket-list-result-count"><span>Mostrando <strong>{visible.length}</strong>{total > visible.length ? ` de ${total}` : ''} clientes</span></div>
       <div className="admin-mini-card-grid">
@@ -288,7 +294,7 @@ export default function ClientsPage() {
     </>}
 
     <AdminEntityModal open={Boolean(selected)} title={selectedView?.name || 'Nuevo cliente'} subtitle={selectedView?.id ? `${related.locations.length} sedes · ${related.equipment.length} ubicaciones del equipo · ${supervisors.length} supervisores` : 'Complete los datos para crear el cliente'} eyebrow={editing ? (selectedView?.id ? 'Editar cliente' : 'Nuevo cliente') : 'Detalle del cliente'} icon="corporate_fare" onClose={closeModal} busy={saving} className="admin-entity-modal-layer--client client-detail-modal" footer={!editing && isAdmin && selectedView?.id ? <><button className="button button--danger" type="button" onClick={removeClient} disabled={saving}><Icon name="delete" />Eliminar</button><button className="button button--secondary" type="button" onClick={changeStatus} disabled={saving}><Icon name={selectedView.status === 'INACTIVO' ? 'refresh' : 'block'} />{selectedView.status === 'INACTIVO' ? 'Reactivar' : 'Desactivar'}</button><button className="button button--primary" type="button" onClick={() => setEditing(true)} disabled={saving}><Icon name="edit" />Editar datos</button></> : null}>
-      {modalError && <div className="alert alert--error"><Icon name="error" /><span>{modalError}</span></div>}
+      {modalError && <div className="alert alert--error" role="alert"><Icon name="error" /><span>{modalError}</span></div>}
       {editing ? <form className="stack-form" onSubmit={save}><ClientFields form={form} setForm={setForm} /><div className="form-actions"><button className="button button--secondary" type="button" onClick={() => selectedView?.id ? setEditing(false) : closeModal()} disabled={saving}>Cancelar</button><button className="button button--primary" disabled={saving}>{saving ? 'Guardando...' : 'Guardar cliente'}</button></div></form> : <div className="client-detail-layout">
         <div className="admin-detail-grid"><div><span>Estado</span><strong>{selectedView?.status || 'ACTIVO'}</strong></div><div><span>Contacto</span><strong>{selectedView?.contacto || 'Sin contacto'}</strong></div><div><span>Teléfono</span><strong>{selectedView?.telefono || 'Sin teléfono'}</strong></div><div><span>Correo</span><strong>{selectedView?.correo || 'Sin correo'}</strong></div><div className="is-wide"><span>Dirección</span><strong>{selectedView?.direccion || 'Sin dirección'}</strong></div><div><span>Sitio web</span><strong>{selectedView?.sitioWeb || 'Sin sitio web'}</strong></div><div><span>Google Chat</span><strong>{selectedView?.chatConfigured ? 'Configurado' : 'Sin configurar'}</strong></div></div>
         {selectedView?.id && <section className="client-password-vault-link"><div><span><Icon name="shield_lock" /></span><div><strong>Contraseñas del cliente</strong><small>Consulte sistemas, usuarios y contraseñas agrupadas por categoría.</small></div></div><Link className="button button--secondary button--compact" to={`/credenciales?cliente=${encodeURIComponent(selectedView.id)}`}><Icon name="open_in_new" />Abrir credenciales</Link></section>}

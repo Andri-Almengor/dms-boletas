@@ -1,5 +1,5 @@
 import React, { useEffect, useMemo, useState } from 'react';
-import { Link, useNavigate, useParams } from 'react-router-dom';
+import { Link, useLocation, useNavigate, useParams } from 'react-router-dom';
 import { useAuth } from '../../AuthContext';
 import Icon from '../../components/common/Icon';
 import KnowledgeDocumentViewer from '../../components/knowledge/KnowledgeDocumentViewer';
@@ -16,6 +16,13 @@ import {
 export default function KnowledgeDetailPage() {
   const { tutorialId } = useParams();
   const navigate = useNavigate();
+  const routeLocation = useLocation();
+  const requestedListReturnTo = String(routeLocation.state?.knowledgeListReturnTo || '');
+  const knowledgeListReturnTo = /^\/conocimiento(?:\?|$)/.test(requestedListReturnTo) ? requestedListReturnTo : '/conocimiento';
+  const knowledgeListScrollY = Number(routeLocation.state?.knowledgeListScrollY || 0);
+  const knowledgeListReturnState = Number.isFinite(knowledgeListScrollY) && knowledgeListScrollY > 0
+    ? { restoreScrollY: knowledgeListScrollY }
+    : undefined;
   const { sessionToken, user, hasPermission } = useAuth();
   const [record, setRecord] = useState(null);
   const [loading, setLoading] = useState(true);
@@ -46,8 +53,8 @@ export default function KnowledgeDetailPage() {
     }
   }
 
-  if (loading) return <div className="page page--narrow"><div className="state-card state-card--loading"><Icon name="progress_activity" /> Cargando guía...</div></div>;
-  if (!record) return <div className="page page--narrow"><div className="alert alert--error"><Icon name="error" /> {error || 'No se encontró la guía.'}</div></div>;
+  if (loading) return <div className="page page--narrow knowledge-detail-page"><div className="state-card state-card--loading"><Icon name="progress_activity" /> Cargando guía...</div></div>;
+  if (!record) return <div className="page page--narrow knowledge-detail-page"><div className="alert alert--error"><Icon name="error" /> {error || 'No se encontró la guía.'}</div></div>;
 
   const item = normalizeKnowledge(record);
   const categories = item.categories.length ? item.categories : [{ id: '', name: 'Sin categoría' }];
@@ -61,12 +68,12 @@ export default function KnowledgeDetailPage() {
 
   return <div className="page knowledge-detail-page">
     <div className="page-header knowledge-detail-header">
-      <button className="icon-button" type="button" onClick={() => navigate('/conocimiento')}><Icon name="arrow_back" /></button>
+      <button className="icon-button" type="button" onClick={() => navigate(knowledgeListReturnTo, { state: knowledgeListReturnState })} aria-label="Volver a la base de conocimientos"><Icon name="arrow_back" /></button>
       <div><span className="eyebrow">Base de conocimientos</span><h1>{item.title}</h1></div>
-      {canEdit && <Link className="icon-button icon-button--outlined" to={`/conocimiento/${encodeURIComponent(item.id)}/editar`} aria-label="Editar guía"><Icon name="edit" /></Link>}
+      {canEdit && <Link className="icon-button icon-button--outlined" to={`/conocimiento/${encodeURIComponent(item.id)}/editar`} state={routeLocation.state} aria-label="Editar guía"><Icon name="edit" /></Link>}
     </div>
 
-    {error && <div className="alert alert--error"><Icon name="error" /><span>{error}</span></div>}
+    {error && <div className="alert alert--error" role="alert"><Icon name="error" /><span>{error}</span></div>}
 
     <section className="knowledge-detail-meta">
       <div className="knowledge-category-chip-list" aria-label="Categorías de la guía">
@@ -91,7 +98,7 @@ export default function KnowledgeDetailPage() {
         onSetPrimary={(attachment) => documentAction(MODULE_ROUTES.knowledge.attachmentPrimary, attachment, '', 'PRIMARY')}
         onReindex={(attachment) => documentAction(MODULE_ROUTES.knowledge.attachmentReindex, attachment, '', 'REINDEX')}
         onDelete={(attachment) => documentAction(MODULE_ROUTES.knowledge.attachmentDelete, attachment, '¿Eliminar este documento de la guía?')}
-        onReplace={() => navigate(`/conocimiento/${encodeURIComponent(item.id)}/editar`)}
+        onReplace={() => navigate(`/conocimiento/${encodeURIComponent(item.id)}/editar`, routeLocation.state ? { state: routeLocation.state } : undefined)}
       />
     </section>}
 
@@ -120,7 +127,7 @@ export default function KnowledgeDetailPage() {
           onSetPrimary={(document) => documentAction(MODULE_ROUTES.knowledge.attachmentPrimary, document, '', 'PRIMARY')}
           onReindex={(document) => documentAction(MODULE_ROUTES.knowledge.attachmentReindex, document, '', 'REINDEX')}
           onDelete={(document) => documentAction(MODULE_ROUTES.knowledge.attachmentDelete, document, '¿Eliminar este documento de la guía?')}
-          onReplace={() => navigate(`/conocimiento/${encodeURIComponent(item.id)}/editar`)}
+          onReplace={() => navigate(`/conocimiento/${encodeURIComponent(item.id)}/editar`, routeLocation.state ? { state: routeLocation.state } : undefined)}
         />)}
       </div>
     </section>}

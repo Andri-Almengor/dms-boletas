@@ -179,7 +179,7 @@ export default function MorePage() {
       : 'Comprueba la cola y actualiza los catálogos guardados.'
     : 'Disponible cuando regrese la conexión a internet.');
 
-  return <div className="page more-page">
+  return <div className="page page--wide more-page">
     <section className="profile-card more-page__profile"><span className="profile-card__accent" /><div className="avatar avatar--xlarge">{initials(user?.NombreCompleto)}</div><div><h1>{user?.NombreCompleto}</h1><p>{isAdmin ? 'Administrador' : 'Técnico'}</p><span className="status-chip status-chip--active">{user?.Estado || 'ACTIVO'}</span></div></section>
 
     <div className="more-page__columns">
@@ -189,7 +189,7 @@ export default function MorePage() {
           <AppearanceSelector theme={theme} onChange={changeTheme} />
           <InstallAppCard />
           <OfflineModeSelector enabled={offlineEnabled} pendingCount={pendingCount} onToggle={toggleOfflineMode} />
-          {syncMessage && <div className={`more-page-inline-message${syncMessage.startsWith('No se puede') ? ' is-warning' : ''}`}><Icon name={syncMessage.startsWith('No se puede') ? 'warning' : 'info'} /><span>{syncMessage}</span></div>}
+          {syncMessage && <div className={`more-page-inline-message${syncMessage.startsWith('No se puede') ? ' is-warning' : ''}`} role={syncMessage.startsWith('No se puede') ? 'alert' : 'status'}><Icon name={syncMessage.startsWith('No se puede') ? 'warning' : 'info'} /><span>{syncMessage}</span></div>}
           <div className="menu-list more-page__offline-menu">
             <MenuRow to="/mas/contenido-offline" icon="download_for_offline" label="Contenido sin conexión" note={offlineNote} />
             {offlineEnabled && <button type="button" className="menu-row more-sync-row" onClick={forceSync} disabled={!online || syncing}><span className="menu-row__icon"><Icon name={syncing ? 'sync' : online ? 'sync_alt' : 'cloud_off'} /></span><div><strong>{syncing ? 'Sincronizando...' : 'Forzar sincronización'}</strong><small>{syncNote}</small></div><Icon name={syncing ? 'progress_activity' : 'refresh'} /></button>}

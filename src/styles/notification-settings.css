@@ -623,6 +623,17 @@
   .notification-chat-actions .button {
     width: 100%;
   }
+
+  .notification-field-card textarea,
+  .notification-chat-form input {
+    font-size: 16px;
+  }
+
+  .notification-panel__actions > span,
+  .notification-behavior-note p,
+  .notification-chat-form label > small {
+    overflow-wrap: anywhere;
+  }
 }
 
 @media (max-width: 480px) {

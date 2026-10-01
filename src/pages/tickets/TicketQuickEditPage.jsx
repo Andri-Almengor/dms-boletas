@@ -1,5 +1,5 @@
 import React, { useEffect, useMemo, useState } from 'react';
-import { Navigate, useNavigate, useParams } from 'react-router-dom';
+import { Navigate, useLocation, useNavigate, useParams } from 'react-router-dom';
 import { useAuth } from '../../AuthContext';
 import Icon from '../../components/common/Icon';
 import DependentSelect from '../../components/forms/DependentSelect';
@@ -222,6 +222,8 @@ function payload(form, boletaUid) {
 export default function TicketQuickEditPage() {
   const { boletaUid, section } = useParams();
   const navigate = useNavigate();
+  const location = useLocation();
+  const returnState = location.state;
   const { sessionToken, hasPermission } = useAuth();
   const config = SECTIONS[section];
   const allowed = hasPermission('BOLETAS_EDITAR');
@@ -593,7 +595,7 @@ export default function TicketQuickEditPage() {
     setError('');
     try {
       await requestAvailable(MODULE_ROUTES.tickets.update, payload(form, boletaUid), sessionToken);
-      navigate(`/boletas/${encodeURIComponent(boletaUid)}`, { replace: true });
+      navigate(`/boletas/${encodeURIComponent(boletaUid)}`, { replace: true, state: returnState });
     } catch (saveError) {
       setError(saveError.message);
     } finally {
@@ -601,21 +603,21 @@ export default function TicketQuickEditPage() {
     }
   }
 
-  if (!allowed) return <Navigate to={`/boletas/${encodeURIComponent(boletaUid)}`} replace />;
-  if (!config) return <Navigate to={`/boletas/${encodeURIComponent(boletaUid)}`} replace />;
+  if (!allowed) return <Navigate to={`/boletas/${encodeURIComponent(boletaUid)}`} replace state={returnState} />;
+  if (!config) return <Navigate to={`/boletas/${encodeURIComponent(boletaUid)}`} replace state={returnState} />;
   if (loading || !form) return <div className="page page--narrow"><div className="state-card state-card--loading"><Icon name="progress_activity" />Cargando edición rápida...</div></div>;
 
   return (
     <div className="page page--narrow ticket-quick-edit-page">
       <div className="page-header ticket-form-header">
-        <button className="icon-button" type="button" onClick={() => navigate(`/boletas/${encodeURIComponent(boletaUid)}`)} aria-label="Cancelar"><Icon name="close" /></button>
+        <button className="icon-button" type="button" onClick={() => navigate(`/boletas/${encodeURIComponent(boletaUid)}`, { state: returnState })} aria-label="Cancelar"><Icon name="close" /></button>
         <div><span className="eyebrow">Edición rápida</span><h1>{config.title}</h1></div>
         <span className="ticket-quick-edit-page__icon"><Icon name={config.icon} /></span>
       </div>
 
       <section className="ticket-quick-edit-intro">
         <div><Icon name="bolt" /><div><strong>Cambie solo lo necesario</strong><p>{config.description}</p></div></div>
-        <button className="button button--ghost button--compact" type="button" onClick={() => navigate(`/boletas/${encodeURIComponent(boletaUid)}/editar`)}><Icon name="edit_note" />Edición completa</button>
+        <button className="button button--ghost button--compact" type="button" onClick={() => navigate(`/boletas/${encodeURIComponent(boletaUid)}/editar`, { state: returnState })}><Icon name="edit_note" />Edición completa</button>
       </section>
 
       {error && <div className="alert alert--error"><Icon name="error" /><span>{error}</span></div>}
@@ -743,7 +745,7 @@ export default function TicketQuickEditPage() {
         </div>
 
         <div className="ticket-quick-edit-form__actions">
-          <button className="button button--secondary" type="button" onClick={() => navigate(`/boletas/${encodeURIComponent(boletaUid)}`)} disabled={saving}><Icon name="close" />Cancelar</button>
+          <button className="button button--secondary" type="button" onClick={() => navigate(`/boletas/${encodeURIComponent(boletaUid)}`, { state: returnState })} disabled={saving}><Icon name="close" />Cancelar</button>
           <button className="button button--primary" type="submit" disabled={saving}><Icon name={saving ? 'progress_activity' : 'save'} />{saving ? 'Guardando...' : 'Guardar cambios'}</button>
         </div>
       </form>

@@ -52,8 +52,8 @@
   top: 15px;
   right: 15px;
   z-index: 4;
-  width: 36px;
-  height: 36px;
+  width: var(--touch-target-min);
+  height: var(--touch-target-min);
   padding: 0;
   border: 1px solid #f1b4b8;
   border-radius: 999px;
@@ -89,6 +89,6 @@
   }
 
   .searchable-select__option {
-    min-height: 40px;
+    min-height: var(--touch-target-min);
   }
 }

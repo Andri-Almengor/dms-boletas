@@ -507,6 +507,7 @@
 
 .maintenance-inventory-images figure > button {
   width: 100%;
+  min-height: var(--touch-target-min);
   padding: 7px;
   border: 0;
   border-top: 1px solid var(--outline-soft);

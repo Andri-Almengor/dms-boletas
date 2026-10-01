@@ -285,8 +285,8 @@ export default function NotificationSettingsPage() {
         </div>
       </header>
 
-      {notice && <div className="notification-feedback is-success"><Icon name="check_circle" /><span>{notice}</span><button type="button" onClick={() => setNotice('')} aria-label="Cerrar mensaje"><Icon name="close" /></button></div>}
-      {error && <div className="notification-feedback is-error"><Icon name="error" /><span>{error}</span><button type="button" onClick={() => setError('')} aria-label="Cerrar mensaje"><Icon name="close" /></button></div>}
+      {notice && <div className="notification-feedback is-success" role="status"><Icon name="check_circle" /><span>{notice}</span><button type="button" onClick={() => setNotice('')} aria-label="Cerrar mensaje"><Icon name="close" /></button></div>}
+      {error && <div className="notification-feedback is-error" role="alert"><Icon name="error" /><span>{error}</span><button type="button" onClick={() => setError('')} aria-label="Cerrar mensaje"><Icon name="close" /></button></div>}
 
       {loading ? <LoadingState /> : <div className="notification-settings-layout">
         <form className="notification-panel notification-panel--email" onSubmit={saveEmails}>

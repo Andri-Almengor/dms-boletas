@@ -91,8 +91,8 @@ button {
   right: 5px;
   top: 50%;
   z-index: 3;
-  width: 36px;
-  height: 36px;
+  width: var(--touch-target-min);
+  height: var(--touch-target-min);
   padding: 0;
   border: 0;
   border-radius: 999px;
@@ -168,7 +168,7 @@ button {
   position: fixed;
   inset: 0;
   z-index: 250;
-  padding-top: env(safe-area-inset-top);
+  padding-top: var(--safe-area-top);
   display: flex;
   align-items: flex-end;
   justify-content: center;
@@ -181,22 +181,25 @@ button {
   height: 100%;
   padding: 0;
   border: 0;
-  background: rgba(20, 20, 22, .56);
+  background: var(--overlay-backdrop);
 }
 
 .mobile-time-picker {
   position: relative;
   z-index: 1;
   width: min(100%, 430px);
-  padding: 17px 16px calc(16px + env(safe-area-inset-bottom));
-  border-radius: 22px 22px 0 0;
+  max-height: calc(100dvh - var(--safe-area-top));
+  padding: 17px 16px calc(16px + var(--safe-area-bottom));
+  overflow-y: auto;
+  overscroll-behavior: contain;
+  border-radius: var(--overlay-radius) var(--overlay-radius) 0 0;
   background: var(--surface);
   box-shadow: 0 -12px 36px rgba(0, 0, 0, .2);
 }
 
 .mobile-time-picker__header {
   display: grid;
-  grid-template-columns: minmax(0, 1fr) 40px;
+  grid-template-columns: minmax(0, 1fr) var(--touch-target-min);
   align-items: start;
   gap: 12px;
 }
@@ -207,8 +210,8 @@ button {
 }
 
 .mobile-time-picker__header .icon-button {
-  width: 40px;
-  height: 40px;
+  width: var(--touch-target-min);
+  height: var(--touch-target-min);
 }
 
 .mobile-time-picker__display {
@@ -277,9 +280,15 @@ button {
   grid-column: 1 / -1;
 }
 
-@media (min-width: 761px) {
+@media (min-width: 761px) and (hover: hover) and (pointer: fine) {
   .mobile-time-layer {
     display: none;
+  }
+}
+
+@media (hover: none) and (pointer: coarse) {
+  .app-shell :is(input, select, textarea) {
+    font-size: 16px;
   }
 }
 
@@ -304,7 +313,7 @@ button {
   }
 
   .page {
-    padding: 16px 12px 28px;
+    padding: var(--space-md) max(var(--page-inline-compact), var(--safe-area-right)) calc(var(--space-lg) + var(--space-2xs)) max(var(--page-inline-compact), var(--safe-area-left));
   }
 
   .app-shell--form .app-content {
@@ -316,15 +325,15 @@ button {
   }
 
   .ticket-form-header {
-    grid-template-columns: 36px minmax(0, 1fr) !important;
+    grid-template-columns: var(--touch-target-min) minmax(0, 1fr) !important;
     gap: 8px;
     margin: -12px -12px 12px !important;
     padding: 10px 12px !important;
   }
 
   .ticket-form-header .icon-button {
-    width: 36px;
-    height: 36px;
+    width: var(--touch-target-min);
+    height: var(--touch-target-min);
   }
 
   .ticket-form-header h1 {
@@ -409,13 +418,13 @@ button {
   }
 
   .field-add-button {
-    min-height: 30px;
-    padding: 0 3px;
+    min-height: var(--touch-target-min);
+    padding: 0 6px;
     font-size: .68rem;
   }
 
   .form-control {
-    min-height: 44px;
+    min-height: var(--control-height-compact);
     padding: 0 11px;
     border-radius: 10px;
     font-size: 16px;
@@ -446,7 +455,9 @@ button {
   }
 
   .searchable-select__clear {
-    right: 3px;
+    right: 1px;
+    width: var(--touch-target-min);
+    height: var(--touch-target-min);
   }
 
   .searchable-select__menu {
@@ -454,7 +465,7 @@ button {
   }
 
   .searchable-select__option {
-    min-height: 42px;
+    min-height: var(--touch-target-min);
     padding: 8px 9px;
     font-size: .82rem;
   }
@@ -474,13 +485,13 @@ button {
   .ticket-form-page input[type='time'] {
     width: 100%;
     min-width: 0;
-    height: 44px;
+    height: var(--control-height-compact);
     line-height: normal;
     text-align: left;
   }
 
   .button {
-    min-height: 44px;
+    min-height: var(--touch-target-min);
     padding: 0 13px;
     gap: 6px;
     font-size: .8rem;
@@ -491,7 +502,7 @@ button {
   }
 
   .ticket-form-actions {
-    bottom: calc(var(--bottom-nav-height) + env(safe-area-inset-bottom) + 5px);
+    bottom: max(5px, var(--safe-area-bottom));
     padding: 8px;
     gap: 7px;
     border-radius: 14px;

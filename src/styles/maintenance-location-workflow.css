@@ -37,14 +37,14 @@
 }
 
 .maintenance-location-picker-modal__header p {
-  color: var(--text-muted);
+  color: var(--muted);
   font-size: .76rem;
   line-height: 1.4;
 }
 
 .maintenance-location-picker-modal__content {
   min-height: 0;
-  padding: 18px 20px calc(22px + env(safe-area-inset-bottom));
+  padding: 18px 20px calc(22px + var(--safe-area-bottom));
   overflow-y: auto;
   display: grid;
   gap: 14px;
@@ -126,7 +126,7 @@
 }
 
 .maintenance-location-work-group__text small {
-  color: var(--text-muted);
+  color: var(--muted);
   font-size: .7rem;
   line-height: 1.4;
 }
@@ -139,8 +139,8 @@
 }
 
 .maintenance-location-work-group__actions .icon-button {
-  width: 39px;
-  height: 39px;
+  width: var(--touch-target-min);
+  height: var(--touch-target-min);
 }
 
 .maintenance-location-work-group__content {
@@ -183,7 +183,7 @@
   padding: 16px;
   border: 1px dashed var(--outline-soft);
   border-radius: 13px;
-  color: var(--text-muted);
+  color: var(--muted);
   display: grid;
   grid-template-columns: 42px minmax(0, 1fr) auto;
   align-items: center;
@@ -212,7 +212,7 @@
 }
 
 .maintenance-location-work-group__empty strong {
-  color: var(--text-main);
+  color: var(--text);
   font-size: .84rem;
 }
 
@@ -261,25 +261,25 @@
 }
 
 .maintenance-quick-device-location-banner strong {
-  color: var(--text-main);
+  color: var(--text);
   font-size: .86rem;
 }
 
 .maintenance-quick-device-location-banner small {
-  color: var(--text-muted);
+  color: var(--muted);
   line-height: 1.35;
 }
 
 @media (max-width: 760px) {
   .maintenance-location-picker-modal__panel {
     width: 100%;
-    max-height: calc(100dvh - max(8px, env(safe-area-inset-top)));
-    border-radius: 22px 22px 0 0;
+    max-height: var(--overlay-mobile-max-height);
+    border-radius: var(--overlay-radius) var(--overlay-radius) 0 0;
   }
 
   .maintenance-location-picker-modal__header {
     padding: 14px;
-    grid-template-columns: 44px minmax(0, 1fr) 40px;
+    grid-template-columns: var(--touch-target-min) minmax(0, 1fr) var(--touch-target-min);
     gap: 10px;
   }
 
@@ -289,7 +289,7 @@
   }
 
   .maintenance-location-picker-modal__content {
-    padding: 15px 14px calc(22px + env(safe-area-inset-bottom));
+    padding: 15px 14px calc(22px + var(--safe-area-bottom));
   }
 
   .maintenance-location-work-group__header {
@@ -346,6 +346,6 @@
   .maintenance-location-work-group__actions {
     padding-left: 0;
     display: grid;
-    grid-template-columns: minmax(0, 1fr) 40px;
+    grid-template-columns: minmax(0, 1fr) var(--touch-target-min);
   }
 }

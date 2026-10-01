@@ -1,6 +1,7 @@
 import React, { useEffect, useRef, useState } from 'react';
 import { useAuth } from '../../AuthContext';
 import Icon from '../common/Icon';
+import useOverlaySurface from '../../hooks/useOverlaySurface';
 import {
   requestTicketProtectedSource,
   ticketMediaPreviewSource,
@@ -38,6 +39,8 @@ export default function ImageViewer({
   const activeItem = items[activeIndex] || {};
   const canGoPrevious = activeIndex > 0;
   const canGoNext = activeIndex < items.length - 1;
+
+  useOverlaySurface({ open: Boolean(open && items.length), onClose });
 
   function resetZoom() {
     dragRef.current = null;
@@ -141,13 +144,10 @@ export default function ImageViewer({
     setActiveIndex(Math.min(Math.max(0, initialIndex), items.length - 1));
     loadAt(Math.min(Math.max(0, initialIndex), items.length - 1));
 
-    const previousOverflow = document.body.style.overflow;
-    document.body.style.overflow = 'hidden';
     window.setTimeout(() => closeRef.current?.focus(), 0);
 
     return () => {
       requestVersionRef.current += 1;
-      document.body.style.overflow = previousOverflow;
     };
     // La carga se reinicia solo al abrir otra selección.
     // eslint-disable-next-line react-hooks/exhaustive-deps
@@ -169,8 +169,7 @@ export default function ImageViewer({
     });
 
     function handleKey(event) {
-      if (event.key === 'Escape') onClose?.();
-      else if (event.key === 'ArrowLeft' && canGoPrevious) loadAt(activeIndex - 1);
+      if (event.key === 'ArrowLeft' && canGoPrevious) loadAt(activeIndex - 1);
       else if (event.key === 'ArrowRight' && canGoNext) loadAt(activeIndex + 1);
       else if (event.key === '+' || event.key === '=') zoomBy(ZOOM_STEP);
       else if (event.key === '-') zoomBy(-ZOOM_STEP);

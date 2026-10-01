@@ -62,8 +62,9 @@ test('Etapa 3: el contenido largo de Knowledge se hidrata después del resultado
 
 test('Etapa 3: el frontend conserva página 30, orden por actualización y conteo de adjuntos', () => {
   assert.match(knowledgeListPageSource, /const PAGE_SIZE = 30/);
-  assert.match(knowledgeListPageSource, /search: search\.trim\(\)/);
+  assert.match(knowledgeListPageSource, /search: submittedSearch/);
   assert.match(knowledgeListPageSource, /categoriaId: categoryId/);
+  assert.match(knowledgeListPageSource, /resetKey: `\$\{sessionToken\}\|\$\{categoryId\}\|\$\{mineOnly \? 'mine' : 'all'\}\|\$\{submittedSearch\}`/);
   assert.match(knowledgeListPageSource, /autorUsuarioId: mineOnly/);
   assert.match(knowledgeListPageSource, /includeDrafts: canManageAll \|\| mineOnly/);
   assert.match(knowledgeListPageSource, /sortBy: 'FechaActualizacion'/);

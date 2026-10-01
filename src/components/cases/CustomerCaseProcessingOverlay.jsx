@@ -1,5 +1,6 @@
 import React, { useEffect, useMemo, useState } from 'react';
 import Icon from '../common/Icon';
+import useOverlaySurface from '../../hooks/useOverlaySurface';
 
 const DEFAULT_STEPS = Object.freeze([
   'Validando la información',
@@ -20,6 +21,8 @@ export default function CustomerCaseProcessingOverlay({
     [steps],
   );
   const [step, setStep] = useState(0);
+
+  useOverlaySurface({ open, closeOnEscape: false, restoreFocus: false });
 
   useEffect(() => {
     if (!open) {

@@ -1,6 +1,6 @@
 import { uploadLargeKnowledgeAttachment } from '../../services/largeEvidenceUpload';
 import React, { useEffect, useMemo, useRef, useState } from 'react';
-import { Navigate, useNavigate, useParams } from 'react-router-dom';
+import { Navigate, useLocation, useNavigate, useParams } from 'react-router-dom';
 import { useAuth } from '../../AuthContext';
 import Icon from '../../components/common/Icon';
 import KnowledgeCategoryMultiSelect from '../../components/knowledge/KnowledgeCategoryMultiSelect';
@@ -83,6 +83,13 @@ function restoreInlineImages(html, images = []) {
 export default function KnowledgeEditorPage({ mode }) {
   const { tutorialId } = useParams();
   const navigate = useNavigate();
+  const routeLocation = useLocation();
+  const requestedListReturnTo = String(routeLocation.state?.knowledgeListReturnTo || '');
+  const knowledgeListReturnTo = /^\/conocimiento(?:\?|$)/.test(requestedListReturnTo) ? requestedListReturnTo : '/conocimiento';
+  const knowledgeListScrollY = Number(routeLocation.state?.knowledgeListScrollY || 0);
+  const knowledgeListReturnState = Number.isFinite(knowledgeListScrollY) && knowledgeListScrollY > 0
+    ? { restoreScrollY: knowledgeListScrollY }
+    : undefined;
   const { sessionToken, user, hasPermission } = useAuth();
   const canCreate = canCreateTutorial(hasPermission);
   const isEdit = mode === 'edit';
@@ -367,7 +374,7 @@ export default function KnowledgeEditorPage({ mode }) {
         await requestAvailable(MODULE_ROUTES.knowledge.update, { ...payload, tutorialId: savedId, TutorialID: savedId, estado: forcedStatus, Estado: forcedStatus, pendingDocumentsCount: 0 }, sessionToken);
       }
       try { localStorage.removeItem(draftKey); } catch { /* El guardado del servidor ya terminó. */ }
-      navigate(`/conocimiento/${encodeURIComponent(savedId)}`, { replace: true });
+      navigate(`/conocimiento/${encodeURIComponent(savedId)}`, { replace: true, state: routeLocation.state || undefined });
     } catch (err) {
       setError(err?.name === 'AbortError' ? 'Carga cancelada. La sesión resumible se conservó y continuará desde el último bloque confirmado al guardar nuevamente.' : err.message);
     } finally {
@@ -381,21 +388,21 @@ export default function KnowledgeEditorPage({ mode }) {
     uploadControllerRef.current?.abort();
   }
 
-  if (!isEdit && !canCreate) return <Navigate to="/conocimiento" replace />;
-  if (loading) return <div className="page page--narrow"><div className="state-card state-card--loading"><Icon name="progress_activity" /> Cargando documento...</div></div>;
-  if (loadError) return <div className="page page--narrow"><div className="alert alert--error"><Icon name="error" /><span>{loadError}</span></div><button className="button button--secondary" type="button" onClick={() => navigate('/conocimiento')}><Icon name="arrow_back" /> Volver</button></div>;
+  if (!isEdit && !canCreate) return <Navigate to={knowledgeListReturnTo} replace state={knowledgeListReturnState} />;
+  if (loading) return <div className="page page--narrow knowledge-editor-page"><div className="state-card state-card--loading"><Icon name="progress_activity" /> Cargando documento...</div></div>;
+  if (loadError) return <div className="page page--narrow knowledge-editor-page"><div className="alert alert--error"><Icon name="error" /><span>{loadError}</span></div><button className="button button--secondary" type="button" onClick={() => navigate(knowledgeListReturnTo, { state: knowledgeListReturnState })}><Icon name="arrow_back" /> Volver</button></div>;
 
   const aiDisabled = saving || Boolean(aiBusy);
 
   return <div className="page knowledge-editor-page">
     <div className="page-header knowledge-editor-header">
-      <button className="icon-button" type="button" onClick={() => navigate(isEdit ? `/conocimiento/${tutorialId}` : '/conocimiento')} aria-label="Volver"><Icon name="arrow_back" /></button>
+      <button className="icon-button" type="button" onClick={() => navigate(isEdit ? `/conocimiento/${tutorialId}` : knowledgeListReturnTo, isEdit ? (routeLocation.state ? { state: routeLocation.state } : undefined) : { state: knowledgeListReturnState })} aria-label="Volver"><Icon name="arrow_back" /></button>
       <div><span className="eyebrow">Base de conocimientos</span><h1>{isEdit ? 'Editar guía' : 'Nueva guía'}</h1></div>
       <span className={`autosave-indicator${savedLocally ? ' autosave-indicator--local' : ''}`}><Icon name={savedLocally ? 'cloud_done' : 'cloud'} /> {savedLocally ? 'Borrador guardado' : 'Autoguardado local'}</span>
     </div>
 
-    {error && <div className="alert alert--error"><Icon name="error" /><span>{error}</span></div>}
-    {aiNotice && <div className="alert alert--success"><Icon name="auto_awesome" /><span>{aiNotice}</span></div>}
+    {error && <div className="alert alert--error" role="alert"><Icon name="error" /><span>{error}</span></div>}
+    {aiNotice && <div className="alert alert--success" role="status"><Icon name="auto_awesome" /><span>{aiNotice}</span></div>}
 
     <form onSubmit={(event) => save(event, form.status)}>
       <section className="form-card knowledge-basics-card">

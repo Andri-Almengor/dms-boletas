@@ -87,7 +87,7 @@
 @media (max-width: 760px) {
   .signature-pad.is-expanded {
     inset: 0 !important;
-    width: 100vw !important;
+    width: 100% !important;
     height: 100dvh !important;
     border: 0 !important;
     border-radius: 0;

@@ -124,13 +124,14 @@ test('sync offline y detalle conservan relaciones estructuradas', () => {
   const draft = source('src/hooks/useMaintenanceDeviceDraft.js');
   const formData = source('src/pages/maintenance/maintenanceFormData.js');
   const inventory = source('src/components/maintenance/MaintenanceLocationInventory.jsx');
+  const projectDetail = source('src/components/maintenance/MaintenanceProjectDeviceDetail.jsx');
   const detail = source('src/pages/maintenance/MaintenanceDetailPage.jsx');
 
   assert.match(state, /cloneAnswerValue/);
   assert.match(draft, /cloneDraftValue/);
   assert.match(formData, /maintenanceType: normalizedType/);
   assert.match(formData, /normalizedType === 'PROYECTO'/);
-  assert.match(inventory, /ProjectDeviceAnswers/);
+  assert.match(projectDetail, /ProjectDeviceAnswers/);
   assert.match(inventory, /JSON\.stringify\(parseAnswers\(device\)\)/);
   assert.match(detail, /projectMode=\{projectMode\}/);
   assert.match(detail, /evidenceEnabled/);

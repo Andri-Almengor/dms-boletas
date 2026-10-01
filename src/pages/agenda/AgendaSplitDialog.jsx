@@ -1,6 +1,7 @@
 import React, { useMemo, useState } from 'react';
 import { apiRequest } from '../../api';
 import Icon from '../../components/common/Icon';
+import useOverlaySurface from '../../hooks/useOverlaySurface';
 
 function clean(value) {
   return String(value ?? '').trim();
@@ -26,6 +27,7 @@ export default function AgendaSplitDialog({ item, sessionToken, onClose, onSaved
   const [rows, setRows] = useState(() => initialRows(item));
   const [busy, setBusy] = useState(false);
   const [message, setMessage] = useState('');
+  useOverlaySurface({ open: true, onClose, busy, closeOnEscape: false });
   const canSplit = rows.length >= 2;
   const dateLabel = useMemo(() => clean(item?.Fecha), [item]);
 

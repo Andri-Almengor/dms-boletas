@@ -117,6 +117,7 @@ test('Proyecto reutiliza uploader editor y galería sin Antes/Después', () => {
   const editor = source('src/components/maintenance/MaintenanceEvidenceEditor.jsx');
   const deviceEditor = source('src/components/maintenance/MaintenanceDeviceEditor.jsx');
   const inventory = source('src/components/maintenance/MaintenanceLocationInventory.jsx');
+  const projectDetail = source('src/components/maintenance/MaintenanceProjectDeviceDetail.jsx');
   const detail = source('src/pages/maintenance/MaintenanceDetailPage.jsx');
 
   assert.match(uploader, /projectMode \? 'Proyecto' : 'Antes'/);
@@ -135,8 +136,8 @@ test('Proyecto reutiliza uploader editor y galería sin Antes/Después', () => {
 
   assert.match(inventory, /sortedEvidence/);
   assert.match(inventory, /evidenceTimestamp\(right\) - evidenceTimestamp\(left\)/);
-  assert.match(inventory, /galleryImages=\{images\}/);
-  assert.match(inventory, /projectEvidenceLabel/);
+  assert.match(projectDetail, /galleryImages=\{images\}/);
+  assert.match(projectDetail, /projectEvidenceLabel/);
   assert.match(detail, /projectMode=\{projectMode\}/);
   assert.match(detail, /evidenceEnabled/);
 });

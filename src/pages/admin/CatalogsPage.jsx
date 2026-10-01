@@ -1,5 +1,5 @@
 import React, { useCallback, useEffect, useMemo, useState } from 'react';
-import { Navigate } from 'react-router-dom';
+import { Navigate, useSearchParams } from 'react-router-dom';
 import { useAuth } from '../../AuthContext';
 import Icon from '../../components/common/Icon';
 import AdminEntityModal from '../../components/forms/AdminEntityModal';
@@ -112,13 +112,17 @@ function CatalogFields({ tab, values, setEditor, data }) {
 
 export default function CatalogsPage() {
   const { sessionToken, hasPermission } = useAuth();
+  const [searchParams, setSearchParams] = useSearchParams();
+  const requestedTab = String(searchParams.get('tab') || '');
+  const initialTab = TABS.some(([key]) => key === requestedTab) ? requestedTab : 'categories';
+  const requestedSearch = searchParams.get('q') || '';
   const isAdmin = hasPermission('USUARIOS_GESTIONAR');
   const canView = hasPermission('CATALOGOS_VER') || hasPermission('CATALOGOS_GESTIONAR') || isAdmin;
   const canManage = hasPermission('CATALOGOS_GESTIONAR') || isAdmin;
-  const [tab, setTab] = useState('categories');
+  const [tab, setTab] = useState(initialTab);
   const [data, setData] = useState(EMPTY_DATA);
   const [loaded, setLoaded] = useState({});
-  const [search, setSearch] = useState('');
+  const [search, setSearch] = useState(requestedSearch);
   const [selected, setSelected] = useState(null);
   const [editor, setEditor] = useState(null);
   const [loading, setLoading] = useState(true);
@@ -175,6 +179,19 @@ export default function CatalogsPage() {
     setEditor(null);
     setModalError('');
     setSearch('');
+    const next = new URLSearchParams(searchParams);
+    next.set('tab', nextTab);
+    next.delete('q');
+    setSearchParams(next, { replace: true });
+  }
+
+  function changeSearch(nextSearch) {
+    setSearch(nextSearch);
+    const next = new URLSearchParams(searchParams);
+    next.set('tab', tab);
+    if (nextSearch) next.set('q', nextSearch);
+    else next.delete('q');
+    setSearchParams(next, { replace: true });
   }
 
   function openCreate() {
@@ -276,12 +293,12 @@ export default function CatalogsPage() {
   const selectedActive = selected ? toBoolean(pick(selected, ['Activo', 'activo'], true), true) : true;
   const tabLabel = TABS.find(([key]) => key === tab)?.[1] || 'Catálogo';
 
-  return <div className="page catalog-page">
+  return <div className="page page--wide catalog-page">
     <div className="list-page-heading"><div><span className="eyebrow">Administración</span><h1>Catálogos</h1><p>Valores operativos utilizados por boletas y mantenimientos.</p></div>{canManage && <button className="button button--primary button--compact" type="button" onClick={openCreate}><Icon name="add" />Nuevo</button>}</div>
     <div className="catalog-tabs" role="tablist" aria-label="Tipos de catálogo">{TABS.map(([key, label, icon]) => <button key={key} className={tab === key ? 'is-active' : ''} type="button" role="tab" aria-selected={tab === key} onClick={() => switchTab(key)}><Icon name={icon} /><span>{label}</span></button>)}</div>
     {!canManage && <div className="readonly-notice"><Icon name="visibility" /><span>Modo consulta: puede revisar los catálogos, pero no modificarlos.</span></div>}
-    <label className="search-bar"><Icon name="search" /><input value={search} onChange={(event) => setSearch(event.target.value)} placeholder={`Buscar en ${tabLabel.toLowerCase()}...`} /><button className="icon-button" type="button" onClick={() => loadKeys([tab], { force: true })} aria-label="Actualizar"><Icon name="refresh" /></button></label>
-    {error && <div className="alert alert--error"><Icon name="error" /><span>{error}</span></div>}
+    <label className="search-bar admin-search-bar"><Icon name="search" /><input type="search" value={search} onChange={(event) => changeSearch(event.target.value)} placeholder={`Buscar en ${tabLabel.toLowerCase()}...`} aria-label={`Buscar en ${tabLabel.toLowerCase()}`} enterKeyHint="search" autoComplete="off" /><button className="icon-button" type="button" onClick={() => loadKeys([tab], { force: true })} aria-label={`Actualizar ${tabLabel.toLowerCase()}`}><Icon name="refresh" /></button></label>
+    {error && <div className="alert alert--error" role="alert"><Icon name="error" /><span>{error}</span></div>}
     {loading && !loaded[tab] ? <div className="state-card state-card--loading"><Icon name="progress_activity" />Cargando {tabLabel.toLowerCase()}...</div> : <div className="admin-mini-card-grid">
       {visibleItems.map((record, index) => {
         const active = toBoolean(pick(record, ['Activo', 'activo'], true), true);
@@ -291,7 +308,7 @@ export default function CatalogsPage() {
     </div>}
 
     <AdminEntityModal open={Boolean(selected)} title={editor ? (editor.mode === 'edit' ? `Editar ${tabLabel}` : `Nuevo: ${tabLabel}`) : (selected && Object.keys(selected).length ? activeConfig.title(selected) : `Nuevo: ${tabLabel}`)} subtitle={editor ? 'Complete la información del registro.' : (selected && Object.keys(selected).length ? activeConfig.description(selected) : 'Complete la información del registro.')} eyebrow={editor ? 'Edición de catálogo' : 'Detalle de catálogo'} icon={activeConfig.icon} onClose={closeModal} busy={saving} footer={!editor && selected && Object.keys(selected).length && canManage ? <><button className="button button--danger" type="button" onClick={remove} disabled={saving}><Icon name="delete" />Eliminar</button><button className="button button--secondary" type="button" onClick={toggle} disabled={saving}><Icon name={selectedActive ? 'block' : 'refresh'} />{selectedActive ? 'Desactivar' : 'Reactivar'}</button><button className="button button--primary" type="button" onClick={openEdit} disabled={saving}><Icon name="edit" />Editar</button></> : null}>
-      {modalError && <div className="alert alert--error"><Icon name="error" /><span>{modalError}</span></div>}
+      {modalError && <div className="alert alert--error" role="alert"><Icon name="error" /><span>{modalError}</span></div>}
       {editor ? <form className="stack-form" onSubmit={submit}><CatalogFields tab={tab} values={editor.values} setEditor={setEditor} data={data} /><div className="form-actions"><button className="button button--secondary" type="button" onClick={() => editor.mode === 'create' ? closeModal() : setEditor(null)} disabled={saving}>Cancelar</button><button className="button button--primary" disabled={saving}>{saving ? 'Guardando...' : 'Guardar'}</button></div></form> : selected && Object.keys(selected).length ? <div className="admin-detail-grid"><div><span>Estado</span><strong>{selectedActive ? 'ACTIVO' : 'INACTIVO'}</strong></div><div><span>Tipo de catálogo</span><strong>{tabLabel}</strong></div><div className="is-wide"><span>Descripción</span><strong>{activeConfig.description(selected)}</strong></div>{tab === 'models' && <><div><span>Tipo de dispositivo</span><strong>{lookup(deviceTypesById, pick(selected, ['TipoDispositivoID']))}</strong></div><div><span>Fabricante</span><strong>{lookup(manufacturersById, pick(selected, ['FabricanteID']))}</strong></div></>}</div> : null}
     </AdminEntityModal>
   </div>;

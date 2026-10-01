@@ -22,10 +22,13 @@ body,
   max-width: 100%;
 }
 
-.knowledge-page,
+.knowledge-page {
+  width: min(100%, var(--page-wide-max-width));
+}
+
 .knowledge-detail-page,
 .knowledge-editor-page {
-  width: 100%;
+  width: min(100%, 1120px);
 }
 
 .knowledge-search {

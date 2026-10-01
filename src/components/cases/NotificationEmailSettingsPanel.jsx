@@ -1,5 +1,6 @@
 import React, { useEffect, useMemo, useState } from 'react';
 import Icon from '../common/Icon';
+import useOverlaySurface from '../../hooks/useOverlaySurface';
 import {
   emailListText,
   getNotificationEmailSettings,
@@ -155,19 +156,7 @@ export default function NotificationEmailSettingsPanel({ open, onClose, sessionT
     };
   }, [open, sessionToken]);
 
-  useEffect(() => {
-    if (!open) return undefined;
-    const previousOverflow = document.body.style.overflow;
-    document.body.style.overflow = 'hidden';
-    const escape = (event) => {
-      if (event.key === 'Escape' && !saving) onClose?.();
-    };
-    window.addEventListener('keydown', escape);
-    return () => {
-      document.body.style.overflow = previousOverflow;
-      window.removeEventListener('keydown', escape);
-    };
-  }, [open, saving, onClose]);
+  useOverlaySurface({ open, onClose, busy: saving });
 
   if (!open) return null;
 

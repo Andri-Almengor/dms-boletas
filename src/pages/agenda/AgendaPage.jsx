@@ -30,6 +30,7 @@ import AgendaClientAssignment from './AgendaClientAssignment';
 import AgendaDayDialog from './AgendaDayDialog';
 import AgendaResendActions from './AgendaResendActions';
 import AgendaSplitDialog from './AgendaSplitDialog';
+import useOverlaySurface from '../../hooks/useOverlaySurface';
 import '../../styles/agenda.css';
 import '../../styles/agenda-split.css';
 
@@ -87,6 +88,7 @@ function AgendaCard({ item, onOpen, compact = false }) {
 }
 
 function AgendaDetail({ item, isAdmin, onClose, onEdit, onSplit, onSaved }) {
+  useOverlaySurface({ open: Boolean(item), onClose, closeOnEscape: false });
   if (!item) return null;
   const meta = statusMeta(item.status);
   const canSplit = isAdmin && item.Estado !== 'CANCELADA' && (item.asignados || []).length > 1;
@@ -161,7 +163,7 @@ function UserSelector({ users, selected, onChange }) {
 
   return <div className="agenda-user-selector">
     <div className="agenda-user-selector__tools">
-      <label className="agenda-search-field"><Icon name="search" /><input value={search} onChange={(event) => setSearch(event.target.value)} placeholder="Buscar persona" /></label>
+      <label className="agenda-search-field"><Icon name="search" /><input type="search" value={search} onChange={(event) => setSearch(event.target.value)} placeholder="Buscar persona" aria-label="Buscar persona para asignar" enterKeyHint="search" autoComplete="off" /></label>
       <button type="button" className="button button--secondary button--compact" onClick={() => onChange(allSelected ? [] : users.map((user) => String(user.UsuarioID)))}>{allSelected ? 'Quitar todos' : 'Seleccionar todos'}</button>
     </div>
     <div className="agenda-user-grid">
@@ -191,6 +193,7 @@ function AgendaEditor({ users, editItem, onClose, onSaved, sessionToken, ticketE
   const [queueEditIndex, setQueueEditIndex] = useState(-1);
   const [busy, setBusy] = useState(false);
   const [message, setMessage] = useState('');
+  useOverlaySurface({ open: true, onClose, busy, closeOnEscape: false });
   const requiresTicket = agendaRequiresTicket(draft.detalle, ticketExceptions);
 
   function updateField(field, value) {
@@ -313,6 +316,7 @@ export default function AgendaPage() {
   const requestedAgendaId = searchParams.get('agendaId') || '';
   const requestedDay = searchParams.get('day') || '';
   const requestedMonth = searchParams.get('month') || '';
+  const requestedSearch = searchParams.get('q') || '';
   const [month, setMonth] = useState(() => /^\d{4}-\d{2}$/.test(requestedMonth) ? requestedMonth : monthKey());
   const [items, setItems] = useState([]);
   const [users, setUsers] = useState([]);
@@ -320,7 +324,7 @@ export default function AgendaPage() {
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState('');
   const [notice, setNotice] = useState('');
-  const [search, setSearch] = useState('');
+  const [search, setSearch] = useState(requestedSearch);
   const [selected, setSelected] = useState(null);
   const [editor, setEditor] = useState(null);
   const [splitItem, setSplitItem] = useState(null);
@@ -328,6 +332,14 @@ export default function AgendaPage() {
   const days = useMemo(() => calendarDays(month), [month]);
   const range = useMemo(() => calendarMonthRange(month), [month]);
   const agendaPayload = useMemo(() => ({ from: range.from, to: range.to }), [range.from, range.to]);
+
+  useEffect(() => {
+    if (/^\d{4}-\d{2}$/.test(requestedMonth)) setMonth(requestedMonth);
+  }, [requestedMonth]);
+
+  useEffect(() => {
+    setSearch(requestedSearch);
+  }, [requestedSearch]);
 
   const load = useCallback(async ({ silent = false } = {}) => {
     if (!agendaPayload.from || !agendaPayload.to) return;
@@ -431,6 +443,26 @@ export default function AgendaPage() {
   const dayDialogItems = useMemo(() => requestedDay ? (allGrouped.get(requestedDay) || []) : [], [allGrouped, requestedDay]);
   const visibleMobileDates = useMemo(() => sortAgendaDatesNewestFirst(grouped.keys()), [grouped]);
 
+  function updateAgendaViewQuery({ nextMonth = month, nextSearch = search } = {}) {
+    const next = new URLSearchParams(searchParams);
+    if (/^\d{4}-\d{2}$/.test(nextMonth)) next.set('month', nextMonth);
+    else next.delete('month');
+    const query = String(nextSearch || '');
+    if (query) next.set('q', query);
+    else next.delete('q');
+    setSearchParams(next, { replace: true });
+  }
+
+  function changeMonth(nextMonth) {
+    setMonth(nextMonth);
+    updateAgendaViewQuery({ nextMonth });
+  }
+
+  function changeSearch(nextSearch) {
+    setSearch(nextSearch);
+    updateAgendaViewQuery({ nextSearch });
+  }
+
   function openAgenda(item) {
     setSelected(item);
     const next = new URLSearchParams(searchParams);
@@ -495,7 +527,7 @@ export default function AgendaPage() {
   }
 
   function goToday() {
-    setMonth(monthKey(today));
+    changeMonth(monthKey(today));
   }
 
   return <div className="page agenda-page">
@@ -504,17 +536,17 @@ export default function AgendaPage() {
       {isAdmin && <button type="button" className="button button--primary" onClick={() => setEditor({ mode: 'create' })}><Icon name="add_task" /> Nueva agenda</button>}
     </header>
 
-    {notice && <div className="agenda-notice"><Icon name="info" /><span>{notice}</span><button type="button" className="icon-button" onClick={() => setNotice('')} aria-label="Cerrar"><Icon name="close" /></button></div>}
-    {error && <div className="state-card state-card--error"><Icon name="error" /><span>{error}</span><button type="button" className="button button--secondary button--compact" onClick={() => load()}>Reintentar</button></div>}
+    {notice && <div className="agenda-notice" role="status"><Icon name="info" /><span>{notice}</span><button type="button" className="icon-button" onClick={() => setNotice('')} aria-label="Cerrar"><Icon name="close" /></button></div>}
+    {error && <div className="state-card state-card--error" role="alert"><Icon name="error" /><span>{error}</span><button type="button" className="button button--secondary button--compact" onClick={() => load()}>Reintentar</button></div>}
 
     <section className="agenda-toolbar">
       <div className="agenda-month-navigation">
-        <button type="button" className="icon-button" onClick={() => setMonth((current) => shiftMonth(current, -1))} aria-label="Mes anterior"><Icon name="chevron_left" /></button>
+        <button type="button" className="icon-button" onClick={() => changeMonth(shiftMonth(month, -1))} aria-label="Mes anterior"><Icon name="chevron_left" /></button>
         <h2>{monthLabel(month)}</h2>
-        <button type="button" className="icon-button" onClick={() => setMonth((current) => shiftMonth(current, 1))} aria-label="Mes siguiente"><Icon name="chevron_right" /></button>
+        <button type="button" className="icon-button" onClick={() => changeMonth(shiftMonth(month, 1))} aria-label="Mes siguiente"><Icon name="chevron_right" /></button>
         <button type="button" className="button button--secondary button--compact" onClick={goToday}>Hoy</button>
       </div>
-      <label className="agenda-search-field agenda-search-field--main"><Icon name="search" /><input value={search} onChange={(event) => setSearch(event.target.value)} placeholder="Buscar por detalle, cliente o persona" /></label>
+      <label className="agenda-search-field agenda-search-field--main"><Icon name="search" /><input type="search" value={search} onChange={(event) => changeSearch(event.target.value)} placeholder="Buscar por detalle, cliente o persona" aria-label="Buscar en la agenda" enterKeyHint="search" autoComplete="off" /></label>
     </section>
 
     {!loading && <AgendaCalendarSummary items={filtered} month={month} searching={Boolean(search.trim())} />}

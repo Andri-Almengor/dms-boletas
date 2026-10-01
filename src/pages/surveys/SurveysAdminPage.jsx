@@ -1,5 +1,5 @@
 import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react';
-import { Link } from 'react-router-dom';
+import { Link, useLocation, useNavigate, useSearchParams } from 'react-router-dom';
 import { useAuth } from '../../AuthContext';
 import Icon from '../../components/common/Icon';
 import AdminEntityModal from '../../components/forms/AdminEntityModal';
@@ -17,7 +17,13 @@ function formatDate(value) {
 
 export default function SurveysAdminPage() {
   const { sessionToken } = useAuth();
-  const [tab, setTab] = useState('responses');
+  const routeLocation = useLocation();
+  const navigate = useNavigate();
+  const [searchParams, setSearchParams] = useSearchParams();
+  const requestedTab = searchParams.get('tab') === 'questions' ? 'questions' : 'responses';
+  const requestedSearch = searchParams.get('q') || '';
+  const requestedStatus = ['PENDIENTE', 'RESPONDIDA', 'EXPIRADA'].includes(searchParams.get('status') || '') ? searchParams.get('status') : '';
+  const [tab, setTab] = useState(requestedTab);
   const [questions, setQuestions] = useState([]);
   const [questionsLoaded, setQuestionsLoaded] = useState(false);
   const [questionsLoading, setQuestionsLoading] = useState(false);
@@ -25,8 +31,9 @@ export default function SurveysAdminPage() {
   const [selectedQuestion, setSelectedQuestion] = useState(null);
   const [form, setForm] = useState(EMPTY);
   const [editing, setEditing] = useState(false);
-  const [search, setSearch] = useState('');
-  const [status, setStatus] = useState('');
+  const [search, setSearch] = useState(requestedSearch);
+  const [submittedSearch, setSubmittedSearch] = useState(requestedSearch);
+  const [status, setStatus] = useState(requestedStatus);
   const [saving, setSaving] = useState(false);
   const [modalError, setModalError] = useState('');
   const questionsRequestSequence = useRef(0);
@@ -64,12 +71,12 @@ export default function SurveysAdminPage() {
   const fetchResponses = useCallback(({ page, pageSize, signal }) => requestAvailable(MODULE_ROUTES.surveys.responsesList, {
     page,
     pageSize,
-    search: search.trim(),
+    search: submittedSearch,
     status,
     estado: status,
     sortBy: 'FechaCreacion',
     sortDir: 'desc',
-  }, sessionToken, { signal }), [search, sessionToken, status]);
+  }, sessionToken, { signal }), [sessionToken, status, submittedSearch]);
 
   const {
     items: responses,
@@ -86,7 +93,7 @@ export default function SurveysAdminPage() {
     normalizeResponse: normalizeItems,
     getItemKey: (item, index, source) => item.id || `${source}-${index}`,
     enabled: tab === 'responses',
-    resetKey: `${sessionToken}|${status}|${tab}`,
+    resetKey: `${sessionToken}|${status}|${submittedSearch}|${tab}`, 
   });
 
   useEffect(() => {
@@ -109,13 +116,38 @@ export default function SurveysAdminPage() {
   const loading = tab === 'questions' ? questionsLoading : responsesLoading;
   const error = tab === 'questions' ? questionError : responsesError;
 
+  const currentListUrl = `${routeLocation.pathname}${routeLocation.search || ''}`;
+
+  function listReturnState() {
+    return {
+      surveysListReturnTo: currentListUrl,
+      surveysListScrollY: typeof window === 'undefined' ? 0 : Math.max(0, Number(window.scrollY || 0)),
+    };
+  }
+
+  function updateSurveyQuery({ nextTab = tab, nextSearch = submittedSearch, nextStatus = status } = {}) {
+    const next = new URLSearchParams(searchParams);
+    if (nextTab === 'questions') next.set('tab', 'questions');
+    else next.delete('tab');
+    if (nextSearch) next.set('q', nextSearch);
+    else next.delete('q');
+    if (nextStatus) next.set('status', nextStatus);
+    else next.delete('status');
+    setSearchParams(next, { replace: true });
+  }
+
+  function changeTab(nextTab) {
+    setTab(nextTab);
+    updateSurveyQuery({ nextTab });
+  }
+
   function openCreate() {
     const maxOrder = questions.reduce((max, question) => Math.max(max, Number(question.order || 0)), 0);
     setSelectedQuestion({});
     setForm({ ...EMPTY, order: maxOrder + 1 });
     setEditing(true);
     setModalError('');
-    setTab('questions');
+    changeTab('questions');
   }
 
   function openQuestion(question) {
@@ -182,25 +214,39 @@ export default function SurveysAdminPage() {
 
   function submitResponseSearch(event) {
     event.preventDefault();
-    loadResponses();
+    const nextSearch = search.trim();
+    updateSurveyQuery({ nextSearch });
+    if (nextSearch === submittedSearch) loadResponses();
+    else setSubmittedSearch(nextSearch);
   }
 
   function changeResponseStatus(nextStatus) {
     setStatus(nextStatus);
+    updateSurveyQuery({ nextStatus });
   }
 
-  return <div className="page survey-admin-page">
+  useEffect(() => {
+    const restoreScrollY = Number(routeLocation.state?.restoreScrollY);
+    if (loading || !Number.isFinite(restoreScrollY) || restoreScrollY <= 0) return undefined;
+    const frame = window.requestAnimationFrame(() => {
+      window.scrollTo({ top: restoreScrollY, behavior: 'auto' });
+      navigate(currentListUrl, { replace: true, state: null });
+    });
+    return () => window.cancelAnimationFrame(frame);
+  }, [currentListUrl, loading, navigate, routeLocation.state?.restoreScrollY]);
+
+  return <div className="page page--wide survey-admin-page">
     <div className="list-page-heading">
       <div><span className="eyebrow">Experiencia del cliente</span><h1>Encuestas de servicio</h1><p>Administra las preguntas y revisa las respuestas relacionadas con cada boleta.</p></div>
       {tab === 'questions' && <button className="button button--primary button--compact" type="button" onClick={openCreate}><Icon name="add" />Nueva pregunta</button>}
     </div>
 
     <div className="survey-admin-tabs" role="tablist">
-      <button type="button" className={tab === 'responses' ? 'is-active' : ''} onClick={() => setTab('responses')}><Icon name="analytics" />Respuestas</button>
-      <button type="button" className={tab === 'questions' ? 'is-active' : ''} onClick={() => setTab('questions')}><Icon name="quiz" />Preguntas</button>
+      <button type="button" className={tab === 'responses' ? 'is-active' : ''} onClick={() => changeTab('responses')}><Icon name="analytics" />Respuestas</button>
+      <button type="button" className={tab === 'questions' ? 'is-active' : ''} onClick={() => changeTab('questions')}><Icon name="quiz" />Preguntas</button>
     </div>
 
-    {error && <div className="alert alert--error"><Icon name="error" /><span>{error}</span></div>}
+    {error && <div className="alert alert--error" role="alert"><Icon name="error" /><span>{error}</span></div>}
     {loading ? <div className="state-card state-card--loading"><Icon name="progress_activity" />Cargando encuestas...</div> : tab === 'questions' ? (
       <div className="admin-mini-card-grid admin-mini-card-grid--questions">
         {sortedQuestions.map((question) => <article className={`admin-mini-card admin-mini-card--question${question.status === 'INACTIVO' ? ' is-inactive' : ''}`} key={question.id}>
@@ -212,12 +258,12 @@ export default function SurveysAdminPage() {
       </div>
     ) : <>
       <form className="survey-response-filters" onSubmit={submitResponseSearch}>
-        <div className="knowledge-search"><Icon name="search" /><input value={search} onChange={(event) => setSearch(event.target.value)} placeholder="Buscar cliente, boleta o título..." /><button className="icon-button" aria-label="Buscar"><Icon name="search" /></button></div>
+        <div className="search-bar survey-response-search"><Icon name="search" /><input type="search" value={search} onChange={(event) => setSearch(event.target.value)} placeholder="Buscar cliente, boleta o título..." aria-label="Buscar encuestas" enterKeyHint="search" autoComplete="off" /><button className="icon-button icon-button--primary" type="submit" aria-label="Buscar"><Icon name="arrow_forward" /></button></div>
         <select className="form-control" value={status} onChange={(event) => changeResponseStatus(event.target.value)}><option value="">Todos los estados</option><option value="PENDIENTE">Pendientes</option><option value="RESPONDIDA">Respondidas</option><option value="EXPIRADA">Expiradas</option></select>
       </form>
       <div className="ticket-list-result-count"><span>Mostrando <strong>{visibleResponses.length}</strong>{total > visibleResponses.length ? ` de ${total}` : ''} encuestas</span></div>
       <div className="survey-response-grid">
-        {visibleResponses.length ? visibleResponses.map((item) => <Link className="survey-response-card" to={`/encuestas/${encodeURIComponent(item.id)}`} key={item.id}>
+        {visibleResponses.length ? visibleResponses.map((item) => <Link className="survey-response-card" to={`/encuestas/${encodeURIComponent(item.id)}`} state={listReturnState()} key={item.id}>
           <div className="survey-response-card__top"><span className="survey-response-card__icon"><Icon name="rate_review" /></span><span className={`status-chip ${item.status === 'RESPONDIDA' ? 'status-chip--active' : item.status === 'EXPIRADA' ? 'status-chip--inactive' : 'status-chip--pending'}`}>{item.status}</span></div>
           <span className="eyebrow">Boleta #{item.ticketNumber}</span><h2>{item.clientName}</h2><p>{item.ticketTitle}</p>
           <div className="survey-response-card__score"><strong>{item.average ?? '—'}</strong><span>Promedio / 5</span></div>
@@ -229,7 +275,7 @@ export default function SurveysAdminPage() {
     </>}
 
     <AdminEntityModal open={Boolean(selectedQuestion)} title={form.text || 'Nueva pregunta'} subtitle={form.id ? `Orden ${form.order} · ${form.status}` : 'El cliente calificará esta pregunta del 1 al 5'} eyebrow={editing ? (form.id ? 'Editar pregunta' : 'Nueva pregunta') : 'Detalle de pregunta'} icon="quiz" onClose={closeQuestion} busy={saving} footer={!editing && form.id ? <><button className="button button--secondary" type="button" onClick={changeQuestionStatus} disabled={saving}><Icon name={form.status === 'INACTIVO' ? 'refresh' : 'block'} />{form.status === 'INACTIVO' ? 'Reactivar' : 'Desactivar'}</button><button className="button button--primary" type="button" onClick={() => setEditing(true)} disabled={saving}><Icon name="edit" />Editar</button></> : null}>
-      {modalError && <div className="alert alert--error"><Icon name="error" /><span>{modalError}</span></div>}
+      {modalError && <div className="alert alert--error" role="alert"><Icon name="error" /><span>{modalError}</span></div>}
       {editing ? <form className="stack-form" onSubmit={saveQuestion}>
         <label className="field-group"><span className="field-label">Pregunta *</span><textarea className="form-control ticket-textarea" rows="4" value={form.text} onChange={(event) => setForm({ ...form, text: event.target.value })} required /></label>
         <div className="ticket-form-grid"><label className="field-group"><span className="field-label">Orden</span><input className="form-control" type="number" min="1" value={form.order} onChange={(event) => setForm({ ...form, order: event.target.value })} required /></label><label className="field-group"><span className="field-label">Estado</span><select className="form-control" value={form.status} onChange={(event) => setForm({ ...form, status: event.target.value })}><option>ACTIVO</option><option>INACTIVO</option></select></label></div>

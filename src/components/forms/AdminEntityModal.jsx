@@ -1,5 +1,6 @@
-import React, { useEffect } from 'react';
+import React from 'react';
 import Icon from '../common/Icon';
+import useOverlaySurface from '../../hooks/useOverlaySurface';
 
 export default function AdminEntityModal({
   open,
@@ -13,19 +14,7 @@ export default function AdminEntityModal({
   className = '',
   busy = false,
 }) {
-  useEffect(() => {
-    if (!open) return undefined;
-    const previousOverflow = document.body.style.overflow;
-    document.body.style.overflow = 'hidden';
-    const handleKeyDown = (event) => {
-      if (event.key === 'Escape' && !busy) onClose?.();
-    };
-    window.addEventListener('keydown', handleKeyDown);
-    return () => {
-      document.body.style.overflow = previousOverflow;
-      window.removeEventListener('keydown', handleKeyDown);
-    };
-  }, [open, onClose, busy]);
+  useOverlaySurface({ open, onClose, busy });
 
   if (!open) return null;
 

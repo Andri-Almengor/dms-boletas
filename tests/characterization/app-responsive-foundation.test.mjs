@@ -57,3 +57,99 @@ test('asistente y superficies públicas también respetan safe areas', () => {
   assert.match(surveys, /public-survey-page[\s\S]*var\(--safe-area-top\)[\s\S]*var\(--safe-area-bottom\)/);
   assert.match(cases, /customer-case-public-brand[^}]*var\(--safe-area-top\)[^}]*var\(--safe-area-right\)/s);
 });
+
+
+test('overlays compartidos centralizan Escape bloqueo de scroll y devolución de foco', () => {
+  const hook = source('src/hooks/useOverlaySurface.js');
+  const modal = source('src/components/forms/AdminEntityModal.jsx');
+  const filters = source('src/components/forms/FilterDrawer.jsx');
+  const shell = source('src/components/layout/AppShell.jsx');
+
+  assert.match(hook, /scrollLockDepth/);
+  assert.match(hook, /document\.body\.style\.overflow = 'hidden'/);
+  assert.match(hook, /event\.key !== 'Escape'/);
+  assert.match(hook, /previous\.focus\(\{ preventScroll: true \}\)/);
+
+  assert.match(modal, /useOverlaySurface\(\{ open, onClose, busy \}\)/);
+  assert.match(filters, /useOverlaySurface\(\{ open, onClose \}\)/);
+  assert.match(shell, /useOverlaySurface\(\{ open: drawerOpen/);
+});
+
+test('drawer principal y filtros siguen utilizables en pantallas bajas y teléfonos estrechos', () => {
+  const pages = source('src/styles/pages.css');
+  const workflow = source('src/styles/workflow.css');
+  const tokens = source('src/styles/tokens.css');
+
+  assert.match(tokens, /--page-wide-max-width:\s*1280px/);
+  assert.match(tokens, /--touch-target-min:\s*44px/);
+  assert.match(pages, /\.page--wide\s*\{[^}]*--page-wide-max-width/s);
+  assert.match(pages, /\.side-drawer__nav\s*\{[^}]*overflow-y:\s*auto/s);
+  assert.match(pages, /\.side-drawer__nav\s*\{[^}]*overscroll-behavior:\s*contain/s);
+
+  assert.match(workflow, /@media \(max-width: 760px\)[\s\S]*\.filter-drawer\s*\{[\s\S]*inset:\s*auto 0 0/);
+  assert.match(tokens, /--sheet-max-height:\s*min\(88dvh,/);
+  assert.match(workflow, /height:\s*var\(--sheet-max-height\)/);
+  assert.match(workflow, /border-radius:\s*var\(--overlay-radius\) var\(--overlay-radius\) 0 0/);
+  assert.match(workflow, /@media \(max-width: 390px\)[\s\S]*\.filter-drawer footer[\s\S]*grid-template-columns:\s*1fr/);
+});
+
+
+test('design system responsive centraliza spacing controles overlays y movimiento', () => {
+  const tokens = source('src/styles/tokens.css');
+  const components = source('src/styles/components.css');
+  const pages = source('src/styles/pages.css');
+  const workflow = source('src/styles/workflow.css');
+  const admin = source('src/styles/admin-card-modals.css');
+  const compact = source('src/styles/mobile-compact.css');
+
+  for (const token of [
+    '--space-xs',
+    '--space-sm',
+    '--space-md',
+    '--space-lg',
+    '--space-xl',
+    '--page-inline-mobile',
+    '--page-inline-tablet',
+    '--touch-target-min',
+    '--control-height',
+    '--control-height-compact',
+    '--button-height',
+    '--overlay-mobile-max-height',
+    '--sheet-max-height',
+    '--overlay-backdrop',
+    '--motion-fast',
+  ]) {
+    assert.ok(tokens.includes(token), `Falta el token compartido ${token}`);
+  }
+
+  assert.match(components, /\.icon-button \{[^}]*var\(--touch-target-min\)/s);
+  assert.match(components, /\.button \{[^}]*var\(--button-height\)/s);
+  assert.match(components, /\.button--compact \{[^}]*var\(--control-height-compact\)/s);
+  assert.match(components, /\.form-control \{[^}]*var\(--control-height\)/s);
+  assert.match(components, /@media \(hover: hover\) and \(pointer: fine\)/);
+  assert.match(components, /@media \(prefers-reduced-motion: reduce\)/);
+
+  assert.match(pages, /max\(var\(--page-inline-mobile\), var\(--safe-area-right\)\)/);
+  assert.match(pages, /max\(var\(--page-inline-tablet\), var\(--safe-area-right\)\)/);
+  assert.match(workflow, /height:\s*var\(--sheet-max-height\)/);
+  assert.match(workflow, /max-height:\s*var\(--overlay-mobile-max-height\)/);
+  assert.match(admin, /background:\s*var\(--overlay-backdrop\)/);
+  assert.match(admin, /max-height:\s*var\(--overlay-mobile-max-height\)/);
+  assert.doesNotMatch(admin, /var\(--text-muted\)/);
+  assert.match(compact, /min-height:\s*var\(--control-height-compact\)/);
+});
+
+
+test('compact mode no anula safe areas ni reduce targets táctiles por debajo del sistema', () => {
+  const compact = source('src/styles/mobile-compact.css');
+  const pages = source('src/styles/pages.css');
+  const admin = source('src/styles/admin-card-modals.css');
+  const controls = source('src/styles/mobile-control-fixes.css');
+
+  assert.match(compact, /\.page\s*\{[^}]*max\(var\(--page-inline-compact\), var\(--safe-area-right\)\)[^}]*max\(var\(--page-inline-compact\), var\(--safe-area-left\)\)/s);
+  assert.doesNotMatch(compact, /\.page\s*\{\s*padding:\s*16px 12px 28px/);
+  assert.match(pages, /\.top-bar\s*\{[^}]*grid-template-columns:\s*var\(--touch-target-min\)[^}]*var\(--touch-target-min\)/s);
+  assert.match(pages, /\.page-header\s*\{[^}]*grid-template-columns:\s*var\(--touch-target-min\)/s);
+  assert.match(admin, /\.admin-mini-card__action\s*\{[^}]*width:\s*var\(--touch-target-min\)[^}]*height:\s*var\(--touch-target-min\)/s);
+  assert.match(controls, /\.searchable-select__option\s*\{[^}]*min-height:\s*var\(--touch-target-min\)/s);
+});

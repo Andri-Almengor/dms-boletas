@@ -3,6 +3,7 @@ import { useParams } from 'react-router-dom';
 import { useAuth } from '../../AuthContext';
 import { MODULE_ROUTES, requestAvailable } from '../../services/moduleApi';
 import Icon from '../common/Icon';
+import useOverlaySurface from '../../hooks/useOverlaySurface';
 
 const MAX_SIGNATURE_SOURCE_BYTES = 12 * 1024 * 1024;
 
@@ -126,19 +127,7 @@ export default function SignaturePad({ value, onChange, loadStoredSignature = fa
     return () => window.removeEventListener('dms-draft-restore-signature', restore);
   }, [onChange, value]);
 
-  useEffect(() => {
-    if (!expanded) return undefined;
-    const previousOverflow = document.body.style.overflow;
-    document.body.style.overflow = 'hidden';
-    const closeOnEscape = (event) => {
-      if (event.key === 'Escape') setExpanded(false);
-    };
-    window.addEventListener('keydown', closeOnEscape);
-    return () => {
-      document.body.style.overflow = previousOverflow;
-      window.removeEventListener('keydown', closeOnEscape);
-    };
-  }, [expanded]);
+  useOverlaySurface({ open: expanded, onClose: () => setExpanded(false) });
 
   useEffect(() => {
     const canvas = canvasRef.current;

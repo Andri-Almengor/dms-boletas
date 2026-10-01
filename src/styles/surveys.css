@@ -417,3 +417,41 @@
   .detail-clickable-card,
   .survey-response-card { animation: none; transition: none; }
 }
+
+
+.survey-admin-page {
+  width: min(100%, var(--page-wide-max-width));
+}
+
+.survey-response-search {
+  position: static;
+  top: auto;
+  z-index: auto;
+  margin: 0;
+}
+
+@media (min-width: 1180px) {
+  .survey-response-grid {
+    grid-template-columns: repeat(3, minmax(0, 1fr));
+  }
+}
+
+@media (max-width: 680px) {
+  .survey-response-search {
+    min-height: 52px;
+    padding-right: 4px;
+    padding-left: 11px;
+    grid-template-columns: 22px minmax(0, 1fr) var(--touch-target-min);
+    gap: 6px;
+  }
+
+  .survey-response-search input {
+    height: 48px;
+    font-size: 16px;
+  }
+
+  .survey-response-search .icon-button {
+    width: var(--touch-target-min);
+    height: var(--touch-target-min);
+  }
+}

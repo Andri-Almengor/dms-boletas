@@ -82,3 +82,32 @@
     max-width: 100%;
   }
 }
+
+
+@media (max-width: 880px) {
+  .maintenance-device-toolbar--detail {
+    grid-template-columns: minmax(0, 1fr) 44px;
+    align-items: center;
+  }
+
+  .maintenance-device-toolbar--detail .maintenance-device-search {
+    grid-column: auto;
+  }
+
+  .maintenance-device-toolbar--detail .maintenance-inventory-inline-filter {
+    display: none;
+  }
+
+  .maintenance-inventory-filter-trigger {
+    width: 44px;
+    height: 44px;
+    justify-self: end;
+  }
+}
+
+@media (max-width: 430px) {
+  .maintenance-device-toolbar--detail {
+    padding: 8px;
+    gap: 7px;
+  }
+}

@@ -1,5 +1,5 @@
 import React, { useEffect, useMemo, useRef, useState } from 'react';
-import { Link } from 'react-router-dom';
+import { Link, useLocation, useNavigate } from 'react-router-dom';
 import { useAuth } from '../../AuthContext';
 import Icon from '../../components/common/Icon';
 import FilterDrawer from '../../components/forms/FilterDrawer';
@@ -23,13 +23,47 @@ function options(records, idKeys, labelKeys) { return records.map((record) => ({
 function invalidDateRange(filters) { return Boolean(filters.dateFrom && filters.dateTo && filters.dateFrom > filters.dateTo); }
 function ticketKey(ticket, index, source) { return getTicketId(ticket, `${source}-${index}`); }
 
+const FILTER_QUERY_KEYS = Object.freeze({
+  clienteId: 'cliente',
+  dateFrom: 'desde',
+  dateTo: 'hasta',
+  asignadoUsuarioId: 'tecnico',
+  categoriaId: 'categoria',
+  tipoDispositivoId: 'tipo',
+  fabricanteId: 'fabricante',
+  modeloId: 'modelo',
+});
+
+function readListQuery(searchString = '') {
+  const params = new URLSearchParams(searchString);
+  const filters = { ...EMPTY_FILTERS };
+  Object.entries(FILTER_QUERY_KEYS).forEach(([field, queryKey]) => {
+    filters[field] = String(params.get(queryKey) || '');
+  });
+  return { search: String(params.get('q') || ''), filters };
+}
+
+function buildListQuery(searchValue, filterValues) {
+  const params = new URLSearchParams();
+  const normalizedSearch = String(searchValue || '').trim();
+  if (normalizedSearch) params.set('q', normalizedSearch);
+  Object.entries(FILTER_QUERY_KEYS).forEach(([field, queryKey]) => {
+    const value = String(filterValues?.[field] || '').trim();
+    if (value) params.set(queryKey, value);
+  });
+  return params.toString();
+}
+
 export default function TicketListPage({ status }) {
   const { sessionToken, user, permissions, hasPermission, securityRevision } = useAuth();
+  const routeLocation = useLocation();
+  const navigate = useNavigate();
+  const initialQuery = readListQuery(routeLocation.search);
   const isAdmin = hasPermission('BOLETAS_ELIMINAR') || hasPermission('USUARIOS_GESTIONAR');
-  const [search, setSearch] = useState('');
-  const [filters, setFilters] = useState(EMPTY_FILTERS);
-  const [appliedSearch, setAppliedSearch] = useState('');
-  const [appliedFilters, setAppliedFilters] = useState(EMPTY_FILTERS);
+  const [search, setSearch] = useState(initialQuery.search);
+  const [filters, setFilters] = useState(initialQuery.filters);
+  const [appliedSearch, setAppliedSearch] = useState(initialQuery.search);
+  const [appliedFilters, setAppliedFilters] = useState(initialQuery.filters);
   const [catalogs, setCatalogs] = useState({ clients: [], users: [], categories: [], deviceTypes: [], manufacturers: [], models: [] });
   const [catalogsLoaded, setCatalogsLoaded] = useState(false);
   const [catalogsLoading, setCatalogsLoading] = useState(false);
@@ -151,18 +185,54 @@ export default function TicketListPage({ status }) {
   const manufacturerOptions = useMemo(() => options(catalogs.manufacturers, ['FabricanteID', 'id'], ['Nombre']), [catalogs.manufacturers]);
   const modelOptions = useMemo(() => options(catalogs.models.filter((item) => ((!filters.tipoDispositivoId || String(pick(item, ['TipoDispositivoID'])) === String(filters.tipoDispositivoId)) && (!filters.fabricanteId || String(pick(item, ['FabricanteID'])) === String(filters.fabricanteId)))), ['ModeloID', 'id'], ['Nombre']), [catalogs.models, filters.tipoDispositivoId, filters.fabricanteId]);
   const activeFilterCount = Object.values(filters).filter(Boolean).length;
+  const appliedFilterCount = Object.values(appliedFilters).filter(Boolean).length;
+  const currentListUrl = `${routeLocation.pathname}${routeLocation.search || ''}`;
+
+  function syncListUrl(nextSearch, nextFilters) {
+    const query = buildListQuery(nextSearch, nextFilters);
+    navigate(`${routeLocation.pathname}${query ? `?${query}` : ''}`, { replace: true });
+  }
 
   function setFilter(name, value, reset = {}) { setFilters((current) => ({ ...current, [name]: value, ...reset })); }
   function applyFilters() {
     if (invalidDateRange(filters)) { setError('La fecha inicial no puede ser posterior a la fecha final.'); return; }
-    setFilterOpen(false); setAppliedSearch(search); setAppliedFilters({ ...filters });
+    setFilterOpen(false);
+    setAppliedSearch(search);
+    setAppliedFilters({ ...filters });
+    syncListUrl(search, filters);
   }
-  function clearFilters() { setFilters(EMPTY_FILTERS); setFilterOpen(false); setAppliedSearch(search); setAppliedFilters(EMPTY_FILTERS); }
+  function clearFilters() {
+    setFilters(EMPTY_FILTERS);
+    setFilterOpen(false);
+    setAppliedSearch(search);
+    setAppliedFilters(EMPTY_FILTERS);
+    syncListUrl(search, EMPTY_FILTERS);
+  }
+  function clearAppliedQuery() {
+    setSearch('');
+    setFilters(EMPTY_FILTERS);
+    setAppliedSearch('');
+    setAppliedFilters(EMPTY_FILTERS);
+    setFilterOpen(false);
+    syncListUrl('', EMPTY_FILTERS);
+  }
   function submitSearch(event) {
     event.preventDefault();
     if (invalidDateRange(filters)) { setError('La fecha inicial no puede ser posterior a la fecha final.'); return; }
-    setAppliedSearch(search); setAppliedFilters({ ...filters });
+    setAppliedSearch(search);
+    setAppliedFilters({ ...filters });
+    syncListUrl(search, filters);
   }
+  useEffect(() => {
+    const restoreScrollY = Number(routeLocation.state?.restoreScrollY);
+    if (loading || !Number.isFinite(restoreScrollY) || restoreScrollY <= 0) return undefined;
+    const frame = window.requestAnimationFrame(() => {
+      window.scrollTo({ top: restoreScrollY, behavior: 'auto' });
+      navigate(currentListUrl, { replace: true, state: null });
+    });
+    return () => window.cancelAnimationFrame(frame);
+  }, [currentListUrl, loading, navigate, routeLocation.state?.restoreScrollY]);
+
   async function annulTicket(ticket) {
     if (!isAdmin || !window.confirm(`¿Anular la boleta #${getTicketId(ticket)}?`)) return;
     try {
@@ -184,11 +254,32 @@ export default function TicketListPage({ status }) {
     <Select label="Modelo" value={filters.modeloId} onChange={(event) => setFilter('modeloId', event.target.value)} options={modelOptions} />
   </>;
 
-  return <div className="page ticket-list-page">
+  return <div className="page page--wide ticket-list-page">
     <div className="list-page-heading"><div><span className="eyebrow">Gestión de servicios</span><h1>{isPending ? 'Boletas pendientes' : 'Boletas finalizadas'}</h1><p>{isPending ? 'Servicios que todavía requieren atención o cierre.' : 'Historial de trabajos completados.'}</p></div>{isPending && hasPermission('BOLETAS_CREAR') && <Link className="button button--primary button--compact" to="/boletas/nueva"><Icon name="add" /> Nueva</Link>}</div>
-    <form className="search-bar" onSubmit={submitSearch}><Icon name="search" /><input value={search} onChange={(event) => setSearch(event.target.value)} placeholder="Buscar boleta o cliente..." /><button type="button" className="icon-button icon-button--primary filter-trigger" onClick={() => setFilterOpen(true)} aria-label="Abrir filtros"><Icon name="tune" className="filter-trigger__glyph" />{activeFilterCount > 0 && <span className="filter-trigger__count">{activeFilterCount}</span>}</button></form>
+    <form className="search-bar ticket-list-search-bar" onSubmit={submitSearch} role="search">
+      <Icon name="search" />
+      <input
+        type="search"
+        value={search}
+        onChange={(event) => setSearch(event.target.value)}
+        placeholder="Buscar boleta o cliente..."
+        aria-label="Buscar boleta o cliente"
+        enterKeyHint="search"
+        autoComplete="off"
+      />
+      <button type="submit" className="icon-button ticket-list-search-submit" aria-label="Buscar"><Icon name="arrow_forward" /></button>
+      <button type="button" className="icon-button icon-button--primary filter-trigger" onClick={() => setFilterOpen(true)} aria-label="Abrir filtros" aria-expanded={filterOpen}><Icon name="tune" className="filter-trigger__glyph" />{activeFilterCount > 0 && <span className="filter-trigger__count">{activeFilterCount}</span>}</button>
+    </form>
     {error && <div className="alert alert--error"><Icon name="error" /><span>{error}</span></div>}
-    {loading ? <div className="state-card state-card--loading"><Icon name="progress_activity" /><span>Cargando boletas...</span></div> : tickets.length ? <><div className="ticket-list-result-count"><span>Mostrando <strong>{tickets.length}</strong>{total > tickets.length ? ` de ${total}` : ''} boletas</span></div><div className="ticket-date-groups">{groups.map((group) => <section className="ticket-date-group" key={group.label}><h2>{group.label}</h2><div className="ticket-stack">{group.items.map((ticket, index) => <TicketCard key={getTicketId(ticket, index)} ticket={ticket} onDelete={isAdmin ? annulTicket : undefined} />)}</div></section>)}</div>{hasMore && <div className="ticket-list-load-more"><button type="button" className="button button--secondary" onClick={loadMore} disabled={loadingMore}><Icon name={loadingMore ? 'progress_activity' : 'expand_more'} />{loadingMore ? 'Cargando...' : 'Cargar más boletas'}</button></div>}</> : <div className="empty-state"><Icon name={isPending ? 'pending_actions' : 'task_alt'} /><h2>{isPending ? 'No hay boletas pendientes' : 'No hay boletas finalizadas'}</h2><p>{error ? 'Revisa la conexión con el backend.' : 'Los registros aparecerán aquí automáticamente.'}</p></div>}
+    {!loading && tickets.length > 0 && <div className="ticket-list-result-count" aria-live="polite">
+      <span>Mostrando <strong>{tickets.length}</strong>{total > tickets.length ? ` de ${total}` : ''} boletas</span>
+      <div className="ticket-list-query-state">
+        {appliedSearch && <span><Icon name="search" />Búsqueda activa</span>}
+        {appliedFilterCount > 0 && <button type="button" onClick={() => setFilterOpen(true)}><Icon name="tune" />{appliedFilterCount} filtro{appliedFilterCount === 1 ? '' : 's'}</button>}
+        {(appliedSearch || appliedFilterCount > 0) && <button type="button" className="ticket-list-query-clear" onClick={clearAppliedQuery}><Icon name="close" />Limpiar</button>}
+      </div>
+    </div>}
+    {loading ? <div className="state-card state-card--loading"><Icon name="progress_activity" /><span>Cargando boletas...</span></div> : tickets.length ? <><div className="ticket-date-groups">{groups.map((group) => <section className="ticket-date-group" key={group.label}><h2>{group.label}</h2><div className="ticket-stack">{group.items.map((ticket, index) => <TicketCard key={getTicketId(ticket, index)} ticket={ticket} returnTo={currentListUrl} onDelete={isAdmin ? annulTicket : undefined} />)}</div></section>)}</div>{hasMore && <div className="ticket-list-load-more"><button type="button" className="button button--secondary" onClick={loadMore} disabled={loadingMore}><Icon name={loadingMore ? 'progress_activity' : 'expand_more'} />{loadingMore ? 'Cargando...' : 'Cargar más boletas'}</button></div>}</> : <div className="empty-state"><Icon name={isPending ? 'pending_actions' : 'task_alt'} /><h2>{isPending ? 'No hay boletas pendientes' : 'No hay boletas finalizadas'}</h2><p>{error ? 'Revisa la conexión con el backend.' : 'Los registros aparecerán aquí automáticamente.'}</p></div>}
     <FilterDrawer open={filterOpen} title="Filtros de boletas" onClose={() => setFilterOpen(false)} onApply={applyFilters} onClear={clearFilters}>{filterFields}</FilterDrawer>
   </div>;
 }

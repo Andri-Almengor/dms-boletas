@@ -1,6 +1,7 @@
 import React from 'react';
 import Icon from '../../components/common/Icon';
 import { statusMeta } from '../../features/agenda/agendaDomain';
+import useOverlaySurface from '../../hooks/useOverlaySurface';
 
 function clean(value) {
   return String(value ?? '').trim();
@@ -29,6 +30,7 @@ function formatDateLong(dateKey) {
 }
 
 export default function AgendaDayDialog({ date, items = [], onClose, onOpen }) {
+  useOverlaySurface({ open: Boolean(date), onClose, closeOnEscape: false });
   if (!date) return null;
   const ordered = [...items].sort((left, right) => (
     clean(left.HoraInicio).localeCompare(clean(right.HoraInicio))

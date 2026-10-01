@@ -1,5 +1,5 @@
 import React, { useEffect, useMemo, useState } from 'react';
-import { Link, useParams } from 'react-router-dom';
+import { Link, useLocation, useNavigate, useParams } from 'react-router-dom';
 import { useAuth } from '../../AuthContext';
 import Icon from '../../components/common/Icon';
 import { MODULE_ROUTES, pick, requestAvailable } from '../../services/moduleApi';
@@ -57,6 +57,14 @@ function fallbackTicketView(ticket = {}, survey = {}) {
 
 export default function SurveyDetailPage() {
   const { encuestaId = '' } = useParams();
+  const routeLocation = useLocation();
+  const navigate = useNavigate();
+  const requestedListReturnTo = String(routeLocation.state?.surveysListReturnTo || '');
+  const surveysListReturnTo = /^\/encuestas(?:\?|$)/.test(requestedListReturnTo) ? requestedListReturnTo : '/encuestas';
+  const surveysListScrollY = Number(routeLocation.state?.surveysListScrollY || 0);
+  const surveysListReturnState = Number.isFinite(surveysListScrollY) && surveysListScrollY > 0
+    ? { restoreScrollY: surveysListScrollY }
+    : undefined;
   const { sessionToken } = useAuth();
   const [data, setData] = useState(null);
   const [loading, setLoading] = useState(true);
@@ -90,7 +98,7 @@ export default function SurveyDetailPage() {
   return (
     <div className="page survey-detail-page">
       <div className="page-header">
-        <Link className="icon-button" to="/encuestas" aria-label="Volver"><Icon name="arrow_back" /></Link>
+        <button className="icon-button" type="button" onClick={() => navigate(surveysListReturnTo, { state: surveysListReturnState })} aria-label="Volver"><Icon name="arrow_back" /></button>
         <div>
           <span className="eyebrow">Detalle de encuesta</span>
           <h1>{survey.clientName}</h1>

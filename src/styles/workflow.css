@@ -7,7 +7,7 @@
 .autosave-indicator--error { background: var(--danger-soft); color: var(--danger); }
 @keyframes dms-spin { to { transform: rotate(360deg); } }
 .field-label-row { display:flex; align-items:center; justify-content:space-between; gap:10px; }
-.field-add-button { border:0; background:transparent; color:var(--primary); display:inline-flex; align-items:center; gap:3px; font-size:.72rem; font-weight:800; }
+.field-add-button { min-height:var(--touch-target-min); padding:0 6px; border:0; background:transparent; color:var(--primary); display:inline-flex; align-items:center; justify-content:center; gap:3px; font-size:.72rem; font-weight:800; touch-action:manipulation; }
 .field-add-button .material-symbols-outlined { font-size:17px; }
 .field-hint, .muted-copy { color:var(--muted); font-size:.72rem; line-height:1.45; }
 .select-shell { position:relative; }
@@ -21,7 +21,7 @@
 .technician-select { display:grid; gap:14px; }
 .technician-chips { display:flex; flex-wrap:wrap; gap:8px; min-height:34px; }
 .technician-chip { padding:7px 8px 7px 11px; border-radius:999px; background:var(--primary-soft); color:var(--primary); display:inline-flex; align-items:center; gap:7px; font-size:.76rem; font-weight:750; }
-.technician-chip button { width:24px; height:24px; border:0; border-radius:999px; background:white; color:var(--primary); display:grid; place-items:center; }
+.technician-chip button { width:var(--touch-target-min); height:var(--touch-target-min); margin:-7px -8px -7px 0; border:0; border-radius:999px; background:white; color:var(--primary); display:grid; place-items:center; touch-action:manipulation; }
 .technician-chip .material-symbols-outlined { font-size:15px; }
 .technician-options { max-height:330px; overflow:auto; display:grid; gap:8px; }
 .technician-options label { min-height:62px; padding:9px 12px; border:1px solid var(--outline-soft); border-radius:var(--radius-md); background:white; display:grid; grid-template-columns:0 38px 1fr 24px; align-items:center; gap:10px; }
@@ -43,21 +43,21 @@
 .evidence-file-icon { display:grid; place-items:center; color:var(--primary); }
 .evidence-file-icon .material-symbols-outlined { font-size:48px; }
 .evidence-edit-card__fields { padding:9px; display:grid; gap:7px; }
-.evidence-edit-card__fields .form-control { min-height:42px; padding:8px 10px; font-size:.76rem; }
-.evidence-remove { position:absolute; top:7px; right:7px; width:34px; height:34px; border:0; border-radius:999px; background:rgba(255,255,255,.94); color:var(--danger); display:grid; place-items:center; box-shadow:var(--shadow-sm); }
+.evidence-edit-card__fields .form-control { min-height:var(--touch-target-min); padding:8px 10px; font-size:.76rem; }
+.evidence-remove { position:absolute; top:7px; right:7px; width:var(--touch-target-min); height:var(--touch-target-min); border:0; border-radius:999px; background:rgba(255,255,255,.94); color:var(--danger); display:grid; place-items:center; box-shadow:var(--shadow-sm); touch-action:manipulation; }
 .review-action-grid { display:grid; grid-template-columns:repeat(2,minmax(0,1fr)); gap:9px; }
 .review-action-grid .button:last-child { grid-column:1 / -1; }
 .modal-layer { position:fixed; inset:0; z-index:1400; padding-top:var(--safe-area-top); display:flex; align-items:flex-end; justify-content:center; }
 .filter-drawer-layer { position:fixed; inset:0; z-index:100; display:flex; align-items:flex-end; justify-content:center; }
-.modal-backdrop { position:absolute; inset:0; border:0; background:rgba(27,28,28,.48); }
-.inline-modal { width:min(100%,620px); max-width:100%; max-height:min(92vh,calc(100dvh - var(--safe-area-top) - var(--safe-area-bottom))); overflow:auto; overscroll-behavior:contain; position:relative; z-index:1; padding:20px max(20px,var(--safe-area-right)) calc(20px + var(--safe-area-bottom)) max(20px,var(--safe-area-left)); border-radius:22px 22px 0 0; background:var(--surface); box-shadow:var(--shadow-md); }
+.modal-backdrop { position:absolute; inset:0; border:0; background:var(--overlay-backdrop); }
+.inline-modal { width:min(100%,620px); max-width:100%; max-height:min(92vh,calc(100dvh - var(--safe-area-top) - var(--safe-area-bottom))); overflow:auto; overscroll-behavior:contain; position:relative; z-index:1; padding:20px max(20px,var(--safe-area-right)) calc(20px + var(--safe-area-bottom)) max(20px,var(--safe-area-left)); border-radius:var(--overlay-radius) var(--overlay-radius) 0 0; background:var(--surface); box-shadow:var(--shadow-md); }
 .inline-modal__header { display:flex; align-items:flex-start; justify-content:space-between; gap:12px; margin-bottom:18px; }
 .inline-modal__header h2 { margin:3px 0; }
 .inline-modal__header p { margin:0; color:var(--muted); }
 .inline-modal__actions { display:flex; justify-content:flex-end; gap:9px; }
 .filter-trigger { position:relative; }
 .filter-trigger > span { position:absolute; right:-5px; top:-5px; min-width:19px; height:19px; padding:0 5px; border-radius:999px; background:#fff; color:var(--primary); border:1px solid var(--primary); font-size:.66rem; font-weight:800; display:grid; place-items:center; }
-.filter-drawer { width:min(92vw,430px); max-width:100%; height:100dvh; position:absolute; right:0; top:0; z-index:1; padding:calc(18px + var(--safe-area-top)) max(18px,var(--safe-area-right)) calc(18px + var(--safe-area-bottom)) max(18px,var(--safe-area-left)); background:var(--surface); display:grid; grid-template-rows:auto minmax(0,1fr) auto; box-shadow:var(--shadow-md); }
+.filter-drawer { width:min(92vw,430px); max-width:100%; height:100dvh; min-height:0; position:absolute; right:0; top:0; z-index:1; padding:calc(18px + var(--safe-area-top)) max(18px,var(--safe-area-right)) calc(18px + var(--safe-area-bottom)) max(18px,var(--safe-area-left)); overflow:hidden; background:var(--surface); display:grid; grid-template-rows:auto minmax(0,1fr) auto; box-shadow:var(--shadow-md); }
 .filter-drawer header { display:flex; align-items:flex-start; justify-content:space-between; border-bottom:1px solid var(--outline-soft); padding-bottom:13px; }
 .filter-drawer h2 { margin:3px 0; }
 .filter-drawer__content { padding:16px 0; overflow:auto; display:grid; align-content:start; gap:14px; }
@@ -80,7 +80,7 @@
 .evidence-detail-card > div:not(.evidence-detail-card__actions) { padding:11px; }
 .evidence-detail-card p { margin:4px 0 0; color:var(--muted); font-size:.75rem; }
 .evidence-detail-card__actions { position:absolute; top:7px; right:7px; display:flex; gap:5px; }
-.evidence-detail-card__actions button { width:34px; height:34px; border:0; border-radius:999px; background:rgba(255,255,255,.95); color:var(--primary); display:grid; place-items:center; }
+.evidence-detail-card__actions button { width:var(--touch-target-min); height:var(--touch-target-min); border:0; border-radius:999px; background:rgba(255,255,255,.95); color:var(--primary); display:grid; place-items:center; touch-action:manipulation; }
 .evidence-inline-form { margin-top:15px; padding:14px; border:1px solid var(--outline-soft); border-radius:var(--radius-md); background:white; display:grid; gap:9px; }
 .media-loading, .media-error, .evidence-file-link { min-height:180px; padding:20px; background:var(--surface-low); color:var(--muted); display:flex; align-items:center; justify-content:center; gap:7px; }
 .document-links { margin-top:24px; padding:17px; border:1px solid var(--outline-soft); border-radius:var(--radius-md); background:white; }
@@ -95,4 +95,50 @@
 .ticket-status--cancelled { background:var(--danger-soft); color:var(--danger); }
 .ticket-card--cancelled::before { background:var(--danger); }
 @media (min-width:900px) { .modal-layer { align-items:center; } .inline-modal { border-radius:var(--radius-lg); } .desktop-filter-panel { margin-bottom:18px; padding:14px; border:1px solid var(--outline-soft); border-radius:var(--radius-md); background:white; display:grid; grid-template-columns:repeat(4,minmax(0,1fr)); gap:10px; } .desktop-filter-actions { display:flex; align-items:flex-end; justify-content:flex-end; gap:7px; } .evidence-inline-form { grid-template-columns:1fr 1fr 1fr auto; align-items:end; } }
-@media (max-width:560px) { .ticket-form-header { grid-template-columns:40px 1fr; } .ticket-form-header .autosave-indicator { grid-column:2; justify-self:start; } .evidence-upload-actions, .review-action-grid { grid-template-columns:1fr; } .review-action-grid .button:last-child { grid-column:auto; } .inline-modal__actions { display:grid; grid-template-columns:1fr 1fr; } .catalog-record { grid-template-columns:42px 1fr; } .catalog-record .status-chip { grid-column:2; justify-self:start; } }
+@media (max-width:560px) { .ticket-form-header { grid-template-columns:var(--touch-target-min) 1fr; } .ticket-form-header .autosave-indicator { grid-column:2; justify-self:start; } .evidence-upload-actions, .review-action-grid { grid-template-columns:1fr; } .review-action-grid .button:last-child { grid-column:auto; } .inline-modal__actions { display:grid; grid-template-columns:1fr 1fr; } .catalog-record { grid-template-columns:42px 1fr; } .catalog-record .status-chip { grid-column:2; justify-self:start; } }
+
+/* En teléfono los filtros se presentan como sheet inferior. En escritorio
+ * conservan el drawer lateral existente. */
+@media (max-width: 760px) {
+  .filter-drawer-layer {
+    align-items: flex-end;
+  }
+
+  .filter-drawer {
+    inset: auto 0 0;
+    width: 100%;
+    height: var(--sheet-max-height);
+    max-height: var(--overlay-mobile-max-height);
+    padding: 16px max(16px, var(--safe-area-right)) calc(14px + var(--safe-area-bottom)) max(16px, var(--safe-area-left));
+    border-radius: var(--overlay-radius) var(--overlay-radius) 0 0;
+  }
+
+  .filter-drawer header {
+    min-height: var(--touch-target-min);
+    align-items: center;
+  }
+
+  .filter-drawer__content {
+    min-width: 0;
+    min-height: 0;
+    overscroll-behavior: contain;
+  }
+}
+
+@media (max-width: 390px) {
+  .filter-drawer footer {
+    grid-template-columns: 1fr;
+  }
+
+  .filter-drawer footer .button--primary {
+    grid-row: 1;
+  }
+}
+
+
+/* Etapa 5: los campos quedan alineados con el header sticky al recibir foco
+ * mediante teclado o navegación programática. */
+.app-shell--form :is(.form-control, .searchable-select__input, .technician-select__search-input, textarea, select) {
+  scroll-margin-top: calc(var(--safe-area-top) + 88px);
+  scroll-margin-bottom: 120px;
+}

@@ -60,6 +60,7 @@ const KnowledgeDetailPage = lazyPage(() => import('../pages/knowledge/KnowledgeD
 const KnowledgeEditorPage = lazyPage(() => import('../pages/knowledge/KnowledgeEditorPage'), routeStyles.knowledge);
 const KnowledgeListPage = lazyPage(() => import('../pages/knowledge/KnowledgeListPage'), routeStyles.knowledge);
 const MaintenanceDetailPage = lazyPage(() => import('../pages/maintenance/MaintenanceDetailPage'), routeStyles.maintenance);
+const MaintenanceProjectDeviceDetailPage = lazyPage(() => import('../pages/maintenance/MaintenanceProjectDeviceDetailPage'), routeStyles.maintenance);
 const MaintenanceFinalizationsPage = lazyPage(() => import('../pages/maintenance/MaintenanceFinalizationsPage'), routeStyles.maintenance, routeStyles.more);
 const MaintenanceFormPage = lazyPage(() => import('../pages/maintenance/MaintenanceFormPage'), routeStyles.maintenance);
 const MaintenanceListPage = lazyPage(() => import('../pages/maintenance/MaintenanceListPage'), routeStyles.maintenance);
@@ -172,6 +173,7 @@ export default function App() {
           <Route path="mantenimientos" element={<PermissionRoute anyOf={MAINTENANCE_VIEW}><MaintenanceListPage /></PermissionRoute>} />
           <Route path="mantenimientos/nuevo" element={<PermissionRoute anyOf={MAINTENANCE_CREATE}><MaintenanceFormPage mode="create" /></PermissionRoute>} />
           <Route path="mantenimientos/:maintenanceId" element={<PermissionRoute anyOf={MAINTENANCE_VIEW}><MaintenanceDetailPage /></PermissionRoute>} />
+          <Route path="mantenimientos/:maintenanceId/dispositivos/:deviceId" element={<PermissionRoute anyOf={MAINTENANCE_VIEW}><MaintenanceProjectDeviceDetailPage /></PermissionRoute>} />
           <Route path="mantenimientos/:maintenanceId/editar" element={<PermissionRoute anyOf={MAINTENANCE_EDIT}><MaintenanceFormPage mode="edit" /></PermissionRoute>} />
           <Route path="conocimiento" element={<KnowledgeListPage />} />
           <Route path="conocimiento/nuevo" element={<PermissionRoute anyOf={KNOWLEDGE_CREATE}><KnowledgeEditorPage mode="create" /></PermissionRoute>} />

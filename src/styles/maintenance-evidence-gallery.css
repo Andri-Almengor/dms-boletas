@@ -23,7 +23,7 @@
   width: auto !important;
   height: auto !important;
   max-width: min(100%, 1200px) !important;
-  max-height: calc(100vh - 140px) !important;
+  max-height: calc(100dvh - 140px) !important;
   aspect-ratio: auto !important;
   object-fit: contain !important;
   transform-origin: center center;
@@ -96,17 +96,17 @@
 }
 
 .maintenance-lightbox__nav--previous {
-  left: max(16px, env(safe-area-inset-left));
+  left: max(16px, var(--safe-area-left));
 }
 
 .maintenance-lightbox__nav--next {
-  right: max(16px, env(safe-area-inset-right));
+  right: max(16px, var(--safe-area-right));
 }
 
 .maintenance-lightbox__counter {
   position: fixed;
   z-index: 1202;
-  top: max(16px, env(safe-area-inset-top));
+  top: max(16px, var(--safe-area-top));
   left: 50%;
   min-width: 68px;
   min-height: 36px;
@@ -130,8 +130,8 @@
 .maintenance-lightbox__quality-loading {
   position: fixed;
   z-index: 1202;
-  right: max(18px, env(safe-area-inset-right));
-  bottom: max(20px, env(safe-area-inset-bottom));
+  right: max(18px, var(--safe-area-right));
+  bottom: max(20px, var(--safe-area-bottom));
   min-height: 38px;
   padding: 0 12px;
   border: 1px solid rgba(255, 255, 255, .2);
@@ -161,7 +161,7 @@
 .maintenance-lightbox__zoom-controls {
   position: fixed;
   z-index: 1202;
-  bottom: max(18px, env(safe-area-inset-bottom));
+  bottom: max(18px, var(--safe-area-bottom));
   left: 50%;
   min-height: 48px;
   padding: 5px;
@@ -176,8 +176,8 @@
 }
 
 .maintenance-lightbox__zoom-controls button {
-  width: 38px;
-  height: 38px;
+  width: var(--touch-target-min);
+  height: var(--touch-target-min);
   padding: 0;
   border: 0;
   border-radius: 11px;
@@ -232,7 +232,7 @@
 }
 
 .maintenance-lightbox__error button {
-  min-height: 38px;
+  min-height: var(--touch-target-min);
   padding: 0 14px;
   border: 1px solid rgba(255, 255, 255, .3);
   border-radius: 10px;
@@ -261,21 +261,25 @@
 
 @media (max-width: 760px) {
   .maintenance-lightbox--gallery {
-    padding: 58px 50px 82px;
+    padding:
+      calc(54px + var(--safe-area-top))
+      max(8px, var(--safe-area-right))
+      calc(76px + var(--safe-area-bottom))
+      max(8px, var(--safe-area-left));
   }
 
   .maintenance-lightbox__nav {
-    width: 42px;
+    width: var(--touch-target-min);
     height: 62px;
     border-radius: 14px;
   }
 
   .maintenance-lightbox__nav--previous {
-    left: max(6px, env(safe-area-inset-left));
+    left: max(6px, var(--safe-area-left));
   }
 
   .maintenance-lightbox__nav--next {
-    right: max(6px, env(safe-area-inset-right));
+    right: max(6px, var(--safe-area-right));
   }
 
   .maintenance-lightbox__nav .material-symbols-outlined {
@@ -283,27 +287,29 @@
   }
 
   .maintenance-lightbox__image {
-    max-height: calc(100dvh - 150px) !important;
+    max-width: 100% !important;
+    max-height: calc(100dvh - 138px - var(--safe-area-top) - var(--safe-area-bottom)) !important;
   }
 
   .maintenance-lightbox__zoom-controls {
-    bottom: max(12px, env(safe-area-inset-bottom));
+    bottom: max(12px, var(--safe-area-bottom));
   }
 
   .maintenance-lightbox__quality-loading {
     right: 50%;
-    bottom: calc(max(12px, env(safe-area-inset-bottom)) + 58px);
+    bottom: calc(max(12px, var(--safe-area-bottom)) + 58px);
     transform: translateX(50%);
   }
 }
 
 @media (max-width: 430px) {
   .maintenance-lightbox--gallery {
-    padding-inline: 44px;
+    padding-right: max(6px, var(--safe-area-right));
+    padding-left: max(6px, var(--safe-area-left));
   }
 
   .maintenance-lightbox__nav {
-    width: 38px;
+    width: var(--touch-target-min);
     height: 56px;
   }
 
@@ -312,8 +318,8 @@
   }
 
   .maintenance-lightbox__zoom-controls button {
-    width: 34px;
-    height: 34px;
+    width: var(--touch-target-min);
+    height: var(--touch-target-min);
   }
 
   .maintenance-lightbox__zoom-controls .maintenance-lightbox__zoom-value {

@@ -1,5 +1,5 @@
 import React, { useState } from 'react';
-import { Navigate, useNavigate, useParams, useSearchParams } from 'react-router-dom';
+import { Navigate, useLocation, useNavigate, useParams, useSearchParams } from 'react-router-dom';
 import { useAuth } from '../../AuthContext';
 import Icon from '../../components/common/Icon';
 import ProcessingOverlay from '../../components/feedback/ProcessingOverlay';
@@ -25,12 +25,13 @@ import { MAINTENANCE_STEPS } from './maintenanceFormData';
 export default function MaintenanceFormPage({ mode = 'create' }) {
   const { maintenanceId } = useParams();
   const navigate = useNavigate();
+  const location = useLocation();
   const { hasPermission } = useAuth();
   const [searchParams] = useSearchParams();
   const editing = mode === 'edit';
   const isAdministrator = hasPermission('USUARIOS_GESTIONAR');
   const initialRequest = resolveMaintenanceDirectRequest(searchParams, editing);
-  const state = useMaintenanceForm({ editing, maintenanceId });
+  const state = useMaintenanceForm({ editing, maintenanceId, navigationState: location.state });
   const [step, setStep] = useState(initialRequest.requestedStep);
   const [processingAction, setProcessingAction] = useState('');
   const projectMode = isProjectMaintenance(state.form.tipoMantenimiento);
@@ -44,6 +45,8 @@ export default function MaintenanceFormPage({ mode = 'create' }) {
     setStep,
     state,
     canAddExpectedDevice,
+    returnTo: location.state?.returnTo,
+    returnState: location.state,
   });
 
   const quickCreate = useMaintenanceQuickCreate({

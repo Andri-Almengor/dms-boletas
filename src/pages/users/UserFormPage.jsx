@@ -1,5 +1,5 @@
 import React, { useEffect, useState } from 'react';
-import { Link, useNavigate, useParams } from 'react-router-dom';
+import { Link, useLocation, useNavigate, useParams } from 'react-router-dom';
 import { apiRequest } from '../../api';
 import { useAuth } from '../../AuthContext';
 import ErrorMessage from '../../components/common/ErrorMessage';
@@ -10,6 +10,14 @@ export default function UserFormPage({ mode }) {
   const { usuarioId } = useParams();
   const { sessionToken } = useAuth();
   const navigate = useNavigate();
+  const routeLocation = useLocation();
+  const requestedListReturnTo = String(routeLocation.state?.usersListReturnTo || '');
+  const usersListReturnTo = /^\/usuarios(?:\?|$)/.test(requestedListReturnTo) ? requestedListReturnTo : '/usuarios';
+  const usersListScrollY = Number(routeLocation.state?.usersListScrollY || 0);
+  const usersListReturnState = Number.isFinite(usersListScrollY) && usersListScrollY > 0
+    ? { restoreScrollY: usersListScrollY }
+    : undefined;
+  const detailUrl = usuarioId ? `/usuarios/${encodeURIComponent(usuarioId)}` : '';
   const { roles, error: rolesError } = useRoles();
   const [form, setForm] = useState({ nombreCompleto: '', nombreUsuario: '', correo: '', rolId: '', estado: 'ACTIVO' });
   const [error, setError] = useState('');
@@ -53,7 +61,7 @@ export default function UserFormPage({ mode }) {
         setTemporaryPassword(result.temporaryPassword);
       } else {
         await apiRequest('users.update', { usuarioId, ...form }, sessionToken);
-        navigate(`/usuarios/${usuarioId}`);
+        navigate(detailUrl, routeLocation.state ? { state: routeLocation.state } : undefined);
       }
     } catch (err) {
       setError(err.message);
@@ -64,7 +72,7 @@ export default function UserFormPage({ mode }) {
 
   if (temporaryPassword) {
     return (
-      <div className="page page--narrow">
+      <div className="page page--narrow user-form-page">
         <section className="success-card">
           <span className="success-card__icon"><Icon name="check_circle" filled /></span>
           <h1>Usuario creado</h1>
@@ -73,16 +81,16 @@ export default function UserFormPage({ mode }) {
           {invitationEmail?.sent && <div className="alert alert--success"><Icon name="mark_email_read" /><span>Las credenciales se enviaron a <strong>{invitationEmail.destination || form.correo}</strong>.</span></div>}
           {invitationEmail && !invitationEmail.sent && <div className="alert alert--warning"><Icon name="warning" /><span>El usuario fue creado, pero el correo no se pudo enviar{invitationEmail.error ? `: ${invitationEmail.error}` : '.'} Conserva la contraseña temporal para compartirla de forma segura.</span></div>}
           {!invitationEmail && <div className="info-box"><Icon name="info" /><p>El backend todavía no confirmó el envío del correo. Conserva la contraseña temporal hasta actualizar Google Apps Script.</p></div>}
-          <Link to="/usuarios" className="button button--primary button--wide">Volver a usuarios</Link>
+          <Link to={usersListReturnTo} state={usersListReturnState} className="button button--primary button--wide">Volver a usuarios</Link>
         </section>
       </div>
     );
   }
 
   return (
-    <div className="page page--narrow">
+    <div className="page page--narrow user-form-page">
       <header className="page-header">
-        <Link to="/usuarios" className="icon-button" aria-label="Cancelar"><Icon name="close" /></Link>
+        <Link to={mode === 'edit' ? detailUrl : usersListReturnTo} state={mode === 'edit' ? routeLocation.state : usersListReturnState} className="icon-button" aria-label="Cancelar"><Icon name="close" /></Link>
         <div><span className="eyebrow">Administración</span><h1>{mode === 'create' ? 'Crear usuario' : 'Editar usuario'}</h1></div>
       </header>
 
@@ -98,7 +106,7 @@ export default function UserFormPage({ mode }) {
           {mode === 'edit' && <div className="field-group"><label className="field-label" htmlFor="estado">Estado</label><select id="estado" className="form-control" name="estado" value={form.estado} onChange={updateField}><option value="ACTIVO">ACTIVO</option><option value="INACTIVO">INACTIVO</option></select></div>}
 
           <div className="form-actions">
-            <Link to="/usuarios" className="button button--secondary">Cancelar</Link>
+            <Link to={mode === 'edit' ? detailUrl : usersListReturnTo} state={mode === 'edit' ? routeLocation.state : usersListReturnState} className="button button--secondary">Cancelar</Link>
             <button className="button button--primary" disabled={saving}>{saving ? <><Icon name="progress_activity" className="spin" /> Guardando...</> : <><Icon name="save" /> Guardar</>}</button>
           </div>
         </form>

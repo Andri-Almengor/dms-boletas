@@ -1,7 +1,8 @@
-import React, { useEffect } from 'react';
+import React from 'react';
 import { createPortal } from 'react-dom';
 import Icon from '../common/Icon';
 import ProcessingOverlay from '../feedback/ProcessingOverlay';
+import useOverlaySurface from '../../hooks/useOverlaySurface';
 
 export default function InlineCreateModal({
   open,
@@ -13,16 +14,7 @@ export default function InlineCreateModal({
   onClose,
   onSubmit,
 }) {
-  useEffect(() => {
-    if (!open) return undefined;
-
-    function onKey(event) {
-      if (event.key === 'Escape' && !saving) onClose?.();
-    }
-
-    window.addEventListener('keydown', onKey);
-    return () => window.removeEventListener('keydown', onKey);
-  }, [open, saving, onClose]);
+  useOverlaySurface({ open, onClose, busy: saving });
 
   if (!open || typeof document === 'undefined') return null;
 
@@ -47,7 +39,7 @@ export default function InlineCreateModal({
             <h2>{title}</h2>
             {description && <p>{description}</p>}
           </div>
-          <button className="icon-button" type="button" onClick={onClose} disabled={saving}>
+          <button className="icon-button" type="button" onClick={onClose} disabled={saving} aria-label="Cerrar ventana">
             <Icon name="close" />
           </button>
         </header>

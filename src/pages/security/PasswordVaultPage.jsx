@@ -2,6 +2,7 @@ import React, { useEffect, useMemo, useState } from 'react';
 import { useSearchParams } from 'react-router-dom';
 import { useAuth } from '../../AuthContext';
 import Icon from '../../components/common/Icon';
+import useOverlaySurface from '../../hooks/useOverlaySurface';
 import {
   createPasswordVaultCategory,
   createPasswordVaultCredential,
@@ -37,19 +38,7 @@ function normalized(value) {
 }
 
 function PasswordVaultModal({ open, title, subtitle, icon, busy, onClose, children }) {
-  useEffect(() => {
-    if (!open) return undefined;
-    const previous = document.body.style.overflow;
-    document.body.style.overflow = 'hidden';
-    const escape = (event) => {
-      if (event.key === 'Escape' && !busy) onClose?.();
-    };
-    window.addEventListener('keydown', escape);
-    return () => {
-      document.body.style.overflow = previous;
-      window.removeEventListener('keydown', escape);
-    };
-  }, [open, busy, onClose]);
+  useOverlaySurface({ open, onClose, busy });
 
   if (!open) return null;
   return <div className="password-vault-modal-backdrop" onMouseDown={(event) => {
@@ -122,12 +111,13 @@ function CredentialCard({ item, canManage, revealed, onReveal, onCopy, onEdit, o
 export default function PasswordVaultPage() {
   const { sessionToken, hasPermission } = useAuth();
   const [searchParams, setSearchParams] = useSearchParams();
+  const requestedSearch = searchParams.get('q') || '';
   const [data, setData] = useState({ clients: [], categories: [], credentials: [], canManage: false, encryptionConfigured: true });
   const [loading, setLoading] = useState(true);
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState('');
   const [message, setMessage] = useState('');
-  const [search, setSearch] = useState('');
+  const [search, setSearch] = useState(requestedSearch);
   const [clientFilter, setClientFilter] = useState(searchParams.get('cliente') || '');
   const [openClients, setOpenClients] = useState(() => new Set());
   const [openCategories, setOpenCategories] = useState(() => new Set());
@@ -185,6 +175,14 @@ export default function PasswordVaultPage() {
     }
     return byClient;
   }, [filteredCredentials]);
+
+  function changeSearch(value) {
+    setSearch(value);
+    const next = new URLSearchParams(searchParams);
+    if (value) next.set('q', value);
+    else next.delete('q');
+    setSearchParams(next, { replace: true });
+  }
 
   function changeClientFilter(value) {
     setClientFilter(value);
@@ -356,7 +354,7 @@ export default function PasswordVaultPage() {
 
   const visibleClients = data.clients.filter((client) => !clientFilter || client.id === clientFilter);
 
-  return <div className="page password-vault-page">
+  return <div className="page page--wide password-vault-page">
     <header className="password-vault-heading">
       <div><span className="eyebrow">Seguridad operativa</span><h1>Contraseñas de clientes</h1><p>Credenciales cifradas y agrupadas por cliente y categoría. Las contraseñas permanecen ocultas hasta que se solicitan.</p></div>
       {canManage && <div><button type="button" className="button button--secondary button--compact" onClick={openNewCategory}><Icon name="create_new_folder" />Nueva categoría</button><button type="button" className="button button--primary button--compact" onClick={() => openNewCredential()}><Icon name="add" />Nueva credencial</button></div>}
@@ -370,7 +368,7 @@ export default function PasswordVaultPage() {
     {message && <div className="password-vault-alert is-success"><Icon name="check_circle" /><span>{message}</span></div>}
 
     <section className="password-vault-toolbar">
-      <label><Icon name="search" /><input value={search} onChange={(event) => setSearch(event.target.value)} placeholder="Buscar cliente, categoría, sistema, usuario, URL o nota..." /></label>
+      <label><Icon name="search" /><input type="search" value={search} onChange={(event) => changeSearch(event.target.value)} placeholder="Buscar cliente, categoría, sistema, usuario, URL o nota..." aria-label="Buscar credenciales" enterKeyHint="search" autoComplete="off" /></label>
       <select value={clientFilter} onChange={(event) => changeClientFilter(event.target.value)}><option value="">Todos los clientes</option>{data.clients.map((client) => <option key={client.id} value={client.id}>{client.name} ({client.credentialCount})</option>)}</select>
       <button type="button" className="button button--secondary button--compact" onClick={() => load()} disabled={loading}><Icon name={loading ? 'progress_activity' : 'refresh'} />Actualizar</button>
     </section>
@@ -404,6 +402,6 @@ export default function PasswordVaultPage() {
     </section>}
 
     <PasswordVaultModal open={categoryModal} title={categoryForm.id ? 'Editar categoría' : 'Nueva categoría'} subtitle="Las categorías agrupan cualquier cantidad de credenciales en todos los clientes." icon="category" busy={busy} onClose={() => !busy && setCategoryModal(false)}><CategoryForm form={categoryForm} setForm={setCategoryForm} busy={busy} error={modalError} onSubmit={saveCategory} onCancel={() => setCategoryModal(false)} /></PasswordVaultModal>
-    <PasswordVaultModal open={credentialModal} title={credentialForm.id ? 'Editar credencial' : 'Nueva credencial'} subtitle="La contraseña se cifra en el servidor antes de almacenarse en Google Sheets." icon="key" busy={busy} onClose={() => !busy && setCredentialModal(false)}><CredentialForm form={credentialForm} setForm={setCredentialForm} clients={data.clients} categories={data.categories} busy={busy} error={modalError} editing={Boolean(credentialForm.id)} onSubmit={saveCredential} onCancel={() => setCredentialModal(false)} /></PasswordVaultModal>
+    <PasswordVaultModal open={credentialModal} title={credentialForm.id ? 'Editar credencial' : 'Nueva credencial'} subtitle="La contraseña se cifra en el servidor antes de almacenarse de forma segura." icon="key" busy={busy} onClose={() => !busy && setCredentialModal(false)}><CredentialForm form={credentialForm} setForm={setCredentialForm} clients={data.clients} categories={data.categories} busy={busy} error={modalError} editing={Boolean(credentialForm.id)} onSubmit={saveCredential} onCancel={() => setCredentialModal(false)} /></PasswordVaultModal>
   </div>;
 }

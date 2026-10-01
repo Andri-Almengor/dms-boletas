@@ -264,7 +264,7 @@
 }
 
 .app-shell--assistant .assistant-composer {
-  padding: 12px 14px calc(12px + env(safe-area-inset-bottom));
+  padding: 12px 14px calc(12px + var(--safe-area-bottom));
   border-top-color: var(--outline-soft);
   background: color-mix(in srgb, var(--surface-card) 97%, transparent);
   backdrop-filter: blur(16px);
@@ -426,7 +426,7 @@
   }
 
   .app-shell--assistant .assistant-composer__row {
-    grid-template-columns: 40px minmax(0, 1fr) 46px;
+    grid-template-columns: var(--touch-target-min) minmax(0, 1fr) 46px;
     gap: 6px;
     padding: 5px;
   }
@@ -450,9 +450,9 @@
   }
 
   .app-shell--assistant .assistant-attach-button {
-    width: 40px;
-    height: 44px;
-    flex-basis: 40px;
+    width: var(--touch-target-min);
+    height: var(--touch-target-min);
+    flex-basis: var(--touch-target-min);
   }
 
   .app-shell--assistant .assistant-composer small {
@@ -501,9 +501,9 @@
 
   .assistant-route-bar__bot,
   .assistant-route-bar__close {
-    flex-basis: 40px;
-    width: 40px;
-    height: 40px;
+    flex-basis: var(--touch-target-min);
+    width: var(--touch-target-min);
+    height: var(--touch-target-min);
   }
 
   .assistant-route-bar__identity strong {
@@ -528,5 +528,49 @@
 @media (prefers-reduced-motion: reduce) {
   .assistant-route-bar__identity i {
     animation: none;
+  }
+}
+
+
+@media (max-width: 760px) {
+  .app-shell--assistant .assistant-composer textarea {
+    font-size: 16px;
+  }
+
+  .app-shell--assistant .assistant-pending-files {
+    display: flex;
+    max-width: 100%;
+    margin: 0 0 7px;
+    padding-bottom: 2px;
+    overflow-x: auto;
+    overflow-y: hidden;
+    overscroll-behavior-x: contain;
+    scroll-snap-type: x proximity;
+    scrollbar-width: none;
+  }
+
+  .app-shell--assistant .assistant-pending-files::-webkit-scrollbar {
+    display: none;
+  }
+
+  .app-shell--assistant .assistant-pending-files article {
+    flex: 0 0 min(78vw, 280px);
+    scroll-snap-align: start;
+  }
+
+  .app-shell--assistant .assistant-composer__error {
+    max-height: 68px;
+    overflow: auto;
+    overflow-wrap: anywhere;
+  }
+}
+
+@media (max-width: 430px) {
+  .app-shell--assistant .assistant-message__content {
+    max-width: calc(100% - 39px);
+  }
+
+  .app-shell--assistant .assistant-message--user .assistant-message__content {
+    max-width: 90%;
   }
 }

@@ -124,7 +124,7 @@ export default function OfflineContentPage() {
   }, [stats]);
 
   return (
-    <div className="page offline-content-page">
+    <div className="page page--wide offline-content-page">
       <header className="page-header offline-content-page__header">
         <div>
           <Link to="/mas" className="back-link"><Icon name="arrow_back" /> Más opciones</Link>
@@ -138,8 +138,8 @@ export default function OfflineContentPage() {
         </button>}
       </header>
 
-      {message && <div className="notice notice--success"><Icon name="check_circle" /> {message}</div>}
-      {error && <div className="notice notice--error"><Icon name="error" /> {error}</div>}
+      {message && <div className="notice notice--success" role="status"><Icon name="check_circle" /> {message}</div>}
+      {error && <div className="notice notice--error" role="alert"><Icon name="error" /> {error}</div>}
 
       {!offlineEnabled ? (
         <section className="offline-disabled-card">

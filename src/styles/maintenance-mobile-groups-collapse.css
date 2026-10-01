@@ -357,3 +357,66 @@
   color: var(--text);
   border-color: var(--outline-soft);
 }
+
+
+@media (max-width: 760px) {
+  .maintenance-mobile-fold .maintenance-detail-summary__grid {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
+
+  .maintenance-report-actions {
+    flex-wrap: nowrap;
+    overflow-x: auto;
+    overscroll-behavior-x: contain;
+    scrollbar-width: none;
+    scroll-snap-type: x proximity;
+    padding-bottom: 4px;
+  }
+
+  .maintenance-report-actions::-webkit-scrollbar {
+    display: none;
+  }
+
+  .maintenance-report-actions .button {
+    width: auto;
+    min-width: 150px;
+    flex: 0 0 auto;
+    scroll-snap-align: start;
+  }
+
+  .maintenance-detail-footer-actions {
+    position: sticky;
+    z-index: 16;
+    bottom: calc(var(--bottom-nav-height) + var(--safe-area-bottom) + 6px);
+    padding: 9px;
+    border: 1px solid var(--outline-soft);
+    border-radius: 15px;
+    background: color-mix(in srgb, var(--surface-card) 96%, transparent);
+    box-shadow: var(--shadow-md);
+    backdrop-filter: blur(12px);
+    display: grid;
+    grid-template-columns: 1fr;
+  }
+
+  .maintenance-detail-footer-actions .button {
+    width: 100%;
+  }
+
+  .maintenance-inventory-images {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
+}
+
+@media (max-width: 430px) {
+  .maintenance-mobile-fold .maintenance-detail-summary__grid {
+    grid-template-columns: 1fr;
+  }
+
+  .maintenance-report-actions .button {
+    min-width: 138px;
+  }
+
+  .maintenance-inventory-images {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
+}

@@ -599,7 +599,7 @@ function AssistantAttachments({ attachments = [] }) {
   return (
     <div className="assistant-attachment-grid">
       {attachments.slice(0, 50).map((item, index) => (
-        <article className="assistant-attachment-card" key={`${item.entityId || 'file'}-${index}-${item.title}`}>
+        <article className={`assistant-attachment-card assistant-attachment-card--${item.type || 'file'}`} key={`${item.entityId || 'file'}-${index}-${item.title}`}>
           <header><strong>{item.title || 'Archivo'}</strong>{item.subtitle && <span>{item.subtitle}</span>}</header>
           {item.type === 'image' && <a href={item.url} target="_blank" rel="noreferrer"><img loading="lazy" src={item.url} alt={item.title || 'Evidencia'} /></a>}
           {item.type === 'video' && <video controls preload="metadata" src={item.url} />}
@@ -1071,7 +1071,7 @@ export default function AssistantPageSecure() {
         </div>
 
         <form className="assistant-composer" onSubmit={submit} data-no-draft>
-          {error && <span className="assistant-composer__error"><Icon name="error" />{error}</span>}
+          {error && <span className="assistant-composer__error" role="alert"><Icon name="error" />{error}</span>}
           {pendingFiles.length > 0 && (
             <div className="assistant-pending-files">
               {pendingFiles.map((item) => (

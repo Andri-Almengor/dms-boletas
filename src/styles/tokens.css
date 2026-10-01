@@ -36,4 +36,27 @@
   --top-bar-content-height: 58px;
   --top-bar-height: calc(var(--top-bar-content-height) + var(--safe-area-top));
   --bottom-nav-height: 72px;
+  --page-max-width: 1060px;
+  --page-narrow-max-width: 690px;
+  --page-wide-max-width: 1280px;
+  --space-2xs: 4px;
+  --space-xs: 8px;
+  --space-sm: 12px;
+  --space-md: 16px;
+  --space-lg: 24px;
+  --space-xl: 32px;
+  --page-inline-compact: 12px;
+  --page-inline-mobile: 14px;
+  --page-inline-tablet: 28px;
+  --touch-target-min: 44px;
+  --control-height: 52px;
+  --control-height-compact: var(--touch-target-min);
+  --button-height: 48px;
+  --overlay-radius: 22px;
+  --overlay-mobile-max-height: calc(100dvh - max(8px, var(--safe-area-top)));
+  --sheet-max-height: min(88dvh, var(--overlay-mobile-max-height));
+  --overlay-backdrop: rgba(27, 28, 28, .48);
+  --motion-fast: 160ms;
+  --z-assistant-fab: 55;
+  --z-status-indicator: 58;
 }

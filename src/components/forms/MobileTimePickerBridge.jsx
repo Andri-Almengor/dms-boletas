@@ -1,6 +1,7 @@
 import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { createPortal } from 'react-dom';
 import Icon from '../common/Icon';
+import useOverlaySurface from '../../hooks/useOverlaySurface';
 
 const HOURS = Array.from({ length: 24 }, (_, index) => String(index).padStart(2, '0'));
 const MINUTES = Array.from({ length: 60 }, (_, index) => String(index).padStart(2, '0'));
@@ -51,7 +52,7 @@ export default function MobileTimePickerBridge() {
     function isMobileTimeInput(element) {
       const input = element?.closest?.('input[type="time"]');
       if (!input || input.disabled || input.readOnly) return null;
-      return window.matchMedia('(max-width: 760px)').matches ? input : null;
+      return window.matchMedia('(max-width: 760px), (hover: none) and (pointer: coarse)').matches ? input : null;
     }
 
     function blockEvent(event) {
@@ -102,25 +103,24 @@ export default function MobileTimePickerBridge() {
     };
   }, [openFor]);
 
+  useOverlaySurface({
+    open: Boolean(target),
+    onClose: () => setTarget(null),
+    restoreFocus: false,
+  });
+
   useEffect(() => {
     if (!target) return undefined;
-    const previousOverflow = document.body.style.overflow;
-    document.body.style.overflow = 'hidden';
 
     function keydown(event) {
-      if (event.key === 'Escape') setTarget(null);
-      if (event.key === 'Enter') {
-        event.preventDefault();
-        if (target.input?.isConnected) updateNativeInput(target.input, `${hour}:${minute}`);
-        setTarget(null);
-      }
+      if (event.key !== 'Enter') return;
+      event.preventDefault();
+      if (target.input?.isConnected) updateNativeInput(target.input, `${hour}:${minute}`);
+      setTarget(null);
     }
 
     window.addEventListener('keydown', keydown);
-    return () => {
-      document.body.style.overflow = previousOverflow;
-      window.removeEventListener('keydown', keydown);
-    };
+    return () => window.removeEventListener('keydown', keydown);
   }, [target, hour, minute]);
 
   const display = useMemo(() => `${hour}:${minute}`, [hour, minute]);

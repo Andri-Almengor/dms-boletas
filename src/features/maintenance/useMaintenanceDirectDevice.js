@@ -12,6 +12,8 @@ export default function useMaintenanceDirectDevice({
   setStep,
   state,
   canAddExpectedDevice,
+  returnTo = '',
+  returnState,
 }) {
   const query = searchParams?.toString?.() || '';
   const request = useMemo(
@@ -62,26 +64,34 @@ export default function useMaintenanceDirectDevice({
 
   const detailUrl = `/mantenimientos/${encodeURIComponent(maintenanceId)}`;
 
+  const requestedReturnUrl = String(returnTo || '').trim();
+  const returnUrl = (
+    requestedReturnUrl === detailUrl
+    || requestedReturnUrl.startsWith(`${detailUrl}?`)
+    || requestedReturnUrl.startsWith(`${detailUrl}/`)
+  ) ? requestedReturnUrl : detailUrl;
+
   async function saveDevice() {
     const saved = await actionsRef.current.closeActiveDevice();
-    if (saved && request.directDeviceMode) navigate(detailUrl, { replace: true });
+    if (saved && request.directDeviceMode) navigate(returnUrl, { replace: true, state: returnState });
     return saved;
   }
 
   function cancelDevice() {
     const cancelled = actionsRef.current.cancelActiveDevice();
-    if (cancelled && request.directDeviceMode) navigate(detailUrl, { replace: true });
+    if (cancelled && request.directDeviceMode) navigate(returnUrl, { replace: true, state: returnState });
     return cancelled;
   }
 
   async function deleteDevice() {
     await actionsRef.current.removeDevice(state.activeDevice);
-    if (request.directDeviceMode) navigate(detailUrl, { replace: true });
+    if (request.directDeviceMode) navigate(returnUrl, { replace: true, state: returnState });
   }
 
   return {
     ...request,
     detailUrl,
+    returnUrl,
     saveDevice,
     cancelDevice,
     deleteDevice,

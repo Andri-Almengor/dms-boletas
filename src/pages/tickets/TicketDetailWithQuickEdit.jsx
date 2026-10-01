@@ -1,6 +1,6 @@
 import React, { useEffect, useRef, useState } from 'react';
 import { createPortal } from 'react-dom';
-import { useNavigate, useParams } from 'react-router-dom';
+import { useLocation, useNavigate, useParams } from 'react-router-dom';
 import { useAuth } from '../../AuthContext';
 import Icon from '../../components/common/Icon';
 import TicketVisitGroupPanel from '../../components/tickets/TicketVisitGroupPanel';
@@ -97,6 +97,7 @@ function TicketPublicSignatureCard({ info, loading, error }) {
 export default function TicketDetailWithQuickEdit() {
   const hostRef = useRef(null);
   const navigate = useNavigate();
+  const location = useLocation();
   const { boletaUid } = useParams();
   const { hasPermission, sessionToken } = useAuth();
   const canEdit = hasPermission('BOLETAS_EDITAR');
@@ -151,7 +152,7 @@ export default function TicketDetailWithQuickEdit() {
           button.addEventListener('click', (event) => {
             event.preventDefault();
             event.stopPropagation();
-            navigate(`/boletas/${encodeURIComponent(boletaUid)}/editar-rapido/${section}`);
+            navigate(`/boletas/${encodeURIComponent(boletaUid)}/editar-rapido/${section}`, { state: location.state });
           });
           const expandIcon = summary.lastElementChild;
           summary.insertBefore(button, expandIcon || null);
@@ -178,7 +179,7 @@ export default function TicketDetailWithQuickEdit() {
     const observer = new MutationObserver(enhance);
     observer.observe(host, { childList: true, subtree: true });
     return () => observer.disconnect();
-  }, [boletaUid, canEdit, navigate]);
+  }, [boletaUid, canEdit, location.state, navigate]);
 
   return (
     <div ref={hostRef} className="ticket-detail-quick-edit-host">

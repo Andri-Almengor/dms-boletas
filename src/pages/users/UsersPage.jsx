@@ -1,5 +1,5 @@
-import React, { useCallback, useMemo, useState } from 'react';
-import { Link, useNavigate } from 'react-router-dom';
+import React, { useCallback, useEffect, useMemo, useState } from 'react';
+import { Link, useLocation, useNavigate, useSearchParams } from 'react-router-dom';
 import { apiRequest } from '../../api';
 import { useAuth } from '../../AuthContext';
 import ErrorMessage from '../../components/common/ErrorMessage';
@@ -19,18 +19,22 @@ function initials(name = '') {
 export default function UsersPage() {
   const { sessionToken, hasPermission, user: currentUser } = useAuth();
   const navigate = useNavigate();
+  const routeLocation = useLocation();
+  const [searchParams, setSearchParams] = useSearchParams();
+  const requestedSearch = searchParams.get('q') || '';
   const { roles } = useRoles();
-  const [search, setSearch] = useState('');
+  const [search, setSearch] = useState(requestedSearch);
+  const [submittedSearch, setSubmittedSearch] = useState(requestedSearch);
   const [resettingUserId, setResettingUserId] = useState('');
   const [resetResult, setResetResult] = useState(null);
 
   const fetchUsers = useCallback(({ page, pageSize, signal }) => apiRequest('users.list', {
     page,
     pageSize,
-    search: search.trim(),
+    search: submittedSearch,
     sortBy: 'NombreCompleto',
     sortDir: 'asc',
-  }, sessionToken, { signal }), [search, sessionToken]);
+  }, sessionToken, { signal }), [sessionToken, submittedSearch]);
 
   const {
     items: users,
@@ -47,7 +51,7 @@ export default function UsersPage() {
     pageSize: PAGE_SIZE,
     fetchPage: fetchUsers,
     getItemKey: (user) => String(user.UsuarioID),
-    resetKey: sessionToken,
+    resetKey: `${sessionToken}|${submittedSearch}`, 
   });
 
   const roleById = useMemo(() => Object.fromEntries(roles.map((role) => [role.RolID, role.Nombre])), [roles]);
@@ -90,28 +94,58 @@ export default function UsersPage() {
     }
   }
 
+  const currentListUrl = `${routeLocation.pathname}${routeLocation.search || ''}`;
+
+  function listReturnState() {
+    return {
+      usersListReturnTo: currentListUrl,
+      usersListScrollY: typeof window === 'undefined' ? 0 : Math.max(0, Number(window.scrollY || 0)),
+    };
+  }
+
+  function submitSearch(event) {
+    event.preventDefault();
+    const nextSearch = search.trim();
+    const next = new URLSearchParams(searchParams);
+    if (nextSearch) next.set('q', nextSearch);
+    else next.delete('q');
+    setSearchParams(next, { replace: true });
+    if (nextSearch === submittedSearch) loadFirst();
+    else setSubmittedSearch(nextSearch);
+  }
+
   function openCard(event, url) {
     if (event.target.closest('a, button, input, select, textarea, label')) return;
-    navigate(url);
+    navigate(url, { state: listReturnState() });
   }
 
   function openCardWithKeyboard(event, url) {
     if (!['Enter', ' '].includes(event.key)) return;
     event.preventDefault();
-    navigate(url);
+    navigate(url, { state: listReturnState() });
   }
 
+  useEffect(() => {
+    const restoreScrollY = Number(routeLocation.state?.restoreScrollY);
+    if (loading || !Number.isFinite(restoreScrollY) || restoreScrollY <= 0) return undefined;
+    const frame = window.requestAnimationFrame(() => {
+      window.scrollTo({ top: restoreScrollY, behavior: 'auto' });
+      navigate(currentListUrl, { replace: true, state: null });
+    });
+    return () => window.cancelAnimationFrame(frame);
+  }, [currentListUrl, loading, navigate, routeLocation.state?.restoreScrollY]);
+
   return (
-    <div className="page">
+    <div className="page page--wide users-page">
       <header className="list-page-heading">
         <div><span className="eyebrow">Administración</span><h1>Usuarios</h1><p>Gestiona accesos, roles y estado de las cuentas.</p></div>
-        {hasPermission('USUARIOS_GESTIONAR') && <Link to="/usuarios/nuevo" className="button button--primary"><Icon name="person_add" /> Crear usuario</Link>}
+        {hasPermission('USUARIOS_GESTIONAR') && <Link to="/usuarios/nuevo" state={listReturnState()} className="button button--primary"><Icon name="person_add" /> Crear usuario</Link>}
       </header>
 
-      <form className="search-bar" onSubmit={(event) => { event.preventDefault(); loadFirst(); }}>
+      <form className="search-bar users-search-bar" role="search" onSubmit={submitSearch}>
         <Icon name="search" />
-        <input value={search} onChange={(event) => setSearch(event.target.value)} placeholder="Buscar por nombre, usuario o correo..." aria-label="Buscar usuarios" />
-        <button className="icon-button icon-button--primary" aria-label="Buscar"><Icon name="search" /></button>
+        <input type="search" value={search} onChange={(event) => setSearch(event.target.value)} placeholder="Buscar por nombre, usuario o correo..." aria-label="Buscar usuarios" enterKeyHint="search" autoComplete="off" />
+        <button className="icon-button icon-button--primary" type="submit" aria-label="Buscar"><Icon name="arrow_forward" /></button>
       </form>
 
       <ErrorMessage message={error} />
@@ -144,11 +178,13 @@ export default function UsersPage() {
                   <span className={`status-chip ${active ? 'status-chip--active' : 'status-chip--inactive'}`}>{record.Estado}</span>
                 </div>
                 <dl className="user-card__details"><div><dt>Correo</dt><dd>{record.Correo}</dd></div><div><dt>Rol</dt><dd>{roleById[record.RolID] || record.RolID}</dd></div></dl>
-                <div className="card-actions">
-                  <Link to={detailUrl} className="button button--primary button--compact">Ver detalle</Link>
-                  {hasPermission('USUARIOS_GESTIONAR') && <Link to={`${detailUrl}/editar`} className="icon-button icon-button--outlined" aria-label="Editar"><Icon name="edit" /></Link>}
-                  {hasPermission('USUARIOS_GESTIONAR') && active && !isCurrentUser && <button type="button" className="icon-button icon-button--outlined user-card__reset-password" onClick={() => resetPassword(record)} aria-label={`Restablecer contraseña de ${record.NombreCompleto}`} title="Restablecer contraseña y enviarla por correo" disabled={Boolean(resettingUserId)}><Icon name={resetting ? 'progress_activity' : 'lock_reset'} /></button>}
-                  {hasPermission('USUARIOS_GESTIONAR') && active && <button type="button" className="icon-button icon-button--danger" onClick={() => deactivateUser(record)} aria-label="Desactivar"><Icon name="person_remove" /></button>}
+                <div className="card-actions user-card__actions">
+                  <Link to={detailUrl} state={listReturnState()} className="button button--primary button--compact user-card__primary-action">Ver detalle</Link>
+                  <div className="user-card__secondary-actions">
+                    {hasPermission('USUARIOS_GESTIONAR') && <Link to={`${detailUrl}/editar`} state={listReturnState()} className="icon-button icon-button--outlined" aria-label="Editar"><Icon name="edit" /></Link>}
+                    {hasPermission('USUARIOS_GESTIONAR') && active && !isCurrentUser && <button type="button" className="icon-button icon-button--outlined user-card__reset-password" onClick={() => resetPassword(record)} aria-label={`Restablecer contraseña de ${record.NombreCompleto}`} title="Restablecer contraseña y enviarla por correo" disabled={Boolean(resettingUserId)}><Icon name={resetting ? 'progress_activity' : 'lock_reset'} /></button>}
+                    {hasPermission('USUARIOS_GESTIONAR') && active && <button type="button" className="icon-button icon-button--danger" onClick={() => deactivateUser(record)} aria-label="Desactivar"><Icon name="person_remove" /></button>}
+                  </div>
                 </div>
               </article>
             );

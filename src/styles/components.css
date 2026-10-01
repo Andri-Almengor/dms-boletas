@@ -1,14 +1,16 @@
-.icon-button { width: 44px; height: 44px; border: 0; border-radius: 999px; background: transparent; color: var(--primary); display: inline-flex; align-items: center; justify-content: center; transition: transform .16s ease, background .16s ease; }
-.icon-button:hover { background: var(--surface-container); }
+.icon-button { width: var(--touch-target-min); height: var(--touch-target-min); border: 0; border-radius: 999px; background: transparent; color: var(--primary); display: inline-flex; align-items: center; justify-content: center; transition: transform var(--motion-fast) ease, background var(--motion-fast) ease; }
+@media (hover: hover) and (pointer: fine) {
+  .icon-button:hover { background: var(--surface-container); }
+}
 .icon-button:active, .button:active, .quick-card:active, .menu-row:active { transform: scale(.97); }
 .icon-button--primary { background: var(--primary); color: white; border-radius: var(--radius-sm); }
 .icon-button--outlined { border: 1px solid var(--outline-soft); border-radius: var(--radius-sm); }
 .icon-button--danger { color: var(--danger); border: 1px solid #efc4bf; border-radius: var(--radius-sm); }
-.button { min-height: 48px; padding: 0 18px; border: 1px solid transparent; border-radius: 999px; display: inline-flex; align-items: center; justify-content: center; gap: 8px; font-weight: 700; transition: transform .16s ease, box-shadow .16s ease, opacity .16s ease; }
+.button { min-height: var(--button-height); padding: 0 18px; border: 1px solid transparent; border-radius: 999px; display: inline-flex; align-items: center; justify-content: center; gap: 8px; font-weight: 700; transition: transform var(--motion-fast) ease, box-shadow var(--motion-fast) ease, opacity var(--motion-fast) ease; }
 .button:disabled { opacity: .58; cursor: wait; }
 .button--primary { background: var(--primary); color: white; box-shadow: 0 7px 18px rgba(175,16,26,.18); }
 .button--secondary { color: var(--muted); border-color: var(--outline-soft); background: white; }
-.button--compact { min-height: 42px; border-radius: var(--radius-sm); padding: 0 14px; }
+.button--compact { min-height: var(--control-height-compact); border-radius: var(--radius-sm); padding: 0 14px; }
 .button--wide { width: 100%; }
 .avatar { width: 48px; height: 48px; border-radius: 999px; background: var(--primary-soft); color: var(--primary); border: 1px solid var(--outline-soft); display: inline-flex; align-items: center; justify-content: center; font-weight: 800; flex: 0 0 auto; }
 .avatar--small { width: 36px; height: 36px; font-size: .78rem; }
@@ -16,7 +18,7 @@
 .avatar--xlarge { width: 78px; height: 78px; font-size: 1.15rem; }
 .field-group { display: grid; gap: 7px; }
 .field-label { font-size: .82rem; font-weight: 700; color: var(--variant); padding-left: 3px; }
-.form-control { width: 100%; min-height: 52px; border: 1px solid var(--outline); border-radius: var(--radius-sm); background: white; color: var(--text); padding: 0 14px; outline: none; transition: border .16s ease, box-shadow .16s ease; }
+.form-control { width: 100%; min-height: var(--control-height); border: 1px solid var(--outline); border-radius: var(--radius-sm); background: white; color: var(--text); padding: 0 14px; outline: none; transition: border var(--motion-fast) ease, box-shadow var(--motion-fast) ease; }
 .form-control:focus { border-color: var(--primary); box-shadow: 0 0 0 3px rgba(175,16,26,.11); }
 .form-control--with-leading { padding-left: 46px; }
 .form-control--with-icons { padding-left: 46px; padding-right: 52px; }
@@ -42,3 +44,17 @@
 .status-chip--neutral { color: var(--muted); background: var(--surface-container); }
 .section-marker { display: block; width: 4px; min-height: 29px; background: var(--primary); border-radius: 999px; }
 .section-marker--secondary { background: var(--muted); }
+
+
+/* Indicador consistente para navegación por teclado en superficies compartidas. */
+:is(.button, .icon-button, .quick-card, .menu-row, .logout-row, .primary-cta, .bottom-nav__item, .side-drawer__nav a):focus-visible {
+  outline: 3px solid color-mix(in srgb, var(--primary) 32%, transparent);
+  outline-offset: 2px;
+}
+
+
+@media (prefers-reduced-motion: reduce) {
+  :is(.button, .icon-button, .quick-card, .menu-row) {
+    transition-duration: .01ms;
+  }
+}
