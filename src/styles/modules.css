@@ -196,6 +196,9 @@
     overscroll-behavior-x: contain;
     scrollbar-width: none;
     scroll-snap-type: x proximity;
+    scroll-padding-inline: 8px;
+    -webkit-overflow-scrolling: touch;
+    touch-action: pan-x;
   }
 
   .ticket-detail-actions::-webkit-scrollbar {
