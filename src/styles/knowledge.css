@@ -86,7 +86,7 @@
 .knowledge-file-list article > .material-symbols-outlined { color:var(--primary); }
 .knowledge-file-list strong, .knowledge-file-list small { display:block; overflow-wrap:anywhere; }
 .knowledge-file-list small { color:var(--muted); margin-top:2px; }
-.knowledge-editor-actions { position:sticky; bottom:calc(var(--bottom-nav-height) + env(safe-area-inset-bottom) + 8px); z-index:18; margin-top:18px; padding:10px; border:1px solid var(--outline-soft); border-radius:var(--radius-md); background:rgba(255,255,255,.97); backdrop-filter:blur(12px); box-shadow:var(--shadow-md); display:grid; grid-template-columns:1fr 1.35fr; gap:9px; }
+.knowledge-editor-actions { position:sticky; bottom:calc(var(--bottom-nav-height) + var(--safe-area-bottom) + 8px); z-index:18; margin-top:18px; padding:10px; border:1px solid var(--outline-soft); border-radius:var(--radius-md); background:rgba(255,255,255,.97); backdrop-filter:blur(12px); box-shadow:var(--shadow-md); display:grid; grid-template-columns:1fr 1.35fr; gap:9px; }
 .knowledge-category-admin-grid { display:grid; gap:11px; }
 .knowledge-category-admin-grid > article { padding:15px; border:1px solid var(--outline-soft); border-radius:var(--radius-md); background:white; display:grid; grid-template-columns:44px minmax(0,1fr) auto 44px; gap:11px; align-items:center; box-shadow:var(--shadow-sm); }
 .knowledge-category-admin-grid > article > span:first-child { width:44px; height:44px; border-radius:var(--radius-sm); background:var(--surface-container); color:var(--primary); display:grid; place-items:center; }
@@ -97,13 +97,13 @@
   .knowledge-hero__actions { display:grid; grid-template-columns:1fr 1fr; }
   .knowledge-grid, .knowledge-video-grid { grid-template-columns:1fr; }
   .knowledge-mine-toggle { margin-left:0; }
-  .knowledge-detail-header, .knowledge-editor-header { grid-template-columns:40px minmax(0,1fr); }
+  .knowledge-detail-header, .knowledge-editor-header { grid-template-columns:var(--touch-target-min) minmax(0,1fr); }
   .knowledge-detail-header > :last-child, .knowledge-editor-header > :last-child { grid-column:2; justify-self:start; }
   .knowledge-basics-grid { grid-template-columns:1fr; }
   .knowledge-basics-grid .is-wide { grid-column:auto; }
   .knowledge-editor__document { min-height:420px; padding:20px; }
   .knowledge-document img, .knowledge-editor__document img { max-height:58vh; margin:14px auto; }
-  .knowledge-category-admin-grid > article { grid-template-columns:42px minmax(0,1fr) 42px; }
+  .knowledge-category-admin-grid > article { grid-template-columns:var(--touch-target-min) minmax(0,1fr) var(--touch-target-min); }
   .knowledge-category-admin-grid > article > .status-chip { grid-column:2; justify-self:start; }
   .knowledge-category-admin-grid > article > button { grid-column:3; grid-row:1; }
 }
@@ -142,7 +142,7 @@
     min-height: 52px;
     padding-right: 4px;
     padding-left: 11px;
-    grid-template-columns: 22px minmax(0, 1fr) 40px;
+    grid-template-columns: 22px minmax(0, 1fr) var(--touch-target-min);
     gap: 6px;
   }
 
@@ -152,8 +152,8 @@
   }
 
   .knowledge-search .icon-button {
-    width: 40px;
-    height: 40px;
+    width: var(--touch-target-min);
+    height: var(--touch-target-min);
   }
 
   .knowledge-filter-row > button,
@@ -183,7 +183,7 @@
   }
 
   .knowledge-file-list article {
-    grid-template-columns: 36px minmax(0, 1fr) repeat(2, 40px);
+    grid-template-columns: 36px minmax(0, 1fr) repeat(2, var(--touch-target-min));
   }
 
   .knowledge-document,
@@ -204,13 +204,13 @@
   }
 
   .knowledge-file-list article {
-    grid-template-columns: 34px minmax(0, 1fr) 38px;
+    grid-template-columns: 34px minmax(0, 1fr) var(--touch-target-min);
   }
 
   .knowledge-file-list article > label.icon-button {
     grid-column: 1 / -1;
     width: 100%;
-    min-height: 40px;
+    min-height: var(--touch-target-min);
   }
 
   .knowledge-file-list article > label.icon-button::after {
