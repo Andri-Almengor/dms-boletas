@@ -22,7 +22,7 @@
   background: var(--surface-card);
   box-shadow: var(--shadow-sm);
   display: grid;
-  grid-template-columns: 48px minmax(0, 1fr) 42px;
+  grid-template-columns: 48px minmax(0, 1fr) var(--touch-target-min);
   align-items: center;
   gap: 14px;
 }
@@ -95,8 +95,8 @@
 }
 
 .admin-mini-card__action {
-  width: 42px;
-  height: 42px;
+  width: var(--touch-target-min);
+  height: var(--touch-target-min);
   align-self: center;
   background: var(--surface-low);
 }
@@ -332,7 +332,7 @@
 
   .admin-entity-modal__header {
     padding: 14px;
-    grid-template-columns: 44px minmax(0, 1fr) 42px;
+    grid-template-columns: var(--touch-target-min) minmax(0, 1fr) var(--touch-target-min);
   }
 
   .admin-entity-modal__icon {
