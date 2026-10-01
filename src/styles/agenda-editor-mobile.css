@@ -209,6 +209,10 @@
 }
 
 @media (max-width: 430px) {
+  .agenda-editor__footer .button--secondary {
+    display: inline-flex;
+  }
+
   .agenda-editor {
     height: calc(100dvh - max(6px, env(safe-area-inset-top)));
     max-height: calc(100dvh - max(6px, env(safe-area-inset-top)));
