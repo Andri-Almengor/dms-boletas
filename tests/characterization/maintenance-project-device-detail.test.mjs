@@ -7,25 +7,26 @@ import path from 'node:path';
 const ROOT = fileURLToPath(new URL('../../', import.meta.url));
 const source = (relativePath) => readFileSync(path.join(ROOT, relativePath), 'utf8');
 
-test('Proyecto reutiliza AdminEntityModal como ventana propia del dispositivo', () => {
+test('Mantenimiento y Proyecto reutilizan AdminEntityModal como ventana propia del dispositivo', () => {
   const inventory = source('src/components/maintenance/MaintenanceLocationInventory.jsx');
 
   assert.match(inventory, /import AdminEntityModal from '\.\.\/forms\/AdminEntityModal'/);
-  assert.match(inventory, /maintenance-project-device-detail-modal/);
-  assert.match(inventory, /title=\{deviceName\(activeProjectDevice\)\}/);
-  assert.match(inventory, /expandedContent\(activeProjectDevice, \{ detailView: true \}\)/);
-  assert.match(inventory, /if \(projectMode\) \{\s*openProjectDeviceDetail\(device\)/);
+  assert.match(inventory, /maintenance-device-detail-modal/);
+  assert.match(inventory, /title=\{deviceName\(activeDetailDevice\)\}/);
+  assert.match(inventory, /deviceDetailContent\(activeDetailDevice, \{ detailView: true \}\)/);
+  assert.match(inventory, /function toggleDevice\(device\) \{\s*openDeviceDetail\(device\);\s*\}/);
+  assert.match(inventory, /\{activeDetailDevice && <AdminEntityModal/);
 });
 
-test('detalle de Proyecto permite navegar anterior siguiente y editar sin duplicar el editor', () => {
+test('detalle compartido permite navegar anterior siguiente y editar sin duplicar el editor', () => {
   const inventory = source('src/components/maintenance/MaintenanceLocationInventory.jsx');
 
-  assert.match(inventory, /const projectDetailDevices = useMemo/);
+  assert.match(inventory, /const detailDevices = useMemo/);
   assert.match(inventory, /groups\.flatMap\(\(group\) => group\.items\)/);
-  assert.match(inventory, /navigateProjectDevice\(-1\)/);
-  assert.match(inventory, /navigateProjectDevice\(1\)/);
-  assert.match(inventory, /activeProjectDeviceIndex \+ 1/);
-  assert.match(inventory, /editDeviceFromDetail\(activeProjectDevice\)/);
+  assert.match(inventory, /navigateDeviceDetail\(-1\)/);
+  assert.match(inventory, /navigateDeviceDetail\(1\)/);
+  assert.match(inventory, /activeDetailDeviceIndex \+ 1/);
+  assert.match(inventory, /editDeviceFromDetail\(activeDetailDevice\)/);
   assert.match(inventory, /onEditDevice\?\.\(device\)/);
 });
 
@@ -71,21 +72,24 @@ test('buscador de inventario incluye notas y metadatos de evidencia', () => {
   assert.match(inventory, /nota de evidencia/);
 });
 
-test('Mantenimiento normal conserva expansión en fila y Proyecto usa ventana', () => {
+test('ningún tipo de mantenimiento expande el dispositivo dentro de la lista', () => {
   const inventory = source('src/components/maintenance/MaintenanceLocationInventory.jsx');
 
-  assert.match(inventory, /const expanded = !projectMode && expandedDevice === id/);
-  assert.match(inventory, /\{expanded && <tr className="maintenance-inventory-expanded-row"/);
-  assert.match(inventory, /\{expanded && expandedContent\(device\)\}/);
-  assert.match(inventory, /projectMode \? 'open_in_new' : \(expanded \? 'expand_less' : 'expand_more'\)/);
+  assert.doesNotMatch(inventory, /expandedDevice/);
+  assert.doesNotMatch(inventory, /maintenance-inventory-expanded-row/);
+  assert.doesNotMatch(inventory, /\{expanded && deviceDetailContent\(device\)/);
+  assert.match(inventory, /aria-haspopup="dialog"/);
+  assert.match(inventory, /<Icon name="open_in_new" \/>/);
+  assert.match(inventory, /className="maintenance-device-detail-modal"/);
 });
 
-test('detalle de Proyecto es responsive usando el sistema visual existente', () => {
+test('detalle compartido es responsive usando el sistema visual existente', () => {
   const styles = source('src/styles/maintenance-project.css');
 
-  assert.match(styles, /\.maintenance-project-device-detail-modal \.admin-entity-modal/);
+  assert.match(styles, /\.maintenance-device-detail-modal \.admin-entity-modal/);
+  assert.match(styles, /width:\s*min\(100%, 1180px\)/);
   assert.match(styles, /\.maintenance-project-device-summary-grid/);
-  assert.match(styles, /\.maintenance-project-device-detail-navigation/);
+  assert.match(styles, /\.maintenance-device-detail-navigation/);
   assert.match(styles, /@media \(max-width: 700px\)/);
-  assert.match(styles, /height: calc\(100dvh - max\(8px, env\(safe-area-inset-top\)\)\)/);
+  assert.match(styles, /height:\s*calc\(100dvh - max\(8px, var\(--safe-area-top\)\)\)/);
 });
