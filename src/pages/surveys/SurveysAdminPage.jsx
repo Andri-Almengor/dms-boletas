@@ -212,7 +212,7 @@ export default function SurveysAdminPage() {
       </div>
     ) : <>
       <form className="survey-response-filters" onSubmit={submitResponseSearch}>
-        <div className="knowledge-search"><Icon name="search" /><input type="search" value={search} onChange={(event) => setSearch(event.target.value)} placeholder="Buscar cliente, boleta o título..." aria-label="Buscar encuestas" enterKeyHint="search" autoComplete="off" /><button className="icon-button" type="submit" aria-label="Buscar"><Icon name="arrow_forward" /></button></div>
+        <div className="search-bar survey-response-search"><Icon name="search" /><input type="search" value={search} onChange={(event) => setSearch(event.target.value)} placeholder="Buscar cliente, boleta o título..." aria-label="Buscar encuestas" enterKeyHint="search" autoComplete="off" /><button className="icon-button icon-button--primary" type="submit" aria-label="Buscar"><Icon name="arrow_forward" /></button></div>
         <select className="form-control" value={status} onChange={(event) => changeResponseStatus(event.target.value)}><option value="">Todos los estados</option><option value="PENDIENTE">Pendientes</option><option value="RESPONDIDA">Respondidas</option><option value="EXPIRADA">Expiradas</option></select>
       </form>
       <div className="ticket-list-result-count"><span>Mostrando <strong>{visibleResponses.length}</strong>{total > visibleResponses.length ? ` de ${total}` : ''} encuestas</span></div>
