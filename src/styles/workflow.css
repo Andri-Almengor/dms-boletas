@@ -43,7 +43,7 @@
 .evidence-file-icon { display:grid; place-items:center; color:var(--primary); }
 .evidence-file-icon .material-symbols-outlined { font-size:48px; }
 .evidence-edit-card__fields { padding:9px; display:grid; gap:7px; }
-.evidence-edit-card__fields .form-control { min-height:42px; padding:8px 10px; font-size:.76rem; }
+.evidence-edit-card__fields .form-control { min-height:var(--touch-target-min); padding:8px 10px; font-size:.76rem; }
 .evidence-remove { position:absolute; top:7px; right:7px; width:var(--touch-target-min); height:var(--touch-target-min); border:0; border-radius:999px; background:rgba(255,255,255,.94); color:var(--danger); display:grid; place-items:center; box-shadow:var(--shadow-sm); touch-action:manipulation; }
 .review-action-grid { display:grid; grid-template-columns:repeat(2,minmax(0,1fr)); gap:9px; }
 .review-action-grid .button:last-child { grid-column:1 / -1; }
