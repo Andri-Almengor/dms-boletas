@@ -41,4 +41,5 @@
   --page-wide-max-width: 1280px;
   --touch-target-min: 44px;
   --overlay-radius: 22px;
+  --z-assistant-fab: 55;
 }
