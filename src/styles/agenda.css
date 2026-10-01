@@ -78,12 +78,12 @@
 
 @media (max-width: 760px) {
   .agenda-modal-backdrop {
-    padding: max(6px, env(safe-area-inset-top)) 0 0;
+    padding: max(6px, var(--safe-area-top)) 0 0;
     overflow: hidden;
   }
 
   .agenda-detail-sheet {
-    max-height: calc(100dvh - max(6px, env(safe-area-inset-top)));
+    max-height: calc(100dvh - max(6px, var(--safe-area-top)));
     overscroll-behavior: contain;
     scrollbar-gutter: stable;
   }
@@ -92,7 +92,7 @@
     position: sticky;
     z-index: 6;
     bottom: 0;
-    padding: 10px 16px max(12px, env(safe-area-inset-bottom));
+    padding: 10px 16px max(12px, var(--safe-area-bottom));
     border-top: 1px solid var(--outline-soft);
     background: color-mix(in srgb, var(--surface-card) 96%, transparent);
     backdrop-filter: blur(12px);
@@ -127,8 +127,8 @@
   }
 
   .agenda-month-navigation .icon-button {
-    width: 40px;
-    height: 40px;
+    width: var(--touch-target-min);
+    height: var(--touch-target-min);
   }
 
   .agenda-mobile-day > header > div {
