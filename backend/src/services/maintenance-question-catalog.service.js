@@ -162,6 +162,35 @@ export function normalizeMaintenanceQuestionValue(value) {
     .trim();
 }
 
+export function maintenanceQuestionTypeIdentity(value) {
+  const key = normalizeMaintenanceQuestionValue(value);
+  if (!key) return '';
+  const group = DEFAULT_QUESTION_GROUPS.find((item) => item.aliases.some((alias) => {
+    const aliasKey = normalizeMaintenanceQuestionValue(alias);
+    return key === aliasKey || key.includes(aliasKey) || aliasKey.includes(key);
+  }));
+  return group ? normalizeMaintenanceQuestionValue(group.aliases[0]) : key;
+}
+
+function dedupeMaintenanceQuestions(rows = [], preferredTypeId = '') {
+  const preferred = cleanMaintenanceQuestionValue(preferredTypeId);
+  const ordered = [...rows].sort((left, right) => {
+    const leftPreferred = cleanMaintenanceQuestionValue(left.TipoDispositivoID) === preferred ? 0 : 1;
+    const rightPreferred = cleanMaintenanceQuestionValue(right.TipoDispositivoID) === preferred ? 0 : 1;
+    return leftPreferred - rightPreferred
+      || Number(left.Orden || 0) - Number(right.Orden || 0)
+      || cleanMaintenanceQuestionValue(left.Pregunta).localeCompare(cleanMaintenanceQuestionValue(right.Pregunta), 'es');
+  });
+  const seen = new Set();
+  return ordered.filter((row) => {
+    const key = cleanMaintenanceQuestionValue(row.Clave)
+      || cleanMaintenanceQuestionValue(row.PreguntaDispositivoID);
+    if (!key || seen.has(key)) return false;
+    seen.add(key);
+    return true;
+  });
+}
+
 export function normalizeMaintenanceQuestionMode(value, fallback = 'MANTENIMIENTO') {
   const normalized = cleanMaintenanceQuestionValue(value, fallback).toUpperCase();
   return MAINTENANCE_QUESTION_MODES.includes(normalized) ? normalized : fallback;
@@ -280,23 +309,34 @@ export async function readMaintenanceQuestions({ includeInactive = false, typeId
 
 export async function resolveMaintenanceQuestionsForType({ typeId = '', typeName = '', includeInactive = false, mode = 'MANTENIMIENTO' } = {}) {
   const cleanTypeId = cleanMaintenanceQuestionValue(typeId);
-  let resolvedTypeId = cleanTypeId;
   let resolvedTypeName = cleanMaintenanceQuestionValue(typeName);
+  const deviceTypes = await readTable('TiposDispositivo');
+  const exactType = cleanTypeId
+    ? deviceTypes.find((row) => cleanMaintenanceQuestionValue(row.TipoDispositivoID) === cleanTypeId)
+    : null;
 
-  if (!resolvedTypeId && resolvedTypeName) {
-    const deviceTypes = await readTable('TiposDispositivo');
-    const type = deviceTypes.find((row) => normalizeMaintenanceQuestionValue(row.Nombre) === normalizeMaintenanceQuestionValue(resolvedTypeName));
-    resolvedTypeId = cleanMaintenanceQuestionValue(type?.TipoDispositivoID);
-    resolvedTypeName = cleanMaintenanceQuestionValue(type?.Nombre, resolvedTypeName);
-  }
+  if (exactType?.Nombre) resolvedTypeName = cleanMaintenanceQuestionValue(exactType.Nombre, resolvedTypeName);
 
-  if (resolvedTypeId) {
-    const rows = await readMaintenanceQuestions({ includeInactive, typeId: resolvedTypeId, mode });
+  const identity = maintenanceQuestionTypeIdentity(resolvedTypeName);
+  const equivalentTypeIds = deviceTypes
+    .filter((row) => identity && maintenanceQuestionTypeIdentity(row.Nombre) === identity)
+    .map((row) => cleanMaintenanceQuestionValue(row.TipoDispositivoID))
+    .filter(Boolean);
+
+  if (cleanTypeId && !equivalentTypeIds.includes(cleanTypeId)) equivalentTypeIds.unshift(cleanTypeId);
+
+  if (equivalentTypeIds.length) {
+    let rows = await findRows(MAINTENANCE_QUESTION_SHEET, {
+      TipoDispositivoID: equivalentTypeIds,
+    }, { limit: 50_000 });
+    if (!includeInactive) rows = rows.filter(isActiveMaintenanceQuestion);
+    if (mode) rows = rows.filter((row) => maintenanceQuestionAppliesTo(row, mode));
+    rows = dedupeMaintenanceQuestions(rows, cleanTypeId);
     if (rows.length || includeInactive) return rows;
   }
 
   // Compatibilidad con mantenimientos históricos que no tienen TipoDispositivoID.
-  if (!resolvedTypeId && normalizeMaintenanceQuestionMode(mode) === 'MANTENIMIENTO') return legacyMaintenanceQuestions(resolvedTypeName);
+  if (!cleanTypeId && normalizeMaintenanceQuestionMode(mode) === 'MANTENIMIENTO') return legacyMaintenanceQuestions(resolvedTypeName);
   return [];
 }
 
