@@ -223,9 +223,9 @@
 .assistant-attach-button {
   display: grid;
   place-items: center;
-  width: 42px;
-  height: 42px;
-  flex: 0 0 42px;
+  width: var(--touch-target-min);
+  height: var(--touch-target-min);
+  flex: 0 0 var(--touch-target-min);
   border: 1px solid var(--border, #dce0e6);
   border-radius: 11px;
   background: var(--card, #fff);
