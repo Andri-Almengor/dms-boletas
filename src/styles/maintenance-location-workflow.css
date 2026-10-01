@@ -212,7 +212,7 @@
 }
 
 .maintenance-location-work-group__empty strong {
-  color: var(--text-main);
+  color: var(--text);
   font-size: .84rem;
 }
 
@@ -261,7 +261,7 @@
 }
 
 .maintenance-quick-device-location-banner strong {
-  color: var(--text-main);
+  color: var(--text);
   font-size: .86rem;
 }
 
