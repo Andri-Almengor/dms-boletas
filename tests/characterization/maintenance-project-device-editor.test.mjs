@@ -100,7 +100,7 @@ test('los componentes relacionados reutilizan catálogos tipo marca modelo y cre
   assert.match(catalogs, /MODULE_ROUTES\.models\.create/);
   assert.match(catalogs, /MODULE_ROUTES\.deviceManufacturers\.create/);
   assert.match(relation, /fixedTypeId=\{relatedTypeId\}/);
-  assert.match(relation, /questionCatalog\?\.forDevice\?\.\(item, 'PROYECTO'\)/);
+  assert.match(relation, /questionCatalog\?\.forDevice\?\.\(item, 'PROYECTO', \{ includeSystem: false \}\)/);
   assert.match(sharedHook, /Promise\.allSettled/);
   assert.match(sharedHook, /MODULE_ROUTES\.deviceManufacturers\.list/);
 });
