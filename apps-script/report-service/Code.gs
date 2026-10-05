@@ -11,7 +11,7 @@ const BRAND_BORDER = '#ead5d7';
 const BRAND_BACKGROUND = '#fffafa';
 const DMS_EMAIL_FROM_ALIAS = 'reportes@solutionsdms.com';
 const DMS_EMAIL_FROM_NAME = 'DMS Boletas';
-const APPS_SCRIPT_VERSION = '2026-09-28-V7.12-EMAIL-DELIVERY-FALLBACK';
+const APPS_SCRIPT_VERSION = '2026-10-05-V7.13-MAINTENANCE-FAULT-ALERTS';
 const MAINTENANCE_ARCHIVE_DELIVERY_TYPE = 'MAINTENANCE_ARCHIVE';
 
 /*
@@ -75,6 +75,7 @@ const CUSTOMER_CASE_ASSIGNED_ACTION = 'customer.case.assigned.send';
 const CUSTOMER_CASE_EVIDENCE_UPLOAD_ACTION = 'customer.case.evidence.upload';
 const CUSTOMER_CASE_EVIDENCE_GET_ACTION = 'customer.case.evidence.get';
 const SIGNATURE_COMPLETION_ACTION = 'signature.completed.send';
+const MAINTENANCE_DEVICE_FAILURE_ACTION = 'maintenance.device.failure.send';
 const CUSTOMER_CASE_EVIDENCE_MAX_BYTES = 6 * 1024 * 1024;
 const IDEMPOTENCY_RETENTION_MS = 7 * 24 * 60 * 60 * 1000;
 const IDEMPOTENCY_CLEANUP_INTERVAL_MS = 60 * 60 * 1000;
@@ -192,6 +193,8 @@ function autorizarPermisosDMSV4() {
  * - customer.case.assigned.send
  * - customer.case.evidence.upload
  * - customer.case.evidence.get
+ * - signature.completed.send
+ * - maintenance.device.failure.send
  */
 function doPost(event) {
   let propertyKey = '';
@@ -219,6 +222,7 @@ function doPost(event) {
       'customer.case.evidence.chunk',
       CUSTOMER_CASE_EVIDENCE_GET_ACTION,
       SIGNATURE_COMPLETION_ACTION,
+      MAINTENANCE_DEVICE_FAILURE_ACTION,
     ];
 
     if (supportedActions.indexOf(action) === -1) {
@@ -296,6 +300,8 @@ function doPost(event) {
       result = getCustomerCaseEvidence_(payload);
     } else if (action === SIGNATURE_COMPLETION_ACTION) {
       result = sendSignatureCompletionEmail_(payload);
+    } else if (action === MAINTENANCE_DEVICE_FAILURE_ACTION) {
+      result = sendMaintenanceDeviceFailureEmail_(payload);
     } else {
       result = createReportAndMaybeSend_(payload);
     }
@@ -717,6 +723,7 @@ function idempotencyPrefixName_(key) {
     'CUSTOMER_CASE_ASSIGNED_',
     'CUSTOMER_CASE_EVIDENCE_',
     'SIGNATURE_NOTIFICATION_',
+    'MAINTENANCE_DEVICE_FAILURE_',
     'DELIVERY_',
   ];
 
@@ -1231,6 +1238,7 @@ function isIdempotencyProperty_(key) {
     'CUSTOMER_CASE_ASSIGNED_',
     'CUSTOMER_CASE_EVIDENCE_',
     'SIGNATURE_NOTIFICATION_',
+    'MAINTENANCE_DEVICE_FAILURE_',
     'DELIVERY_',
   ].some(function (prefix) {
     return String(key || '').indexOf(prefix) === 0;
@@ -1503,6 +1511,10 @@ function idempotencyPrefixForAction_(action) {
     return 'SIGNATURE_NOTIFICATION_';
   }
 
+  if (action === MAINTENANCE_DEVICE_FAILURE_ACTION) {
+    return 'MAINTENANCE_DEVICE_FAILURE_';
+  }
+
   return 'DELIVERY_';
 }
 
@@ -1521,7 +1533,8 @@ function isCustomerCaseAction_(action) {
  */
 function actionRequiresIdempotency_(action) {
   return action === 'customer.case.evidence.init' || isCustomerCaseAction_(action)
-    || action === SIGNATURE_COMPLETION_ACTION;
+    || action === SIGNATURE_COMPLETION_ACTION
+    || action === MAINTENANCE_DEVICE_FAILURE_ACTION;
 }
 
 
@@ -6155,9 +6168,9 @@ function buildCustomerCaseEmailHtml_(data) {
 }
 
 /**
- * Crea una fila segura para la tabla de detalles del caso.
+ * Crea una fila segura reutilizable para tablas de notificaciones.
  */
-function customerCaseTableRowHtml_(
+function notificationTableRowHtml_(
   label,
   value,
 ) {
@@ -6167,6 +6180,16 @@ function customerCaseTableRowHtml_(
     `<td style="padding:10px;border:1px solid ${BRAND_BORDER};vertical-align:top;color:${BRAND_TEXT};overflow-wrap:anywhere">${nl2br_(clean_(value, 'Sin especificar'))}</td>`,
     '</tr>',
   ].join('');
+}
+
+/**
+ * Compatibilidad con el constructor histórico de casos.
+ */
+function customerCaseTableRowHtml_(
+  label,
+  value,
+) {
+  return notificationTableRowHtml_(label, value);
 }
 
 /**
@@ -7453,6 +7476,207 @@ function sendSignatureCompletionEmail_(payload) {
     destination: recipients.join(','),
     targetUrl: targetUrl,
     channel: 'APPS_SCRIPT',
+    remainingDailyQuota: MailApp.getRemainingDailyQuota(),
+  };
+}
+
+/**
+ * Envía un aviso liviano cuando un dispositivo de mantenimiento/proyecto se
+ * guarda con una avería reportada. No adjunta PDFs ni evidencias y no cambia
+ * estados de negocio; únicamente notifica el evento ya persistido por backend.
+ */
+function sendMaintenanceDeviceFailureEmail_(payload) {
+  const recipients = uniqueEmails_(payload.recipients || payload.to || []);
+
+  if (!recipients.length) {
+    return {
+      sent: false,
+      skipped: true,
+      reason: 'No hay destinatarios configurados para las averías de mantenimiento.',
+      recipientCount: 0,
+      channel: 'APPS_SCRIPT',
+    };
+  }
+
+  if (MailApp.getRemainingDailyQuota() < recipients.length) {
+    throw new Error(
+      'La cuota diaria de correo de Apps Script no alcanza para notificar la avería.',
+    );
+  }
+
+  const maintenance = payload.maintenance || {};
+  const device = payload.device || {};
+  const maintenanceType = clean_(
+    maintenance.TipoMantenimiento || 'MANTENIMIENTO',
+    'MANTENIMIENTO',
+  ).toUpperCase();
+  const maintenanceLabel = maintenanceType === 'PROYECTO'
+    ? 'Proyecto'
+    : 'Mantenimiento';
+  const maintenanceId = clean_(
+    maintenance.MantenimientoID,
+    'Sin identificador',
+  );
+  const title = clean_(
+    maintenance.TituloMantenimiento,
+    maintenanceId,
+  );
+  const clientName = clean_(
+    maintenance.Cliente,
+    'Cliente sin especificar',
+  );
+  const deviceName = clean_(
+    device.NombreDispositivo,
+    device.TipoDispositivo || device.Categoria || 'Equipo sin nombre',
+  );
+  const targetUrl = safeWebUrl_(payload.targetUrl);
+  const answers = Array.isArray(device.Respuestas)
+    ? device.Respuestas
+    : [];
+
+  const maintenanceDetails = [
+    ['Tipo', maintenanceLabel],
+    ['Mantenimiento', maintenanceId],
+    ['Título', title],
+    ['Cliente', clientName],
+    ['Ubicación', maintenance.Ubicacion],
+    ['Fecha', maintenance.Fecha],
+    ['Estado', maintenance.Estado],
+    ['Responsables', maintenance.Responsables],
+    ['Descripción general', maintenance.DescripcionGeneral],
+  ];
+  const deviceDetails = [
+    ['Equipo', deviceName],
+    ['Tipo de dispositivo', device.TipoDispositivo || device.Categoria],
+    ['Ubicación del equipo', device.Zona],
+    ['Fabricante', device.Fabricante],
+    ['Modelo', device.Modelo],
+    ['Serie', device.Serie],
+    ['Dirección MAC', device.DireccionMAC],
+    ['Funcionamiento', device.Funcionamiento],
+    ['En uso', device.EnUso],
+    ['Estado', device.Estado],
+    ['Fecha de trabajo', device.FechaTrabajo],
+    ['Técnicos', device.Tecnicos],
+    ['Observación', device.Observacion],
+    ['¿Se reporta avería en este equipo?', 'Sí'],
+  ];
+
+  const answerDetails = answers
+    .map(function (item) {
+      return [
+        clean_(item && (item.label || item.key), 'Pregunta'),
+        clean_(item && item.value),
+      ];
+    })
+    .filter(function (item) {
+      return item[1];
+    });
+
+  const subject = `DMS Boletas - Avería reportada - ${clientName} - ${deviceName}`;
+  const plain = [
+    'AVERÍA REPORTADA EN EQUIPO',
+    '',
+    'Se guardó un dispositivo con una avería reportada en DMS Boletas.',
+    '',
+    'DATOS DEL MANTENIMIENTO',
+  ]
+    .concat(maintenanceDetails.map(function (item) {
+      return item[1] ? `${item[0]}: ${clean_(item[1])}` : '';
+    }))
+    .concat([
+      '',
+      'DETALLE DEL DISPOSITIVO',
+    ])
+    .concat(deviceDetails.map(function (item) {
+      return item[1] ? `${item[0]}: ${clean_(item[1])}` : '';
+    }))
+    .concat(answerDetails.length ? ['', 'RESPUESTAS DEL EQUIPO'] : [])
+    .concat(answerDetails.map(function (item) {
+      return `${item[0]}: ${item[1]}`;
+    }))
+    .concat(targetUrl ? ['', `Ver mantenimiento: ${targetUrl}`] : [])
+    .filter(Boolean)
+    .join('\n');
+
+  const maintenanceRows = maintenanceDetails
+    .filter(function (item) { return clean_(item[1]); })
+    .map(function (item) {
+      return notificationTableRowHtml_(item[0], item[1]);
+    })
+    .join('');
+  const deviceRows = deviceDetails
+    .filter(function (item) { return clean_(item[1]); })
+    .map(function (item) {
+      return notificationTableRowHtml_(item[0], item[1]);
+    })
+    .join('');
+  const answerRows = answerDetails
+    .map(function (item) {
+      return notificationTableRowHtml_(item[0], item[1]);
+    })
+    .join('');
+  const button = targetUrl
+    ? [
+      '<p style="margin:24px 0 8px"><a href="',
+      escapeHtml_(targetUrl),
+      '" style="display:inline-block;background:',
+      BRAND_RED,
+      ';color:#fff;text-decoration:none;padding:12px 18px;border-radius:8px;font-weight:700">Ver mantenimiento</a></p>',
+    ].join('')
+    : '';
+
+  const htmlBody = [
+    '<!doctype html><html><body style="margin:0;padding:24px;background:',
+    BRAND_BACKGROUND,
+    ';font-family:Arial,sans-serif;color:',
+    BRAND_TEXT,
+    '">',
+    '<div style="max-width:760px;margin:0 auto;background:#fff;border:1px solid:',
+    BRAND_BORDER,
+    ';border-radius:14px;overflow:hidden">',
+    '<div style="background:',
+    BRAND_RED,
+    ';color:#fff;padding:22px 24px">',
+    '<div style="font-size:12px;font-weight:700;letter-spacing:.08em;text-transform:uppercase;opacity:.9">DMS Boletas</div>',
+    '<h1 style="font-size:22px;margin:6px 0 0">Avería reportada en equipo</h1>',
+    '</div>',
+    '<div style="padding:24px;line-height:1.55">',
+    '<p style="margin-top:0">Se guardó un dispositivo con <strong>¿Se reporta avería en este equipo? = Sí</strong>.</p>',
+    '<h2 style="font-size:17px;margin:24px 0 10px">Datos del mantenimiento</h2>',
+    '<table style="width:100%;border-collapse:collapse">',
+    maintenanceRows,
+    '</table>',
+    '<h2 style="font-size:17px;margin:24px 0 10px">Detalle del dispositivo</h2>',
+    '<table style="width:100%;border-collapse:collapse">',
+    deviceRows,
+    '</table>',
+    answerRows
+      ? '<h2 style="font-size:17px;margin:24px 0 10px">Respuestas del equipo</h2><table style="width:100%;border-collapse:collapse">' + answerRows + '</table>'
+      : '',
+    button,
+    '<p style="margin:24px 0 0;color:',
+    BRAND_MUTED,
+    ';font-size:12px">Este correo es una notificación automática de avería. No modifica el estado del mantenimiento ni envía Google Chat.</p>',
+    '</div></div></body></html>',
+  ].join('');
+
+  const sender = sendDmsEmail_({
+    to: recipients.join(','),
+    subject: subject,
+    body: plain,
+    htmlBody: htmlBody,
+    name: DMS_EMAIL_FROM_NAME,
+  });
+
+  return {
+    sent: true,
+    skipped: false,
+    recipientCount: recipients.length,
+    destination: recipients.join(','),
+    targetUrl: targetUrl,
+    channel: 'APPS_SCRIPT',
+    senderMode: sender && sender.senderMode ? sender.senderMode : '',
     remainingDailyQuota: MailApp.getRemainingDailyQuota(),
   };
 }
