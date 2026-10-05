@@ -51,7 +51,7 @@ export default function MaintenanceProjectRelationField({
 
   const childQuestionsByItem = useMemo(() => new Map(relation.items.map((item) => [
     item.localId,
-    (questionCatalog?.forDevice?.(item, 'PROYECTO') || [])
+    (questionCatalog?.forDevice?.(item, 'PROYECTO', { includeSystem: false }) || [])
       .map(normalizedScalarQuestion)
       .filter((entry) => entry.key && entry.responseType !== 'RELACION_DISPOSITIVO'),
   ])), [questionCatalog, relation.items]);

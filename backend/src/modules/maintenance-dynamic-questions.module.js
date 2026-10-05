@@ -23,6 +23,7 @@ import {
   ensureMaintenanceQuestionCatalog,
   isActiveMaintenanceQuestion,
   maintenanceQuestionClientView,
+  maintenanceDeviceFaultQuestionRow,
   normalizeMaintenanceQuestionMode,
   normalizeMaintenanceQuestionResponseType,
   normalizeMaintenanceQuestionValue,
@@ -31,6 +32,7 @@ import {
   parseMaintenanceQuestionSnapshot,
   readMaintenanceQuestions,
 } from '../services/maintenance-question-catalog.service.js';
+import { notifyMaintenanceDeviceFaultOnSave } from '../services/maintenance-device-fault-notification.service.js';
 import { maintenanceDeviceCountPolicyHandlers } from './maintenance-device-count-policy.module.js';
 
 let questionWriteTail = Promise.resolve();
@@ -489,7 +491,7 @@ async function config(ctx) {
   ]));
   return {
     ...base,
-    questions: rows
+    questions: [...rows, maintenanceDeviceFaultQuestionRow()]
       .filter(isActiveMaintenanceQuestion)
       .map((row) => maintenanceQuestionClientView(row, names.get(cleanMaintenanceQuestionValue(row.TipoDispositivoID))))
       .sort((left, right) => left.typeName.localeCompare(right.typeName, 'es') || left.order - right.order),
@@ -573,8 +575,31 @@ async function contextWithQuestionSnapshot(ctx, before = {}) {
   };
 }
 
+async function attachFaultNotification(ctx, saved) {
+  try {
+    const notification = await notifyMaintenanceDeviceFaultOnSave({ ctx, device: saved });
+    const { device: refreshedDevice, ...status } = notification || {};
+    return {
+      ...saved,
+      ...(refreshedDevice || {}),
+      AveriaNotificacion: status,
+    };
+  } catch (error) {
+    return {
+      ...saved,
+      AveriaNotificacion: {
+        sent: false,
+        code: String(error?.code || 'MAINTENANCE_FAULT_NOTIFICATION_ERROR'),
+        error: `El dispositivo se guardó, pero no se pudo procesar la notificación de avería: ${error?.message || error}`,
+      },
+    };
+  }
+}
+
 async function deviceCreate(ctx) {
-  return maintenanceDeviceCountPolicyHandlers.deviceCreate(await contextWithQuestionSnapshot(ctx));
+  const prepared = await contextWithQuestionSnapshot(ctx);
+  const saved = await maintenanceDeviceCountPolicyHandlers.deviceCreate(prepared);
+  return attachFaultNotification(ctx, saved);
 }
 
 async function deviceUpdate(ctx) {
@@ -591,7 +616,8 @@ async function deviceUpdate(ctx) {
       maintenanceType: prepared.payload.TipoMantenimiento,
     });
   }
-  return maintenanceDeviceCountPolicyHandlers.deviceUpdate(prepared);
+  const saved = await maintenanceDeviceCountPolicyHandlers.deviceUpdate(prepared);
+  return attachFaultNotification(ctx, saved);
 }
 
 async function deviceAutosave(ctx) {

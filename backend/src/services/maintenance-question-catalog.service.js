@@ -29,6 +29,40 @@ export const MAINTENANCE_QUESTION_COLUMNS = [
 export const DEVICE_QUESTION_SNAPSHOT_COLUMN = 'RespuestasDetalleJSON';
 export const MAINTENANCE_QUESTION_MODES = ['MANTENIMIENTO', 'PROYECTO', 'AMBOS'];
 export const MAINTENANCE_QUESTION_RESPONSE_TYPES = ['SI_NO', 'TEXTO', 'NUMERO', 'CANTIDAD', 'MAC', 'OPCIONES', 'RELACION_DISPOSITIVO'];
+export const MAINTENANCE_DEVICE_FAULT_QUESTION_KEY = 'reportaAveria';
+export const MAINTENANCE_DEVICE_FAULT_QUESTION_LABEL = '¿Se reporta avería en este equipo?';
+
+export function maintenanceDeviceFaultQuestionRow() {
+  return {
+    PreguntaDispositivoID: 'system:maintenance-device-fault',
+    TipoDispositivoID: '',
+    Clave: MAINTENANCE_DEVICE_FAULT_QUESTION_KEY,
+    Pregunta: MAINTENANCE_DEVICE_FAULT_QUESTION_LABEL,
+    Orden: 9990,
+    TipoRespuesta: 'SI_NO',
+    AplicaModo: 'AMBOS',
+    TipoDispositivoRelacionadoID: '',
+    ConfiguracionJSON: JSON.stringify({
+      required: false,
+      system: true,
+      systemScope: 'ALL_DEVICES',
+    }),
+    Activo: true,
+    Estado: 'ACTIVO',
+    Origen: 'SISTEMA',
+  };
+}
+
+function withSystemMaintenanceQuestions(rows = []) {
+  const systemQuestion = maintenanceDeviceFaultQuestionRow();
+  return [
+    ...rows.filter((row) => cleanMaintenanceQuestionValue(row.Clave) !== MAINTENANCE_DEVICE_FAULT_QUESTION_KEY),
+    systemQuestion,
+  ].sort((left, right) => (
+    Number(left.Orden || 0) - Number(right.Orden || 0)
+    || cleanMaintenanceQuestionValue(left.Pregunta).localeCompare(cleanMaintenanceQuestionValue(right.Pregunta), 'es')
+  ));
+}
 
 const DEFAULT_QUESTION_GROUPS = [
   {
@@ -332,12 +366,12 @@ export async function resolveMaintenanceQuestionsForType({ typeId = '', typeName
     if (!includeInactive) rows = rows.filter(isActiveMaintenanceQuestion);
     if (mode) rows = rows.filter((row) => maintenanceQuestionAppliesTo(row, mode));
     rows = dedupeMaintenanceQuestions(rows, cleanTypeId);
-    if (rows.length || includeInactive) return rows;
+    if (rows.length || includeInactive) return withSystemMaintenanceQuestions(rows);
   }
 
   // Compatibilidad con mantenimientos históricos que no tienen TipoDispositivoID.
-  if (!cleanTypeId && normalizeMaintenanceQuestionMode(mode) === 'MANTENIMIENTO') return legacyMaintenanceQuestions(resolvedTypeName);
-  return [];
+  if (!cleanTypeId && normalizeMaintenanceQuestionMode(mode) === 'MANTENIMIENTO') return withSystemMaintenanceQuestions(legacyMaintenanceQuestions(resolvedTypeName));
+  return withSystemMaintenanceQuestions([]);
 }
 
 export function maintenanceQuestionClientView(row = {}, typeName = '') {

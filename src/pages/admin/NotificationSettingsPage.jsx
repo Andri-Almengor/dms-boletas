@@ -11,6 +11,7 @@ const EMPTY_EMAIL_SETTINGS = Object.freeze({
   caseCreatedCc: [],
   caseAssignedCc: [],
   ticketDefaultCc: [],
+  maintenanceFaultTo: [],
   testRecipients: [],
   testCc: [],
 });
@@ -44,6 +45,13 @@ const EMAIL_FIELDS = Object.freeze([
     label: 'Copias de boletas',
     description: 'Copias predeterminadas utilizadas por las notificaciones de boletas.',
     placeholder: 'boletas@empresa.com',
+  },
+  {
+    key: 'maintenanceFaultTo',
+    icon: 'report_problem',
+    label: 'Avisos de avería de equipos',
+    description: 'Persona que recibe el aviso cuando un dispositivo de Mantenimiento o Proyecto se guarda con “¿Se reporta avería en este equipo?” en Sí.',
+    placeholder: 'averias@empresa.com',
   },
   {
     key: 'testRecipients',
