@@ -148,10 +148,19 @@ export async function notifyMaintenanceDeviceFaultOnSave({ ctx, device } = {}) {
   const deviceId = clean(device?.EvidenciaMantenimientoID || device?.deviceId || device?.id, 300);
   if (!deviceId) return { sent: false, skipped: 'NO_DEVICE' };
 
-  const settings = await getNotificationEmailSettings();
-  const recipients = Array.isArray(settings.maintenanceFaultTo)
-    ? settings.maintenanceFaultTo
-    : [];
+  const initiallyReported = reportsFault(device);
+  const currentKey = clean(device?.AveriaNotificacionClave, 500);
+  if (!initiallyReported && !currentKey) {
+    return { sent: false, skipped: 'NOT_REPORTED', device };
+  }
+
+  let recipients = [];
+  if (initiallyReported) {
+    const settings = await getNotificationEmailSettings();
+    recipients = Array.isArray(settings.maintenanceFaultTo)
+      ? settings.maintenanceFaultTo
+      : [];
+  }
 
   const reservation = await claimFaultNotification({
     ctx,
