@@ -10,6 +10,7 @@ const CONFIG_KEYS = Object.freeze({
   caseCreatedCc: 'CORREOS_CASOS_CC',
   caseAssignedCc: 'CORREOS_CASOS_ASIGNACION_CC',
   ticketDefaultCc: 'CORREOS_BOLETAS_CC',
+  maintenanceFaultTo: 'CORREOS_AVERIAS_MANTENIMIENTO',
   testRecipients: 'CORREOS_PRUEBAS',
   testCc: 'CORREOS_PRUEBAS_CC',
 });
@@ -73,6 +74,7 @@ function initialValues(map) {
     [CONFIG_KEYS.caseCreatedCc]: '',
     [CONFIG_KEYS.caseAssignedCc]: '',
     [CONFIG_KEYS.ticketDefaultCc]: serialized(legacyTicketCc || []),
+    [CONFIG_KEYS.maintenanceFaultTo]: '',
     [CONFIG_KEYS.testRecipients]: serialized(legacyTest || DEFAULT_TEST_RECIPIENTS),
     [CONFIG_KEYS.testCc]: '',
   };
@@ -102,6 +104,7 @@ function settingsFromMap(map) {
     caseCreatedCc: normalizeNotificationEmails(map.get(CONFIG_KEYS.caseCreatedCc) || []),
     caseAssignedCc: normalizeNotificationEmails(map.get(CONFIG_KEYS.caseAssignedCc) || []),
     ticketDefaultCc: normalizeNotificationEmails(map.get(CONFIG_KEYS.ticketDefaultCc) || []),
+    maintenanceFaultTo: normalizeNotificationEmails(map.get(CONFIG_KEYS.maintenanceFaultTo) || []),
     testRecipients: normalizeNotificationEmails(map.get(CONFIG_KEYS.testRecipients) || []),
     testCc: normalizeNotificationEmails(map.get(CONFIG_KEYS.testCc) || []),
   };
@@ -127,6 +130,7 @@ export async function updateNotificationEmailSettings(payload = {}) {
     caseCreatedCc: normalizeNotificationEmails(payload.caseCreatedCc, 'las copias de casos nuevos'),
     caseAssignedCc: normalizeNotificationEmails(payload.caseAssignedCc, 'las copias de asignación de casos'),
     ticketDefaultCc: normalizeNotificationEmails(payload.ticketDefaultCc, 'las copias de boletas'),
+    maintenanceFaultTo: normalizeNotificationEmails(payload.maintenanceFaultTo, 'el destinatario de averías de mantenimiento'),
     testRecipients: normalizeNotificationEmails(payload.testRecipients, 'los destinatarios de prueba'),
     testCc: normalizeNotificationEmails(payload.testCc, 'las copias de prueba'),
   };
@@ -157,6 +161,7 @@ export function notificationEmailSettingsForClient(settings = {}) {
     caseCreatedCc: settings.caseCreatedCc || [],
     caseAssignedCc: settings.caseAssignedCc || [],
     ticketDefaultCc: settings.ticketDefaultCc || [],
+    maintenanceFaultTo: settings.maintenanceFaultTo || [],
     testRecipients: settings.testRecipients || [],
     testCc: settings.testCc || [],
   };
