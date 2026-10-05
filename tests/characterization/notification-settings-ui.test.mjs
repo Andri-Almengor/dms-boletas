@@ -18,6 +18,8 @@ assert.match(pageSource, /Destinatarios principales/);
 assert.match(pageSource, /Copias de casos nuevos/);
 assert.match(pageSource, /Copias al asignar casos/);
 assert.match(pageSource, /Copias de boletas/);
+assert.match(pageSource, /Avisos de avería de equipos/);
+assert.match(pageSource, /maintenanceFaultTo/);
 assert.match(pageSource, /Destinatarios de prueba/);
 assert.match(pageSource, /Copias de prueba/);
 assert.match(pageSource, /Guardar destinatarios y copias/);
