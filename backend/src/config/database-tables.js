@@ -39,6 +39,7 @@ export const RUNTIME_COLUMN_EXTENSIONS = Object.freeze({
   ]),
   Evidencia_Mantenimientos: Object.freeze([
     'ProyectoProgresoJSON',
+    'ReportaAveria',
   ]),
   'Mantenimiento imagenes': Object.freeze([
     'ContextoEvidencia',
