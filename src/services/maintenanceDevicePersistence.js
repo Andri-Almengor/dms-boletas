@@ -57,9 +57,11 @@ export async function persistMaintenanceDevice({
       signal,
     }),
   ]);
+  const faultNotification = saved?.AveriaNotificacion || saved?.averiaNotificacion || null;
   const confirmedDevice = {
     ...requestDevice,
     id: deviceId,
+    reportaAveria: pick(saved, ['ReportaAveria', 'reportaAveria'], requestDevice.reportaAveria || 'No') || 'No',
     syncBase: maintenanceDeviceSyncBase(saved, maintenanceId) || requestDevice.syncBase || null,
   };
   const state = buildMaintenanceDevicePersistenceState({
@@ -76,6 +78,10 @@ export async function persistMaintenanceDevice({
     requestDevice,
     metadataResult,
     uploadResult,
+    faultNotification,
+    warningMessage: faultNotification?.status === 'ERROR'
+      ? String(faultNotification.message || 'La avería se guardó, pero no fue posible enviar el correo de notificación.')
+      : '',
   };
 }
 
