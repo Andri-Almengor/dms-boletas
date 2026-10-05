@@ -23,6 +23,8 @@ assert.match(pageSource, /maintenanceFaultTo/);
 assert.match(pageSource, /Destinatarios de prueba/);
 assert.match(pageSource, /Copias de prueba/);
 assert.match(pageSource, /Guardar destinatarios y copias/);
+assert.match(pageSource, /Probar correo de avería/);
+assert.match(pageSource, /TEST_MAINTENANCE_FAULT/);
 assert.match(pageSource, /Google Chat/);
 assert.match(pageSource, /Promise\.all/);
 assert.match(pageSource, /notification-settings-shell/);
@@ -38,5 +40,6 @@ assert.match(moreSource, /Destinatarios, copias, avisos de avería y Google Chat
 assert.match(configSource, /NOTIFICATION_EMAILS/);
 assert.match(configSource, /AGENDA_CHAT/);
 assert.match(configSource, /USUARIOS_GESTIONAR/);
+assert.match(configSource, /PROBAR_CORREO_AVERIA_MANTENIMIENTO/);
 
 console.log('✓ notificaciones fase 1: correos + chat unificados, layout amplio y responsive, permisos preservados');
