@@ -144,7 +144,7 @@ export default function useMaintenanceQuestionCatalog(sessionToken) {
     return map;
   }, [questions]);
 
-  function forDevice(device = {}, maintenanceMode = 'MANTENIMIENTO') {
+  function forDevice(device = {}, maintenanceMode = 'MANTENIMIENTO', { includeSystem = true } = {}) {
     const typeId = clean(device.tipoDispositivoId || device.TipoDispositivoID);
     const category = clean(device.categoria || device.TipoDispositivo || device.Categoria);
     const identity = maintenanceQuestionTypeIdentity(category);
@@ -152,7 +152,7 @@ export default function useMaintenanceQuestionCatalog(sessionToken) {
     const exact = typeId && byTypeId.has(typeId) ? byTypeId.get(typeId) : [];
     const equivalent = identity && byTypeIdentity.has(identity) ? byTypeIdentity.get(identity) : [];
     const selected = mergeMaintenanceQuestionCandidates(
-      globalQuestions,
+      includeSystem ? globalQuestions : [],
       mergeMaintenanceQuestionCandidates(exact, equivalent),
     )
       .filter((question) => question.appliesTo === 'AMBOS' || question.appliesTo === requestedMode)
