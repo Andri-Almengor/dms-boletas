@@ -34,7 +34,7 @@ assert.match(styleSource, /@media \(max-width: 760px\)/);
 assert.match(styleSource, /notification-email-grid/);
 assert.match(styleSource, /notification-chat-state/);
 
-assert.match(moreSource, /Destinatarios, copias y Google Chat de Agenda/);
+assert.match(moreSource, /Destinatarios, copias, avisos de avería y Google Chat de Agenda/);
 assert.match(configSource, /NOTIFICATION_EMAILS/);
 assert.match(configSource, /AGENDA_CHAT/);
 assert.match(configSource, /USUARIOS_GESTIONAR/);
