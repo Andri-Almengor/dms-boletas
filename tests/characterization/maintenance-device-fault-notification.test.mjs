@@ -78,4 +78,19 @@ test('un error de correo se devuelve como estado posterior sin perder el guardad
   assert.match(persistence, /faultNotification: saved\?\.AveriaNotificacion \|\| null/);
   assert.match(form, /result\.faultNotification\?\.error/);
   assert.match(form, /setError\(result\.faultNotification\.error\)/);
+  assert.match(form, /const faultNotificationErrors = deviceResults/);
+  assert.match(form, /falló el aviso de avería/);
+});
+
+test('la configuración administrativa permite probar el mismo canal de correo de averías', () => {
+  const config = source('backend/src/modules/config.module.js');
+  const page = source('src/pages/admin/NotificationSettingsPage.jsx');
+
+  assert.match(config, /TEST_MAINTENANCE_FAULT/);
+  assert.match(config, /sendMaintenanceDeviceFaultEmail/);
+  assert.match(config, /normalizeNotificationEmails/);
+  assert.match(config, /PROBAR_CORREO_AVERIA_MANTENIMIENTO/);
+  assert.match(page, /testMaintenanceFaultEmail/);
+  assert.match(page, /Probar correo de avería/);
+  assert.match(page, /maintenanceFaultTo: emailForm\.maintenanceFaultTo/);
 });
