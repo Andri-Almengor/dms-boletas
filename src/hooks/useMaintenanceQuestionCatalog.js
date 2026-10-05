@@ -112,6 +112,15 @@ export default function useMaintenanceQuestionCatalog(sessionToken) {
     return () => { active = false; };
   }, [sessionToken]);
 
+  const globalQuestions = useMemo(
+    () => questions.filter((question) => (
+      !question.typeId
+      && question.config?.system === true
+      && question.config?.systemScope === 'ALL_DEVICES'
+    )),
+    [questions],
+  );
+
   const byTypeId = useMemo(() => {
     const map = new Map();
     questions.forEach((question) => {
@@ -142,7 +151,10 @@ export default function useMaintenanceQuestionCatalog(sessionToken) {
     const requestedMode = normalizeMode(maintenanceMode);
     const exact = typeId && byTypeId.has(typeId) ? byTypeId.get(typeId) : [];
     const equivalent = identity && byTypeIdentity.has(identity) ? byTypeIdentity.get(identity) : [];
-    const selected = mergeMaintenanceQuestionCandidates(exact, equivalent)
+    const selected = mergeMaintenanceQuestionCandidates(
+      globalQuestions,
+      mergeMaintenanceQuestionCandidates(exact, equivalent),
+    )
       .filter((question) => question.appliesTo === 'AMBOS' || question.appliesTo === requestedMode)
       .sort((left, right) => left.order - right.order || left.label.localeCompare(right.label, 'es'));
     const savedByKey = new Map((device.questionDetails || [])
