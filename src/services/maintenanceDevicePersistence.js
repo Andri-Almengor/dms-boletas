@@ -76,6 +76,7 @@ export async function persistMaintenanceDevice({
     requestDevice,
     metadataResult,
     uploadResult,
+    faultNotification: saved?.AveriaNotificacion || null,
   };
 }
 
