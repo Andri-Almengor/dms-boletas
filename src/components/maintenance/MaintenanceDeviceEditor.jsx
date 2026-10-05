@@ -503,6 +503,18 @@ export default function MaintenanceDeviceEditor({
         onChange={(projectProgressValue) => patch({ projectProgress: projectProgressValue })}
       />}
 
+      <section className="form-card maintenance-device-section-card maintenance-device-fault-card">
+        <div className="form-card__heading"><span className="section-marker" /><div><h3>Reporte de avería</h3><p>Esta pregunta aplica tanto a mantenimientos como a proyectos.</p></div></div>
+        <Choice
+          label="¿Se reporta avería en este equipo?"
+          value={device.reportaAveria || 'No'}
+          onChange={(value) => patch({ reportaAveria: value })}
+          disabled={locked}
+          note="Si selecciona Sí y guarda el dispositivo, DMS enviará un aviso al destinatario configurado en Administración → Notificaciones."
+        />
+        {device.reportaAveria === 'Sí' && <div className="alert alert--warning"><Icon name="report_problem" /><span>Al guardar se registrará la avería y se enviará un correo con los datos del mantenimiento y de este dispositivo.</span></div>}
+      </section>
+
       <section className="form-card maintenance-device-section-card"><div className="form-card__heading"><span className="section-marker" /><div><h3>Observaciones</h3><p>Registre hallazgos, fallas, trabajos realizados o recomendaciones.</p></div></div><Field label="Observación" multiline value={device.observacion} onChange={(event) => patch({ observacion: event.target.value })} disabled={locked} /></section>
 
       {projectMode ? <section className="maintenance-image-section maintenance-device-section-card maintenance-project-evidence-section">
