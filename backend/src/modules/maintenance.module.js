@@ -2,11 +2,14 @@ import {
   appendRow,
   filterRows,
   findById,
+  findOneBy,
   readTable,
   readTables,
   softDelete,
   updateRow,
+  withTransaction,
 } from '../infra/sheets.repository.js';
+import { query } from '../infra/postgres.js';
 import { uploadBase64, downloadAsDataUrl, trashFile } from '../infra/drive.repository.js';
 import { badRequest, forbidden, notFound } from '../core/errors.js';
 import { countRowsBy, groupRowsBy, indexRowsBy } from '../core/row-index.js';
@@ -24,6 +27,11 @@ import {
   projectDeviceProgressSummary,
   validateProjectDeviceProgress,
 } from '../services/maintenance-project-checklist.service.js';
+import {
+  claimMaintenanceDeviceFaultNotification,
+  deliverMaintenanceDeviceFaultNotification,
+  maintenanceDeviceReportsFault,
+} from '../services/maintenance-device-fault-notification.service.js';
 
 const deviceAutosaveWriteTimes = new Map();
 const DEVICE_AUTOSAVE_MIN_INTERVAL_MS = 6000;
@@ -89,6 +97,71 @@ function normalizeMaintenanceType(value, fallback = 'MANTENIMIENTO') {
   return normalized === 'PROYECTO' ? 'PROYECTO' : 'MANTENIMIENTO';
 }
 
+function normalizeMaintenanceFaultAnswer(value, fallback = 'No') {
+  const source = String(value ?? '').trim() || String(fallback ?? '').trim() || 'No';
+  const normalized = source
+    .normalize('NFD')
+    .replace(/[\u0300-\u036f]/g, '')
+    .toLowerCase();
+  if (['si', 'yes', 'true', '1'].includes(normalized)) return 'Sí';
+  if (['no', 'false', '0'].includes(normalized)) return 'No';
+  throw badRequest('La respuesta “¿Se reporta avería en este equipo?” debe ser Sí o No.');
+}
+
+async function lockMaintenanceDeviceFaultEvent(deviceId) {
+  await query(
+    'SELECT pg_advisory_xact_lock(hashtext($1))',
+    [`maintenance-device-fault:${String(deviceId || '').trim()}`],
+    { label: 'maintenance.deviceFault.lock' },
+  );
+}
+
+async function finalizeMaintenanceDeviceFaultNotification(ctx, {
+  maintenance,
+  before = null,
+  device,
+  notification = null,
+  newEvent = false,
+} = {}) {
+  if (!notification) return device;
+
+  const delivery = await deliverMaintenanceDeviceFaultNotification({
+    notification,
+    maintenance,
+    device,
+  });
+  const action = newEvent
+    ? 'REPORTAR_AVERIA_DISPOSITIVO'
+    : 'REINTENTAR_CORREO_AVERIA_DISPOSITIVO';
+  const previousAudit = newEvent
+    ? { ReportaAveria: normalizeMaintenanceFaultAnswer(before?.ReportaAveria || 'No') }
+    : null;
+  const nextAudit = {
+    ReportaAveria: 'Sí',
+    MantenimientoID: maintenance?.MantenimientoID || device?.MantenimientoRef || '',
+    TipoMantenimiento: normalizeMaintenanceType(maintenance?.TipoMantenimiento),
+    Cliente: maintenance?.Cliente || '',
+    Dispositivo: device?.NombreDispositivo || '',
+    EstadoCorreoAveria: delivery.status || '',
+    NotificacionID: delivery.notificationId || notification.NotificacionID || '',
+    Destino: delivery.destination || notification.Destino || '',
+  };
+
+  await audit(
+    ctx,
+    action,
+    'Evidencia_Mantenimientos',
+    device?.EvidenciaMantenimientoID || '',
+    previousAudit,
+    nextAudit,
+  ).catch(() => {});
+
+  return {
+    ...device,
+    AveriaNotificacion: delivery,
+  };
+}
+
 function maintenancePayload(payload, before = {}) {
   const counts = payload.counts || payload.cantidades || (() => {
     try { return JSON.parse(payload.CantidadesJSON || '{}'); } catch { return {}; }
@@ -150,6 +223,10 @@ function devicePayload(payload, before = {}) {
     DireccionMAC: pick(payload, ['DireccionMAC', 'macAddress', 'mac'], before.DireccionMAC),
     Funcionamiento: pick(payload, ['Funcionamiento', 'funcionamiento'], before.Funcionamiento),
     EnUso: pick(payload, ['EnUso', 'enUso'], before.EnUso),
+    ReportaAveria: normalizeMaintenanceFaultAnswer(
+      pick(payload, ['ReportaAveria', 'reportaAveria'], before.ReportaAveria || 'No'),
+      before.ReportaAveria || 'No',
+    ),
     Estado: pick(payload, ['Estado', 'estado'], before.Estado || 'Correcto'),
     Observacion: pick(payload, ['Observacion', 'observacion'], before.Observacion),
     ProyectoProgresoJSON: pick(payload, ['ProyectoProgresoJSON', 'projectProgress', 'proyectoProgreso'], before.ProyectoProgresoJSON || ''),
@@ -331,50 +408,126 @@ export const maintenanceHandlers = {
     const requestedId = String(pick(ctx.payload, ['deviceId', 'EvidenciaMantenimientoID'], '')).trim();
     if (requestedId && !validClientGeneratedId(requestedId)) throw badRequest('El identificador local del dispositivo no es válido.');
     if (!maintenanceId) throw badRequest('Falta el mantenimiento del dispositivo.');
-    const maintenance = await findById('Mantenimiento', maintenanceId);
-    const progressJson = validateProjectDeviceProgress({ maintenance, payload: ctx.payload });
-    const progress = projectDeviceProgressSummary({ maintenance, payload: ctx.payload, progressJson });
-    const payload = devicePayload({
-      ...ctx.payload,
-      ProyectoProgresoJSON: progressJson,
-      ...(progress.hasChecklist && !progress.complete ? { Estado: 'Pendiente' } : {}),
-    });
-    if (!maintenanceId || !payload.Categoria || !payload.NombreDispositivo || !payload.Zona) throw badRequest('Categoría, nombre y ubicación son obligatorios.');
+    const deviceId = requestedId || uuid();
 
-    if (requestedId) {
-      const existing = (await readTable('Evidencia_Mantenimientos', { force: true })).find((item) => String(item.EvidenciaMantenimientoID) === requestedId);
-      if (existing) {
-        if (String(existing.MantenimientoRef) !== String(maintenanceId)) throw badRequest('El dispositivo local ya pertenece a otro mantenimiento.');
-        return existing;
+    const mutation = await withTransaction(async () => {
+      await lockMaintenanceDeviceFaultEvent(deviceId);
+      const maintenance = await findById('Mantenimiento', maintenanceId);
+
+      if (requestedId) {
+        const existing = await findOneBy('Evidencia_Mantenimientos', { EvidenciaMantenimientoID: requestedId });
+        if (existing) {
+          if (String(existing.MantenimientoRef) !== String(maintenanceId)) throw badRequest('El dispositivo local ya pertenece a otro mantenimiento.');
+          const notification = maintenanceDeviceReportsFault(existing.ReportaAveria)
+            ? await claimMaintenanceDeviceFaultNotification({
+              maintenance,
+              device: existing,
+              actorUserId: ctx.user.UsuarioID,
+              forceNew: false,
+            })
+            : null;
+          return {
+            device: existing,
+            maintenance,
+            notification,
+            newFaultEvent: false,
+          };
+        }
       }
-    }
 
-    const row = {
-      EvidenciaMantenimientoID: requestedId || uuid(),
-      MantenimientoRef: maintenanceId,
-      ...payload,
-      Activo: true,
-      CreadoPor: ctx.user.UsuarioID,
-      FechaCreacion: nowIso(),
-      ActualizadoPor: ctx.user.UsuarioID,
-      FechaActualizacion: nowIso(),
-    };
-    await appendRow('Evidencia_Mantenimientos', row);
-    return row;
+      const progressJson = validateProjectDeviceProgress({ maintenance, payload: ctx.payload });
+      const progress = projectDeviceProgressSummary({ maintenance, payload: ctx.payload, progressJson });
+      const payload = devicePayload({
+        ...ctx.payload,
+        ProyectoProgresoJSON: progressJson,
+        ...(progress.hasChecklist && !progress.complete ? { Estado: 'Pendiente' } : {}),
+      });
+      if (!payload.Categoria || !payload.NombreDispositivo || !payload.Zona) throw badRequest('Categoría, nombre y ubicación son obligatorios.');
+
+      const row = {
+        EvidenciaMantenimientoID: deviceId,
+        MantenimientoRef: maintenanceId,
+        ...payload,
+        Activo: true,
+        CreadoPor: ctx.user.UsuarioID,
+        FechaCreacion: nowIso(),
+        ActualizadoPor: ctx.user.UsuarioID,
+        FechaActualizacion: nowIso(),
+      };
+      await appendRow('Evidencia_Mantenimientos', row);
+      const newFaultEvent = maintenanceDeviceReportsFault(row.ReportaAveria);
+      const notification = newFaultEvent
+        ? await claimMaintenanceDeviceFaultNotification({
+          maintenance,
+          device: row,
+          actorUserId: ctx.user.UsuarioID,
+          forceNew: true,
+        })
+        : null;
+      return {
+        device: row,
+        maintenance,
+        notification,
+        newFaultEvent,
+      };
+    });
+
+    return finalizeMaintenanceDeviceFaultNotification(ctx, {
+      maintenance: mutation.maintenance,
+      device: mutation.device,
+      notification: mutation.notification,
+      newEvent: mutation.newFaultEvent,
+    });
   }),
 
   deviceUpdate: async (ctx) => {
-    const id = pick(ctx.payload, ['deviceId', 'EvidenciaMantenimientoID']);
-    const before = await findById('Evidencia_Mantenimientos', id);
-    const maintenance = await findById('Mantenimiento', pick(ctx.payload, ['maintenanceId', 'MantenimientoID', 'MantenimientoRef'], before.MantenimientoRef));
-    const progressJson = validateProjectDeviceProgress({ maintenance, payload: ctx.payload, before });
-    const progress = projectDeviceProgressSummary({ maintenance, payload: ctx.payload, before, progressJson });
-    const patch = changedDevicePatch(before, {
-      ...ctx.payload,
-      ProyectoProgresoJSON: progressJson,
-      ...(progress.hasChecklist && !progress.complete ? { Estado: 'Pendiente' } : {}),
-    }, ctx.user.UsuarioID);
-    return Object.keys(patch).length ? updateRow('Evidencia_Mantenimientos', id, patch) : before;
+    const id = String(pick(ctx.payload, ['deviceId', 'EvidenciaMantenimientoID'], '')).trim();
+    if (!id) throw badRequest('Falta el identificador del dispositivo.');
+
+    const mutation = await withTransaction(async () => {
+      await lockMaintenanceDeviceFaultEvent(id);
+      const before = await findById('Evidencia_Mantenimientos', id);
+      const maintenance = await findById(
+        'Mantenimiento',
+        pick(ctx.payload, ['maintenanceId', 'MantenimientoID', 'MantenimientoRef'], before.MantenimientoRef),
+      );
+      const progressJson = validateProjectDeviceProgress({ maintenance, payload: ctx.payload, before });
+      const progress = projectDeviceProgressSummary({ maintenance, payload: ctx.payload, before, progressJson });
+      const patch = changedDevicePatch(before, {
+        ...ctx.payload,
+        ProyectoProgresoJSON: progressJson,
+        ...(progress.hasChecklist && !progress.complete ? { Estado: 'Pendiente' } : {}),
+      }, ctx.user.UsuarioID);
+      const after = Object.keys(patch).length
+        ? await updateRow('Evidencia_Mantenimientos', id, patch)
+        : before;
+      const newFaultEvent = !maintenanceDeviceReportsFault(before.ReportaAveria)
+        && maintenanceDeviceReportsFault(after.ReportaAveria);
+      const notification = maintenanceDeviceReportsFault(after.ReportaAveria)
+        ? await claimMaintenanceDeviceFaultNotification({
+          maintenance,
+          device: after,
+          actorUserId: ctx.user.UsuarioID,
+          forceNew: newFaultEvent,
+        })
+        : null;
+
+      return {
+        before,
+        device: after,
+        maintenance,
+        notification,
+        newFaultEvent,
+      };
+    });
+
+    return finalizeMaintenanceDeviceFaultNotification(ctx, {
+      maintenance: mutation.maintenance,
+      before: mutation.before,
+      device: mutation.device,
+      notification: mutation.notification,
+      newEvent: mutation.newFaultEvent,
+    });
   },
 
   deviceAutosave: async (ctx) => {
@@ -388,10 +541,15 @@ export const maintenanceHandlers = {
     try {
       const before = await findById('Evidencia_Mantenimientos', id);
       const maintenance = await findById('Mantenimiento', pick(ctx.payload, ['maintenanceId', 'MantenimientoID', 'MantenimientoRef'], before.MantenimientoRef));
-      const progressJson = validateProjectDeviceProgress({ maintenance, payload: ctx.payload, before });
-      const progress = projectDeviceProgressSummary({ maintenance, payload: ctx.payload, before, progressJson });
+      // ReportaAveria intentionally waits for an explicit deviceCreate/deviceUpdate.
+      // This prevents background/autosave traffic from generating an incident email.
+      const autosavePayload = { ...(ctx.payload || {}) };
+      delete autosavePayload.ReportaAveria;
+      delete autosavePayload.reportaAveria;
+      const progressJson = validateProjectDeviceProgress({ maintenance, payload: autosavePayload, before });
+      const progress = projectDeviceProgressSummary({ maintenance, payload: autosavePayload, before, progressJson });
       const patch = changedDevicePatch(before, {
-        ...ctx.payload,
+        ...autosavePayload,
         ProyectoProgresoJSON: progressJson,
         ...(progress.hasChecklist && !progress.complete ? { Estado: 'Pendiente' } : {}),
       }, ctx.user.UsuarioID);
