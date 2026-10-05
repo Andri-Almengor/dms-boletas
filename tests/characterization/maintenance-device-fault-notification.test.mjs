@@ -10,6 +10,7 @@ const source = (relativePath) => readFileSync(path.join(ROOT, relativePath), 'ut
 test('la pregunta de avería es global, SI/NO, opcional y aplica a Mantenimiento y Proyecto', () => {
   const catalog = source('backend/src/services/maintenance-question-catalog.service.js');
   const hook = source('src/hooks/useMaintenanceQuestionCatalog.js');
+  const relation = source('src/components/maintenance/MaintenanceProjectRelationField.jsx');
 
   assert.match(catalog, /MAINTENANCE_DEVICE_FAULT_QUESTION_KEY = 'reportaAveria'/);
   assert.match(catalog, /¿Se reporta avería en este equipo\?/);
@@ -19,6 +20,7 @@ test('la pregunta de avería es global, SI/NO, opcional y aplica a Mantenimiento
   assert.match(catalog, /systemScope: 'ALL_DEVICES'/);
   assert.match(hook, /globalQuestions/);
   assert.match(hook, /systemScope === 'ALL_DEVICES'/);
+  assert.match(relation, /includeSystem: false/);
 });
 
 test('el correo se dispara solo al guardar explícitamente el dispositivo', () => {
