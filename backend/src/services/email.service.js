@@ -211,3 +211,168 @@ export async function sendTicketReportEmail({ report, to, cc = [], testMode = fa
     attachmentCount: attachments.length,
   };
 }
+
+
+function parseMaintenanceAnswersForEmail(device = {}) {
+  const raw = device.RespuestasJSON || device.respuestas || {};
+  let parsed = raw;
+  if (typeof raw === 'string') {
+    try { parsed = JSON.parse(raw || '{}'); } catch { parsed = {}; }
+  }
+  return parsed && typeof parsed === 'object' && !Array.isArray(parsed) ? parsed : {};
+}
+
+function maintenanceAnswerText(value) {
+  if (value === undefined || value === null || value === '') return 'Sin respuesta';
+  if (typeof value !== 'object' || Array.isArray(value)) return String(value);
+  if (Object.prototype.hasOwnProperty.call(value, 'enabled') && Array.isArray(value.items)) {
+    if (!value.enabled) return 'No';
+    const details = value.items.map((item, index) => [
+      item?.nombre || item?.NombreDispositivo || item?.categoria || item?.TipoDispositivo || `Componente ${index + 1}`,
+      item?.fabricante || item?.Fabricante,
+      item?.modelo || item?.Modelo,
+      item?.serie || item?.Serie ? `Serie: ${item?.serie || item?.Serie}` : '',
+      item?.macAddress || item?.DireccionMAC ? `MAC: ${item?.macAddress || item?.DireccionMAC}` : '',
+    ].filter(Boolean).join(' · '));
+    return ['Sí', ...details].join('\n');
+  }
+  try { return JSON.stringify(value); } catch { return String(value); }
+}
+
+function maintenanceQuestionRows(device = {}) {
+  const answers = parseMaintenanceAnswersForEmail(device);
+  const snapshots = Array.isArray(answers.__preguntas) ? answers.__preguntas : [];
+  const labels = new Map(snapshots.map((item) => [
+    String(item?.key || item?.Clave || '').trim(),
+    String(item?.label || item?.Pregunta || item?.key || '').trim(),
+  ]).filter(([key]) => key));
+  return Object.entries(answers)
+    .filter(([key]) => key !== '__preguntas')
+    .map(([key, value]) => ({
+      key,
+      label: labels.get(key) || key,
+      value: maintenanceAnswerText(value),
+    }));
+}
+
+export async function sendMaintenanceDeviceFaultEmail({ maintenance = {}, device = {}, to = [] } = {}) {
+  const transport = getTransporter();
+  if (!transport) {
+    throw new AppError(
+      'SMTP_NOT_CONFIGURED',
+      'El dispositivo se guardó, pero el correo de avería no pudo enviarse porque SMTP no está configurado.',
+      503,
+    );
+  }
+
+  const recipients = uniqueEmails(to);
+  if (!recipients.length) {
+    throw new AppError(
+      'MAINTENANCE_FAULT_EMAIL_MISSING',
+      'El dispositivo se guardó, pero no hay un destinatario configurado para los avisos de avería.',
+      400,
+    );
+  }
+
+  const maintenanceId = String(maintenance.MantenimientoID || '').trim();
+  const maintenanceType = String(maintenance.TipoMantenimiento || 'MANTENIMIENTO').trim().toUpperCase();
+  const deviceName = String(device.NombreDispositivo || device.Nombre || 'Equipo').trim();
+  const clientName = String(maintenance.Cliente || 'Cliente no especificado').trim();
+  const publicBase = String(env.appPublicUrl || '').trim().replace(/\/+$/, '');
+  const detailUrl = publicBase && maintenanceId
+    ? `${publicBase}/mantenimientos/${encodeURIComponent(maintenanceId)}`
+    : '';
+  const questions = maintenanceQuestionRows(device);
+  const subject = `AVERÍA REPORTADA · ${clientName} · ${deviceName}`;
+
+  const maintenanceRows = [
+    ['Tipo', maintenanceType === 'PROYECTO' ? 'Proyecto' : 'Mantenimiento'],
+    ['Mantenimiento', maintenanceId],
+    ['Título', maintenance.TituloMantenimiento],
+    ['Cliente', clientName],
+    ['Ubicación', maintenance.Ubicacion],
+    ['Fecha', maintenance.Fecha],
+    ['Estado', maintenance.Estado],
+    ['Responsables', maintenance.Responsables],
+    ['Descripción', maintenance.DescripcionGeneral],
+  ];
+  const deviceRows = [
+    ['ID del dispositivo', device.EvidenciaMantenimientoID],
+    ['Tipo de dispositivo', device.TipoDispositivo || device.Categoria],
+    ['Nombre', deviceName],
+    ['Ubicación del equipo', device.Zona || device.UbicacionEquipoNombre],
+    ['Fabricante', device.Fabricante],
+    ['Modelo', device.Modelo],
+    ['Serie', device.Serie],
+    ['MAC', device.DireccionMAC],
+    ['Funcionamiento', device.Funcionamiento],
+    ['En uso', device.EnUso],
+    ['Estado', device.Estado],
+    ['Técnicos', device.Tecnicos],
+    ['Observación', device.Observacion],
+  ];
+
+  const text = [
+    'DMS Boletas - Avería reportada en equipo',
+    '',
+    ...maintenanceRows.map(([label, value]) => `${label}: ${String(value || 'Sin especificar')}`),
+    '',
+    'Detalle del dispositivo',
+    ...deviceRows.map(([label, value]) => `${label}: ${String(value || 'Sin especificar')}`),
+    ...(questions.length ? ['', 'Respuestas del dispositivo', ...questions.map((row) => `${row.label}: ${row.value}`)] : []),
+    ...(detailUrl ? ['', `Abrir mantenimiento: ${detailUrl}`] : []),
+  ].join('\n');
+
+  const html = `<!doctype html>
+  <html><body style="margin:0;padding:24px;background:#fffafa;font-family:Arial,sans-serif;color:#111827">
+    <div style="max-width:760px;margin:0 auto;background:#ffffff;border:1px solid #ead5d7;border-radius:14px;overflow:hidden">
+      <div style="background:#b90d19;color:#ffffff;padding:22px 24px">
+        <div style="font-size:12px;font-weight:700;letter-spacing:.08em;text-transform:uppercase;opacity:.9">DMS Boletas</div>
+        <h1 style="font-size:22px;margin:6px 0 0">Avería reportada en equipo</h1>
+      </div>
+      <div style="padding:24px;line-height:1.55">
+        <p style="margin-top:0">Se guardó un dispositivo con la respuesta <strong>“Sí”</strong> en <strong>¿Se reporta avería en este equipo?</strong>.</p>
+        <h2 style="font-size:17px;margin:24px 0 10px">Datos del mantenimiento</h2>
+        <table style="width:100%;border-collapse:collapse">${maintenanceRows.map(([label, value]) => tableRow(label, nl2br(value))).join('')}</table>
+        <h2 style="font-size:17px;margin:24px 0 10px">Detalle del dispositivo</h2>
+        <table style="width:100%;border-collapse:collapse">${deviceRows.map(([label, value]) => tableRow(label, nl2br(value))).join('')}</table>
+        ${questions.length ? `<h2 style="font-size:17px;margin:24px 0 10px">Respuestas del dispositivo</h2><table style="width:100%;border-collapse:collapse">${questions.map((row) => tableRow(row.label, nl2br(row.value))).join('')}</table>` : ''}
+        ${detailUrl ? `<p style="margin:24px 0 0"><a href="${escapeHtml(detailUrl)}" style="display:inline-block;background:#b90d19;color:#ffffff;text-decoration:none;padding:12px 18px;border-radius:8px;font-weight:700">Abrir mantenimiento</a></p>` : ''}
+        <p style="margin:24px 0 0;color:#6b7280;font-size:12px">Este aviso corresponde únicamente a la avería reportada en este dispositivo. No reenvía correos de boletas ni mensajes de Google Chat.</p>
+      </div>
+    </div>
+  </body></html>`;
+
+  let info;
+  try {
+    info = await transport.sendMail({
+      from: env.smtpFrom || env.smtpUser,
+      to: recipients.join(','),
+      subject,
+      text,
+      html,
+    });
+  } catch (error) {
+    throw new AppError(
+      'MAINTENANCE_FAULT_EMAIL_FAILED',
+      `El dispositivo se guardó, pero falló el envío del correo de avería: ${error.message}`,
+      502,
+    );
+  }
+
+  if (!info.accepted?.length) {
+    throw new AppError(
+      'MAINTENANCE_FAULT_EMAIL_REJECTED',
+      'El dispositivo se guardó, pero el servidor de correo rechazó el aviso de avería.',
+      502,
+    );
+  }
+
+  return {
+    sent: true,
+    messageId: info.messageId,
+    accepted: info.accepted,
+    rejected: info.rejected || [],
+    destination: recipients.join(','),
+  };
+}
