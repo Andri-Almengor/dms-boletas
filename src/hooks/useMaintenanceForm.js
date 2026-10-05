@@ -132,7 +132,9 @@ export default function useMaintenanceForm({ editing, maintenanceId, navigationS
           return null;
         }
 
-        return editor.markDeviceSaved(result.snapshot, { closeAfter, status: 'server' });
+        const snapshot = editor.markDeviceSaved(result.snapshot, { closeAfter, status: 'server' });
+        if (result.warningMessage) setError(result.warningMessage);
+        return snapshot;
       } catch (requestError) {
         editor.setDeviceAutosaveStatus('error');
         setError(requestError.message);
