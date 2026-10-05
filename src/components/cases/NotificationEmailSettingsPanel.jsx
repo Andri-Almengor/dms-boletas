@@ -15,6 +15,7 @@ const EMPTY = Object.freeze({
   caseCreatedCc: '',
   caseAssignedCc: '',
   ticketDefaultCc: '',
+  maintenanceFaultTo: '',
   testRecipients: '',
   testCc: '',
 });
@@ -54,6 +55,19 @@ const GROUPS = Object.freeze([
         name: 'ticketDefaultCc',
         label: 'Copias predeterminadas de boletas',
         help: 'Se combinan con las copias escritas directamente en cada boleta.',
+      },
+    ],
+  },
+  {
+    id: 'maintenance',
+    icon: 'report_problem',
+    title: 'Averías de mantenimiento',
+    note: 'Aviso al guardar un equipo con una avería reportada.',
+    fields: [
+      {
+        name: 'maintenanceFaultTo',
+        label: 'Destinatarios de averías',
+        help: 'Reciben el detalle del mantenimiento y del dispositivo cuando “¿Se reporta avería en este equipo?” se guarda en Sí.',
       },
     ],
   },
