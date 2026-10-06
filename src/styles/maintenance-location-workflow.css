@@ -341,6 +341,7 @@
 .maintenance-inventory-device-card .maintenance-inventory-expanded {
   min-width: 0;
   padding: 15px;
+  background: var(--surface-card);
 }
 
 .maintenance-inventory-device-card .maintenance-inventory-expanded__heading {
