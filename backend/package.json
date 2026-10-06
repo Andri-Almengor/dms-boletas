@@ -33,7 +33,7 @@
     "db:cutover:backup": "node src/scripts/db-cutover-backup.js"
   },
   "dependencies": {
-    "compression": "^1.7.5",
+    "compression": "^1.8.2",
     "cors": "^2.8.5",
     "dotenv": "^16.4.7",
     "express": "^4.21.2",
@@ -44,5 +44,8 @@
   },
   "devDependencies": {
     "exceljs": "4.4.0"
+  },
+  "overrides": {
+    "proxy-addr": "2.0.8"
   }
 }

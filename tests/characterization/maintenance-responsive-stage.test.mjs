@@ -64,6 +64,23 @@ test('resumen móvil de mantenimiento usa dos columnas y se reduce a una en tel�
   assert.match(styles, /@media \(max-width: 430px\)[\s\S]*\.maintenance-mobile-fold \.maintenance-detail-summary__grid\s*\{[^}]*grid-template-columns:\s*1fr/s);
 });
 
+test('mantenimiento normal usa tarjetas colapsadas que expanden el detalle en el mismo lugar', () => {
+  const inventory = source('src/components/maintenance/MaintenanceLocationInventory.jsx');
+  const styles = source('src/styles/maintenance-location-workflow.css');
+
+  assert.match(inventory, /useState\(\(\) => new Set\(\)\)/);
+  assert.match(inventory, /projectMode \? <>[\s\S]*maintenance-location-device-table-wrap[\s\S]*: <div className="maintenance-inventory-device-cards">/s);
+  assert.match(inventory, /maintenanceDeviceCard\(group, device\)/);
+  assert.match(inventory, /expanded \? 'expand_less' : 'expand_more'/);
+  assert.match(inventory, /deviceDetailContent\(device\)/);
+  assert.doesNotMatch(inventory, /maintenance-device-detail-modal/);
+
+  assert.match(styles, /\.maintenance-inventory-device-cards\s*\{[^}]*display:\s*grid/s);
+  assert.match(styles, /\.maintenance-inventory-device-card\s*\{[^}]*border:\s*1px solid var\(--outline-soft\)/s);
+  assert.match(styles, /\.maintenance-inventory-device-card__detail\s*\{[^}]*border-top:/s);
+  assert.match(styles, /@media \(max-width: 760px\)[\s\S]*\.maintenance-inventory-device-card \.maintenance-inventory-mobile-toggle[\s\S]*grid-template-columns:\s*42px minmax\(0, 1fr\) 32px/s);
+});
+
 test('galería técnica mantiene dos miniaturas en móvil y el lightbox aprovecha safe areas', () => {
   const groups = source('src/styles/maintenance-mobile-groups-collapse.css');
   const gallery = source('src/styles/maintenance-evidence-gallery.css');

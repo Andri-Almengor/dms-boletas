@@ -5,6 +5,27 @@ function fileAbortError() {
   return error;
 }
 
+export function normalizeFileReadError(error, file) {
+  const name = String(file?.name || file?.fileName || 'la evidencia').trim() || 'la evidencia';
+  const message = String(error?.message || '');
+  const notReadable = error?.name === 'NotReadableError'
+    || /requested file could not be read|not.?readable/i.test(message);
+
+  if (!notReadable) {
+    return error instanceof Error
+      ? error
+      : new Error('No fue posible leer el archivo.');
+  }
+
+  const normalized = new Error(
+    `No se pudo leer “${name}” porque el navegador perdió acceso al archivo. Vuelva a tomar o seleccionar la evidencia y guárdela nuevamente.`,
+  );
+  normalized.name = 'NotReadableError';
+  normalized.code = 'EVIDENCE_FILE_NOT_READABLE';
+  normalized.cause = error;
+  return normalized;
+}
+
 export function fileToBase64(file, { signal } = {}) {
   return new Promise((resolve, reject) => {
     if (!file) {
@@ -37,14 +58,17 @@ export function fileToBase64(file, { signal } = {}) {
     };
 
     reader.onload = () => finish(resolve, String(reader.result).split(',')[1] || '');
-    reader.onerror = () => finish(reject, reader.error || new Error('No fue posible leer el archivo.'));
+    reader.onerror = () => finish(
+      reject,
+      normalizeFileReadError(reader.error || new Error('No fue posible leer el archivo.'), file),
+    );
     reader.onabort = () => finish(reject, fileAbortError());
     signal?.addEventListener('abort', handleSignalAbort, { once: true });
 
     try {
       reader.readAsDataURL(file);
     } catch (error) {
-      finish(reject, error);
+      finish(reject, normalizeFileReadError(error, file));
     }
   });
 }

@@ -72,7 +72,7 @@ test('mantenimientos aceptan videos grandes en editor, carga rápida y lotes', (
   const viewer = source('src/components/maintenance/MaintenanceEvidenceImage.jsx');
   const batches = source('src/services/maintenanceImageBatch.js');
 
-  assert.match(editor, /prepareEvidenceFiles\(files, \{ allowDocuments: false \}\)/);
+  assert.match(editor, /prepareEvidenceFiles\(files, \{[\s\S]*allowDocuments: false,[\s\S]*stabilizeTransientFiles: true,[\s\S]*\}\)/);
   assert.match(editor, /Grabar video/);
   assert.match(editor, /PendingEvidencePreview/);
   assert.match(uploader, /prepareEvidenceFiles\(selected, \{ allowDocuments: false \}\)/);
