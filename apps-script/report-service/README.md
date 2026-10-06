@@ -1,6 +1,6 @@
 # Apps Script completo: servicio real de reportes y Casos
 
-`Code.gs` parte del archivo completo aportado por el usuario el 11 de septiembre de 2026, versión `2026-09-03-AGENDA-V7.9-TICKET-CREATION-FINALIZATION`. Conserva sus funciones y añade transporte por bloques para Casos. Versión actual: `2026-10-06-V7.13-MAINTENANCE-FAULT-EMAIL`.
+`Code.gs` parte del archivo completo aportado por el usuario el 11 de septiembre de 2026, versión `2026-09-03-AGENDA-V7.9-TICKET-CREATION-FINALIZATION`. Conserva sus funciones y añade transporte por bloques para Casos. Nueva versión: `2026-09-11-V7.9-BOUNDED-CASE-UPLOADS`.
 
 ## Aplicación del cambio
 
@@ -25,26 +25,3 @@ No se ha aplicado esta implementación a Google desde este trabajo.
 ## Reversión
 
 Si se revierte el frontend/backend, este Apps Script ampliado puede permanecer: conserva las acciones anteriores. Si se decide volver también al Apps Script anterior, hacerlo después de retirar el frontend nuevo y de permitir finalizar las solicitudes en curso.
-
-
-## Avisos de avería de dispositivos
-
-La acción `maintenance.device.fault.send` envía los avisos de avería de dispositivos de Mantenimiento y Proyecto mediante este mismo Web App de Apps Script.
-
-- El backend continúa validando sesión, permisos, dispositivo, mantenimiento, respuesta `reportaAveria`, destinatarios e idempotencia.
-- Apps Script únicamente formatea y entrega el correo usando `sendDmsEmail_`, por lo que conserva el alias preferido `reportes@solutionsdms.com` y el fallback con la cuenta efectiva del Web App.
-- La acción exige `idempotencyKey` para que un reintento HTTP no duplique el correo.
-- No envía Google Chat ni reenvía correos de boletas.
-- El botón administrativo **Probar correo de avería** usa exactamente esta misma acción.
-
-### Despliegue requerido para esta versión
-
-Después de fusionar el cambio, sí es necesario actualizar el Apps Script principal:
-
-1. Reemplazar el contenido del Apps Script principal por `apps-script/report-service/Code.gs`.
-2. En **Implementar → Gestionar implementaciones**, editar la implementación existente.
-3. Seleccionar **Nueva versión** y publicar conservando la misma URL `/exec`.
-4. Confirmar en `doGet` que `version` sea `2026-10-06-V7.13-MAINTENANCE-FAULT-EMAIL`.
-5. Desde DMS Boletas, ir a **Más → Notificaciones** y ejecutar **Probar correo de avería**.
-
-No requiere una nueva URL, nuevos secretos ni cambios en PostgreSQL.
