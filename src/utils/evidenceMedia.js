@@ -1,3 +1,5 @@
+import { normalizeFileReadError } from './fileEncoding';
+
 export const EVIDENCE_VIDEO_MAX_SECONDS = 90;
 export const EVIDENCE_IMAGE_MAX_BYTES = 15 * 1024 * 1024;
 export const EVIDENCE_VIDEO_MAX_BYTES = 300 * 1024 * 1024;
@@ -127,11 +129,48 @@ export async function validateEvidenceFile(file, { allowDocuments = false } = {}
     : `El archivo ${name} no es compatible. Use una imagen o un video MP4/MOV/WebM de hasta 1 minuto y 30 segundos.`);
 }
 
+export async function stabilizeTransientEvidenceFile(file, {
+  maxBytes = EVIDENCE_IMAGE_MAX_BYTES,
+} = {}) {
+  const size = Math.max(0, Number(file?.size || 0));
+  const canSnapshot = file instanceof Blob
+    && size <= Math.max(0, Number(maxBytes || 0))
+    && typeof file.arrayBuffer === 'function'
+    && typeof File === 'function';
+
+  if (!canSnapshot) return { file, stabilized: false };
+
+  try {
+    const bytes = await file.arrayBuffer();
+    return {
+      file: new File([bytes], String(file.name || 'evidencia'), {
+        type: String(file.type || 'application/octet-stream'),
+        lastModified: Number(file.lastModified || Date.now()),
+      }),
+      stabilized: true,
+    };
+  } catch (error) {
+    throw normalizeFileReadError(error, file);
+  }
+}
+
 export async function prepareEvidenceFiles(files = [], options = {}) {
+  const {
+    stabilizeTransientFiles = false,
+    ...validationOptions
+  } = options;
   const prepared = [];
-  for (const file of files) {
-    const metadata = await validateEvidenceFile(file, options);
-    prepared.push({ file, ...metadata });
+
+  for (const sourceFile of files) {
+    const metadata = await validateEvidenceFile(sourceFile, validationOptions);
+    const snapshot = stabilizeTransientFiles
+      ? await stabilizeTransientEvidenceFile(sourceFile)
+      : { file: sourceFile, stabilized: false };
+    prepared.push({
+      file: snapshot.file,
+      transientFileStabilized: snapshot.stabilized,
+      ...metadata,
+    });
   }
   return prepared;
 }
