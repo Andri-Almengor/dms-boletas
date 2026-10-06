@@ -81,6 +81,23 @@ test('mantenimiento normal usa tarjetas colapsadas que expanden el detalle en el
   assert.match(styles, /@media \(max-width: 760px\)[\s\S]*\.maintenance-inventory-device-card \.maintenance-inventory-mobile-toggle[\s\S]*grid-template-columns:\s*42px minmax\(0, 1fr\) 32px/s);
 });
 
+
+test('la ruta de Mantenimientos carga el ajuste móvil que evita nombres verticales en tarjetas de Proyecto', () => {
+  const routeStyles = source('src/styles/routes/maintenance.js');
+  const mobileInventory = source('src/styles/maintenance-inventory-mobile.css');
+
+  assert.match(routeStyles, /import '\.\.\/maintenance-inventory-mobile\.css';/);
+  assert.ok(
+    routeStyles.indexOf("import '../maintenance-inventory-mobile.css';")
+      > routeStyles.indexOf("import '../maintenance-location-workflow.css';"),
+    'El ajuste móvil debe cargarse después del layout base de ubicaciones para poder corregirlo.',
+  );
+
+  assert.match(mobileInventory, /@media \(max-width: 720px\)[\s\S]*\.maintenance-inventory-mobile-toggle\s*\{[^}]*display:\s*flex !important/s);
+  assert.match(mobileInventory, /\.maintenance-inventory-mobile-toggle > \.maintenance-device-list__icon \+ span\s*\{[^}]*inline-size:\s*0 !important[^}]*flex:\s*1 1 0 !important/s);
+  assert.match(mobileInventory, /\.maintenance-inventory-mobile-toggle > \.maintenance-device-list__icon \+ span > strong,[\s\S]*white-space:\s*normal !important/s);
+});
+
 test('galería técnica mantiene dos miniaturas en móvil y el lightbox aprovecha safe areas', () => {
   const groups = source('src/styles/maintenance-mobile-groups-collapse.css');
   const gallery = source('src/styles/maintenance-evidence-gallery.css');
