@@ -23,12 +23,17 @@ test('Proyecto abre cada dispositivo en una ruta protegida propia sin crear perm
   assert.match(inventory, /returnTo:/);
 });
 
-test('Mantenimiento normal conserva el modal compartido mientras Proyecto deja de abrir detalle inline', () => {
+test('Mantenimiento normal abre cada dispositivo dentro de su tarjeta y Proyecto conserva la ruta dedicada', () => {
   const inventory = source('src/components/maintenance/MaintenanceLocationInventory.jsx');
 
-  assert.match(inventory, /!projectMode && activeDetailDevice && <AdminEntityModal/);
-  assert.doesNotMatch(inventory, /maintenance-inventory-expanded-row/);
-  assert.doesNotMatch(inventory, /expandedDevice/);
+  assert.match(inventory, /const \[openDeviceIds, setOpenDeviceIds\] = useState\(\(\) => new Set\(\)\)/);
+  assert.match(inventory, /maintenance-inventory-device-cards/);
+  assert.match(inventory, /maintenance-inventory-device-card\$\{expanded \? ' is-expanded' : ''\}/);
+  assert.match(inventory, /aria-expanded=\{expanded\}/);
+  assert.match(inventory, /expanded && <div id=\{detailId\} className="maintenance-inventory-device-card__detail">\{deviceDetailContent\(device\)\}<\/div>/);
+  assert.doesNotMatch(inventory, /AdminEntityModal/);
+  assert.doesNotMatch(inventory, /activeDetailDevice/);
+  assert.match(inventory, /if \(projectMode\)[\s\S]*\/dispositivos\/\$\{encodeURIComponent\(id\)\}/s);
   assert.match(inventory, /<Icon name="open_in_new" \/>/);
 });
 
