@@ -1,4 +1,6 @@
+import { AppError } from '../core/errors.js';
 import { nowIso, uuid } from '../core/utils.js';
+import { env } from '../config/env.js';
 import { query } from '../infra/postgres.js';
 import {
   appendRow,
@@ -8,7 +10,7 @@ import {
   withTransaction,
 } from '../infra/sheets.repository.js';
 import { audit } from './audit.service.js';
-import { sendMaintenanceDeviceFaultEmail } from './email.service.js';
+import { sendAppsScriptAction } from './apps-script-action.service.js';
 import {
   MAINTENANCE_DEVICE_FAULT_QUESTION_KEY,
   parseMaintenanceAnswers,
@@ -16,6 +18,7 @@ import {
 import { getNotificationEmailSettings } from './notification-email-settings.service.js';
 
 const NOTIFICATION_TYPE = 'MANTENIMIENTO_AVERIA_DISPOSITIVO';
+export const MAINTENANCE_DEVICE_FAULT_ACTION = 'maintenance.device.fault.send';
 
 function clean(value, maxLength = 12000) {
   return String(value ?? '').trim().slice(0, maxLength);
@@ -46,6 +49,48 @@ function existingNotification(rows = []) {
 
 function errorText(error) {
   return clean(error?.message || error || 'Error desconocido', 1200);
+}
+
+export async function sendMaintenanceDeviceFaultEmailViaAppsScript({
+  maintenance = {},
+  device = {},
+  to = [],
+  idempotencyKey = '',
+  testMode = false,
+} = {}) {
+  const recipients = [...new Set((Array.isArray(to) ? to : [to])
+    .map((value) => clean(value, 320).toLowerCase())
+    .filter((value) => /^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(value)))];
+
+  if (!recipients.length) {
+    throw new AppError(
+      'MAINTENANCE_FAULT_EMAIL_MISSING',
+      'El dispositivo se guardó, pero no hay un destinatario configurado para los avisos de avería.',
+      400,
+    );
+  }
+
+  const maintenanceId = clean(maintenance.MantenimientoID, 300);
+  const publicBase = clean(env.appPublicUrl, 1200).replace(/\/+$/, '');
+  const detailUrl = publicBase && maintenanceId
+    ? `${publicBase}/mantenimientos/${encodeURIComponent(maintenanceId)}`
+    : '';
+
+  return sendAppsScriptAction(
+    MAINTENANCE_DEVICE_FAULT_ACTION,
+    {
+      testMode: Boolean(testMode),
+      maintenance,
+      device,
+      recipients: { to: recipients, cc: [] },
+      appUrl: publicBase,
+      detailUrl,
+    },
+    {
+      idempotencyKey: clean(idempotencyKey, 500),
+      attempts: 3,
+    },
+  );
 }
 
 async function claimFaultNotification({ ctx, deviceId, recipients }) {
@@ -133,8 +178,14 @@ async function persistAttempt({ reservation, recipients, result = null, error = 
     Respuesta: sent
       ? JSON.stringify({
         sent: true,
-        messageId: clean(result?.messageId, 500),
-        accepted: Array.isArray(result?.accepted) ? result.accepted.length : 0,
+        provider: 'APPS_SCRIPT',
+        scriptVersion: clean(result?.scriptVersion, 160),
+        senderMode: clean(result?.senderMode, 120),
+        senderAddress: clean(result?.senderAddress, 320),
+        aliasFallback: Boolean(result?.aliasFallback),
+        accepted: Array.isArray(result?.accepted)
+          ? result.accepted.length
+          : Number(result?.recipientCount || 0),
         rejected: Array.isArray(result?.rejected) ? result.rejected.length : 0,
       })
       : '',
@@ -184,10 +235,11 @@ export async function notifyMaintenanceDeviceFaultOnSave({ ctx, device } = {}) {
   let result = null;
   let sendError = null;
   try {
-    result = await sendMaintenanceDeviceFaultEmail({
+    result = await sendMaintenanceDeviceFaultEmailViaAppsScript({
       maintenance,
       device: reservation.device,
       to: recipients,
+      idempotencyKey: reservation.key,
     });
   } catch (error) {
     sendError = error;
@@ -210,7 +262,7 @@ export async function notifyMaintenanceDeviceFaultOnSave({ ctx, device } = {}) {
       {
         mantenimientoId: clean(maintenance.MantenimientoID, 300),
         notificacionId: notification.NotificacionID,
-        etapa: 'CORREO',
+        etapa: 'APPS_SCRIPT_CORREO',
         codigo: clean(sendError.code, 120),
         error: errorText(sendError),
       },
@@ -236,6 +288,7 @@ export async function notifyMaintenanceDeviceFaultOnSave({ ctx, device } = {}) {
       notificacionId: notification.NotificacionID,
       destinatarios: recipients.length,
       canal: 'EMAIL',
+      proveedor: 'APPS_SCRIPT',
     },
   ).catch(() => {});
 
