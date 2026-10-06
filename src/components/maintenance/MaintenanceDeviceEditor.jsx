@@ -350,12 +350,15 @@ export default function MaintenanceDeviceEditor({
   }
 
   async function addFiles(event) {
-    const files = Array.from(event.target.files || []);
-    event.target.value = '';
+    const input = event.currentTarget;
+    const files = Array.from(input.files || []);
     if (!files.length) return;
     setEvidenceError('');
     try {
-      const prepared = await prepareEvidenceFiles(files, { allowDocuments: false });
+      const prepared = await prepareEvidenceFiles(files, {
+        allowDocuments: false,
+        stabilizeTransientFiles: true,
+      });
       patch({
         newImages: [
           ...(device.newImages || []),
@@ -365,7 +368,14 @@ export default function MaintenanceDeviceEditor({
           })),
         ],
       });
+
+      // Android puede entregar content:// temporales. Solo liberamos el input
+      // cuando todos los archivos pequeños ya tienen una copia propia.
+      if (prepared.every((item) => item.transientFileStabilized)) {
+        input.value = '';
+      }
     } catch (error) {
+      input.value = '';
       setEvidenceError(error.message || 'No se pudieron preparar las evidencias seleccionadas.');
     }
   }
