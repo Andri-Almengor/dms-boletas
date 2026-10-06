@@ -15,7 +15,7 @@ import {
   notificationEmailSettingsForClient,
   updateNotificationEmailSettings,
 } from '../services/notification-email-settings.service.js';
-import { sendMaintenanceDeviceFaultEmail } from '../services/email.service.js';
+import { sendMaintenanceDeviceFaultEmailViaAppsScript } from '../services/maintenance-device-fault-notification.service.js';
 import {
   createWeeklyBackup,
   getWeeklyBackupStatus,
@@ -223,7 +223,7 @@ export async function getClientConfig(ctx = {}) {
         ?? payload.config?.maintenanceFaultTo
         ?? settings.maintenanceFaultTo;
       const recipients = normalizeNotificationEmails(candidate, 'el destinatario de averías de mantenimiento');
-      const test = await sendMaintenanceDeviceFaultEmail({
+      const test = await sendMaintenanceDeviceFaultEmailViaAppsScript({
         maintenance: {
           MantenimientoID: 'PRUEBA-CANAL-CORREO',
           TipoMantenimiento: 'MANTENIMIENTO',
@@ -252,6 +252,8 @@ export async function getClientConfig(ctx = {}) {
           }),
         },
         to: recipients,
+        idempotencyKey: `MANTENIMIENTO_AVERIA_TEST|${clean(ctx.user?.UsuarioID || ctx.user?.Correo || 'ADMIN', 300)}|${Date.now()}`,
+        testMode: true,
       });
       await audit(
         ctx,

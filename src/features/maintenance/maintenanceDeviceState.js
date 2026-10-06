@@ -44,6 +44,10 @@ export function maintenanceDeviceSignature(device, payload = null) {
   if (!device) return '';
   return JSON.stringify({
     payload,
+    // Las respuestas se incluyen explícitamente para que una pregunta dinámica
+    // sea suficiente para considerar el dispositivo modificado, incluso si no
+    // cambió ningún otro campo del equipo.
+    answers: cloneAnswers(device.respuestas),
     dirtyImages: (device.images || [])
       .filter((image) => image.dirty)
       .map((image) => ({ id: image.id, Tipo: image.Tipo, Nota: image.Nota })),

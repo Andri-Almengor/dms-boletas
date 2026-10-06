@@ -11,7 +11,7 @@ const BRAND_BORDER = '#ead5d7';
 const BRAND_BACKGROUND = '#fffafa';
 const DMS_EMAIL_FROM_ALIAS = 'reportes@solutionsdms.com';
 const DMS_EMAIL_FROM_NAME = 'DMS Boletas';
-const APPS_SCRIPT_VERSION = '2026-09-28-V7.12-EMAIL-DELIVERY-FALLBACK';
+const APPS_SCRIPT_VERSION = '2026-10-06-V7.13-MAINTENANCE-FAULT-EMAIL';
 const MAINTENANCE_ARCHIVE_DELIVERY_TYPE = 'MAINTENANCE_ARCHIVE';
 
 /*
@@ -75,6 +75,7 @@ const CUSTOMER_CASE_ASSIGNED_ACTION = 'customer.case.assigned.send';
 const CUSTOMER_CASE_EVIDENCE_UPLOAD_ACTION = 'customer.case.evidence.upload';
 const CUSTOMER_CASE_EVIDENCE_GET_ACTION = 'customer.case.evidence.get';
 const SIGNATURE_COMPLETION_ACTION = 'signature.completed.send';
+const MAINTENANCE_DEVICE_FAULT_ACTION = 'maintenance.device.fault.send';
 const CUSTOMER_CASE_EVIDENCE_MAX_BYTES = 6 * 1024 * 1024;
 const IDEMPOTENCY_RETENTION_MS = 7 * 24 * 60 * 60 * 1000;
 const IDEMPOTENCY_CLEANUP_INTERVAL_MS = 60 * 60 * 1000;
@@ -192,6 +193,7 @@ function autorizarPermisosDMSV4() {
  * - customer.case.assigned.send
  * - customer.case.evidence.upload
  * - customer.case.evidence.get
+ * - maintenance.device.fault.send
  */
 function doPost(event) {
   let propertyKey = '';
@@ -219,6 +221,7 @@ function doPost(event) {
       'customer.case.evidence.chunk',
       CUSTOMER_CASE_EVIDENCE_GET_ACTION,
       SIGNATURE_COMPLETION_ACTION,
+      MAINTENANCE_DEVICE_FAULT_ACTION,
     ];
 
     if (supportedActions.indexOf(action) === -1) {
@@ -296,6 +299,8 @@ function doPost(event) {
       result = getCustomerCaseEvidence_(payload);
     } else if (action === SIGNATURE_COMPLETION_ACTION) {
       result = sendSignatureCompletionEmail_(payload);
+    } else if (action === MAINTENANCE_DEVICE_FAULT_ACTION) {
+      result = sendMaintenanceDeviceFaultEmail_(payload);
     } else {
       result = createReportAndMaybeSend_(payload);
     }
@@ -1503,6 +1508,10 @@ function idempotencyPrefixForAction_(action) {
     return 'SIGNATURE_NOTIFICATION_';
   }
 
+  if (action === MAINTENANCE_DEVICE_FAULT_ACTION) {
+    return 'MAINTENANCE_DEVICE_FAULT_';
+  }
+
   return 'DELIVERY_';
 }
 
@@ -1521,7 +1530,8 @@ function isCustomerCaseAction_(action) {
  */
 function actionRequiresIdempotency_(action) {
   return action === 'customer.case.evidence.init' || isCustomerCaseAction_(action)
-    || action === SIGNATURE_COMPLETION_ACTION;
+    || action === SIGNATURE_COMPLETION_ACTION
+    || action === MAINTENANCE_DEVICE_FAULT_ACTION;
 }
 
 
@@ -6168,6 +6178,268 @@ function customerCaseTableRowHtml_(
     '</tr>',
   ].join('');
 }
+
+/**
+ * Convierte una respuesta dinámica de mantenimiento en texto legible.
+ */
+function maintenanceFaultAnswerText_(value) {
+  if (value === undefined || value === null || value === '') {
+    return 'Sin respuesta';
+  }
+
+  if (typeof value !== 'object' || Array.isArray(value)) {
+    return String(value);
+  }
+
+  if (
+    Object.prototype.hasOwnProperty.call(value, 'enabled')
+    && Array.isArray(value.items)
+  ) {
+    if (!value.enabled) return 'No';
+
+    const details = value.items.map(function (item, index) {
+      return [
+        clean_(
+          item.nombre
+          || item.NombreDispositivo
+          || item.categoria
+          || item.TipoDispositivo,
+          'Componente ' + (index + 1),
+        ),
+        clean_(item.fabricante || item.Fabricante),
+        clean_(item.modelo || item.Modelo),
+        clean_(item.serie || item.Serie)
+          ? 'Serie: ' + clean_(item.serie || item.Serie)
+          : '',
+        clean_(item.macAddress || item.DireccionMAC)
+          ? 'MAC: ' + clean_(item.macAddress || item.DireccionMAC)
+          : '',
+      ].filter(Boolean).join(' · ');
+    });
+
+    return ['Sí'].concat(details).join('\n');
+  }
+
+  try {
+    return JSON.stringify(value);
+  } catch (_) {
+    return String(value);
+  }
+}
+
+/**
+ * Devuelve las respuestas persistidas con la etiqueta histórica de cada
+ * pregunta cuando está disponible.
+ */
+function maintenanceFaultQuestionRows_(device) {
+  const raw = device.RespuestasJSON || device.respuestas || {};
+  let answers = raw;
+
+  if (typeof raw === 'string') {
+    try {
+      answers = JSON.parse(raw || '{}');
+    } catch (_) {
+      answers = {};
+    }
+  }
+
+  if (!answers || typeof answers !== 'object' || Array.isArray(answers)) {
+    answers = {};
+  }
+
+  const snapshots = Array.isArray(answers.__preguntas)
+    ? answers.__preguntas
+    : [];
+  const labels = {};
+
+  snapshots.forEach(function (item) {
+    const key = clean_(item && (item.key || item.Clave));
+    if (!key) return;
+    labels[key] = clean_(
+      item.label || item.Pregunta || item.key,
+      key,
+    );
+  });
+
+  return Object.keys(answers)
+    .filter(function (key) {
+      return key !== '__preguntas';
+    })
+    .map(function (key) {
+      return {
+        label: labels[key] || key,
+        value: maintenanceFaultAnswerText_(answers[key]),
+      };
+    });
+}
+
+/**
+ * Envía el aviso de avería de un dispositivo de Mantenimiento o Proyecto.
+ *
+ * El backend sigue siendo la fuente de verdad: valida usuario, permisos,
+ * entidad, estado e idempotencia. Apps Script únicamente formatea y entrega
+ * el correo usando el mismo remitente/fallback que los demás correos DMS.
+ */
+function sendMaintenanceDeviceFaultEmail_(payload) {
+  const maintenance = payload.maintenance || {};
+  const device = payload.device || {};
+  const recipients = payload.recipients || {};
+  const to = uniqueEmails_(recipients.to || []);
+  const testMode = Boolean(payload.testMode);
+
+  if (!to.length) {
+    throw new Error(
+      'No hay un destinatario válido para los avisos de avería de mantenimiento.',
+    );
+  }
+
+  if (MailApp.getRemainingDailyQuota() < to.length) {
+    throw new Error(
+      'La cuota diaria de correo de Apps Script no alcanza para enviar el aviso de avería.',
+    );
+  }
+
+  const maintenanceId = clean_(maintenance.MantenimientoID);
+  const maintenanceType = clean_(
+    maintenance.TipoMantenimiento,
+    'MANTENIMIENTO',
+  ).toUpperCase();
+  const deviceName = clean_(
+    device.NombreDispositivo || device.Nombre,
+    'Equipo',
+  );
+  const clientName = clean_(
+    maintenance.Cliente,
+    'Cliente no especificado',
+  );
+  const detailUrl = safeWebUrl_(
+    payload.detailUrl
+    || (
+      safeWebUrl_(payload.appUrl)
+      && maintenanceId
+        ? safeWebUrl_(payload.appUrl).replace(/\/+$/, '')
+          + '/mantenimientos/'
+          + encodeURIComponent(maintenanceId)
+        : ''
+    ),
+  );
+  const questions = maintenanceFaultQuestionRows_(device);
+  const rawSubject = 'AVERÍA REPORTADA · ' + clientName + ' · ' + deviceName;
+  const subject = testMode ? '[PRUEBA] ' + rawSubject : rawSubject;
+
+  const maintenanceRows = [
+    ['Tipo', maintenanceType === 'PROYECTO' ? 'Proyecto' : 'Mantenimiento'],
+    ['Mantenimiento', maintenanceId],
+    ['Título', maintenance.TituloMantenimiento],
+    ['Cliente', clientName],
+    ['Ubicación', maintenance.Ubicacion],
+    ['Fecha', maintenance.Fecha],
+    ['Estado', maintenance.Estado],
+    ['Responsables', maintenance.Responsables],
+    ['Descripción', maintenance.DescripcionGeneral],
+  ];
+
+  const deviceRows = [
+    ['ID del dispositivo', device.EvidenciaMantenimientoID],
+    ['Tipo de dispositivo', device.TipoDispositivo || device.Categoria],
+    ['Nombre', deviceName],
+    ['Ubicación del equipo', device.Zona || device.UbicacionEquipoNombre],
+    ['Fabricante', device.Fabricante],
+    ['Modelo', device.Modelo],
+    ['Serie', device.Serie],
+    ['MAC', device.DireccionMAC],
+    ['Funcionamiento', device.Funcionamiento],
+    ['En uso', device.EnUso],
+    ['Estado', device.Estado],
+    ['Técnicos', device.Tecnicos],
+    ['Observación', device.Observacion],
+  ];
+
+  const plainLines = [
+    testMode ? 'PRUEBA - DMS Boletas - Avería reportada en equipo' : 'DMS Boletas - Avería reportada en equipo',
+    '',
+  ];
+
+  maintenanceRows.forEach(function (row) {
+    plainLines.push(row[0] + ': ' + clean_(row[1], 'Sin especificar'));
+  });
+  plainLines.push('', 'Detalle del dispositivo');
+  deviceRows.forEach(function (row) {
+    plainLines.push(row[0] + ': ' + clean_(row[1], 'Sin especificar'));
+  });
+
+  if (questions.length) {
+    plainLines.push('', 'Respuestas del dispositivo');
+    questions.forEach(function (row) {
+      plainLines.push(row.label + ': ' + row.value);
+    });
+  }
+  if (detailUrl) {
+    plainLines.push('', 'Abrir mantenimiento: ' + detailUrl);
+  }
+
+  const htmlBody = [
+    '<!doctype html>',
+    '<html><body style="margin:0;padding:24px;background:' + BRAND_BACKGROUND + ';font-family:Arial,sans-serif;color:' + BRAND_TEXT + '">',
+    '<div style="max-width:760px;margin:0 auto;background:#ffffff;border:1px solid ' + BRAND_BORDER + ';border-radius:14px;overflow:hidden">',
+    '<div style="background:' + BRAND_RED + ';color:#ffffff;padding:22px 24px">',
+    '<div style="font-size:12px;font-weight:700;letter-spacing:.08em;text-transform:uppercase;opacity:.9">DMS Boletas</div>',
+    '<h1 style="font-size:22px;margin:6px 0 0">' + (testMode ? 'Prueba de correo de avería' : 'Avería reportada en equipo') + '</h1>',
+    '</div>',
+    '<div style="padding:24px;line-height:1.55">',
+    testMode
+      ? '<p style="margin-top:0"><strong>PRUEBA:</strong> este mensaje valida el canal de avisos de avería; no corresponde a una avería real.</p>'
+      : '<p style="margin-top:0">Se guardó un dispositivo con la respuesta <strong>“Sí”</strong> en <strong>¿Se reporta avería en este equipo?</strong>.</p>',
+    '<h2 style="font-size:17px;margin:24px 0 10px">Datos del mantenimiento</h2>',
+    '<table style="width:100%;border-collapse:collapse">',
+    maintenanceRows.map(function (row) {
+      return customerCaseTableRowHtml_(row[0], clean_(row[1], 'Sin especificar'));
+    }).join(''),
+    '</table>',
+    '<h2 style="font-size:17px;margin:24px 0 10px">Detalle del dispositivo</h2>',
+    '<table style="width:100%;border-collapse:collapse">',
+    deviceRows.map(function (row) {
+      return customerCaseTableRowHtml_(row[0], clean_(row[1], 'Sin especificar'));
+    }).join(''),
+    '</table>',
+    questions.length
+      ? '<h2 style="font-size:17px;margin:24px 0 10px">Respuestas del dispositivo</h2><table style="width:100%;border-collapse:collapse">'
+        + questions.map(function (row) {
+          return customerCaseTableRowHtml_(row.label, row.value);
+        }).join('')
+        + '</table>'
+      : '',
+    detailUrl
+      ? '<p style="margin:24px 0 0">' + buttonHtml_(detailUrl, 'Abrir mantenimiento', BRAND_RED) + '</p>'
+      : '',
+    '<p style="margin:24px 0 0;color:' + BRAND_MUTED + ';font-size:12px">Este aviso corresponde únicamente a la avería reportada en este dispositivo. No reenvía correos de boletas ni mensajes de Google Chat.</p>',
+    '</div></div></body></html>',
+  ].join('');
+
+  const delivery = sendDmsEmail_({
+    to: to.join(','),
+    subject: subject.substring(0, 180),
+    body: plainLines.join('\n'),
+    htmlBody: htmlBody,
+    name: DMS_EMAIL_FROM_NAME,
+  });
+
+  return {
+    sent: true,
+    action: MAINTENANCE_DEVICE_FAULT_ACTION,
+    destination: to.join(','),
+    accepted: to,
+    rejected: [],
+    recipientCount: to.length,
+    testMode: testMode,
+    senderMode: delivery.senderMode || '',
+    senderAddress: delivery.senderAddress || '',
+    aliasFallback: Boolean(delivery.aliasFallback),
+    remainingDailyQuota: MailApp.getRemainingDailyQuota(),
+    scriptVersion: APPS_SCRIPT_VERSION,
+  };
+}
+
 
 /**
  * Envía las credenciales temporales de un usuario.

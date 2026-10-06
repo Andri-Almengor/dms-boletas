@@ -52,20 +52,29 @@ test('la notificación de avería reutiliza Notificaciones y locking PostgreSQL 
   assert.match(dbTables, /'AveriaNotificacionClave'/);
 });
 
-test('el destinatario se configura en Notificaciones existentes y el correo no mezcla Chat ni boletas', () => {
+test('el destinatario se configura en Notificaciones existentes y el aviso usa Apps Script, no SMTP paralelo', () => {
   const settings = source('backend/src/services/notification-email-settings.service.js');
   const page = source('src/pages/admin/NotificationSettingsPage.jsx');
   const email = source('backend/src/services/email.service.js');
   const faultService = source('backend/src/services/maintenance-device-fault-notification.service.js');
+  const appsScript = source('apps-script/report-service/Code.gs');
 
   assert.match(settings, /maintenanceFaultTo: 'CORREOS_AVERIAS_MANTENIMIENTO'/);
   assert.match(page, /Avisos de avería de equipos/);
   assert.match(page, /maintenanceFaultTo/);
-  assert.match(email, /sendMaintenanceDeviceFaultEmail/);
-  assert.match(email, /AVERÍA REPORTADA/);
-  assert.match(email, /Datos del mantenimiento/);
-  assert.match(email, /Detalle del dispositivo/);
-  assert.match(email, /Respuestas del dispositivo/);
+  assert.match(faultService, /sendAppsScriptAction/);
+  assert.match(faultService, /maintenance\.device\.fault\.send/);
+  assert.match(faultService, /idempotencyKey: reservation\.key/);
+  assert.doesNotMatch(email, /sendMaintenanceDeviceFaultEmail/);
+  assert.match(appsScript, /MAINTENANCE_DEVICE_FAULT_ACTION = 'maintenance\.device\.fault\.send'/);
+  assert.match(appsScript, /function sendMaintenanceDeviceFaultEmail_\(payload\)/);
+  assert.match(appsScript, /sendDmsEmail_/);
+  assert.match(appsScript, /AVERÍA REPORTADA/);
+  assert.match(appsScript, /Datos del mantenimiento/);
+  assert.match(appsScript, /Detalle del dispositivo/);
+  assert.match(appsScript, /Respuestas del dispositivo/);
+  assert.match(appsScript, /action === MAINTENANCE_DEVICE_FAULT_ACTION/);
+  assert.match(appsScript, /MAINTENANCE_DEVICE_FAULT_/);
   assert.doesNotMatch(faultService, /sendChatMessage|Google Chat|sendTicketReportEmail/);
 });
 
@@ -87,10 +96,41 @@ test('la configuración administrativa permite probar el mismo canal de correo d
   const page = source('src/pages/admin/NotificationSettingsPage.jsx');
 
   assert.match(config, /TEST_MAINTENANCE_FAULT/);
-  assert.match(config, /sendMaintenanceDeviceFaultEmail/);
+  assert.match(config, /sendMaintenanceDeviceFaultEmailViaAppsScript/);
   assert.match(config, /normalizeNotificationEmails/);
   assert.match(config, /PROBAR_CORREO_AVERIA_MANTENIMIENTO/);
   assert.match(page, /testMaintenanceFaultEmail/);
   assert.match(page, /Probar correo de avería/);
   assert.match(page, /maintenanceFaultTo: emailForm\.maintenanceFaultTo/);
+});
+
+
+test('cambiar únicamente reportaAveria sigue siendo un cambio guardable del dispositivo', async () => {
+  const state = await import('../../src/features/maintenance/maintenanceDeviceState.js');
+  const original = {
+    id: 'device-1',
+    respuestas: { reportaAveria: 'No' },
+    images: [],
+    newImages: [],
+  };
+  const current = {
+    ...original,
+    respuestas: { reportaAveria: 'Sí' },
+  };
+  const signatureBuilder = (device) => state.maintenanceDeviceSignature(device, {
+    RespuestasJSON: JSON.stringify(device.respuestas),
+  });
+
+  assert.equal(state.maintenanceDeviceChanged(current, original, signatureBuilder), true);
+
+  const formData = source('src/pages/maintenance/maintenanceFormData.js');
+  const module = source('backend/src/modules/maintenance.module.js');
+  const form = source('src/hooks/useMaintenanceForm.js');
+  const deviceState = source('src/features/maintenance/maintenanceDeviceState.js');
+
+  assert.match(deviceState, /answers: cloneAnswers\(device\.respuestas\)/);
+  assert.match(formData, /RespuestasJSON: JSON\.stringify\(device\.respuestas\)/);
+  assert.match(module, /RespuestasJSON: JSON\.stringify\(answers\)/);
+  assert.match(module, /changedDevicePatch/);
+  assert.match(form, /persistMaintenanceDevice\(/);
 });
