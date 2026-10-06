@@ -196,11 +196,20 @@ export default function useMaintenanceForm({ editing, maintenanceId, navigationS
       const id = String(pick(base?.mantenimiento || base, ['MantenimientoID', 'maintenanceId', 'id'], maintenanceId));
       if (!id) throw new Error('El backend no devolvió MantenimientoID.');
 
-      await persistMaintenanceDeviceCollection({
+      const deviceResults = await persistMaintenanceDeviceCollection({
         maintenanceId: id,
         devices,
         sessionToken,
       });
+      const faultNotificationErrors = deviceResults
+        .map((result) => result?.faultNotification?.error)
+        .filter(Boolean);
+
+      if (faultNotificationErrors.length && action !== 'finalize') {
+        editor.clearDeviceDraft();
+        setError(`El mantenimiento y sus dispositivos se guardaron, pero falló el aviso de avería: ${[...new Set(faultNotificationErrors)].join(' ')}`);
+        return;
+      }
 
       if (action === 'finalize') {
         await requestAvailable(MODULE_ROUTES.maintenance.finalize, { maintenanceId: id }, sessionToken);

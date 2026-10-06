@@ -115,6 +115,7 @@ export default function NotificationSettingsPage() {
   const [webhook, setWebhook] = useState('');
   const [loading, setLoading] = useState(true);
   const [savingEmails, setSavingEmails] = useState(false);
+  const [testingMaintenanceFaultEmail, setTestingMaintenanceFaultEmail] = useState(false);
   const [savingChat, setSavingChat] = useState(false);
   const [testingChat, setTestingChat] = useState(false);
   const [error, setError] = useState('');
@@ -189,6 +190,34 @@ export default function NotificationSettingsPage() {
       setError(requestError?.message || 'No se pudieron guardar los destinatarios y copias.');
     } finally {
       setSavingEmails(false);
+    }
+  }
+
+  async function testMaintenanceFaultEmail() {
+    if (savingEmails || testingMaintenanceFaultEmail) return;
+    if (!emailForm.maintenanceFaultTo.trim()) {
+      setError('Configure al menos un destinatario en “Avisos de avería de equipos” antes de probar el correo.');
+      return;
+    }
+
+    setTestingMaintenanceFaultEmail(true);
+    clearMessages();
+    try {
+      const response = await apiRequest('config.get', {
+        section: 'NOTIFICATION_EMAILS',
+        operation: 'TEST_MAINTENANCE_FAULT',
+        settings: { maintenanceFaultTo: emailForm.maintenanceFaultTo },
+      }, sessionToken);
+      const test = response?.test || {};
+      if (test.sent) {
+        setNotice(`Correo de prueba de avería aceptado por el servidor (${Number(test.accepted || 0)} destinatario(s)). Si modificó el campo, recuerde guardar los destinatarios.`);
+      } else {
+        setError('El servidor no confirmó el envío del correo de prueba de avería.');
+      }
+    } catch (requestError) {
+      setError(requestError?.message || 'No se pudo enviar el correo de prueba de avería.');
+    } finally {
+      setTestingMaintenanceFaultEmail(false);
     }
   }
 
@@ -326,9 +355,19 @@ export default function NotificationSettingsPage() {
 
           <footer className="notification-panel__actions">
             <span><Icon name="shield" /> Los cambios se guardan en la configuración actual de DMS.</span>
-            <button type="submit" className="button button--primary" disabled={savingEmails}>
-              <Icon name={savingEmails ? 'progress_activity' : 'save'} /> {savingEmails ? 'Guardando correos...' : 'Guardar destinatarios y copias'}
-            </button>
+            <div className="notification-chat-actions">
+              <button
+                type="button"
+                className="button button--secondary"
+                onClick={testMaintenanceFaultEmail}
+                disabled={savingEmails || testingMaintenanceFaultEmail || !emailForm.maintenanceFaultTo.trim()}
+              >
+                <Icon name={testingMaintenanceFaultEmail ? 'progress_activity' : 'send'} /> {testingMaintenanceFaultEmail ? 'Probando averías...' : 'Probar correo de avería'}
+              </button>
+              <button type="submit" className="button button--primary" disabled={savingEmails || testingMaintenanceFaultEmail}>
+                <Icon name={savingEmails ? 'progress_activity' : 'save'} /> {savingEmails ? 'Guardando correos...' : 'Guardar destinatarios y copias'}
+              </button>
+            </div>
           </footer>
         </form>
 

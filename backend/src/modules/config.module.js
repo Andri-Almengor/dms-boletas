@@ -11,9 +11,11 @@ import {
 } from '../services/agenda-ticket-exceptions.service.js';
 import {
   getNotificationEmailSettings,
+  normalizeNotificationEmails,
   notificationEmailSettingsForClient,
   updateNotificationEmailSettings,
 } from '../services/notification-email-settings.service.js';
+import { sendMaintenanceDeviceFaultEmail } from '../services/email.service.js';
 import {
   createWeeklyBackup,
   getWeeklyBackupStatus,
@@ -214,7 +216,67 @@ export async function getClientConfig(ctx = {}) {
     if (!canManageAdminSettings(ctx)) {
       throw forbidden('Solo un administrador puede consultar o modificar los destinatarios de correo.');
     }
-    const operation = clean(payload.operation || payload.operacion || 'GET', 20).toUpperCase();
+    const operation = clean(payload.operation || payload.operacion || 'GET', 40).toUpperCase();
+    if (['TEST_MAINTENANCE_FAULT', 'TEST_FAULT', 'PROBAR_AVERIA'].includes(operation)) {
+      const settings = await getNotificationEmailSettings();
+      const candidate = payload.settings?.maintenanceFaultTo
+        ?? payload.config?.maintenanceFaultTo
+        ?? settings.maintenanceFaultTo;
+      const recipients = normalizeNotificationEmails(candidate, 'el destinatario de averías de mantenimiento');
+      const test = await sendMaintenanceDeviceFaultEmail({
+        maintenance: {
+          MantenimientoID: 'PRUEBA-CANAL-CORREO',
+          TipoMantenimiento: 'MANTENIMIENTO',
+          TituloMantenimiento: 'Prueba de correo de avería',
+          Cliente: 'DMS',
+          Ubicacion: 'Configuración de notificaciones',
+          Fecha: new Date().toISOString().slice(0, 10),
+          Estado: 'PRUEBA',
+          Responsables: clean(ctx.user?.NombreCompleto || ctx.user?.NombreUsuario || ctx.user?.Correo || 'Administrador', 200),
+          DescripcionGeneral: 'Prueba manual del canal de correo para avisos de avería.',
+        },
+        device: {
+          EvidenciaMantenimientoID: 'PRUEBA-CANAL-CORREO',
+          TipoDispositivo: 'Prueba',
+          NombreDispositivo: 'PRUEBA DE CANAL - NO ES UNA AVERÍA REAL',
+          UbicacionEquipoNombre: 'Configuración',
+          Estado: 'PRUEBA',
+          Observacion: 'Este mensaje valida el destinatario configurado y la conexión SMTP del backend.',
+          RespuestasJSON: JSON.stringify({
+            reportaAveria: 'Sí',
+            __preguntas: [{
+              key: 'reportaAveria',
+              label: '¿Se reporta avería en este equipo?',
+              value: 'Sí',
+            }],
+          }),
+        },
+        to: recipients,
+      });
+      await audit(
+        ctx,
+        'PROBAR_CORREO_AVERIA_MANTENIMIENTO',
+        'Configuracion',
+        NOTIFICATION_SECTION,
+        null,
+        {
+          enviado: Boolean(test.sent),
+          destinatarios: recipients.length,
+          aceptados: Array.isArray(test.accepted) ? test.accepted.length : 0,
+          rechazados: Array.isArray(test.rejected) ? test.rejected.length : 0,
+        },
+      ).catch(() => {});
+      return {
+        section: NOTIFICATION_SECTION,
+        settings: notificationEmailSettingsForClient(settings),
+        test: {
+          sent: Boolean(test.sent),
+          accepted: Array.isArray(test.accepted) ? test.accepted.length : 0,
+          rejected: Array.isArray(test.rejected) ? test.rejected.length : 0,
+        },
+        tested: true,
+      };
+    }
     if (operation === 'UPDATE' || operation === 'SAVE' || operation === 'GUARDAR') {
       const before = await getNotificationEmailSettings();
       const after = await updateNotificationEmailSettings(payload.settings || payload.config || {});
