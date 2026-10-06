@@ -82,20 +82,39 @@ test('mantenimiento normal usa tarjetas colapsadas que expanden el detalle en el
 });
 
 
-test('la ruta de Mantenimientos carga el ajuste móvil que evita nombres verticales en tarjetas de Proyecto', () => {
+test('la ruta carga el ajuste móvil sin mezclar el layout de Proyecto con las tarjetas de MANTENIMIENTO', () => {
   const routeStyles = source('src/styles/routes/maintenance.js');
   const mobileInventory = source('src/styles/maintenance-inventory-mobile.css');
+  const locationWorkflow = source('src/styles/maintenance-location-workflow.css');
 
   assert.match(routeStyles, /import '\.\.\/maintenance-inventory-mobile\.css';/);
   assert.ok(
     routeStyles.indexOf("import '../maintenance-inventory-mobile.css';")
       > routeStyles.indexOf("import '../maintenance-location-workflow.css';"),
-    'El ajuste móvil debe cargarse después del layout base de ubicaciones para poder corregirlo.',
+    'El ajuste móvil debe cargarse después del layout base.',
   );
 
-  assert.match(mobileInventory, /@media \(max-width: 720px\)[\s\S]*\.maintenance-inventory-mobile-toggle\s*\{[^}]*display:\s*flex !important/s);
-  assert.match(mobileInventory, /\.maintenance-inventory-mobile-toggle > \.maintenance-device-list__icon \+ span\s*\{[^}]*inline-size:\s*0 !important[^}]*flex:\s*1 1 0 !important/s);
-  assert.match(mobileInventory, /\.maintenance-inventory-mobile-toggle > \.maintenance-device-list__icon \+ span > strong,[\s\S]*white-space:\s*normal !important/s);
+  assert.match(
+    mobileInventory,
+    /\.maintenance-inventory-mobile-card:not\(\.maintenance-inventory-device-card\) \.maintenance-inventory-mobile-toggle\s*\{[^}]*display:\s*flex !important/s,
+  );
+  assert.match(
+    mobileInventory,
+    /:not\(\.maintenance-inventory-device-card\) \.maintenance-inventory-mobile-toggle > \.maintenance-device-list__icon \+ span\s*\{[^}]*inline-size:\s*0 !important[^}]*flex:\s*1 1 0 !important/s,
+  );
+  assert.doesNotMatch(
+    mobileInventory,
+    /(?:^|\n)\s*\.maintenance-inventory-mobile-toggle\s*\{[^}]*display:\s*flex !important/s,
+  );
+
+  assert.match(
+    locationWorkflow,
+    /@media \(max-width: 760px\)[\s\S]*\.maintenance-inventory-device-card \.maintenance-inventory-mobile-toggle[\s\S]*grid-template-columns:\s*42px minmax\(0, 1fr\) 32px !important/s,
+  );
+  assert.match(
+    locationWorkflow,
+    /\.maintenance-inventory-device-card__summary\s*\{[^}]*min-width:\s*0[^}]*display:\s*grid/s,
+  );
 });
 
 test('galería técnica mantiene dos miniaturas en móvil y el lightbox aprovecha safe areas', () => {
