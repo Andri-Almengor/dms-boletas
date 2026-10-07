@@ -185,7 +185,11 @@ test('Apps Script no materializa ni bloquea videos grandes al enviar la boleta',
   assert.match(reportScript, /linkedVideoCount: rows\.filter/);
   assert.match(reportScript, /Video almacenado en DMS; no se adjunta al correo por su tamaño/);
   assert.match(reportScript, /allFilesAttachedDirectly: evidenceParts\.linkedVideoCount === 0/);
-  assert.match(reportScript, /if \(!\/\^image\\\//i\.test\(mimeType\)\) \{[\s\S]*return null;/s);
+  assert.ok(reportScript.includes("if (!/^image\\//i.test(mimeType)) {"));
+  const embedStart = reportScript.indexOf('function getDriveImageBlobForDocument_');
+  const embedEnd = reportScript.indexOf('function getDriveFolderByIdWithRetry_', embedStart);
+  const embedBlock = reportScript.slice(embedStart, embedEnd);
+  assert.match(embedBlock, /return null;/);
 
   const attachmentStart = reportScript.indexOf('function buildDirectEvidenceAttachments_');
   const attachmentEnd = reportScript.indexOf('function safeAttachmentName_', attachmentStart);
