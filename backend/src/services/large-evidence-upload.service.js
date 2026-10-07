@@ -8,10 +8,7 @@ import { query } from '../infra/postgres.js';
 import { aiConfig } from '../ai/agent.config.js';
 import { getConfig } from '../modules/config.module.js';
 import { ensureSheetColumns } from './sheet-columns.service.js';
-import {
-  TICKET_EVIDENCE_VIDEO_MAX_BYTES,
-  validateEvidenceMediaPayload,
-} from './evidence-media-policy.service.js';
+import { TICKET_EVIDENCE_VIDEO_MAX_BYTES, validateEvidenceMediaPayload } from './evidence-media-policy.service.js';
 import { loadMaintenanceEvidenceContext, maintenanceEvidenceMetadata } from './maintenance-evidence-policy.service.js';
 
 export const LARGE_VIDEO_THRESHOLD_BYTES = 6 * 1024 * 1024;
