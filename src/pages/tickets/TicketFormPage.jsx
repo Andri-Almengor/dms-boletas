@@ -30,6 +30,7 @@ import { pick } from '../../services/moduleApi';
 import {
   createEvidencePreviewUrl,
   prepareEvidenceFiles,
+  TICKET_EVIDENCE_VIDEO_MAX_BYTES,
 } from '../../utils/evidenceMedia';
 import { macAddressError, normalizeMacAddress } from '../../utils/macAddress';
 
