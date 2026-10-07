@@ -1,4 +1,7 @@
-import { getMaintenanceCategory } from '../../config/maintenanceCategories.js';
+import {
+  canonicalMaintenanceCategoryName,
+  getMaintenanceCategory,
+} from '../../config/maintenanceCategories.js';
 import { isProjectMaintenance } from './maintenanceType.js';
 import { normalizeProjectChecklist } from './maintenanceProjectChecklist.js';
 
@@ -50,10 +53,33 @@ export function buildMaintenanceTechnicians(users = []) {
 }
 
 export function countRegisteredMaintenanceDevices(devices = []) {
-  return devices.reduce((map, item) => ({
-    ...map,
-    [item.categoria]: (map[item.categoria] || 0) + 1,
-  }), {});
+  return devices.reduce((map, item) => {
+    const rawCategory = readValue(
+      item,
+      ['categoria', 'Categoria', 'TipoDispositivo'],
+      'Dispositivo',
+    );
+    const category = canonicalMaintenanceCategoryName(rawCategory);
+    return {
+      ...map,
+      [category]: (map[category] || 0) + 1,
+    };
+  }, {});
+}
+
+function firstArrayLength(item = {}, keys = []) {
+  for (const key of keys) {
+    if (Array.isArray(item?.[key])) return item[key].length;
+  }
+  return 0;
+}
+
+export function countMaintenanceEvidence(devices = []) {
+  return (devices || []).reduce((sum, item) => (
+    sum
+    + firstArrayLength(item, ['images', 'Imagenes', 'imagenes'])
+    + firstArrayLength(item, ['newImages', 'NuevasImagenes', 'nuevasImagenes'])
+  ), 0);
 }
 
 function normalizedDynamicCountName(value = '') {
