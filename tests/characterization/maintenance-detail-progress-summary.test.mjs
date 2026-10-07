@@ -5,8 +5,8 @@ import { fileURLToPath } from 'node:url';
 import path from 'node:path';
 
 import {
+  countMaintenanceDevicesByCategory,
   countMaintenanceEvidence,
-  countRegisteredMaintenanceDevices,
 } from '../../src/features/maintenance/maintenanceFormDomain.js';
 
 const ROOT = fileURLToPath(new URL('../../', import.meta.url));
@@ -48,7 +48,7 @@ test('los contadores compartidos aceptan la forma de datos del detalle y del edi
     },
   ];
 
-  assert.deepEqual(countRegisteredMaintenanceDevices(devices), {
+  assert.deepEqual(countMaintenanceDevicesByCategory(devices), {
     'Cámara': 1,
     Puertas: 1,
     Panel: 1,
