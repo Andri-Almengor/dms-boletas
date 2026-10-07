@@ -2,6 +2,7 @@ import React, { useEffect, useMemo, useState } from 'react';
 import { Link, useLocation, useNavigate, useParams } from 'react-router-dom';
 import { useAuth } from '../../AuthContext';
 import Icon from '../../components/common/Icon';
+import MaintenanceDeviceProgressSummary from '../../components/maintenance/MaintenanceDeviceProgressSummary';
 import MaintenanceLocationInventory from '../../components/maintenance/MaintenanceLocationInventory';
 import MaintenanceLocationPickerModal from '../../components/maintenance/MaintenanceLocationPickerModal';
 import MaintenanceEvidenceEditor from '../../components/maintenance/MaintenanceEvidenceEditor';
@@ -9,7 +10,9 @@ import MaintenanceEvidenceUploader from '../../components/maintenance/Maintenanc
 import MaintenanceQuickDeviceCreator from '../../components/maintenance/MaintenanceQuickDeviceCreator';
 import MaintenanceSignatureCard from '../../components/maintenance/MaintenanceSignatureCard';
 import { MODULE_ROUTES, pick, requestAvailable } from '../../services/moduleApi';
+import { parseMaintenanceCounts } from '../../config/dynamicMaintenanceTypes';
 import { isProjectMaintenance } from '../../features/maintenance/maintenanceType';
+import useMaintenanceDeviceCatalogData from '../../hooks/useMaintenanceDeviceCatalogData';
 import {
   normalizeProjectChecklist,
   projectChecklistOverallProgress,
@@ -125,6 +128,9 @@ export default function MaintenanceDetailPage() {
     : undefined;
   const detailUrl = `/mantenimientos/${encodeURIComponent(maintenanceId)}`;
   const { sessionToken, user, permissions, hasPermission, securityRevision } = useAuth();
+  const { catalogs: maintenanceCatalogs } = useMaintenanceDeviceCatalogData(sessionToken, {
+    resources: ['deviceTypes'],
+  });
   const isAdministrator = hasPermission('USUARIOS_GESTIONAR');
   const isAdmin = isAdministrator
     || hasPermission('MANTENIMIENTOS_ELIMINAR')
@@ -218,6 +224,7 @@ export default function MaintenanceDetailPage() {
   const maintenanceLocations = useMemo(() => locationGroups(data, row, devices), [data, row, devices]);
   const status = String(pick(row, ['Estado'], 'PENDIENTE')).toUpperCase();
   const projectMode = isProjectMaintenance(pick(row, ['TipoMantenimiento'], 'MANTENIMIENTO'));
+  const maintenanceCounts = useMemo(() => parseMaintenanceCounts(row), [row]);
   const projectChecklist = useMemo(
     () => normalizeProjectChecklist(pick(row, ['ProyectoChecklistJSON'], {})),
     [row.ProyectoChecklistJSON],
@@ -426,6 +433,24 @@ export default function MaintenanceDetailPage() {
           </div>
         </section>
       </MaintenanceMobileFold>
+
+      <section className="form-card maintenance-detail-device-progress" aria-label="Avance de dispositivos del mantenimiento">
+        <div className="maintenance-detail-device-progress__heading">
+          <div>
+            <span className="eyebrow">AVANCE DE DISPOSITIVOS</span>
+            <h2>Registro del mantenimiento</h2>
+            <p>Compare lo esperado con lo registrado y las evidencias cargadas.</p>
+          </div>
+          <Icon name="fact_check" />
+        </div>
+        <MaintenanceDeviceProgressSummary
+          counts={maintenanceCounts}
+          devices={devices}
+          deviceTypes={maintenanceCatalogs.deviceTypes}
+          projectMode={projectMode}
+          projectProgress={projectProgress}
+        />
+      </section>
 
       {!offlinePending && !projectMode && (
         <MaintenanceMobileFold
