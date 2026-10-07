@@ -2,8 +2,8 @@ import React, { useMemo } from 'react';
 import Icon from '../common/Icon';
 import { buildDynamicMaintenanceCategories } from '../../config/dynamicMaintenanceTypes';
 import {
+  countMaintenanceDevicesByCategory,
   countMaintenanceEvidence,
-  countRegisteredMaintenanceDevices,
   expectedMaintenanceTotal,
 } from '../../features/maintenance/maintenanceFormDomain';
 
@@ -18,7 +18,7 @@ export default function MaintenanceDeviceProgressSummary({
   className = '',
 }) {
   const resolvedRegistered = useMemo(
-    () => registered || countRegisteredMaintenanceDevices(devices),
+    () => registered || countMaintenanceDevicesByCategory(devices),
     [devices, registered],
   );
   const resolvedExpectedTotal = useMemo(() => {
