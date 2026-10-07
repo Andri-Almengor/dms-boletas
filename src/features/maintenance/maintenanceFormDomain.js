@@ -53,6 +53,13 @@ export function buildMaintenanceTechnicians(users = []) {
 }
 
 export function countRegisteredMaintenanceDevices(devices = []) {
+  return devices.reduce((map, item) => ({
+    ...map,
+    [item.categoria]: (map[item.categoria] || 0) + 1,
+  }), {});
+}
+
+export function countMaintenanceDevicesByCategory(devices = []) {
   return devices.reduce((map, item) => {
     const rawCategory = readValue(
       item,
