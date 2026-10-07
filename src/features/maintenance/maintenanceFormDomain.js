@@ -1,3 +1,4 @@
+import { getMaintenanceCategory } from '../../config/maintenanceCategories.js';
 import { isProjectMaintenance } from './maintenanceType.js';
 import { normalizeProjectChecklist } from './maintenanceProjectChecklist.js';
 
@@ -55,8 +56,40 @@ export function countRegisteredMaintenanceDevices(devices = []) {
   }), {});
 }
 
-export function expectedMaintenanceTotal(counts = {}) {
-  return Object.values(counts || {}).reduce((sum, value) => sum + Number(value || 0), 0);
+function normalizedDynamicCountName(value = '') {
+  return String(value || '')
+    .normalize('NFD')
+    .replace(/[\u0300-\u036f]/g, '')
+    .trim()
+    .toLowerCase()
+    .replace(/[^a-z0-9]+/g, ' ')
+    .replace(/\s+/g, ' ');
+}
+
+export function shadowedMaintenanceCountKeys(devices = []) {
+  const keys = new Set();
+
+  (devices || []).forEach((device) => {
+    const rawCategory = readValue(device, ['categoria', 'Categoria', 'TipoDispositivo']);
+    const category = getMaintenanceCategory(rawCategory);
+    if (!category.countField) return;
+
+    const typeId = String(readValue(device, ['tipoDispositivoId', 'TipoDispositivoID'])).trim();
+    if (typeId) keys.add(`TipoDispositivo:${typeId}`);
+
+    const normalizedName = normalizedDynamicCountName(rawCategory);
+    if (normalizedName) keys.add(`TipoDispositivoNombre:${normalizedName}`);
+  });
+
+  return keys;
+}
+
+export function expectedMaintenanceTotal(counts = {}, devices = []) {
+  const shadowedKeys = shadowedMaintenanceCountKeys(devices);
+  return Object.entries(counts || {}).reduce(
+    (sum, [key, value]) => sum + (shadowedKeys.has(key) ? 0 : Number(value || 0)),
+    0,
+  );
 }
 
 export function updateMaintenanceCount(counts = {}, key, value) {
