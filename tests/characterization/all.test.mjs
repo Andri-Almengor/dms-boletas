@@ -49,6 +49,7 @@ import './maintenance-transient-evidence-file.test.mjs';
 import './maintenance-device-fault-notification.test.mjs';
 import './maintenance-evidence-lightbox-aspect.test.mjs';
 import './maintenance-expected-counts.test.mjs';
+import './maintenance-detail-progress-summary.test.mjs';
 import './maintenance-finalization-performance.test.mjs';
 import './maintenance-staged-finalization.test.mjs';
 import './maintenance-finalization-stop-control.test.mjs';
