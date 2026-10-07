@@ -84,7 +84,7 @@ test('las evidencias de boleta agrupan archivos con preparación paralela acotad
 
   assert.match(service, /MAX_FILES_PER_REQUEST = 10/);
   assert.match(service, /MAX_RAW_BYTES_PER_REQUEST = 10 \* 1024 \* 1024/);
-  assert.match(service, /TICKET_BATCH_RESUMABLE_THRESHOLD_BYTES = 10 \* 1024 \* 1024/);
+  assert.match(service, /TICKET_BATCH_RESUMABLE_THRESHOLD_BYTES = LARGE_EVIDENCE_THRESHOLD_BYTES/);
   assert.match(service, /mapFilesWithConcurrency/);
   assert.match(service, /PREPARE_CONCURRENCY = 2/);
   assert.match(service, /LARGE_UPLOAD_CONCURRENCY = 2/);
