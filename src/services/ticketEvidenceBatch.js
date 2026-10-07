@@ -2,6 +2,7 @@ import { apiRequest } from '../api';
 import { fileToBase64, mapFilesWithConcurrency } from '../utils/fileEncoding';
 import { createLocalId } from '../utils/localId';
 import {
+  LARGE_EVIDENCE_THRESHOLD_BYTES,
   shouldUseLargeEvidenceUpload,
   uploadLargeTicketEvidence,
 } from './largeEvidenceUpload';
@@ -13,7 +14,7 @@ const MAX_FILES_PER_REQUEST = 10;
 const MAX_RAW_BYTES_PER_REQUEST = 10 * 1024 * 1024;
 const PREPARE_CONCURRENCY = 2;
 const LARGE_UPLOAD_CONCURRENCY = 2;
-export const TICKET_BATCH_RESUMABLE_THRESHOLD_BYTES = 10 * 1024 * 1024;
+export const TICKET_BATCH_RESUMABLE_THRESHOLD_BYTES = LARGE_EVIDENCE_THRESHOLD_BYTES;
 
 let batchAvailable = null;
 
