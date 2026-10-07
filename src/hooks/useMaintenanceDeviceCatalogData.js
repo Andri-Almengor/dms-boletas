@@ -11,10 +11,14 @@ const EMPTY = Object.freeze({
 
 export default function useMaintenanceDeviceCatalogData(sessionToken, {
   enabled = true,
+  resources = null,
 } = {}) {
   const [catalogs, setCatalogs] = useState(EMPTY);
   const [loading, setLoading] = useState(Boolean(enabled && sessionToken));
   const [error, setError] = useState('');
+  const resourceKey = Array.isArray(resources) && resources.length
+    ? [...new Set(resources)].sort().join('|')
+    : 'all';
 
   const reload = useCallback(async ({ force = false } = {}) => {
     if (!enabled || !sessionToken) {
@@ -25,12 +29,18 @@ export default function useMaintenanceDeviceCatalogData(sessionToken, {
 
     setLoading(true);
     setError('');
-    const jobs = [
+    const allJobs = [
       ['deviceTypes', MODULE_ROUTES.deviceTypes.list],
       ['manufacturers', MODULE_ROUTES.manufacturers.list],
       ['models', MODULE_ROUTES.models.list],
       ['relations', MODULE_ROUTES.deviceManufacturers.list],
     ];
+    const requested = resourceKey === 'all'
+      ? null
+      : new Set(resourceKey.split('|'));
+    const jobs = requested
+      ? allJobs.filter(([key]) => requested.has(key))
+      : allJobs;
     const results = await Promise.allSettled(jobs.map(([, routes]) => loadCatalogResource({
       routes,
       payload: { page: 1, pageSize: 1000, activo: true },
@@ -47,7 +57,7 @@ export default function useMaintenanceDeviceCatalogData(sessionToken, {
     if (failures.length) setError(`Algunos catálogos no se cargaron: ${failures.join(' · ')}`);
     setLoading(false);
     return next;
-  }, [enabled, sessionToken]);
+  }, [enabled, resourceKey, sessionToken]);
 
   useEffect(() => {
     let active = true;
