@@ -11,7 +11,7 @@ const BRAND_BORDER = '#ead5d7';
 const BRAND_BACKGROUND = '#fffafa';
 const DMS_EMAIL_FROM_ALIAS = 'reportes@solutionsdms.com';
 const DMS_EMAIL_FROM_NAME = 'DMS Boletas';
-const APPS_SCRIPT_VERSION = '2026-10-06-V7.13-MAINTENANCE-FAULT-EMAIL';
+const APPS_SCRIPT_VERSION = '2026-10-07-V7.14-TICKET-LARGE-VIDEO';
 const MAINTENANCE_ARCHIVE_DELIVERY_TYPE = 'MAINTENANCE_ARCHIVE';
 
 /*
@@ -2268,6 +2268,7 @@ function sendVisitGroupEmail_(data) {
     surveyUrl: surveyUrl,
     signatureUrl: signatureUrl,
     directAttachments: true,
+    linkedVideoCount: evidenceParts.linkedVideoCount,
   });
 
   const plainBody = buildVisitGroupEmailPlainText_({
@@ -2282,6 +2283,7 @@ function sendVisitGroupEmail_(data) {
     signatureUrl: signatureUrl,
     directAttachments: true,
     attachmentCount: attachments.length,
+    linkedVideoCount: evidenceParts.linkedVideoCount,
   });
 
   const delivery = sendDirectAttachmentEmails_({
@@ -2305,8 +2307,9 @@ function sendVisitGroupEmail_(data) {
     aliasFallback: Boolean(delivery.aliasFallback),
     reportAttachmentCount: reportBlobs.length,
     evidenceAttachmentCount: evidenceParts.attachments.length,
+    linkedVideoCount: evidenceParts.linkedVideoCount,
     inlineImageCount: 0,
-    allFilesAttachedDirectly: true,
+    allFilesAttachedDirectly: evidenceParts.linkedVideoCount === 0,
     driveAccessRequired: false,
     visitCount: data.visits.length,
     surveyIncluded: Boolean(surveyUrl),
@@ -2331,8 +2334,12 @@ function buildVisitGroupEmailPlainText_(data) {
     `Visitas: ${data.visits.length}`,
     `Servicio: ${data.ticket.Titulo || ''}`,
     '',
-    'Los PDF de cada boleta y todas las evidencias disponibles se adjuntan directamente a este correo.',
-    'No es necesario iniciar sesión en Google Drive ni solicitar permisos.',
+    Number(data.linkedVideoCount || 0) > 0
+      ? 'Los PDF y las evidencias compatibles se adjuntan directamente a este correo.'
+      : 'Los PDF de cada boleta y todas las evidencias disponibles se adjuntan directamente a este correo.',
+    Number(data.linkedVideoCount || 0) > 0
+      ? Number(data.linkedVideoCount || 0) + ' video(s) grande(s) permanecen almacenados en DMS y no impiden enviar el seguimiento.'
+      : 'No es necesario iniciar sesión en Google Drive ni solicitar permisos.',
     '',
   ];
 
@@ -2435,7 +2442,11 @@ function buildVisitGroupEmailHtml_(data) {
   const reportLinks = data.directAttachments
     ? [
       '<div style="padding:16px;border:1px solid #9fd5b6;border-radius:12px;background:#effaf4;color:#145c35;text-align:left">',
-      '<strong>Archivos incluidos directamente:</strong> los PDF de todas las boletas y sus evidencias están adjuntos a este correo. No necesita acceso a Google Drive.',
+      Number(data.linkedVideoCount || 0) > 0
+        ? '<strong>Seguimiento enviado correctamente:</strong> los PDF y las evidencias compatibles están adjuntos. '
+          + Number(data.linkedVideoCount || 0)
+          + ' video(s) grande(s) permanecen almacenados en DMS y no bloquean el correo.'
+        : '<strong>Archivos incluidos directamente:</strong> los PDF de todas las boletas y sus evidencias están adjuntos a este correo. No necesita acceso a Google Drive.',
       '</div>',
     ].join('')
     : (data.reports || []).map(function (report) {
@@ -6646,6 +6657,7 @@ function sendReportEmail_(data) {
     signatureUrl: signatureUrl,
     signedDelivery: signedDelivery,
     directAttachments: true,
+    linkedVideoCount: evidenceParts.linkedVideoCount,
   });
 
   const plainBody = buildEmailPlainText_({
@@ -6659,6 +6671,7 @@ function sendReportEmail_(data) {
     signedDelivery: signedDelivery,
     directAttachments: true,
     attachmentCount: attachments.length,
+    linkedVideoCount: evidenceParts.linkedVideoCount,
   });
 
   const delivery = sendDirectAttachmentEmails_({
@@ -6682,8 +6695,9 @@ function sendReportEmail_(data) {
     aliasFallback: Boolean(delivery.aliasFallback),
     reportAttachmentCount: 1,
     evidenceAttachmentCount: evidenceParts.attachments.length,
+    linkedVideoCount: evidenceParts.linkedVideoCount,
     inlineImageCount: 0,
-    allFilesAttachedDirectly: true,
+    allFilesAttachedDirectly: evidenceParts.linkedVideoCount === 0,
     driveAccessRequired: false,
     surveyIncluded: Boolean(surveyUrl),
     surveyUrl: surveyUrl,
@@ -6708,8 +6722,12 @@ function buildEmailPlainText_(data) {
     `Cliente: ${ticket.Cliente || ''}`,
     `Título: ${ticket.Titulo || ''}`,
     '',
-    'El PDF de la boleta y todas las evidencias disponibles se adjuntan directamente a este correo.',
-    'No es necesario iniciar sesión en Google Drive ni solicitar permisos.',
+    Number(data.linkedVideoCount || 0) > 0
+      ? 'El PDF y las evidencias compatibles se adjuntan directamente a este correo.'
+      : 'El PDF de la boleta y todas las evidencias disponibles se adjuntan directamente a este correo.',
+    Number(data.linkedVideoCount || 0) > 0
+      ? Number(data.linkedVideoCount || 0) + ' video(s) grande(s) permanecen almacenados en el expediente de DMS y no impiden el envío de la boleta.'
+      : 'No es necesario iniciar sesión en Google Drive ni solicitar permisos.',
   ];
 
   if (data.testMode) {
@@ -6786,6 +6804,48 @@ function buildDirectEvidenceAttachments_(evidences) {
     if (seen[fileId]) return;
 
     const file = getDriveFileCached_(fileId);
+    if (!file) {
+      throw new Error(
+        `No fue posible leer los metadatos de la evidencia "${name}".`,
+      );
+    }
+
+    const declaredMimeType = clean_(
+      evidence.MimeType || evidence.mimeType,
+    ).toLowerCase();
+    const fileMimeType = clean_(file.getMimeType()).toLowerCase();
+    const mimeType = declaredMimeType || fileMimeType;
+    const fileSize = Number(
+      file.getSize()
+      || evidence.TamanoBytes
+      || evidence.Size
+      || 0,
+    );
+    const isVideo = /^video\//i.test(mimeType);
+
+    /*
+     * Gmail/MailApp no admite adjuntos individuales tan grandes como los videos
+     * que DMS permite almacenar. El video ya está persistido en Drive y forma
+     * parte de la boleta; no se materializa como Blob ni se intenta comprimir.
+     * Así una evidencia de video grande nunca bloquea PDF/correo/finalización.
+     */
+    if (isVideo && fileSize > MAX_EMAIL_BYTES) {
+      seen[fileId] = true;
+      rows.push({
+        name: name,
+        note: note,
+        attached: false,
+        cid: '',
+        oversizedVideo: true,
+        size: fileSize,
+        url: safeWebUrl_(
+          evidence.DriveURL
+          || evidence.ArchivoURL,
+        ),
+      });
+      return;
+    }
+
     const blob = getDriveBlob_(fileId);
 
     if (!blob) {
@@ -6809,11 +6869,7 @@ function buildDirectEvidenceAttachments_(evidences) {
       safeAttachmentName_(attachmentName),
     );
 
-    /*
-     * getSize() obtiene el tamaño desde metadatos de Drive y evita materializar
-     * todos los bytes solo para medir el archivo.
-     */
-    let size = Number(file.getSize() || 0);
+    let size = fileSize;
 
     if (!size) {
       size = blobSize_(namedBlob);
@@ -6849,6 +6905,8 @@ function buildDirectEvidenceAttachments_(evidences) {
       note: note,
       attached: true,
       cid: '',
+      oversizedVideo: false,
+      size: size,
       url: safeWebUrl_(
         evidence.DriveURL
         || evidence.ArchivoURL,
@@ -6859,6 +6917,9 @@ function buildDirectEvidenceAttachments_(evidences) {
   return {
     attachments: attachments,
     rows: rows,
+    linkedVideoCount: rows.filter(function (item) {
+      return item.oversizedVideo === true;
+    }).length,
   };
 }
 
@@ -7086,11 +7147,13 @@ function buildEmailHtml_(data) {
 
   const evidenceHtml = data.evidenceRows.length
     ? data.evidenceRows.map(function (item, index) {
-      const link = data.directAttachments
+      const link = item.attached
         ? '<span style="color:#145c35;font-weight:700">Archivo adjunto directamente</span>'
-        : item.url
-          ? `<a href="${escapeHtml_(item.url)}" style="color:${BRAND_RED};font-weight:700;text-decoration:none">Abrir en Drive</a>`
-          : 'Sin enlace';
+        : item.oversizedVideo
+          ? '<span style="color:#7c2d12;font-weight:700">Video almacenado en DMS; no se adjunta al correo por su tamaño.</span>'
+          : item.url
+            ? `<a href="${escapeHtml_(item.url)}" style="color:${BRAND_RED};font-weight:700;text-decoration:none">Abrir en Drive</a>`
+            : 'Sin enlace';
 
       const preview = item.cid
         ? `<img src="cid:${item.cid}" alt="${escapeHtml_(item.name)}" style="display:block;max-width:100%;height:auto;margin-top:12px;border-radius:10px;border:1px solid ${BRAND_BORDER}">`
@@ -7128,7 +7191,11 @@ function buildEmailHtml_(data) {
   const reportLinks = data.directAttachments
     ? [
       '<div style="padding:16px;border:1px solid #9fd5b6;border-radius:12px;background:#effaf4;color:#145c35;text-align:left">',
-      '<strong>Archivos incluidos directamente:</strong> el PDF de la boleta y todas las evidencias están adjuntos a este correo. No necesita iniciar sesión en Google Drive ni solicitar permisos.',
+      Number(data.linkedVideoCount || 0) > 0
+        ? '<strong>Reporte enviado correctamente:</strong> el PDF y las evidencias compatibles están adjuntos. '
+          + Number(data.linkedVideoCount || 0)
+          + ' video(s) grande(s) permanecen almacenados en el expediente de DMS y no bloquean el envío.'
+        : '<strong>Archivos incluidos directamente:</strong> el PDF de la boleta y todas las evidencias están adjuntos a este correo. No necesita iniciar sesión en Google Drive ni solicitar permisos.',
       '</div>',
     ].join('')
     : [
@@ -7303,10 +7370,13 @@ function getDriveImageBlobForDocument_(value) {
     const mimeType = clean_(file.getMimeType()).toLowerCase();
     const fileSize = Number(file.getSize() || 0);
 
-    if (
-      /^image\//i.test(mimeType)
-      && fileSize > REPORT_EMBED_ORIGINAL_MAX_BYTES
-    ) {
+    // Videos y documentos no se incrustan en Docs/Slides. Evitar getBlob()
+    // impide cargar cientos de MB en memoria solo para terminar mostrando un enlace.
+    if (!/^image\//i.test(mimeType)) {
+      return null;
+    }
+
+    if (fileSize > REPORT_EMBED_ORIGINAL_MAX_BYTES) {
       if (
         Object.prototype.hasOwnProperty.call(
           REQUEST_DRIVE_THUMBNAIL_CACHE_,

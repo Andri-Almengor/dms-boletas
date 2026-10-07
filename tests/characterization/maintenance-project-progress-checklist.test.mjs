@@ -86,11 +86,13 @@ test('Project detail and review expose progress while maintenance normal remains
   const inventory = source('src/components/maintenance/MaintenanceLocationInventory.jsx');
   const projectDetail = source('src/components/maintenance/MaintenanceProjectDeviceDetail.jsx');
   const review = source('src/components/maintenance/MaintenanceReviewStep.jsx');
+  const progressSummary = source('src/components/maintenance/MaintenanceDeviceProgressSummary.jsx');
 
   assert.ok(detail.includes('ProyectoChecklistJSON'));
   assert.ok(projectDetail.includes('<MaintenanceProjectProgressChecklist'));
   assert.ok(review.includes('projectChecklistOverallProgress'));
-  assert.ok(review.includes('progreso checklist'));
+  assert.ok(review.includes('MaintenanceDeviceProgressSummary'));
+  assert.ok(progressSummary.includes('progreso checklist'));
   assert.ok(inventory.includes('projectMode'));
 });
 

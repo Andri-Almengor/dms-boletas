@@ -78,8 +78,8 @@ export default function useMaintenanceForm({ editing, maintenanceId, navigationS
     [devices],
   );
   const expectedTotal = useMemo(
-    () => expectedMaintenanceTotal(form.counts),
-    [form.counts],
+    () => expectedMaintenanceTotal(form.counts, devices),
+    [form.counts, devices],
   );
   const readOnly = maintenanceReadOnly({ editing, estado: form.estado, isAdmin });
   const maintenanceDirty = useMemo(() => (

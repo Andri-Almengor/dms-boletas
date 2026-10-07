@@ -12,7 +12,11 @@ import {
   subscribeSyncEntity,
 } from '../../services/syncManager';
 import { uploadTicketEvidenceItems } from '../../services/ticketEvidenceBatch';
-import { evidenceMediaKind, prepareEvidenceFiles } from '../../utils/evidenceMedia';
+import {
+  evidenceMediaKind,
+  prepareEvidenceFiles,
+  TICKET_EVIDENCE_VIDEO_MAX_BYTES,
+} from '../../utils/evidenceMedia';
 import { normalizeMacAddress } from '../../utils/macAddress';
 import { formatDate, formatTime, normalizeTicketStatus } from '../../utils/tickets';
 
@@ -266,7 +270,10 @@ export default function TicketDetailPage() {
     if (!file) return;
     setError('');
     try {
-      const [prepared] = await prepareEvidenceFiles([file], { allowDocuments: true });
+      const [prepared] = await prepareEvidenceFiles([file], {
+        allowDocuments: true,
+        maxVideoBytes: TICKET_EVIDENCE_VIDEO_MAX_BYTES,
+      });
       setEvidenceForm((current) => ({
         ...current,
         file,
@@ -482,7 +489,7 @@ export default function TicketDetailPage() {
             <button className="button button--secondary" type="button" onClick={() => fileInputRef.current?.click()} disabled={processing}><Icon name="upload_file" /> Seleccionar archivo</button>
             <input key={`file-${evidenceInputVersion}`} ref={fileInputRef} className="ticket-detail-hidden-input" type="file" accept="image/*,video/mp4,video/webm,video/quicktime,.mov,.mp4,.webm,.pdf,.doc,.docx" onChange={(event) => selectEvidenceFile(event.target.files?.[0], 'file')} />
           </div>
-          <div className="info-box"><Icon name="info" /><p>Los videos deben durar máximo 1 minuto y 30 segundos y pesar hasta 300 MB. Los videos mayores de 30 MB se cargan por partes y requieren conexión a internet.</p></div>
+          <div className="info-box"><Icon name="info" /><p>Los videos deben durar máximo 1 minuto y 30 segundos y pesar hasta 500 MB. Los videos mayores de 6 MB se cargan por partes y requieren conexión a internet.</p></div>
           {evidenceForm.file && <div className="ticket-detail-selected-file"><Icon name={evidenceForm.mediaType === 'video' ? 'videocam' : 'check_circle'} /><span>{evidenceForm.file.name}{evidenceForm.mediaType === 'video' ? ` · ${Math.ceil(evidenceForm.durationSeconds)} s` : ''}</span></div>}
           <input className="form-control" value={evidenceForm.name} onChange={(event) => setEvidenceForm((current) => ({ ...current, name: event.target.value }))} placeholder="Nombre de la evidencia" />
           <input className="form-control" value={evidenceForm.note} onChange={(event) => setEvidenceForm((current) => ({ ...current, note: event.target.value }))} placeholder="Nota opcional" />

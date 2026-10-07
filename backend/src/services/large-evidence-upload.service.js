@@ -8,7 +8,7 @@ import { query } from '../infra/postgres.js';
 import { aiConfig } from '../ai/agent.config.js';
 import { getConfig } from '../modules/config.module.js';
 import { ensureSheetColumns } from './sheet-columns.service.js';
-import { validateEvidenceMediaPayload } from './evidence-media-policy.service.js';
+import { TICKET_EVIDENCE_VIDEO_MAX_BYTES, validateEvidenceMediaPayload } from './evidence-media-policy.service.js';
 import { loadMaintenanceEvidenceContext, maintenanceEvidenceMetadata } from './maintenance-evidence-policy.service.js';
 
 export const LARGE_VIDEO_THRESHOLD_BYTES = 6 * 1024 * 1024;
@@ -197,8 +197,12 @@ async function findExistingEvidence(token, kind) {
   return findMaintenanceEvidenceById(token.imageId, token.deviceId);
 }
 
-function validatedVideoMetadata(payload, allowDocuments = false) {
-  const metadata = validateEvidenceMediaPayload(payload, { allowDocuments, requireData: false });
+function validatedVideoMetadata(payload, allowDocuments = false, maxVideoBytes) {
+  const metadata = validateEvidenceMediaPayload(payload, {
+    allowDocuments,
+    requireData: false,
+    ...(maxVideoBytes ? { maxVideoBytes } : {}),
+  });
   if (!Number.isSafeInteger(metadata.size) || metadata.size <= 0) throw badRequest('El tamaño del archivo no es válido.');
   return metadata;
 }
@@ -255,7 +259,11 @@ async function initTicket(ctx) {
   const existing = await findTicketEvidenceById(evidenceId, boletaUid);
   if (existing) return { complete: true, evidence: existing };
 
-  const metadata = validatedVideoMetadata(ctx.payload, true);
+  const metadata = validatedVideoMetadata(
+    ctx.payload,
+    true,
+    TICKET_EVIDENCE_VIDEO_MAX_BYTES,
+  );
   const cfg = await getConfig();
   const sessionUrl = await startDriveResumableSession({
     fileName: clean(ctx.payload.fileName, `video-${Date.now()}.mp4`),

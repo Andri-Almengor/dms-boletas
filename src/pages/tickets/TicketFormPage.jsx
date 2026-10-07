@@ -30,6 +30,7 @@ import { pick } from '../../services/moduleApi';
 import {
   createEvidencePreviewUrl,
   prepareEvidenceFiles,
+  TICKET_EVIDENCE_VIDEO_MAX_BYTES,
 } from '../../utils/evidenceMedia';
 import { macAddressError, normalizeMacAddress } from '../../utils/macAddress';
 
@@ -194,7 +195,10 @@ export default function TicketFormPage({ mode = 'create' }) {
     if (!files.length) return;
     setError('');
     try {
-      const prepared = await prepareEvidenceFiles(files, { allowDocuments: true });
+      const prepared = await prepareEvidenceFiles(files, {
+        allowDocuments: true,
+        maxVideoBytes: TICKET_EVIDENCE_VIDEO_MAX_BYTES,
+      });
       setEvidences((current) => [
         ...current,
         ...prepared.map(({ file, mimeType, mediaType, durationSeconds, size }) => ({

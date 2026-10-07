@@ -84,6 +84,41 @@ function normalizeCategoryName(value) {
   return text;
 }
 
+function normalizedDynamicCountName(value = '') {
+  return String(value || '')
+    .normalize('NFD')
+    .replace(/[\u0300-\u036f]/g, '')
+    .trim()
+    .toLowerCase()
+    .replace(/[^a-z0-9]+/g, ' ')
+    .replace(/\s+/g, ' ');
+}
+
+function fixedCountFieldForDevice(device = {}) {
+  const category = normalizeCategoryName(device.TipoDispositivo || device.Categoria);
+  const normalized = normalizedDynamicCountName(category);
+  return CATEGORY_CONFIG.find((item) => normalizedDynamicCountName(item.key) === normalized)?.countField || '';
+}
+
+function sanitizeMaintenanceCounts(counts = {}, devices = []) {
+  const cleaned = { ...(counts || {}) };
+
+  (devices || []).forEach((device) => {
+    if (device.Activo === false || !fixedCountFieldForDevice(device)) return;
+
+    const typeId = String(device.TipoDispositivoID || '').trim();
+    if (typeId) delete cleaned[`TipoDispositivo:${typeId}`];
+
+    const names = [device.TipoDispositivo, device.Categoria];
+    names.forEach((name) => {
+      const normalized = normalizedDynamicCountName(name);
+      if (normalized) delete cleaned[`TipoDispositivoNombre:${normalized}`];
+    });
+  });
+
+  return cleaned;
+}
+
 function normalizeMaintenanceType(value, fallback = 'MANTENIMIENTO') {
   const normalized = String(value || fallback || 'MANTENIMIENTO').trim().toUpperCase();
   return normalized === 'PROYECTO' ? 'PROYECTO' : 'MANTENIMIENTO';
@@ -277,6 +312,20 @@ export const maintenanceHandlers = {
     const tables = await readTables(['Mantenimiento', 'Usuarios', 'Evidencia_Mantenimientos', 'Mantenimiento imagenes']);
     const before = maintenanceRow(tables, id);
     const payload = maintenancePayload(ctx.payload, before);
+    const maintenanceDevices = (tables.Evidencia_Mantenimientos || [])
+      .filter((device) => String(device.MantenimientoRef) === String(id) && device.Activo !== false);
+    let nextCounts = {};
+    try { nextCounts = JSON.parse(payload.CantidadesJSON || '{}'); } catch { nextCounts = {}; }
+    const sanitizedCounts = sanitizeMaintenanceCounts(nextCounts, maintenanceDevices);
+    payload.CantidadesJSON = JSON.stringify(sanitizedCounts);
+    CATEGORY_CONFIG.forEach((category) => {
+      payload[category.countField] = Number(
+        sanitizedCounts[category.countField]
+        ?? payload[category.countField]
+        ?? before[category.countField]
+        ?? 0,
+      );
+    });
     const previousType = normalizeMaintenanceType(before.TipoMantenimiento);
     const requestedType = normalizeMaintenanceType(payload.TipoMantenimiento);
     if (previousType !== requestedType) {

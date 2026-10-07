@@ -2,7 +2,10 @@ import React, { useEffect, useRef } from 'react';
 import { useLocation } from 'react-router-dom';
 import { useAuth } from '../../AuthContext';
 import { uploadTicketEvidenceItems } from '../../services/ticketEvidenceBatch';
-import { prepareEvidenceFiles } from '../../utils/evidenceMedia';
+import {
+  prepareEvidenceFiles,
+  TICKET_EVIDENCE_VIDEO_MAX_BYTES,
+} from '../../utils/evidenceMedia';
 
 function ticketIdFromPath(pathname) {
   const match = String(pathname || '').match(/^\/boletas\/([^/]+)\/?$/i);
@@ -336,7 +339,10 @@ export default function TicketEvidenceMultiSelectBridge() {
         renderSelection(form, `Validando ${files.length} archivo(s)...`, 'progress');
         syncSubmissionMode(form);
         try {
-          selectedFilesRef.current = await prepareEvidenceFiles(files, { allowDocuments: true });
+          selectedFilesRef.current = await prepareEvidenceFiles(files, {
+            allowDocuments: true,
+            maxVideoBytes: TICKET_EVIDENCE_VIDEO_MAX_BYTES,
+          });
           renderSelection(form);
         } catch (error) {
           selectedFilesRef.current = [];
