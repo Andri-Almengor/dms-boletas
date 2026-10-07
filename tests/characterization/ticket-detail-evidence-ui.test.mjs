@@ -23,7 +23,10 @@ test('el detalle conserva acciones independientes para foto, video, archivo y se
 test('la selección múltiple reutiliza la política de medios y el uploader por lotes', () => {
   const bridge = source('src/components/forms/TicketEvidenceMultiSelectBridge.jsx');
 
-  assert.match(bridge, /prepareEvidenceFiles\(files, \{ allowDocuments: true \}\)/);
+  assert.match(
+    bridge,
+    /prepareEvidenceFiles\(files, \{[\s\S]*allowDocuments: true,[\s\S]*maxVideoBytes: TICKET_EVIDENCE_VIDEO_MAX_BYTES,[\s\S]*\}\)/,
+  );
   assert.match(bridge, /sourceFileInput/);
   assert.match(bridge, /multiFileInput/);
   assert.match(bridge, /originalSubmit\.hidden = hasMultipleSelection/);
