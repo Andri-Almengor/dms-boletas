@@ -12,24 +12,26 @@ function syntaxCheck(relativePath) {
   execFileSync(process.execPath, ['--check', path.join(ROOT, relativePath)], { stdio: 'pipe' });
 }
 
-test('la política común permite videos de hasta 90 segundos y 300 MB', () => {
+test('la política común conserva 300 MB y boletas extienden solo video a 500 MB', () => {
   const frontend = source('src/utils/evidenceMedia.js');
   const backend = source('backend/src/services/evidence-media-policy.service.js');
 
   assert.match(frontend, /EVIDENCE_VIDEO_MAX_SECONDS = 90/);
   assert.match(frontend, /EVIDENCE_VIDEO_MAX_BYTES = 300 \* 1024 \* 1024/);
+  assert.match(frontend, /TICKET_EVIDENCE_VIDEO_MAX_BYTES = 500 \* 1024 \* 1024/);
   assert.match(frontend, /readVideoDuration/);
   assert.match(frontend, /video\/quicktime/);
   assert.match(frontend, /video\/webm/);
   assert.match(backend, /EVIDENCE_VIDEO_MAX_SECONDS = 90/);
   assert.match(backend, /EVIDENCE_VIDEO_INLINE_MAX_BYTES = 30 \* 1024 \* 1024/);
   assert.match(backend, /EVIDENCE_VIDEO_MAX_BYTES = 300 \* 1024 \* 1024/);
+  assert.match(backend, /TICKET_EVIDENCE_VIDEO_MAX_BYTES = 500 \* 1024 \* 1024/);
   assert.match(backend, /maxVideoBytes = EVIDENCE_VIDEO_MAX_BYTES/);
   assert.match(backend, /durationSeconds > EVIDENCE_VIDEO_MAX_SECONDS/);
   assert.match(backend, /Use MP4, MOV o WebM/);
 });
 
-test('boletas permiten grabar, seleccionar, validar y reproducir videos de hasta 300 MB', () => {
+test('boletas permiten grabar, seleccionar, validar y reproducir videos de hasta 500 MB', () => {
   const form = source('src/pages/tickets/TicketFormPage.jsx');
   const uploader = source('src/components/forms/EvidenceUploader.jsx');
   const detail = source('src/pages/tickets/TicketDetailPage.jsx');
@@ -38,11 +40,11 @@ test('boletas permiten grabar, seleccionar, validar y reproducir videos de hasta
   const persistence = source('src/features/tickets/ticketPersistenceService.js');
   const batch = source('src/services/ticketEvidenceBatch.js');
 
-  assert.match(form, /prepareEvidenceFiles\(files, \{ allowDocuments: true \}\)/);
+  assert.match(form, /prepareEvidenceFiles\(files, \{[\s\S]*allowDocuments: true,[\s\S]*maxVideoBytes: TICKET_EVIDENCE_VIDEO_MAX_BYTES,[\s\S]*\}\)/);
   assert.match(uploader, /Grabar video/);
   assert.match(uploader, /Máximo 1 min 30 s/);
-  assert.match(uploader, /pesar hasta 300 MB/);
-  assert.match(uploader, /mayores de 30 MB se cargan por partes/);
+  assert.match(uploader, /pesar hasta 500 MB/);
+  assert.match(uploader, /mayores de 6 MB se cargan por partes/);
   assert.match(uploader, /<video/);
   assert.match(detail, /videoInputRef/);
   assert.match(detail, /durationSeconds/);
@@ -50,12 +52,14 @@ test('boletas permiten grabar, seleccionar, validar y reproducir videos de hasta
   assert.match(detail, /Tomar foto/);
   assert.match(detail, /Seleccionar archivo/);
   assert.match(detail, /uploadTicketEvidenceItems/);
-  assert.match(detail, /hasta 300 MB/);
+  assert.match(detail, /hasta 500 MB/);
+  assert.match(detail, /mayores de 6 MB/);
   assert.match(multiSelect, /Seleccionar varios archivos/);
-  assert.match(multiSelect, /prepareEvidenceFiles\(files, \{ allowDocuments: true \}\)/);
+  assert.match(multiSelect, /prepareEvidenceFiles\(files, \{[\s\S]*allowDocuments: true,[\s\S]*maxVideoBytes: TICKET_EVIDENCE_VIDEO_MAX_BYTES,[\s\S]*\}\)/);
   assert.match(multiSelect, /uploadTicketEvidenceItems/);
   assert.match(batch, /mediaType: item\.mediaType/);
   assert.match(batch, /durationSeconds: Number\(item\.durationSeconds/);
+  assert.match(batch, /TICKET_BATCH_RESUMABLE_THRESHOLD_BYTES = LARGE_EVIDENCE_THRESHOLD_BYTES/);
   assert.doesNotMatch(multiSelect, /actionButtons\[1\]/);
   assert.doesNotMatch(multiSelect, /dmsOriginalLabel/);
   assert.match(preview, /knownKind === 'video'/);
@@ -107,6 +111,8 @@ test('las evidencias grandes usan carga reanudable en bloques de 6 MiB', () => {
   assert.match(frontend, /cargas por bloques necesitan conexión a internet/i);
   assert.match(backend, /LARGE_VIDEO_THRESHOLD_BYTES = 6 \* 1024 \* 1024/);
   assert.match(backend, /LARGE_VIDEO_MAX_BYTES = 300 \* 1024 \* 1024/);
+  assert.match(backend, /TICKET_EVIDENCE_VIDEO_MAX_BYTES/);
+  assert.match(backend, /validatedVideoMetadata\([\s\S]*ctx\.payload,[\s\S]*true,[\s\S]*TICKET_EVIDENCE_VIDEO_MAX_BYTES/s);
   assert.match(backend, /LARGE_VIDEO_CHUNK_BYTES = 6 \* 1024 \* 1024/);
   assert.match(backend, /uploadType=resumable/);
   assert.match(backend, /Content-Range/);
@@ -166,6 +172,30 @@ test('Apps Script adjunta lo que cabe y concede acceso directo a evidencias gran
   assert.match(reportScript, /Acceso concedido automáticamente/);
   assert.match(reportScript, /Las evidencias que excedan el tamaño seguro de adjunto/);
   assert.doesNotMatch(reportScript, /setSharing\([^)]*ANYONE/);
+});
+
+test('Apps Script no materializa ni bloquea videos grandes al enviar la boleta', () => {
+  const reportScript = source('apps-script/report-service/Code.gs');
+
+  assert.doesNotThrow(() => new Function(reportScript));
+  assert.match(reportScript, /2026-10-07-V7\.14-TICKET-LARGE-VIDEO/);
+  assert.match(reportScript, /const isVideo = \/\^video\\\//);
+  assert.match(reportScript, /if \(isVideo && fileSize > MAX_EMAIL_BYTES\)/);
+  assert.match(reportScript, /oversizedVideo: true/);
+  assert.match(reportScript, /linkedVideoCount: rows\.filter/);
+  assert.match(reportScript, /Video almacenado en DMS; no se adjunta al correo por su tamaño/);
+  assert.match(reportScript, /allFilesAttachedDirectly: evidenceParts\.linkedVideoCount === 0/);
+  assert.match(reportScript, /if \(!\/\^image\\\//i\.test\(mimeType\)\) \{[\s\S]*return null;/s);
+
+  const attachmentStart = reportScript.indexOf('function buildDirectEvidenceAttachments_');
+  const attachmentEnd = reportScript.indexOf('function safeAttachmentName_', attachmentStart);
+  const attachmentBlock = reportScript.slice(attachmentStart, attachmentEnd);
+  assert.ok(attachmentStart >= 0 && attachmentEnd > attachmentStart);
+  assert.ok(
+    attachmentBlock.indexOf('if (isVideo && fileSize > MAX_EMAIL_BYTES)')
+      < attachmentBlock.indexOf('const blob = getDriveBlob_(fileId)'),
+    'El tamaño y MIME del video deben revisarse antes de cargar el Blob completo.',
+  );
 });
 
 test('las presentaciones incrustan imágenes y conservan videos como enlaces separados', () => {
