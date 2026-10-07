@@ -21,3 +21,64 @@
     flex: 0 0 auto;
   }
 }
+
+
+.maintenance-device-progress-summary {
+  display: grid;
+  gap: 10px;
+  min-width: 0;
+}
+
+.maintenance-detail-device-progress {
+  display: grid;
+  gap: 14px;
+  margin: 14px 0;
+}
+
+.maintenance-detail-device-progress__heading {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 14px;
+}
+
+.maintenance-detail-device-progress__heading > div {
+  min-width: 0;
+}
+
+.maintenance-detail-device-progress__heading h2,
+.maintenance-detail-device-progress__heading p {
+  margin: 3px 0;
+}
+
+.maintenance-detail-device-progress__heading p {
+  color: var(--muted);
+  font-size: .78rem;
+}
+
+.maintenance-detail-device-progress__heading > .material-symbols-outlined {
+  flex: 0 0 auto;
+  width: 42px;
+  height: 42px;
+  border-radius: 12px;
+  background: var(--primary-soft);
+  color: var(--primary);
+  display: grid;
+  place-items: center;
+}
+
+@media (max-width: 760px) {
+  .maintenance-detail-device-progress {
+    gap: 12px;
+    margin: 12px 0;
+  }
+
+  .maintenance-detail-device-progress__heading {
+    align-items: flex-start;
+  }
+
+  .maintenance-detail-device-progress__heading > .material-symbols-outlined {
+    width: 38px;
+    height: 38px;
+  }
+}
