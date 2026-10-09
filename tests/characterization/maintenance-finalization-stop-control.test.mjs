@@ -64,3 +64,13 @@ test('detener programación evita el shortcut PROGRAMADO del scheduler y valida 
   assert.match(control, /EstadoFinalizacion:\s*'DETENIDO'/);
   assert.match(control, /findFinalizationJobForMaintenance\(id, before\.FinalizacionJobID\)/);
 });
+
+test('el detalle ofrece detener PROGRAMADO y EN_PROCESO sólo al administrador, con el mismo backend', () => {
+  const center = source('src/components/offline/MaintenanceFinalizationCenter.jsx');
+  const service = source('src/services/maintenanceFinalization.js');
+  assert.match(center, /canFinalize && !operation && \(view\.canCancelSchedule \|\| view\.state === 'EN_PROCESO'\)/);
+  assert.match(center, /stopMaintenanceFinalization\(\{ maintenanceId, state: view\.state, sessionToken \}\)/);
+  assert.match(center, /Detener finalización/);
+  assert.match(center, /Cancelar finalización programada/);
+  assert.match(service, /stopFinalization:\s*true/);
+});
