@@ -130,6 +130,13 @@ async function resolveRequestedGroups(maintenance, requestedIds, devices = []) {
     const row = context.equipmentById.get(id);
     if (row) {
       if (!context.allowedLocationIds.has(clean(row.UbicacionID))) {
+        // A maintenance may have been moved to another client. Preserve only
+        // locations already stored or referenced by its own devices so they
+        // can be migrated; never authorize adding a new foreign location.
+        if (storedById.has(id) || deviceIds.has(id)) {
+          result.push(snapshotFromCatalog(row, context.locationNames));
+          continue;
+        }
         throw badRequest('Una de las ubicaciones del equipo no pertenece al cliente seleccionado en el mantenimiento.');
       }
       if (!isActive(row) && !storedById.has(id) && !deviceIds.has(id)) {
@@ -167,14 +174,18 @@ async function buildLocationGroups(maintenance, devices = []) {
     const row = context.equipmentById.get(id);
     const storedGroup = storedById.get(id) || {};
     const snapshot = row ? snapshotFromCatalog(row, context.locationNames) : storedGroup;
+    const foreignClient = Boolean(row && context.clientId && !context.allowedLocationIds.has(clean(row.UbicacionID)));
     return {
       id,
       name: clean(snapshot.name || deviceNameFallback.get(id) || 'Ubicación no disponible'),
       locationId: clean(snapshot.locationId),
       locationName: clean(snapshot.locationName),
-      description: clean(row?.Descripcion),
-      active: row ? isActive(row) : false,
-      available: Boolean(row),
+      description: foreignClient
+        ? 'Ubicación del cliente anterior. Reasigne sus dispositivos a ubicaciones del cliente actual antes de retirarla.'
+        : clean(row?.Descripcion),
+      foreignClient,
+      active: row ? isActive(row) && !foreignClient : false,
+      available: Boolean(row) && !foreignClient,
       deviceCount: devices.filter((device) => clean(device.UbicacionEquipoID) === id).length,
     };
   });
@@ -245,6 +256,36 @@ async function locationsUpdate(ctx) {
   });
 }
 
+// Validate only a newly assigned location. Existing historical references
+// remain editable until the user explicitly moves their devices.
+async function validateNewDeviceLocation(ctx, existing = null) {
+  const locationId = clean(pick(ctx.payload, ['UbicacionEquipoID', 'ubicacionEquipoId']));
+  if (!locationId || (existing && locationId === clean(existing.UbicacionEquipoID))) return;
+  const maintenanceId = clean(pick(ctx.payload,
+    ['maintenanceId', 'MantenimientoID', 'MantenimientoRef'],
+    existing?.MantenimientoRef));
+  if (!maintenanceId) return;
+  const maintenance = await findById('Mantenimiento', maintenanceId);
+  let location;
+  try {
+    location = await findById('ClienteUbicacionesEquipo', locationId);
+  } catch {
+    throw badRequest('La ubicación del equipo seleccionada no existe. Actualice el catálogo.');
+  }
+  let parent;
+  try {
+    parent = await findById('ClienteUbicaciones', clean(location.UbicacionID));
+  } catch {
+    throw badRequest('La ubicación del equipo no tiene una ubicación principal válida.');
+  }
+  if (clean(parent.ClienteID) !== clean(maintenance.ClienteID)) {
+    throw badRequest('La ubicación del equipo seleccionada pertenece a otro cliente. Elija una ubicación del cliente actual.');
+  }
+  if (!isActive(location) || !isActive(parent)) {
+    throw badRequest('La ubicación del equipo seleccionada está inactiva.');
+  }
+}
+
 async function ensureDeviceLocationGroup(ctx, result) {
   const maintenanceId = clean(pick(result, ['MantenimientoRef'], pick(ctx.payload, ['maintenanceId', 'MantenimientoID', 'MantenimientoRef'])));
   const equipmentLocationId = clean(pick(result, ['UbicacionEquipoID'], pick(ctx.payload, ['UbicacionEquipoID', 'ubicacionEquipoId'])));
@@ -276,18 +317,25 @@ async function get(ctx) {
 }
 
 async function deviceCreate(ctx) {
+  await validateNewDeviceLocation(ctx);
   const result = await baseMaintenanceHandlers.deviceCreate(ctx);
   await ensureDeviceLocationGroup(ctx, result);
   return result;
 }
 
 async function deviceUpdate(ctx) {
+  const id = clean(pick(ctx.payload, ['deviceId', 'EvidenciaMantenimientoID']));
+  const existing = await findById('Evidencia_Mantenimientos', id);
+  await validateNewDeviceLocation(ctx, existing);
   const result = await baseMaintenanceHandlers.deviceUpdate(ctx);
   await ensureDeviceLocationGroup(ctx, result);
   return result;
 }
 
 async function deviceAutosave(ctx) {
+  const id = clean(pick(ctx.payload, ['deviceId', 'EvidenciaMantenimientoID']));
+  const existing = await findById('Evidencia_Mantenimientos', id);
+  await validateNewDeviceLocation(ctx, existing);
   const result = await baseMaintenanceHandlers.deviceAutosave(ctx);
   await ensureDeviceLocationGroup(ctx, result);
   return result;
