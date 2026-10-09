@@ -178,12 +178,12 @@ test('Apps Script no materializa ni bloquea videos grandes al enviar la boleta',
   const reportScript = source('apps-script/report-service/Code.gs');
 
   assert.doesNotThrow(() => new Function(reportScript));
-  assert.match(reportScript, /2026-10-07-V7\.14-TICKET-LARGE-VIDEO/);
+  assert.match(reportScript, /2026-10-09-V7\.15-VIDEO-DRIVE-LINK/);
   assert.match(reportScript, /const isVideo = \/\^video\\\//);
-  assert.match(reportScript, /if \(isVideo && fileSize > MAX_EMAIL_BYTES\)/);
+  assert.match(reportScript, /if \(isVideo && \(linkVideos \|\| fileSize > MAX_EMAIL_BYTES\)\)/);
   assert.match(reportScript, /oversizedVideo: true/);
   assert.match(reportScript, /linkedVideoCount: rows\.filter/);
-  assert.match(reportScript, /Video almacenado en DMS; no se adjunta al correo por su tamaño/);
+  assert.match(reportScript, /Abrir video en Google Drive/);
   assert.match(reportScript, /allFilesAttachedDirectly: evidenceParts\.linkedVideoCount === 0/);
   assert.ok(reportScript.includes("if (!/^image\\//i.test(mimeType)) {"));
   const embedStart = reportScript.indexOf('function getDriveImageBlobForDocument_');
@@ -196,7 +196,7 @@ test('Apps Script no materializa ni bloquea videos grandes al enviar la boleta',
   const attachmentBlock = reportScript.slice(attachmentStart, attachmentEnd);
   assert.ok(attachmentStart >= 0 && attachmentEnd > attachmentStart);
   assert.ok(
-    attachmentBlock.indexOf('if (isVideo && fileSize > MAX_EMAIL_BYTES)')
+    attachmentBlock.indexOf('if (isVideo && (linkVideos || fileSize > MAX_EMAIL_BYTES))')
       < attachmentBlock.indexOf('const blob = getDriveBlob_(fileId)'),
     'El tamaño y MIME del video deben revisarse antes de cargar el Blob completo.',
   );
