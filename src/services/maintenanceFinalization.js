@@ -196,10 +196,9 @@ export async function stopMaintenanceFinalization({
     throw new Error('Debe tener conexión para detener una finalización en curso.');
   }
 
-  if (clean(state).toUpperCase() === 'PROGRAMADO') {
-    return cancelScheduledMaintenanceFinalization({ maintenanceId: id, sessionToken });
-  }
-
+  // Programaciones y trabajos en proceso usan el mismo control persistente
+  // del backend, que comprueba el estado real y detiene el job asociado.
+  // No depender del estado de una tarjeta potencialmente desactualizada.
   return requestAvailable(
     MODULE_ROUTES.maintenance.finalize,
     {
