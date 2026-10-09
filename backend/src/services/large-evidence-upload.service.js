@@ -14,7 +14,11 @@ import { loadMaintenanceEvidenceContext, maintenanceEvidenceMetadata } from './m
 export const LARGE_VIDEO_THRESHOLD_BYTES = 6 * 1024 * 1024;
 export const LARGE_VIDEO_MAX_BYTES = 300 * 1024 * 1024;
 export const LARGE_VIDEO_CHUNK_BYTES = 6 * 1024 * 1024;
+// Ticket videos use smaller chunks to reduce per-request memory and avoid
+// long uploads through the Render reverse proxy; other routes are unchanged.
+export const TICKET_VIDEO_CHUNK_BYTES = 4 * 1024 * 1024;
 const UPLOAD_TOKEN_TTL_MS = 4 * 60 * 60 * 1000;
+const LARGE_TICKET_UPLOAD_TOKEN_TTL_MS = 12 * 60 * 60 * 1000;
 const DRIVE_RESUMABLE_PREFIX = 'https://www.googleapis.com/upload/drive/v3/files?uploadType=resumable';
 const TICKET_MEDIA_COLUMNS = ['TipoMedio', 'DuracionSegundos', 'TamanoBytes'];
 const MAINTENANCE_MEDIA_COLUMNS = [
@@ -93,7 +97,10 @@ function sign(encodedPayload) {
 }
 
 export function createUploadToken(payload) {
-  const encoded = encode({ ...payload, exp: Date.now() + UPLOAD_TOKEN_TTL_MS });
+  const ttl = payload.kind === 'ticket' && Number(payload.size || 0) > TICKET_EVIDENCE_VIDEO_MAX_BYTES / 6
+    ? LARGE_TICKET_UPLOAD_TOKEN_TTL_MS
+    : UPLOAD_TOKEN_TTL_MS;
+  const encoded = encode({ ...payload, exp: Date.now() + ttl });
   return `${encoded}.${sign(encoded)}`;
 }
 
@@ -259,6 +266,30 @@ async function initTicket(ctx) {
   const existing = await findTicketEvidenceById(evidenceId, boletaUid);
   if (existing) return { complete: true, evidence: existing };
 
+  // Reconcile an uncertain chunk using the *same* signed Drive session.
+  // A 502 must not start another Drive upload with a different identity.
+  if (ctx.payload.resumeUploadToken) {
+    const token = parseUploadToken(ctx.payload.resumeUploadToken, 'ticket');
+    if (token.actor !== ctx.user.UsuarioID || token.boletaUid !== boletaUid || token.evidenceId !== evidenceId) {
+      throw badRequest('La sesión reanudable no corresponde a esta boleta o evidencia.');
+    }
+    if (Number(token.size) !== Number(ctx.payload.size)
+      || clean(token.fileName) !== clean(ctx.payload.fileName)) {
+      throw badRequest('El archivo seleccionado no coincide con la sesión de carga original.');
+    }
+    const status = await resumableOffset(token);
+    if (status.complete) {
+      const evidence = status.evidence || await appendTicketEvidence(token, status.file);
+      return { complete: true, evidence };
+    }
+    return {
+      complete: false,
+      uploadToken: ctx.payload.resumeUploadToken,
+      chunkBytes: Number(token.chunkBytes || LARGE_VIDEO_CHUNK_BYTES),
+      nextOffset: status.nextOffset,
+    };
+  }
+
   const metadata = validatedVideoMetadata(
     ctx.payload,
     true,
@@ -274,9 +305,10 @@ async function initTicket(ctx) {
 
   return {
     complete: false,
-    chunkBytes: LARGE_VIDEO_CHUNK_BYTES,
+    chunkBytes: TICKET_VIDEO_CHUNK_BYTES,
     uploadToken: createUploadToken({
       kind: 'ticket',
+      chunkBytes: TICKET_VIDEO_CHUNK_BYTES,
       sessionUrl,
       boletaUid,
       evidenceId,
@@ -441,7 +473,7 @@ async function resumableOffset(token) {
   const bearer = await accessToken();
   const response = await fetch(token.sessionUrl, {
     method: 'PUT',
-    signal: AbortSignal.timeout(60_000),
+    signal: AbortSignal.timeout(120_000),
     headers: {
       Authorization: `Bearer ${bearer}`,
       'Content-Length': '0',
@@ -470,20 +502,24 @@ async function uploadChunk(ctx, kind) {
   if (kind === 'assistant' && token.sessionHash !== sessionFingerprint(ctx.sessionToken)) {
     throw badRequest('La sesión de carga pertenece a otra sesión del usuario.');
   }
-  if (String(ctx.payload.base64 || '').length > Math.ceil(LARGE_VIDEO_CHUNK_BYTES / 3) * 4 + 4) throw badRequest('El bloque supera el tamaño permitido.');
+  const chunkLimit = Math.min(
+    LARGE_VIDEO_CHUNK_BYTES,
+    Math.max(256 * 1024, Number(token.chunkBytes || LARGE_VIDEO_CHUNK_BYTES)),
+  );
+  if (String(ctx.payload.base64 || '').length > Math.ceil(chunkLimit / 3) * 4 + 4) throw badRequest('El bloque supera el tamaño permitido.');
   const offset = Number(ctx.payload.offset);
   if (!Number.isInteger(offset) || offset < 0 || offset >= token.size) throw badRequest('La posición del bloque del video no es válida.');
   const normalized = clean(ctx.payload.base64).replace(/\s+/g, '');
   if (!normalized) throw badRequest('El bloque del video no contiene datos.');
   const buffer = Buffer.from(normalized, 'base64');
-  if (!buffer.length || buffer.length > LARGE_VIDEO_CHUNK_BYTES) throw badRequest('El bloque del video supera el tamaño permitido.');
+  if (!buffer.length || buffer.length > chunkLimit) throw badRequest('El bloque del video supera el tamaño permitido.');
   const end = offset + buffer.length - 1;
   if (end >= token.size) throw badRequest('El bloque del video excede el tamaño total declarado.');
 
   const bearer = await accessToken();
   const response = await fetch(token.sessionUrl, {
     method: 'PUT',
-    signal: AbortSignal.timeout(60_000),
+    signal: AbortSignal.timeout(120_000),
     headers: {
       Authorization: `Bearer ${bearer}`,
       'Content-Type': token.mimeType,
