@@ -1,6 +1,9 @@
 import React, { useMemo } from 'react';
 import Icon from '../common/Icon';
-import { buildDynamicMaintenanceCategories } from '../../config/dynamicMaintenanceTypes';
+import {
+  buildDynamicMaintenanceCategories,
+  expectedMaintenanceTotalFromCatalog,
+} from '../../config/dynamicMaintenanceTypes';
 import {
   countMaintenanceDevicesByCategory,
   countMaintenanceEvidence,
@@ -21,12 +24,6 @@ export default function MaintenanceDeviceProgressSummary({
     () => registered || countMaintenanceDevicesByCategory(devices),
     [devices, registered],
   );
-  const resolvedExpectedTotal = useMemo(() => {
-    const supplied = Number(expectedTotal);
-    return Number.isFinite(supplied)
-      ? supplied
-      : expectedMaintenanceTotal(counts, devices);
-  }, [counts, devices, expectedTotal]);
   const evidenceCount = useMemo(
     () => countMaintenanceEvidence(devices),
     [devices],
@@ -41,6 +38,16 @@ export default function MaintenanceDeviceProgressSummary({
     )),
     [counts, deviceTypes, resolvedRegistered],
   );
+
+  const resolvedExpectedTotal = useMemo(() => {
+    if (deviceTypes.length) {
+      return expectedMaintenanceTotalFromCatalog(deviceTypes, counts, resolvedRegistered);
+    }
+    const supplied = Number(expectedTotal);
+    return Number.isFinite(supplied)
+      ? supplied
+      : expectedMaintenanceTotal(counts, devices);
+  }, [counts, devices, deviceTypes, expectedTotal, resolvedRegistered]);
 
   return (
     <div className={`maintenance-device-progress-summary${className ? ` ${className}` : ''}`}>
