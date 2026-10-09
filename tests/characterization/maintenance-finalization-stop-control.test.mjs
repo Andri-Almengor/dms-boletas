@@ -40,7 +40,8 @@ test('frontend reutiliza lista, finalización y cancelación programada existent
   assert.match(service, /finalizationActiveOnly:\s*true/);
   assert.match(service, /MODULE_ROUTES\.maintenance\.finalize/);
   assert.match(service, /stopFinalization:\s*true/);
-  assert.match(service, /cancelScheduledMaintenanceFinalization\(\{ maintenanceId: id, sessionToken \}\)/);
+  assert.match(service, /stopFinalization:\s*true/);
+  assert.doesNotMatch(service, /if \(clean\(state\)\.toUpperCase\(\) === 'PROGRAMADO'\)/);
 });
 
 test('Más expone el panel solo a administrador y la ruta mantiene USUARIOS_GESTIONAR', () => {
@@ -53,4 +54,13 @@ test('Más expone el panel solo a administrador y la ruta mantiene USUARIOS_GEST
   assert.match(page, /Detener finalización/);
   assert.match(page, /Cancelar programación/);
   assert.match(page, /listActiveMaintenanceFinalizations/);
+});
+
+test('detener programación evita el shortcut PROGRAMADO del scheduler y valida el estado real', () => {
+  const scheduler = source('backend/src/services/maintenance-finalization-schedule.patch.js');
+  const control = source('backend/src/services/maintenance-finalization-control.service.js');
+  assert.match(scheduler, /function stopRequested\(ctx\)/);
+  assert.match(scheduler, /testMode\(ctx\) \|\| stopRequested\(ctx\)/);
+  assert.match(control, /EstadoFinalizacion:\s*'DETENIDO'/);
+  assert.match(control, /findFinalizationJobForMaintenance\(id, before\.FinalizacionJobID\)/);
 });
