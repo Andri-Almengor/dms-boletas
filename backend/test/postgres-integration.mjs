@@ -54,6 +54,7 @@ test('moving a maintenance between clients preserves device identity and require
     newEquipment: 'stage6-new-equipment-' + suffix,
     maintenance: 'stage6-transfer-maintenance-' + suffix,
     device: 'stage6-transfer-device-' + suffix,
+    image: 'stage6-transfer-image-' + suffix,
   };
   const admin = { user: { UsuarioID: 'stage6-admin' }, permissions: ['USUARIOS_GESTIONAR'] };
   const payloadFor = (data) => ({ ...admin, payload: { maintenanceId: ids.maintenance, ...data } });
@@ -74,6 +75,10 @@ test('moving a maintenance between clients preserves device identity and require
       EvidenciaMantenimientoID: ids.device, MantenimientoRef: ids.maintenance,
       UbicacionEquipoID: ids.oldEquipment, Categoria: 'Cámara', TipoDispositivo: 'Cámara',
       NombreDispositivo: 'Cámara 01', Zona: 'Rack anterior', Activo: true,
+    });
+    await appendRow('Mantenimiento imagenes', {
+      FotoDispositivoID: ids.image, DispositivoMantenimientoRef: ids.device,
+      Tipo: 'Antes', Nota: 'Evidencia que debe conservarse', Activo: true,
     });
     // The main location cannot silently continue pointing at the wrong client.
     await assert.rejects(
@@ -113,6 +118,9 @@ test('moving a maintenance between clients preserves device identity and require
     const persisted = await findById('Evidencia_Mantenimientos', ids.device);
     assert.equal(persisted.UbicacionEquipoID, ids.newEquipment);
     assert.equal(persisted.EvidenciaMantenimientoID, ids.device);
+    const evidence = await findById('Mantenimiento imagenes', ids.image);
+    assert.equal(evidence.DispositivoMantenimientoRef, ids.device);
+    assert.equal(evidence.Nota, 'Evidencia que debe conservarse');
 
     await assert.rejects(
       maintenanceLocationGroupHandlers.deviceUpdate(payloadFor({
