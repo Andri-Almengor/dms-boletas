@@ -1,0 +1,33 @@
+-- PostgreSQL-backed maintenance finalization requires these runtime columns.
+-- Previously dynamic Sheets columns are migration-owned after the cutover.
+-- This migration only adds missing fields; it preserves existing values.
+ALTER TABLE "Mantenimiento"
+  ADD COLUMN IF NOT EXISTS "EstadoFinalizacion" TEXT,
+  ADD COLUMN IF NOT EXISTS "PasoFinalizacion" TEXT,
+  ADD COLUMN IF NOT EXISTS "FinalizacionSolicitudID" TEXT,
+  ADD COLUMN IF NOT EXISTS "FinalizacionIntentos" TEXT,
+  ADD COLUMN IF NOT EXISTS "FinalizacionSolicitadaEn" TEXT,
+  ADD COLUMN IF NOT EXISTS "FinalizacionIniciadaEn" TEXT,
+  ADD COLUMN IF NOT EXISTS "FinalizacionActualizadaEn" TEXT,
+  ADD COLUMN IF NOT EXISTS "FinalizacionCompletadaEn" TEXT,
+  ADD COLUMN IF NOT EXISTS "FinalizacionSolicitadaPor" TEXT,
+  ADD COLUMN IF NOT EXISTS "UltimoErrorFinalizacion" TEXT,
+  ADD COLUMN IF NOT EXISTS "FinalizacionJobID" TEXT,
+  ADD COLUMN IF NOT EXISTS "FinalizacionProgreso" TEXT,
+  ADD COLUMN IF NOT EXISTS "FinalizacionTotalBoletas" TEXT,
+  ADD COLUMN IF NOT EXISTS "FinalizacionBoletasCompletadas" TEXT,
+  ADD COLUMN IF NOT EXISTS "FinalizacionTotalDispositivos" TEXT,
+  ADD COLUMN IF NOT EXISTS "FinalizacionDispositivosCompletados" TEXT,
+  ADD COLUMN IF NOT EXISTS "FinalizacionTotalEvidencias" TEXT,
+  ADD COLUMN IF NOT EXISTS "FinalizacionEvidenciasProcesadas" TEXT,
+  ADD COLUMN IF NOT EXISTS "FinalizacionMensaje" TEXT,
+  ADD COLUMN IF NOT EXISTS "FirmaEstadoFinalizacion" TEXT,
+  ADD COLUMN IF NOT EXISTS "FirmaOmitidaAlFinalizar" TEXT,
+  ADD COLUMN IF NOT EXISTS "FinalizacionProgramadaPara" TEXT,
+  ADD COLUMN IF NOT EXISTS "FinalizacionProgramadaEn" TEXT,
+  ADD COLUMN IF NOT EXISTS "FinalizacionCanceladaEn" TEXT,
+  ADD COLUMN IF NOT EXISTS "BoletasGeneradasJSON" TEXT,
+  ADD COLUMN IF NOT EXISTS "BoletasGeneradasCantidad" TEXT,
+  ADD COLUMN IF NOT EXISTS "BoletasGeneradasEn" TEXT,
+  ADD COLUMN IF NOT EXISTS "EstadoBoletasMantenimiento" TEXT,
+  ADD COLUMN IF NOT EXISTS "UltimoErrorBoletasMantenimiento" TEXT;

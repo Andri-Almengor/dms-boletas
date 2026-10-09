@@ -34,3 +34,23 @@ test('el archivo de mantenimiento sigue generando PDF sin solicitar firma por bo
   assert.match(archive, /deliveryType: 'MAINTENANCE_ARCHIVE'/);
   assert.match(archive, /FirmaSolicitada: false/);
 });
+
+test('PostgreSQL incluye las columnas requeridas por los finalizadores escalonados y programados', () => {
+  const migration = source('backend/migrations/021_maintenance_finalization_runtime_columns.sql');
+  const staged = source('backend/src/services/maintenance-staged-finalization.patch.js');
+  const scheduled = source('backend/src/services/maintenance-finalization-schedule.patch.js');
+  const required = [
+    ...staged.match(/const PROGRESS_COLUMNS = \[([\s\S]*?)\];/)?.[1].matchAll(/'([^']+)'/g) || [],
+  ].map((match) => match[1]);
+  required.push(...[...scheduled.match(/const SCHEDULE_COLUMNS = \[([\s\S]*?)\];/)?.[1].matchAll(/'([^']+)'/g) || []].map((match) => match[1]));
+  for (const column of new Set(required)) {
+    assert.match(migration, new RegExp('ADD COLUMN IF NOT EXISTS "' + column + '" TEXT'));
+  }
+});
+
+test('detalle ofrece finalización solamente al administrador sin forzar edición ni firma', () => {
+  const detail = source('src/pages/maintenance/MaintenanceDetailPage.jsx');
+  assert.match(detail, /requestMaintenanceFinalization\(\{ maintenanceId, sessionToken \}\)/);
+  assert.match(detail, /!projectMode && pending && !offlinePending && isAdministrator && <button/);
+  assert.doesNotMatch(detail, /disabled=\{Boolean\(working\) \|\| !signatureRegistered\}/);
+});
