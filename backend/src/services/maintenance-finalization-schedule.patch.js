@@ -87,6 +87,10 @@ function cancelRequested(ctx) {
   return boolean(pick(ctx?.payload || {}, ['cancelScheduledFinalization', 'cancelarFinalizacionProgramada'], false));
 }
 
+function stopRequested(ctx) {
+  return boolean(pick(ctx?.payload || {}, ['stopFinalization', 'detenerFinalizacion'], false));
+}
+
 function forceRequested(ctx) {
   return boolean(pick(ctx?.payload || {}, ['forceScheduledFinalization', 'forzarFinalizacionProgramada'], false));
 }
@@ -321,12 +325,12 @@ if (!maintenanceProgressChatHandlers[INSTALL_FLAG]) {
   const baseAutomationFinalize = maintenanceAutomationHandlers.finalize;
 
   maintenanceProgressChatHandlers.finalize = async (ctx) => {
-    if (testMode(ctx)) return baseProgressFinalize(ctx);
+    if (testMode(ctx) || stopRequested(ctx)) return baseProgressFinalize(ctx);
     return scheduleBeforeFive(ctx, baseProgressFinalize);
   };
 
   maintenanceAutomationHandlers.finalize = async (ctx) => {
-    if (testMode(ctx)) return baseAutomationFinalize(ctx);
+    if (testMode(ctx) || stopRequested(ctx)) return baseAutomationFinalize(ctx);
     return scheduleBeforeFive(ctx, baseAutomationFinalize);
   };
 
