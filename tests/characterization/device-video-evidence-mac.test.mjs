@@ -12,26 +12,26 @@ function syntaxCheck(relativePath) {
   execFileSync(process.execPath, ['--check', path.join(ROOT, relativePath)], { stdio: 'pipe' });
 }
 
-test('la política común conserva 300 MB y boletas extienden solo video a 500 MB', () => {
+test('la política común conserva 300 MB y boletas permiten videos de hasta 3 GB por bloques', () => {
   const frontend = source('src/utils/evidenceMedia.js');
   const backend = source('backend/src/services/evidence-media-policy.service.js');
 
   assert.match(frontend, /EVIDENCE_VIDEO_MAX_SECONDS = 90/);
   assert.match(frontend, /EVIDENCE_VIDEO_MAX_BYTES = 300 \* 1024 \* 1024/);
-  assert.match(frontend, /TICKET_EVIDENCE_VIDEO_MAX_BYTES = 500 \* 1024 \* 1024/);
+  assert.match(frontend, /TICKET_EVIDENCE_VIDEO_MAX_BYTES = 3 \* 1024 \* 1024 \* 1024/);
   assert.match(frontend, /readVideoDuration/);
   assert.match(frontend, /video\/quicktime/);
   assert.match(frontend, /video\/webm/);
   assert.match(backend, /EVIDENCE_VIDEO_MAX_SECONDS = 90/);
   assert.match(backend, /EVIDENCE_VIDEO_INLINE_MAX_BYTES = 30 \* 1024 \* 1024/);
   assert.match(backend, /EVIDENCE_VIDEO_MAX_BYTES = 300 \* 1024 \* 1024/);
-  assert.match(backend, /TICKET_EVIDENCE_VIDEO_MAX_BYTES = 500 \* 1024 \* 1024/);
+  assert.match(backend, /TICKET_EVIDENCE_VIDEO_MAX_BYTES = 3 \* 1024 \* 1024 \* 1024/);
   assert.match(backend, /maxVideoBytes = EVIDENCE_VIDEO_MAX_BYTES/);
   assert.match(backend, /durationSeconds > EVIDENCE_VIDEO_MAX_SECONDS/);
   assert.match(backend, /Use MP4, MOV o WebM/);
 });
 
-test('boletas permiten grabar, seleccionar, validar y reproducir videos de hasta 500 MB', () => {
+test('boletas permiten grabar, seleccionar, validar y reproducir videos de hasta 3 GB', () => {
   const form = source('src/pages/tickets/TicketFormPage.jsx');
   const uploader = source('src/components/forms/EvidenceUploader.jsx');
   const detail = source('src/pages/tickets/TicketDetailPage.jsx');
@@ -43,8 +43,8 @@ test('boletas permiten grabar, seleccionar, validar y reproducir videos de hasta
   assert.match(form, /prepareEvidenceFiles\(files, \{[\s\S]*allowDocuments: true,[\s\S]*maxVideoBytes: TICKET_EVIDENCE_VIDEO_MAX_BYTES,[\s\S]*\}\)/);
   assert.match(uploader, /Grabar video/);
   assert.match(uploader, /Máximo 1 min 30 s/);
-  assert.match(uploader, /pesar hasta 500 MB/);
-  assert.match(uploader, /mayores de 6 MB se cargan por partes/);
+  assert.match(uploader, /pesar hasta 3 GB/);
+  assert.match(uploader, /se cargan por bloques/);
   assert.match(uploader, /<video/);
   assert.match(detail, /videoInputRef/);
   assert.match(detail, /durationSeconds/);
@@ -52,8 +52,8 @@ test('boletas permiten grabar, seleccionar, validar y reproducir videos de hasta
   assert.match(detail, /Tomar foto/);
   assert.match(detail, /Seleccionar archivo/);
   assert.match(detail, /uploadTicketEvidenceItems/);
-  assert.match(detail, /hasta 500 MB/);
-  assert.match(detail, /mayores de 6 MB/);
+  assert.match(detail, /hasta 3 GB/);
+  assert.match(detail, /Se cargan por partes/);
   assert.match(multiSelect, /Seleccionar varios archivos/);
   assert.match(multiSelect, /prepareEvidenceFiles\(files, \{[\s\S]*allowDocuments: true,[\s\S]*maxVideoBytes: TICKET_EVIDENCE_VIDEO_MAX_BYTES,[\s\S]*\}\)/);
   assert.match(multiSelect, /uploadTicketEvidenceItems/);
