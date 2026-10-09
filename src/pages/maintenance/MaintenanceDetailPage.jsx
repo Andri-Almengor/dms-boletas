@@ -10,6 +10,7 @@ import MaintenanceEvidenceUploader from '../../components/maintenance/Maintenanc
 import MaintenanceQuickDeviceCreator from '../../components/maintenance/MaintenanceQuickDeviceCreator';
 import MaintenanceSignatureCard from '../../components/maintenance/MaintenanceSignatureCard';
 import { MODULE_ROUTES, pick, requestAvailable } from '../../services/moduleApi';
+import { requestMaintenanceFinalization } from '../../services/maintenanceFinalization';
 import { parseMaintenanceCounts } from '../../config/dynamicMaintenanceTypes';
 import { isProjectMaintenance } from '../../features/maintenance/maintenanceType';
 import useMaintenanceDeviceCatalogData from '../../hooks/useMaintenanceDeviceCatalogData';
@@ -243,7 +244,7 @@ export default function MaintenanceDetailPage() {
 
   async function action(type) {
     if (type === 'delete' && !window.confirm('¿Eliminar este mantenimiento y todos sus dispositivos?')) return;
-    if (type === 'finalize' && !window.confirm('¿Finalizar este mantenimiento? La firma general del cliente se aplicará a todas las boletas, se crearán las boletas por fecha y grupo técnico, se enviarán al supervisor y al Chat del cliente, y luego se procesarán las carpetas y evidencias del mantenimiento.')) return;
+    if (type === 'finalize' && !window.confirm('¿Solicitar la finalización de este mantenimiento? El servidor aplicará el horario, las validaciones y el flujo de entrega configurados.')) return;
     if (type === 'test' && !window.confirm('¿Enviar una prueba completa al Chat de pruebas? No se cambiará el estado del mantenimiento.')) return;
     if (type === 'ticket-test' && !window.confirm('¿Probar la agrupación y redacción de las boletas automáticas? La vista previa se enviará al Chat de pruebas sin crear boletas ni notificar al cliente o supervisor.')) return;
     const reportWindow = ['sheet', 'slides'].includes(type) ? window.open('about:blank', '_blank') : null;
@@ -252,11 +253,12 @@ export default function MaintenanceDetailPage() {
     setNotice('');
     try {
       if (type === 'finalize') {
-        const result = await requestAvailable(MODULE_ROUTES.maintenance.finalize, { maintenanceId }, sessionToken);
-        const delivery = result?.delivery || {};
-        const count = Number(result?.ticketGeneration?.ticketCount || 0);
-        const warnings = result?.ticketGeneration?.warnings || [];
-        setNotice(`Mantenimiento finalizado. La firma general fue aplicada y se generaron y enviaron ${count} boleta${count === 1 ? '' : 's'} por fecha y grupo técnico. El mantenimiento también fue enviado a ${delivery.destination || 'Google Chat'}.${warnings.length ? ` Advertencias: ${warnings.join(' ')}` : ''}`);
+        const result = await requestMaintenanceFinalization({ maintenanceId, sessionToken });
+        setNotice(result?.message || (result?.scheduled
+          ? 'La finalización quedó programada para las 5:00 p. m.'
+          : result?.completed
+            ? 'Mantenimiento finalizado correctamente.'
+            : 'Solicitud de finalización recibida. Consulte el progreso desde el detalle.'));
       }
       if (type === 'test') {
         const result = await requestAvailable(MODULE_ROUTES.maintenance.finalize, { maintenanceId, testMode: true }, sessionToken);
@@ -520,7 +522,7 @@ export default function MaintenanceDetailPage() {
       />
 
       <section className="maintenance-detail-footer-actions">
-        {!projectMode && pending && !offlinePending && isAdministrator && devices.length > 0 && <button className="button button--primary" type="button" onClick={() => action('finalize')} disabled={Boolean(working) || !signatureRegistered} title={!signatureRegistered ? 'El cliente debe firmar el mantenimiento general antes de finalizar' : 'Finalizar mantenimiento y generar boletas firmadas'}><Icon name="task_alt" />{working === 'finalize' ? 'Generando boletas y finalizando...' : signatureRegistered ? 'Finalizar mantenimiento' : 'Firma pendiente'}</button>}
+        {pending && !offlinePending && isAdministrator && <button className="button button--primary" type="button" onClick={() => action('finalize')} disabled={Boolean(working) || devices.length === 0 || ['PROGRAMADO', 'EN_PROCESO'].includes(String(row.EstadoFinalizacion || '').toUpperCase())} title={devices.length === 0 ? 'Agregue al menos un dispositivo antes de finalizar' : 'Solicitar finalización del mantenimiento'}><Icon name="task_alt" />{working === 'finalize' ? 'Solicitando finalización...' : 'Finalizar mantenimiento'}</button>}
         {status === 'FINALIZADO' && isAdmin && <button className="button button--secondary" type="button" onClick={() => action('reopen')} disabled={Boolean(working)}><Icon name="undo" />Volver a pendiente</button>}
         {isAdmin && <button className="button button--danger" type="button" onClick={() => action('delete')} disabled={Boolean(working)}><Icon name="delete" />Eliminar</button>}
       </section>
