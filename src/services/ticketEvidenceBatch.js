@@ -3,6 +3,7 @@ import { fileToBase64, mapFilesWithConcurrency } from '../utils/fileEncoding';
 import { createLocalId } from '../utils/localId';
 import {
   LARGE_EVIDENCE_THRESHOLD_BYTES,
+  resumableTicketEvidenceId,
   shouldUseLargeEvidenceUpload,
   uploadLargeTicketEvidence,
 } from './largeEvidenceUpload';
@@ -35,7 +36,14 @@ function missingRoute(error) {
   return text.includes('route_not_found') || text.includes('ruta no encontrada') || text.includes('unknown action');
 }
 
-function ensureEvidenceId(item = {}) {
+function ensureEvidenceId(item = {}, boletaUid = '') {
+  const restored = resumableTicketEvidenceId(boletaUid, item);
+  if (restored) {
+    // The file may have been reselected after a refresh or 502.
+    // Reuse the same server evidence ID, not a second Drive upload.
+    item.localId = restored;
+    return restored;
+  }
   const existing = clean(item.evidenceId || item.evidenciaId || item.localId);
   if (existing) return existing;
   const generated = createLocalId('evidencia');
@@ -140,8 +148,8 @@ async function uploadOne({
   sessionToken,
   signal,
 }) {
-  const evidenceId = ensureEvidenceId(item);
-  if (shouldUseLargeEvidenceUpload(item)) {
+  const evidenceId = ensureEvidenceId(item, boletaUid);
+  if (shouldUseLargeEvidenceUpload(item, { alwaysVideo: true })) {
     return uploadLargeTicketEvidence({
       boletaUid,
       evidenceId,
@@ -187,7 +195,7 @@ async function uploadFallback({
   const preparedByKey = new Map(prepared.map((item) => [clean(item.clientKey), item]));
 
   for (const item of items) {
-    const evidenceId = ensureEvidenceId(item);
+    const evidenceId = ensureEvidenceId(item, boletaUid);
     const payload = preparedByKey.get(evidenceId);
     try {
       const row = await uploadOne({
@@ -231,7 +239,7 @@ export async function uploadTicketEvidenceItems({
   onProgress,
 }) {
   const source = items.filter((item) => item?.file);
-  source.forEach(ensureEvidenceId);
+  source.forEach((item) => ensureEvidenceId(item, boletaUid));
 
   const uploaded = [];
   const failed = [];
@@ -239,9 +247,11 @@ export async function uploadTicketEvidenceItems({
 
   const resumable = source.filter((item) => shouldUseLargeEvidenceUpload(item, {
     thresholdBytes: TICKET_BATCH_RESUMABLE_THRESHOLD_BYTES,
+    alwaysVideo: true,
   }));
   const regular = source.filter((item) => !shouldUseLargeEvidenceUpload(item, {
     thresholdBytes: TICKET_BATCH_RESUMABLE_THRESHOLD_BYTES,
+    alwaysVideo: true,
   }));
 
   let useFallbackForRemaining = batchAvailable === false || browserIsOffline();
@@ -272,7 +282,7 @@ export async function uploadTicketEvidenceItems({
 
       const rows = Array.isArray(result?.uploaded) ? result.uploaded : [];
       const failures = Array.isArray(result?.failed) ? result.failed : [];
-      const byKey = new Map(chunk.map((item) => [ensureEvidenceId(item), item]));
+      const byKey = new Map(chunk.map((item) => [ensureEvidenceId(item, boletaUid), item]));
 
       for (const row of rows) {
         const key = clean(row.clientKey || row.EvidenciaID);
@@ -314,7 +324,7 @@ export async function uploadTicketEvidenceItems({
     resumable,
     LARGE_UPLOAD_CONCURRENCY,
     async (item) => {
-      const evidenceId = ensureEvidenceId(item);
+      const evidenceId = ensureEvidenceId(item, boletaUid);
       const row = await uploadLargeTicketEvidence({
         boletaUid,
         evidenceId,
@@ -329,7 +339,7 @@ export async function uploadTicketEvidenceItems({
   for (let index = 0; index < resumableResults.length; index += 1) {
     const result = resumableResults[index];
     const item = resumable[index];
-    const evidenceId = ensureEvidenceId(item);
+    const evidenceId = ensureEvidenceId(item, boletaUid);
     if (result?.status === 'fulfilled') {
       const normalized = { ...result.value.row, clientKey: evidenceId };
       uploaded.push(normalized);
@@ -355,7 +365,7 @@ export async function uploadTicketEvidenceItems({
   return {
     uploaded,
     failed,
-    failedItems: source.filter((item) => failedKeys.has(ensureEvidenceId(item))),
+    failedItems: source.filter((item) => failedKeys.has(ensureEvidenceId(item, boletaUid))),
     total: source.length,
   };
 }
