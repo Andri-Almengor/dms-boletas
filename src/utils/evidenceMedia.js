@@ -3,7 +3,8 @@ import { normalizeFileReadError } from './fileEncoding';
 export const EVIDENCE_VIDEO_MAX_SECONDS = 90;
 export const EVIDENCE_IMAGE_MAX_BYTES = 15 * 1024 * 1024;
 export const EVIDENCE_VIDEO_MAX_BYTES = 300 * 1024 * 1024;
-export const TICKET_EVIDENCE_VIDEO_MAX_BYTES = 500 * 1024 * 1024;
+// Up to 3 GiB per ticket video, transferred in bounded resumable chunks.
+export const TICKET_EVIDENCE_VIDEO_MAX_BYTES = 3 * 1024 * 1024 * 1024;
 export const EVIDENCE_DOCUMENT_MAX_BYTES = 15 * 1024 * 1024;
 
 const VIDEO_EXTENSIONS = new Set(['mp4', 'mov', 'm4v', 'webm']);
