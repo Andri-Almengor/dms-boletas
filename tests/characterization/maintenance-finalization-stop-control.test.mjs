@@ -74,3 +74,13 @@ test('el detalle ofrece detener PROGRAMADO y EN_PROCESO sólo al administrador, 
   assert.match(center, /Cancelar finalización programada/);
   assert.match(service, /stopFinalization:\s*true/);
 });
+
+test('la cancelación/detención no queda bloqueada por la cola de sincronización local', () => {
+  const api = source('src/services/moduleApi.js');
+  const fn = api.slice(api.indexOf('async function assertCanFinalize('), api.indexOf('export async function replayQueuedOperation('));
+  assert.match(fn, /kind === 'maintenanceFinalize'/);
+  assert.match(fn, /'stopFinalization'/);
+  assert.match(fn, /'cancelScheduledFinalization'/);
+  assert.match(fn, /\.some\(\(key\) => payload\?\.\[key\] === true\)\) return;/);
+  assert.match(fn, /if \(state\.pending\)/, 'nuevas finalizaciones siguen bloqueadas con cambios pendientes');
+});
