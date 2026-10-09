@@ -59,14 +59,17 @@ function uncertainChunkFailure(error) {
     || (status === 0 && ['UNKNOWN_RESULT', 'REQUEST_TIMEOUT'].includes(code));
 }
 
-export function shouldUseLargeEvidenceUpload(item = {}, { thresholdBytes = LARGE_EVIDENCE_THRESHOLD_BYTES } = {}) {
+export function shouldUseLargeEvidenceUpload(item = {}, {
+  thresholdBytes = LARGE_EVIDENCE_THRESHOLD_BYTES,
+  alwaysVideo = false,
+} = {}) {
   const size = Number(item.size || item.file?.size || 0);
   const online = typeof navigator === 'undefined' || navigator.onLine !== false;
   const video = String(item.mediaType || '').toLowerCase() === 'video';
   const previouslyRequiredOnline = video && size > 30 * 1024 * 1024;
   // Online videos always use Drive resumable uploads, including 18-second
   // recordings below the old 6 MiB threshold. Offline images are unchanged.
-  return previouslyRequiredOnline || (online && (video || size > Math.max(256 * 1024, Number(thresholdBytes) || LARGE_EVIDENCE_THRESHOLD_BYTES)));
+  return previouslyRequiredOnline || (online && ((alwaysVideo && video) || size > Math.max(256 * 1024, Number(thresholdBytes) || LARGE_EVIDENCE_THRESHOLD_BYTES)));
 }
 
 async function uploadByChunks({ initRoutes, chunkRoutes, initPayload, file, sessionToken, signal, onProgress, chunkPayload = {}, ticketSessionKey = '' }) {
@@ -117,7 +120,7 @@ async function uploadByChunks({ initRoutes, chunkRoutes, initPayload, file, sess
             ...chunkPayload, uploadToken, offset, base64,
           }, sessionToken, requestOptions(signal));
         } catch (error) {
-          if (!uncertainChunkFailure(error)) throw error;
+          if (!ticketSessionKey || !uncertainChunkFailure(error)) throw error;
           // A proxy 502 does not prove Drive rejected the block. Query the
           // authoritative offset before ever sending these bytes again.
           nextResult = await requestAvailable(initRoutes, {
@@ -146,6 +149,8 @@ async function uploadByChunks({ initRoutes, chunkRoutes, initPayload, file, sess
         base64 = '';
       }
     }
+
+    if (!ticketSessionKey) throw new Error('La carga del video terminó sin confirmación de Google Drive.');
 
     // If the final response was lost after Drive accepted the last block,
     // reconcile completion rather than issuing a second upload.
