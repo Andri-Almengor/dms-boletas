@@ -100,11 +100,19 @@ function fixedCountFieldForDevice(device = {}) {
   return CATEGORY_CONFIG.find((item) => normalizedDynamicCountName(item.key) === normalized)?.countField || '';
 }
 
-function sanitizeMaintenanceCounts(counts = {}, devices = []) {
+function sanitizeMaintenanceCounts(counts = {}, devices = [], deviceTypes = []) {
   const cleaned = { ...(counts || {}) };
+  const canonicalSources = [
+    ...(devices || []).filter((device) => device.Activo !== false),
+    ...(deviceTypes || []).map((type) => ({
+      TipoDispositivoID: type.TipoDispositivoID,
+      TipoDispositivo: type.Nombre,
+      Categoria: type.Nombre,
+    })),
+  ];
 
-  (devices || []).forEach((device) => {
-    if (device.Activo === false || !fixedCountFieldForDevice(device)) return;
+  canonicalSources.forEach((device) => {
+    if (!fixedCountFieldForDevice(device)) return;
 
     const typeId = String(device.TipoDispositivoID || '').trim();
     if (typeId) delete cleaned[`TipoDispositivo:${typeId}`];
@@ -309,14 +317,18 @@ export const maintenanceHandlers = {
 
   update: async (ctx) => {
     const id = pick(ctx.payload, ['maintenanceId', 'MantenimientoID']);
-    const tables = await readTables(['Mantenimiento', 'Usuarios', 'Evidencia_Mantenimientos', 'Mantenimiento imagenes']);
+    const tables = await readTables(['Mantenimiento', 'Usuarios', 'Evidencia_Mantenimientos', 'Mantenimiento imagenes', 'TiposDispositivo']);
     const before = maintenanceRow(tables, id);
     const payload = maintenancePayload(ctx.payload, before);
     const maintenanceDevices = (tables.Evidencia_Mantenimientos || [])
       .filter((device) => String(device.MantenimientoRef) === String(id) && device.Activo !== false);
     let nextCounts = {};
     try { nextCounts = JSON.parse(payload.CantidadesJSON || '{}'); } catch { nextCounts = {}; }
-    const sanitizedCounts = sanitizeMaintenanceCounts(nextCounts, maintenanceDevices);
+    const sanitizedCounts = sanitizeMaintenanceCounts(
+      nextCounts,
+      maintenanceDevices,
+      tables.TiposDispositivo || [],
+    );
     payload.CantidadesJSON = JSON.stringify(sanitizedCounts);
     CATEGORY_CONFIG.forEach((category) => {
       payload[category.countField] = Number(

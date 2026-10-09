@@ -1,10 +1,12 @@
 import { useCallback, useMemo, useRef, useState } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { useAuth } from '../AuthContext';
+import { buildDynamicMaintenanceCategories } from '../config/dynamicMaintenanceTypes';
 import {
   buildMaintenanceTechnicians,
   countRegisteredMaintenanceDevices,
   expectedMaintenanceTotal,
+  expectedMaintenanceTotalFromCategories,
   maintenanceReadOnly,
   updateMaintenanceCount,
   validateMaintenanceForm,
@@ -12,6 +14,7 @@ import {
 import { maintenanceFormSignature } from '../features/maintenance/maintenanceDeviceState';
 import useMaintenanceDeviceEditorLifecycle from '../features/maintenance/useMaintenanceDeviceEditorLifecycle';
 import useMaintenanceResources from '../features/maintenance/useMaintenanceResources';
+import useMaintenanceDeviceCatalogData from './useMaintenanceDeviceCatalogData';
 import {
   EMPTY_MAINTENANCE,
   maintenancePayload,
@@ -69,6 +72,10 @@ export default function useMaintenanceForm({ editing, maintenanceId, navigationS
     onInitialState: captureInitialState,
   });
 
+  const { catalogs: countCatalogs } = useMaintenanceDeviceCatalogData(sessionToken, {
+    resources: ['deviceTypes'],
+  });
+
   const technicians = useMemo(
     () => buildMaintenanceTechnicians(resources.users),
     [resources.users],
@@ -77,9 +84,20 @@ export default function useMaintenanceForm({ editing, maintenanceId, navigationS
     () => countRegisteredMaintenanceDevices(devices),
     [devices],
   );
+  const expectedCategories = useMemo(
+    () => countCatalogs.deviceTypes.length
+      ? buildDynamicMaintenanceCategories(countCatalogs.deviceTypes, {
+        counts: form.counts,
+        registered,
+      })
+      : [],
+    [countCatalogs.deviceTypes, form.counts, registered],
+  );
   const expectedTotal = useMemo(
-    () => expectedMaintenanceTotal(form.counts, devices),
-    [form.counts, devices],
+    () => expectedCategories.length
+      ? expectedMaintenanceTotalFromCategories(expectedCategories, form.counts)
+      : expectedMaintenanceTotal(form.counts, devices),
+    [devices, expectedCategories, form.counts],
   );
   const readOnly = maintenanceReadOnly({ editing, estado: form.estado, isAdmin });
   const maintenanceDirty = useMemo(() => (

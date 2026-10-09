@@ -125,6 +125,18 @@ export function expectedMaintenanceTotal(counts = {}, devices = []) {
   );
 }
 
+export function expectedMaintenanceTotalFromCategories(categories = [], counts = {}) {
+  const countFields = new Set(
+    (categories || [])
+      .map((item) => item?.countField)
+      .filter(Boolean),
+  );
+  return [...countFields].reduce(
+    (sum, countField) => sum + Number(counts[countField] || 0),
+    0,
+  );
+}
+
 export function updateMaintenanceCount(counts = {}, key, value) {
   return {
     ...counts,

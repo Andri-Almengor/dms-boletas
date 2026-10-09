@@ -5,6 +5,7 @@ import {
   countMaintenanceDevicesByCategory,
   countMaintenanceEvidence,
   expectedMaintenanceTotal,
+  expectedMaintenanceTotalFromCategories,
 } from '../../features/maintenance/maintenanceFormDomain';
 
 export default function MaintenanceDeviceProgressSummary({
@@ -21,12 +22,6 @@ export default function MaintenanceDeviceProgressSummary({
     () => registered || countMaintenanceDevicesByCategory(devices),
     [devices, registered],
   );
-  const resolvedExpectedTotal = useMemo(() => {
-    const supplied = Number(expectedTotal);
-    return Number.isFinite(supplied)
-      ? supplied
-      : expectedMaintenanceTotal(counts, devices);
-  }, [counts, devices, expectedTotal]);
   const evidenceCount = useMemo(
     () => countMaintenanceEvidence(devices),
     [devices],
@@ -41,6 +36,16 @@ export default function MaintenanceDeviceProgressSummary({
     )),
     [counts, deviceTypes, resolvedRegistered],
   );
+
+  const resolvedExpectedTotal = useMemo(() => {
+    if (deviceTypes.length) {
+      return expectedMaintenanceTotalFromCategories(categories, counts);
+    }
+    const supplied = Number(expectedTotal);
+    return Number.isFinite(supplied)
+      ? supplied
+      : expectedMaintenanceTotal(counts, devices);
+  }, [categories, counts, devices, deviceTypes, expectedTotal]);
 
   return (
     <div className={`maintenance-device-progress-summary${className ? ` ${className}` : ''}`}>
