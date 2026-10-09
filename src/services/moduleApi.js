@@ -738,6 +738,15 @@ async function queueOfflineWrite(routes, payload, kind, sessionToken) {
 
 async function assertCanFinalize(kind, payload) {
   if (!isFinalizeKind(kind)) return;
+  // Stopping/canceling a server-side finalization is a control action, not
+  // a new finalization. It must remain available even with queued edits;
+  // backend authorization/state checks remain authoritative.
+  if (kind === 'maintenanceFinalize' && [
+    'stopFinalization',
+    'detenerFinalizacion',
+    'cancelScheduledFinalization',
+    'cancelarFinalizacionProgramada',
+  ].some((key) => payload?.[key] === true)) return;
   if (typeof navigator !== 'undefined' && navigator.onLine === false) {
     throw new Error('No es posible finalizar sin internet. Guarde los cambios y espere a que la sincronización termine.');
   }

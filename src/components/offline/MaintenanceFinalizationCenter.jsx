@@ -6,8 +6,8 @@ import Icon from '../common/Icon';
 import { getEntityQueueState, listQueuedOperations } from '../../services/offlineStore';
 import { MODULE_ROUTES, pick, requestAvailable } from '../../services/moduleApi';
 import {
-  cancelScheduledMaintenanceFinalization,
   requestMaintenanceFinalization,
+  stopMaintenanceFinalization,
 } from '../../services/maintenanceFinalization';
 import {
   MAINTENANCE_FINALIZATION_MODES,
@@ -239,18 +239,23 @@ export default function MaintenanceFinalizationCenter() {
     }
   }
 
-  async function cancelSchedule() {
-    if (!maintenanceId || canceling || !view.canCancelSchedule) return;
-    if (!window.confirm('¿Cancelar la finalización programada? El mantenimiento volverá a quedar pendiente y no se procesará automáticamente a las 5:00 p. m.')) return;
+  async function stopActiveFinalization() {
+    const isScheduled = view.scheduled;
+    const isProcessing = view.state === 'EN_PROCESO';
+    if (!maintenanceId || canceling || !canFinalize || !online || operation || (!isScheduled && !isProcessing)) return;
+    const prompt = isScheduled
+      ? '¿Cancelar la finalización programada? No se procesará automáticamente a las 5:00 p. m.'
+      : '¿Detener la finalización en proceso? La unidad ya en curso puede terminar, pero no se iniciarán nuevas. Las boletas y evidencias ya procesadas se conservan.';
+    if (!window.confirm(prompt)) return;
     setCanceling(true);
     setMessage('');
     try {
-      const result = await cancelScheduledMaintenanceFinalization({ maintenanceId, sessionToken });
+      const result = await stopMaintenanceFinalization({ maintenanceId, state: view.state, sessionToken });
       if (result?.mantenimiento) setRow((current) => mergeStatus(current, result));
-      setMessage(result?.message || 'La finalización programada fue cancelada.');
+      setMessage(result?.message || 'La finalización se detuvo.');
       await refreshFull();
     } catch (error) {
-      setMessage(error?.message || 'No se pudo cancelar la finalización programada.');
+      setMessage(error?.message || 'No se pudo detener la finalización.');
       await refreshStatus();
     } finally {
       setCanceling(false);
@@ -366,9 +371,10 @@ export default function MaintenanceFinalizationCenter() {
             )}
 
             <div className="maintenance-finalization-center__actions">
-              {view.canCancelSchedule && (
-                <button type="button" className="maintenance-finalization-center__cancel" onClick={cancelSchedule} disabled={canceling || !online}>
-                  <Icon name="event_busy" />{canceling ? 'Cancelando...' : 'Cancelar finalización programada'}
+              {canFinalize && !operation && (view.canCancelSchedule || view.state === 'EN_PROCESO') && !view.completed && (
+                <button type="button" className="maintenance-finalization-center__cancel" onClick={stopActiveFinalization} disabled={canceling || !online}>
+                  <Icon name={view.scheduled ? 'event_busy' : 'stop_circle'} />
+                  {canceling ? 'Deteniendo...' : view.scheduled ? 'Cancelar finalización programada' : 'Detener finalización'}
                 </button>
               )}
               {view.canRetry && (

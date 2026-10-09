@@ -31,6 +31,21 @@ export const RUNTIME_COLUMN_EXTENSIONS = Object.freeze({
     'ErroresCopia',
     'TipoMantenimiento',
     'ProyectoChecklistJSON',
+    // Persisted in 021_maintenance_finalization_runtime_columns.sql.
+    // Both PostgreSQL and this catalog must declare these fields: the
+    // repository validates requested columns against the catalog first.
+    'FinalizacionIntentos',
+    'FinalizacionIniciadaEn',
+    'FinalizacionCompletadaEn',
+    'FinalizacionJobID',
+    'FinalizacionTotalBoletas',
+    'FinalizacionBoletasCompletadas',
+    'FinalizacionTotalDispositivos',
+    'FinalizacionDispositivosCompletados',
+    'FinalizacionTotalEvidencias',
+    'FinalizacionEvidenciasProcesadas',
+    'FirmaEstadoFinalizacion',
+    'FirmaOmitidaAlFinalizar',
   ]),
   TipoDispositivoPreguntas: Object.freeze([
     'AplicaModo',
