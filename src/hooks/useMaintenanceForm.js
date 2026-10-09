@@ -1,11 +1,12 @@
 import { useCallback, useMemo, useRef, useState } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { useAuth } from '../AuthContext';
-import { expectedMaintenanceTotalFromCatalog } from '../config/dynamicMaintenanceTypes';
+import { buildDynamicMaintenanceCategories } from '../config/dynamicMaintenanceTypes';
 import {
   buildMaintenanceTechnicians,
   countRegisteredMaintenanceDevices,
   expectedMaintenanceTotal,
+  expectedMaintenanceTotalFromCategories,
   maintenanceReadOnly,
   updateMaintenanceCount,
   validateMaintenanceForm,
@@ -83,11 +84,20 @@ export default function useMaintenanceForm({ editing, maintenanceId, navigationS
     () => countRegisteredMaintenanceDevices(devices),
     [devices],
   );
-  const expectedTotal = useMemo(
+  const expectedCategories = useMemo(
     () => countCatalogs.deviceTypes.length
-      ? expectedMaintenanceTotalFromCatalog(countCatalogs.deviceTypes, form.counts, registered)
+      ? buildDynamicMaintenanceCategories(countCatalogs.deviceTypes, {
+        counts: form.counts,
+        registered,
+      })
+      : [],
+    [countCatalogs.deviceTypes, form.counts, registered],
+  );
+  const expectedTotal = useMemo(
+    () => expectedCategories.length
+      ? expectedMaintenanceTotalFromCategories(expectedCategories, form.counts)
       : expectedMaintenanceTotal(form.counts, devices),
-    [countCatalogs.deviceTypes, devices, form.counts, registered],
+    [devices, expectedCategories, form.counts],
   );
   const readOnly = maintenanceReadOnly({ editing, estado: form.estado, isAdmin });
   const maintenanceDirty = useMemo(() => (
