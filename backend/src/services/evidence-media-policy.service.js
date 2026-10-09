@@ -4,7 +4,8 @@ export const EVIDENCE_VIDEO_MAX_SECONDS = 90;
 export const EVIDENCE_IMAGE_MAX_BYTES = 15 * 1024 * 1024;
 export const EVIDENCE_VIDEO_INLINE_MAX_BYTES = 30 * 1024 * 1024;
 export const EVIDENCE_VIDEO_MAX_BYTES = 300 * 1024 * 1024;
-export const TICKET_EVIDENCE_VIDEO_MAX_BYTES = 500 * 1024 * 1024;
+// 3 GiB: a metadata limit, never a single HTTP request or in-memory Buffer.
+export const TICKET_EVIDENCE_VIDEO_MAX_BYTES = 3 * 1024 * 1024 * 1024;
 export const EVIDENCE_DOCUMENT_MAX_BYTES = 15 * 1024 * 1024;
 
 const VIDEO_MIME_TYPES = new Set(['video/mp4', 'video/webm', 'video/quicktime', 'video/x-m4v']);
