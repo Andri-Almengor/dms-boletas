@@ -522,7 +522,7 @@ export default function MaintenanceDetailPage() {
       />
 
       <section className="maintenance-detail-footer-actions">
-        {pending && !offlinePending && isAdministrator && <button className="button button--primary" type="button" onClick={() => action('finalize')} disabled={Boolean(working) || devices.length === 0 || ['PROGRAMADO', 'EN_PROCESO'].includes(String(row.EstadoFinalizacion || '').toUpperCase())} title={devices.length === 0 ? 'Agregue al menos un dispositivo antes de finalizar' : 'Solicitar finalización del mantenimiento'}><Icon name="task_alt" />{working === 'finalize' ? 'Solicitando finalización...' : 'Finalizar mantenimiento'}</button>}
+        {!projectMode && pending && !offlinePending && isAdministrator && <button className="button button--primary" type="button" onClick={() => action('finalize')} disabled={Boolean(working) || devices.length === 0 || ['PROGRAMADO', 'EN_PROCESO'].includes(String(row.EstadoFinalizacion || '').toUpperCase())} title={devices.length === 0 ? 'Agregue al menos un dispositivo antes de finalizar' : 'Solicitar finalización del mantenimiento'}><Icon name="task_alt" />{working === 'finalize' ? 'Solicitando finalización...' : 'Finalizar mantenimiento'}</button>}
         {status === 'FINALIZADO' && isAdmin && <button className="button button--secondary" type="button" onClick={() => action('reopen')} disabled={Boolean(working)}><Icon name="undo" />Volver a pendiente</button>}
         {isAdmin && <button className="button button--danger" type="button" onClick={() => action('delete')} disabled={Boolean(working)}><Icon name="delete" />Eliminar</button>}
       </section>
