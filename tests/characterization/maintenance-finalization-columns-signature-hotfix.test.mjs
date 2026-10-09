@@ -51,6 +51,6 @@ test('PostgreSQL incluye las columnas requeridas por los finalizadores escalonad
 test('detalle ofrece finalización solamente al administrador sin forzar edición ni firma', () => {
   const detail = source('src/pages/maintenance/MaintenanceDetailPage.jsx');
   assert.match(detail, /requestMaintenanceFinalization\(\{ maintenanceId, sessionToken \}\)/);
-  assert.match(detail, /pending && !offlinePending && isAdministrator && <button/);
+  assert.match(detail, /!projectMode && pending && !offlinePending && isAdministrator && <button/);
   assert.doesNotMatch(detail, /disabled=\{Boolean\(working\) \|\| !signatureRegistered\}/);
 });
