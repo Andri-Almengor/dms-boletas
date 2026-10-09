@@ -320,6 +320,23 @@ export const maintenanceHandlers = {
     const tables = await readTables(['Mantenimiento', 'Usuarios', 'Evidencia_Mantenimientos', 'Mantenimiento imagenes', 'TiposDispositivo']);
     const before = maintenanceRow(tables, id);
     const payload = maintenancePayload(ctx.payload, before);
+    // Client changes must not keep a main location belonging to the previous
+    // client. Existing device locations are deliberately left untouched and
+    // reassigned through the existing inventory workflow.
+    if (String(payload.ClienteID || '').trim() !== String(before.ClienteID || '').trim()) {
+      const locationId = String(payload.UbicacionID || '').trim();
+      if (locationId) {
+        let mainLocation;
+        try {
+          mainLocation = await findById('ClienteUbicaciones', locationId);
+        } catch {
+          throw badRequest('La ubicación principal del cliente no existe. Seleccione una ubicación del nuevo cliente.');
+        }
+        if (String(mainLocation.ClienteID || '').trim() !== String(payload.ClienteID || '').trim()) {
+          throw badRequest('La ubicación principal seleccionada no pertenece al nuevo cliente del mantenimiento.');
+        }
+      }
+    }
     const maintenanceDevices = (tables.Evidencia_Mantenimientos || [])
       .filter((device) => String(device.MantenimientoRef) === String(id) && device.Activo !== false);
     let nextCounts = {};
