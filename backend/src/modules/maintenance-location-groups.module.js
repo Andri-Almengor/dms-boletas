@@ -261,9 +261,13 @@ async function locationsUpdate(ctx) {
 async function validateNewDeviceLocation(ctx, existing = null) {
   const locationId = clean(pick(ctx.payload, ['UbicacionEquipoID', 'ubicacionEquipoId']));
   if (!locationId || (existing && locationId === clean(existing.UbicacionEquipoID))) return;
-  const maintenanceId = clean(pick(ctx.payload,
-    ['maintenanceId', 'MantenimientoID', 'MantenimientoRef'],
-    existing?.MantenimientoRef));
+  const requestedMaintenanceId = clean(pick(ctx.payload,
+    ['maintenanceId', 'MantenimientoID', 'MantenimientoRef']));
+  const originalMaintenanceId = clean(existing?.MantenimientoRef);
+  if (originalMaintenanceId && requestedMaintenanceId && requestedMaintenanceId !== originalMaintenanceId) {
+    throw badRequest('El dispositivo no pertenece al mantenimiento indicado.');
+  }
+  const maintenanceId = originalMaintenanceId || requestedMaintenanceId;
   if (!maintenanceId) return;
   const maintenance = await findById('Mantenimiento', maintenanceId);
   let location;
