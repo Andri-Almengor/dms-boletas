@@ -20,8 +20,13 @@ export function requestTimeoutMs(route) {
   ].includes(value)) return 240_000;
   if (['assistant.operations.decide','asistente.operaciones.decidir'].includes(value)) return 90_000;
   if (['customercases.public.submit','casos.cliente.public.submit'].includes(value)) return 240_000;
-  if (/finaliz|report|reporte|slides|presentacion|resend|reenviar/.test(value)) return 240_000;
-  if (/upload|evidence|images|imagenes|grande/.test(value)) return 120_000;
+  // Ticket finalization can wait on Drive/PDF/email. The browser deadline must
+  // remain above the backend's 360 s request budget; a proxy-originated 502
+  // is instead recovered by checking the server/Drive state.
+  if (/finaliz|report|reporte|slides|presentacion|resend|reenviar/.test(value)) return 420_000;
+  // Each resumable chunk has a separate deadline, longer than Drive's 120 s
+  // backend timeout. Large videos are never held in one browser request.
+  if (/upload|evidence|images|imagenes|grande/.test(value)) return 180_000;
   return 45_000;
 }
 export async function withRequestDeadline(route, signal, operation, timeoutMs = requestTimeoutMs(route)) {
