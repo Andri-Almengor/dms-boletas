@@ -75,9 +75,18 @@ test('moving a maintenance between clients preserves device identity and require
       UbicacionEquipoID: ids.oldEquipment, Categoria: 'Cámara', TipoDispositivo: 'Cámara',
       NombreDispositivo: 'Cámara 01', Zona: 'Rack anterior', Activo: true,
     });
-    await updateRow('Mantenimiento', ids.maintenance, {
-      ClienteID: ids.newClient, Cliente: 'Cliente correcto', UbicacionID: ids.newLocation, Ubicacion: 'Sede correcta',
-    });
+    // The main location cannot silently continue pointing at the wrong client.
+    await assert.rejects(
+      maintenanceLocationGroupHandlers.update(payloadFor({
+        ClienteID: ids.newClient, Cliente: 'Cliente correcto',
+        UbicacionID: ids.oldLocation, Ubicacion: 'Sede anterior',
+      })),
+      /no pertenece al nuevo cliente/,
+    );
+    await maintenanceLocationGroupHandlers.update(payloadFor({
+      ClienteID: ids.newClient, Cliente: 'Cliente correcto',
+      UbicacionID: ids.newLocation, Ubicacion: 'Sede correcta',
+    }));
 
     const before = await maintenanceLocationGroupHandlers.get(payloadFor({}));
     const historical = before.ubicacionesEquipo.find((item) => item.id === ids.oldEquipment);
