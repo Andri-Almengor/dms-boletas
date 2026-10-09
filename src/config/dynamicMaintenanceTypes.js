@@ -110,19 +110,6 @@ export function selectedMaintenanceCategories(deviceTypes = [], counts = {}, reg
     .filter((item) => Number(counts[item.countField] || 0) > 0);
 }
 
-export function expectedMaintenanceTotalFromCatalog(deviceTypes = [], counts = {}, registered = {}) {
-  const countFields = new Set(
-    buildDynamicMaintenanceCategories(deviceTypes, { counts, registered })
-      .map((item) => item.countField)
-      .filter(Boolean),
-  );
-
-  return [...countFields].reduce(
-    (sum, countField) => sum + Number(counts[countField] || 0),
-    0,
-  );
-}
-
 export function hasSelectedMaintenanceCategory(counts = {}) {
   return Object.values(counts || {}).some((value) => Number(value || 0) > 0);
 }
