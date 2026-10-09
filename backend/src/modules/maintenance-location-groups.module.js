@@ -259,14 +259,14 @@ async function locationsUpdate(ctx) {
 // Validate only a newly assigned location. Existing historical references
 // remain editable until the user explicitly moves their devices.
 async function validateNewDeviceLocation(ctx, existing = null) {
-  const locationId = clean(pick(ctx.payload, ['UbicacionEquipoID', 'ubicacionEquipoId']));
-  if (!locationId || (existing && locationId === clean(existing.UbicacionEquipoID))) return;
   const requestedMaintenanceId = clean(pick(ctx.payload,
     ['maintenanceId', 'MantenimientoID', 'MantenimientoRef']));
   const originalMaintenanceId = clean(existing?.MantenimientoRef);
   if (originalMaintenanceId && requestedMaintenanceId && requestedMaintenanceId !== originalMaintenanceId) {
     throw badRequest('El dispositivo no pertenece al mantenimiento indicado.');
   }
+  const locationId = clean(pick(ctx.payload, ['UbicacionEquipoID', 'ubicacionEquipoId']));
+  if (!locationId || (existing && locationId === clean(existing.UbicacionEquipoID))) return;
   const maintenanceId = originalMaintenanceId || requestedMaintenanceId;
   if (!maintenanceId) return;
   const maintenance = await findById('Mantenimiento', maintenanceId);
