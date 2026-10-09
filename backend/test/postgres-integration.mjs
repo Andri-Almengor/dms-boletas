@@ -129,6 +129,14 @@ test('moving a maintenance between clients preserves device identity and require
       /pertenece a otro cliente/,
     );
     assert.equal((await findById('Evidencia_Mantenimientos', ids.device)).UbicacionEquipoID, ids.newEquipment);
+    await assert.rejects(
+      maintenanceLocationGroupHandlers.deviceUpdate(payloadFor({
+        maintenanceId: 'unrelated-maintenance', deviceId: ids.device,
+        UbicacionEquipoID: ids.oldEquipment,
+      })),
+      /no pertenece al mantenimiento indicado/,
+    );
+    assert.equal((await findById('Evidencia_Mantenimientos', ids.device)).UbicacionEquipoID, ids.newEquipment);
 
     const cleaned = await maintenanceLocationGroupHandlers.locationsUpdate(
       payloadFor({ ubicacionesEquipoIds: [ids.newEquipment] }),
