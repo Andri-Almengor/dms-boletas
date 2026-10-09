@@ -93,7 +93,7 @@ test('finalization storage reuses shared schema and preserves bounded recoverabl
 // authorization, persisted headers, checkpoints, pagination results and write batching.
 // Protected media is intentionally excluded here because PR #305 changes its transport;
 // dedicated security/performance characterization covers that path instead.
-// Maintenance signature handling and the report-service Apps Script are also covered by
+// The scheduler hash is deliberately updated for the stopFinalization bypass fix;\n// maintenance-finalization-stop-control.test.mjs protects the actual stop behavior.\n// Maintenance signature handling and the report-service Apps Script are also covered by
 // dedicated characterization. The maintenance progress wake/deduplication work intentionally
 // changes the report-service trigger worker while preserving the existing business flows.
 const businessBaseline = {
@@ -102,7 +102,7 @@ const businessBaseline = {
   "backend/src/modules/agenda.module.js": "9b2b364f7a825cefa4c39849b9b54da5356c6882282be10450baeaddc52bd8d0",
   "backend/src/modules/ticket-signature.module.js": "c1df58a8a8a5303d10ba236335eef7a3d7d12c643057be6f6063a60f72271ba0",
   "backend/src/services/maintenance-finalization-resume.patch.js": "0f9dca7d2a8110451d52dbe152bb6b8df654579e190dfb44046eef2f775478e6",
-  "backend/src/services/maintenance-finalization-schedule.patch.js": "726eba328256a4a1cac542dc2489e1fe1a25eca6efd14cc2d61a5aa8220a9bbd",
+  "backend/src/services/maintenance-finalization-schedule.patch.js": "5cf11b8c7837d5aac9c5b3bfcfada9d736ed82a258419aee4a22b8f6fe4933e3",
   "apps-script/KnowledgeBase.gs": "5ccb3dc0115e44445c0c0fd7a7944c19c11cbe65298e4cc7a60d6d4fa6783ab3",
   "apps-script/KnowledgeSpreadsheetCompat.gs": "d8b99dd4c7bdbbc8ed15056e221503d06def77e2cf6c18d44ab966cf29f868f8",
   "apps-script/MaintenanceCore.gs": "6dcc9ee18469e89207f4b7405787c43973d0fa921a2bd366e386dca3aeca815a",
