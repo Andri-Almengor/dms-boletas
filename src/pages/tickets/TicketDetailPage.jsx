@@ -489,7 +489,7 @@ export default function TicketDetailPage() {
             <button className="button button--secondary" type="button" onClick={() => fileInputRef.current?.click()} disabled={processing}><Icon name="upload_file" /> Seleccionar archivo</button>
             <input key={`file-${evidenceInputVersion}`} ref={fileInputRef} className="ticket-detail-hidden-input" type="file" accept="image/*,video/mp4,video/webm,video/quicktime,.mov,.mp4,.webm,.pdf,.doc,.docx" onChange={(event) => selectEvidenceFile(event.target.files?.[0], 'file')} />
           </div>
-          <div className="info-box"><Icon name="info" /><p>Los videos deben durar máximo 1 minuto y 30 segundos y pesar hasta 500 MB. Los videos mayores de 6 MB se cargan por partes y requieren conexión a internet.</p></div>
+          <div className="info-box"><Icon name="info" /><p>Los videos deben durar máximo 1 minuto y 30 segundos y pesar hasta 3 GB. Se cargan por partes a Google Drive y requieren conexión a internet; si una petición falla, se verifica el avance antes de reanudar.</p></div>
           {evidenceForm.file && <div className="ticket-detail-selected-file"><Icon name={evidenceForm.mediaType === 'video' ? 'videocam' : 'check_circle'} /><span>{evidenceForm.file.name}{evidenceForm.mediaType === 'video' ? ` · ${Math.ceil(evidenceForm.durationSeconds)} s` : ''}</span></div>}
           <input className="form-control" value={evidenceForm.name} onChange={(event) => setEvidenceForm((current) => ({ ...current, name: event.target.value }))} placeholder="Nombre de la evidencia" />
           <input className="form-control" value={evidenceForm.note} onChange={(event) => setEvidenceForm((current) => ({ ...current, note: event.target.value }))} placeholder="Nota opcional" />
