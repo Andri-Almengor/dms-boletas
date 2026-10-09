@@ -6,10 +6,9 @@ import path from 'node:path';
 
 import {
   expectedMaintenanceTotal,
+  expectedMaintenanceTotalFromCategories,
   shadowedMaintenanceCountKeys,
 } from '../../src/features/maintenance/maintenanceFormDomain.js';
-
-import { expectedMaintenanceTotalFromCatalog } from '../../src/config/dynamicMaintenanceTypes.js';
 
 const ROOT = fileURLToPath(new URL('../../', import.meta.url));
 const source = (relativePath) => readFileSync(path.join(ROOT, relativePath), 'utf8');
@@ -60,27 +59,17 @@ test('el total esperado sigue las categorías visibles aunque quede un alias opa
     { categoria: 'Interfaz', tipoDispositivoId: 'interfaz' },
     { categoria: 'Panel', tipoDispositivoId: 'panel' },
   ];
-  const deviceTypes = [
-    { TipoDispositivoID: 'camera-type', Nombre: 'Cámara', Activo: true, Estado: 'ACTIVO' },
-    { TipoDispositivoID: 'recorder-type', Nombre: 'Grabador', Activo: true, Estado: 'ACTIVO' },
-    { TipoDispositivoID: 'door-type', Nombre: 'Puertas', Activo: true, Estado: 'ACTIVO' },
-    { TipoDispositivoID: 'controladora', Nombre: 'Controladora', Activo: true, Estado: 'ACTIVO' },
-    { TipoDispositivoID: 'interfaz', Nombre: 'Interfaz', Activo: true, Estado: 'ACTIVO' },
-    { TipoDispositivoID: 'panel', Nombre: 'Panel', Activo: true, Estado: 'ACTIVO' },
+  const visibleCategories = [
+    { key: 'Cámara', countField: 'CantCámaras' },
+    { key: 'Grabador', countField: 'CantGrabadores' },
+    { key: 'Puertas', countField: 'CantPuertas' },
+    { key: 'Controladora', countField: 'TipoDispositivo:controladora' },
+    { key: 'Interfaz', countField: 'TipoDispositivo:interfaz' },
+    { key: 'Panel', countField: 'TipoDispositivo:panel' },
   ];
 
   assert.equal(expectedMaintenanceTotal(counts, devices), 66);
-  assert.equal(
-    expectedMaintenanceTotalFromCatalog(deviceTypes, counts, {
-      'Cámara': 28,
-      Grabador: 1,
-      Puertas: 16,
-      Controladora: 1,
-      Interfaz: 3,
-      Panel: 5,
-    }),
-    54,
-  );
+  assert.equal(expectedMaintenanceTotalFromCategories(visibleCategories, counts), 54);
 });
 
 test('al guardar una edición el backend elimina aliases duplicados de CantidadesJSON', () => {
@@ -94,5 +83,6 @@ test('al guardar una edición el backend elimina aliases duplicados de Cantidade
   assert.match(module, /tables\.TiposDispositivo/);
   assert.match(module, /sanitizeMaintenanceCounts\([\s\S]*tables\.TiposDispositivo \|\| \[\]/);
   assert.match(form, /useMaintenanceDeviceCatalogData\(sessionToken, \{[\s\S]*resources: \['deviceTypes'\]/);
-  assert.match(form, /expectedMaintenanceTotalFromCatalog\(countCatalogs\.deviceTypes, form\.counts, registered\)/);
+  assert.match(form, /buildDynamicMaintenanceCategories\(countCatalogs\.deviceTypes, \{[\s\S]*counts: form\.counts,[\s\S]*registered/);
+  assert.match(form, /expectedMaintenanceTotalFromCategories\(expectedCategories, form\.counts\)/);
 });
