@@ -1,13 +1,11 @@
 import React, { useMemo } from 'react';
 import Icon from '../common/Icon';
-import {
-  buildDynamicMaintenanceCategories,
-  expectedMaintenanceTotalFromCatalog,
-} from '../../config/dynamicMaintenanceTypes';
+import { buildDynamicMaintenanceCategories } from '../../config/dynamicMaintenanceTypes';
 import {
   countMaintenanceDevicesByCategory,
   countMaintenanceEvidence,
   expectedMaintenanceTotal,
+  expectedMaintenanceTotalFromCategories,
 } from '../../features/maintenance/maintenanceFormDomain';
 
 export default function MaintenanceDeviceProgressSummary({
@@ -41,13 +39,13 @@ export default function MaintenanceDeviceProgressSummary({
 
   const resolvedExpectedTotal = useMemo(() => {
     if (deviceTypes.length) {
-      return expectedMaintenanceTotalFromCatalog(deviceTypes, counts, resolvedRegistered);
+      return expectedMaintenanceTotalFromCategories(categories, counts);
     }
     const supplied = Number(expectedTotal);
     return Number.isFinite(supplied)
       ? supplied
       : expectedMaintenanceTotal(counts, devices);
-  }, [counts, devices, deviceTypes, expectedTotal, resolvedRegistered]);
+  }, [categories, counts, devices, deviceTypes, expectedTotal]);
 
   return (
     <div className={`maintenance-device-progress-summary${className ? ` ${className}` : ''}`}>
