@@ -43,6 +43,100 @@ const {
 
 const suffix = `${Date.now()}-${Math.random().toString(16).slice(2)}`;
 
+const { ensureColumns, getHeaders } = await import('../src/infra/postgres.repository.js');
+const { maintenanceFinalizationControlHandlers } = await import('../src/services/maintenance-finalization-control.service.js');
+const { createFinalizationJob, getFinalizationJob } = await import('../src/services/maintenance-finalization-job.storage.js');
+
+test('maintenance finalization schema matches PostgreSQL, preserves progress and supports authorized stop', async () => {
+  const required = [
+    'EstadoFinalizacion', 'PasoFinalizacion', 'FinalizacionSolicitudID',
+    'FinalizacionIntentos', 'FinalizacionSolicitadaEn', 'FinalizacionIniciadaEn',
+    'FinalizacionActualizadaEn', 'FinalizacionCompletadaEn', 'FinalizacionSolicitadaPor',
+    'UltimoErrorFinalizacion', 'FinalizacionJobID', 'FinalizacionProgreso',
+    'FinalizacionTotalBoletas', 'FinalizacionBoletasCompletadas',
+    'FinalizacionTotalDispositivos', 'FinalizacionDispositivosCompletados',
+    'FinalizacionTotalEvidencias', 'FinalizacionEvidenciasProcesadas',
+    'FinalizacionMensaje', 'FirmaEstadoFinalizacion', 'FirmaOmitidaAlFinalizar',
+    'FinalizacionProgramadaPara', 'FinalizacionProgramadaEn', 'FinalizacionCanceladaEn',
+    'BoletasGeneradasJSON', 'BoletasGeneradasCantidad', 'BoletasGeneradasEn',
+    'EstadoBoletasMantenimiento', 'UltimoErrorBoletasMantenimiento',
+  ];
+  const headers = await getHeaders('Mantenimiento');
+  assert.deepEqual(required.filter((column) => !headers.includes(column)), [], 'runtime catalog missing finalization columns');
+  await assert.doesNotReject(ensureColumns('Mantenimiento', required));
+  const physical = await query(
+    'SELECT column_name FROM information_schema.columns WHERE table_schema=current_schema() AND table_name=$1',
+    ['Mantenimiento'],
+    { label: 'test.maintenance.finalization.schema' },
+  );
+  const actual = new Set(physical.rows.map((row) => row.column_name));
+  assert.deepEqual(required.filter((column) => !actual.has(column)), [], 'migration missing physical finalization columns');
+
+  const scheduledId = `stage6-finalize-scheduled-${suffix}`;
+  const runningId = `stage6-finalize-running-${suffix}`;
+  let jobId = '';
+  const admin = { user: { UsuarioID: 'stage6-admin' }, permissions: ['USUARIOS_GESTIONAR'] };
+  try {
+    await appendRow('Mantenimiento', {
+      MantenimientoID: scheduledId,
+      Estado: 'PENDIENTE',
+      EstadoFinalizacion: 'PROGRAMADO',
+      FinalizacionProgramadaPara: '2026-10-09T23:00:00.000Z',
+      FinalizacionIntentos: '0',
+      Activo: true,
+    });
+    await assert.rejects(
+      maintenanceFinalizationControlHandlers.stop({
+        ...admin,
+        permissions: ['MANTENIMIENTOS_VER'],
+        payload: { maintenanceId: scheduledId },
+      }),
+      (error) => Number(error.status) === 403,
+    );
+    const stoppedSchedule = await maintenanceFinalizationControlHandlers.stop({
+      ...admin, payload: { maintenanceId: scheduledId },
+    });
+    assert.equal(stoppedSchedule.stopped, true);
+    const scheduleRow = await findById('Mantenimiento', scheduledId);
+    assert.equal(scheduleRow.EstadoFinalizacion, 'DETENIDO');
+    assert.equal(scheduleRow.FinalizacionProgramadaPara, '');
+
+    await appendRow('Mantenimiento', {
+      MantenimientoID: runningId,
+      Estado: 'PENDIENTE',
+      EstadoFinalizacion: 'EN_PROCESO',
+      Activo: true,
+    });
+    const job = await createFinalizationJob({ maintenanceId: runningId, actor: 'stage6-admin' });
+    jobId = job.JobID;
+    await updateRow('Mantenimiento', runningId, {
+      FinalizacionJobID: jobId,
+      FinalizacionIntentos: 1,
+      FinalizacionTotalDispositivos: 54,
+      FinalizacionDispositivosCompletados: 12,
+    });
+    const persisted = await findById('Mantenimiento', runningId);
+    assert.equal(String(persisted.FinalizacionJobID), jobId);
+    assert.equal(Number(persisted.FinalizacionTotalDispositivos), 54);
+    assert.equal(Number(persisted.FinalizacionDispositivosCompletados), 12);
+    const stoppedRunning = await maintenanceFinalizationControlHandlers.stop({
+      ...admin, payload: { maintenanceId: runningId },
+    });
+    assert.equal(stoppedRunning.stopped, true);
+    assert.equal((await getFinalizationJob(jobId)).Estado, 'DETENIDO');
+    const runningRow = await findById('Mantenimiento', runningId);
+    assert.equal(runningRow.EstadoFinalizacion, 'DETENIDO');
+    assert.equal(Number(runningRow.FinalizacionDispositivosCompletados), 12, 'stop must preserve completed work');
+  } finally {
+    if (jobId) {
+      await query('DELETE FROM "MaintenanceFinalizationItems" WHERE "JobID"=$1', [jobId], { label: 'test.finalization.cleanup.items', write: true }).catch(() => {});
+      await query('DELETE FROM "MaintenanceFinalizationJobs" WHERE "JobID"=$1', [jobId], { label: 'test.finalization.cleanup.job', write: true }).catch(() => {});
+    }
+    await query('DELETE FROM "Mantenimiento" WHERE "MantenimientoID"=ANY($1::text[])',
+      [[scheduledId, runningId]], { label: 'test.finalization.cleanup.maintenance', write: true }).catch(() => {});
+  }
+});
+
 test('repository CRUD and rollback stay transactional on PostgreSQL', async () => {
   const categoryId = `stage6-category-${suffix}`;
   const rollbackId = `stage6-rollback-${suffix}`;
