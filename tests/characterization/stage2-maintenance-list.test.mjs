@@ -72,3 +72,16 @@ test('Etapa 2: la consulta PostgreSQL de mantenimientos normaliza FINALIZADO y F
     /COUNT\(\*\) FILTER \(WHERE \$\{normalizeStatusSql\('"Estado"'\)\}='FINALIZADA'\)/,
   );
 });
+
+test('Listado reutiliza el cálculo visible del detalle para los esperados históricos', () => {
+  const list = source('src/pages/maintenance/MaintenanceListPage.jsx');
+  const summary = source('src/components/maintenance/MaintenanceDeviceProgressSummary.jsx');
+  const counts = source('src/features/maintenance/maintenanceFormDomain.js');
+
+  assert.match(list, /useMaintenanceDeviceCatalogData\(sessionToken, \{ resources: \['deviceTypes'\] \}\)/);
+  assert.match(list, /buildDynamicMaintenanceCategories\(maintenanceCatalogs\.deviceTypes, \{ counts \}\)/);
+  assert.match(list, /expectedMaintenanceTotalFromCategories\(/);
+  assert.match(list, /expectedTotals\.get\(id\)/);
+  assert.match(summary, /expectedMaintenanceTotalFromCategories\(categories, counts\)/);
+  assert.match(counts, /export function expectedMaintenanceTotalFromCategories/);
+});
