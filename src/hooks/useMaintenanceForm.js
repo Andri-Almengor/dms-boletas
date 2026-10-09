@@ -1,6 +1,7 @@
 import { useCallback, useMemo, useRef, useState } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { useAuth } from '../AuthContext';
+import { expectedMaintenanceTotalFromCatalog } from '../config/dynamicMaintenanceTypes';
 import {
   buildMaintenanceTechnicians,
   countRegisteredMaintenanceDevices,
@@ -12,6 +13,7 @@ import {
 import { maintenanceFormSignature } from '../features/maintenance/maintenanceDeviceState';
 import useMaintenanceDeviceEditorLifecycle from '../features/maintenance/useMaintenanceDeviceEditorLifecycle';
 import useMaintenanceResources from '../features/maintenance/useMaintenanceResources';
+import useMaintenanceDeviceCatalogData from './useMaintenanceDeviceCatalogData';
 import {
   EMPTY_MAINTENANCE,
   maintenancePayload,
@@ -69,6 +71,10 @@ export default function useMaintenanceForm({ editing, maintenanceId, navigationS
     onInitialState: captureInitialState,
   });
 
+  const { catalogs: countCatalogs } = useMaintenanceDeviceCatalogData(sessionToken, {
+    resources: ['deviceTypes'],
+  });
+
   const technicians = useMemo(
     () => buildMaintenanceTechnicians(resources.users),
     [resources.users],
@@ -78,8 +84,10 @@ export default function useMaintenanceForm({ editing, maintenanceId, navigationS
     [devices],
   );
   const expectedTotal = useMemo(
-    () => expectedMaintenanceTotal(form.counts, devices),
-    [form.counts, devices],
+    () => countCatalogs.deviceTypes.length
+      ? expectedMaintenanceTotalFromCatalog(countCatalogs.deviceTypes, form.counts, registered)
+      : expectedMaintenanceTotal(form.counts, devices),
+    [countCatalogs.deviceTypes, devices, form.counts, registered],
   );
   const readOnly = maintenanceReadOnly({ editing, estado: form.estado, isAdmin });
   const maintenanceDirty = useMemo(() => (
