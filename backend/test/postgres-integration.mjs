@@ -43,6 +43,117 @@ const {
 
 const suffix = `${Date.now()}-${Math.random().toString(16).slice(2)}`;
 
+test('moving a maintenance between clients preserves device identity and requires valid destination locations', async () => {
+  const { maintenanceLocationGroupHandlers } = await import('../src/modules/maintenance-location-groups.module.js');
+  const ids = {
+    oldClient: 'stage6-old-client-' + suffix,
+    newClient: 'stage6-new-client-' + suffix,
+    oldLocation: 'stage6-old-location-' + suffix,
+    newLocation: 'stage6-new-location-' + suffix,
+    oldEquipment: 'stage6-old-equipment-' + suffix,
+    newEquipment: 'stage6-new-equipment-' + suffix,
+    maintenance: 'stage6-transfer-maintenance-' + suffix,
+    device: 'stage6-transfer-device-' + suffix,
+    image: 'stage6-transfer-image-' + suffix,
+  };
+  const admin = { user: { UsuarioID: 'stage6-admin' }, permissions: ['USUARIOS_GESTIONAR'] };
+  const payloadFor = (data) => ({ ...admin, payload: { maintenanceId: ids.maintenance, ...data } });
+
+  try {
+    await appendRow('Clientes', { ClienteID: ids.oldClient, Nombre: 'Cliente anterior', Activo: true });
+    await appendRow('Clientes', { ClienteID: ids.newClient, Nombre: 'Cliente correcto', Activo: true });
+    await appendRow('ClienteUbicaciones', { UbicacionID: ids.oldLocation, ClienteID: ids.oldClient, Nombre: 'Sede anterior', Activo: true });
+    await appendRow('ClienteUbicaciones', { UbicacionID: ids.newLocation, ClienteID: ids.newClient, Nombre: 'Sede correcta', Activo: true });
+    await appendRow('ClienteUbicacionesEquipo', { UbicacionEquipoID: ids.oldEquipment, UbicacionID: ids.oldLocation, Nombre: 'Rack anterior', Activo: true });
+    await appendRow('ClienteUbicacionesEquipo', { UbicacionEquipoID: ids.newEquipment, UbicacionID: ids.newLocation, Nombre: 'Rack correcto', Activo: true });
+    await appendRow('Mantenimiento', {
+      MantenimientoID: ids.maintenance, ClienteID: ids.oldClient, UbicacionID: ids.oldLocation,
+      Estado: 'PENDIENTE', Activo: true,
+      UbicacionesEquipoJSON: JSON.stringify([{ id: ids.oldEquipment, name: 'Rack anterior', locationId: ids.oldLocation }]),
+    });
+    await appendRow('Evidencia_Mantenimientos', {
+      EvidenciaMantenimientoID: ids.device, MantenimientoRef: ids.maintenance,
+      UbicacionEquipoID: ids.oldEquipment, Categoria: 'Cámara', TipoDispositivo: 'Cámara',
+      NombreDispositivo: 'Cámara 01', Zona: 'Rack anterior', Activo: true,
+    });
+    await appendRow('Mantenimiento imagenes', {
+      FotoDispositivoID: ids.image, DispositivoMantenimientoRef: ids.device,
+      Tipo: 'Antes', Nota: 'Evidencia que debe conservarse', Activo: true,
+    });
+    // The main location cannot silently continue pointing at the wrong client.
+    await assert.rejects(
+      maintenanceLocationGroupHandlers.update(payloadFor({
+        ClienteID: ids.newClient, Cliente: 'Cliente correcto',
+        UbicacionID: ids.oldLocation, Ubicacion: 'Sede anterior',
+      })),
+      /no pertenece al nuevo cliente/,
+    );
+    await maintenanceLocationGroupHandlers.update(payloadFor({
+      ClienteID: ids.newClient, Cliente: 'Cliente correcto',
+      UbicacionID: ids.newLocation, Ubicacion: 'Sede correcta',
+    }));
+
+    const before = await maintenanceLocationGroupHandlers.get(payloadFor({}));
+    const historical = before.ubicacionesEquipo.find((item) => item.id === ids.oldEquipment);
+    assert.equal(historical?.foreignClient, true);
+    assert.equal(historical?.available, false);
+    assert.equal(historical?.deviceCount, 1);
+
+    const expanded = await maintenanceLocationGroupHandlers.locationsUpdate(
+      payloadFor({ ubicacionesEquipoIds: [ids.oldEquipment, ids.newEquipment] }),
+    );
+    assert.equal(expanded.ubicacionesEquipo.some((item) => item.id === ids.newEquipment && item.available), true);
+
+    await assert.rejects(
+      maintenanceLocationGroupHandlers.locationsUpdate(
+        payloadFor({ ubicacionesEquipoIds: [ids.oldEquipment, ids.newEquipment, 'missing-equipment'] }),
+      ),
+      /ya no existe/,
+    );
+
+    const moved = await maintenanceLocationGroupHandlers.deviceUpdate(payloadFor({
+      deviceId: ids.device, UbicacionEquipoID: ids.newEquipment, Zona: 'Rack correcto',
+    }));
+    assert.equal(moved.UbicacionEquipoID, ids.newEquipment);
+    const persisted = await findById('Evidencia_Mantenimientos', ids.device);
+    assert.equal(persisted.UbicacionEquipoID, ids.newEquipment);
+    assert.equal(persisted.EvidenciaMantenimientoID, ids.device);
+    const evidence = await findById('Mantenimiento imagenes', ids.image);
+    assert.equal(evidence.DispositivoMantenimientoRef, ids.device);
+    assert.equal(evidence.Nota, 'Evidencia que debe conservarse');
+
+    await assert.rejects(
+      maintenanceLocationGroupHandlers.deviceUpdate(payloadFor({
+        deviceId: ids.device, UbicacionEquipoID: ids.oldEquipment, Zona: 'Rack anterior',
+      })),
+      /pertenece a otro cliente/,
+    );
+    assert.equal((await findById('Evidencia_Mantenimientos', ids.device)).UbicacionEquipoID, ids.newEquipment);
+    await assert.rejects(
+      maintenanceLocationGroupHandlers.deviceUpdate(payloadFor({
+        maintenanceId: 'unrelated-maintenance', deviceId: ids.device,
+        UbicacionEquipoID: ids.oldEquipment,
+      })),
+      /no pertenece al mantenimiento indicado/,
+    );
+    assert.equal((await findById('Evidencia_Mantenimientos', ids.device)).UbicacionEquipoID, ids.newEquipment);
+
+    const cleaned = await maintenanceLocationGroupHandlers.locationsUpdate(
+      payloadFor({ ubicacionesEquipoIds: [ids.newEquipment] }),
+    );
+    assert.equal(cleaned.ubicacionesEquipo.some((item) => item.id === ids.oldEquipment), false);
+    assert.equal(cleaned.ubicacionesEquipo.some((item) => item.id === ids.newEquipment), true);
+  } finally {
+    await query('DELETE FROM "Mantenimiento imagenes" WHERE "DispositivoMantenimientoRef"=$1', [ids.device], { label: 'stage6.transfer.clean.images', write: true }).catch(() => {});
+    await query('DELETE FROM "Evidencia_Mantenimientos" WHERE "EvidenciaMantenimientoID"=$1', [ids.device], { label: 'stage6.transfer.clean.device', write: true }).catch(() => {});
+    await query('DELETE FROM "Mantenimiento" WHERE "MantenimientoID"=$1', [ids.maintenance], { label: 'stage6.transfer.clean.maintenance', write: true }).catch(() => {});
+    await query('DELETE FROM "ClienteUbicacionesEquipo" WHERE "UbicacionEquipoID"=ANY($1::text[])', [[ids.oldEquipment, ids.newEquipment]], { label: 'stage6.transfer.clean.equipment', write: true }).catch(() => {});
+    await query('DELETE FROM "ClienteUbicaciones" WHERE "UbicacionID"=ANY($1::text[])', [[ids.oldLocation, ids.newLocation]], { label: 'stage6.transfer.clean.locations', write: true }).catch(() => {});
+    await query('DELETE FROM "Clientes" WHERE "ClienteID"=ANY($1::text[])', [[ids.oldClient, ids.newClient]], { label: 'stage6.transfer.clean.clients', write: true }).catch(() => {});
+  }
+});
+
+
 const { ensureColumns, getHeaders } = await import('../src/infra/postgres.repository.js');
 const { maintenanceFinalizationControlHandlers } = await import('../src/services/maintenance-finalization-control.service.js');
 const { createFinalizationJob, getFinalizationJob } = await import('../src/services/maintenance-finalization-job.storage.js');

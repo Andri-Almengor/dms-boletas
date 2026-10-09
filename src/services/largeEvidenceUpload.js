@@ -19,24 +19,89 @@ function assertOnline() {
   }
 }
 
-export function shouldUseLargeEvidenceUpload(item = {}, { thresholdBytes = LARGE_EVIDENCE_THRESHOLD_BYTES } = {}) {
-  const size = Number(item.size || item.file?.size || 0);
-  const online = typeof navigator === 'undefined' || navigator.onLine !== false;
-  const previouslyRequiredOnline = String(item.mediaType || '').toLowerCase() === 'video' && size > 30 * 1024 * 1024;
-  return previouslyRequiredOnline || (online && size > Math.max(256 * 1024, Number(thresholdBytes) || LARGE_EVIDENCE_THRESHOLD_BYTES));
+function ticketUploadSessionKey(boletaUid, file) {
+  if (!boletaUid || !file) return '';
+  // Stable across a refresh followed by selecting the same local file.
+  return `dms-ticket-large:${encodeURIComponent(boletaUid)}:${encodeURIComponent(file.name || '')}:${file.size}:${file.lastModified || 0}`;
 }
 
-async function uploadByChunks({ initRoutes, chunkRoutes, initPayload, file, sessionToken, signal, onProgress, chunkPayload = {} }) {
+function storedTicketSession(key) {
+  if (!key) return null;
+  try {
+    const data = JSON.parse(sessionStorage.getItem(key) || 'null');
+    return data && data.uploadToken && data.evidenceId ? data : null;
+  } catch {
+    return null;
+  }
+}
+
+function saveTicketSession(key, data) {
+  if (!key) return;
+  try { sessionStorage.setItem(key, JSON.stringify(data)); } catch { /* restricted storage */ }
+}
+
+function clearTicketSession(key) {
+  if (!key) return;
+  try { sessionStorage.removeItem(key); } catch { /* restricted storage */ }
+}
+
+export function resumableTicketEvidenceId(boletaUid, item = {}) {
+  const file = item.file;
+  if (!file) return '';
+  return String(storedTicketSession(ticketUploadSessionKey(boletaUid, file))?.evidenceId || '');
+}
+
+function uncertainChunkFailure(error) {
+  const status = Number(error?.status || 0);
+  const code = String(error?.code || '').toUpperCase();
+  return [502, 503, 504].includes(status)
+    || (status === 0 && ['UNKNOWN_RESULT', 'REQUEST_TIMEOUT'].includes(code));
+}
+
+export function shouldUseLargeEvidenceUpload(item = {}, {
+  thresholdBytes = LARGE_EVIDENCE_THRESHOLD_BYTES,
+  alwaysVideo = false,
+} = {}) {
+  const size = Number(item.size || item.file?.size || 0);
+  const online = typeof navigator === 'undefined' || navigator.onLine !== false;
+  const video = String(item.mediaType || '').toLowerCase() === 'video';
+  const previouslyRequiredOnline = video && size > 30 * 1024 * 1024;
+  // Online videos always use Drive resumable uploads, including 18-second
+  // recordings below the old 6 MiB threshold. Offline images are unchanged.
+  return previouslyRequiredOnline || (online && ((alwaysVideo && video) || size > Math.max(256 * 1024, Number(thresholdBytes) || LARGE_EVIDENCE_THRESHOLD_BYTES)));
+}
+
+async function uploadByChunks({ initRoutes, chunkRoutes, initPayload, file, sessionToken, signal, onProgress, chunkPayload = {}, ticketSessionKey = '' }) {
   return withMediaUploadPriority(async () => {
     assertOnline();
-    const init = await requestAvailable(initRoutes, initPayload, sessionToken, requestOptions(signal));
-    if (init?.complete) return init.evidence || init;
+    const stored = storedTicketSession(ticketSessionKey);
+    // Status probes use the existing authorized init route and signed Drive
+    // token. No second upload is started while an earlier result is uncertain.
+    const init = await requestAvailable(initRoutes, {
+      ...initPayload,
+      ...(stored?.uploadToken ? { resumeUploadToken: stored.uploadToken } : {}),
+    }, sessionToken, requestOptions(signal));
+    if (init?.complete) {
+      clearTicketSession(ticketSessionKey);
+      onProgress?.(100);
+      return init.evidence || init;
+    }
 
     const uploadToken = String(init?.uploadToken || '');
     const chunkBytes = Math.max(256 * 1024, Number(init?.chunkBytes || LARGE_EVIDENCE_CHUNK_BYTES));
     if (!uploadToken) throw new Error('El servidor no devolvió una sesión para cargar el video.');
+    if (stored?.uploadToken && stored.uploadToken !== uploadToken) {
+      throw new Error('La sesión del video cambió. No se repetirá una carga sin reconciliarla.');
+    }
+    const resume = { uploadToken, evidenceId: initPayload.evidenciaId || '' };
+    saveTicketSession(ticketSessionKey, resume);
+    let offset = Number(init?.nextOffset || 0);
+    if (!Number.isSafeInteger(offset) || offset < 0 || offset > file.size) {
+      throw new Error('Google Drive devolvió una posición de carga inválida.');
+    }
+    let unchangedProbes = 0;
+    onProgress?.(Math.min(99, Math.round((offset / file.size) * 100)));
 
-    let offset = 0;
     while (offset < file.size) {
       if (signal?.aborted) {
         const error = new Error('La carga del video fue cancelada.');
@@ -48,26 +113,55 @@ async function uploadByChunks({ initRoutes, chunkRoutes, initPayload, file, sess
       const chunk = file.slice(offset, end, file.type || initPayload.mimeType || 'application/octet-stream');
       let base64 = await fileToBase64(chunk, { signal });
       try {
-        const result = await requestAvailable(chunkRoutes, {
-          ...chunkPayload,
-          uploadToken,
-          offset,
-          base64,
-        }, sessionToken, requestOptions(signal));
-        if (result?.complete) {
-          onProgress?.(100);
-          return result.evidence || result;
+        let nextResult;
+        try {
+          nextResult = await requestAvailable(chunkRoutes, {
+            ...chunkPayload, uploadToken, offset, base64,
+          }, sessionToken, requestOptions(signal));
+        } catch (error) {
+          if (!ticketSessionKey || !uncertainChunkFailure(error)) throw error;
+          // A proxy 502 does not prove Drive rejected the block. Query the
+          // authoritative offset before ever sending these bytes again.
+          nextResult = await requestAvailable(initRoutes, {
+            ...initPayload,
+            resumeUploadToken: uploadToken,
+          }, sessionToken, requestOptions(signal));
         }
-        const nextOffset = Number(result?.nextOffset);
-        if (!Number.isSafeInteger(nextOffset) || nextOffset <= offset || nextOffset > file.size) throw new Error('El servidor no confirmó el siguiente bloque. Reintente la carga.');
-        offset = nextOffset;
+        if (nextResult?.complete) {
+          clearTicketSession(ticketSessionKey);
+          onProgress?.(100);
+          return nextResult.evidence || nextResult;
+        }
+        const nextOffset = Number(nextResult?.nextOffset);
+        if (!Number.isSafeInteger(nextOffset) || nextOffset < offset || nextOffset > file.size) {
+          throw new Error('Google Drive no confirmó una posición válida para continuar la carga.');
+        }
+        if (nextOffset === offset) {
+          unchangedProbes += 1;
+          if (unchangedProbes > 2) throw new Error('Google Drive no confirmó el bloque después de varios intentos. Reintente la carga para consultar su estado.');
+        } else {
+          unchangedProbes = 0;
+          offset = nextOffset;
+        }
         onProgress?.(Math.min(99, Math.round((offset / file.size) * 100)));
       } finally {
         base64 = '';
       }
     }
 
-    throw new Error('La carga del video terminó sin confirmación de Google Drive.');
+    if (!ticketSessionKey) throw new Error('La carga del video terminó sin confirmación de Google Drive.');
+
+    // If the final response was lost after Drive accepted the last block,
+    // reconcile completion rather than issuing a second upload.
+    const completed = await requestAvailable(initRoutes, {
+      ...initPayload, resumeUploadToken: uploadToken,
+    }, sessionToken, requestOptions(signal));
+    if (completed?.complete) {
+      clearTicketSession(ticketSessionKey);
+      onProgress?.(100);
+      return completed.evidence || completed;
+    }
+    throw new Error('La carga del video terminó sin confirmación de Google Drive. Reintente para consultar su estado.');
   });
 }
 
@@ -79,6 +173,7 @@ export function uploadLargeTicketEvidence({ boletaUid, evidenceId, item, session
     sessionToken,
     signal,
     onProgress,
+    ticketSessionKey: ticketUploadSessionKey(boletaUid, item.file),
     initPayload: {
       boletaUid,
       evidenciaId: evidenceId,

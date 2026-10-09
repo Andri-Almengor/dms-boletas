@@ -108,6 +108,7 @@ function locationView(item = {}) {
     available: item.available !== false,
     active: item.active !== false,
     legacy: Boolean(item.legacy),
+    foreignClient: Boolean(item.foreignClient),
   };
 }
 
@@ -214,6 +215,10 @@ export default function MaintenanceLocationInventory({
   const groups = useMemo(() => buildGroups(locations, effectiveDevices), [locations, effectiveDevices]);
   const categories = useMemo(() => uniqueTypes(effectiveDevices), [effectiveDevices]);
   const pending = status === 'PENDIENTE';
+  const foreignGroups = useMemo(
+    () => groups.filter((group) => group.foreignClient),
+    [groups],
+  );
 
   useEffect(() => {
     setOpenGroups((current) => {
@@ -565,6 +570,16 @@ export default function MaintenanceLocationInventory({
       {(category !== 'TODAS' || location !== 'TODAS' || stateFilter !== 'TODOS') && <div className="maintenance-inventory-active-filters" aria-live="polite"><span><strong>{filteredDeviceCount}</strong> de {effectiveDevices.length} dispositivos</span>{category !== 'TODAS' && <button type="button" onClick={() => setCategory('TODAS')}><Icon name="devices_other" />{category}<Icon name="close" /></button>}{location !== 'TODAS' && <button type="button" onClick={() => setLocation('TODAS')}><Icon name="location_on" />{groups.find((group) => group.id === location)?.name || 'Ubicación'}<Icon name="close" /></button>}{stateFilter !== 'TODOS' && <button type="button" onClick={() => setStateFilter('TODOS')}><Icon name="rule" />{stateFilter === 'CORRECTOS' ? 'Correctos' : 'Requieren atención'}<Icon name="close" /></button>}</div>}
     </>}
 
+    {foreignGroups.length > 0 && <div className="alert alert--warning" role="status">
+      <Icon name="warning_amber" />
+      <span>
+        Este mantenimiento conserva {foreignGroups.length} ubicación{foreignGroups.length === 1 ? '' : 'es'} del cliente anterior.
+        Sus dispositivos y evidencias se mantienen. Agregue las ubicaciones del cliente actual,
+        abra cada tarjeta anterior y use “Mover seleccionados” para reasignar los equipos.
+        Después podrá quitar las ubicaciones anteriores vacías.
+      </span>
+    </div>}
+
     {visibleGroups.length ? <div className="maintenance-location-groups-list">
       {visibleGroups.map((group) => {
         const open = openGroups.has(group.id);
@@ -577,7 +592,7 @@ export default function MaintenanceLocationInventory({
           <div className="maintenance-location-work-group__header">
             <button className="maintenance-location-work-group__toggle" type="button" onClick={() => toggleGroup(group)} aria-expanded={open}>
               <span className="maintenance-location-work-group__icon"><Icon name="location_on" /></span>
-              <span className="maintenance-location-work-group__text"><strong>{group.name}</strong><small>{group.locationName ? `${group.locationName} · ` : ''}{usedCount} dispositivo{usedCount === 1 ? '' : 's'}{!group.available ? ' · Ubicación histórica o eliminada' : ''}</small></span>
+              <span className="maintenance-location-work-group__text"><strong>{group.name}</strong><small>{group.locationName ? `${group.locationName} · ` : ''}{usedCount} dispositivo{usedCount === 1 ? '' : 's'}{group.foreignClient ? ' · Cliente anterior: reasignar dispositivos' : !group.available ? ' · Ubicación histórica o eliminada' : ''}</small></span>
               <Icon name={open ? 'expand_less' : 'expand_more'} />
             </button>
             {pending && canEdit && <div className="maintenance-location-work-group__actions">
