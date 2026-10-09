@@ -2314,7 +2314,7 @@ function sendVisitGroupEmail_(data) {
     linkedVideoCount: evidenceParts.linkedVideoCount,
     inlineImageCount: 0,
     allFilesAttachedDirectly: evidenceParts.linkedVideoCount === 0,
-    driveAccessRequired: false,
+    driveAccessRequired: evidenceParts.linkedVideoCount > 0,
     visitCount: data.visits.length,
     surveyIncluded: Boolean(surveyUrl),
     surveyUrl: surveyUrl,
@@ -6729,7 +6729,7 @@ function sendReportEmail_(data) {
     linkedVideoCount: evidenceParts.linkedVideoCount,
     inlineImageCount: 0,
     allFilesAttachedDirectly: evidenceParts.linkedVideoCount === 0,
-    driveAccessRequired: false,
+    driveAccessRequired: evidenceParts.linkedVideoCount > 0,
     surveyIncluded: Boolean(surveyUrl),
     surveyUrl: surveyUrl,
     signatureIncluded: Boolean(signatureUrl),
@@ -6855,7 +6855,6 @@ function buildDirectEvidenceAttachments_(evidences, options) {
       evidence.MimeType || evidence.mimeType,
     ).toLowerCase();
     const fileMimeType = clean_(file.getMimeType()).toLowerCase();
-    const mimeType = declaredMimeType || fileMimeType;
     const fileSize = Number(
       file.getSize()
       || evidence.TamanoBytes
@@ -6864,15 +6863,22 @@ function buildDirectEvidenceAttachments_(evidences, options) {
     );
     const isVideo = /^video\//i.test(declaredMimeType)
       || /^video\//i.test(fileMimeType)
-      || /\.(mp4|mov|m4v|webm)$/i.test(
-        clean_(evidence.NombreArchivo || evidence.fileName || file.getName() || name),
-      );
+      || clean_(evidence.TipoMedio || evidence.mediaType).toUpperCase() === 'VIDEO'
+      || [
+        evidence.NombreArchivo,
+        evidence.fileName,
+        file.getName(),
+        name,
+      ].some(function (value) {
+        return /\.(mp4|mov|m4v|webm)$/i.test(clean_(value));
+      });
 
     /*
      * Gmail/MailApp no admite adjuntos individuales tan grandes como los videos
      * que DMS permite almacenar. El video ya está persistido en Drive y forma
      * parte de la boleta; no se materializa como Blob ni se intenta comprimir.
-     * Así una evidencia de video grande nunca bloquea PDF/correo/finalización.
+     * Así un video no bloquea PDF/correo/finalización, incluso si getSize()
+     * devuelve 0 o la declaración de MIME tiene un valor incorrecto.
      */
     if (isVideo && (linkVideos || fileSize > MAX_EMAIL_BYTES)) {
       // A reported Drive size can be 0 or stale even for a huge MP4.
