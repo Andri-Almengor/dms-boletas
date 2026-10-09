@@ -11,7 +11,7 @@ const BRAND_BORDER = '#ead5d7';
 const BRAND_BACKGROUND = '#fffafa';
 const DMS_EMAIL_FROM_ALIAS = 'reportes@solutionsdms.com';
 const DMS_EMAIL_FROM_NAME = 'DMS Boletas';
-const APPS_SCRIPT_VERSION = '2026-10-07-V7.14-TICKET-LARGE-VIDEO';
+const APPS_SCRIPT_VERSION = '2026-10-09-V7.15-VIDEO-DRIVE-LINK';
 const MAINTENANCE_ARCHIVE_DELIVERY_TYPE = 'MAINTENANCE_ARCHIVE';
 
 /*
@@ -2245,7 +2245,10 @@ function sendVisitGroupEmail_(data) {
   const reportBlobs = Array.isArray(data.pdfBlobs)
     ? data.pdfBlobs.filter(Boolean)
     : [];
-  const evidenceParts = buildDirectEvidenceAttachments_(data.evidences);
+  const evidenceParts = buildDirectEvidenceAttachments_(data.evidences, {
+    linkVideos: true,
+    recipients: to.concat(cc),
+  });
   const attachments = reportBlobs.concat(evidenceParts.attachments);
 
   const subject = [
@@ -2284,6 +2287,7 @@ function sendVisitGroupEmail_(data) {
     directAttachments: true,
     attachmentCount: attachments.length,
     linkedVideoCount: evidenceParts.linkedVideoCount,
+    evidenceRows: evidenceParts.rows,
   });
 
   const delivery = sendDirectAttachmentEmails_({
@@ -2338,10 +2342,16 @@ function buildVisitGroupEmailPlainText_(data) {
       ? 'Los PDF y las evidencias compatibles se adjuntan directamente a este correo.'
       : 'Los PDF de cada boleta y todas las evidencias disponibles se adjuntan directamente a este correo.',
     Number(data.linkedVideoCount || 0) > 0
-      ? Number(data.linkedVideoCount || 0) + ' video(s) grande(s) permanecen almacenados en DMS y no impiden enviar el seguimiento.'
+      ? Number(data.linkedVideoCount || 0) + ' video(s) disponibles como enlaces privados de Google Drive, sin adjuntarlos.'
       : 'No es necesario iniciar sesión en Google Drive ni solicitar permisos.',
     '',
   ];
+
+  (data.evidenceRows || []).forEach(function (item) {
+    if (!item.oversizedVideo || !item.url) return;
+    lines.push('Video: ' + item.name + ' - ' + item.url);
+  });
+  if (Number(data.linkedVideoCount || 0) > 0) lines.push('');
 
   data.visits.forEach(function (visit, index) {
     const ticket = visit.ticket || {};
@@ -2445,7 +2455,7 @@ function buildVisitGroupEmailHtml_(data) {
       Number(data.linkedVideoCount || 0) > 0
         ? '<strong>Seguimiento enviado correctamente:</strong> los PDF y las evidencias compatibles están adjuntos. '
           + Number(data.linkedVideoCount || 0)
-          + ' video(s) grande(s) permanecen almacenados en DMS y no bloquean el correo.'
+          + ' video(s) se comparten mediante enlaces privados de Google Drive.'
         : '<strong>Archivos incluidos directamente:</strong> los PDF de todas las boletas y sus evidencias están adjuntos a este correo. No necesita acceso a Google Drive.',
       '</div>',
     ].join('')
@@ -2456,6 +2466,22 @@ function buildVisitGroupEmailHtml_(data) {
         BRAND_RED,
       );
     }).join('');
+
+  const videoLinksHtml = (data.evidenceRows || [])
+    .filter(function (item) { return item.oversizedVideo && item.url; })
+    .map(function (item) {
+      return [
+        '<li style="margin:8px 0">',
+        `<a href="${escapeHtml_(item.url)}" style="color:${BRAND_RED};font-weight:700">${escapeHtml_(item.name)}</a>`,
+        item.driveAccessGranted
+          ? ' · Acceso de lectura autorizado a los destinatarios'
+          : ' · Es posible que deba solicitar acceso a Drive',
+        '</li>',
+      ].join('');
+    }).join('');
+  const videoEvidenceBlock = videoLinksHtml
+    ? '<div style="margin:20px 0"><h2>Videos del seguimiento</h2><ul>' + videoLinksHtml + '</ul></div>'
+    : '';
 
   const signatureBlock = data.signatureUrl
     ? [
@@ -2512,6 +2538,7 @@ function buildVisitGroupEmailHtml_(data) {
     '<h2 style="margin:26px 0 8px">Detalle de las visitas</h2>',
     visitCards,
     `<div class="dms-actions" style="margin:24px 0;text-align:center">${reportLinks}</div>`,
+    videoEvidenceBlock,
     signatureBlock,
     surveyBlock,
     `<p style="margin-top:30px;color:${BRAND_MUTED};font-size:12px">Este mensaje fue generado automáticamente por DMS Boletas.</p>`,
@@ -6609,7 +6636,10 @@ function sendReportEmail_(data) {
   const surveyUrl = safeWebUrl_(data.surveyUrl);
   const signatureUrl = safeWebUrl_(data.signatureUrl);
   const signedDelivery = clean_(data.deliveryType).toUpperCase() === 'SIGNED';
-  const evidenceParts = buildDirectEvidenceAttachments_(data.evidences);
+  const evidenceParts = buildDirectEvidenceAttachments_(data.evidences, {
+    linkVideos: true,
+    recipients: to.concat(cc),
+  });
   const attachments = [data.pdfBlob].concat(evidenceParts.attachments);
 
   const assignedNames = data.assigned
@@ -6672,6 +6702,7 @@ function sendReportEmail_(data) {
     directAttachments: true,
     attachmentCount: attachments.length,
     linkedVideoCount: evidenceParts.linkedVideoCount,
+    evidenceRows: evidenceParts.rows,
   });
 
   const delivery = sendDirectAttachmentEmails_({
@@ -6726,9 +6757,15 @@ function buildEmailPlainText_(data) {
       ? 'El PDF y las evidencias compatibles se adjuntan directamente a este correo.'
       : 'El PDF de la boleta y todas las evidencias disponibles se adjuntan directamente a este correo.',
     Number(data.linkedVideoCount || 0) > 0
-      ? Number(data.linkedVideoCount || 0) + ' video(s) grande(s) permanecen almacenados en el expediente de DMS y no impiden el envío de la boleta.'
+      ? Number(data.linkedVideoCount || 0) + ' video(s) disponibles como enlaces privados de Google Drive, sin adjuntarlos.'
       : 'No es necesario iniciar sesión en Google Drive ni solicitar permisos.',
   ];
+
+  (data.evidenceRows || []).forEach(function (item) {
+    if (!item.oversizedVideo || !item.url) return;
+    lines.push('Video: ' + item.name + ' - ' + item.url);
+  });
+  if (Number(data.linkedVideoCount || 0) > 0) lines.push('');
 
   if (data.testMode) {
     lines.push(
@@ -6769,11 +6806,15 @@ function buildEmailPlainText_(data) {
 
 
 /**
- * Obtiene todas las evidencias como adjuntos reales del correo.
- * No se usan enlaces de Drive como respaldo: si un archivo registrado no
- * puede leerse, el envío se detiene para no informar falsamente que fue adjunto.
+ * Adjunta las evidencias compatibles. Los videos de BOLETAS permanecen en Drive
+ * y se referencian mediante enlaces privados, sin cargar sus blobs en Apps Script.
+ * Los otros flujos mantienen sus reglas de adjuntos.
  */
-function buildDirectEvidenceAttachments_(evidences) {
+function buildDirectEvidenceAttachments_(evidences, options) {
+  const linkVideos = Boolean(options && options.linkVideos);
+  const videoRecipients = linkVideos
+    ? uniqueEmails_((options && options.recipients) || [])
+    : [];
   const attachments = [];
   const rows = [];
   const seen = {};
@@ -6821,7 +6862,11 @@ function buildDirectEvidenceAttachments_(evidences) {
       || evidence.Size
       || 0,
     );
-    const isVideo = /^video\//i.test(mimeType);
+    const isVideo = /^video\//i.test(declaredMimeType)
+      || /^video\//i.test(fileMimeType)
+      || /\.(mp4|mov|m4v|webm)$/i.test(
+        clean_(evidence.NombreArchivo || evidence.fileName || file.getName() || name),
+      );
 
     /*
      * Gmail/MailApp no admite adjuntos individuales tan grandes como los videos
@@ -6829,7 +6874,12 @@ function buildDirectEvidenceAttachments_(evidences) {
      * parte de la boleta; no se materializa como Blob ni se intenta comprimir.
      * Así una evidencia de video grande nunca bloquea PDF/correo/finalización.
      */
-    if (isVideo && fileSize > MAX_EMAIL_BYTES) {
+    if (isVideo && (linkVideos || fileSize > MAX_EMAIL_BYTES)) {
+      // A reported Drive size can be 0 or stale even for a huge MP4.
+      // Always decide by video type before getDriveBlob_/Utilities.zip.
+      const access = linkVideos
+        ? grantEvidenceViewAccess_(file, videoRecipients)
+        : { ok: false };
       seen[fileId] = true;
       rows.push({
         name: name,
@@ -6837,10 +6887,12 @@ function buildDirectEvidenceAttachments_(evidences) {
         attached: false,
         cid: '',
         oversizedVideo: true,
+        driveAccessGranted: Boolean(access.ok),
         size: fileSize,
         url: safeWebUrl_(
           evidence.DriveURL
-          || evidence.ArchivoURL,
+          || evidence.ArchivoURL
+          || `https://drive.google.com/file/d/${encodeURIComponent(fileId)}/view`,
         ),
       });
       return;
@@ -6921,6 +6973,25 @@ function buildDirectEvidenceAttachments_(evidences) {
       return item.oversizedVideo === true;
     }).length,
   };
+}
+
+/**
+ * Concede lectura SOLO a los destinatarios del correo de boleta, sin enlaces
+ * públicos. Un error de dominio/permisos no bloquea el PDF y el correo:
+ * el enlace informa que puede requerir una solicitud de acceso.
+ */
+function grantEvidenceViewAccess_(file, recipients) {
+  if (!file || !recipients || !recipients.length) return { ok: false };
+  let granted = true;
+  recipients.forEach(function (email) {
+    try {
+      file.addViewer(email);
+    } catch (error) {
+      granted = false;
+      console.warn('No fue posible conceder acceso de lectura a la evidencia de video.');
+    }
+  });
+  return { ok: granted };
 }
 
 /**
@@ -7150,7 +7221,10 @@ function buildEmailHtml_(data) {
       const link = item.attached
         ? '<span style="color:#145c35;font-weight:700">Archivo adjunto directamente</span>'
         : item.oversizedVideo
-          ? '<span style="color:#7c2d12;font-weight:700">Video almacenado en DMS; no se adjunta al correo por su tamaño.</span>'
+          ? item.url
+            ? `<a href="${escapeHtml_(item.url)}" style="color:${BRAND_RED};font-weight:700">Abrir video en Google Drive</a>`
+              + (item.driveAccessGranted ? ' · Acceso autorizado' : ' · Puede requerir solicitar acceso')
+            : 'Video guardado en DMS; enlace no disponible'
           : item.url
             ? `<a href="${escapeHtml_(item.url)}" style="color:${BRAND_RED};font-weight:700;text-decoration:none">Abrir en Drive</a>`
             : 'Sin enlace';
@@ -7194,7 +7268,7 @@ function buildEmailHtml_(data) {
       Number(data.linkedVideoCount || 0) > 0
         ? '<strong>Reporte enviado correctamente:</strong> el PDF y las evidencias compatibles están adjuntos. '
           + Number(data.linkedVideoCount || 0)
-          + ' video(s) grande(s) permanecen almacenados en el expediente de DMS y no bloquean el envío.'
+          + ' video(s) se comparten mediante enlaces privados de Google Drive.'
         : '<strong>Archivos incluidos directamente:</strong> el PDF de la boleta y todas las evidencias están adjuntos a este correo. No necesita iniciar sesión en Google Drive ni solicitar permisos.',
       '</div>',
     ].join('')
@@ -7266,9 +7340,9 @@ function buildEmailHtml_(data) {
     `<div class="dms-actions" style="margin:22px 0 6px;text-align:center">${reportLinks}</div>`,
     signatureBlock,
     surveyBlock,
-    '<h2 style="margin-top:30px">Evidencias fotográficas</h2>',
+    '<h2 style="margin-top:30px">Evidencias de la boleta</h2>',
     evidenceHtml,
-    `<div style="margin-top:30px;padding-top:18px;border-top:1px solid ${BRAND_BORDER};color:${BRAND_MUTED};font-size:12px;line-height:1.5">Este mensaje fue generado automáticamente por DMS Boletas. Los reportes y evidencias se incluyen como adjuntos directos para que el destinatario no necesite acceso a Google Drive.</div>`,
+    `<div style="margin-top:30px;padding-top:18px;border-top:1px solid ${BRAND_BORDER};color:${BRAND_MUTED};font-size:12px;line-height:1.5">Este mensaje fue generado automáticamente por DMS Boletas. El reporte y las evidencias compatibles se adjuntan al correo; los videos se consultan mediante enlaces privados de Google Drive.</div>`,
     '</div>',
     '</div>',
     '</body>',
