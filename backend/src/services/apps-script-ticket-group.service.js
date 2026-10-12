@@ -19,13 +19,15 @@ function clean(value, fallback = '') {
 }
 
 function splitEmails(value) {
-  const source = Array.isArray(value) ? value : String(value || '').split(/[;,\n\r]/);
+  // Un supervisor puede contener varias direcciones, también al unir visitas
+  // (array). Dividir cada celda antes de validar, normalizar y deduplicar.
+  const source = Array.isArray(value) ? value : [value];
   return [...new Set(source
     .flatMap((item) => Array.isArray(item) ? item : [item])
-    .map((item) => String(item || '').trim().toLowerCase())
+    .flatMap((item) => String(item || '').split(/[;,\n\r]/))
+    .map((item) => item.trim().toLowerCase())
     .filter((item) => /^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(item)))];
 }
-
 function maintenanceSignaturePatch(maintenance = {}) {
   const fileId = clean(pick(maintenance, ['FirmaArchivoID', 'FirmaFileID']));
   const url = clean(pick(maintenance, ['FirmaURL', 'FirmaUrl', 'Firma']));
