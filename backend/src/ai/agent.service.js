@@ -254,11 +254,19 @@ export async function runDmsAgent(ctx, overrides = {}){
   const ui={entities:[],attachments:[],sources:[],confirmations:[],context:{...context}};
   const toolNames=[];let modelMs=0,toolMs=0,totalInput=0,totalOutput=0,dbQueries=0,dbQueryMs=0,requestBytes=0;
   const knowledgeFlow={articleSearches:0,articleResults:0,documentSearches:0,documentsFound:0,readyDocuments:0,chunkSearches:0,chunksFound:0,errors:0};
-  let knowledgeChunks=0,initialModel='',finalModel='',fallbackCount=0,fallbackReason='',modelIndex=0,compacted=false;
+  let knowledgeChunks=0,initialModel='',finalModel='',fallbackCount=0,routerFallbackCount=0,fallbackReason='',modelIndex=0,compacted=false;
   const models=Array.isArray(overrides.models)&&overrides.models.length?[...overrides.models]:modelFallbackChain();
   if(!models.length)throw new AppError('GEMINI_MODEL_NOT_CONFIGURED','Configure GEMINI_PRIMARY_MODEL o GEMINI_MODEL en el servidor.',503);
   initialModel=models[0];finalModel=models[0];
   const maxOutputTokens=outputBudget(intent,message);
+  const effectiveFallbackCount=()=>fallbackCount+routerFallbackCount;
+  const noteRouterModel=(usedModel, count, requestedModel)=>{
+    const actual=clean(usedModel,160);
+    if(!actual)return;
+    finalModel=actual;
+    routerFallbackCount=Math.max(routerFallbackCount,Number(count)||0,actual!==requestedModel?1:0);
+    if(actual!==requestedModel&&!fallbackReason)fallbackReason='GEMINI_ROUTER_SWITCH';
+  };
 
   const remaining=()=>Math.max(0,deadline-performance.now());
   const assertTime=(needed=1)=>{
@@ -278,11 +286,13 @@ export async function runDmsAgent(ctx, overrides = {}){
           systemInstruction,input:localInput,tools:noTools?[]:toolset,model,timeoutMs,maxOutputTokens,
         });
         modelMs+=performance.now()-modelStarted;
+        noteRouterModel(interaction.__dmsModelUsed,interaction.__dmsRouterFallbackCount,model);
         const u=usage(interaction);totalInput+=u.inputTokens;totalOutput+=u.outputTokens;
         requestBytes+=Number(interaction.__dmsRequestBytes||0);
         return interaction;
       }catch(error){
         modelMs+=performance.now()-modelStarted;
+        noteRouterModel(error?.details?.geminiModel,error?.details?.routerFallbackCount,model);
         const code=String(error?.code||'');
         if(code==='CONTEXT_TOO_LARGE'&&!compacted){
           localInput=compactTimeline(localInput);
@@ -309,7 +319,7 @@ export async function runDmsAgent(ctx, overrides = {}){
       suggestions:[],
       context:sanitizeActiveContext({...context,...ui.context,lastIntent:intent}),
       agent:{
-        modelInitial:initialModel,modelFinal:finalModel,fallbackCount,fallbackReason,
+        modelInitial:initialModel,modelFinal:finalModel,fallbackCount:effectiveFallbackCount(),fallbackReason,
         toolCalls:toolNames.length,tools:[...new Set(toolNames)],toolDefinitionsCount:tools.length,
         webSearch:ui.sources.some(item=>item.type==='external'),intent,limited,compacted,
       },
@@ -317,19 +327,19 @@ export async function runDmsAgent(ctx, overrides = {}){
     const durationMs=Math.round(performance.now()-started),responseBytes=Buffer.byteLength(JSON.stringify(response),'utf8');
     recordAiMetrics({
       durationMs,modelDurationMs:modelMs,toolCalls:toolNames.length,toolDurationMs:toolMs,dbQueries,dbQueryMs,
-      inputTokens:totalInput,outputTokens:totalOutput,responseBytes,requestBytes,fallbackCount,
+      inputTokens:totalInput,outputTokens:totalOutput,responseBytes,requestBytes,fallbackCount:effectiveFallbackCount(),
       toolDefinitionsCount:tools.length,knowledgeChunks,attachments:response.attachments.length,
     });
     const telemetry={
       requestId:clean(ctx.requestId,120),conversationId:clean(ctx.payload?.conversationId,120),
-      modelInitial:initialModel,modelFinal:finalModel,fallbackCount,fallbackReason:safeTelemetry(fallbackReason),
+      modelInitial:initialModel,modelFinal:finalModel,fallbackCount:effectiveFallbackCount(),fallbackReason:safeTelemetry(fallbackReason),
       intent,durationMs,geminiMs:Math.round(modelMs),toolMs:Math.round(toolMs),dbMs:Math.round(dbQueryMs),
       toolDefinitionsCount:tools.length,toolCalls:toolNames.length,inputTokens:totalInput,outputTokens:totalOutput,
       requestBytes,responseBytes,knowledgeChunks,attachments:response.attachments.length,status:'ok',
     };
     console.info('[ai-agent] '+JSON.stringify(telemetry));
     await auditFn(ctx,'AI_CHAT','Asistente',clean(ctx.payload?.conversationId,250)||'chat',null,{
-      ModelInitial:initialModel,ModelFinal:finalModel,FallbackCount:fallbackCount,FallbackReason:fallbackReason,
+      ModelInitial:initialModel,ModelFinal:finalModel,FallbackCount:effectiveFallbackCount(),FallbackReason:fallbackReason,
       Intent:intent,Herramientas:[...new Set(toolNames)],DuracionMs:durationMs,BusquedaWeb:response.agent.webSearch,
     }).catch(()=>{});
     return response;
@@ -523,12 +533,12 @@ export async function runDmsAgent(ctx, overrides = {}){
     const durationMs=Math.round(performance.now()-started);
     recordAiMetrics({
       error:true,durationMs,modelDurationMs:modelMs,toolCalls:toolNames.length,toolDurationMs:toolMs,
-      dbQueries,dbQueryMs,inputTokens:totalInput,outputTokens:totalOutput,requestBytes,fallbackCount,
+      dbQueries,dbQueryMs,inputTokens:totalInput,outputTokens:totalOutput,requestBytes,fallbackCount:effectiveFallbackCount(),
       toolDefinitionsCount:tools.length,knowledgeChunks,attachments:ui.attachments.length,
     });
     console.error('[ai-agent] '+JSON.stringify({
       requestId:clean(ctx.requestId,120),conversationId:clean(ctx.payload?.conversationId,120),
-      modelInitial:initialModel,modelFinal:finalModel,fallbackCount,fallbackReason:safeTelemetry(fallbackReason),
+      modelInitial:initialModel,modelFinal:finalModel,fallbackCount:effectiveFallbackCount(),fallbackReason:safeTelemetry(fallbackReason),
       intent,durationMs,geminiMs:Math.round(modelMs),toolMs:Math.round(toolMs),dbMs:Math.round(dbQueryMs),
       toolDefinitionsCount:tools.length,toolCalls:toolNames.length,inputTokens:totalInput,outputTokens:totalOutput,
       requestBytes,knowledgeChunks,attachments:ui.attachments.length,status:'error',errorCode:safeTelemetry(error?.code||'AI_ERROR'),

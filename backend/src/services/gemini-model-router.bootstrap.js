@@ -1,5 +1,6 @@
 const GEMINI_INTERACTIONS_URL = 'https://generativelanguage.googleapis.com/v1beta/interactions';
-const DEFAULT_FALLBACK_MODELS = ['gemini-3.1-flash-lite', 'gemini-2.5-flash-lite'];
+const DEFAULT_FALLBACK_MODELS = ['gemini-3.5-flash-lite', 'gemini-3.1-flash-lite'];
+const TRANSIENT_MODEL_COOLDOWN_MS = 60_000;
 const DEFAULT_BASE_COOLDOWN_MS = 15 * 60 * 1000;
 const DEFAULT_MAX_COOLDOWN_MS = 2 * 60 * 60 * 1000;
 
@@ -8,8 +9,11 @@ const routerState = globalThis.__DMS_GEMINI_MODEL_ROUTER_STATE__ || {
   activeIndex: 0,
   cooldowns: new Map(),
   quotaStrikes: new Map(),
+  unavailableModels: new Set(),
   lastActiveModel: '',
 };
+// Conserva compatibilidad si ya existía un estado de router anterior.
+routerState.unavailableModels ||= new Set();
 globalThis.__DMS_GEMINI_MODEL_ROUTER_STATE__ = routerState;
 
 function clean(value, max = 500) {
@@ -78,6 +82,19 @@ function markQuotaExhausted(model, response, message = '') {
   return duration;
 }
 
+function markModelUnavailable(model) {
+  routerState.unavailableModels.add(model);
+  routerState.cooldowns.delete(model);
+}
+
+function markTransientFailure(model) {
+  routerState.cooldowns.set(model, Date.now() + TRANSIENT_MODEL_COOLDOWN_MS);
+}
+
+function candidateAvailable(model) {
+  return !routerState.unavailableModels.has(model) && cooldownRemaining(model) === 0;
+}
+
 function markSuccess(model, models) {
   routerState.quotaStrikes.delete(model);
   routerState.cooldowns.delete(model);
@@ -93,16 +110,6 @@ function candidateOrder(models) {
   if (!models.length) return [];
   const start = ((routerState.activeIndex % models.length) + models.length) % models.length;
   return [...models.slice(start), ...models.slice(0, start)];
-}
-
-function nextAvailableModel(models, currentModel) {
-  if (!models.length) return '';
-  const currentIndex = models.indexOf(currentModel);
-  for (let offset = 1; offset <= models.length; offset += 1) {
-    const candidate = models[(Math.max(currentIndex, -1) + offset) % models.length];
-    if (candidate && cooldownRemaining(candidate) === 0) return candidate;
-  }
-  return '';
 }
 
 async function quotaMessage(response) {
@@ -131,7 +138,14 @@ function parseBody(init = {}) {
 }
 
 function allModelsCoolingResponse(models) {
-  const remaining = models.map(cooldownRemaining).filter((value) => value > 0);
+  const eligible = models.filter((model) => !routerState.unavailableModels.has(model));
+  if (!eligible.length) {
+    return new Response(JSON.stringify({error:{
+      code:503,status:'UNAVAILABLE',
+      message:'No hay modelos Gemini disponibles en la configuración. Revise GEMINI_MODEL y GEMINI_FALLBACK_MODELS en Render.',
+    }}),{status:503,headers:{'content-type':'application/json'}});
+  }
+  const remaining = eligible.map(cooldownRemaining).filter((value) => value > 0);
   const retryMs = remaining.length ? Math.min(...remaining) : baseCooldownMs();
   return new Response(JSON.stringify({
     error: {
@@ -150,9 +164,10 @@ function allModelsCoolingResponse(models) {
 
 function retryableModelFailure(response, message = '') {
   if (response.status === 429) return 'quota';
+  if (/no longer available|not available to new users|model[s/ .-]+.*(?:not found|not available|not supported)|not found for api version|unsupported model/i.test(message)) return 'unavailable';
+  if (response.status === 404 && /model|not found|not supported|unavailable/i.test(message)) return 'unavailable';
   if (/model generated invalid json syntax|output could not be parsed/i.test(message)) return 'invalid_response';
   if ([408, 500, 502, 503, 504].includes(response.status)) return 'transient';
-  if (response.status === 404 && /model|not found|not supported|unavailable/i.test(message)) return 'unavailable';
   return '';
 }
 
@@ -166,13 +181,16 @@ async function routedGeminiFetch(input, init = {}) {
 
   const models = resolveModels(originalBody.model);
   const ordered = candidateOrder(models);
-  const available = ordered.filter((model) => cooldownRemaining(model) === 0);
+  const available = ordered.filter(candidateAvailable);
   if (!available.length) return allModelsCoolingResponse(models);
 
   let lastResponse = null;
-  for (const model of available) {
+  for (const [attemptIndex, model] of available.entries()) {
     const body = { ...originalBody, model };
     const response = await originalFetch(input, { ...init, body: JSON.stringify(body) });
+    // La telemetría también debe identificar el modelo real cuando la última respuesta es un error.
+    Object.defineProperty(response, '__dmsGeminiModel', { value: model });
+    Object.defineProperty(response, '__dmsGeminiFallbackCount', { value: attemptIndex });
     lastResponse = response;
 
     if (response.ok) {
@@ -184,14 +202,18 @@ async function routedGeminiFetch(input, init = {}) {
     const reason = retryableModelFailure(response, message);
     if (!reason) return response; // Solicitudes inválidas y errores de autenticación no se reintentan.
     const cooldownMs = reason === 'quota' ? markQuotaExhausted(model, response, message) : 0;
-    const nextModel = nextAvailableModel(models, model);
-    const index = models.indexOf(model);
-    if (index >= 0) routerState.activeIndex = (index + 1) % models.length;
+    if (reason === 'unavailable') markModelUnavailable(model);
+    if (reason === 'transient' || reason === 'invalid_response') markTransientFailure(model);
+    const nextModel = available[attemptIndex + 1] || '';
+    if (nextModel) routerState.activeIndex = models.indexOf(nextModel);
     console.warn(
-      `[gemini-router] ${model}: ${reason === 'quota' ? `cuota agotada; cooldown ${Math.ceil(cooldownMs / 60_000)} min` : `fallo recuperable (${reason})`}.${nextModel ? ` Cambiando a ${nextModel}.` : ' No queda otro modelo disponible.'}`,
+      `[gemini-router] ${model}: ${reason === 'quota' ? `cuota agotada; cooldown ${Math.ceil(cooldownMs / 60_000)} min` : reason === 'unavailable' ? 'modelo rechazado; excluido de futuras solicitudes' : `fallo recuperable (${reason})`}.${nextModel ? ` Cambiando a ${nextModel}.` : ' No queda otro modelo disponible.'}`,
     );
   }
 
+  if (models.every((model) => routerState.unavailableModels.has(model) || cooldownRemaining(model) > 0)) {
+    return allModelsCoolingResponse(models);
+  }
   return lastResponse || allModelsCoolingResponse(models);
 }
 
@@ -207,5 +229,6 @@ export function geminiModelRouterSnapshot() {
     activeModel: models[routerState.activeIndex] || models[0] || '',
     cooldowns: Object.fromEntries(models.map((model) => [model, cooldownRemaining(model)])),
     quotaStrikes: Object.fromEntries(models.map((model) => [model, Number(routerState.quotaStrikes.get(model) || 0)])),
+    unavailableModels: models.filter((model) => routerState.unavailableModels.has(model)),
   };
 }

@@ -97,12 +97,18 @@ export async function createInteraction({
     const data=await response.json().catch(()=>({}));
     if(response.ok){
       Object.defineProperty(data,'__dmsRequestBytes',{value:requestBytes,enumerable:false});
+      Object.defineProperty(data,'__dmsModelUsed',{value:String(response.__dmsGeminiModel||model),enumerable:false});
+      Object.defineProperty(data,'__dmsRouterFallbackCount',{value:Number(response.__dmsGeminiFallbackCount||0),enumerable:false});
       return data;
     }
     const message=String(data?.error?.message||'').slice(0,500);
     const code=geminiErrorCode(response.status,message);
     const status=response.status===429?429:(TRANSIENT.has(response.status)?503:502);
-    throw new AppError(code,message||`Gemini rechazó la solicitud (${response.status}).`,status,{geminiStatus:response.status});
+    throw new AppError(code,message||`Gemini rechazó la solicitud (${response.status}).`,status,{
+      geminiStatus:response.status,
+      geminiModel:String(response.__dmsGeminiModel||model),
+      routerFallbackCount:Number(response.__dmsGeminiFallbackCount||0),
+    });
   }catch(error){
     if(error?.name==='AbortError') throw new AppError('AI_GEMINI_TIMEOUT','Gemini tardó demasiado en responder.',504);
     if(error instanceof AppError) throw error;
