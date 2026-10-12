@@ -2,11 +2,10 @@ import React, { useEffect, useRef, useState } from 'react';
 import Icon from '../common/Icon';
 import { useAuth } from '../../AuthContext';
 import {
-  getOfflineMedia,
-  listOfflineMediaByEntityId,
-  removeOfflineMedia,
-  saveOfflineMedia,
-  updateOfflineMedia,
+  recoverMaintenanceEvidenceDrafts,
+  removeMaintenanceEvidenceDraft,
+  saveMaintenanceEvidenceDraft,
+  updateMaintenanceEvidenceDraft,
 } from '../../services/offlineMediaStore';
 import MaintenanceQuickDeviceCreator from './MaintenanceQuickDeviceCreator';
 import useOverlaySurface from '../../hooks/useOverlaySurface';
@@ -77,7 +76,7 @@ function DeviceEvidenceUploader({ device, maintenanceId, sessionToken, onClose, 
       setRestoring(false);
       return () => { active = false; };
     }
-    listOfflineMediaByEntityId(draftScope).then((rows) => {
+    recoverMaintenanceEvidenceDrafts(draftScope).then((rows) => {
       if (!active) return;
       const recovered = rows.filter((row) => row.kind === 'maintenanceEvidenceDraft' && row.blob instanceof Blob)
         .map((row) => {
@@ -142,26 +141,7 @@ function DeviceEvidenceUploader({ device, maintenanceId, sessionToken, onClose, 
       for (const item of nextItems) {
         if (draftScope) {
           try {
-            await queueDraftWrite(() => saveOfflineMedia({
-              mediaId: `${draftScope}:${item.localId}`,
-              localId: item.localId,
-              entityId: draftScope,
-              kind: 'maintenanceEvidenceDraft',
-              blob: item.file,
-              fileName: item.file.name,
-              mimeType: item.mimeType,
-              mediaType: item.mediaType,
-              durationSeconds: item.durationSeconds,
-              type: item.type,
-              note: item.note,
-              capturedAt: item.capturedAt,
-              projectTargetType: item.projectTargetType,
-              projectRelationKey: item.projectRelationKey,
-              projectComponentLocalId: item.projectComponentLocalId,
-              projectComponentTypeId: item.projectComponentTypeId,
-              projectComponentName: item.projectComponentName,
-              status: 'DRAFT',
-            }));
+            await queueDraftWrite(() => saveMaintenanceEvidenceDraft(draftScope, item));
             item.draftSaved = true;
           } catch (storageError) {
             item.draftSaved = false;
@@ -185,10 +165,8 @@ function DeviceEvidenceUploader({ device, maintenanceId, sessionToken, onClose, 
   function updateEvidence(localId, values) {
     setEvidences((current) => current.map((item) => item.localId === localId ? { ...item, ...values } : item));
     if (draftScope) {
-      queueDraftWrite(async () => {
-        const mediaId = `${draftScope}:${localId}`;
-        if (await getOfflineMedia(mediaId)) await updateOfflineMedia(mediaId, values);
-      }).catch(() => setDraftWarning('No se pudo guardar la última edición local. Revísela antes de salir.'));
+      queueDraftWrite(() => updateMaintenanceEvidenceDraft(draftScope, localId, values))
+        .catch(() => setDraftWarning('No se pudo guardar la última edición local. Revísela antes de salir.'));
     }
   }
 
@@ -199,7 +177,7 @@ function DeviceEvidenceUploader({ device, maintenanceId, sessionToken, onClose, 
       return current.filter((item) => item.localId !== localId);
     });
     if (draftScope) {
-      queueDraftWrite(() => removeOfflineMedia(`${draftScope}:${localId}`))
+      queueDraftWrite(() => removeMaintenanceEvidenceDraft(draftScope, localId))
         .catch(() => setDraftWarning('No se pudo limpiar una evidencia descartada del almacenamiento local.'));
     }
   }
@@ -234,7 +212,7 @@ function DeviceEvidenceUploader({ device, maintenanceId, sessionToken, onClose, 
       // En fallos parciales las restantes conservan el blob para recuperarse tras recarga.
       if (draftScope) {
         for (const localId of uploadedKeys) {
-          await queueDraftWrite(() => removeOfflineMedia(`${draftScope}:${localId}`));
+          await queueDraftWrite(() => removeMaintenanceEvidenceDraft(draftScope, localId));
         }
       }
       setEvidences((current) => current.filter((item) => !uploadedKeys.has(String(item.localId || ''))));
