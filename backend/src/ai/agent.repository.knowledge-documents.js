@@ -111,13 +111,16 @@ export async function searchKnowledgeDocuments(ctx, args = {}) {
     params.push(articleId);
     clauses.push('ka."TutorialID"=$' + params.length);
   }
+  let documentRelevance = '';
   if (q) {
     const terms = searchTerms(q);
     const effectiveTerms = terms.length ? terms : [q];
+    const termMatches = [];
+    const relevance = [];
     for (const term of effectiveTerms) {
       params.push(like(term));
       const p = '$' + params.length;
-      clauses.push(`(
+      termMatches.push(`(
         ka."Nombre" ILIKE ${p} ESCAPE '\\'
         OR COALESCE(ka."SearchText",'') ILIKE ${p} ESCAPE '\\'
         OR a."Titulo" ILIKE ${p} ESCAPE '\\'
@@ -144,7 +147,10 @@ export async function searchKnowledgeDocuments(ctx, args = {}) {
              )
         )
       )`);
+      relevance.push(`(CASE WHEN ka."Nombre" ILIKE ${p} THEN 6 ELSE 0 END) + (CASE WHEN a."Titulo" ILIKE ${p} THEN 3 ELSE 0 END)`);
     }
+    clauses.push('(' + termMatches.join(' OR ') + ')');
+    documentRelevance = relevance.join(' + ');
   }
 
   params.push(pageLimit(args.limit, 10));
@@ -158,7 +164,7 @@ export async function searchKnowledgeDocuments(ctx, args = {}) {
        JOIN "KnowledgeArticles" a
          ON a."__valid"=TRUE AND a."TutorialID"=ka."TutorialID"
       WHERE ${clauses.join(' AND ')}
-      ORDER BY ka."FechaCreacion" DESC NULLS LAST,ka."Nombre" ASC
+      ORDER BY ${documentRelevance ? '(' + documentRelevance + ') DESC,' : ''}ka."FechaCreacion" DESC NULLS LAST,ka."Nombre" ASC
       LIMIT $${params.length}`,
     params,
     'ai.knowledgeDocuments.search',

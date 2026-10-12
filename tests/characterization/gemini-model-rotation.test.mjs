@@ -11,7 +11,10 @@ test('Gemini rota al siguiente modelo cuando el activo alcanza cuota', () => {
   const router = source('backend/src/services/gemini-model-router.bootstrap.js');
 
   assert.match(router, /DEFAULT_FALLBACK_MODELS = \['gemini-3\.1-flash-lite', 'gemini-2\.5-flash-lite'\]/);
-  assert.match(router, /response\.status !== 429/);
+  // La rotación ahora protege también 503/504, modelos no disponibles y JSON inválido.
+  assert.match(router, /retryableModelFailure\(response, message\)/);
+  assert.match(router, /408, 500, 502, 503, 504/);
+  assert.match(router, /invalid json syntax/);
   assert.match(router, /markQuotaExhausted\(model, response, message\)/);
   assert.match(router, /routerState\.activeIndex = \(index \+ 1\) % models\.length/);
   assert.match(router, /Cambiando a \$\{nextModel\}/);

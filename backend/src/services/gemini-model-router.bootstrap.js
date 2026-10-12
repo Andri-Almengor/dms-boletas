@@ -148,6 +148,14 @@ function allModelsCoolingResponse(models) {
   });
 }
 
+function retryableModelFailure(response, message = '') {
+  if (response.status === 429) return 'quota';
+  if (/model generated invalid json syntax|output could not be parsed/i.test(message)) return 'invalid_response';
+  if ([408, 500, 502, 503, 504].includes(response.status)) return 'transient';
+  if (response.status === 404 && /model|not found|not supported|unavailable/i.test(message)) return 'unavailable';
+  return '';
+}
+
 async function routedGeminiFetch(input, init = {}) {
   if (requestUrl(input).split('?')[0] !== GEMINI_INTERACTIONS_URL) {
     return originalFetch(input, init);
@@ -167,18 +175,20 @@ async function routedGeminiFetch(input, init = {}) {
     const response = await originalFetch(input, { ...init, body: JSON.stringify(body) });
     lastResponse = response;
 
-    if (response.status !== 429) {
-      if (response.ok) markSuccess(model, models);
+    if (response.ok) {
+      markSuccess(model, models);
       return response;
     }
 
     const message = await quotaMessage(response);
-    const cooldownMs = markQuotaExhausted(model, response, message);
+    const reason = retryableModelFailure(response, message);
+    if (!reason) return response; // Solicitudes inválidas y errores de autenticación no se reintentan.
+    const cooldownMs = reason === 'quota' ? markQuotaExhausted(model, response, message) : 0;
     const nextModel = nextAvailableModel(models, model);
     const index = models.indexOf(model);
     if (index >= 0) routerState.activeIndex = (index + 1) % models.length;
     console.warn(
-      `[gemini-router] ${model} alcanzó su cuota. Cooldown ${Math.ceil(cooldownMs / 60_000)} min.${nextModel ? ` Cambiando a ${nextModel}.` : ' No queda otro modelo disponible.'}`,
+      `[gemini-router] ${model}: ${reason === 'quota' ? `cuota agotada; cooldown ${Math.ceil(cooldownMs / 60_000)} min` : `fallo recuperable (${reason})`}.${nextModel ? ` Cambiando a ${nextModel}.` : ' No queda otro modelo disponible.'}`,
     );
   }
 
