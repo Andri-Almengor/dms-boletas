@@ -31,7 +31,9 @@ test('consulta técnica sin fabricante activa Knowledge en vez de GENERAL', () =
 
 test('no convierte consultas operativas en búsquedas documentales', () => {
   assert.equal(classifyAiIntent({message:'Muéstrame las boletas pendientes'}), AI_INTENTS.TICKETS);
-  assert.equal(classifyAiIntent({message:'¿Cuántos mantenimientos existen?'}), AI_INTENTS.STATISTICS);
+  // Caracteriza el dominio operacional actual, sin alterar la prioridad existente del router.
+  assert.equal(classifyAiIntent({message:'¿Cuántos mantenimientos existen?'}), AI_INTENTS.MAINTENANCE);
+  assert.equal(classifyAiIntent({message:'Total de mantenimientos'}), AI_INTENTS.STATISTICS);
   assert.equal(classifyAiIntent({message:'¿Qué evidencias tiene este mantenimiento?'}), AI_INTENTS.MAINTENANCE_EVIDENCE);
 });
 
