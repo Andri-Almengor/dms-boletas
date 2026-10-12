@@ -148,6 +148,20 @@ export async function findOfflineMediaByEntityId(entityId) {
   });
 }
 
+// Consulta acotada al dispositivo/usuario: evita cargar todos los blobs de IndexedDB.
+export async function listOfflineMediaByEntityId(entityId) {
+  const id = String(entityId || '').trim();
+  if (!id) return [];
+  const db = await openDatabase();
+  if (!db) return [];
+  return new Promise((resolve, reject) => {
+    const transaction = db.transaction(MEDIA_STORE, 'readonly');
+    const request = transaction.objectStore(MEDIA_STORE).index('entityId').getAll(id);
+    request.onsuccess = () => resolve(request.result || []);
+    request.onerror = () => reject(request.error || new Error('No fue posible recuperar las evidencias pendientes.'));
+  });
+}
+
 export async function updateOfflineMedia(mediaId, patch = {}) {
   const current = await getRecord(mediaId);
   if (!current) return null;
