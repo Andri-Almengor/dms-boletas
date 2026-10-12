@@ -58,7 +58,7 @@ export function isKnowledgeDocumentQuery({message='',context={}}={}){
   if(!value) return false;
   const active=hasKnowledgeContext(context);
   if(active&&!hasCompetingInternalDomain(value)&&(KNOWLEDGE_FOLLOWUP.test(value)||DOCUMENT_HINT.test(value))) return true;
-  return DOCUMENT_HINT.test(value)&&(KNOWLEDGE_HINT.test(value)||TECHNICAL_KNOWLEDGE_HINT.test(value)||MODEL_TOKEN.test(value)||active);
+  return DOCUMENT_HINT.test(value)&&(KNOWLEDGE_HINT.test(value)||TECHNICAL_KNOWLEDGE_HINT.test(value)||TECHNICAL_TARGET_HINT.test(value)||MODEL_TOKEN.test(value)||active);
 }
 
 export function isTechnicalKnowledgeQuery({message='',context={}}={}){
