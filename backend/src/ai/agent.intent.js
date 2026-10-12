@@ -3,6 +3,9 @@ const KNOWLEDGE_HINT = /\b(knowledge|conocimiento|base de conocimiento|procedimi
 const DOCUMENT_HINT = /\b(manual|manuales|gu[ií]a|gu[ií]as|guide|documento|documentos|pdf|docx|archivo adjunto|adjunto|adjuntos|p[aá]gina|p[aá]ginas|secci[oó]n|secciones|documentaci[oó]n)\b/i;
 const TECHNICAL_KNOWLEDGE_HINT = /\b(axis|onguard|lenel|lenels2|milestone|xprotect|barco|faceme|morphomanager|onvif|rtsp|poe|sip|audio manager|camera station|access control|windows server|sql server|postgresql|odbc|cctv|vms|nvr)\b/i;
 const TECHNICAL_ACTION_HINT = /\b(error|falla|problema|soluci[oó]n|solucionar|resolver|configurar|configuraci[oó]n|instalar|procedimiento|manual|gu[ií]a|diagnosticar|diagn[oó]stico|integrar|integraci[oó]n|firmware|compatibilidad|puerto|poe|sip|multicast|qu[eé] dice|explica|explicar|buscar|busca|c[oó]mo|no funciona|no responde|no env[ií]a|no transmite|no conecta|sin audio|sin video|sin se[nñ]al)\b/i;
+// Detecta solicitudes de soporte de un programa aun cuando el usuario desconoce fabricante o familia.
+const TECHNICAL_PROCEDURE_HINT = /\b(restablezco|restablecer|restablece|recuperar|recupero|reiniciar|reinicio|resetear|desbloquear|desbloqueo|configurar|configuro|instalar|instalo|activar|actualizar|acceder|ingresar|iniciar sesi[oó]n|cambiar contrase[nñ]a|cambiar clave)\b/i;
+const TECHNICAL_TARGET_HINT = /\b(contrase[nñ]a|password|clave|acceso|login|licencia|license|administrador|administrator|programa|software|sistema|aplicaci[oó]n|consola|servidor|servicio|cuenta)\b/i;
 const MODEL_TOKEN = /\b(?:[A-Z]{1,8}[- ]?)?[A-Z]*\d{3,}[A-Z0-9-]*\b/i;
 const KNOWLEDGE_FOLLOWUP = /\b(ese|esa|este|esta)\s+(manual|pdf|gu[ií]a|documento|p[aá]gina|secci[oó]n)\b|\b(qu[eé] m[aá]s dice|qu[eé] dice|dice algo|otra secci[oó]n|otra p[aá]gina|sobre poe|sobre audio|sobre integraci[oó]n|sobre configuraci[oó]n|y del c\d+|y sobre)\b/i;
 const WEB_HINT = /\b(internet|web|google|buscar en internet|busca en internet|búscalo en internet|buscar en la web|busca en la web|busca online|buscar online)\b/i;
@@ -63,6 +66,7 @@ export function isTechnicalKnowledgeQuery({message='',context={}}={}){
   if(!value) return false;
   if(isKnowledgeDocumentQuery({message:value,context})) return true;
   if(KNOWLEDGE_HINT.test(value)) return true;
+  if(TECHNICAL_PROCEDURE_HINT.test(value)&&TECHNICAL_TARGET_HINT.test(value)) return true;
   return (TECHNICAL_KNOWLEDGE_HINT.test(value)||MODEL_TOKEN.test(value))&&TECHNICAL_ACTION_HINT.test(value);
 }
 
