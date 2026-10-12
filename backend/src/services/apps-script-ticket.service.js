@@ -12,12 +12,15 @@ function clean(value, fallback = '') {
 }
 
 function splitEmails(value) {
-  const source = Array.isArray(value) ? value : String(value || '').split(/[;,]/);
+  // Un supervisor puede contener varias direcciones, también al unir visitas
+  // (array). Dividir cada celda antes de validar, normalizar y deduplicar.
+  const source = Array.isArray(value) ? value : [value];
   return [...new Set(source
-    .map((item) => String(item || '').trim().toLowerCase())
+    .flatMap((item) => Array.isArray(item) ? item : [item])
+    .flatMap((item) => String(item || '').split(/[;,\n\r]/))
+    .map((item) => item.trim().toLowerCase())
     .filter((item) => /^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(item)))];
 }
-
 function hasSignature(ticket = {}) {
   return Boolean(clean(pick(ticket, ['FirmaArchivoID', 'FirmaFileID', 'FirmaURL', 'FirmaUrl', 'Firma'])));
 }
