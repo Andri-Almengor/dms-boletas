@@ -10,10 +10,12 @@ export async function searchKnowledgeBase(ctx, args = {}) {
   const visible = appendKnowledgeVisibility(ctx, params, 'a');
   const clauses = [active('a'), visible];
   const terms = searchTerms(q);
+  const termMatches = [];
+  const relevance = [];
   for (const term of terms.length ? terms : [q]) {
     params.push(like(term));
     const p = '$' + params.length;
-    clauses.push(`(
+    termMatches.push(`(
       a."Titulo" ILIKE ${p} ESCAPE '\\'
       OR a."ProblemaResuelto" ILIKE ${p} ESCAPE '\\'
       OR a."ContenidoHTML" ILIKE ${p} ESCAPE '\\'
@@ -46,14 +48,16 @@ export async function searchKnowledgeBase(ctx, args = {}) {
           )
       )
     )`);
+    relevance.push(`(CASE WHEN a."Titulo" ILIKE ${p} THEN 4 ELSE 0 END)`);
   }
+  clauses.push('(' + termMatches.join(' OR ') + ')');
   params.push(pageLimit(args.limit, 10));
   const rows = await many(
     `SELECT a."TutorialID" AS id,a."Titulo" AS title,a."ProblemaResuelto" AS problem,a."Estado" AS status,
             a."FechaActualizacion" AS "updatedAt",LEFT(COALESCE(NULLIF(a."ContenidoHTML",''),''),5000) AS content
        FROM "KnowledgeArticles" a
       WHERE ${clauses.join(' AND ')}
-      ORDER BY a."FechaActualizacion" DESC NULLS LAST,a."Titulo" ASC
+      ORDER BY (${relevance.join(' + ')}) DESC,a."FechaActualizacion" DESC NULLS LAST,a."Titulo" ASC
       LIMIT $${params.length}`,
     params,
     'ai.knowledge.search',
