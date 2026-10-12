@@ -35,6 +35,7 @@ test('router Gemini rota ante saturación y JSON inválido, sin reintentar error
     state.activeIndex = 0;
     state.cooldowns.clear();
     state.quotaStrikes.clear();
+    state.unavailableModels.clear();
     const response = await globalThis.fetch('https://generativelanguage.googleapis.com/v1beta/interactions', {
       method: 'POST',
       body: JSON.stringify({ model:'gemini-test-primary', input:'hola' }),
@@ -48,6 +49,8 @@ test('router Gemini rota ante saturación y JSON inválido, sin reintentar error
   ]);
   assert.equal(overload.status,200);
   assert.deepEqual(calls,['gemini-test-primary','gemini-test-fallback']);
+  assert.equal(overload.__dmsGeminiModel,'gemini-test-fallback');
+  assert.equal(overload.__dmsGeminiFallbackCount,1);
 
   const invalidJson = await perform([
     {status:502,body:{error:{message:'Model generated invalid JSON syntax and the output could not be parsed.'}}},
@@ -69,4 +72,34 @@ test('router Gemini rota ante saturación y JSON inválido, sin reintentar error
   assert.equal(quota.status,200);
   assert.deepEqual(calls,['gemini-test-primary','gemini-test-fallback']);
   assert.ok(state.cooldowns.get('gemini-test-primary') > Date.now());
+
+  // Un modelo retirado puede venir también de GEMINI_FALLBACK_MODELS configurado en Render.
+  process.env.GEMINI_FALLBACK_MODELS = 'gemini-2.5-flash-lite,gemini-test-fallback';
+  const retired = await perform([
+    {status:429,body:{error:{message:'Resource exhausted'}}},
+    {status:404,body:{error:{message:'This model models/gemini-2.5-flash-lite is no longer available to new users. Please update your code to use models/gemini-3.5-flash-lite.'}}},
+    {status:200,body:{output_text:'Respuesta desde modelo disponible'}},
+  ]);
+  assert.equal(retired.status,200);
+  assert.deepEqual(calls,['gemini-test-primary','gemini-2.5-flash-lite','gemini-test-fallback']);
+  assert.equal(state.unavailableModels.has('gemini-2.5-flash-lite'),true);
+
+  calls.length=0;
+  scriptedResponses=[{status:200,body:{output_text:'Respuesta recuperada'}}];
+  state.activeIndex=0;
+  const second = await globalThis.fetch('https://generativelanguage.googleapis.com/v1beta/interactions',{
+    method:'POST',body:JSON.stringify({model:'gemini-test-primary',input:'segunda consulta'}),
+  });
+  assert.equal(second.status,200);
+  assert.deepEqual(calls,['gemini-test-fallback'], 'No vuelve a consultar modelo retirado ni principal en cooldown');
+  assert.equal(second.__dmsGeminiModel,'gemini-test-fallback');
+
+  // La lista por defecto no incluye modelos que ya no se ofrecen para nuevas cuentas.
+  process.env.GEMINI_FALLBACK_MODELS='';
+  const {geminiModelRouterSnapshot}=await import('../src/services/gemini-model-router.bootstrap.js');
+  const snapshot=geminiModelRouterSnapshot();
+  assert.deepEqual(snapshot.models,[
+    'gemini-test-primary','gemini-3.5-flash-lite','gemini-3.1-flash-lite',
+  ]);
+  assert.equal(snapshot.models.includes('gemini-2.5-flash-lite'),false);
 });
