@@ -61,6 +61,8 @@ test('sin rutas, permisos ni flujo offline paralelo: reutiliza los existentes y 
   const styles = source('src/styles/maintenance-device-mobile-ux.css');
   assert.match(routes, /maintenanceDeviceCreate/);
   assert.match(routes, /queueOfflineWrite/);
+  assert.match(creator, /data-device-create-mode="fresh"/);
+  assert.match(creator, /data-device-create-variant=\{bulk \? 'bulk' : undefined\}/);
   assert.match(creator, /<MaintenanceDeviceEditor/);
   assert.match(creator, /await onCreated\?\.\(feedback\)/);
   assert.match(styles, /maintenance-bulk-device-form__fields/);
