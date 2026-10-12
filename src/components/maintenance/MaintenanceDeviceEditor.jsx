@@ -159,6 +159,8 @@ export default function MaintenanceDeviceEditor({
   const [startedAsNew] = useState(() => !device.id);
   const [preparingEvidence, setPreparingEvidence] = useState(false);
   const draftWrites = useRef(Promise.resolve());
+  const pendingImagesRef = useRef(device.newImages || []);
+  useEffect(() => { pendingImagesRef.current = device.newImages || []; }, [device.newImages]);
   const draftUserId = String(user?.UsuarioID || '');
   const draftDeviceId = String(device.id || 'new-device');
   const draftScope = draftUserId && maintenanceId
@@ -220,7 +222,7 @@ export default function MaintenanceDeviceEditor({
     document.body.classList.add('maintenance-device-editor-open');
     return () => {
       document.body.classList.remove('maintenance-device-editor-open');
-      (device.newImages || []).forEach((item) => releaseEvidencePreviewUrl(item.previewUrl));
+      pendingImagesRef.current.forEach((item) => releaseEvidencePreviewUrl(item.previewUrl));
       window.dispatchEvent(new CustomEvent('dms-offline-editing-complete'));
     };
   }, []);
