@@ -77,6 +77,7 @@ import './maintenance-ticket-report-quality.test.mjs';
 import './maintenance-ticket-splitting.test.mjs';
 import './maintenance-ticket-consecutive.test.mjs';
 import './normal-ticket-email-only.test.mjs';
+import './ticket-supervisor-cc.test.mjs';
 import './offline-catalog-sync.test.mjs';
 import './offline-dependency-repair.test.mjs';
 import './offline-finalization-resume.test.mjs';
