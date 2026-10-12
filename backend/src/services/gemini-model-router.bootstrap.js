@@ -188,13 +188,13 @@ async function routedGeminiFetch(input, init = {}) {
   for (const [attemptIndex, model] of available.entries()) {
     const body = { ...originalBody, model };
     const response = await originalFetch(input, { ...init, body: JSON.stringify(body) });
+    // La telemetría también debe identificar el modelo real cuando la última respuesta es un error.
+    Object.defineProperty(response, '__dmsGeminiModel', { value: model });
+    Object.defineProperty(response, '__dmsGeminiFallbackCount', { value: attemptIndex });
     lastResponse = response;
 
     if (response.ok) {
       markSuccess(model, models);
-      // Metadata exclusiva del backend: registra el modelo real sin alterar el cuerpo del proveedor.
-      Object.defineProperty(response, '__dmsGeminiModel', { value: model });
-      Object.defineProperty(response, '__dmsGeminiFallbackCount', { value: attemptIndex });
       return response;
     }
 
