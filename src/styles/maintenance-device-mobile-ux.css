@@ -463,3 +463,118 @@ body.maintenance-device-editor-open .offline-status > button {
     min-height: 50px;
   }
 }
+
+
+/* Registro masivo: reutiliza el modal de alta rápida y las variables de DMS. */
+.maintenance-quick-device-modal[data-device-create-variant="bulk"] .maintenance-quick-device-modal__panel {
+  width: min(100%, 740px);
+  max-height: min(90dvh, 860px);
+  overflow-y: auto;
+  padding: 22px;
+}
+
+.maintenance-bulk-device-form {
+  display: grid;
+  gap: 16px;
+  min-width: 0;
+}
+
+.maintenance-bulk-device-form__header {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 12px;
+}
+
+.maintenance-bulk-device-form__header h2 {
+  margin: 4px 0 6px;
+}
+
+.maintenance-bulk-device-form__header p {
+  color: var(--muted);
+  font-size: .85rem;
+  line-height: 1.5;
+  margin: 0;
+}
+
+.maintenance-bulk-device-form__fields {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 12px;
+}
+
+.maintenance-bulk-device-form__fields .field-group {
+  min-width: 0;
+}
+
+.maintenance-bulk-device-form__names {
+  grid-column: 1 / -1;
+}
+
+.maintenance-bulk-device-form__names textarea {
+  width: 100%;
+  min-height: 156px;
+  resize: vertical;
+}
+
+.maintenance-bulk-device-form__summary {
+  border-radius: var(--radius-sm);
+  background: var(--surface-low);
+  padding: 12px;
+  display: grid;
+  gap: 4px;
+}
+
+.maintenance-bulk-device-form__summary span,
+.maintenance-bulk-device-form__preview small {
+  font-size: .76rem;
+  color: var(--muted);
+}
+
+.maintenance-bulk-device-form__preview {
+  display: grid;
+  gap: 8px;
+  min-width: 0;
+}
+
+.maintenance-bulk-device-form__preview > div {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+}
+
+.maintenance-bulk-device-form__preview span {
+  display: inline-block;
+  max-width: 100%;
+  padding: 5px 9px;
+  border: 1px solid var(--outline-soft);
+  border-radius: 8px;
+  font-size: .78rem;
+  overflow-wrap: anywhere;
+}
+
+.maintenance-bulk-device-form__actions {
+  display: flex;
+  justify-content: flex-end;
+  flex-wrap: wrap;
+  gap: 9px;
+}
+
+@media (max-width: 760px) {
+  .maintenance-quick-device-modal[data-device-create-variant="bulk"] .maintenance-quick-device-modal__panel {
+    width: 100%;
+    height: 100dvh;
+    max-height: 100dvh;
+    padding: 18px 14px max(20px, var(--safe-area-bottom));
+    border-radius: 0;
+  }
+
+  .maintenance-bulk-device-form__fields {
+    grid-template-columns: 1fr;
+  }
+
+  .maintenance-bulk-device-form__actions .button {
+    flex: 1 1 100%;
+    min-height: 48px;
+  }
+}

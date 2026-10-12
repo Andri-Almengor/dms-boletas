@@ -6,12 +6,15 @@ import { MaintenanceCountsProvider } from '../../context/MaintenanceCountsContex
 import {
   hasSelectedMaintenanceCategory,
   parseMaintenanceCounts,
+  selectedMaintenanceCategories,
 } from '../../config/dynamicMaintenanceTypes';
 import {
   createMaintenanceDevice,
   maintenanceDevicePayload,
 } from '../../pages/maintenance/maintenanceFormData';
 import { showMaintenanceDeviceCreatedFeedback } from '../../services/maintenanceDeviceCreatedFeedback';
+import { MAX_BULK_MAINTENANCE_DEVICES, parseBulkMaintenanceDeviceNames } from '../../features/maintenance/maintenanceDeviceState';
+import { createLocalId } from '../../utils/localId';
 import {
   emptyProjectChecklist,
   normalizeProjectChecklist,
@@ -45,6 +48,8 @@ export default function MaintenanceQuickDeviceCreator({
   maintenanceId,
   sessionToken,
   initialEquipmentLocation = null,
+  bulk = false,
+  availableDeviceTypes = [],
   onClose,
   onCreated,
 }) {
@@ -65,6 +70,11 @@ export default function MaintenanceQuickDeviceCreator({
   const [blocked, setBlocked] = useState(false);
   const [savedDeviceId, setSavedDeviceId] = useState('');
   const [error, setError] = useState('');
+  const [bulkNamesInput, setBulkNamesInput] = useState('');
+  const [bulkTypeSelection, setBulkTypeSelection] = useState('');
+  const [bulkLocationId, setBulkLocationId] = useState(() => String(initialEquipmentLocation?.id || ''));
+  const [bulkEntries, setBulkEntries] = useState([]);
+  const [bulkOfflinePending, setBulkOfflinePending] = useState(false);
   const deviceRef = useRef(device);
   useOverlaySurface({ open: true, onClose, busy: saving });
 
@@ -241,16 +251,85 @@ export default function MaintenanceQuickDeviceCreator({
     }
   }
 
+  const bulkNames = parseBulkMaintenanceDeviceNames(bulkNamesInput);
+  const bulkTypes = selectedMaintenanceCategories(availableDeviceTypes, maintenanceCounts);
+  const bulkSelectedType = bulkTypes.find((item) => String(item.typeId || `legacy:${item.key}`) === bulkTypeSelection)
+    || (!bulkTypeSelection ? bulkTypes[0] : null);
+  const bulkDoneCount = bulkEntries.filter((item) => item.done).length;
   const pendingImageCount = Number(device.newImages?.length || 0);
+
+  async function saveBulk() {
+    if (!bulkSelectedType || !bulkLocationId || !bulkNames.length || bulkNames.length > MAX_BULK_MAINTENANCE_DEVICES) return;
+    const selectedLocation = equipmentOptions.find((item) => item.value === bulkLocationId);
+    if (!selectedLocation) {
+      setError('Seleccione una ubicación del equipo válida.');
+      return;
+    }
+
+    // Conservamos los mismos IDs en cada reintento para que la creación sea idempotente
+    // y para que el mecanismo offline existente encole una operación por dispositivo.
+    const entries = bulkEntries.length
+      ? bulkEntries.map((item) => ({ ...item }))
+      : bulkNames.map((name) => ({ name, id: createLocalId('dispositivo'), done: false, offlinePending: false }));
+    setBulkEntries(entries);
+    setSaving(true);
+    setError('');
+    let current = null;
+    try {
+      for (const item of entries) {
+        if (item.done) continue;
+        current = item;
+        const draft = {
+          ...createMaintenanceDevice(bulkSelectedType.key, maintenanceType),
+          id: item.id,
+          nombre: item.name,
+          tipoDispositivoId: String(bulkSelectedType.typeId || ''),
+          ubicacionEquipoId: bulkLocationId,
+          ubicacionEquipoNombre: selectedLocation.name,
+          zona: selectedLocation.name,
+        };
+        const result = await requestAvailable(
+          MODULE_ROUTES.maintenance.deviceCreate,
+          maintenanceDevicePayload(draft, maintenanceId, maintenanceType),
+          sessionToken,
+        );
+        if (!pick(result, ['EvidenciaMantenimientoID', 'deviceId', 'id'])) {
+          throw new Error('El servidor no devolvió el identificador del dispositivo.');
+        }
+        item.done = true;
+        item.offlinePending = responseIsOfflinePending(result);
+        setBulkEntries(entries.map((entry) => ({ ...entry })));
+        setBulkOfflinePending(entries.some((entry) => entry.offlinePending));
+      }
+      await onCreated?.({
+        bulk: true,
+        count: entries.length,
+        locationName: selectedLocation.name,
+        offlinePending: entries.some((item) => item.offlinePending),
+      });
+      onClose();
+    } catch (saveError) {
+      const completed = entries.filter((item) => item.done).length;
+      setError(`Se guardaron ${completed} de ${entries.length} dispositivos. ${current ? `No se pudo guardar “${current.name}”. ` : ''}${saveError.message || 'Vuelva a intentar los pendientes.'}`);
+      if (completed) {
+        try {
+          await onCreated?.({ bulk: true, count: completed, partial: true, locationName: selectedLocation.name });
+        } catch { /* El error de refresco no debe ocultar los IDs confirmados. */ }
+      }
+    } finally {
+      setSaving(false);
+    }
+  }
 
   return (
     <div
       className="maintenance-evidence-modal maintenance-quick-device-modal"
       role="dialog"
       aria-modal="true"
-      aria-label="Nuevo dispositivo"
+      aria-label={bulk ? 'Agregar lista de dispositivos' : 'Nuevo dispositivo'}
       data-no-draft
       data-device-create-mode="fresh"
+      data-device-create-variant={bulk ? 'bulk' : undefined}
     >
       <div className="maintenance-evidence-modal__backdrop" onClick={saving ? undefined : onClose} />
       <section className="maintenance-evidence-modal__panel maintenance-quick-device-modal__panel">
@@ -262,6 +341,43 @@ export default function MaintenanceQuickDeviceCreator({
             <h2>No se puede agregar el dispositivo</h2>
             <p>{error}</p>
             <button className="button button--secondary" type="button" onClick={onClose}>Volver al detalle</button>
+          </div>
+        ) : bulk ? (
+          <div className="maintenance-bulk-device-form">
+            <header className="maintenance-bulk-device-form__header">
+              <div><span className="eyebrow">MANTENIMIENTO · DISPOSITIVOS</span><h2>Agregar lista de dispositivos</h2><p>Seleccione un tipo y una ubicación. Los demás campos quedarán pendientes para completar al editar cada equipo.</p></div>
+              <button type="button" className="icon-button" aria-label="Cerrar lista de dispositivos" onClick={onClose} disabled={saving}><Icon name="close" /></button>
+            </header>
+            {error && <div className="alert alert--error" role="alert"><Icon name="error" /><span>{error}</span></div>}
+            <div className="maintenance-bulk-device-form__fields">
+              <label className="field-group"><span className="field-label">Tipo de dispositivo</span>
+                <select className="form-control" value={bulkTypeSelection || (bulkTypes[0] ? String(bulkTypes[0].typeId || `legacy:${bulkTypes[0].key}`) : '')} onChange={(event) => setBulkTypeSelection(event.target.value)} disabled={saving || bulkEntries.length > 0}>
+                  {bulkTypes.map((item) => <option key={item.typeId || item.key} value={item.typeId || `legacy:${item.key}`}>{item.label || item.key}</option>)}
+                </select>
+              </label>
+              <label className="field-group"><span className="field-label">Ubicación de los dispositivos</span>
+                <select className="form-control" value={bulkLocationId} onChange={(event) => setBulkLocationId(event.target.value)} disabled={saving || bulkEntries.length > 0}>
+                  <option value="">Seleccione una ubicación</option>
+                  {equipmentOptions.map((item) => <option key={item.value} value={item.value}>{item.label}</option>)}
+                </select>
+              </label>
+              <label className="field-group maintenance-bulk-device-form__names"><span className="field-label">Nombres de los dispositivos</span>
+                <textarea className="form-control ticket-textarea" rows="7" value={bulkNamesInput} onChange={(event) => setBulkNamesInput(event.target.value)} disabled={saving || bulkEntries.length > 0} placeholder={['Cámara uno', 'Cámara dos', 'Cámara tres'].join('\n')} />
+              </label>
+            </div>
+            <p className="field-hint">Pegue los nombres separados por tabulación (Tab), uno debajo de otro o ambos. Se respetan los nombres y las mayúsculas que escriba; los espacios dentro del nombre se conservan.</p>
+            <div className="maintenance-bulk-device-form__summary" aria-live="polite">
+              <strong>{bulkEntries.length || bulkNames.length} dispositivo{(bulkEntries.length || bulkNames.length) === 1 ? '' : 's'} en la lista</strong>
+              <span>{bulkDoneCount ? `${bulkDoneCount} confirmado${bulkDoneCount === 1 ? '' : 's'}${bulkOfflinePending ? ' (incluye guardados offline)' : ''}` : 'Todos se crearán en estado pendiente.'}</span>
+            </div>
+            {bulkNames.length > MAX_BULK_MAINTENANCE_DEVICES && <div className="alert alert--error" role="alert">El límite por lista es de {MAX_BULK_MAINTENANCE_DEVICES} dispositivos. Divida la lista en varios grupos.</div>}
+            {bulkNames.length > 0 && <div className="maintenance-bulk-device-form__preview"><strong>Vista previa</strong><div>{bulkNames.slice(0, 8).map((name, index) => <span key={index}>{name}</span>)}{bulkNames.length > 8 && <small>y {bulkNames.length - 8} más...</small>}</div></div>}
+            <footer className="maintenance-bulk-device-form__actions">
+              <button className="button button--secondary" type="button" onClick={onClose} disabled={saving}>Cerrar</button>
+              <button className="button button--primary" type="button" onClick={saveBulk} disabled={saving || !bulkSelectedType || !bulkLocationId || !bulkNames.length || bulkNames.length > MAX_BULK_MAINTENANCE_DEVICES || bulkDoneCount === bulkEntries.length && bulkEntries.length > 0}>
+                <Icon name="playlist_add" />{bulkEntries.length ? 'Reintentar pendientes' : `Agregar ${bulkNames.length} dispositivos`}
+              </button>
+            </footer>
           </div>
         ) : (
           <>
@@ -289,8 +405,8 @@ export default function MaintenanceQuickDeviceCreator({
       </section>
       <ProcessingOverlay
         open={saving}
-        title="Guardando dispositivo"
-        message={pendingImageCount
+        title={bulk ? 'Guardando lista de dispositivos' : 'Guardando dispositivo'}
+        message={bulk ? `Registrando dispositivos: ${bulkDoneCount} de ${bulkEntries.length} confirmados.` : pendingImageCount
           ? `Se están guardando los datos y subiendo ${pendingImageCount} evidencia${pendingImageCount === 1 ? '' : 's'}.`
           : 'Se están guardando los datos del dispositivo y actualizando el mantenimiento.'}
       />

@@ -171,6 +171,7 @@ export default function MaintenanceLocationInventory({
   onAddLocation,
   onRemoveLocation,
   onAddDevice,
+  onAddDeviceList,
   onEditDevice,
   onAddEvidence,
   onEditEvidence,
@@ -597,7 +598,10 @@ export default function MaintenanceLocationInventory({
               <Icon name={open ? 'expand_less' : 'expand_more'} />
             </button>
             {pending && canEdit && <div className="maintenance-location-work-group__actions">
-              {group.available && !group.legacy && <button className="button button--primary button--compact" type="button" onClick={() => onAddDevice(group)} disabled={moving}><Icon name="add" />Agregar dispositivo</button>}
+              {group.available && !group.legacy && <>
+                <button className="button button--primary button--compact" type="button" onClick={() => onAddDevice(group)} disabled={moving}><Icon name="add" />Agregar dispositivo</button>
+                <button className="button button--secondary button--compact" type="button" onClick={() => onAddDeviceList(group)} disabled={moving}><Icon name="playlist_add" />Agregar lista</button>
+              </>}
               {canRemoveLocations && !group.legacy && <button className="icon-button icon-button--danger" type="button" onClick={() => onRemoveLocation(group)} disabled={usedCount > 0 || moving} title={usedCount > 0 ? 'Mueva o elimine primero los dispositivos de esta ubicación' : 'Quitar ubicación del mantenimiento'} aria-label={`Quitar ${group.name}`}><Icon name="delete" /></button>}
             </div>}
           </div>

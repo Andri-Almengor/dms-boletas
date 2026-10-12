@@ -1,5 +1,5 @@
 import { AppError } from '../core/errors.js';
-import { asBool, pick } from '../core/utils.js';
+import { pick } from '../core/utils.js';
 import { findById, readTables } from '../infra/sheets.repository.js';
 import { getConfig } from '../modules/config.module.js';
 
@@ -12,12 +12,15 @@ function clean(value, fallback = '') {
 }
 
 function splitEmails(value) {
-  const source = Array.isArray(value) ? value : String(value || '').split(/[;,]/);
+  // Un supervisor puede contener varias direcciones, también al unir visitas
+  // (array). Dividir cada celda antes de validar, normalizar y deduplicar.
+  const source = Array.isArray(value) ? value : [value];
   return [...new Set(source
-    .map((item) => String(item || '').trim().toLowerCase())
+    .flatMap((item) => Array.isArray(item) ? item : [item])
+    .flatMap((item) => String(item || '').split(/[;,\n\r]/))
+    .map((item) => item.trim().toLowerCase())
     .filter((item) => /^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(item)))];
 }
-
 function hasSignature(ticket = {}) {
   return Boolean(clean(pick(ticket, ['FirmaArchivoID', 'FirmaFileID', 'FirmaURL', 'FirmaUrl', 'Firma'])));
 }
@@ -51,7 +54,7 @@ async function loadTicketBundle(ticketId) {
   return { ticket, assigned, evidences, client, creator };
 }
 
-function resolveRecipients(bundle, config, testMode, override = null, forceClient = false) {
+function resolveRecipients(bundle, config, testMode, override = null) {
   if (testMode) {
     const testEmail = clean(process.env.TEST_NOTIFICATION_EMAIL || config.TEST_EMAIL, 'andrick.almengor@solutionsdms.com');
     return { to: splitEmails(testEmail), cc: [] };
@@ -59,25 +62,26 @@ function resolveRecipients(bundle, config, testMode, override = null, forceClien
 
   const to = splitEmails(TICKET_PRIMARY_EMAIL);
   const configuredCc = splitEmails(config.DEFAULT_CC_EMAILS);
+  const supervisorEmails = splitEmails(bundle.ticket.CorreoSupervisor);
 
   if (override) {
     const cc = splitEmails([
       ...(override.to || []),
       ...(override.cc || []),
       ...configuredCc,
+      ...supervisorEmails,
     ]).filter((email) => !to.includes(email));
     return { to, cc };
   }
 
-  const supervisorEmails = splitEmails(bundle.ticket.CorreoSupervisor);
   const technicianEmails = splitEmails(bundle.assigned.map((item) => item.Correo));
   const ticketCcEmails = splitEmails(bundle.ticket.CorreosCC);
-  const includeClient = forceClient || asBool(bundle.ticket.EnviarCorreoCliente, false);
   const cc = splitEmails([
     ...technicianEmails,
     ...configuredCc,
     ...ticketCcEmails,
-    ...(includeClient ? supervisorEmails : []),
+    // CorreoSupervisor es CC automático en boletas normales, aunque no se marque EnviarCorreoCliente.
+    ...supervisorEmails,
   ]).filter((email) => !to.includes(email));
 
   return { to, cc };
@@ -149,7 +153,7 @@ export async function generateTicketWithAppsScript({
 
   const surveyUrl = clean(survey?.url);
   const signatureUrl = !hasSignature(bundle.ticket) ? clean(signatureRequest?.url) : '';
-  const recipients = resolveRecipients(bundle, config, testMode, recipientsOverride, Boolean(signatureUrl));
+  const recipients = resolveRecipients(bundle, config, testMode, recipientsOverride);
   const ticketForDelivery = {
     ...bundle.ticket,
     EncuestaURL: surveyUrl,

@@ -1,5 +1,5 @@
 import { AppError } from '../core/errors.js';
-import { asBool, pick, sha256 } from '../core/utils.js';
+import { pick, sha256 } from '../core/utils.js';
 import { readTables } from '../infra/sheets.repository.js';
 import { getConfig } from '../modules/config.module.js';
 import { getNotificationEmailSettings } from './notification-email-settings.service.js';
@@ -19,13 +19,15 @@ function clean(value, fallback = '') {
 }
 
 function splitEmails(value) {
-  const source = Array.isArray(value) ? value : String(value || '').split(/[;,\n\r]/);
+  // Un supervisor puede contener varias direcciones, también al unir visitas
+  // (array). Dividir cada celda antes de validar, normalizar y deduplicar.
+  const source = Array.isArray(value) ? value : [value];
   return [...new Set(source
     .flatMap((item) => Array.isArray(item) ? item : [item])
-    .map((item) => String(item || '').trim().toLowerCase())
+    .flatMap((item) => String(item || '').split(/[;,\n\r]/))
+    .map((item) => item.trim().toLowerCase())
     .filter((item) => /^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(item)))];
 }
-
 function maintenanceSignaturePatch(maintenance = {}) {
   const fileId = clean(pick(maintenance, ['FirmaArchivoID', 'FirmaFileID']));
   const url = clean(pick(maintenance, ['FirmaURL', 'FirmaUrl', 'Firma']));
@@ -119,7 +121,7 @@ async function loadTicketGroupBundle(ticketId) {
   };
 }
 
-function resolveRecipients(bundle, settings, testMode, override = null, forceClient = false) {
+function resolveRecipients(bundle, settings, testMode, override = null) {
   if (testMode) {
     const to = splitEmails(settings.testRecipients);
     const cc = splitEmails(settings.testCc).filter((email) => !to.includes(email));
@@ -128,6 +130,10 @@ function resolveRecipients(bundle, settings, testMode, override = null, forceCli
 
   const to = splitEmails(TICKET_PRIMARY_EMAIL);
   const configuredCc = splitEmails(settings.ticketDefaultCc);
+  // Se consideran los supervisores de todas las visitas vinculadas, no solo la raíz.
+  const supervisorEmails = splitEmails(
+    bundle.visits.map((visit) => visit.ticket.CorreoSupervisor),
+  );
 
   // En producción Yehuda es siempre el destinatario principal. Cualquier
   // override se interpreta únicamente como copia adicional, nunca como un TO
@@ -137,25 +143,21 @@ function resolveRecipients(bundle, settings, testMode, override = null, forceCli
       ...(override.to || []),
       ...(override.cc || []),
       ...configuredCc,
+      ...supervisorEmails,
     ]).filter((email) => !to.includes(email));
     return { to, cc };
   }
 
-  const supervisorEmails = splitEmails(
-    bundle.visits.map((visit) => visit.ticket.CorreoSupervisor),
-  );
   const technicianEmails = splitEmails(bundle.assigned.map((item) => item.Correo));
   const ticketCcEmails = splitEmails(bundle.ticket.CorreosCC);
-  const includeClient = forceClient || asBool(bundle.ticket.EnviarCorreoCliente, false);
 
   const cc = splitEmails([
     ...technicianEmails,
     ...configuredCc,
     ...ticketCcEmails,
-    // Para DMS la copia al cliente se entrega al correo del supervisor
-    // registrado en la boleta. CorreoCliente/CorreoGeneral no sustituyen esta
-    // dirección ni participan como destinatario principal.
-    ...(includeClient ? supervisorEmails : []),
+    // Cada supervisor con correo válido se copia siempre, sin depender del
+    // checkbox EnviarCorreoCliente. CorreoCliente/CorreoGeneral no sustituyen TO.
+    ...supervisorEmails,
   ]).filter((email) => !to.includes(email));
 
   return { to, cc };
@@ -257,8 +259,7 @@ export async function generateTicketWithAppsScript({
 
   const surveyUrl = clean(survey?.url);
   const signatureUrl = clean(signatureRequest?.url);
-  const forceClient = Boolean(signatureUrl) || deliveryType === 'SIGNED';
-  const recipients = resolveRecipients(bundle, notificationSettings, testMode, recipientsOverride, forceClient);
+  const recipients = resolveRecipients(bundle, notificationSettings, testMode, recipientsOverride);
   const rootPdfName = ticketPdfFileName(bundle.ticket);
   const rootTicket = {
     ...bundle.ticket,

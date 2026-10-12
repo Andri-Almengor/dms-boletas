@@ -1,3 +1,13 @@
+export const MAX_BULK_MAINTENANCE_DEVICES = 100;
+
+// Un nombre por celda o línea: admite pegado desde Excel/Sheets y listas verticales.
+export function parseBulkMaintenanceDeviceNames(value) {
+  return String(value || '')
+    .split(/[\t\r\n]+/)
+    .map((name) => name.trim())
+    .filter(Boolean);
+}
+
 export const MAINTENANCE_DEVICE_DRAFT_DELAY_MS = 650;
 
 export function maintenanceDeviceDraftKey(maintenanceId) {

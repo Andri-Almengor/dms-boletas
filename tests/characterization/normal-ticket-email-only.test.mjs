@@ -77,7 +77,7 @@ test('la finalización usa la selección actual de copia al cliente y CC del for
   assert.ok(applyIndex >= 0 && deliverIndex > applyIndex);
 });
 
-test('Yehuda es siempre el destinatario principal y la copia al cliente usa CorreoSupervisor', () => {
+test('Yehuda permanece en TO y CorreoSupervisor siempre entra en CC si es válido', () => {
   const group = source('backend/src/services/apps-script-ticket-group.service.js');
   const single = source('backend/src/services/apps-script-ticket.service.js');
 
@@ -85,7 +85,8 @@ test('Yehuda es siempre el destinatario principal y la copia al cliente usa Corr
     assert.match(service, /TICKET_PRIMARY_EMAIL = 'yehuda\.karmona@solutionsdms\.com'/);
     assert.match(service, /const to = splitEmails\(TICKET_PRIMARY_EMAIL\)/);
     assert.match(service, /CorreoSupervisor/);
-    assert.match(service, /\.\.\.\(includeClient \? supervisorEmails : \[\]\)/);
+    assert.match(service, /\.\.\.supervisorEmails/);
+    assert.doesNotMatch(service, /includeClient \? supervisorEmails/);
     assert.doesNotMatch(service, /bundle\.client\?\.CorreoGeneral/);
   }
 
@@ -136,7 +137,7 @@ test('el reporte firmado conserva a Yehuda en TO y copia al cliente mediante el 
   assert.doesNotMatch(signedBlock, /recipientsOverride/);
   assert.match(signedBlock, /deliveryType: 'SIGNED'/);
   assert.match(groupService, /deliveryType === 'SIGNED'/);
-  assert.match(groupService, /includeClient \? supervisorEmails/);
+  assert.match(groupService, /\.\.\.supervisorEmails/);
 });
 
 test('una boleta finalizada puede reenviar solamente el correo sin tocar Google Chat', () => {
