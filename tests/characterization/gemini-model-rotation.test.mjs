@@ -16,7 +16,7 @@ test('Gemini rota al siguiente modelo cuando el activo alcanza cuota', () => {
   assert.match(router, /408, 500, 502, 503, 504/);
   assert.match(router, /invalid json syntax/);
   assert.match(router, /markQuotaExhausted\(model, response, message\)/);
-  assert.match(router, /routerState\.activeIndex = \(index \+ 1\) % models\.length/);
+  assert.match(router, /routerState\.activeIndex = models\.indexOf\(nextModel\)/);
   assert.match(router, /Cambiando a \$\{nextModel\}/);
   assert.match(router, /candidateOrder\\(models\\)/);
   assert.match(router, /routerState\\.unavailableModels\\.add\\(model\\)/);
