@@ -135,7 +135,7 @@ test('overlays de mantenimientos reutilizan bloqueo compartido sin tocar sus ope
   const viewer = source('src/components/maintenance/MaintenanceEvidenceImage.jsx');
 
   assert.match(picker, /useOverlaySurface\(\{ open, onClose, busy: saving \}\)/);
-  assert.match(uploader, /useOverlaySurface\(\{ open: true, onClose, busy: saving \}\)/);
+  assert.match(uploader, /useOverlaySurface\(\{ open: true, onClose, busy: saving \|\| preparing \}\)/);
   assert.match(editor, /useOverlaySurface\(\{ open: true, onClose, busy: saving \}\)/);
   assert.match(creator, /useOverlaySurface\(\{ open: true, onClose, busy: saving \}\)/);
   assert.match(viewer, /useOverlaySurface\(\{ open, onClose: closeFullImage \}\)/);
