@@ -328,7 +328,8 @@ export default function MaintenanceQuickDeviceCreator({
       aria-modal="true"
       aria-label={bulk ? 'Agregar lista de dispositivos' : 'Nuevo dispositivo'}
       data-no-draft
-      data-device-create-mode={bulk ? 'bulk' : 'fresh'}
+      data-device-create-mode="fresh"
+      data-device-create-variant={bulk ? 'bulk' : undefined}
     >
       <div className="maintenance-evidence-modal__backdrop" onClick={saving ? undefined : onClose} />
       <section className="maintenance-evidence-modal__panel maintenance-quick-device-modal__panel">
