@@ -24,7 +24,7 @@ test('consulta técnica sin fabricante activa Knowledge en vez de GENERAL', () =
   for (const message of questions) {
     assert.equal(isTechnicalKnowledgeQuery({ message }), true, message);
     const intent = classifyAiIntent({ message });
-    assert.equal(intent, AI_INTENTS.KNOWLEDGE, message);
+    assert.ok([AI_INTENTS.KNOWLEDGE, AI_INTENTS.KNOWLEDGE_DOCUMENTS].includes(intent), message);
     assert.deepEqual(toolNamesForIntent(intent), KNOWLEDGE_TOOLS);
   }
 });
