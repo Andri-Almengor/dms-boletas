@@ -59,6 +59,7 @@ function geminiErrorCode(status,message=''){
   const text=String(message||'').toLowerCase();
   if(/context.*(?:too large|length)|input.*token|maximum.*input|prompt.*too long/.test(text)) return 'CONTEXT_TOO_LARGE';
   if(/max(?:imum)? output|output token|response.*too long/.test(text)) return 'MAX_OUTPUT_TOKENS';
+  if(/model generated invalid json syntax|output could not be parsed/.test(text)) return 'MODEL_INVALID_RESPONSE';
   if(status===429) return 'MODEL_RATE_LIMIT';
   if(status===404||/model.*(?:not found|unavailable|unsupported)/.test(text)) return 'MODEL_UNAVAILABLE';
   if(status===503||/overload|overloaded|resource exhausted|temporarily unavailable/.test(text)) return 'MODEL_OVERLOADED';
@@ -69,7 +70,7 @@ function geminiErrorCode(status,message=''){
 export function fallbackCompatible(error){
   return new Set([
     'CONTEXT_TOO_LARGE','MAX_INPUT_TOKENS','MAX_OUTPUT_TOKENS',
-    'MODEL_OVERLOADED','MODEL_UNAVAILABLE','MODEL_RATE_LIMIT','AI_GEMINI_TIMEOUT',
+    'MODEL_OVERLOADED','MODEL_UNAVAILABLE','MODEL_RATE_LIMIT','MODEL_INVALID_RESPONSE','AI_GEMINI_TIMEOUT',
   ]).has(String(error?.code||''));
 }
 
