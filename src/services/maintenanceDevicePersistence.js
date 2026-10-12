@@ -10,6 +10,7 @@ import {
   uploadMaintenanceImagesInBatches,
 } from './maintenanceImageBatch';
 import { maintenanceDeviceSyncBase } from './maintenanceSyncBase';
+import { removeOfflineMedia } from './offlineMediaStore';
 import { MODULE_ROUTES, pick, requestAvailable } from './moduleApi';
 
 function releaseUploadedFiles(images = [], uploadedKeys = new Set()) {
@@ -69,6 +70,10 @@ export async function persistMaintenanceDevice({
     uploadResult,
   });
 
+  // Una carga confirmada no debe reaparecer como borrador al volver a abrir el editor.
+  await Promise.all((device.newImages || [])
+    .filter((image) => state.uploadedKeys.has(cleanMaintenancePersistenceValue(image.localId)) && image.draftMediaId)
+    .map((image) => removeOfflineMedia(image.draftMediaId).catch(() => {})));
   releaseUploadedFiles(device.newImages || [], state.uploadedKeys);
   return {
     ...state,
