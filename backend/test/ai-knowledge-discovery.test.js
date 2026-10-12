@@ -16,6 +16,7 @@ test('consulta técnica sin fabricante activa Knowledge en vez de GENERAL', () =
   const questions = [
     'como restablezco la contraseña del License Administrator',
     '¿Cómo puedo cambiar la contraseña del License Administrator?',
+    '¿Tienes la guía para License Administrator?',
     'Necesito recuperar la contraseña de un programa',
     '¿Cómo configurar la licencia del sistema?',
     'Cómo resetear el acceso a la consola',
