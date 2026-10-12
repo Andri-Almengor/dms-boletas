@@ -81,6 +81,7 @@ export default function MaintenanceFormPage({ mode = 'create' }) {
       <MaintenanceCountsProvider counts={state.form.counts}>
         <MaintenanceDeviceEditor
           device={state.activeDevice}
+          maintenanceId={maintenanceId || ''}
           equipmentOptions={state.equipment.map((item) => ({ value: item.id, label: item.name }))}
           maintenanceLocationId={state.form.ubicacionId}
           technicians={state.technicians}
