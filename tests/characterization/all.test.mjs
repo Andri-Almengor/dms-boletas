@@ -47,6 +47,7 @@ import './maintenance-device-draft.test.mjs';
 import './maintenance-device-lifecycle.test.mjs';
 import './maintenance-device-persistence.test.mjs';
 import './maintenance-transient-evidence-file.test.mjs';
+import './maintenance-evidence-technician-camera-recovery.test.mjs';
 import './maintenance-device-fault-notification.test.mjs';
 import './maintenance-evidence-lightbox-aspect.test.mjs';
 import './maintenance-expected-counts.test.mjs';
