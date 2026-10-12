@@ -150,9 +150,9 @@ function allModelsCoolingResponse(models) {
 
 function retryableModelFailure(response, message = '') {
   if (response.status === 429) return 'quota';
+  if (/model generated invalid json syntax|output could not be parsed/i.test(message)) return 'invalid_response';
   if ([408, 500, 502, 503, 504].includes(response.status)) return 'transient';
   if (response.status === 404 && /model|not found|not supported|unavailable/i.test(message)) return 'unavailable';
-  if (/model generated invalid json syntax|output could not be parsed/i.test(message)) return 'invalid_response';
   return '';
 }
 
