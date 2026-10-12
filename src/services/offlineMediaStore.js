@@ -184,6 +184,48 @@ export async function isPersistentOfflineStorage() {
   return navigator.storage.persisted().catch(() => false);
 }
 
+// Comparte persistencia de borradores de cámara entre el modal rápido y el editor de dispositivo.
+export async function saveMaintenanceEvidenceDraft(scope, evidence) {
+  if (!scope || !evidence?.localId || !(evidence.file instanceof Blob)) return null;
+  return saveOfflineMedia({
+    mediaId: `${scope}:${evidence.localId}`,
+    localId: evidence.localId,
+    entityId: scope,
+    kind: 'maintenanceEvidenceDraft',
+    status: 'DRAFT',
+    blob: evidence.file,
+    fileName: evidence.file.name || 'evidencia',
+    mimeType: evidence.mimeType || evidence.file.type,
+    mediaType: evidence.mediaType,
+    durationSeconds: evidence.durationSeconds,
+    type: evidence.type,
+    note: evidence.note,
+    capturedAt: evidence.capturedAt,
+    projectTargetType: evidence.projectTargetType,
+    projectRelationKey: evidence.projectRelationKey,
+    projectComponentLocalId: evidence.projectComponentLocalId,
+    projectComponentTypeId: evidence.projectComponentTypeId,
+    projectComponentName: evidence.projectComponentName,
+  });
+}
+
+export async function recoverMaintenanceEvidenceDrafts(scope) {
+  if (!scope) return [];
+  return (await listOfflineMediaByEntityId(scope))
+    .filter((item) => item.kind === 'maintenanceEvidenceDraft' && item.blob instanceof Blob);
+}
+
+export async function updateMaintenanceEvidenceDraft(scope, localId, values) {
+  if (!scope || !localId) return null;
+  const mediaId = `${scope}:${localId}`;
+  if (!await getOfflineMedia(mediaId)) return null;
+  return updateOfflineMedia(mediaId, values);
+}
+
+export async function removeMaintenanceEvidenceDraft(scope, localId) {
+  if (scope && localId) await removeOfflineMedia(`${scope}:${localId}`);
+}
+
 export async function getOfflineMediaStats() {
   const db = await openDatabase();
   let mediaCount = 0;
