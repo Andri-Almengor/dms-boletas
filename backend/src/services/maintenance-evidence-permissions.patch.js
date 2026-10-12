@@ -44,7 +44,13 @@ async function deleteAuthorizedMaintenanceEvidence(ctx) {
   // Conservar el flujo existente de Drive + borrado lógico/sync, sin crear ruta paralela.
   if (image.DriveFileID) await trashFile(image.DriveFileID).catch(() => {});
   const after = await softDelete('Mantenimiento imagenes', image.FotoDispositivoID, ctx.user.UsuarioID);
-  await audit(ctx, 'ELIMINAR_EVIDENCIA_MANTENIMIENTO', 'Mantenimiento imagenes', imageId, image, after).catch(() => {});
+  const auditView = (row) => ({
+    FotoDispositivoID: row.FotoDispositivoID,
+    DispositivoMantenimientoRef: row.DispositivoMantenimientoRef,
+    Tipo: row.Tipo,
+    Activo: row.Activo,
+  });
+  await audit(ctx, 'ELIMINAR_EVIDENCIA_MANTENIMIENTO', 'Mantenimiento imagenes', imageId, auditView(image), auditView(after)).catch(() => {});
   return after;
 }
 
