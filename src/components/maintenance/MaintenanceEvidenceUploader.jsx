@@ -1,5 +1,12 @@
 import React, { useEffect, useRef, useState } from 'react';
 import Icon from '../common/Icon';
+import { useAuth } from '../../AuthContext';
+import {
+  recoverMaintenanceEvidenceDrafts,
+  removeMaintenanceEvidenceDraft,
+  saveMaintenanceEvidenceDraft,
+  updateMaintenanceEvidenceDraft,
+} from '../../services/offlineMediaStore';
 import MaintenanceQuickDeviceCreator from './MaintenanceQuickDeviceCreator';
 import useOverlaySurface from '../../hooks/useOverlaySurface';
 import { pick } from '../../services/moduleApi';
@@ -40,12 +47,72 @@ function EvidencePreview({ evidence }) {
 function DeviceEvidenceUploader({ device, maintenanceId, sessionToken, onClose, onUploaded, projectMode = false }) {
   const deviceId = String(pick(device, ['EvidenciaMantenimientoID', 'id']));
   const [evidences, setEvidences] = useState([]);
+  const { user } = useAuth();
+  const userId = String(user?.UsuarioID || '');
+  const draftScope = userId && maintenanceId && deviceId
+    ? `maintenance-evidence-draft:${userId}:${maintenanceId}:${deviceId}`
+    : '';
   const [saving, setSaving] = useState(false);
+  const [preparing, setPreparing] = useState(false);
+  const [restoring, setRestoring] = useState(true);
+  const [draftWarning, setDraftWarning] = useState('');
   const [error, setError] = useState('');
-  useOverlaySurface({ open: true, onClose, busy: saving });
+  useOverlaySurface({ open: true, onClose, busy: saving || preparing });
   const targets = projectMode ? projectEvidenceTargets(device) : [];
   const defaultTarget = targets[0] || null;
   const evidencesRef = useRef([]);
+  const draftWriteQueueRef = useRef(Promise.resolve());
+
+  function queueDraftWrite(task) {
+    const next = draftWriteQueueRef.current.catch(() => {}).then(task);
+    draftWriteQueueRef.current = next.catch(() => {});
+    return next;
+  }
+
+  useEffect(() => {
+    let active = true;
+    setRestoring(true);
+    if (!draftScope) {
+      setRestoring(false);
+      return () => { active = false; };
+    }
+    recoverMaintenanceEvidenceDrafts(draftScope).then((rows) => {
+      if (!active) return;
+      const recovered = rows.filter((row) => row.kind === 'maintenanceEvidenceDraft' && row.blob instanceof Blob)
+        .map((row) => {
+          const file = new File([row.blob], row.fileName || 'evidencia.jpg', {
+            type: row.mimeType || row.blob.type || 'image/jpeg',
+          });
+          return {
+            localId: row.localId,
+            file,
+            type: row.type || (projectMode ? 'Proyecto' : 'Antes'),
+            note: row.note || '',
+            capturedAt: row.capturedAt || new Date(row.createdAt || Date.now()).toISOString(),
+            projectTargetType: row.projectTargetType,
+            projectRelationKey: row.projectRelationKey,
+            projectComponentLocalId: row.projectComponentLocalId,
+            projectComponentTypeId: row.projectComponentTypeId,
+            projectComponentName: row.projectComponentName,
+            mimeType: row.mimeType,
+            mediaType: row.mediaType,
+            durationSeconds: row.durationSeconds || 0,
+            size: file.size,
+            previewUrl: createEvidencePreviewUrl(file),
+            draftSaved: true,
+          };
+        });
+      setEvidences((current) => {
+        const present = new Set(current.map((item) => item.localId));
+        return [...current, ...recovered.filter((item) => !present.has(item.localId))];
+      });
+    }).catch(() => {
+      if (active) setDraftWarning('No fue posible recuperar las fotos pendientes de este dispositivo.');
+    }).finally(() => {
+      if (active) setRestoring(false);
+    });
+    return () => { active = false; };
+  }, [draftScope, projectMode]);
 
   useEffect(() => {
     evidencesRef.current = evidences;
@@ -56,24 +123,51 @@ function DeviceEvidenceUploader({ device, maintenanceId, sessionToken, onClose, 
   }, []);
 
   async function addFiles(event) {
-    const selected = Array.from(event.target.files || []);
-    event.target.value = '';
+    const input = event.currentTarget;
+    const selected = Array.from(input.files || []);
     if (!selected.length) return;
 
+    setPreparing(true);
     setError('');
     try {
-      const prepared = await prepareEvidenceFiles(selected, { allowDocuments: false });
-      setEvidences((current) => [
-        ...current,
-        ...prepared.map((item) => createPendingEvidence(item, { projectMode, target: defaultTarget })),
-      ]);
+      // La cámara de Android/iOS puede entregar archivos temporales. Estabilizar
+      // antes de que el navegador suspenda o recargue la aplicación.
+      const prepared = await prepareEvidenceFiles(selected, {
+        allowDocuments: false, stabilizeTransientFiles: true,
+      });
+      // No liberar el selector de cámara antes de copiar los blobs temporales.
+      if (prepared.every((item) => item.transientFileStabilized)) input.value = '';
+      const nextItems = prepared.map((item) => createPendingEvidence(item, { projectMode, target: defaultTarget }));
+      for (const item of nextItems) {
+        if (draftScope) {
+          try {
+            await queueDraftWrite(() => saveMaintenanceEvidenceDraft(draftScope, item));
+            item.draftSaved = true;
+          } catch (storageError) {
+            item.draftSaved = false;
+            setDraftWarning(storageError.message || 'No se pudo proteger la foto contra recargas. Guárdela antes de salir.');
+          }
+        } else {
+          item.draftSaved = false;
+          setDraftWarning('No se pudo identificar el usuario del borrador. Guarde las evidencias antes de salir.');
+        }
+        // Mostrar incluso cuando el navegador no admite IndexedDB; no perder la selección actual.
+        setEvidences((current) => [...current, item]);
+      }
     } catch (selectionError) {
+      input.value = '';
       setError(selectionError.message || 'No se pudieron preparar las evidencias seleccionadas.');
+    } finally {
+      setPreparing(false);
     }
   }
 
   function updateEvidence(localId, values) {
     setEvidences((current) => current.map((item) => item.localId === localId ? { ...item, ...values } : item));
+    if (draftScope) {
+      queueDraftWrite(() => updateMaintenanceEvidenceDraft(draftScope, localId, values))
+        .catch(() => setDraftWarning('No se pudo guardar la última edición local. Revísela antes de salir.'));
+    }
   }
 
   function removeEvidence(localId) {
@@ -82,6 +176,10 @@ function DeviceEvidenceUploader({ device, maintenanceId, sessionToken, onClose, 
       if (removed) releaseEvidencePreviewUrl(removed.previewUrl);
       return current.filter((item) => item.localId !== localId);
     });
+    if (draftScope) {
+      queueDraftWrite(() => removeMaintenanceEvidenceDraft(draftScope, localId))
+        .catch(() => setDraftWarning('No se pudo limpiar una evidencia descartada del almacenamiento local.'));
+    }
   }
 
   async function upload() {
@@ -93,6 +191,7 @@ function DeviceEvidenceUploader({ device, maintenanceId, sessionToken, onClose, 
     setSaving(true);
     setError('');
     try {
+      await draftWriteQueueRef.current;
       const pending = [...evidences];
       const result = await uploadMaintenanceImagesInBatches({
         maintenanceId,
@@ -109,6 +208,13 @@ function DeviceEvidenceUploader({ device, maintenanceId, sessionToken, onClose, 
           releaseEvidencePreviewUrl(evidence.previewUrl);
         }
       });
+      // Solo borrar de IndexedDB las evidencias confirmadas por el backend.
+      // En fallos parciales las restantes conservan el blob para recuperarse tras recarga.
+      if (draftScope) {
+        for (const localId of uploadedKeys) {
+          await queueDraftWrite(() => removeMaintenanceEvidenceDraft(draftScope, localId));
+        }
+      }
       setEvidences((current) => current.filter((item) => !uploadedKeys.has(String(item.localId || ''))));
 
       if (result.failed?.length) {
@@ -127,7 +233,7 @@ function DeviceEvidenceUploader({ device, maintenanceId, sessionToken, onClose, 
 
   return (
     <div className="maintenance-evidence-modal" role="dialog" aria-modal="true" aria-label="Agregar evidencias">
-      <div className="maintenance-evidence-modal__backdrop" onClick={saving ? undefined : onClose} />
+      <div className="maintenance-evidence-modal__backdrop" onClick={saving || preparing ? undefined : onClose} />
       <section className="maintenance-evidence-modal__panel">
         <header>
           <div>
@@ -135,25 +241,28 @@ function DeviceEvidenceUploader({ device, maintenanceId, sessionToken, onClose, 
             <h2>{pick(device, ['NombreDispositivo'], 'Dispositivo')}</h2>
             <p>{pick(device, ['Categoria'], 'Sin categoría')} · {pick(device, ['Zona'], 'Sin ubicación')}</p>
           </div>
-          <button className="icon-button" type="button" onClick={onClose} disabled={saving} aria-label="Cerrar">
+          <button className="icon-button" type="button" onClick={onClose} disabled={saving || preparing} aria-label="Cerrar">
             <Icon name="close" />
           </button>
         </header>
 
         {error && <div className="alert alert--error"><Icon name="error" /><span>{error}</span></div>}
+        {draftWarning && <div className="alert alert--warning" role="alert"><Icon name="warning" /><span>{draftWarning}</span></div>}
+        {restoring && <div className="info-box"><Icon name="progress_activity" /><p>Recuperando fotografías pendientes de este dispositivo...</p></div>}
+        {!restoring && evidences.some((item) => item.draftSaved) && <div className="info-box" role="status"><Icon name="save" /><p>Las evidencias pendientes están guardadas en este dispositivo. Si la aplicación se recarga, vuelva a abrir este equipo para recuperarlas.</p></div>}
 
         <div className="maintenance-evidence-picker">
           <label className="button button--secondary">
             <Icon name="photo_camera" /> Tomar foto
-            <input type="file" accept="image/*" capture="environment" onChange={addFiles} disabled={saving} />
+            <input type="file" accept="image/*" capture="environment" onChange={addFiles} disabled={saving || preparing || restoring} />
           </label>
           <label className="button button--secondary">
             <Icon name="videocam" /> Grabar video
-            <input type="file" accept="video/mp4,video/webm,video/quicktime,video/*" capture="environment" onChange={addFiles} disabled={saving} />
+            <input type="file" accept="video/mp4,video/webm,video/quicktime,video/*" capture="environment" onChange={addFiles} disabled={saving || preparing || restoring} />
           </label>
           <label className="button button--secondary">
             <Icon name="perm_media" /> Seleccionar archivos
-            <input type="file" accept="image/*,video/mp4,video/webm,video/quicktime,.mov,.mp4,.webm" multiple onChange={addFiles} disabled={saving} />
+            <input type="file" accept="image/*,video/mp4,video/webm,video/quicktime,.mov,.mp4,.webm" multiple onChange={addFiles} disabled={saving || preparing || restoring} />
           </label>
         </div>
 
@@ -208,8 +317,8 @@ function DeviceEvidenceUploader({ device, maintenanceId, sessionToken, onClose, 
         </div>
 
         <footer>
-          <button className="button button--ghost" type="button" onClick={onClose} disabled={saving}>Cancelar</button>
-          <button className="button button--primary" type="button" onClick={upload} disabled={saving || !evidences.length}>
+          <button className="button button--ghost" type="button" onClick={onClose} disabled={saving || preparing}>Cerrar</button>
+          <button className="button button--primary" type="button" onClick={upload} disabled={saving || preparing || restoring || !evidences.length}>
             <Icon name={saving ? 'progress_activity' : 'cloud_upload'} />
             {saving ? 'Guardando evidencias...' : `Guardar ${evidences.length || ''} evidencia${evidences.length === 1 ? '' : 's'}`}
           </button>

@@ -1,4 +1,4 @@
-import { claimAutomaticReload } from './services/reloadRecovery';
+import { claimAutomaticReload, hasActiveMaintenanceEvidenceSurface } from './services/reloadRecovery';
 import React from 'react';
 import ReactDOM from 'react-dom/client';
 import { BrowserRouter } from 'react-router-dom';
@@ -18,12 +18,45 @@ import './styles/index.css';
 initializePerformanceMode();
 initializeTheme();
 
+let deferredAutomaticReload = false;
+let reloadObserver = null;
+
 function reloadForServiceWorkerUpdate() {
+  if (hasActiveMaintenanceEvidenceSurface()) {
+    deferredAutomaticReload = true;
+    // Observamos solo hasta cerrar la pantalla; nunca forzamos una recarga
+    // mientras el selector de cámara o un editor pueda contener cambios.
+    if (!reloadObserver && typeof MutationObserver === 'function' && document.body) {
+      reloadObserver = new MutationObserver(() => {
+        if (deferredAutomaticReload && !hasActiveMaintenanceEvidenceSurface()) {
+          reloadForServiceWorkerUpdate();
+        }
+      });
+      reloadObserver.observe(document.body, { childList: true, subtree: true, attributes: true, attributeFilter: ['class'] });
+    }
+    return;
+  }
+  deferredAutomaticReload = false;
+  reloadObserver?.disconnect();
+  reloadObserver = null;
   if (claimAutomaticReload()) window.location.reload();
 }
 
+window.addEventListener('focus', () => {
+  if (deferredAutomaticReload) reloadForServiceWorkerUpdate();
+});
+window.addEventListener('dms-offline-editing-complete', () => {
+  if (deferredAutomaticReload) reloadForServiceWorkerUpdate();
+});
+
 window.addEventListener('vite:preloadError', (event) => {
-  if (navigator.onLine !== false && claimAutomaticReload()) {
+  if (navigator.onLine === false) return;
+  if (hasActiveMaintenanceEvidenceSurface()) {
+    event.preventDefault();
+    reloadForServiceWorkerUpdate();
+    return;
+  }
+  if (claimAutomaticReload()) {
     event.preventDefault();
     window.location.reload();
   }

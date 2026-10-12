@@ -148,6 +148,20 @@ export async function findOfflineMediaByEntityId(entityId) {
   });
 }
 
+// Consulta acotada al dispositivo/usuario: evita cargar todos los blobs de IndexedDB.
+export async function listOfflineMediaByEntityId(entityId) {
+  const id = String(entityId || '').trim();
+  if (!id) return [];
+  const db = await openDatabase();
+  if (!db) return [];
+  return new Promise((resolve, reject) => {
+    const transaction = db.transaction(MEDIA_STORE, 'readonly');
+    const request = transaction.objectStore(MEDIA_STORE).index('entityId').getAll(id);
+    request.onsuccess = () => resolve(request.result || []);
+    request.onerror = () => reject(request.error || new Error('No fue posible recuperar las evidencias pendientes.'));
+  });
+}
+
 export async function updateOfflineMedia(mediaId, patch = {}) {
   const current = await getRecord(mediaId);
   if (!current) return null;
@@ -168,6 +182,48 @@ export async function requestPersistentOfflineStorage() {
 export async function isPersistentOfflineStorage() {
   if (typeof navigator === 'undefined' || !navigator.storage?.persisted) return false;
   return navigator.storage.persisted().catch(() => false);
+}
+
+// Comparte persistencia de borradores de cámara entre el modal rápido y el editor de dispositivo.
+export async function saveMaintenanceEvidenceDraft(scope, evidence) {
+  if (!scope || !evidence?.localId || !(evidence.file instanceof Blob)) return null;
+  return saveOfflineMedia({
+    mediaId: `${scope}:${evidence.localId}`,
+    localId: evidence.localId,
+    entityId: scope,
+    kind: 'maintenanceEvidenceDraft',
+    status: 'DRAFT',
+    blob: evidence.file,
+    fileName: evidence.file.name || 'evidencia',
+    mimeType: evidence.mimeType || evidence.file.type,
+    mediaType: evidence.mediaType,
+    durationSeconds: evidence.durationSeconds,
+    type: evidence.type,
+    note: evidence.note,
+    capturedAt: evidence.capturedAt,
+    projectTargetType: evidence.projectTargetType,
+    projectRelationKey: evidence.projectRelationKey,
+    projectComponentLocalId: evidence.projectComponentLocalId,
+    projectComponentTypeId: evidence.projectComponentTypeId,
+    projectComponentName: evidence.projectComponentName,
+  });
+}
+
+export async function recoverMaintenanceEvidenceDrafts(scope) {
+  if (!scope) return [];
+  return (await listOfflineMediaByEntityId(scope))
+    .filter((item) => item.kind === 'maintenanceEvidenceDraft' && item.blob instanceof Blob);
+}
+
+export async function updateMaintenanceEvidenceDraft(scope, localId, values) {
+  if (!scope || !localId) return null;
+  const mediaId = `${scope}:${localId}`;
+  if (!await getOfflineMedia(mediaId)) return null;
+  return updateOfflineMedia(mediaId, values);
+}
+
+export async function removeMaintenanceEvidenceDraft(scope, localId) {
+  if (scope && localId) await removeOfflineMedia(`${scope}:${localId}`);
 }
 
 export async function getOfflineMediaStats() {

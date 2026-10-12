@@ -1,4 +1,4 @@
-import React, { useEffect, useMemo, useState } from 'react';
+import React, { useEffect, useMemo, useRef, useState } from 'react';
 import { useAuth } from '../../AuthContext';
 import AutosaveIndicator from '../feedback/AutosaveIndicator';
 import Icon from '../common/Icon';
@@ -6,6 +6,12 @@ import TechnicianMultiSelect from '../forms/TechnicianMultiSelect';
 import MaintenanceDeviceCatalogFields from './MaintenanceDeviceCatalogFields';
 import MaintenanceEquipmentLocationSelect from './MaintenanceEquipmentLocationSelect';
 import MaintenanceEvidenceImage from './MaintenanceEvidenceImage';
+import {
+  recoverMaintenanceEvidenceDrafts,
+  removeMaintenanceEvidenceDraft,
+  saveMaintenanceEvidenceDraft,
+  updateMaintenanceEvidenceDraft,
+} from '../../services/offlineMediaStore';
 import MaintenanceProjectRelationField from './MaintenanceProjectRelationField';
 import MaintenanceProjectProgressChecklist from './MaintenanceProjectProgressChecklist';
 import MaintenanceQuestionField from './MaintenanceQuestionField';
@@ -120,6 +126,7 @@ export default function MaintenanceDeviceEditor({
   device,
   equipmentOptions = [],
   maintenanceLocationId = '',
+  maintenanceId = '',
   technicians = [],
   disabled,
   isAdmin,
@@ -135,7 +142,7 @@ export default function MaintenanceDeviceEditor({
   maintenanceType = 'MANTENIMIENTO',
   projectChecklist,
 }) {
-  const { sessionToken, hasPermission } = useAuth();
+  const { sessionToken, hasPermission, user } = useAuth();
   const projectMode = isProjectMaintenance(maintenanceType);
   const category = getMaintenanceCategory(device.categoria);
   const questionCatalog = useMaintenanceQuestionCatalog(sessionToken);
@@ -150,12 +157,72 @@ export default function MaintenanceDeviceEditor({
   const [evidenceError, setEvidenceError] = useState('');
   const [loadedTechnicians, setLoadedTechnicians] = useState([]);
   const [startedAsNew] = useState(() => !device.id);
+  const [preparingEvidence, setPreparingEvidence] = useState(false);
+  const draftWrites = useRef(Promise.resolve());
+  const pendingImagesRef = useRef(device.newImages || []);
+  useEffect(() => { pendingImagesRef.current = device.newImages || []; }, [device.newImages]);
+  const draftUserId = String(user?.UsuarioID || '');
+  const draftDeviceId = String(device.id || 'new-device');
+  const draftScope = draftUserId && maintenanceId
+    ? `maintenance-evidence-draft:${draftUserId}:${maintenanceId}:${draftDeviceId}`
+    : '';
+
+  function enqueueDraftWrite(task) {
+    const next = draftWrites.current.catch(() => {}).then(task);
+    draftWrites.current = next.catch(() => {});
+    return next;
+  }
+
+  useEffect(() => {
+    if (!draftScope) return undefined;
+    let active = true;
+    recoverMaintenanceEvidenceDrafts(draftScope).then((records) => {
+      if (!active || !records.length) return;
+      const restored = records.map((record) => {
+        const file = new File([record.blob], record.fileName || 'evidencia.jpg', {
+          type: record.mimeType || record.blob.type || 'image/jpeg',
+        });
+        return {
+          localId: record.localId,
+          file,
+          type: record.type || (projectMode ? 'Proyecto' : 'Antes'),
+          note: record.note || '',
+          capturedAt: record.capturedAt || new Date(record.createdAt || Date.now()).toISOString(),
+          mimeType: record.mimeType,
+          mediaType: record.mediaType,
+          durationSeconds: record.durationSeconds || 0,
+          size: file.size,
+          previewUrl: createEvidencePreviewUrl(file),
+          draftMediaId: record.mediaId,
+          projectTargetType: record.projectTargetType,
+          projectRelationKey: record.projectRelationKey,
+          projectComponentLocalId: record.projectComponentLocalId,
+          projectComponentTypeId: record.projectComponentTypeId,
+          projectComponentName: record.projectComponentName,
+        };
+      });
+      onChange((current) => {
+        if (!current) {
+          restored.forEach((image) => releaseEvidencePreviewUrl(image.previewUrl));
+          return current;
+        }
+        const existingIds = new Set((current.newImages || []).map((item) => item.localId));
+        const fresh = restored.filter((image) => !existingIds.has(image.localId));
+        restored.filter((image) => existingIds.has(image.localId))
+          .forEach((image) => releaseEvidencePreviewUrl(image.previewUrl));
+        return fresh.length ? { ...current, newImages: [...(current.newImages || []), ...fresh] } : current;
+      });
+    }).catch(() => {
+      if (active) setEvidenceError('No se pudieron recuperar las fotografías pendientes de este dispositivo.');
+    });
+    return () => { active = false; };
+  }, [draftScope, onChange, projectMode]);
 
   useEffect(() => {
     document.body.classList.add('maintenance-device-editor-open');
     return () => {
       document.body.classList.remove('maintenance-device-editor-open');
-      (device.newImages || []).forEach((item) => releaseEvidencePreviewUrl(item.previewUrl));
+      pendingImagesRef.current.forEach((item) => releaseEvidencePreviewUrl(item.previewUrl));
       window.dispatchEvent(new CustomEvent('dms-offline-editing-complete'));
     };
   }, []);
@@ -353,35 +420,49 @@ export default function MaintenanceDeviceEditor({
     const input = event.currentTarget;
     const files = Array.from(input.files || []);
     if (!files.length) return;
+    setPreparingEvidence(true);
     setEvidenceError('');
     try {
       const prepared = await prepareEvidenceFiles(files, {
         allowDocuments: false,
         stabilizeTransientFiles: true,
       });
-      patch({
-        newImages: [
-          ...(device.newImages || []),
-          ...prepared.map((item) => pendingEvidence(item, {
-            projectMode,
-            target: projectDefaultEvidenceTarget,
-          })),
-        ],
-      });
-
-      // Android puede entregar content:// temporales. Solo liberamos el input
-      // cuando todos los archivos pequeños ya tienen una copia propia.
-      if (prepared.every((item) => item.transientFileStabilized)) {
-        input.value = '';
+      const pending = prepared.map((item) => pendingEvidence(item, {
+        projectMode,
+        target: projectDefaultEvidenceTarget,
+      }));
+      for (const item of pending) {
+        if (draftScope) {
+          try {
+            await enqueueDraftWrite(() => saveMaintenanceEvidenceDraft(draftScope, item));
+            item.draftMediaId = `${draftScope}:${item.localId}`;
+          } catch (error) {
+            setEvidenceError(error.message || 'No se pudo guardar una fotografía para recuperarla después de una recarga.');
+          }
+        }
+        onChange((current) => ({
+          ...current,
+          newImages: [...(current?.newImages || []), item],
+        }));
       }
+
+      // Android puede entregar content:// temporales. Nunca liberar el input
+      // antes de copiar las fotografías que dependen del proveedor de cámara.
+      if (prepared.every((item) => item.transientFileStabilized)) input.value = '';
     } catch (error) {
       input.value = '';
       setEvidenceError(error.message || 'No se pudieron preparar las evidencias seleccionadas.');
+    } finally {
+      setPreparingEvidence(false);
     }
   }
 
   function updateNewImage(localId, values) {
     patch({ newImages: (device.newImages || []).map((item) => item.localId === localId ? { ...item, ...values } : item) });
+    if (draftScope) {
+      enqueueDraftWrite(() => updateMaintenanceEvidenceDraft(draftScope, localId, values))
+        .catch(() => setEvidenceError('No se pudieron guardar los últimos datos de la evidencia en este dispositivo.'));
+    }
   }
 
   function removeNewImage(image) {
@@ -392,6 +473,10 @@ export default function MaintenanceDeviceEditor({
     }
     releaseEvidencePreviewUrl(image?.previewUrl);
     patch({ newImages: (device.newImages || []).filter((item) => item.localId !== image.localId) });
+    if (draftScope) {
+      enqueueDraftWrite(() => removeMaintenanceEvidenceDraft(draftScope, image.localId))
+        .catch(() => setEvidenceError('No se pudo descartar la copia local de esta evidencia.'));
+    }
   }
 
   function updateExistingImage(id, values) {
@@ -518,11 +603,12 @@ export default function MaintenanceDeviceEditor({
       {projectMode ? <section className="maintenance-image-section maintenance-device-section-card maintenance-project-evidence-section">
         <div className="form-card__heading"><span className="section-marker" /><div><h3>Evidencias del proyecto</h3><p>Sin Antes/Después. Cada archivo registra fecha y hora automáticamente y puede ligarse al dispositivo principal o a uno de sus componentes.</p></div><span className="maintenance-device-evidence-total">{totalEvidence}</span></div>
         {evidenceError && <div className="alert alert--error" role="alert"><Icon name="error" /><span>{evidenceError}</span></div>}
+        {Boolean((device.newImages || []).some((image) => image.draftMediaId)) && <small className="maintenance-device-camera-hint"><Icon name="save" /> Fotografías pendientes respaldadas en este dispositivo; se recuperarán al reabrir el editor después de una recarga.</small>}
         {projectEvidenceTargetErrors.length > 0 && <div className="alert alert--error"><Icon name="account_tree" /><span>Hay evidencia ligada a un componente que ya no existe. Reasígnela antes de guardar el dispositivo.</span></div>}
         {!locked && <div className="maintenance-evidence-picker maintenance-device-evidence-picker">
-          <label className="button button--primary maintenance-device-camera-button"><Icon name="photo_camera" /> Tomar foto<input type="file" accept="image/*" capture="environment" onChange={addFiles} /></label>
-          <label className="button button--secondary"><Icon name="videocam" /> Grabar video<input type="file" accept="video/mp4,video/webm,video/quicktime,video/*" capture="environment" onChange={addFiles} /></label>
-          <label className="button button--secondary"><Icon name="perm_media" /> Seleccionar archivos<input type="file" accept="image/*,video/mp4,video/webm,video/quicktime,.mov,.mp4,.webm" multiple onChange={addFiles} /></label>
+          <label className="button button--primary maintenance-device-camera-button"><Icon name="photo_camera" /> Tomar foto<input type="file" accept="image/*" capture="environment" onChange={addFiles} disabled={preparingEvidence} /></label>
+          <label className="button button--secondary"><Icon name="videocam" /> Grabar video<input type="file" accept="video/mp4,video/webm,video/quicktime,video/*" capture="environment" onChange={addFiles} disabled={preparingEvidence} /></label>
+          <label className="button button--secondary"><Icon name="perm_media" /> Seleccionar archivos<input type="file" accept="image/*,video/mp4,video/webm,video/quicktime,.mov,.mp4,.webm" multiple onChange={addFiles} disabled={preparingEvidence} /></label>
         </div>}
         <small className="maintenance-device-camera-hint"><Icon name="schedule" /> Las evidencias se muestran de la más nueva a la más antigua. Los límites multimedia existentes se mantienen.</small>
 
@@ -567,10 +653,11 @@ export default function MaintenanceDeviceEditor({
       </section> : <section className="maintenance-image-section maintenance-device-section-card">
         <div className="form-card__heading"><span className="section-marker" /><div><h3>Evidencias del dispositivo</h3><p>Tome fotografías o grabe videos de hasta 20 segundos. Se subirán al guardar el dispositivo.</p></div><span className="maintenance-device-evidence-total">{totalEvidence}</span></div>
         {evidenceError && <div className="alert alert--error" role="alert"><Icon name="error" /><span>{evidenceError}</span></div>}
+        {Boolean((device.newImages || []).some((image) => image.draftMediaId)) && <small className="maintenance-device-camera-hint"><Icon name="save" /> Fotografías pendientes respaldadas en este dispositivo; se recuperarán al reabrir el editor después de una recarga.</small>}
         {!locked && <div className="maintenance-evidence-picker maintenance-device-evidence-picker">
-          <label className="button button--primary maintenance-device-camera-button"><Icon name="photo_camera" /> Tomar foto<input type="file" accept="image/*" capture="environment" onChange={addFiles} /></label>
-          <label className="button button--secondary"><Icon name="videocam" /> Grabar video<input type="file" accept="video/mp4,video/webm,video/quicktime,video/*" capture="environment" onChange={addFiles} /></label>
-          <label className="button button--secondary"><Icon name="perm_media" /> Seleccionar archivos<input type="file" accept="image/*,video/mp4,video/webm,video/quicktime,.mov,.mp4,.webm" multiple onChange={addFiles} /></label>
+          <label className="button button--primary maintenance-device-camera-button"><Icon name="photo_camera" /> Tomar foto<input type="file" accept="image/*" capture="environment" onChange={addFiles} disabled={preparingEvidence} /></label>
+          <label className="button button--secondary"><Icon name="videocam" /> Grabar video<input type="file" accept="video/mp4,video/webm,video/quicktime,video/*" capture="environment" onChange={addFiles} disabled={preparingEvidence} /></label>
+          <label className="button button--secondary"><Icon name="perm_media" /> Seleccionar archivos<input type="file" accept="image/*,video/mp4,video/webm,video/quicktime,.mov,.mp4,.webm" multiple onChange={addFiles} disabled={preparingEvidence} /></label>
         </div>}
         <small className="maintenance-device-camera-hint"><Icon name="smartphone" /> Los videos deben durar máximo 20 segundos y pesar hasta 15 MB.</small>
 
