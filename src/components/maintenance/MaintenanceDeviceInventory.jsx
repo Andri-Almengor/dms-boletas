@@ -4,6 +4,7 @@ import FilterDrawer from '../forms/FilterDrawer';
 import MaintenanceEvidenceImage from './MaintenanceEvidenceImage';
 import { getMaintenanceCategory } from '../../config/maintenanceCategories';
 import { pick } from '../../services/moduleApi';
+import { formatCostaRicaDate } from '../../utils/costaRicaDate';
 import {
   effectiveMaintenanceDeviceState,
   isMaintenanceChecklistPending,
@@ -299,7 +300,7 @@ export default function MaintenanceDeviceInventory({
           {images.map((image) => (
             <figure key={pick(image, ['FotoDispositivoID', 'id'])}>
               <MaintenanceEvidenceImage image={image} galleryImages={images} sessionToken={sessionToken} alt={pick(image, ['Nombre'], 'Evidencia')} />
-              <figcaption><strong>{pick(image, ['Tipo'], 'Evidencia')}</strong><span>{pick(image, ['Nota'], 'Sin nota')}</span></figcaption>
+              <figcaption><strong>{pick(image, ['Tipo'], 'Evidencia')}</strong><span>{pick(image, ['FechaCreacion']) ? `Cargada: ${formatCostaRicaDate(image.FechaCreacion)}` : 'Fecha de carga no disponible'}</span><span>{pick(image, ['Nota'], 'Sin nota')}</span></figcaption>
               {pending && canEdit && <button type="button" onClick={() => onEditEvidence(image, device)}><Icon name="edit" />Editar evidencia</button>}
             </figure>
           ))}

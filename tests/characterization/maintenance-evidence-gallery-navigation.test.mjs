@@ -3,6 +3,7 @@ import test from 'node:test';
 import { readFileSync } from 'node:fs';
 import { fileURLToPath } from 'node:url';
 import path from 'node:path';
+import { formatCostaRicaDate } from '../../src/utils/costaRicaDate.js';
 
 const ROOT = fileURLToPath(new URL('../../', import.meta.url));
 const source = (relativePath) => readFileSync(path.join(ROOT, relativePath), 'utf8');
@@ -56,4 +57,27 @@ test('toda la fila del dispositivo abre el detalle sin capturar controles intera
     assert.match(component, /button, a, input, select, textarea, label/);
     assert.match(component, /toggleRowFromKeyboard/);
   });
+});
+
+test('las tarjetas muestran la fecha original de carga con formato de Costa Rica', () => {
+  const inventory = source('src/components/maintenance/MaintenanceDeviceInventory.jsx');
+  const locations = source('src/components/maintenance/MaintenanceLocationInventory.jsx');
+  const project = source('src/components/maintenance/MaintenanceProjectDeviceDetail.jsx');
+  const backend = source('backend/src/modules/maintenance.module.js');
+  const batchBackend = source('backend/src/modules/maintenance-scalable-images.module.js');
+
+  for (const component of [inventory, locations, project]) {
+    assert.match(component, /formatCostaRicaDate\(image\.FechaCreacion\)/);
+    assert.match(component, /Cargada:/);
+    assert.match(component, /Fecha de carga no disponible/);
+    assert.match(component, /\['Nota'\], 'Sin nota'/);
+    assert.match(component, /galleryImages=\{images\}/);
+  }
+  assert.match(project, /Capturada: \{evidenceDateLabel\(image\)\}/,
+    'La fecha de captura existente del proyecto se conserva como dato distinto');
+  assert.match(backend, /FechaCreacion: timestamp/);
+  assert.match(batchBackend, /FechaCreacion: nowIso\(\)/);
+  assert.match(formatCostaRicaDate('2026-10-12T02:30:00.000Z'), /11.*oct.*2026/i,
+    'La fecha debe interpretarse en America\\/Costa_Rica y no en el huso del navegador');
+  assert.equal(formatCostaRicaDate(''), 'Sin fecha');
 });

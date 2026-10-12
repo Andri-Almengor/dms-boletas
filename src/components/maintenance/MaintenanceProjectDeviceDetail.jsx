@@ -3,6 +3,7 @@ import Icon from '../common/Icon';
 import MaintenanceEvidenceImage from './MaintenanceEvidenceImage';
 import MaintenanceProjectProgressChecklist from './MaintenanceProjectProgressChecklist';
 import { pick } from '../../services/moduleApi';
+import { formatCostaRicaDate } from '../../utils/costaRicaDate';
 import {
   projectEvidenceTargets,
   projectEvidenceTargetValue,
@@ -223,7 +224,7 @@ export default function MaintenanceProjectDeviceDetail({
       {evidenceEnabled && <div className="maintenance-inventory-images maintenance-project-device-gallery">
         {images.map((image) => <figure key={pick(image, ['FotoDispositivoID', 'id'])}>
           <MaintenanceEvidenceImage image={image} galleryImages={images} sessionToken={sessionToken} alt={pick(image, ['Nombre'], 'Evidencia')} />
-          <figcaption><strong>{projectEvidenceLabel(device, image)}</strong><span>{evidenceDateLabel(image)}</span><span>{pick(image, ['Nota'], 'Sin nota')}</span></figcaption>
+          <figcaption><strong>{projectEvidenceLabel(device, image)}</strong><span>Capturada: {evidenceDateLabel(image)}</span><span>{pick(image, ['FechaCreacion']) ? `Cargada: ${formatCostaRicaDate(image.FechaCreacion)}` : 'Fecha de carga no disponible'}</span><span>{pick(image, ['Nota'], 'Sin nota')}</span></figcaption>
           {pending && canEdit && onEditEvidence && <button type="button" onClick={() => onEditEvidence(image, device)}><Icon name="edit" />Editar evidencia</button>}
         </figure>)}
         {!images.length && <div className="maintenance-inventory-no-images"><Icon name="photo_library" /><span>Sin fotografías registradas.</span></div>}

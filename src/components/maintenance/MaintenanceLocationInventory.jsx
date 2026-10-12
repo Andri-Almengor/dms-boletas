@@ -6,6 +6,7 @@ import FilterDrawer from '../forms/FilterDrawer';
 import MaintenanceEvidenceImage from './MaintenanceEvidenceImage';
 import { getMaintenanceCategory } from '../../config/maintenanceCategories';
 import { MODULE_ROUTES, pick, requestAvailable } from '../../services/moduleApi';
+import { formatCostaRicaDate } from '../../utils/costaRicaDate';
 
 const NATURAL_COLLATOR = new Intl.Collator('es', {
   numeric: true,
@@ -496,7 +497,7 @@ export default function MaintenanceLocationInventory({
       </div>
 
       {evidenceEnabled && <div className="maintenance-inventory-images">
-        {images.map((image) => <figure key={pick(image, ['FotoDispositivoID', 'id'])}><MaintenanceEvidenceImage image={image} galleryImages={images} sessionToken={sessionToken} alt={pick(image, ['Nombre'], 'Evidencia')} /><figcaption><strong>{pick(image, ['Tipo'], 'Evidencia')}</strong><span>{pick(image, ['Nota'], 'Sin nota')}</span></figcaption>{pending && canEdit && onEditEvidence && <button type="button" onClick={() => onEditEvidence?.(image, device)}><Icon name="edit" />Editar evidencia</button>}</figure>)}
+        {images.map((image) => <figure key={pick(image, ['FotoDispositivoID', 'id'])}><MaintenanceEvidenceImage image={image} galleryImages={images} sessionToken={sessionToken} alt={pick(image, ['Nombre'], 'Evidencia')} /><figcaption><strong>{pick(image, ['Tipo'], 'Evidencia')}</strong><span>{pick(image, ['FechaCreacion']) ? `Cargada: ${formatCostaRicaDate(image.FechaCreacion)}` : 'Fecha de carga no disponible'}</span><span>{pick(image, ['Nota'], 'Sin nota')}</span></figcaption>{pending && canEdit && onEditEvidence && <button type="button" onClick={() => onEditEvidence?.(image, device)}><Icon name="edit" />Editar evidencia</button>}</figure>)}
         {!images.length && <div className="maintenance-inventory-no-images"><Icon name="photo_library" /><span>Sin fotografías registradas.</span></div>}
       </div>}
 
