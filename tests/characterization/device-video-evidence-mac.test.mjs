@@ -79,7 +79,7 @@ test('mantenimientos aceptan videos grandes en editor, carga rápida y lotes', (
   assert.match(editor, /prepareEvidenceFiles\(files, \{[\s\S]*allowDocuments: false,[\s\S]*stabilizeTransientFiles: true,[\s\S]*\}\)/);
   assert.match(editor, /Grabar video/);
   assert.match(editor, /PendingEvidencePreview/);
-  assert.match(uploader, /prepareEvidenceFiles\(selected, \{ allowDocuments: false \}\)/);
+  assert.match(uploader, /prepareEvidenceFiles\(selected, \{[\s\S]*allowDocuments: false,[\s\S]*stabilizeTransientFiles: true,[\s\S]*\}\)/);
   assert.match(uploader, /1 minuto y 30 segundos/);
   assert.match(uploader, /300 MB/);
   assert.match(uploader, /uploadMaintenanceImagesInBatches/);
