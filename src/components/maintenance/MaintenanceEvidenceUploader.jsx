@@ -124,8 +124,8 @@ function DeviceEvidenceUploader({ device, maintenanceId, sessionToken, onClose, 
   }, []);
 
   async function addFiles(event) {
-    const selected = Array.from(event.target.files || []);
-    event.target.value = '';
+    const input = event.currentTarget;
+    const selected = Array.from(input.files || []);
     if (!selected.length) return;
 
     setPreparing(true);
@@ -136,6 +136,8 @@ function DeviceEvidenceUploader({ device, maintenanceId, sessionToken, onClose, 
       const prepared = await prepareEvidenceFiles(selected, {
         allowDocuments: false, stabilizeTransientFiles: true,
       });
+      // No liberar el selector de cámara antes de copiar los blobs temporales.
+      if (prepared.every((item) => item.transientFileStabilized)) input.value = '';
       const nextItems = prepared.map((item) => createPendingEvidence(item, { projectMode, target: defaultTarget }));
       for (const item of nextItems) {
         if (draftScope) {
@@ -173,6 +175,7 @@ function DeviceEvidenceUploader({ device, maintenanceId, sessionToken, onClose, 
         setEvidences((current) => [...current, item]);
       }
     } catch (selectionError) {
+      input.value = '';
       setError(selectionError.message || 'No se pudieron preparar las evidencias seleccionadas.');
     } finally {
       setPreparing(false);
