@@ -4,9 +4,11 @@ import { indexedDB } from 'fake-indexeddb';
 import { readFileSync } from 'node:fs';
 import { fileURLToPath } from 'node:url';
 import path from 'node:path';
+import { hasActiveMaintenanceEvidenceSurface } from '../../src/services/reloadRecovery.js';
 import {
   getOfflineMedia, listOfflineMediaByEntityId, removeOfflineMedia,
   saveOfflineMedia, updateOfflineMedia,
+  recoverMaintenanceEvidenceDrafts, saveMaintenanceEvidenceDraft,
 } from '../../src/services/offlineMediaStore.js';
 
 const ROOT = fileURLToPath(new URL('../../', import.meta.url));
@@ -61,7 +63,7 @@ test('IndexedDB recupera fotos pendientes por usuario y dispositivo sin mezclar 
       entityId: secondScope, kind:'maintenanceEvidenceDraft',
       status:'DRAFT', blob: photo, fileName:'privado.jpg',
     });
-    const before = await listOfflineMediaByEntityId(scope);
+    const before = await recoverMaintenanceEvidenceDrafts(scope);
     assert.equal(before.length, 1);
     assert.equal(before[0].localId, 'foto-1');
     assert.equal(before[0].note, 'Ubicación uno');
@@ -90,11 +92,35 @@ test('cámara conserva referencias temporales hasta copiar el archivo y guarda a
   assert.match(uploader, /const input = event\.currentTarget/);
   assert.match(uploader, /stabilizeTransientFiles: true/);
   assert.match(uploader, /prepared\.every\(\(item\) => item\.transientFileStabilized\)/);
-  assert.match(uploader, /saveOfflineMedia\(/);
-  assert.match(uploader, /listOfflineMediaByEntityId\(draftScope\)/);
+  assert.match(uploader, /saveMaintenanceEvidenceDraft\(draftScope, item\)/);
+  assert.match(uploader, /recoverMaintenanceEvidenceDrafts\(draftScope\)/);
   assert.match(uploader, /await draftWriteQueueRef\.current/);
   assert.match(uploader, /for \(const localId of uploadedKeys\)/);
   assert.match(uploader, /result\.failed\?\.length/);
   assert.doesNotMatch(uploader, /const selected = Array\.from\(event\.target\.files \|\| \[\]\);\s*event\.target\.value = ''/);
   assert.match(store, /index\('entityId'\)\.getAll\(id\)/);
+  assert.match(store, /export async function saveMaintenanceEvidenceDraft/);
+  assert.match(store, /export async function recoverMaintenanceEvidenceDrafts/);
+
+  const deviceEditor = source('src/components/maintenance/MaintenanceDeviceEditor.jsx');
+  const persistence = source('src/services/maintenanceDevicePersistence.js');
+  assert.match(deviceEditor, /saveMaintenanceEvidenceDraft\(draftScope, item\)/);
+  assert.match(deviceEditor, /recoverMaintenanceEvidenceDrafts\(draftScope\)/);
+  assert.match(deviceEditor, /draftMediaId/);
+  assert.match(persistence, /state\.uploadedKeys\.has/);
+  assert.match(persistence, /removeOfflineMedia\(image\.draftMediaId\)/);
+});
+
+test('PWA pospone recargas de nuevas versiones hasta que se cierre la cámara o el editor', () => {
+  const main = source('src/main.jsx');
+  const recovery = source('src/services/reloadRecovery.js');
+  assert.equal(hasActiveMaintenanceEvidenceSurface({querySelector:()=>({})}),true);
+  assert.equal(hasActiveMaintenanceEvidenceSurface({querySelector:()=>null}),false);
+  assert.match(recovery, /maintenance-evidence-modal, \.maintenance-device-editor-open/);
+  assert.match(main, /deferredAutomaticReload = true/);
+  assert.match(main, /reloadObserver\.observe/);
+  assert.match(main, /hasActiveMaintenanceEvidenceSurface\(\)/);
+  assert.match(main, /claimAutomaticReload\(\)/);
+  assert.match(main, /controllerchange/);
+  assert.match(main, /vite:preloadError/);
 });
