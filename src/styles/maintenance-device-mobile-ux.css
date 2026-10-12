@@ -466,7 +466,7 @@ body.maintenance-device-editor-open .offline-status > button {
 
 
 /* Registro masivo: reutiliza el modal de alta rápida y las variables de DMS. */
-.maintenance-quick-device-modal[data-device-create-mode="bulk"] .maintenance-quick-device-modal__panel {
+.maintenance-quick-device-modal[data-device-create-variant="bulk"] .maintenance-quick-device-modal__panel {
   width: min(100%, 740px);
   max-height: min(90dvh, 860px);
   overflow-y: auto;
@@ -561,7 +561,7 @@ body.maintenance-device-editor-open .offline-status > button {
 }
 
 @media (max-width: 760px) {
-  .maintenance-quick-device-modal[data-device-create-mode="bulk"] .maintenance-quick-device-modal__panel {
+  .maintenance-quick-device-modal[data-device-create-variant="bulk"] .maintenance-quick-device-modal__panel {
     width: 100%;
     height: 100dvh;
     max-height: 100dvh;
