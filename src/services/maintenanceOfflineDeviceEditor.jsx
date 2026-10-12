@@ -152,6 +152,7 @@ function OfflineDeviceEditorSession({ request, onClose }) {
             <MaintenanceCountsProvider counts={counts}>
               <MaintenanceDeviceEditor
                 device={device}
+                maintenanceId={String(request?.maintenanceId || '')}
                 equipmentOptions={equipmentOptions}
                 maintenanceLocationId={maintenanceLocationId}
                 technicians={[]}
