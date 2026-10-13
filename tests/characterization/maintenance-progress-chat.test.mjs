@@ -189,8 +189,8 @@ test('un inventario completo cuenta pendientes DESPUÉS solo en equipos con ANTE
 
   const message = formatMaintenanceProgressMessage({ maintenance, progress });
   assert.match(message, /Evidencias por tipo de dispositivo:/);
-  assert.match(message, /Cámaras: 3 dispositivos · 1 con ANTES y DESPUÉS · 1 pendientes DESPUÉS · 1 sin fotos/);
-  assert.match(message, /Puertas: 2 dispositivos · 0 con ANTES y DESPUÉS · 1 pendientes DESPUÉS · 1 sin fotos/);
+  assert.match(message, /Cámaras: 3 dispositivos · 1 con ANTES y DESPUÉS · 1 pendiente DESPUÉS · 1 sin fotos/);
+  assert.match(message, /Puertas: 2 dispositivos · 0 con ANTES y DESPUÉS · 1 pendiente DESPUÉS · 1 sin fotos/);
   assert.match(message, /Total: 5 de 5 \(100%\)/);
   assert.match(message, /Con ANTES y DESPUÉS: 1/);
   assert.match(message, /Pendientes DESPUÉS \(tienen ANTES\): 2/);
