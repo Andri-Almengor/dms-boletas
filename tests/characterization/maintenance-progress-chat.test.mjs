@@ -208,6 +208,21 @@ test('mantiene el mensaje anterior mientras falten dispositivos, aun cuando ya e
   assert.doesNotMatch(message, /Sin evidencias: /);
 });
 
+test('no declara inventario completo si falta un tipo aunque otro supere su cuota', () => {
+  const maintenance = { MantenimientoID: 'mnt-1', CantCámaras: 3, CantPuertas: 2 };
+  const progress = buildMaintenanceProgress({
+    maintenance,
+    devices: [...devices('Cámara', 4), ...devices('Puertas', 1)],
+    images: [],
+  });
+  assert.equal(progress.registered, progress.expected);
+  assert.equal(progress.items.find((item) => item.label === 'Puertas').remaining, 1);
+  const message = formatMaintenanceProgressMessage({ maintenance, progress });
+  assert.match(message, /Avance por tipo:/);
+  assert.match(message, /Puertas: 1 de 2/);
+  assert.doesNotMatch(message, /Evidencias por tipo de dispositivo:/);
+});
+
 test('el Chat usa el estado vigente y deja fuera cierres completos y evidencias borradas', () => {
   const service = source('backend/src/services/maintenance-progress-chat.service.js');
   assert.match(service, /normalized\(row\.EstadoFinalizacion\) !== 'COMPLETADO'/);
