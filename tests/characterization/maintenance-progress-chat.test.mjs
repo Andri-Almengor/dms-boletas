@@ -184,7 +184,7 @@ test('si el inventario está completo detalla por tipo los dispositivos sin evid
   const message = formatMaintenanceProgressMessage({ maintenance, progress });
   assert.match(message, /Evidencias por tipo de dispositivo:/);
   assert.match(message, /Cámaras: 3 dispositivos · 2 con evidencia · 1 sin evidencia · 5 archivos/);
-  assert.match(message, /Puertas: 2 dispositivos · 1 con evidencia · 1 sin evidencia · 1 archivos/);
+  assert.match(message, /Puertas: 2 dispositivos · 1 con evidencia · 1 sin evidencia · 1 archivo/);
   assert.match(message, /Total: 5 de 5 \(100%\)/);
   assert.match(message, /Con evidencias: 3/);
   assert.match(message, /Sin evidencias: 2/);
