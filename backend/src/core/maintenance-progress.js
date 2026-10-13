@@ -305,7 +305,7 @@ export function formatMaintenanceProgressMessage({
   } else if (inventoryComplete) {
     lines[lines.length - 1] = 'Evidencias por tipo de dispositivo:';
     progress.items.forEach((item) => {
-      lines.push(`• ${item.label}: ${item.registered} dispositivos · ${item.withEvidence} con evidencia · ${item.missingEvidence} sin evidencia · ${item.evidenceTotal} archivos`);
+      lines.push(`• ${item.label}: ${item.registered} dispositivo${item.registered === 1 ? '' : 's'} · ${item.withEvidence} con evidencia · ${item.missingEvidence} sin evidencia · ${item.evidenceTotal} archivo${item.evidenceTotal === 1 ? '' : 's'}`);
     });
   } else {
     progress.items.forEach((item) => {
