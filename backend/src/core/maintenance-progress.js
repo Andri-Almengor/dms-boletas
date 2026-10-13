@@ -335,7 +335,7 @@ export function formatMaintenanceProgressMessage({
     lines[lines.length - 1] = 'Evidencias por tipo de dispositivo:';
     progress.items.forEach((item) => {
       if (pairMode) {
-        lines.push(`• ${item.label}: ${item.registered} dispositivo${item.registered === 1 ? '' : 's'} · ${item.completeEvidencePairs} con ANTES y DESPUÉS · ${item.pendingAfter} pendientes DESPUÉS · ${item.missingEvidence} sin fotos`);
+        lines.push(`• ${item.label}: ${item.registered} dispositivo${item.registered === 1 ? '' : 's'} · ${item.completeEvidencePairs} con ANTES y DESPUÉS · ${item.pendingAfter} pendiente${item.pendingAfter === 1 ? '' : 's'} DESPUÉS · ${item.missingEvidence} sin fotos`);
         if (item.onlyAfter > 0) lines.push(`  Solo DESPUÉS (sin ANTES): ${item.onlyAfter}`);
         if (item.unclassifiedOnly > 0) lines.push(`  Evidencias sin clasificar: ${item.unclassifiedOnly}`);
       } else {
