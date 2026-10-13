@@ -264,6 +264,10 @@ async function claimNotification({
         withEvidence: progress.withEvidence,
         missingEvidence: progress.missingEvidence,
         evidenceTotal: progress.evidenceTotal,
+        completeEvidencePairs: progress.completeEvidencePairs,
+        pendingAfter: progress.pendingAfter,
+        onlyAfter: progress.onlyAfter,
+        unclassifiedOnly: progress.unclassifiedOnly,
         items: progress.items,
       }),
     };
@@ -306,6 +310,10 @@ async function persistAttempt({ existing, key, maintenance, reason, webhook, act
       withEvidence: progress.withEvidence,
       missingEvidence: progress.missingEvidence,
       evidenceTotal: progress.evidenceTotal,
+      completeEvidencePairs: progress.completeEvidencePairs,
+      pendingAfter: progress.pendingAfter,
+      onlyAfter: progress.onlyAfter,
+      unclassifiedOnly: progress.unclassifiedOnly,
       items: progress.items,
     }),
   };
@@ -339,7 +347,9 @@ async function loadEvidenceSummary(maintenanceIds = []) {
   if (!ids.length) return [];
   const response = await query(
     `SELECT image."DispositivoMantenimientoRef",
-            COUNT(*)::integer AS "TotalEvidencias"
+            COUNT(*)::integer AS "TotalEvidencias",
+            COUNT(*) FILTER (WHERE image."Tipo" ILIKE '%antes%' OR image."Tipo" ILIKE '%before%')::integer AS "EvidenciasAntes",
+            COUNT(*) FILTER (WHERE image."Tipo" ILIKE '%desp%' OR image."Tipo" ILIKE '%after%')::integer AS "EvidenciasDespues"
        FROM "Mantenimiento imagenes" AS image
        JOIN "Evidencia_Mantenimientos" AS device
          ON device."EvidenciaMantenimientoID" = image."DispositivoMantenimientoRef"

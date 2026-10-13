@@ -86,6 +86,10 @@ function createDefinition(map, key, label, order = 1000) {
       registered: 0,
       withEvidence: 0,
       evidenceTotal: 0,
+      completeEvidencePairs: 0,
+      pendingAfter: 0,
+      onlyAfter: 0,
+      unclassifiedOnly: 0,
       order,
     });
   }
@@ -115,15 +119,26 @@ function dynamicDefinitionForType(definitions, typeId, typeName, expected = 0) {
 
 export function buildMaintenanceProgress({ maintenance = {}, devices = [], deviceTypes = [], images = [] } = {}) {
   const definitions = new Map();
-  // Las fotos ya están guardadas en PostgreSQL. Se aceptan tanto filas
-  // individuales como conteos agrupados por dispositivo obtenidos en batch.
+  // Los reportes reciben conteos agrupados de PostgreSQL. También admitimos
+  // filas individuales para reutilizar esta función en pruebas y vistas.
+  // Se cuentan equipos, no fotografías: varias ANTES no equivalen a DESPUÉS.
   const evidenceByDevice = new Map();
   for (const image of images || []) {
     if (!isActive(image)) continue;
     const deviceId = clean(image.DispositivoMantenimientoRef);
     if (!deviceId) continue;
-    const count = image.TotalEvidencias == null ? 1 : nonNegativeNumber(image.TotalEvidencias);
-    evidenceByDevice.set(deviceId, (evidenceByDevice.get(deviceId) || 0) + count);
+    const counts = evidenceByDevice.get(deviceId) || { total: 0, before: 0, after: 0 };
+    if (image.TotalEvidencias != null) {
+      counts.total += nonNegativeNumber(image.TotalEvidencias);
+      counts.before += nonNegativeNumber(image.EvidenciasAntes);
+      counts.after += nonNegativeNumber(image.EvidenciasDespues);
+    } else {
+      counts.total += 1;
+      const phase = normalize(image.Tipo);
+      if (phase.includes('antes') || phase.includes('before')) counts.before += 1;
+      if (phase.includes('desp') || phase.includes('after')) counts.after += 1;
+    }
+    evidenceByDevice.set(deviceId, counts);
   }
   const counts = parseCounts(maintenance.CantidadesJSON);
   const types = typeMaps(deviceTypes);
@@ -166,9 +181,13 @@ export function buildMaintenanceProgress({ maintenance = {}, devices = [], devic
       )
       : dynamicDefinitionForType(definitions, typeId, typeName || types.byId.get(typeId) || 'Dispositivo');
     definition.registered += 1;
-    const uploaded = evidenceByDevice.get(clean(device.EvidenciaMantenimientoID)) || 0;
-    definition.evidenceTotal += uploaded;
-    if (uploaded > 0) definition.withEvidence += 1;
+    const evidence = evidenceByDevice.get(clean(device.EvidenciaMantenimientoID)) || { total: 0, before: 0, after: 0 };
+    definition.evidenceTotal += evidence.total;
+    if (evidence.total > 0) definition.withEvidence += 1;
+    if (evidence.before > 0 && evidence.after > 0) definition.completeEvidencePairs += 1;
+    else if (evidence.before > 0) definition.pendingAfter += 1;
+    else if (evidence.after > 0) definition.onlyAfter += 1;
+    else if (evidence.total > 0) definition.unclassifiedOnly += 1;
   }
 
   const items = [...definitions.values()]
@@ -182,6 +201,10 @@ export function buildMaintenanceProgress({ maintenance = {}, devices = [], devic
       remaining: Math.max(0, item.expected - item.registered),
       withEvidence: item.withEvidence,
       missingEvidence: Math.max(0, item.registered - item.withEvidence),
+      completeEvidencePairs: item.completeEvidencePairs,
+      pendingAfter: item.pendingAfter,
+      onlyAfter: item.onlyAfter,
+      unclassifiedOnly: item.unclassifiedOnly,
       evidenceTotal: item.evidenceTotal,
       percentage: item.expected > 0 ? Math.round((item.registered / item.expected) * 1000) / 10 : 0,
     }));
@@ -197,6 +220,10 @@ export function buildMaintenanceProgress({ maintenance = {}, devices = [], devic
     overPlan: Math.max(0, registered - expected),
     withEvidence: items.reduce((total, item) => total + item.withEvidence, 0),
     missingEvidence: items.reduce((total, item) => total + item.missingEvidence, 0),
+    completeEvidencePairs: items.reduce((total, item) => total + item.completeEvidencePairs, 0),
+    pendingAfter: items.reduce((total, item) => total + item.pendingAfter, 0),
+    onlyAfter: items.reduce((total, item) => total + item.onlyAfter, 0),
+    unclassifiedOnly: items.reduce((total, item) => total + item.unclassifiedOnly, 0),
     evidenceTotal: items.reduce((total, item) => total + item.evidenceTotal, 0),
   };
 }
@@ -296,16 +323,24 @@ export function formatMaintenanceProgressMessage({
   if (clean(maintenance.Ubicacion)) lines.push(`Ubicación: ${clean(maintenance.Ubicacion)}`);
   lines.push('Estado: PENDIENTE', '', 'Avance por tipo:');
 
-  // Hasta completar el inventario se conserva el mensaje de planificación.
-  // Después informamos dispositivos pendientes de documentar (al menos una
-  // evidencia subida); no equivale a checklist terminado ni a finalización.
+  // Con inventario incompleto se mantiene el mensaje anterior. El tipo
+  // PROYECTO conserva su clasificación de evidencias (Tipo='Proyecto').
+  // Solo MANTENIMIENTO usa pares ANTES/DESPUÉS. Pendientes DESPUÉS significa
+  // específicamente que ya tiene ANTES, pero aún no tiene DESPUÉS.
   const inventoryComplete = progress.expected > 0 && progress.items.every((item) => item.registered >= item.expected);
+  const pairMode = normalize(maintenance.TipoMantenimiento) !== 'proyecto';
   if (!progress.items?.length) {
     lines.push('• Sin cantidades planificadas ni dispositivos registrados.');
   } else if (inventoryComplete) {
     lines[lines.length - 1] = 'Evidencias por tipo de dispositivo:';
     progress.items.forEach((item) => {
-      lines.push(`• ${item.label}: ${item.registered} dispositivo${item.registered === 1 ? '' : 's'} · ${item.withEvidence} con evidencia · ${item.missingEvidence} sin evidencia · ${item.evidenceTotal} archivo${item.evidenceTotal === 1 ? '' : 's'}`);
+      if (pairMode) {
+        lines.push(`• ${item.label}: ${item.registered} dispositivo${item.registered === 1 ? '' : 's'} · ${item.completeEvidencePairs} con ANTES y DESPUÉS · ${item.pendingAfter} pendiente${item.pendingAfter === 1 ? '' : 's'} DESPUÉS · ${item.missingEvidence} sin fotos`);
+        if (item.onlyAfter > 0) lines.push(`  Solo DESPUÉS (sin ANTES): ${item.onlyAfter}`);
+        if (item.unclassifiedOnly > 0) lines.push(`  Evidencias sin clasificar: ${item.unclassifiedOnly}`);
+      } else {
+        lines.push(`• ${item.label}: ${item.registered} dispositivo${item.registered === 1 ? '' : 's'} · ${item.withEvidence} con evidencia · ${item.missingEvidence} sin evidencia · ${item.evidenceTotal} archivo${item.evidenceTotal === 1 ? '' : 's'}`);
+      }
     });
   } else {
     progress.items.forEach((item) => {
@@ -315,8 +350,16 @@ export function formatMaintenanceProgressMessage({
 
   lines.push('', `Total: ${progress.registered} de ${progress.expected} (${progress.percentage}%)`);
   if (inventoryComplete) {
-    lines.push(`Con evidencias: ${progress.withEvidence}`);
-    lines.push(`Sin evidencias: ${progress.missingEvidence}`);
+    if (pairMode) {
+      lines.push(`Con ANTES y DESPUÉS: ${progress.completeEvidencePairs}`);
+      lines.push(`Pendientes DESPUÉS (tienen ANTES): ${progress.pendingAfter}`);
+      lines.push(`Sin fotos: ${progress.missingEvidence}`);
+      if (progress.onlyAfter > 0) lines.push(`Solo DESPUÉS (sin ANTES): ${progress.onlyAfter}`);
+      if (progress.unclassifiedOnly > 0) lines.push(`Solo evidencias sin clasificar: ${progress.unclassifiedOnly}`);
+    } else {
+      lines.push(`Con evidencias: ${progress.withEvidence}`);
+      lines.push(`Sin evidencias: ${progress.missingEvidence}`);
+    }
     lines.push(`Archivos cargados: ${progress.evidenceTotal}`);
   } else if (progress.remaining > 0) {
     lines.push(`Pendientes: ${progress.remaining}`);

@@ -159,37 +159,100 @@ test('mensaje muestra avance por dispositivo y total', () => {
   assert.match(message, /Pendientes: 107/);
 });
 
-test('si el inventario está completo detalla por tipo los dispositivos sin evidencias y los archivos activos', () => {
+test('un inventario completo cuenta pendientes DESPUÉS solo en equipos con ANTES sin DESPUÉS', () => {
   const maintenance = { MantenimientoID: 'mnt-1', Cliente: 'Cliente XYZ', Estado: 'PENDIENTE', CantCámaras: 3, CantPuertas: 2 };
   const progress = buildMaintenanceProgress({
     maintenance,
     devices: [...devices('Cámara', 3), ...devices('Puertas', 2)],
     images: [
-      { FotoDispositivoID: 'foto-1', DispositivoMantenimientoRef: 'Cámara-1', Activo: true },
-      { FotoDispositivoID: 'foto-2', DispositivoMantenimientoRef: 'Cámara-1', Activo: true },
-      { DispositivoMantenimientoRef: 'Cámara-2', TotalEvidencias: 3 },
-      { DispositivoMantenimientoRef: 'Cámara-3', TotalEvidencias: 5, Activo: false },
-      { DispositivoMantenimientoRef: 'Puertas-1', TotalEvidencias: 1 },
-      { DispositivoMantenimientoRef: 'otro-mantenimiento', TotalEvidencias: 100 },
+      // Varias fotos ANTES de un mismo equipo equivalen a un solo pendiente.
+      { FotoDispositivoID: 'foto-1', DispositivoMantenimientoRef: 'Cámara-1', Tipo: 'Antes', Activo: true },
+      { FotoDispositivoID: 'foto-2', DispositivoMantenimientoRef: 'Cámara-1', Tipo: 'ANTES', Activo: true },
+      // La agregación real de PostgreSQL indica que este equipo tiene ambos tipos.
+      { DispositivoMantenimientoRef: 'Cámara-2', TotalEvidencias: 3, EvidenciasAntes: 1, EvidenciasDespues: 2 },
+      { DispositivoMantenimientoRef: 'Cámara-3', TotalEvidencias: 5, EvidenciasAntes: 5, Activo: false },
+      { DispositivoMantenimientoRef: 'Puertas-1', TotalEvidencias: 1, EvidenciasAntes: 1, EvidenciasDespues: 0 },
+      { DispositivoMantenimientoRef: 'otro-mantenimiento', TotalEvidencias: 100, EvidenciasAntes: 100 },
     ],
   });
   const cameras = progress.items.find((item) => item.label === 'Cámaras');
   assert.equal(cameras.withEvidence, 2);
   assert.equal(cameras.missingEvidence, 1);
   assert.equal(cameras.evidenceTotal, 5);
+  assert.equal(cameras.pendingAfter, 1);
+  assert.equal(cameras.completeEvidencePairs, 1);
   assert.equal(progress.withEvidence, 3);
   assert.equal(progress.missingEvidence, 2);
+  assert.equal(progress.pendingAfter, 2);
+  assert.equal(progress.completeEvidencePairs, 1);
   assert.equal(progress.evidenceTotal, 6);
 
   const message = formatMaintenanceProgressMessage({ maintenance, progress });
   assert.match(message, /Evidencias por tipo de dispositivo:/);
-  assert.match(message, /Cámaras: 3 dispositivos · 2 con evidencia · 1 sin evidencia · 5 archivos/);
-  assert.match(message, /Puertas: 2 dispositivos · 1 con evidencia · 1 sin evidencia · 1 archivo/);
+  assert.match(message, /Cámaras: 3 dispositivos · 1 con ANTES y DESPUÉS · 1 pendiente DESPUÉS · 1 sin fotos/);
+  assert.match(message, /Puertas: 2 dispositivos · 0 con ANTES y DESPUÉS · 1 pendiente DESPUÉS · 1 sin fotos/);
   assert.match(message, /Total: 5 de 5 \(100%\)/);
-  assert.match(message, /Con evidencias: 3/);
-  assert.match(message, /Sin evidencias: 2/);
+  assert.match(message, /Con ANTES y DESPUÉS: 1/);
+  assert.match(message, /Pendientes DESPUÉS \(tienen ANTES\): 2/);
+  assert.match(message, /Sin fotos: 2/);
   assert.match(message, /Archivos cargados: 6/);
   assert.doesNotMatch(message, /Pendientes: /);
+});
+
+test('solo DESPUÉS y fotos sin clasificar no se confunden con pendientes DESPUÉS', () => {
+  const maintenance = { MantenimientoID: 'mnt-1', TipoMantenimiento: 'MANTENIMIENTO', CantCámaras: 5 };
+  const progress = buildMaintenanceProgress({
+    maintenance,
+    devices: devices('Cámara', 5),
+    images: [
+      { DispositivoMantenimientoRef: 'Cámara-1', TotalEvidencias: 3, EvidenciasAntes: 3, EvidenciasDespues: 0 },
+      { DispositivoMantenimientoRef: 'Cámara-2', Tipo: 'ANTES' },
+      { DispositivoMantenimientoRef: 'Cámara-2', Tipo: 'Después' },
+      { DispositivoMantenimientoRef: 'Cámara-3', Tipo: 'AFTER' },
+      { DispositivoMantenimientoRef: 'Cámara-5', Tipo: 'OTRA' },
+    ],
+  });
+  assert.equal(progress.pendingAfter, 1);
+  assert.equal(progress.completeEvidencePairs, 1);
+  assert.equal(progress.onlyAfter, 1);
+  assert.equal(progress.unclassifiedOnly, 1);
+  assert.equal(progress.missingEvidence, 1);
+  const message = formatMaintenanceProgressMessage({ maintenance, progress });
+  assert.match(message, /Pendientes DESPUÉS \(tienen ANTES\): 1/);
+  assert.match(message, /Solo DESPUÉS \(sin ANTES\): 1/);
+  assert.match(message, /Sin fotos: 1/);
+  assert.match(message, /Solo evidencias sin clasificar: 1/);
+});
+
+test('si se elimina la única foto DESPUÉS, el equipo vuelve a estar pendiente', () => {
+  const maintenance = { MantenimientoID: 'mnt-1', CantPuertas: 1 };
+  const before = devices('Puertas', 1);
+  const complete = buildMaintenanceProgress({
+    maintenance, devices: before,
+    images: [{ DispositivoMantenimientoRef: 'Puertas-1', TotalEvidencias: 2, EvidenciasAntes: 1, EvidenciasDespues: 1 }],
+  });
+  const afterDelete = buildMaintenanceProgress({
+    maintenance, devices: before,
+    images: [{ DispositivoMantenimientoRef: 'Puertas-1', TotalEvidencias: 1, EvidenciasAntes: 1, EvidenciasDespues: 0 }],
+  });
+  assert.equal(complete.pendingAfter, 0);
+  assert.equal(complete.completeEvidencePairs, 1);
+  assert.equal(afterDelete.pendingAfter, 1);
+  assert.equal(afterDelete.completeEvidencePairs, 0);
+});
+
+test('los proyectos mantienen el reporte histórico de evidencias sin exigir ANTES/DESPUÉS', () => {
+  const maintenance = { MantenimientoID: 'mnt-1', TipoMantenimiento: 'PROYECTO', CantPuertas: 2 };
+  const progress = buildMaintenanceProgress({
+    maintenance,
+    devices: devices('Puertas', 2),
+    images: [{ DispositivoMantenimientoRef: 'Puertas-1', Tipo: 'Proyecto' }],
+  });
+  const message = formatMaintenanceProgressMessage({ maintenance, progress });
+  assert.match(message, /Puertas: 2 dispositivos · 1 con evidencia · 1 sin evidencia · 1 archivo/);
+  assert.match(message, /Con evidencias: 1/);
+  assert.match(message, /Sin evidencias: 1/);
+  assert.doesNotMatch(message, /Pendientes DESPUÉS/);
 });
 
 test('mantiene el mensaje anterior mientras falten dispositivos, aun cuando ya existan fotografías', () => {
@@ -221,6 +284,19 @@ test('no declara inventario completo si falta un tipo aunque otro supere su cuot
   assert.match(message, /Avance por tipo:/);
   assert.match(message, /Puertas: 1 de 2/);
   assert.doesNotMatch(message, /Evidencias por tipo de dispositivo:/);
+});
+
+test('el resumen SQL contabiliza fotografías activas ANTES/DESPUÉS sin consulta por equipo', () => {
+  const service = source('backend/src/services/maintenance-progress-chat.service.js');
+  assert.match(service, /COUNT\(\*\) FILTER \(WHERE image\."Tipo" ILIKE '%antes%'/);
+  assert.match(service, /COUNT\(\*\) FILTER \(WHERE image\."Tipo" ILIKE '%desp%'/);
+  assert.match(service, /AS "EvidenciasAntes"/);
+  assert.match(service, /AS "EvidenciasDespues"/);
+  assert.match(service, /GROUP BY image\."DispositivoMantenimientoRef"/);
+  assert.match(service, /image\."__valid" = TRUE/);
+  assert.match(service, /device\."MantenimientoRef" = ANY\(\$1::text\[\]\)/);
+  assert.match(service, /UPPER\(COALESCE\(image\."Activo"/);
+  assert.match(service, /pendingAfter: progress\.pendingAfter/);
 });
 
 test('el Chat usa el estado vigente y deja fuera cierres completos y evidencias borradas', () => {
