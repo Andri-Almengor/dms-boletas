@@ -84,6 +84,8 @@ function createDefinition(map, key, label, order = 1000) {
       label: clean(label) || 'Dispositivo',
       expected: 0,
       registered: 0,
+      withEvidence: 0,
+      evidenceTotal: 0,
       order,
     });
   }
@@ -111,8 +113,18 @@ function dynamicDefinitionForType(definitions, typeId, typeName, expected = 0) {
   return definition;
 }
 
-export function buildMaintenanceProgress({ maintenance = {}, devices = [], deviceTypes = [] } = {}) {
+export function buildMaintenanceProgress({ maintenance = {}, devices = [], deviceTypes = [], images = [] } = {}) {
   const definitions = new Map();
+  // Las fotos ya están guardadas en PostgreSQL. Se aceptan tanto filas
+  // individuales como conteos agrupados por dispositivo obtenidos en batch.
+  const evidenceByDevice = new Map();
+  for (const image of images || []) {
+    if (!isActive(image)) continue;
+    const deviceId = clean(image.DispositivoMantenimientoRef);
+    if (!deviceId) continue;
+    const count = image.TotalEvidencias == null ? 1 : nonNegativeNumber(image.TotalEvidencias);
+    evidenceByDevice.set(deviceId, (evidenceByDevice.get(deviceId) || 0) + count);
+  }
   const counts = parseCounts(maintenance.CantidadesJSON);
   const types = typeMaps(deviceTypes);
 
@@ -154,6 +166,9 @@ export function buildMaintenanceProgress({ maintenance = {}, devices = [], devic
       )
       : dynamicDefinitionForType(definitions, typeId, typeName || types.byId.get(typeId) || 'Dispositivo');
     definition.registered += 1;
+    const uploaded = evidenceByDevice.get(clean(device.EvidenciaMantenimientoID)) || 0;
+    definition.evidenceTotal += uploaded;
+    if (uploaded > 0) definition.withEvidence += 1;
   }
 
   const items = [...definitions.values()]
@@ -165,6 +180,9 @@ export function buildMaintenanceProgress({ maintenance = {}, devices = [], devic
       registered: item.registered,
       expected: item.expected,
       remaining: Math.max(0, item.expected - item.registered),
+      withEvidence: item.withEvidence,
+      missingEvidence: Math.max(0, item.registered - item.withEvidence),
+      evidenceTotal: item.evidenceTotal,
       percentage: item.expected > 0 ? Math.round((item.registered / item.expected) * 1000) / 10 : 0,
     }));
 
@@ -177,6 +195,9 @@ export function buildMaintenanceProgress({ maintenance = {}, devices = [], devic
     remaining: Math.max(0, expected - registered),
     percentage: expected > 0 ? Math.round((registered / expected) * 1000) / 10 : 0,
     overPlan: Math.max(0, registered - expected),
+    withEvidence: items.reduce((total, item) => total + item.withEvidence, 0),
+    missingEvidence: items.reduce((total, item) => total + item.missingEvidence, 0),
+    evidenceTotal: items.reduce((total, item) => total + item.evidenceTotal, 0),
   };
 }
 
@@ -275,8 +296,17 @@ export function formatMaintenanceProgressMessage({
   if (clean(maintenance.Ubicacion)) lines.push(`Ubicación: ${clean(maintenance.Ubicacion)}`);
   lines.push('Estado: PENDIENTE', '', 'Avance por tipo:');
 
+  // Hasta completar el inventario se conserva el mensaje de planificación.
+  // Después informamos dispositivos pendientes de documentar (al menos una
+  // evidencia subida); no equivale a checklist terminado ni a finalización.
+  const inventoryComplete = progress.expected > 0 && progress.registered >= progress.expected;
   if (!progress.items?.length) {
     lines.push('• Sin cantidades planificadas ni dispositivos registrados.');
+  } else if (inventoryComplete) {
+    lines[lines.length - 1] = 'Evidencias por tipo de dispositivo:';
+    progress.items.forEach((item) => {
+      lines.push(`• ${item.label}: ${item.registered} dispositivos · ${item.withEvidence} con evidencia · ${item.missingEvidence} sin evidencia · ${item.evidenceTotal} archivos`);
+    });
   } else {
     progress.items.forEach((item) => {
       lines.push(`• ${item.label}: ${item.registered} de ${item.expected}`);
@@ -284,7 +314,13 @@ export function formatMaintenanceProgressMessage({
   }
 
   lines.push('', `Total: ${progress.registered} de ${progress.expected} (${progress.percentage}%)`);
-  if (progress.remaining > 0) lines.push(`Pendientes: ${progress.remaining}`);
+  if (inventoryComplete) {
+    lines.push(`Con evidencias: ${progress.withEvidence}`);
+    lines.push(`Sin evidencias: ${progress.missingEvidence}`);
+    lines.push(`Archivos cargados: ${progress.evidenceTotal}`);
+  } else if (progress.remaining > 0) {
+    lines.push(`Pendientes: ${progress.remaining}`);
+  }
   if (progress.overPlan > 0) lines.push(`Sobre lo planificado: +${progress.overPlan}`);
   if (clean(maintenance.Responsables)) lines.push(`Responsables: ${clean(maintenance.Responsables)}`);
   lines.push(`Actualizado: ${localTimestamp(now, timeZone)}`);
