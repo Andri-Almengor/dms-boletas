@@ -299,7 +299,7 @@ export function formatMaintenanceProgressMessage({
   // Hasta completar el inventario se conserva el mensaje de planificación.
   // Después informamos dispositivos pendientes de documentar (al menos una
   // evidencia subida); no equivale a checklist terminado ni a finalización.
-  const inventoryComplete = progress.expected > 0 && progress.registered >= progress.expected;
+  const inventoryComplete = progress.expected > 0 && progress.items.every((item) => item.registered >= item.expected);
   if (!progress.items?.length) {
     lines.push('• Sin cantidades planificadas ni dispositivos registrados.');
   } else if (inventoryComplete) {
