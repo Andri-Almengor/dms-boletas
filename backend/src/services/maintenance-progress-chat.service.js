@@ -59,7 +59,12 @@ function active(row = {}) {
 }
 
 function pendingMaintenance(row = {}) {
-  return active(row) && normalized(row.Estado || 'PENDIENTE') === 'PENDIENTE';
+  // Estado es la fuente operativa. El cierre escalonado también conserva
+  // EstadoFinalizacion; no enviar avances mientras conste COMPLETADO aunque
+  // la columna Estado haya quedado rezagada por un cierre parcial.
+  return active(row)
+    && normalized(row.Estado || 'PENDIENTE') === 'PENDIENTE'
+    && normalized(row.EstadoFinalizacion) !== 'COMPLETADO';
 }
 
 function configuredHours() {
@@ -256,6 +261,9 @@ async function claimNotification({
         expected: progress.expected,
         remaining: progress.remaining,
         percentage: progress.percentage,
+        withEvidence: progress.withEvidence,
+        missingEvidence: progress.missingEvidence,
+        evidenceTotal: progress.evidenceTotal,
         items: progress.items,
       }),
     };
@@ -295,6 +303,9 @@ async function persistAttempt({ existing, key, maintenance, reason, webhook, act
       expected: progress.expected,
       remaining: progress.remaining,
       percentage: progress.percentage,
+      withEvidence: progress.withEvidence,
+      missingEvidence: progress.missingEvidence,
+      evidenceTotal: progress.evidenceTotal,
       items: progress.items,
     }),
   };
@@ -316,19 +327,44 @@ function progressContextForMaintenance(maintenance, context = {}) {
     devices: (context.devices || []).filter((device) => (
       clean(device.MantenimientoRef) === maintenanceId && active(device)
     )),
+    images: context.images || [],
   };
 }
 
+// En una sola consulta agrupada obtiene el número de evidencias persistidas
+// de todos los dispositivos de los mantenimientos indicados. Evita N+1 y no
+// transfiere las fotografías, sus enlaces o su contenido al worker de Chat.
+async function loadEvidenceSummary(maintenanceIds = []) {
+  const ids = [...new Set(maintenanceIds.map(clean).filter(Boolean))];
+  if (!ids.length) return [];
+  const response = await query(
+    `SELECT image."DispositivoMantenimientoRef",
+            COUNT(*)::integer AS "TotalEvidencias"
+       FROM "Mantenimiento imagenes" AS image
+       JOIN "Evidencia_Mantenimientos" AS device
+         ON device."EvidenciaMantenimientoID" = image."DispositivoMantenimientoRef"
+      WHERE image."__valid" = TRUE AND device."__valid" = TRUE
+        AND device."MantenimientoRef" = ANY($1::text[])
+        AND UPPER(COALESCE(image."Activo", 'TRUE')) NOT IN ('FALSE', '0', 'NO', 'INACTIVO', 'INACTIVE')
+      GROUP BY image."DispositivoMantenimientoRef"`,
+    [ids],
+    { label: 'maintenance_progress_chat.evidence_counts' },
+  );
+  return response.rows;
+}
+
 async function loadContextForMaintenance(maintenance) {
-  const tables = await readTables([
-    'Clientes',
-    'TiposDispositivo',
-    'Evidencia_Mantenimientos',
+  const maintenanceId = clean(maintenance.MantenimientoID);
+  const [tables, devices, images] = await Promise.all([
+    readTables(['Clientes', 'TiposDispositivo']),
+    findRows('Evidencia_Mantenimientos', { MantenimientoRef: maintenanceId }, { limit: 50_000 }),
+    loadEvidenceSummary([maintenanceId]),
   ]);
   return {
     clients: tables.Clientes || [],
     deviceTypes: tables.TiposDispositivo || [],
-    devices: tables.Evidencia_Mantenimientos || [],
+    devices,
+    images,
   };
 }
 
@@ -342,28 +378,41 @@ export async function notifyMaintenanceProgress({
   context = null,
 } = {}) {
   if (!maintenance?.MantenimientoID) return { sent: false, skipped: 'NO_MAINTENANCE' };
-  if (!pendingMaintenance(maintenance)) return { sent: false, skipped: 'NOT_PENDING' };
   if (!isMaintenanceProgressWeekday(now, env.maintenanceProgressChatTimezone)) {
     return { sent: false, skipped: 'WEEKEND' };
   }
 
-  const loadedContext = context || await loadContextForMaintenance(maintenance);
-  const local = progressContextForMaintenance(maintenance, loadedContext);
-  const client = clientForMaintenance(maintenance, local.clients);
+  // Un aviso inmediato puede llevar tiempo en la cola y los ciclos 07:00/17:00
+  // comparten instantáneas. Nunca enviar usando el Estado/Cliente del momento
+  // del encolado: releer el mantenimiento operativo justo antes de procesarlo.
+  const currentRows = await findRows(
+    'Mantenimiento',
+    { MantenimientoID: clean(maintenance.MantenimientoID) },
+    { limit: 1 },
+  );
+  const currentMaintenance = currentRows[0];
+  if (!currentMaintenance || !pendingMaintenance(currentMaintenance)) {
+    return { sent: false, skipped: 'NOT_PENDING' };
+  }
+
+  const loadedContext = context || await loadContextForMaintenance(currentMaintenance);
+  const local = progressContextForMaintenance(currentMaintenance, loadedContext);
+  const client = clientForMaintenance(currentMaintenance, local.clients);
   const webhook = clientWebhook(client);
   if (!webhook) return { sent: false, skipped: 'NO_CLIENT_CHAT' };
 
   const progress = buildMaintenanceProgress({
-    maintenance,
+    maintenance: currentMaintenance,
     devices: local.devices,
     deviceTypes: local.deviceTypes,
+    images: local.images,
   });
-  const key = notificationKey({ maintenance, reason, slotKey });
+  const key = notificationKey({ maintenance: currentMaintenance, reason, slotKey });
 
   return withKeyLock(key, async () => {
     const reservation = await claimNotification({
       key,
-      maintenance,
+      maintenance: currentMaintenance,
       reason,
       webhook,
       actor,
@@ -380,7 +429,7 @@ export async function notifyMaintenanceProgress({
     const existing = reservation.existing;
 
     const message = formatMaintenanceProgressMessage({
-      maintenance,
+      maintenance: currentMaintenance,
       progress,
       reason,
       slot,
@@ -399,7 +448,7 @@ export async function notifyMaintenanceProgress({
     await persistAttempt({
       existing,
       key,
-      maintenance,
+      maintenance: currentMaintenance,
       reason,
       webhook,
       actor,
@@ -437,12 +486,13 @@ async function dispatchScheduledMaintenanceProgress({ slot, slotKey, now = new D
     'Clientes',
   ], { force: true });
 
+  const pending = (tables.Mantenimiento || []).filter(pendingMaintenance);
   const context = {
     devices: tables.Evidencia_Mantenimientos || [],
     deviceTypes: tables.TiposDispositivo || [],
     clients: tables.Clientes || [],
+    images: await loadEvidenceSummary(pending.map((row) => row.MantenimientoID)),
   };
-  const pending = (tables.Mantenimiento || []).filter(pendingMaintenance);
   const summary = { due: true, slot, key: slotKey, pending: pending.length, sent: 0, skipped: 0, failed: 0 };
 
   for (const maintenance of pending) {

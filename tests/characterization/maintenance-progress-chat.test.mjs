@@ -159,6 +159,85 @@ test('mensaje muestra avance por dispositivo y total', () => {
   assert.match(message, /Pendientes: 107/);
 });
 
+test('si el inventario está completo detalla por tipo los dispositivos sin evidencias y los archivos activos', () => {
+  const maintenance = { MantenimientoID: 'mnt-1', Cliente: 'Cliente XYZ', Estado: 'PENDIENTE', CantCámaras: 3, CantPuertas: 2 };
+  const progress = buildMaintenanceProgress({
+    maintenance,
+    devices: [...devices('Cámara', 3), ...devices('Puertas', 2)],
+    images: [
+      { FotoDispositivoID: 'foto-1', DispositivoMantenimientoRef: 'Cámara-1', Activo: true },
+      { FotoDispositivoID: 'foto-2', DispositivoMantenimientoRef: 'Cámara-1', Activo: true },
+      { DispositivoMantenimientoRef: 'Cámara-2', TotalEvidencias: 3 },
+      { DispositivoMantenimientoRef: 'Cámara-3', TotalEvidencias: 5, Activo: false },
+      { DispositivoMantenimientoRef: 'Puertas-1', TotalEvidencias: 1 },
+      { DispositivoMantenimientoRef: 'otro-mantenimiento', TotalEvidencias: 100 },
+    ],
+  });
+  const cameras = progress.items.find((item) => item.label === 'Cámaras');
+  assert.equal(cameras.withEvidence, 2);
+  assert.equal(cameras.missingEvidence, 1);
+  assert.equal(cameras.evidenceTotal, 5);
+  assert.equal(progress.withEvidence, 3);
+  assert.equal(progress.missingEvidence, 2);
+  assert.equal(progress.evidenceTotal, 6);
+
+  const message = formatMaintenanceProgressMessage({ maintenance, progress });
+  assert.match(message, /Evidencias por tipo de dispositivo:/);
+  assert.match(message, /Cámaras: 3 dispositivos · 2 con evidencia · 1 sin evidencia · 5 archivos/);
+  assert.match(message, /Puertas: 2 dispositivos · 1 con evidencia · 1 sin evidencia · 1 archivo/);
+  assert.match(message, /Total: 5 de 5 \(100%\)/);
+  assert.match(message, /Con evidencias: 3/);
+  assert.match(message, /Sin evidencias: 2/);
+  assert.match(message, /Archivos cargados: 6/);
+  assert.doesNotMatch(message, /Pendientes: /);
+});
+
+test('mantiene el mensaje anterior mientras falten dispositivos, aun cuando ya existan fotografías', () => {
+  const maintenance = { MantenimientoID: 'mnt-1', Estado: 'PENDIENTE', CantCámaras: 4, CantPuertas: 2 };
+  const progress = buildMaintenanceProgress({
+    maintenance,
+    devices: [...devices('Cámara', 3), ...devices('Puertas', 2)],
+    images: [{ DispositivoMantenimientoRef: 'Cámara-1', TotalEvidencias: 2 }],
+  });
+  const message = formatMaintenanceProgressMessage({ maintenance, progress });
+  assert.match(message, /Avance por tipo:/);
+  assert.match(message, /Cámaras: 3 de 4/);
+  assert.match(message, /Puertas: 2 de 2/);
+  assert.match(message, /Total: 5 de 6/);
+  assert.match(message, /Pendientes: 1/);
+  assert.doesNotMatch(message, /Sin evidencias: /);
+});
+
+test('no declara inventario completo si falta un tipo aunque otro supere su cuota', () => {
+  const maintenance = { MantenimientoID: 'mnt-1', CantCámaras: 3, CantPuertas: 2 };
+  const progress = buildMaintenanceProgress({
+    maintenance,
+    devices: [...devices('Cámara', 4), ...devices('Puertas', 1)],
+    images: [],
+  });
+  assert.equal(progress.registered, progress.expected);
+  assert.equal(progress.items.find((item) => item.label === 'Puertas').remaining, 1);
+  const message = formatMaintenanceProgressMessage({ maintenance, progress });
+  assert.match(message, /Avance por tipo:/);
+  assert.match(message, /Puertas: 1 de 2/);
+  assert.doesNotMatch(message, /Evidencias por tipo de dispositivo:/);
+});
+
+test('el Chat usa el estado vigente y deja fuera cierres completos y evidencias borradas', () => {
+  const service = source('backend/src/services/maintenance-progress-chat.service.js');
+  assert.match(service, /normalized\(row\.EstadoFinalizacion\) !== 'COMPLETADO'/);
+  assert.match(service, /const currentRows = await findRows\(\s*'Mantenimiento'/);
+  assert.match(service, /const currentMaintenance = currentRows\[0\]/);
+  assert.match(service, /if \(!currentMaintenance \|\| !pendingMaintenance\(currentMaintenance\)\)/);
+  assert.ok(service.indexOf('const currentRows = await findRows') < service.indexOf('const reservation = await claimNotification'));
+  assert.match(service, /maintenance: currentMaintenance/);
+  assert.match(service, /loadEvidenceSummary\(pending\.map/);
+  assert.match(service, /GROUP BY image\."DispositivoMantenimientoRef"/);
+  assert.match(service, /image\."__valid" = TRUE/);
+  assert.match(service, /UPPER\(COALESCE\(image\."Activo"/);
+  assert.match(service, /images: local\.images/);
+});
+
 test('la integración usa el Chat del cliente, idempotencia persistente y no bloquea el guardado', () => {
   const router = source('backend/src/core/action-router.js');
   const wrapper = source('backend/src/modules/maintenance-progress-chat.module.js');
