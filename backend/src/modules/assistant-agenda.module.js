@@ -322,6 +322,7 @@ async function chat(ctx) {
   const action = String(ctx.payload?.assistantAction || '').trim().toLowerCase();
   if (action === 'attachment.init') return largeEvidenceUploadHandlers.assistantInit(ctx);
   if (action === 'attachment.chunk') return largeEvidenceUploadHandlers.assistantChunk(ctx);
+  if (action === 'speech.transcribe') return aiAgentHandlers.transcribe(ctx);
   if (action === 'operation.decide') return decideAiOperation(ctx);
   if (action === 'operation.revise') return reviseAiTicketOperation(ctx, ctx.payload);
   if (action === 'operation.status') return (await getAiOperationStatus(ctx, ctx.payload)).modelData;
