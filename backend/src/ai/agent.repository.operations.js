@@ -1311,6 +1311,71 @@ export async function prepareTicketBatchCreate(ctx,args={}){
   };
 }
 
+
+const TICKET_EDIT_FIELDS=Object.freeze({
+  title:'Titulo',client:'client',date:'Fecha',startTime:'HoraInicio',endTime:'HoraFinal',
+  category:'category',failureType:'failureType',deviceType:'deviceType',
+  deviceName:'Descripcion',location:'location',equipmentLocation:'equipmentLocation',
+  supervisor:'supervisor',manufacturer:'manufacturer',model:'model',serial:'Serie',
+  mac:'DireccionMAC',reason:'RazonVisita',tests:'PruebasRealizadas',
+  result:'Resultado',recommendations:'Recomendaciones',
+});
+export async function reviseAiTicketOperation(ctx,args={}){
+  assertTicketWrite(ctx);
+  const operationId=clean(args.operationId,250);
+  const index=Number(args.index)-1;
+  const fields=args.fields;
+  if(!operationId || !Number.isInteger(index) || index<0 || !fields || typeof fields!=='object' || Array.isArray(fields)){
+    throw badRequest('Debe indicar la boleta y los campos que desea corregir.');
+  }
+  const op=await findOperation(ctx,operationId);
+  if(op.Action!=='TICKET_BATCH_CREATE')throw badRequest('Esta operación no contiene boletas editables.');
+  if(expired(op.ExpiresAt))throw new AppError('AI_OPERATION_EXPIRED','La propuesta expiró.',409);
+  if(op.Status!=='PENDING')throw new AppError('AI_OPERATION_CONFLICT','Solo puede corregir propuestas pendientes de confirmar.',409);
+  const saved=parseJson(op.ArgumentsJSON,{});
+  const originals=Array.isArray(saved.tickets)?saved.tickets:[];
+  if(index>=originals.length)throw badRequest('Índice de boleta fuera del lote.');
+  if(!Object.keys(fields).length)throw badRequest('Indique al menos un campo para corregir.');
+  const patch={};
+  for(const [name,value] of Object.entries(fields)){
+    if(name==='technicians'){
+      if(!Array.isArray(value)||value.length>20)throw badRequest('La lista de técnicos no es válida.');
+      patch.technicians=value.map(entry=>clean(entry,250)).filter(Boolean);
+    }else if(name==='followUpOf'){
+      if(value!==null&&value!==''&&(!Number.isInteger(Number(value))||Number(value)<0||Number(value)>TICKET_BATCH_LIMIT))throw badRequest('Seguimiento no válido.');
+      patch.followUpOf=value===null||value===''||Number(value)===0?null:Number(value);
+    }else if(TICKET_EDIT_FIELDS[name]){
+      if(typeof value!=='string')throw badRequest('El campo '+name+' requiere texto.');
+      patch[TICKET_EDIT_FIELDS[name]]=clean(value,3000);
+    }else throw badRequest('No se permite editar el campo '+name+'.');
+  }
+  const next=originals.map((entry,i)=>{
+    const data={
+      ...entry.payload,
+      technicians:entry.payload.AsignadoA,
+      followUpOf:entry.followUpOf===null?null:entry.followUpOf+1,
+    };
+    if(i===index)Object.assign(data,patch);
+    return data;
+  });
+  const {items,catalog}=await resolveTicketBatch(ctx,next);
+  const preview=ticketBatchPreview(items,catalog);
+  if(items.some(entry=>entry.missing.length)){
+    return {operationId,status:'PENDING',needsInput:true,
+      issues:preview.filter(item=>item.missing.length).map(item=>({index:item.index,missing:item.missing})),
+      preview:operationPreview(op)};
+  }
+  const revised={tickets:items.map(({payload,followUpOf})=>({payload,followUpOf}))};
+  const change=await query(
+    'UPDATE "AiPendingOperations" SET "ArgumentsJSON"=$5::jsonb,"PreviewJSON"=$6::jsonb,"UpdatedAt"=$7 WHERE "__valid"=TRUE AND "OperationID"=$1 AND "UserID"=$2 AND "SessionHash"=$3 AND "Status"=$4 AND "UpdatedAt"=$8 RETURNING *',
+    [operationId,clean(ctx?.user?.UsuarioID,250),sessionHash(ctx),'PENDING',
+      JSON.stringify(revised),JSON.stringify({tickets:preview}),nowIso(),op.UpdatedAt],
+    {label:'ai.ticket.revise',write:true},
+  );
+  if(!change.rowCount)throw new AppError('AI_OPERATION_CONFLICT','La propuesta cambió. Recárguela antes de corregir.',409);
+  return publicOperation(change.rows[0]);
+}
+
 async function commitTicketBatch(ctx,op){
   assertTicketWrite(ctx);
   const saved=parseJson(op.ArgumentsJSON,{});
