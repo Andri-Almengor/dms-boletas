@@ -908,14 +908,19 @@ export default function AssistantPageSecure() {
   function endDictation(cancel = false) {
     const recognition = speechRef.current;
     if (!recognition) return;
-    // El texto final reconocido queda editable; cancelar descarta los resultados provisionales.
-    speechRef.current = null;
-    recognition.onresult = null;
-    recognition.onerror = null;
-    recognition.onend = null;
-    if (cancel) recognition.abort();
-    else recognition.stop();
-    setInterimTranscript('');
+    if (cancel) {
+      // Cancelar aborta la captura y descarta los resultados provisionales.
+      speechRef.current = null;
+      recognition.onresult = null;
+      recognition.onerror = null;
+      recognition.onend = null;
+      recognition.abort();
+      setInterimTranscript('');
+    } else {
+      // stop() puede entregar el último resultado FINAL de forma asíncrona.
+      // No desconectamos onresult hasta onend, para no perder las últimas palabras.
+      recognition.stop();
+    }
     setDictating(false);
   }
 
@@ -1099,6 +1104,8 @@ export default function AssistantPageSecure() {
     } catch (requestError) {
       const message = requestError?.message || 'No se pudo consultar el asistente.';
       setError(message);
+      // Conservar el dictado en el editor si la red o Gemini fallaron.
+      setInput((current) => current || question);
       setMessages((current) => [...current, { id: messageId(), role: 'assistant', text: message, sources: [], entities: [], attachments: [], confirmations: [], options: [], suggestions: [], tables: [], stats: [], sensitive: false }]);
     } finally {
       setSending(false);
