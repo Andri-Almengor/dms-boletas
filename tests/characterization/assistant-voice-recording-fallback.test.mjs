@@ -90,6 +90,6 @@ test('el micrófono no queda deshabilitado cuando hay MediaRecorder sin reconoci
   assert.match(page, /function startDictation\(\) \{[\s\S]*?if \(recordingSupported\) \{\s*void startRecordedDictation\(\)/);
   assert.match(page, /function startNativeDictation\(\)/);
   assert.match(page, /speech\.transcribe/);
-  assert.match(page, /Grabar con Gemini/);
+  assert.match(page, /Iniciar dictado/);
   assert.match(page, /transmite al backend de DMS y a Gemini/);
 });
