@@ -17,6 +17,8 @@ const ASSISTANT_PROGRESS_STATES = [
 const ASSISTANT_FILE_EXTENSIONS = new Set(['pdf', 'doc', 'docx', 'xls', 'xlsx', 'csv', 'txt']);
 const MAX_ASSISTANT_FILES = 50;
 const MAX_ASSISTANT_FILE_BYTES = 50 * 1024 * 1024;
+const MAX_VOICE_RECORDING_BYTES = 3 * 1024 * 1024;
+const MAX_VOICE_RECORDING_MS = 90_000;
 
 const STARTER_QUESTIONS = [
   '¿Cuántas boletas hay pendientes?',
@@ -887,6 +889,16 @@ export default function AssistantPageSecure() {
   const [speechSupported] = useState(() => Boolean(
     typeof window !== 'undefined' && (window.SpeechRecognition || window.webkitSpeechRecognition)
   ));
+  const [recordingSupported] = useState(() => Boolean(
+    typeof window !== 'undefined' && window.MediaRecorder
+      && typeof navigator !== 'undefined' && navigator.mediaDevices?.getUserMedia
+  ));
+  const [audioTranscribing, setAudioTranscribing] = useState(false);
+  const [recordingStarting, setRecordingStarting] = useState(false);
+  const [nativeSpeechFailed, setNativeSpeechFailed] = useState(false);
+  const recordingRef = useRef(null);
+  const recordingSessionRef = useRef(0);
+  const transcriptionAbortRef = useRef(null);
   const [microphonePermission, setMicrophonePermission] = useState('prompt');
   const [microphoneRequesting, setMicrophoneRequesting] = useState(false);
   const [microphoneFeedback, setMicrophoneFeedback] = useState('');
@@ -988,9 +1000,48 @@ export default function AssistantPageSecure() {
       recognition.abort();
     }
     speechRef.current = null;
+    recordingSessionRef.current += 1;
+    transcriptionAbortRef.current?.abort();
+    const capture = recordingRef.current;
+    if (capture) {
+      capture.cancelled = true;
+      window.clearTimeout(capture.timer);
+      if (capture.recorder.state === 'recording') capture.recorder.stop();
+      capture.stream.getTracks().forEach((track) => track.stop());
+      recordingRef.current = null;
+    }
   }, []);
 
   function endDictation(cancel = false) {
+    const capture = recordingRef.current;
+    if (capture) {
+      if (cancel) {
+        capture.cancelled = true;
+        recordingSessionRef.current += 1;
+      }
+      window.clearTimeout(capture.timer);
+      if (capture.recorder.state === 'recording') capture.recorder.stop();
+      if (cancel) {
+        capture.stream.getTracks().forEach((track) => track.stop());
+        recordingRef.current = null;
+      }
+      setDictating(false);
+      setInterimTranscript('');
+      return;
+    }
+    if (recordingStarting && cancel) {
+      recordingSessionRef.current += 1;
+      setRecordingStarting(false);
+      setDictating(false);
+      return;
+    }
+    if (audioTranscribing && cancel) {
+      recordingSessionRef.current += 1;
+      transcriptionAbortRef.current?.abort();
+      transcriptionAbortRef.current = null;
+      setAudioTranscribing(false);
+      return;
+    }
     const recognition = speechRef.current;
     if (!recognition) return;
     if (cancel) {
@@ -1009,11 +1060,99 @@ export default function AssistantPageSecure() {
     setDictating(false);
   }
 
+  async function startRecordedDictation() {
+    if (sending || dictating || recordingStarting || audioTranscribing || microphoneRequesting
+      || recordingRef.current || speechRef.current) return;
+    if (!window.isSecureContext || !navigator.mediaDevices?.getUserMedia || !window.MediaRecorder) {
+      setError('Este navegador no permite grabar audio. Abra DMS por HTTPS o use el micrófono del teclado.');
+      setMicrophoneHelpOpen(true);
+      return;
+    }
+    const session = ++recordingSessionRef.current;
+    setError('');
+    setMicrophoneFeedback('');
+    setRecordingStarting(true);
+    let stream;
+    try {
+      stream = await navigator.mediaDevices.getUserMedia({ audio: true });
+      if (session !== recordingSessionRef.current) return;
+      setMicrophonePermission('granted');
+      const formats = ['audio/webm;codecs=opus', 'audio/mp4', 'audio/webm', 'audio/ogg;codecs=opus'];
+      const selected = formats.find((mimeType) => window.MediaRecorder.isTypeSupported?.(mimeType));
+      const recorder = new window.MediaRecorder(stream, selected ? { mimeType: selected } : undefined);
+      const chunks = [];
+      const capture = { recorder, stream, chunks, session, cancelled: false, timer: null };
+      recordingRef.current = capture;
+      recorder.ondataavailable = (event) => {
+        if (!capture.cancelled && session === recordingSessionRef.current && event.data?.size) chunks.push(event.data);
+      };
+      recorder.onerror = () => {
+        if (session !== recordingSessionRef.current) return;
+        capture.cancelled = true;
+        window.clearTimeout(capture.timer);
+        stream.getTracks().forEach((track) => track.stop());
+        recordingRef.current = null;
+        setDictating(false);
+        setError('El navegador interrumpió la grabación. Revise el micrófono y vuelva a intentarlo.');
+      };
+      recorder.onstop = async () => {
+        window.clearTimeout(capture.timer);
+        stream.getTracks().forEach((track) => track.stop());
+        if (recordingRef.current === capture) recordingRef.current = null;
+        setDictating(false);
+        if (capture.cancelled || session !== recordingSessionRef.current) return;
+        const blob = new Blob(chunks, { type: recorder.mimeType || chunks[0]?.type || 'audio/webm' });
+        if (blob.size < 200 || blob.size > MAX_VOICE_RECORDING_BYTES) {
+          setError('La grabación está vacía o supera 3 MB. Intente con un audio más corto.');
+          return;
+        }
+        const controller = new AbortController();
+        transcriptionAbortRef.current = controller;
+        setAudioTranscribing(true);
+        try {
+          const result = await apiRequest('assistant.chat', {
+            assistantAction: 'speech.transcribe',
+            mimeType: blob.type.split(';')[0],
+            audioBase64: await blobBase64(blob),
+          }, sessionToken, { cache: 'no-store', signal: controller.signal });
+          if (session !== recordingSessionRef.current) return;
+          const transcript = String(result?.transcript || '').trim();
+          if (!transcript) throw new Error('No se detectaron palabras en el audio.');
+          setInput((current) => (current + (current && !/\\s$/.test(current) ? ' ' : '') + transcript).slice(0, 5000));
+          setMicrophoneFeedback('Dictado transcrito. Puede revisar el texto antes de enviarlo.');
+        } catch (voiceError) {
+          if (session === recordingSessionRef.current) {
+            setError(voiceError?.message || 'No se pudo transcribir el audio. Intente nuevamente.');
+          }
+        } finally {
+          if (transcriptionAbortRef.current === controller) transcriptionAbortRef.current = null;
+          if (session === recordingSessionRef.current) setAudioTranscribing(false);
+        }
+      };
+      recorder.start();
+      setDictating(true);
+      capture.timer = window.setTimeout(() => {
+        if (recordingRef.current === capture && recorder.state === 'recording') recorder.stop();
+      }, MAX_VOICE_RECORDING_MS);
+    } catch (recordError) {
+      if (session === recordingSessionRef.current) {
+        const name = String(recordError?.name || '');
+        setError(['NotAllowedError', 'SecurityError'].includes(name)
+          ? 'El sistema bloqueó la grabación. Revise el permiso de micrófono del navegador.'
+          : 'No se pudo iniciar la grabación. Revise que el micrófono esté disponible.');
+        setMicrophoneHelpOpen(true);
+      }
+    } finally {
+      if (stream && recordingRef.current?.stream !== stream) stream.getTracks().forEach((track) => track.stop());
+      if (session === recordingSessionRef.current) setRecordingStarting(false);
+    }
+  }
+
   function startDictation() {
-    if (sending || speechRef.current) return;
+    if (sending || speechRef.current || recordingRef.current || recordingStarting || audioTranscribing) return;
     const Constructor = window.SpeechRecognition || window.webkitSpeechRecognition;
     if (!Constructor) {
-      setError('Este navegador no admite dictado directo. Puede usar el micrófono del teclado para escribir su mensaje.');
+      void startRecordedDictation();
       return;
     }
     setError('');
@@ -1048,12 +1187,18 @@ export default function AssistantPageSecure() {
       if (speechRef.current !== recognition) return;
       const code = String(event.error || '');
       if (['not-allowed', 'service-not-allowed'].includes(code)) {
-        setError('El navegador bloqueó el reconocimiento de voz. Revise el acceso al micrófono o use el teclado.');
+        setError(recordingSupported
+          ? 'El reconocimiento de voz fue rechazado por el navegador. Pruebe «Grabar con Gemini».'
+          : 'El reconocimiento de voz fue rechazado. Revise los permisos o use el teclado.');
+        setNativeSpeechFailed(true);
         setMicrophoneHelpOpen(true);
       } else if (code === 'audio-capture') {
         setError('No se detectó un micrófono disponible.');
       } else if (code !== 'no-speech' && code !== 'aborted') {
-        setError('No fue posible reconocer la voz. Revise la conexión o escriba el mensaje.');
+        setNativeSpeechFailed(true);
+        setError(recordingSupported
+          ? 'No se pudo usar el dictado del navegador. Pruebe «Grabar con Gemini».'
+          : 'No fue posible reconocer la voz. Revise la conexión o escriba el mensaje.');
       }
       speechRef.current = null;
       setInterimTranscript('');
@@ -1072,7 +1217,10 @@ export default function AssistantPageSecure() {
     } catch {
       speechRef.current = null;
       setDictating(false);
-      setError('No se pudo activar el micrófono. Intente nuevamente o escriba el mensaje.');
+      setNativeSpeechFailed(true);
+      setError(recordingSupported
+        ? 'No se pudo iniciar el reconocimiento de voz. Pruebe «Grabar con Gemini».'
+        : 'No se pudo activar el micrófono. Intente nuevamente o escriba el mensaje.');
     }
   }
 
@@ -1350,6 +1498,9 @@ export default function AssistantPageSecure() {
   function clearConversation() {
     if (!window.confirm('¿Desea limpiar la conversación y el contexto del asistente?')) return;
     endDictation(true);
+    transcriptionAbortRef.current?.abort();
+    recordingSessionRef.current += 1;
+    setAudioTranscribing(false);
     const cleanMessages = [initialMessage()];
     setMessages(cleanMessages);
     setContext({});
@@ -1365,11 +1516,11 @@ export default function AssistantPageSecure() {
 
   function submit(event) {
     event.preventDefault();
-    if (!dictating) sendQuestion(input, {}, { includePendingFiles: true });
+    if (!dictating && !audioTranscribing && !recordingStarting) sendQuestion(input, {}, { includePendingFiles: true });
   }
 
   function handleKeyDown(event) {
-    if (!dictating && event.key === 'Enter' && !event.shiftKey) {
+    if (!dictating && !audioTranscribing && !recordingStarting && event.key === 'Enter' && !event.shiftKey) {
       event.preventDefault();
       sendQuestion(input, {}, { includePendingFiles: true });
     }
@@ -1442,7 +1593,14 @@ export default function AssistantPageSecure() {
             onChange={(event) => addPendingFiles(event.target.files)}
             disabled={sending}
           />
-          {dictating && <div className="assistant-dictation-status" role="status"><Icon name="mic" /><span>Escuchando… {interimTranscript || 'Hable claramente en español.'}</span><button type="button" onClick={() => endDictation(true)}>Cancelar</button></div>}
+          {(dictating || recordingStarting || audioTranscribing) && <div className="assistant-dictation-status" role="status">
+            <Icon name="mic" />
+            <span>{audioTranscribing ? 'Transcribiendo audio con Gemini…' : recordingStarting
+              ? 'Conectando el micrófono…' : recordingRef.current
+                ? 'Grabando… pulse el micrófono para transcribir (máximo 90 segundos).' 
+                : `Escuchando… ${interimTranscript || 'Hable claramente en español.'}`}</span>
+            <button type="button" onClick={() => endDictation(true)}>Cancelar</button>
+          </div>}
           <div className="assistant-composer__row">
             <button className="assistant-attach-button" type="button" disabled={sending || pendingFiles.length >= MAX_ASSISTANT_FILES} onClick={() => fileInputRef.current?.click()} title="Adjuntar imágenes o documentos">
               <Icon name="attach_file" />
@@ -1450,10 +1608,11 @@ export default function AssistantPageSecure() {
             <button
               className={`assistant-attach-button assistant-microphone ${dictating ? 'is-listening' : ''}`}
               type="button"
-              disabled={sending || !speechSupported}
+              disabled={sending || recordingStarting || audioTranscribing || (!speechSupported && !recordingSupported)}
               aria-label={dictating ? 'Detener dictado' : 'Dictar mensaje por voz'}
               aria-pressed={dictating}
-              title={speechSupported ? (dictating ? 'Detener dictado' : 'Dictar con el micrófono') : 'Use el micrófono del teclado; su navegador no admite dictado web'}
+              title={dictating ? 'Detener dictado' : speechSupported ? 'Dictar con el micrófono' : recordingSupported
+                ? 'Grabar y transcribir con Gemini' : 'Use el dictado del teclado; el navegador no ofrece grabación'}
               onClick={() => dictating ? endDictation() : startDictation()}
             >
               <Icon name={dictating ? 'stop_circle' : 'mic'} />
@@ -1468,7 +1627,7 @@ export default function AssistantPageSecure() {
               disabled={sending}
               aria-label="Pregunta para el asistente"
             />
-            <button className="button button--primary" type="submit" disabled={sending || dictating || (!input.trim() && !pendingFiles.length)} aria-label="Enviar pregunta">
+            <button className="button button--primary" type="submit" disabled={sending || dictating || audioTranscribing || recordingStarting || (!input.trim() && !pendingFiles.length)} aria-label="Enviar pregunta">
               <Icon name={sending ? 'progress_activity' : 'send'} />
               <span>Enviar</span>
             </button>
@@ -1480,6 +1639,11 @@ export default function AssistantPageSecure() {
               {microphoneRequesting ? 'Solicitando acceso…' : microphonePermission === 'granted'
                 ? 'Comprobar micrófono' : microphonePermission === 'denied' ? 'Reintentar permiso' : 'Permitir micrófono'}
             </button>
+            {recordingSupported && speechSupported && <button type="button" className="assistant-microphone-access__action"
+              onClick={() => recordingRef.current ? endDictation() : void startRecordedDictation()}
+              disabled={sending || recordingStarting || audioTranscribing || (dictating && !recordingRef.current)}>
+              <Icon name="graphic_eq" /> {recordingRef.current ? 'Transcribir grabación' : nativeSpeechFailed ? 'Grabar con Gemini (alternativa)' : 'Grabar con Gemini'}
+            </button>}
             <button type="button" className="assistant-microphone-access__help"
               aria-expanded={microphoneHelpOpen} aria-controls="assistant-microphone-help"
               onClick={() => setMicrophoneHelpOpen((open) => !open)}>
@@ -1492,14 +1656,14 @@ export default function AssistantPageSecure() {
                 <p><strong>PC (Chrome/Edge):</strong> abra los controles del sitio junto a la dirección, cambie Micrófono a Permitir y vuelva a cargar la página.</p>
                 <p><strong>Android:</strong> revise el permiso de micrófono de Chrome y del sitio en Configuración, Permisos o Configuración de sitios.</p>
                 <p><strong>iPhone/iPad:</strong> revise el menú del sitio de Safari y sus permisos de micrófono en Ajustes. En otros navegadores, revise los permisos de la app en Ajustes.</p>
-                {!speechSupported && <p>Este navegador no ofrece dictado directo en DMS; puede usar el micrófono del teclado del teléfono.</p>}
+                {!speechSupported && <p>Este navegador no ofrece reconocimiento de voz nativo en DMS. {recordingSupported ? 'Use el botón de micrófono para grabar y transcribir con Gemini.' : 'Use el micrófono del teclado del teléfono.'}</p>}
               </div>
             )}
           </div>
           <small>
             Puede dictar y corregir el texto antes de enviarlo.{' '}
-            {!speechSupported && 'Para dictar, use el micrófono del teclado del dispositivo. '}
-            El reconocimiento puede usar servicios de voz del navegador; DMS no almacena audio.
+            {!speechSupported && !recordingSupported && 'Para dictar, use el micrófono del teclado del dispositivo. '}
+            El dictado nativo puede utilizar servicios del navegador. La grabación alternativa se transmite al backend de DMS y a Gemini para transcribirse, sin almacenamiento permanente de audio.
             Los adjuntos y las respuestas mantienen sus permisos actuales.
           </small>
         </form>
