@@ -1063,7 +1063,8 @@ test('AI repositories enforce ticket assignment visibility before returning Post
 test('Gemini ticket PREPARE/REVISE/COMMIT creates real pending follow-up tickets once', async () => {
   const id='stage6-ticket-agent-'+suffix;
   const ids={
-    user:id+'-user',client:id+'-client',category:id+'-category',
+    user:id+'-user',client:id+'-client',foreignClient:id+'-foreign-client',
+    location:id+'-location',foreignLocation:id+'-foreign-location',category:id+'-category',
     failure:id+'-failure',type:id+'-deviceType',
   };
   let operationId='';
@@ -1078,6 +1079,7 @@ test('Gemini ticket PREPARE/REVISE/COMMIT creates real pending follow-up tickets
       failureType:ids.failure,deviceType:ids.type,deviceName:'Cámara lobby',
       date:'2026-10-26',startTime:'08:00',endTime:'08:30',
       technicians:[ids.user],reason:'Cámara sin imagen',tests:'Se revisó conectividad',
+      location:'Sede Central',
       result:'Equipo pendiente de repuesto',
     },
     {
@@ -1090,6 +1092,9 @@ test('Gemini ticket PREPARE/REVISE/COMMIT creates real pending follow-up tickets
   ];
   try {
     await appendRow('Clientes',{ClienteID:ids.client,Nombre:'Cliente IA de prueba',Estado:'ACTIVO',Activo:true});
+    await appendRow('Clientes',{ClienteID:ids.foreignClient,Nombre:'Cliente ajeno IA',Estado:'ACTIVO',Activo:true});
+    await appendRow('ClienteUbicaciones',{UbicacionID:ids.location,ClienteID:ids.client,Nombre:'Sede Central',Activo:true});
+    await appendRow('ClienteUbicaciones',{UbicacionID:ids.foreignLocation,ClienteID:ids.foreignClient,Nombre:'Sede Central',Activo:true});
     await appendRow('Categorias',{CategoriaID:ids.category,Nombre:'Visita técnica CI',Activo:true});
     await appendRow('TiposFalla',{TipoFallaID:ids.failure,Nombre:'Falla de video CI',Activo:true});
     await appendRow('TiposDispositivo',{TipoDispositivoID:ids.type,Nombre:'Cámara CI',Activo:true});
@@ -1111,6 +1116,7 @@ test('Gemini ticket PREPARE/REVISE/COMMIT creates real pending follow-up tickets
     const prep=await prepareTicketBatchCreate(ctx,{tickets:twoTickets});
     assert.equal(prep.modelData.ready,true);
     assert.equal(prep.modelData.tickets.length,2);
+    assert.equal(prep.modelData.tickets[0].location,'Sede Central');
     operationId=prep.modelData.operationId;
     assert.ok(operationId);
 
@@ -1153,7 +1159,8 @@ test('Gemini ticket PREPARE/REVISE/COMMIT creates real pending follow-up tickets
       await query('DELETE FROM "Boletas" WHERE "BoletaUID"=ANY($1::text[])',[createdIds],{label:'test.ai.ticket.cleanupTickets',write:true}).catch(()=>{});
       await query('DELETE FROM "AiPendingOperations" WHERE "OperationID"=$1',[operationId],{label:'test.ai.ticket.cleanupOperation',write:true}).catch(()=>{});
     }
-    await query('DELETE FROM "Clientes" WHERE "ClienteID"=$1',[ids.client],{label:'test.ai.ticket.cleanupClient',write:true}).catch(()=>{});
+    await query('DELETE FROM "ClienteUbicaciones" WHERE "UbicacionID"=ANY($1::text[])',[[ids.location,ids.foreignLocation]],{label:'test.ai.ticket.cleanupLocations',write:true}).catch(()=>{});
+    await query('DELETE FROM "Clientes" WHERE "ClienteID"=ANY($1::text[])',[[ids.client,ids.foreignClient]],{label:'test.ai.ticket.cleanupClients',write:true}).catch(()=>{});
     await query('DELETE FROM "Categorias" WHERE "CategoriaID"=$1',[ids.category],{label:'test.ai.ticket.cleanupCategory',write:true}).catch(()=>{});
     await query('DELETE FROM "TiposFalla" WHERE "TipoFallaID"=$1',[ids.failure],{label:'test.ai.ticket.cleanupFailure',write:true}).catch(()=>{});
     await query('DELETE FROM "TiposDispositivo" WHERE "TipoDispositivoID"=$1',[ids.type],{label:'test.ai.ticket.cleanupDeviceType',write:true}).catch(()=>{});
