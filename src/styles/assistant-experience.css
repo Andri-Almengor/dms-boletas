@@ -272,7 +272,7 @@
 
 .app-shell--assistant .assistant-composer__row {
   display: grid;
-  grid-template-columns: 42px minmax(0, 1fr) auto;
+  grid-template-columns: repeat(2, var(--touch-target-min, 44px)) minmax(0, 1fr) auto;
   align-items: end;
   gap: 8px;
   padding: 6px;
@@ -426,15 +426,33 @@
   }
 
   .app-shell--assistant .assistant-composer__row {
-    grid-template-columns: var(--touch-target-min) minmax(0, 1fr) 46px;
-    gap: 6px;
-    padding: 5px;
+    grid-template-columns: repeat(2, var(--touch-target-min, 44px)) minmax(0, 1fr) 46px;
+    grid-template-rows: auto auto;
+    gap: 7px;
+    padding: 6px;
   }
 
-  .app-shell--assistant .assistant-composer textarea {
-    min-height: 44px;
-    max-height: 110px;
+  .app-shell--assistant .assistant-composer__row > textarea {
+    grid-column: 1 / -1;
+    grid-row: 1;
+    min-height: 80px;
+    max-height: 160px;
     padding: 10px 11px;
+  }
+
+  .app-shell--assistant .assistant-composer__row > .assistant-attach-button:first-child {
+    grid-column: 1;
+    grid-row: 2;
+  }
+
+  .app-shell--assistant .assistant-composer__row > .assistant-microphone {
+    grid-column: 2;
+    grid-row: 2;
+  }
+
+  .app-shell--assistant .assistant-composer__row > .button[type='submit'] {
+    grid-column: 4;
+    grid-row: 2;
   }
 
   .app-shell--assistant .assistant-composer .button {
@@ -445,7 +463,7 @@
     place-items: center;
   }
 
-  .app-shell--assistant .assistant-composer .button span {
+  .app-shell--assistant .assistant-composer .button > span:not(.material-symbols-outlined) {
     display: none;
   }
 

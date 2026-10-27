@@ -479,15 +479,16 @@
 
 .assistant-composer__row {
   display: grid;
-  grid-template-columns: 42px minmax(0, 1fr) auto;
+  grid-template-columns: var(--touch-target-min, 44px) var(--touch-target-min, 44px) minmax(0, 1fr) auto;
   gap: 8px;
   align-items: end;
 }
 
 .assistant-composer textarea {
+  box-sizing: border-box;
   width: 100%;
-  min-height: 52px;
-  max-height: 140px;
+  min-height: 72px;
+  max-height: 180px;
   padding: 13px 14px;
   border: 1px solid var(--outline);
   border-radius: 14px;
@@ -760,13 +761,31 @@ body:has(.app-shell--form):has(.form-recovery-status) .assistant-fab {
   }
 
   .assistant-composer__row {
-    grid-template-columns: 42px minmax(0, 1fr) 50px;
-    gap: 7px;
+    grid-template-columns: repeat(2, var(--touch-target-min, 44px)) minmax(0, 1fr) 50px;
+    grid-template-rows: auto auto;
+    gap: 8px;
   }
 
-  .assistant-composer textarea {
-    min-height: 50px;
+  .assistant-composer__row > textarea {
+    grid-column: 1 / -1;
+    grid-row: 1;
+    min-height: 84px;
     padding: 11px 12px;
+  }
+
+  .assistant-composer__row > .assistant-attach-button:first-child {
+    grid-column: 1;
+    grid-row: 2;
+  }
+
+  .assistant-composer__row > .assistant-microphone {
+    grid-column: 2;
+    grid-row: 2;
+  }
+
+  .assistant-composer__row > .button[type='submit'] {
+    grid-column: 4;
+    grid-row: 2;
   }
 
   .assistant-composer .button {
@@ -777,7 +796,7 @@ body:has(.app-shell--form):has(.form-recovery-status) .assistant-fab {
     place-items: center;
   }
 
-  .assistant-composer .button span {
+  .assistant-composer .button > span:not(.material-symbols-outlined) {
     display: none;
   }
 
