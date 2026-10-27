@@ -624,7 +624,54 @@ function AssistantUserFiles({ files = [] }) {
   );
 }
 
-function AssistantConfirmations({ confirmations = [], busyOperationId, onDecision }) {
+const TICKET_PROPOSAL_FIELDS = [
+  ['title', 'Título'], ['client', 'Cliente'], ['date', 'Fecha (AAAA-MM-DD)'],
+  ['startTime', 'Inicio (HH:mm)'], ['endTime', 'Final (HH:mm)'],
+  ['category', 'Categoría'], ['failureType', 'Tipo de falla'],
+  ['deviceType', 'Tipo de equipo'], ['deviceName', 'Nombre del equipo'],
+  ['location', 'Sede / ubicación'], ['equipmentLocation', 'Ubicación del equipo'],
+  ['supervisor', 'Supervisor'], ['manufacturer', 'Fabricante'],
+  ['model', 'Modelo'], ['serial', 'Serie'], ['mac', 'Dirección MAC'],
+  ['technicians', 'Técnicos (separados por coma)'],
+  ['reason', 'Razón de visita'], ['tests', 'Pruebas realizadas'],
+  ['result', 'Resultado'], ['recommendations', 'Recomendaciones'],
+  ['followUpOf', 'Seguimiento de boleta del lote (0 = independiente)'],
+];
+function AssistantConfirmations({ confirmations = [], busyOperationId, onDecision, onRevise }) {
+  const [ticketDrafts, setTicketDrafts] = useState({});
+  function fieldValue(item, row, field) {
+    const edited = ticketDrafts[item.operationId]?.[row.index]?.[field];
+    if (edited !== undefined) return edited;
+    const stored = field === 'deviceName' ? row.device : field === 'followUpOf' ? (row.followUpOf ?? 0) : row[field];
+    return Array.isArray(stored) ? stored.join(', ') : String(stored ?? '');
+  }
+  function setField(item, row, field, value) {
+    setTicketDrafts((current) => ({
+      ...current,
+      [item.operationId]: {
+        ...(current[item.operationId] || {}),
+        [row.index]: { ...(current[item.operationId]?.[row.index] || {}), [field]: value },
+      },
+    }));
+  }
+  async function submitRevision(event, item, row) {
+    event.preventDefault();
+    const input = ticketDrafts[item.operationId]?.[row.index] || {};
+    if (!Object.keys(input).length) return;
+    const fields = { ...input };
+    if (fields.technicians !== undefined) fields.technicians = fields.technicians.split(',').map(value => value.trim()).filter(Boolean);
+    if (fields.followUpOf !== undefined) fields.followUpOf = Number(fields.followUpOf) || 0;
+    const succeeded = await onRevise(item, row.index, fields);
+    if (succeeded) {
+      setTicketDrafts((current) => {
+        const next = { ...current };
+        const perOperation = { ...(next[item.operationId] || {}) };
+        delete perOperation[row.index];
+        next[item.operationId] = perOperation;
+        return next;
+      });
+    }
+  }
   if (!confirmations.length) return null;
   return (
     <div className="assistant-confirmation-list">
@@ -632,6 +679,7 @@ function AssistantConfirmations({ confirmations = [], busyOperationId, onDecisio
         const status = String(item.status || 'PENDING').toUpperCase();
         const busy = busyOperationId === item.operationId;
         const result = item.result || {};
+        const ticketProposals = item.action === 'TICKET_BATCH_CREATE' && Array.isArray(item.preview?.tickets) ? item.preview.tickets : [];
         const partial = status === 'PARTIAL';
         const terminal = ['COMMITTED', 'CANCELLED', 'EXPIRED', 'FAILED'].includes(status);
         return (
@@ -641,7 +689,50 @@ function AssistantConfirmations({ confirmations = [], busyOperationId, onDecisio
               <strong>{item.title || 'Confirmación requerida'}</strong>
               {item.summary && <p>{item.summary}</p>}
             </header>
-            {Array.isArray(item.items) && item.items.length > 0 && (
+            {ticketProposals.length > 0 && (
+              <div className="assistant-ticket-proposals">
+                {ticketProposals.map((row) => (
+                  <details key={row.index} className="assistant-ticket-proposal">
+                    <summary>
+                      <strong>Boleta {row.index} de {ticketProposals.length} · {row.title || 'Sin título'}</strong>
+                      <span>{row.clientName || 'Cliente pendiente'} · {row.date || 'Sin fecha'} · {row.startTime || '—'}–{row.endTime || '—'} · {row.hours || 0} h</span>
+                      <small>{row.followUpOf ? `Seguimiento de boleta ${row.followUpOf}` : 'Independiente'} {row.missing?.length ? '· Requiere datos' : '· Lista para confirmar'}</small>
+                    </summary>
+                    <form className="assistant-ticket-editor" onSubmit={(event) => submitRevision(event, item, row)}>
+                      <div className="assistant-ticket-editor__grid">
+                        {TICKET_PROPOSAL_FIELDS.map(([field, label]) => (
+                          <label key={field}>
+                            <span>{label}</span>
+                            {['reason', 'tests', 'result', 'recommendations'].includes(field) ? (
+                              <textarea
+                                rows={2}
+                                value={fieldValue(item, row, field)}
+                                disabled={busy || status !== 'PENDING'}
+                                onChange={(event) => setField(item, row, field, event.target.value)}
+                              />
+                            ) : (
+                              <input
+                                type="text"
+                                value={fieldValue(item, row, field)}
+                                disabled={busy || status !== 'PENDING'}
+                                onChange={(event) => setField(item, row, field, event.target.value)}
+                              />
+                            )}
+                          </label>
+                        ))}
+                      </div>
+                      {status === 'PENDING' && (
+                        <button type="submit" className="button button--secondary button--compact"
+                          disabled={busy || !Object.keys(ticketDrafts[item.operationId]?.[row.index] || {}).length}>
+                          <Icon name="save" /> Guardar correcciones
+                        </button>
+                      )}
+                    </form>
+                  </details>
+                ))}
+              </div>
+            )}
+            {!ticketProposals.length && Array.isArray(item.items) && item.items.length > 0 && (
               <div className="assistant-confirmation-items">
                 {item.items.slice(0, 12).map((row, index) => (
                   <div key={`${item.operationId}-${index}`}>
@@ -650,6 +741,16 @@ function AssistantConfirmations({ confirmations = [], busyOperationId, onDecisio
                   </div>
                 ))}
                 {item.items.length > 12 && <small>+ {item.items.length - 12} elementos adicionales</small>}
+              </div>
+            )}
+            {Array.isArray(result.created) && result.created.length > 0 && (
+              <div className="assistant-ticket-created" aria-label="Boletas creadas">
+                <strong>Boletas guardadas en DMS</strong>
+                {result.created.map((row) => (
+                  <Link key={row.id} to={`/boletas/${encodeURIComponent(row.id)}`}>
+                    <Icon name="description" /> Boleta #{row.number} · {row.client || 'Cliente'} {row.followUpOf ? `· Seguimiento de ${row.followUpOf}` : '· Independiente'}
+                  </Link>
+                ))}
               </div>
             )}
             {terminal || partial ? (
@@ -708,7 +809,7 @@ function AssistantSourceLink({ source }) {
   return <span className="assistant-source-static">{content}</span>;
 }
 
-function AssistantMessage({ message, onSuggestion, onOption, onDecision, busyOperationId }) {
+function AssistantMessage({ message, onSuggestion, onOption, onDecision, onRevise, busyOperationId }) {
   const assistant = message.role === 'assistant';
   return (
     <article className={`assistant-message assistant-message--${message.role}`}>
@@ -736,7 +837,7 @@ function AssistantMessage({ message, onSuggestion, onOption, onDecision, busyOpe
         <AssistantUserFiles files={message.userFiles || []} />
         <AssistantEntities entities={message.entities || []} />
         <AssistantAttachments attachments={message.attachments || []} />
-        <AssistantConfirmations confirmations={message.confirmations || []} busyOperationId={busyOperationId} onDecision={onDecision} />
+        <AssistantConfirmations confirmations={message.confirmations || []} busyOperationId={busyOperationId} onDecision={onDecision} onRevise={onRevise} />
 
         {message.sources?.length > 0 && (
           <div className="assistant-sources">
@@ -1040,6 +1141,38 @@ export default function AssistantPageSecure() {
     });
   }
 
+  async function reviseOperation(item, index, fields) {
+    if (!item?.operationId || busyOperationId) return false;
+    setBusyOperationId(item.operationId);
+    setError('');
+    try {
+      const response = await apiRequest('assistant.chat', {
+        assistantAction: 'operation.revise',
+        operationId: item.operationId,
+        index,
+        fields,
+      }, sessionToken, { cache: 'no-store' });
+      if (response.needsInput) {
+        setError((response.issues || []).map(issue => `Boleta ${issue.index}: ${issue.missing.join(', ')}`).join(' · ') || 'Revise los campos indicados.');
+        return false;
+      }
+      setMessages((current) => current.map((message) => ({
+        ...message,
+        confirmations: Array.isArray(message.confirmations)
+          ? message.confirmations.map(confirmation => confirmation.operationId === item.operationId
+            ? { ...confirmation, ...response, preview: response.preview }
+            : confirmation)
+          : message.confirmations,
+      })));
+      return true;
+    } catch (error) {
+      setError(error?.message || 'No se pudieron guardar las correcciones.');
+      return false;
+    } finally {
+      setBusyOperationId('');
+    }
+  }
+
   async function decideOperation(item, decision) {
     if (!item?.operationId || busyOperationId) return;
     setBusyOperationId(item.operationId);
@@ -1158,7 +1291,7 @@ export default function AssistantPageSecure() {
       <section className="assistant-chat" aria-live="polite">
         <div className="assistant-chat__messages">
           {messages.map((message) => (
-            <AssistantMessage key={message.id} message={message} onSuggestion={sendQuestion} onOption={chooseOption} onDecision={decideOperation} busyOperationId={busyOperationId} />
+            <AssistantMessage key={message.id} message={message} onSuggestion={sendQuestion} onOption={chooseOption} onDecision={decideOperation} onRevise={reviseOperation} busyOperationId={busyOperationId} />
           ))}
           {sending && (
             <article className="assistant-message assistant-message--assistant assistant-message--typing">
