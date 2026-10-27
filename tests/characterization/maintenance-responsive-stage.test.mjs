@@ -64,6 +64,24 @@ test('resumen móvil de mantenimiento usa dos columnas y se reduce a una en tel�
   assert.match(styles, /@media \(max-width: 430px\)[\s\S]*\.maintenance-mobile-fold \.maintenance-detail-summary__grid\s*\{[^}]*grid-template-columns:\s*1fr/s);
 });
 
+test('acciones de ubicaciones móviles no comprimen Agregar lista ni alteran las acciones existentes', () => {
+  const inventory = source('src/components/maintenance/MaintenanceLocationInventory.jsx');
+  const styles = source('src/styles/maintenance-location-workflow.css');
+  const mobile = styles.split('@media (max-width: 760px) {')[1]?.split('@media (max-width: 420px) {')[0] || '';
+  const narrow = styles.split('@media (max-width: 420px) {')[1] || '';
+
+  assert.match(inventory, /onClick=\{\(\) => onAddDevice\(group\)\}/);
+  assert.match(inventory, /onClick=\{\(\) => onAddDeviceList\(group\)\}/);
+  assert.match(inventory, /canRemoveLocations && !group\.legacy/);
+  assert.match(mobile, /\.maintenance-location-work-group__actions\s*\{[^}]*display:\s*grid;[^}]*grid-template-columns:\s*minmax\(0, 1fr\) var\(--touch-target-min\)/s);
+  assert.match(mobile, /\.maintenance-location-work-group__actions > \.button\s*\{[^}]*min-width:\s*0;[^}]*min-height:\s*var\(--touch-target-min\);[^}]*width:\s*100%;[^}]*white-space:\s*nowrap;/s);
+  assert.match(mobile, /\.maintenance-location-work-group__actions > \.button--primary\s*\{[^}]*grid-column:\s*1 \/ -1;/s);
+  assert.match(mobile, /\.maintenance-location-work-group__actions > \.button--secondary\s*\{[^}]*grid-column:\s*1;/s);
+  assert.match(mobile, /\.maintenance-location-work-group__actions > \.button--secondary:last-child\s*\{[^}]*grid-column:\s*1 \/ -1;/s);
+  assert.match(mobile, /\.maintenance-location-work-group__actions > \.icon-button\s*\{[^}]*grid-column:\s*2;/s);
+  assert.doesNotMatch(narrow, /\.maintenance-location-work-group__actions\s*\{/);
+});
+
 test('mantenimiento normal usa tarjetas colapsadas que expanden el detalle en el mismo lugar', () => {
   const inventory = source('src/components/maintenance/MaintenanceLocationInventory.jsx');
   const styles = source('src/styles/maintenance-location-workflow.css');
