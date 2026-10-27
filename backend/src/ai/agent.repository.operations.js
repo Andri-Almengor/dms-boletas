@@ -1203,7 +1203,18 @@ async function resolveTicketBatch(ctx,rawItems){
     const resolved={};
     for(const spec of TICKET_REFERENCES.filter(entry=>entry.key!=='technician')){
       const value=ticketSourceValue(raw,spec.key);
-      const match=ticketMatch(catalog,spec.key,value);
+      // Selección jerárquica: muchas sedes y modelos comparten nombre entre
+      // clientes o tipos. Solo se compara dentro del padre autorizado.
+      let rows=catalog[spec.key]||[];
+      const expectedParent=spec.key==='location'||spec.key==='supervisor'
+        ? resolved.client?.id
+        : spec.key==='equipmentLocation'?resolved.location?.id
+        : spec.key==='model'?resolved.deviceType?.id:null;
+      if(expectedParent)rows=rows.filter(row=>clean(row.parent)===clean(expectedParent));
+      if(spec.key==='model'&&resolved.manufacturer?.id){
+        rows=rows.filter(row=>clean(row.otherParent)===clean(resolved.manufacturer.id));
+      }
+      const match=ticketMatch({[spec.key]:rows},spec.key,value);
       if(!match.row){
         if(value||['client','category','failureType','deviceType'].includes(spec.key)){
           missing.push(spec.key+(match.ambiguous?' (referencia ambigua)':' (requerido o no encontrado)'));
