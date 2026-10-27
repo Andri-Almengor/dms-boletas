@@ -6,6 +6,7 @@ import path from 'node:path';
 import {
   buildMaintenanceProgress,
   formatMaintenanceProgressMessage,
+  latestMaintenanceProgressRows,
   maintenancePlannedCountsChanged,
   maintenanceProgressScheduleSlot,
 } from '../../backend/src/core/maintenance-progress.js';
@@ -23,6 +24,42 @@ function devices(category, count, extra = {}) {
     ...extra,
   }));
 }
+
+test('excluye del progreso programado la versión PENDIENTE fantasma de un ID ya finalizado', () => {
+  // readTable('Mantenimiento') devuelve las versiones válidas en __db_id ASC.
+  // La actualización real de PostgreSQL modifica la última fila del mismo ID.
+  const revisions = [
+    { MantenimientoID: 'zeus-1', Estado: 'PENDIENTE', Cliente: 'Digital Management Systems, S.A.', Ubicacion: 'Oficinas Sabana' },
+    { MantenimientoID: 'zeus-1', Estado: 'FINALIZADO', EstadoFinalizacion: 'COMPLETADO', Cliente: 'Cliente corregido', Ubicacion: 'Sede corregida' },
+    { MantenimientoID: 'otro-mantenimiento', Estado: 'PENDIENTE', Cliente: 'Cliente activo' },
+    { MantenimientoID: 'inactivo', Estado: 'INACTIVO', Activo: false },
+  ];
+  const latest = latestMaintenanceProgressRows(revisions);
+  assert.equal(latest.length, 3);
+  assert.equal(latest.find((row) => row.MantenimientoID === 'zeus-1')?.Estado, 'FINALIZADO');
+  assert.equal(latest.find((row) => row.MantenimientoID === 'zeus-1')?.Cliente, 'Cliente corregido');
+  assert.deepEqual(
+    latest.filter((row) => row.Activo !== false && row.Estado === 'PENDIENTE').map((row) => row.MantenimientoID),
+    ['otro-mantenimiento'],
+  );
+  assert.equal(latestMaintenanceProgressRows([{ MantenimientoID: '' }, { MantenimientoID: '  ' }]).length, 0);
+});
+
+test('el worker usa el último ID vigente y revalida antes del webhook, sin reintentar los omitidos', () => {
+  const service = source('backend/src/services/maintenance-progress-chat.service.js');
+  const repo = source('backend/src/infra/postgres.repository.core.js');
+
+  assert.match(repo, /ORDER BY "__db_id" ASC/);
+  assert.match(repo, /ORDER BY "__db_id" DESC LIMIT 1 FOR UPDATE/);
+  assert.match(service, /latestMaintenanceProgressRows\(tables\.Mantenimiento \|\| \[\]\)\.filter\(pendingMaintenance\)/);
+  assert.match(service, /const currentRows = await findRows\([\s\S]*?\{ limit: 1, order: 'DESC' \}/);
+  assert.match(service, /const latestRows = await findRows\([\s\S]*?\{ limit: 1, order: 'DESC' \}/);
+  assert.ok(service.indexOf('const latestRows = await findRows') < service.indexOf('result = await sendChatMessage'));
+  assert.match(service, /if \(!latest \|\| !pendingMaintenance\(latest\) \|\| contextChanged\)/);
+  assert.match(service, /Estado: 'OMITIDO'/);
+  assert.match(service, /if \(state === 'OMITIDO'\) return false/);
+  assert.match(service, /STALE_CONTEXT/);
+});
 
 test('calcula avance fijo por categoría y total del mantenimiento', () => {
   const progress = buildMaintenanceProgress({
