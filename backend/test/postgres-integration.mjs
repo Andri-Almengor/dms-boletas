@@ -43,10 +43,9 @@ const {
 
 const suffix = `${Date.now()}-${Math.random().toString(16).slice(2)}`;
 
-test('maintenance progress never sends the historical PENDIENTE duplicate after finalization', async () => {
-  const { latestMaintenanceProgressRows } = await import('../src/core/maintenance-progress.js');
+test('maintenance progress ignores an old queued snapshot once the same maintenance is finalized', async () => {
   const { notifyMaintenanceProgress } = await import('../src/services/maintenance-progress-chat.service.js');
-  const maintenanceId = 'stage6-progress-duplicate-' + suffix;
+  const maintenanceId = 'stage6-progress-close-race-' + suffix;
   const historical = {
     MantenimientoID: maintenanceId,
     TituloMantenimiento: 'Proyecto Zeus',
@@ -57,29 +56,21 @@ test('maintenance progress never sends the historical PENDIENTE duplicate after 
   };
   try {
     await appendRow('Mantenimiento', historical);
-    await appendRow('Mantenimiento', {
-      ...historical,
+    await updateRow('Mantenimiento', maintenanceId, {
       Cliente: 'Cliente corregido',
       Ubicacion: 'Sede corregida',
-    });
-    await updateRow('Mantenimiento', maintenanceId, {
       Estado: 'FINALIZADO',
       EstadoFinalizacion: 'COMPLETADO',
       FechaActualizacion: '2026-10-26T22:00:00.000Z',
     });
 
-    const duplicates = (await readTable('Mantenimiento'))
-      .filter((row) => row.MantenimientoID === maintenanceId);
-    assert.equal(duplicates.length, 2);
-    assert.equal(duplicates[0].Estado, 'PENDIENTE');
-    assert.equal(duplicates[1].Estado, 'FINALIZADO');
+    const stored = (await findRows('Mantenimiento', { MantenimientoID: maintenanceId }, { limit: 2 }));
+    assert.equal(stored.length, 1, 'El esquema único de mantenimiento permite un solo ID vigente');
+    assert.equal(stored[0].Estado, 'FINALIZADO');
+    assert.equal(stored[0].Cliente, 'Cliente corregido');
 
-    const latest = latestMaintenanceProgressRows(duplicates);
-    assert.equal(latest.length, 1);
-    assert.equal(latest[0].Estado, 'FINALIZADO');
-    assert.equal(latest[0].Cliente, 'Cliente corregido');
-    assert.equal((await findRows('Mantenimiento', { MantenimientoID: maintenanceId }, { limit: 1, order: 'DESC' }))[0].Estado, 'FINALIZADO');
-
+    // Simula un worker que encoló un objeto anterior a la finalización.
+    // No debe preparar webhook ni registrar un envío para este slot.
     const result = await notifyMaintenanceProgress({
       maintenance: historical,
       reason: 'SCHEDULED',
@@ -92,8 +83,7 @@ test('maintenance progress never sends the historical PENDIENTE duplicate after 
     assert.equal((await findRows('Notificaciones', { EntidadID: maintenanceId }, { limit: 10 })).length, 0);
   } finally {
     await query('DELETE FROM "Mantenimiento" WHERE "MantenimientoID"=$1', [maintenanceId], {
-      label: 'test.progress.finalizedDuplicateCleanup',
-      write: true,
+      label: 'test.progress.closeRaceCleanup', write: true,
     }).catch(() => {});
   }
 });
