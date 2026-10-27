@@ -193,6 +193,7 @@ function shouldRetry(existing, now = new Date()) {
   // la política previa: ENVIADO/ENVIANDO no se repiten y solo ERROR puede
   // reintentarse de forma acotada.
   if (state === 'ENVIADO' || state === 'ENVIANDO') return false;
+  if (state === 'OMITIDO') return false;
 
   const attempts = Number(existing.Intentos || 0);
   if (attempts >= MAX_NOTIFICATION_ATTEMPTS) return false;
@@ -204,6 +205,7 @@ function skipReason(existing) {
   const state = normalized(existing?.Estado);
   if (state === 'ENVIADO') return 'ALREADY_SENT';
   if (state === 'ENVIANDO') return 'ALREADY_RUNNING';
+  if (state === 'OMITIDO') return 'NOT_PENDING';
   if (scheduledProgressNotification(existing)) return 'SCHEDULED_ALREADY_ATTEMPTED';
   return 'RETRY_LIMIT';
 }
@@ -398,7 +400,9 @@ export async function notifyMaintenanceProgress({
   const currentRows = await findRows(
     'Mantenimiento',
     { MantenimientoID: clean(maintenance.MantenimientoID) },
-    { limit: 1 },
+    // PostgreSQL updates the LAST valid duplicate ID; read the same canonical
+    // row, never the oldest historical PENDIENTE row.
+    { limit: 1, order: 'DESC' },
   );
   const currentMaintenance = currentRows[0];
   if (!currentMaintenance || !pendingMaintenance(currentMaintenance)) {
@@ -437,6 +441,33 @@ export async function notifyMaintenanceProgress({
       };
     }
     const existing = reservation.existing;
+
+    // Finalization/client reassignment may commit while evidence is loaded or
+    // while this slot is being reserved. Never send the previously built
+    // message if the authoritative maintenance is no longer pending or its
+    // notification context changed. Keep the slot claimed (at-most-once).
+    const latestRows = await findRows(
+      'Mantenimiento',
+      { MantenimientoID: clean(currentMaintenance.MantenimientoID) },
+      { limit: 1, order: 'DESC' },
+    );
+    const latest = latestRows[0];
+    const contextChanged = latest && (
+      clean(latest.ClienteID || latest.ClienteRef) !== clean(currentMaintenance.ClienteID || currentMaintenance.ClienteRef)
+      || clean(latest.Cliente) !== clean(currentMaintenance.Cliente)
+      || clean(latest.UbicacionID) !== clean(currentMaintenance.UbicacionID)
+      || clean(latest.Ubicacion) !== clean(currentMaintenance.Ubicacion)
+      || clean(latest.FechaActualizacion) !== clean(currentMaintenance.FechaActualizacion)
+    );
+    if (!latest || !pendingMaintenance(latest) || contextChanged) {
+      await updateRow('Notificaciones', existing.NotificacionID, {
+        Estado: 'OMITIDO',
+        Respuesta: '',
+        Error: '',
+        UltimoIntento: now.toISOString(),
+      });
+      return { sent: false, skipped: contextChanged ? 'STALE_CONTEXT' : 'NOT_PENDING', progress };
+    }
 
     const message = formatMaintenanceProgressMessage({
       maintenance: currentMaintenance,
@@ -496,7 +527,15 @@ async function dispatchScheduledMaintenanceProgress({ slot, slotKey, now = new D
     'Clientes',
   ], { force: true });
 
-  const pending = (tables.Mantenimiento || []).filter(pendingMaintenance);
+  // readTable orders by __db_id ASC but updateRow writes the LAST matching
+  // valid ID. Dedupe before checking status, otherwise a legacy PENDIENTE
+  // snapshot can keep reporting after the current record was FINALIZADO.
+  const latestById = new Map();
+  for (const row of tables.Mantenimiento || []) {
+    const id = clean(row.MantenimientoID);
+    if (id) latestById.set(id, row);
+  }
+  const pending = [...latestById.values()].filter(pendingMaintenance);
   const context = {
     devices: tables.Evidencia_Mantenimientos || [],
     deviceTypes: tables.TiposDispositivo || [],
