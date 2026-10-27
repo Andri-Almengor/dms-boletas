@@ -970,7 +970,9 @@ export default function AssistantPageSecure() {
       setMicrophoneHelpOpen(false);
       setMicrophoneFeedback(speechSupported
         ? 'Micrófono autorizado. Ahora puede usar el botón de dictado.'
-        : 'Micrófono autorizado, pero este navegador no admite dictado web. Use el micrófono del teclado.');
+        : recordingSupported
+          ? 'Micrófono autorizado. Pulse el botón de dictado para grabar y transcribir con Gemini.'
+          : 'Micrófono autorizado, pero este navegador no admite dictado. Use el micrófono del teclado.');
     } catch (permissionError) {
       const code = String(permissionError?.name || '');
       if (['NotAllowedError', 'PermissionDeniedError', 'SecurityError'].includes(code)) {
@@ -1020,7 +1022,10 @@ export default function AssistantPageSecure() {
         recordingSessionRef.current += 1;
       }
       window.clearTimeout(capture.timer);
-      if (capture.recorder.state === 'recording') capture.recorder.stop();
+      if (capture.recorder.state === 'recording') {
+        if (!cancel) setAudioTranscribing(true);
+        capture.recorder.stop();
+      }
       if (cancel) {
         capture.stream.getTracks().forEach((track) => track.stop());
         recordingRef.current = null;
@@ -1103,6 +1108,7 @@ export default function AssistantPageSecure() {
         if (capture.cancelled || session !== recordingSessionRef.current) return;
         const blob = new Blob(chunks, { type: recorder.mimeType || chunks[0]?.type || 'audio/webm' });
         if (blob.size < 200 || blob.size > MAX_VOICE_RECORDING_BYTES) {
+          setAudioTranscribing(false);
           setError('La grabación está vacía o supera 3 MB. Intente con un audio más corto.');
           return;
         }
@@ -1118,7 +1124,7 @@ export default function AssistantPageSecure() {
           if (session !== recordingSessionRef.current) return;
           const transcript = String(result?.transcript || '').trim();
           if (!transcript) throw new Error('No se detectaron palabras en el audio.');
-          setInput((current) => (current + (current && !/\\s$/.test(current) ? ' ' : '') + transcript).slice(0, 5000));
+          setInput((current) => (current + (current && !/\s$/.test(current) ? ' ' : '') + transcript).slice(0, 5000));
           setMicrophoneFeedback('Dictado transcrito. Puede revisar el texto antes de enviarlo.');
         } catch (voiceError) {
           if (session === recordingSessionRef.current) {
@@ -1173,7 +1179,7 @@ export default function AssistantPageSecure() {
           if (!handledFinals.has(i)) {
             handledFinals.add(i);
             setInput((current) => {
-              const separator = current && !/\\s$/.test(current) ? ' ' : '';
+              const separator = current && !/\s$/.test(current) ? ' ' : '';
               return (current + separator + segment).slice(0, 5000);
             });
           }
@@ -1634,7 +1640,7 @@ export default function AssistantPageSecure() {
           </div>
           <div className="assistant-microphone-access" aria-label="Acceso al micrófono">
             <button type="button" className="assistant-microphone-access__action"
-              onClick={requestMicrophonePermission} disabled={sending || dictating || microphoneRequesting}>
+              onClick={requestMicrophonePermission} disabled={sending || dictating || audioTranscribing || recordingStarting || microphoneRequesting}>
               <Icon name={microphonePermission === 'granted' ? 'check_circle' : 'mic'} />
               {microphoneRequesting ? 'Solicitando acceso…' : microphonePermission === 'granted'
                 ? 'Comprobar micrófono' : microphonePermission === 'denied' ? 'Reintentar permiso' : 'Permitir micrófono'}
