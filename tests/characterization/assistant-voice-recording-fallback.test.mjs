@@ -87,7 +87,8 @@ test('una cancelación no envía audio ni altera el texto', async () => {
 
 test('el micrófono no queda deshabilitado cuando hay MediaRecorder sin reconocimiento nativo', () => {
   assert.match(page, /!speechSupported && !recordingSupported/);
-  assert.match(page, /if \(!Constructor\) \{\s*void startRecordedDictation\(\)/s);
+  assert.match(page, /function startDictation\(\) \{[\s\S]*?if \(recordingSupported\) \{\s*void startRecordedDictation\(\)/);
+  assert.match(page, /function startNativeDictation\(\)/);
   assert.match(page, /speech\.transcribe/);
   assert.match(page, /Grabar con Gemini/);
   assert.match(page, /transmite al backend de DMS y a Gemini/);
