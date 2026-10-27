@@ -895,7 +895,6 @@ export default function AssistantPageSecure() {
   ));
   const [audioTranscribing, setAudioTranscribing] = useState(false);
   const [recordingStarting, setRecordingStarting] = useState(false);
-  const [nativeSpeechFailed, setNativeSpeechFailed] = useState(false);
   const recordingRef = useRef(null);
   const recordingSessionRef = useRef(0);
   const transcriptionAbortRef = useRef(null);
@@ -1220,12 +1219,10 @@ export default function AssistantPageSecure() {
         setError(recordingSupported
           ? 'El reconocimiento de voz fue rechazado por el navegador. Pruebe «Grabar con Gemini».'
           : 'El reconocimiento de voz fue rechazado. Revise los permisos o use el teclado.');
-        setNativeSpeechFailed(true);
         setMicrophoneHelpOpen(true);
       } else if (code === 'audio-capture') {
         setError('No se detectó un micrófono disponible.');
       } else if (code !== 'no-speech' && code !== 'aborted') {
-        setNativeSpeechFailed(true);
         setError(recordingSupported
           ? 'No se pudo usar el dictado del navegador. Pruebe «Grabar con Gemini».'
           : 'No fue posible reconocer la voz. Revise la conexión o escriba el mensaje.');
@@ -1247,7 +1244,6 @@ export default function AssistantPageSecure() {
     } catch {
       speechRef.current = null;
       setDictating(false);
-      setNativeSpeechFailed(true);
       setError(recordingSupported
         ? 'No se pudo iniciar el reconocimiento de voz. Pruebe «Grabar con Gemini».'
         : 'No se pudo activar el micrófono. Intente nuevamente o escriba el mensaje.');
