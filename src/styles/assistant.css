@@ -832,3 +832,66 @@ body:has(.app-shell--form):has(.form-recovery-status) .assistant-fab {
     animation: none;
   }
 }
+
+/* Entrada de voz del Asistente DMS; usa los mismos botones y variables del composer. */
+.assistant-microphone.is-listening {
+  color: var(--error, #ba1a1a);
+  background: color-mix(in srgb, var(--error, #ba1a1a) 12%, var(--surface));
+  animation: assistant-mic-pulse 1.6s ease-in-out infinite;
+}
+.assistant-dictation-status {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  min-width: 0;
+  padding: 6px 10px;
+  margin-bottom: 8px;
+  border-radius: 10px;
+  background: var(--surface-low);
+  color: var(--text);
+  font-size: .8rem;
+}
+.assistant-dictation-status > span {
+  min-width: 0;
+  flex: 1;
+  overflow-wrap: anywhere;
+}
+.assistant-dictation-status > button {
+  border: 0;
+  background: transparent;
+  color: var(--primary);
+  cursor: pointer;
+  font: inherit;
+  font-weight: 700;
+}
+@keyframes assistant-mic-pulse {
+  50% { box-shadow: 0 0 0 5px color-mix(in srgb, var(--error, #ba1a1a) 15%, transparent); }
+}
+@media (prefers-reduced-motion: reduce) {
+  .assistant-microphone.is-listening { animation: none; }
+}
+
+/* Propuestas de boleta reutilizan la tarjeta de confirmación del asistente. */
+.assistant-ticket-proposals { display: grid; gap: 10px; padding: 10px; }
+.assistant-ticket-proposal { min-width: 0; border: 1px solid var(--outline-soft); border-radius: 12px; background: var(--surface-low); overflow: hidden; }
+.assistant-ticket-proposal summary { cursor: pointer; display: grid; gap: 3px; padding: 12px; color: var(--text); }
+.assistant-ticket-proposal summary strong, .assistant-ticket-proposal summary span { overflow-wrap: anywhere; }
+.assistant-ticket-proposal summary span, .assistant-ticket-proposal summary small { color: var(--muted); font-size: .78rem; }
+.assistant-ticket-editor { padding: 12px; display: grid; gap: 12px; border-top: 1px solid var(--outline-soft); }
+.assistant-ticket-editor__grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(min(100%, 210px), 1fr)); gap: 10px; }
+.assistant-ticket-editor label { min-width: 0; display: grid; gap: 5px; color: var(--muted); font-size: .73rem; font-weight: 700; }
+.assistant-ticket-editor input, .assistant-ticket-editor textarea {
+  box-sizing: border-box; width: 100%; min-width: 0; max-width: 100%;
+  border: 1px solid var(--outline-soft); border-radius: 9px;
+  background: var(--surface); color: var(--text); padding: 9px; font: inherit; font-size: .86rem;
+}
+.assistant-ticket-editor textarea { resize: vertical; }
+.assistant-ticket-editor input:focus-visible, .assistant-ticket-editor textarea:focus-visible { outline: 2px solid var(--primary); outline-offset: 1px; }
+.assistant-ticket-editor > button { justify-self: start; }
+.assistant-ticket-created { display: grid; gap: 6px; padding: 12px; border-top: 1px solid var(--outline-soft); }
+.assistant-ticket-created > strong { font-size: .82rem; }
+.assistant-ticket-created a { color: var(--primary); overflow-wrap: anywhere; display: flex; align-items: center; gap: 6px; font-size: .81rem; padding: 5px; }
+@media (max-width: 640px) {
+  .assistant-ticket-editor__grid { grid-template-columns: minmax(0,1fr); }
+  .assistant-ticket-editor > button { justify-self: stretch; }
+}

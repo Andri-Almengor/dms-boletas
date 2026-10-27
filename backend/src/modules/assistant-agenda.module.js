@@ -8,7 +8,7 @@ import { ensureAgendaSchema } from '../services/agenda-schema.service.js';
 import { getAgendaTicketExceptions } from '../services/agenda-ticket-exceptions.service.js';
 import { assistantDynamicMaintenanceQuestionHandlers } from './assistant-dynamic-maintenance-questions.module.js';
 import { aiAgentHandlers } from '../ai/agent.module.js';
-import { decideAiOperation } from '../ai/agent.repository.operations.js';
+import { decideAiOperation, getAiOperationStatus, reviseAiTicketOperation } from '../ai/agent.repository.operations.js';
 import { largeEvidenceUploadHandlers } from '../services/large-evidence-upload.service.js';
 import {
   answerPasswordVaultAssistantQuestion,
@@ -323,6 +323,8 @@ async function chat(ctx) {
   if (action === 'attachment.init') return largeEvidenceUploadHandlers.assistantInit(ctx);
   if (action === 'attachment.chunk') return largeEvidenceUploadHandlers.assistantChunk(ctx);
   if (action === 'operation.decide') return decideAiOperation(ctx);
+  if (action === 'operation.revise') return reviseAiTicketOperation(ctx, ctx.payload);
+  if (action === 'operation.status') return (await getAiOperationStatus(ctx, ctx.payload)).modelData;
 
   const question = clean(ctx.payload?.message || ctx.payload?.question);
   // Las contraseñas nunca entran al prompt ni al tool loop de Gemini.

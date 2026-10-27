@@ -36,6 +36,7 @@ export const AI_INTENTS = Object.freeze({
   CASES:'CASES',
   STATISTICS:'STATISTICS',
   WRITE_MAINTENANCE:'WRITE_MAINTENANCE',
+  WRITE_TICKETS:'WRITE_TICKETS',
   WEB:'WEB',
   AMBIGUOUS:'AMBIGUOUS',
 });
@@ -77,6 +78,7 @@ export function classifyAiIntent({message='',context={},attachments=[]}={}){
   const wantsWrite=/\b(crea|crear|agrega|agregar|añade|anade|sube|subir|carga|cargar|pon(?:las|los)?|importa|importar|edita|editar|modifica|modificar|actualiza|actualizar|cambia|cambiar|elimina|eliminar|quita|quitar|borra|borrar|reemplaza|reemplazar)\b/i.test(value);
 
   const explicitTicket=TICKET_HINT.test(value);
+  const naturalTicketCreate=/\b(?:cr[eé]a(?:me|nos|r)?|haz(?:me|nos)?|hac[eé](?:me|r)|hice|registr[aá](?:me|r)?|gener[aá](?:me|r)?|levant[aá](?:me|r)?|necesito hacer)\b/i.test(value);
   const explicitMaintenance=MAINTENANCE_HINT.test(value);
   const projectComponentInventory=PROJECT_COMPONENT_HINT.test(value)&&INVENTORY_QUERY_HINT.test(value);
   const explicitDevice=DEVICE_HINT.test(value)||projectComponentInventory;
@@ -90,6 +92,9 @@ export function classifyAiIntent({message='',context={},attachments=[]}={}){
     ||(pageEntity==='maintenance'&&hasActive(context?.pageContext,'entityId'));
   const deviceContext=hasActive(context,'lastDeviceId');
 
+  // La creación explícita de boletas nunca se desvía hacia herramientas de mantenimiento.
+  if((wantsWrite||naturalTicketCreate) && explicitTicket && /\b(boletas?|tickets?|visitas?)\b/i.test(value)
+    && !/\b(evidencias?|fotos?|im[aá]genes?)\b/i.test(value)) return AI_INTENTS.WRITE_TICKETS;
   if(wantsWrite&&(explicitMaintenance||maintenanceContext||explicitDevice||deviceContext||hasFiles)) return AI_INTENTS.WRITE_MAINTENANCE;
   if(WEB_HINT.test(value)) return AI_INTENTS.WEB;
 
@@ -161,6 +166,9 @@ export function toolNamesForIntent(intent){
       'search_maintenances','resolve_maintenance_reference','get_maintenance','get_maintenance_devices','get_maintenance_evidence','search_maintenance_evidence',
       'search_tickets','get_ticket','get_ticket_evidence','search_ticket_evidence',
       'search_users','get_technician_activity','search_evidence_activity',
+    ];
+    case AI_INTENTS.WRITE_TICKETS: return [
+      'search_clients','search_users','search_tickets','prepare_ticket_batch_create','get_ai_operation_status',
     ];
     case AI_INTENTS.WRITE_MAINTENANCE: return [
       'resolve_maintenance_reference','resolve_maintenance_device','search_maintenances','get_maintenance','get_maintenance_devices',

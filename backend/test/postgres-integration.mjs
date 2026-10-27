@@ -8,6 +8,8 @@ if (!testDatabaseUrl) {
   throw new Error('postgres-integration.mjs requires TEST_DATABASE_URL. Production DATABASE_URL is never accepted by this destructive test.');
 }
 process.env.NODE_ENV = 'test';
+// Test-only write permission: this suite uses a disposable TEST_DATABASE_URL.
+process.env.AI_WRITE_ENABLED = 'true';
 
 const {
   appendRow,
@@ -1054,6 +1056,115 @@ test('AI repositories enforce ticket assignment visibility before returning Post
     await query('DELETE FROM "Boletas" WHERE "BoletaUID" = ANY($1::text[])', [[visibleTicket, hiddenTicket]], { label: 'test.ai.ticketCleanup', write: true }).catch(() => {});
     await query('DELETE FROM "Clientes" WHERE "ClienteID"=$1', [clientId], { label: 'test.ai.clientCleanup', write: true }).catch(() => {});
     await query('DELETE FROM "Usuarios" WHERE "UsuarioID" = ANY($1::text[])', [[userVisible, userOther]], { label: 'test.ai.userCleanup', write: true }).catch(() => {});
+  }
+});
+
+
+test('Gemini ticket PREPARE/REVISE/COMMIT creates real pending follow-up tickets once', async () => {
+  const id='stage6-ticket-agent-'+suffix;
+  const ids={
+    user:id+'-user',client:id+'-client',foreignClient:id+'-foreign-client',
+    location:id+'-location',foreignLocation:id+'-foreign-location',category:id+'-category',
+    failure:id+'-failure',type:id+'-deviceType',
+  };
+  let operationId='';
+  const ctx={
+    user:{UsuarioID:ids.user,NombreCompleto:'Técnico agente CI'},
+    sessionToken:'stage6-ai-ticket-session',
+    permissions:['BOLETAS_CREAR'],
+  };
+  const twoTickets=[
+    {
+      title:'Diagnóstico de cámara',client:ids.client,category:ids.category,
+      failureType:ids.failure,deviceType:ids.type,deviceName:'Cámara lobby',
+      date:'2026-10-26',startTime:'08:00',endTime:'08:30',
+      technicians:[ids.user],reason:'Cámara sin imagen',tests:'Se revisó conectividad',
+      location:'Sede Central',
+      result:'Equipo pendiente de repuesto',
+    },
+    {
+      title:'Regreso por cámara',client:ids.client,category:ids.category,
+      failureType:ids.failure,deviceType:ids.type,deviceName:'Cámara lobby',
+      date:'2026-10-27',startTime:'09:00',endTime:'11:00',
+      technicians:[ids.user],reason:'Seguimiento de cámara',tests:'Se verificó imagen',
+      result:'Se restableció imagen',followUpOf:1,
+    },
+  ];
+  try {
+    await appendRow('Clientes',{ClienteID:ids.client,Nombre:'Cliente IA de prueba',Estado:'ACTIVO',Activo:true});
+    await appendRow('Clientes',{ClienteID:ids.foreignClient,Nombre:'Cliente ajeno IA',Estado:'ACTIVO',Activo:true});
+    await appendRow('ClienteUbicaciones',{UbicacionID:ids.location,ClienteID:ids.client,Nombre:'Sede Central',Activo:true});
+    await appendRow('ClienteUbicaciones',{UbicacionID:ids.foreignLocation,ClienteID:ids.foreignClient,Nombre:'Sede Central',Activo:true});
+    await appendRow('Categorias',{CategoriaID:ids.category,Nombre:'Visita técnica CI',Activo:true});
+    await appendRow('TiposFalla',{TipoFallaID:ids.failure,Nombre:'Falla de video CI',Activo:true});
+    await appendRow('TiposDispositivo',{TipoDispositivoID:ids.type,Nombre:'Cámara CI',Activo:true});
+    await appendRow('Usuarios',{UsuarioID:ids.user,NombreCompleto:'Técnico agente CI',NombreUsuario:'ci-ticket-agent',Estado:'ACTIVO'});
+
+    const {
+      prepareTicketBatchCreate,reviseAiTicketOperation,decideAiOperation,
+    }=await import('../src/ai/agent.repository.operations.js');
+    await assert.rejects(
+      prepareTicketBatchCreate({...ctx,permissions:['BOLETAS_VER']},{tickets:twoTickets}),
+      /permiso|crear/i,
+    );
+    const invalid=await prepareTicketBatchCreate(ctx,{
+      tickets:[{...twoTickets[0],client:'Cliente que no existe'}],
+    });
+    assert.equal(invalid.modelData.ready,false);
+    assert.equal(invalid.confirmations,undefined);
+
+    const prep=await prepareTicketBatchCreate(ctx,{tickets:twoTickets});
+    assert.equal(prep.modelData.ready,true);
+    assert.equal(prep.modelData.tickets.length,2);
+    assert.equal(prep.modelData.tickets[0].location,'Sede Central');
+    operationId=prep.modelData.operationId;
+    assert.ok(operationId);
+
+    const revised=await reviseAiTicketOperation(ctx,{
+      operationId,index:1,fields:{endTime:'09:15'},
+    });
+    assert.equal(revised.status,'PENDING');
+    assert.equal(revised.preview.tickets[0].hours,1.25);
+    assert.equal(revised.preview.tickets[1].followUpOf,1);
+
+    const first=await decideAiOperation(ctx,{operationId,decision:'confirm'});
+    assert.equal(first.status,'COMMITTED');
+    assert.equal(first.result.created.length,2);
+    assert.equal(first.result.failed.length,0);
+    const second=await decideAiOperation(ctx,{operationId,decision:'confirm'});
+    assert.deepEqual(second.result.created.map(item=>item.id),first.result.created.map(item=>item.id));
+
+    const createdIds=first.result.created.map(row=>row.id);
+    const tickets=await query(
+      'SELECT "BoletaUID" AS id,"BoletaID" AS number,"Estado" AS status,"GrupoVisitaID" AS group_id,"NumeroVisita" AS visit_number,"HorasTotales" AS hours,"PDFURL" AS pdf,"FirmaArchivoID" AS signature FROM "Boletas" WHERE "__valid"=TRUE AND "BoletaUID"=ANY($1::text[])',
+      [createdIds],{label:'test.ai.ticket.persistence'},
+    );
+    assert.equal(tickets.rowCount,2);
+    assert.equal(tickets.rows.every(row=>row.status==='PENDIENTE'),true);
+    assert.equal(tickets.rows.every(row=>!row.pdf&&!row.signature),true);
+    assert.equal(new Set(tickets.rows.map(row=>row.number)).size,2);
+    assert.equal(tickets.rows.some(row=>Number(row.hours)===1.25),true);
+    assert.equal(tickets.rows.every(row=>row.group_id),true);
+    const assignments=await query(
+      'SELECT "BoletaUID" AS id FROM "BoletaAsignados" WHERE "__valid"=TRUE AND "BoletaUID"=ANY($1::text[])',
+      [createdIds],{label:'test.ai.ticket.assignments'},
+    );
+    assert.equal(assignments.rowCount,2);
+  } finally {
+    // IDs determinísticos sirven incluso si el commit se interrumpió.
+    if(operationId){
+      const {ticketUuid}=await import('../src/ai/agent.repository.operations.js');
+      const createdIds=[0,1].map(index=>ticketUuid(operationId,index));
+      await query('DELETE FROM "BoletaAsignados" WHERE "BoletaUID"=ANY($1::text[])',[createdIds],{label:'test.ai.ticket.cleanupAssignments',write:true}).catch(()=>{});
+      await query('DELETE FROM "Boletas" WHERE "BoletaUID"=ANY($1::text[])',[createdIds],{label:'test.ai.ticket.cleanupTickets',write:true}).catch(()=>{});
+      await query('DELETE FROM "AiPendingOperations" WHERE "OperationID"=$1',[operationId],{label:'test.ai.ticket.cleanupOperation',write:true}).catch(()=>{});
+    }
+    await query('DELETE FROM "ClienteUbicaciones" WHERE "UbicacionID"=ANY($1::text[])',[[ids.location,ids.foreignLocation]],{label:'test.ai.ticket.cleanupLocations',write:true}).catch(()=>{});
+    await query('DELETE FROM "Clientes" WHERE "ClienteID"=ANY($1::text[])',[[ids.client,ids.foreignClient]],{label:'test.ai.ticket.cleanupClients',write:true}).catch(()=>{});
+    await query('DELETE FROM "Categorias" WHERE "CategoriaID"=$1',[ids.category],{label:'test.ai.ticket.cleanupCategory',write:true}).catch(()=>{});
+    await query('DELETE FROM "TiposFalla" WHERE "TipoFallaID"=$1',[ids.failure],{label:'test.ai.ticket.cleanupFailure',write:true}).catch(()=>{});
+    await query('DELETE FROM "TiposDispositivo" WHERE "TipoDispositivoID"=$1',[ids.type],{label:'test.ai.ticket.cleanupDeviceType',write:true}).catch(()=>{});
+    await query('DELETE FROM "Usuarios" WHERE "UsuarioID"=$1',[ids.user],{label:'test.ai.ticket.cleanupUser',write:true}).catch(()=>{});
   }
 });
 

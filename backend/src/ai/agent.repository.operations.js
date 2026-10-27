@@ -2,6 +2,9 @@ import crypto from 'node:crypto';
 import { AppError, badRequest, forbidden, notFound } from '../core/errors.js';
 import { nowIso, uuid } from '../core/utils.js';
 import { query } from '../infra/postgres.js';
+import { calculateMinimumOneHourTotalHours } from '../core/ticket-hours.js';
+import { ticketMultiHandlers } from '../modules/ticket-multi.module.js';
+import { aliasQuery, like } from './agent.repository.shared.js';
 import { appendRow } from '../infra/sheets.repository.js';
 import { audit } from '../services/audit.service.js';
 import { normalizeMacAddress } from '../services/evidence-media-policy.service.js';
@@ -45,6 +48,14 @@ function canWriteMaintenance(ctx){
 function assertMaintenanceWrite(ctx){
   if(!aiConfig.writeEnabled||!aiConfig.maintenanceWriteEnabled) throw new AppError('AI_WRITE_DISABLED','Las acciones de escritura del asistente están deshabilitadas.',403);
   if(!canWriteMaintenance(ctx)) throw forbidden('No cuenta con permiso para modificar mantenimientos.');
+}
+function assertTicketWrite(ctx){
+  if(!aiConfig.writeEnabled) throw new AppError('AI_WRITE_DISABLED','Las escrituras del asistente están deshabilitadas.',403);
+  if(!hasPermission(ctx,'BOLETAS_CREAR')) throw forbidden('No cuenta con permiso BOLETAS_CREAR.');
+}
+function assertOperationPermission(ctx,action){
+  if(action==='TICKET_BATCH_CREATE') return assertTicketWrite(ctx);
+  return assertMaintenanceWrite(ctx);
 }
 function expiryIso(){
   return new Date(Date.now()+aiConfig.pendingOperationTtlMinutes*60_000).toISOString();
@@ -420,10 +431,10 @@ async function findOperation(ctx,operationId){
 }
 
 async function createOperation(ctx,{action,args={},files=[],preview={}}){
-  assertMaintenanceWrite(ctx);
+  assertOperationPermission(ctx,action);
   const userId=clean(ctx?.user?.UsuarioID,250);
   const fingerprint=sessionHash(ctx);
-  const key=hash({userId,fingerprint,action,args,files});
+  let key=hash({userId,fingerprint,action,args,files});
   const existing=await query(
     `SELECT * FROM "AiPendingOperations"
       WHERE "__valid"=TRUE AND "IdempotencyKey"=$1
@@ -434,6 +445,8 @@ async function createOperation(ctx,{action,args={},files=[],preview={}}){
   if(previous&&!expired(previous.ExpiresAt)&&!['CANCELLED','FAILED'].includes(String(previous.Status||''))){
     return previous;
   }
+  // Operaciones canceladas/fallidas ocupan el índice UNIQUE; un nuevo PREPARE no debe chocar con ellas.
+  if(previous)key=hash({userId,fingerprint,action,args,files,newAttempt:uuid()});
   const operationId=uuid(); const now=nowIso(); const expiresAt=expiryIso();
   const inserted=await query(
     `INSERT INTO "AiPendingOperations"
@@ -1073,11 +1086,388 @@ async function commitEvidence(ctx,op){
   return result;
 }
 
+
+/*
+ * Creación de boletas mediante Gemini. Es la misma operación PREPARE/COMMIT de
+ * AiPendingOperations; las tools nunca pueden invocar COMMIT directamente.
+ * Los catálogos se consultan en lotes filtrados, no una consulta por tarjeta.
+ */
+const TICKET_BATCH_LIMIT=10;
+const TICKET_REFERENCES=Object.freeze([
+  {key:'client',table:'Clientes',id:'ClienteID',name:'Nombre',extra:'RazonSocial'},
+  {key:'category',table:'Categorias',id:'CategoriaID',name:'Nombre'},
+  {key:'failureType',table:'TiposFalla',id:'TipoFallaID',name:'Nombre'},
+  {key:'deviceType',table:'TiposDispositivo',id:'TipoDispositivoID',name:'Nombre'},
+  {key:'manufacturer',table:'Fabricantes',id:'FabricanteID',name:'Nombre'},
+  {key:'model',table:'Modelos',id:'ModeloID',name:'Nombre',parent:'TipoDispositivoID',otherParent:'FabricanteID'},
+  {key:'location',table:'ClienteUbicaciones',id:'UbicacionID',name:'Nombre',parent:'ClienteID'},
+  {key:'equipmentLocation',table:'ClienteUbicacionesEquipo',id:'UbicacionEquipoID',name:'Nombre',parent:'UbicacionID'},
+  {key:'supervisor',table:'ClienteContactos',id:'ContactoID',name:'Nombre',parent:'ClienteID'},
+  {key:'technician',table:'Usuarios',id:'UsuarioID',name:'NombreCompleto',extra:'NombreUsuario'},
+]);
+function ticketSourceValue(item,key){
+  const aliases={
+    client:['ClienteID','Cliente','cliente'],
+    category:['CategoriaID','Categoria'],
+    failureType:['TipoFallaID','TipoFalla'],
+    deviceType:['TipoDispositivoID','TipoDispositivo'],
+    manufacturer:['FabricanteID','Fabricante'],
+    model:['ModeloID','Modelo'],
+    location:['UbicacionID','Ubicacion'],
+    equipmentLocation:['UbicacionEquipoID','UbicacionEquipo'],
+    supervisor:['SupervisorID','Supervisor'],
+  };
+  return clean(item?.[key]??aliases[key]?.map(name=>item?.[name]).find(Boolean),300);
+}
+function ticketRefs(item,key){
+  if(key==='technician'){
+    const values=item.technicians??item.AsignadoA??item.asignados??[];
+    return Array.isArray(values)?values.map(value=>clean(value,250)).filter(Boolean):[clean(values,250)].filter(Boolean);
+  }
+  return [ticketSourceValue(item,key)].filter(Boolean);
+}
+function ticketRefCandidates(value,key){
+  const v=clean(value,300);
+  return key==='client'?[v,aliasQuery(v)].filter(Boolean):[v];
+}
+async function ticketReferenceCatalog(ctx,items){
+  const results=await Promise.all(TICKET_REFERENCES.map(async spec=>{
+    const refs=[...new Set([
+      ...items.flatMap(item=>ticketRefs(item,spec.key)).flatMap(value=>ticketRefCandidates(value,spec.key)),
+      ...(spec.key==='technician'&&items.some(item=>ticketRefs(item,'technician').some(value=>['yo','mi'].includes(normalize(value))))
+        ? [clean(ctx?.user?.UsuarioID,250)] : []),
+    ].filter(Boolean))];
+    if(!refs.length)return [spec.key,[]];
+    const names=refs.map(value=>like(value));
+    const col=field=>'"'+field+'"';
+    const clauses=[col(spec.id)+'=ANY($1::text[])',col(spec.name)+' ILIKE ANY($2::text[])'];
+    if(spec.extra)clauses.push(col(spec.extra)+' ILIKE ANY($2::text[])');
+    const fields=[col(spec.id)+' AS id',col(spec.name)+' AS name',
+      ...(spec.extra?[col(spec.extra)+' AS alt']:[]),
+      ...(spec.parent?[col(spec.parent)+' AS parent']:[]),
+      ...(spec.otherParent?[col(spec.otherParent)+' AS otherParent']:[])];
+    const where=spec.key==='technician' ? ' AND UPPER(COALESCE("Estado",\'ACTIVO\'))=\'ACTIVO\'' : '';
+    const activeFilter=spec.key==='technician'?'':' AND LOWER(COALESCE("Activo",\'true\'))<>\'false\'';
+    const response=await query(
+      'SELECT '+fields.join(',')+' FROM "'+spec.table+'" WHERE "__valid"=TRUE'+activeFilter+where+
+      ' AND ('+clauses.join(' OR ')+') ORDER BY '+col(spec.name)+' ASC LIMIT 120',
+      [refs,names],{label:'ai.ticket.catalog.'+spec.key}
+    );
+    return [spec.key,response.rows];
+  }));
+  return Object.fromEntries(results);
+}
+export function ticketMatch(catalog,key,value){
+  const label=clean(value,300);
+  if(!label)return {row:null,ambiguous:false};
+  const normalized=normalize(key==='client'?aliasQuery(label):label);
+  const rows=catalog[key]||[];
+  const byId=rows.filter(row=>clean(row.id)===label);
+  if(byId.length===1)return {row:byId[0],ambiguous:false};
+  const exact=rows.filter(row=>normalize(row.name)===normalized || (row.alt&&normalize(row.alt)===normalized));
+  if(exact.length===1)return {row:exact[0],ambiguous:false};
+  if(exact.length>1)return {row:null,ambiguous:true};
+  const partial=rows.filter(row=>normalize(row.name).includes(normalized)||normalize(row.alt).includes(normalized));
+  return partial.length===1?{row:partial[0],ambiguous:false}:{row:null,ambiguous:partial.length>1};
+}
+function localTicketDate(value){
+  const raw=clean(value,25);
+  if(!/^\d{4}-\d{2}-\d{2}$/.test(raw))return '';
+  const candidate=new Date(raw+'T12:00:00Z');
+  return !Number.isNaN(candidate.getTime())&&candidate.toISOString().slice(0,10)===raw?raw:'';
+}
+export function ticketTime(value){
+  const raw=clean(value,10);
+  return /^([01]\d|2[0-3]):[0-5]\d$/.test(raw)?raw:'';
+}
+export function ticketUuid(opId,index){
+  const bytes=crypto.createHash('sha256').update(opId+':ticket:'+index).digest('hex').slice(0,32);
+  return bytes.slice(0,8)+'-'+bytes.slice(8,12)+'-4'+bytes.slice(13,16)+'-a'+bytes.slice(17,20)+'-'+bytes.slice(20);
+}
+function ticketField(item,canonical,short,max=3000){
+  return clean(item[canonical]??item[short],max);
+}
+export function ticketRelationship(raw,index,items){
+  const rel=raw.followUpOf??raw.parentIndex??raw.seguimientoDe??null;
+  if(rel===null||rel===undefined||rel==='')return null;
+  const parent=Number(rel)-1;
+  if(!Number.isInteger(parent)||parent<0||parent>=index)return {error:'El seguimiento debe señalar una boleta anterior del mismo lote (índice desde 1).'};
+  return {parent};
+}
+async function resolveTicketBatch(ctx,rawItems){
+  const catalog=await ticketReferenceCatalog(ctx,rawItems);
+  const items=[];
+  for(let index=0;index<rawItems.length;index++){
+    const raw=rawItems[index]||{};
+    const missing=[];
+    const resolved={};
+    for(const spec of TICKET_REFERENCES.filter(entry=>entry.key!=='technician')){
+      const value=ticketSourceValue(raw,spec.key);
+      // Selección jerárquica: muchas sedes y modelos comparten nombre entre
+      // clientes o tipos. Solo se compara dentro del padre autorizado.
+      let rows=catalog[spec.key]||[];
+      const expectedParent=spec.key==='location'||spec.key==='supervisor'
+        ? resolved.client?.id
+        : spec.key==='equipmentLocation'?resolved.location?.id
+        : spec.key==='model'?resolved.deviceType?.id:null;
+      if(expectedParent)rows=rows.filter(row=>clean(row.parent)===clean(expectedParent));
+      if(spec.key==='model'&&resolved.manufacturer?.id){
+        rows=rows.filter(row=>clean(row.otherParent)===clean(resolved.manufacturer.id));
+      }
+      const match=ticketMatch({[spec.key]:rows},spec.key,value);
+      if(!match.row){
+        if(value||['client','category','failureType','deviceType'].includes(spec.key)){
+          missing.push(spec.key+(match.ambiguous?' (referencia ambigua)':' (requerido o no encontrado)'));
+        }
+      }else resolved[spec.key]=match.row;
+    }
+    if(resolved.location&&resolved.client&&clean(resolved.location.parent)!==clean(resolved.client.id))missing.push('Ubicación ajena al cliente');
+    if(resolved.equipmentLocation&&(!resolved.location||clean(resolved.equipmentLocation.parent)!==clean(resolved.location.id)))missing.push('Ubicación de equipo ajena a la sede');
+    if(resolved.supervisor&&resolved.client&&clean(resolved.supervisor.parent)!==clean(resolved.client.id))missing.push('Supervisor ajeno al cliente');
+    if(resolved.model&&(!resolved.deviceType||clean(resolved.model.parent)!==clean(resolved.deviceType.id)
+      ||(resolved.manufacturer&&clean(resolved.model.otherParent)!==clean(resolved.manufacturer.id))))missing.push('Modelo ajeno al tipo/fabricante');
+    const technicians=ticketRefs(raw,'technician');
+    const users=[];
+    for(const ref of technicians){
+      if(normalize(ref)==='yo' || normalize(ref)==='mi'){
+        const own=(catalog.technician||[]).find(u=>clean(u.id)===clean(ctx.user?.UsuarioID));
+        if(own)users.push(own.id);
+        else missing.push('Usuario actual no disponible');
+        continue;
+      }
+      const match=ticketMatch(catalog,'technician',ref);
+      if(match.row) users.push(match.row.id);
+      else missing.push('Técnico "'+ref+'" '+(match.ambiguous?'ambiguo':'no encontrado'));
+    }
+    if(!users.length)missing.push('Técnicos asignados');
+    const fecha=localTicketDate(raw.date??raw.Fecha),horaInicio=ticketTime(raw.startTime??raw.HoraInicio),horaFinal=ticketTime(raw.endTime??raw.HoraFinal);
+    const title=ticketField(raw,'Titulo','title',300);
+    const deviceName=ticketField(raw,'Descripcion','deviceName',400);
+    if(!title)missing.push('Título');
+    if(!fecha)missing.push('Fecha YYYY-MM-DD');
+    if(!horaInicio)missing.push('Hora de inicio HH:mm');
+    if(!horaFinal)missing.push('Hora final HH:mm');
+    const hours=calculateMinimumOneHourTotalHours(horaInicio,horaFinal);
+    if(horaInicio&&horaFinal&&!hours)missing.push('Horario inválido');
+    if(!deviceName)missing.push('Nombre o descripción del equipo');
+    let mac='';
+    const rawMac=ticketField(raw,'DireccionMAC','mac',50);
+    if(rawMac){
+      try{mac=normalizeMacAddress(rawMac);}
+      catch{missing.push('Dirección MAC inválida');}
+    }
+    const rel=ticketRelationship(raw,index,rawItems);
+    if(rel?.error)missing.push(rel.error);
+    if(rel&&Number.isInteger(rel.parent)&&resolved.client?.id!==items[rel.parent]?.payload?.ClienteID)missing.push('No se permiten seguimientos entre clientes distintos');
+    const payload={
+      Titulo:title,Fecha:fecha,HoraInicio:horaInicio,HoraFinal:horaFinal,HorasTotales:hours,
+      Estado:'PENDIENTE',
+      ClienteID:resolved.client?.id||'',Cliente:resolved.client?.name||'',
+      CategoriaID:resolved.category?.id||'',Categoria:resolved.category?.name||'',
+      TipoFallaID:resolved.failureType?.id||'',TipoFalla:resolved.failureType?.name||'',
+      TipoDispositivoID:resolved.deviceType?.id||'',TipoDispositivo:resolved.deviceType?.name||'',
+      UbicacionID:resolved.location?.id||'',Ubicacion:resolved.location?.name||'',
+      UbicacionEquipoID:resolved.equipmentLocation?.id||'',UbicacionEquipo:resolved.equipmentLocation?.name||'',
+      SupervisorID:resolved.supervisor?.id||'',Supervisor:resolved.supervisor?.name||'',
+      FabricanteID:resolved.manufacturer?.id||'',Fabricante:resolved.manufacturer?.name||'',
+      ModeloID:resolved.model?.id||'',Modelo:resolved.model?.name||'',
+      Serie:ticketField(raw,'Serie','serial',250),
+      Descripcion:deviceName,
+      DireccionMAC:mac,
+      RazonVisita:ticketField(raw,'RazonVisita','reason',3000),
+      PruebasRealizadas:ticketField(raw,'PruebasRealizadas','tests',3000),
+      Resultado:ticketField(raw,'Resultado','result',3000),
+      Recomendaciones:ticketField(raw,'Recomendaciones','recommendations',3000),
+      AsignadoA:[...new Set(users)],
+      // Correos y finalización mantienen el flujo normal; no se activan por Gemini.
+      EnviarCorreoCliente:false,
+      CorreosCC:'',
+    };
+    items.push({index:index+1,payload,followUpOf:rel?.parent??null,missing:[...new Set(missing)]});
+  }
+  return {items,catalog};
+}
+
+function ticketBatchPreview(items,catalog){
+  return items.map(item=>({
+    index:item.index,title:item.payload.Titulo,client:item.payload.Cliente,clientName:item.payload.Cliente,
+    date:item.payload.Fecha,startTime:item.payload.HoraInicio,endTime:item.payload.HoraFinal,
+    hours:item.payload.HorasTotales,
+    technicians:item.payload.AsignadoA.map(id=>(catalog.technician||[]).find(user=>user.id===id)?.name||id),
+    device:item.payload.Descripcion,deviceType:item.payload.TipoDispositivo,
+    location:item.payload.Ubicacion,equipmentLocation:item.payload.UbicacionEquipo,
+    supervisor:item.payload.Supervisor,manufacturer:item.payload.Fabricante,model:item.payload.Modelo,
+    serial:item.payload.Serie,mac:item.payload.DireccionMAC,
+    reason:item.payload.RazonVisita,tests:item.payload.PruebasRealizadas,
+    result:item.payload.Resultado,recommendations:item.payload.Recomendaciones,
+    category:item.payload.Categoria,failureType:item.payload.TipoFalla,
+    followUpOf:item.followUpOf===null?null:item.followUpOf+1,
+    missing:item.missing,
+  }));
+}
+
+export async function prepareTicketBatchCreate(ctx,args={}){
+  assertTicketWrite(ctx);
+  const tickets=Array.isArray(args.tickets)?args.tickets:[];
+  if(!tickets.length||tickets.length>TICKET_BATCH_LIMIT)throw badRequest('Indique entre 1 y '+TICKET_BATCH_LIMIT+' boletas.');
+  const {items,catalog}=await resolveTicketBatch(ctx,tickets);
+  const invalid=items.filter(item=>item.missing.length);
+  const preview=ticketBatchPreview(items,catalog);
+  if(invalid.length){
+    return {modelData:{ready:false,needsInput:true,items:preview,message:'Faltan referencias u horarios reales. Solicite únicamente los datos que aparecen en missing; no se guardó ninguna boleta.'}};
+  }
+  const argsStored={tickets:items.map(({payload,followUpOf})=>({payload,followUpOf}))};
+  const op=await createOperation(ctx,{action:'TICKET_BATCH_CREATE',args:argsStored,preview:{tickets:preview}});
+  return {
+    modelData:{ready:true,operationId:op.OperationID,tickets:preview,message:'El lote está preparado, no creado. La persona debe revisar y confirmar en la interfaz.'},
+    confirmations:[confirmation(op,'Crear '+items.length+' boleta'+(items.length===1?'':'s'),'Cada boleta quedará PENDIENTE; no se generarán firmas, PDFs, correos ni mensajes de Google Chat.',preview.map(item=>({
+      name:item.title,type:item.clientName,zone:item.date+' · '+item.startTime+'–'+item.endTime,
+      ...item,
+    })))],
+    context:{pendingOperationId:op.OperationID},
+  };
+}
+
+
+const TICKET_EDIT_FIELDS=Object.freeze({
+  title:'Titulo',client:'client',date:'Fecha',startTime:'HoraInicio',endTime:'HoraFinal',
+  category:'category',failureType:'failureType',deviceType:'deviceType',
+  deviceName:'Descripcion',location:'location',equipmentLocation:'equipmentLocation',
+  supervisor:'supervisor',manufacturer:'manufacturer',model:'model',serial:'Serie',
+  mac:'DireccionMAC',reason:'RazonVisita',tests:'PruebasRealizadas',
+  result:'Resultado',recommendations:'Recomendaciones',
+});
+export async function reviseAiTicketOperation(ctx,args={}){
+  assertTicketWrite(ctx);
+  const operationId=clean(args.operationId,250);
+  const index=Number(args.index)-1;
+  const fields=args.fields;
+  if(!operationId || !Number.isInteger(index) || index<0 || !fields || typeof fields!=='object' || Array.isArray(fields)){
+    throw badRequest('Debe indicar la boleta y los campos que desea corregir.');
+  }
+  const op=await findOperation(ctx,operationId);
+  if(op.Action!=='TICKET_BATCH_CREATE')throw badRequest('Esta operación no contiene boletas editables.');
+  if(expired(op.ExpiresAt))throw new AppError('AI_OPERATION_EXPIRED','La propuesta expiró.',409);
+  if(op.Status!=='PENDING')throw new AppError('AI_OPERATION_CONFLICT','Solo puede corregir propuestas pendientes de confirmar.',409);
+  const saved=parseJson(op.ArgumentsJSON,{});
+  const originals=Array.isArray(saved.tickets)?saved.tickets:[];
+  if(index>=originals.length)throw badRequest('Índice de boleta fuera del lote.');
+  if(!Object.keys(fields).length)throw badRequest('Indique al menos un campo para corregir.');
+  const patch={};
+  for(const [name,value] of Object.entries(fields)){
+    if(name==='technicians'){
+      if(!Array.isArray(value)||value.length>20)throw badRequest('La lista de técnicos no es válida.');
+      patch.technicians=value.map(entry=>clean(entry,250)).filter(Boolean);
+    }else if(name==='followUpOf'){
+      if(value!==null&&value!==''&&(!Number.isInteger(Number(value))||Number(value)<0||Number(value)>TICKET_BATCH_LIMIT))throw badRequest('Seguimiento no válido.');
+      patch.followUpOf=value===null||value===''||Number(value)===0?null:Number(value);
+    }else if(TICKET_EDIT_FIELDS[name]){
+      if(typeof value!=='string')throw badRequest('El campo '+name+' requiere texto.');
+      patch[TICKET_EDIT_FIELDS[name]]=clean(value,3000);
+    }else throw badRequest('No se permite editar el campo '+name+'.');
+  }
+  const next=originals.map((entry,i)=>{
+    const data={
+      ...entry.payload,
+      technicians:entry.payload.AsignadoA,
+      followUpOf:entry.followUpOf===null?null:entry.followUpOf+1,
+    };
+    if(i===index)Object.assign(data,patch);
+    return data;
+  });
+  const {items,catalog}=await resolveTicketBatch(ctx,next);
+  const preview=ticketBatchPreview(items,catalog);
+  if(items.some(entry=>entry.missing.length)){
+    return {operationId,status:'PENDING',needsInput:true,
+      issues:preview.filter(item=>item.missing.length).map(item=>({index:item.index,missing:item.missing})),
+      preview:operationPreview(op)};
+  }
+  const revised={tickets:items.map(({payload,followUpOf})=>({payload,followUpOf}))};
+  const change=await query(
+    'UPDATE "AiPendingOperations" SET "ArgumentsJSON"=$5::jsonb,"PreviewJSON"=$6::jsonb,"UpdatedAt"=$7 WHERE "__valid"=TRUE AND "OperationID"=$1 AND "UserID"=$2 AND "SessionHash"=$3 AND "Status"=$4 AND "UpdatedAt"=$8 RETURNING *',
+    [operationId,clean(ctx?.user?.UsuarioID,250),sessionHash(ctx),'PENDING',
+      JSON.stringify(revised),JSON.stringify({tickets:preview}),nowIso(),op.UpdatedAt],
+    {label:'ai.ticket.revise',write:true},
+  );
+  if(!change.rowCount)throw new AppError('AI_OPERATION_CONFLICT','La propuesta cambió. Recárguela antes de corregir.',409);
+  return publicOperation(change.rows[0]);
+}
+
+async function commitTicketBatch(ctx,op){
+  assertTicketWrite(ctx);
+  const saved=parseJson(op.ArgumentsJSON,{});
+  const originals=Array.isArray(saved.tickets)?saved.tickets:[];
+  if(!originals.length||originals.length>TICKET_BATCH_LIMIT)throw badRequest('La propuesta ya no es válida.');
+  // Revalidación frente a cambios entre PREPARE y COMMIT.
+  const {items:reread}=await resolveTicketBatch(ctx,originals.map(item=>({
+    ...item.payload,
+    technicians:item.payload.AsignadoA,
+    followUpOf:item.followUpOf===null?null:item.followUpOf+1,
+  })));
+  if(reread.some(item=>item.missing.length))throw new AppError('AI_TICKET_CATALOG_CHANGED','Cambió un cliente, técnico, ubicación o catálogo. Prepare nuevamente la operación.',409);
+  const ids=originals.map((_,index)=>ticketUuid(op.OperationID,index));
+  const recorded=await query(
+    'SELECT "BoletaUID" AS id,"BoletaID" AS number,"Cliente" AS client,"GrupoVisitaID" AS group_id FROM "Boletas" WHERE "__valid"=TRUE AND "BoletaUID"=ANY($1::text[])',
+    [ids],{label:'ai.ticket.existing'},
+  );
+  const persisted=new Map(recorded.rows.map(row=>[row.id,row]));
+  const created=[],failed=[];
+  for(let i=0;i<originals.length;i++){
+    const ticket=originals[i],id=ids[i],parentIndex=ticket.followUpOf;
+    const parentId=parentIndex===null?null:ids[parentIndex];
+    const previous=persisted.get(id);
+    try{
+      if(parentId && !created.some(item=>item.id===parentId)){
+        throw new AppError('AI_TICKET_PARENT_FAILED','El seguimiento requiere crear primero su boleta principal.',409);
+      }
+      let stored=previous;
+      if(!previous || (parentId&&!previous.group_id)){
+        const response=await ticketMultiHandlers.create({
+          ...ctx,
+          route:'boletas.create',
+          payload:{
+            ...reread[i].payload,boletaUid:id,
+            ...(parentId?{parentTicketId:parentId}:{}),
+          },
+        });
+        const row=response.boleta||response;
+        stored={id:row.BoletaUID||id,number:row.BoletaID,client:row.Cliente||reread[i].payload.Cliente,group_id:row.GrupoVisitaID};
+      }
+      persisted.set(id,stored);
+      created.push({id,number:stored.number,client:stored.client,followUpOf:parentIndex===null?null:parentIndex+1,url:'/boletas/'+encodeURIComponent(id)});
+      // Sync debe confirmarse antes de marcar el ítem completamente procesado.
+      // Si falla, la boleta ya persistida se informa y se recupera por UUID al reintentar.
+      await recordClassifiedSyncChange({
+        classification:SYNC_MUTATION_CLASS.SYNC_RESOURCE,resource:'ticket',entityId:id,
+        entityIds:parentId?[id,parentId]:[id],operation:'UPSERT',
+        metadata:{action:'AI_TICKET_BATCH_CREATE',source:'AI_AGENT'},
+      },{...ctx,route:'ai.operation.commit',payload:{mutationId:op.OperationID+':'+i}});
+      // Punto de control durable para recuperación tras caída o pérdida de conexión.
+      await query(
+        'UPDATE "AiPendingOperations" SET "ResultJSON"=$2::jsonb,"UpdatedAt"=$3 WHERE "__valid"=TRUE AND "OperationID"=$1 AND "Status"=\'COMMITTING\'',
+        [op.OperationID,JSON.stringify({created,failed,createdCount:created.length,failedCount:failed.length,total:originals.length}),nowIso()],
+        {label:'ai.ticket.checkpoint',write:true},
+      );
+    }catch(error){
+      failed.push({index:i+1,message:clean(error?.message||'No fue posible crear la boleta.',400)});
+    }
+  }
+  const result={created,failed,createdCount:created.length,failedCount:failed.length,total:originals.length};
+  // La auditoría también forma parte de la finalización controlada;
+  // los errores no se silencian como si todo hubiera terminado correctamente.
+  await audit(ctx,'AI_TICKET_BATCH_CREATE','Boletas',op.OperationID,null,{
+    OperationID:op.OperationID,Created:created.length,Failed:failed.length,Total:originals.length,
+  });
+  await finishOperation(op.OperationID,failed.length?'PARTIAL':'COMMITTED',result,
+    failed.length?{message:'Existen boletas pendientes o pendientes de sincronización. Reintente la misma operación, sin crear duplicados.'}:null);
+  return result;
+}
+
 export async function decideAiOperation(ctx,args={}){
-  assertMaintenanceWrite(ctx);
   const operationId=clean(args.operationId,250),decision=normalize(args.decision);
   if(!operationId)throw badRequest('Falta operationId.');
   let op=await findOperation(ctx,operationId);
+  assertOperationPermission(ctx,op.Action);
   if(expired(op.ExpiresAt)&&!['COMMITTED','CANCELLED'].includes(String(op.Status||''))){
     await finishOperation(operationId,'EXPIRED',operationResult(op)||{},null);
     throw new AppError('AI_OPERATION_EXPIRED','La confirmación expiró. Prepare la operación nuevamente.',409);
@@ -1091,13 +1481,27 @@ export async function decideAiOperation(ctx,args={}){
   }
   if(!['confirmar','confirm','retry','reintentar'].includes(decision))throw badRequest('La decisión debe ser confirm o cancel.');
   if(op.Status==='COMMITTED')return publicOperation(op);
+  if(op.Status==='COMMITTING' && op.Action==='TICKET_BATCH_CREATE'){
+    // El agente no dura más de 180 s; después de diez minutos un COMMITTING
+    // abandonado puede reclamarse explícitamente sin crear nuevos IDs.
+    const staleBefore=new Date(Date.now()-10*60_000).toISOString();
+    await query(
+      `UPDATE "AiPendingOperations" SET "Status"='PARTIAL',"UpdatedAt"=$4
+        WHERE "__valid"=TRUE AND "OperationID"=$1 AND "UserID"=$2 AND "SessionHash"=$3
+          AND "Status"='COMMITTING' AND "UpdatedAt"<$5`,
+      [operationId,clean(ctx?.user?.UsuarioID,250),sessionHash(ctx),nowIso(),staleBefore],
+      {label:'ai.ticket.reclaim',write:true},
+    );
+    op=await findOperation(ctx,operationId);
+  }
   if(op.Status==='COMMITTING')return publicOperation(op);
   op=await claimOperation(ctx,operationId);
   if(op.Status!=='COMMITTING')return publicOperation(op);
 
   let result;
   try{
-    if(op.Action==='MAINTENANCE_DEVICE_BULK_CREATE') result=await commitDeviceBulk(ctx,op);
+    if(op.Action==='TICKET_BATCH_CREATE') result=await commitTicketBatch(ctx,op);
+    else if(op.Action==='MAINTENANCE_DEVICE_BULK_CREATE') result=await commitDeviceBulk(ctx,op);
     else if(op.Action==='MAINTENANCE_PROJECT_DEVICE_UPDATE') result=await commitProjectDeviceUpdate(ctx,op);
     else if(op.Action==='MAINTENANCE_EVIDENCE_UPLOAD') result=await commitEvidence(ctx,op);
     else throw badRequest('La operación no es compatible con esta versión del agente.');
@@ -1106,6 +1510,32 @@ export async function decideAiOperation(ctx,args={}){
       code:clean(error?.code||'AI_OPERATION_FAILED',80),
       message:clean(error?.message||'No se pudo completar la operación.',600),
     }).catch(()=>{});
+    if(op.Action==='TICKET_BATCH_CREATE'){
+      // Solo si hay filas persistidas existe progreso parcial recuperable.
+      // Los dispositivos/mantenimientos anteriores conservan FAILED sin cambios.
+      try{
+        const saved=parseJson(op.ArgumentsJSON,{});
+        const expected=(Array.isArray(saved.tickets)?saved.tickets:[]).map((_,i)=>ticketUuid(op.OperationID,i));
+        if(expected.length){
+          const persisted=await query(
+            'SELECT "BoletaUID" AS id,"BoletaID" AS number,"Cliente" AS client FROM "Boletas" WHERE "__valid"=TRUE AND "BoletaUID"=ANY($1::text[])',
+            [expected],{label:'ai.ticket.recoverPartial'},
+          );
+          if(persisted.rowCount){
+            const byId=new Map(persisted.rows.map(row=>[row.id,row]));
+            const created=expected.flatMap((id,index)=>byId.has(id)?[{
+              id,number:byId.get(id).number,client:byId.get(id).client,
+              followUpOf:saved.tickets[index].followUpOf===null?null:saved.tickets[index].followUpOf+1,
+              url:'/boletas/'+encodeURIComponent(id),
+            }]:[]);
+            const result={created,failed:[],createdCount:created.length,failedCount:0,total:expected.length};
+            await finishOperation(operationId,'PARTIAL',result,{
+              message:'La creación quedó interrumpida. Reintente la misma operación para completar las boletas restantes.',
+            });
+          }
+        }
+      }catch{ /* FAILED remains visible; never claim success for an unverified write */ }
+    }
     throw error;
   }
   const current=await findOperation(ctx,operationId);
@@ -1119,6 +1549,7 @@ export async function getAiOperationStatus(ctx,args={}){
 
 export const operationRepositoryTools=Object.freeze({
   parse_device_import_file:parseDeviceImportFile,
+  prepare_ticket_batch_create:prepareTicketBatchCreate,
   prepare_maintenance_device_bulk_create:prepareMaintenanceDeviceBulkCreate,
   prepare_maintenance_project_device_update:prepareMaintenanceProjectDeviceUpdate,
   prepare_maintenance_evidence_upload:prepareMaintenanceEvidenceUpload,

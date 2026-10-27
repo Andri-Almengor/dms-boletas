@@ -12,6 +12,7 @@ import {
 } from '../infra/sheets.repository.js';
 import { uploadBase64, downloadAsDataUrl, trashFile } from '../infra/drive.repository.js';
 import { badRequest, notFound } from '../core/errors.js';
+import { query, withTransaction } from '../infra/postgres.js';
 import { asArray, asBool, nowIso, pick, uuid } from '../core/utils.js';
 import { getConfig } from './config.module.js';
 import { audit } from '../services/audit.service.js';
@@ -131,6 +132,7 @@ function ticketPayload(p, existing = {}) {
     ModeloID: pick(p, ['ModeloID', 'modeloId'], existing.ModeloID),
     Modelo: pick(p, ['Modelo', 'modelo'], existing.Modelo),
     Serie: pick(p, ['Serie', 'serie'], existing.Serie),
+    DireccionMAC: pick(p, ['DireccionMAC', 'macAddress', 'direccionMAC'], existing.DireccionMAC),
     RazonVisita: pick(p, ['RazonVisita', 'razonVisita'], existing.RazonVisita),
     Descripcion: pick(p, ['Descripcion', 'descripcion'], existing.Descripcion),
     PruebasRealizadas: pick(p, ['PruebasRealizadas', 'pruebasRealizadas'], existing.PruebasRealizadas),
@@ -227,7 +229,9 @@ export const ticketHandlers = {
 
   get: async ({ payload }) => enrichTicket(await findById('Boletas', pick(payload, ['boletaUid', 'BoletaUID', 'id']))),
 
-  create: async (ctx) => withTicketCreateLock(async () => {
+  create: async (ctx) => withTicketCreateLock(() => withTransaction(async () => {
+    // Serialización transaccional entre TODAS las instancias de Render, no solo en memoria.
+    await query("SELECT pg_advisory_xact_lock(hashtext('dms:boletas.create'))",[],{label:'ticket.create.sequenceLock'});
     const requestedId = String(pick(ctx.payload, ['boletaUid', 'BoletaUID'], '')).trim();
     if (requestedId && !validClientGeneratedId(requestedId)) throw badRequest('El identificador local de la boleta no es válido.');
 
@@ -263,7 +267,7 @@ export const ticketHandlers = {
     await replaceAssigned(row.BoletaUID, asArray(ctx.payload.AsignadoA || ctx.payload.asignados), ctx);
     await audit(ctx, 'CREAR_BOLETA', 'Boletas', row.BoletaUID, null, row);
     return enrichTicket(row);
-  }),
+  })),
 
   update: async (ctx) => {
     const id = pick(ctx.payload, ['boletaUid', 'BoletaUID', 'id']);
