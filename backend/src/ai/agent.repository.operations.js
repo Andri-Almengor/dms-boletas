@@ -1157,7 +1157,7 @@ async function ticketReferenceCatalog(ctx,items){
   }));
   return Object.fromEntries(results);
 }
-function ticketMatch(catalog,key,value){
+export function ticketMatch(catalog,key,value){
   const label=clean(value,300);
   if(!label)return {row:null,ambiguous:false};
   const normalized=normalize(key==='client'?aliasQuery(label):label);
@@ -1176,18 +1176,18 @@ function localTicketDate(value){
   const candidate=new Date(raw+'T12:00:00Z');
   return !Number.isNaN(candidate.getTime())&&candidate.toISOString().slice(0,10)===raw?raw:'';
 }
-function ticketTime(value){
+export function ticketTime(value){
   const raw=clean(value,10);
   return /^([01]\d|2[0-3]):[0-5]\d$/.test(raw)?raw:'';
 }
-function ticketUuid(opId,index){
+export function ticketUuid(opId,index){
   const bytes=crypto.createHash('sha256').update(opId+':ticket:'+index).digest('hex').slice(0,32);
   return bytes.slice(0,8)+'-'+bytes.slice(8,12)+'-4'+bytes.slice(13,16)+'-a'+bytes.slice(17,20)+'-'+bytes.slice(20);
 }
 function ticketField(item,canonical,short,max=3000){
   return clean(item[canonical]??item[short],max);
 }
-function ticketRelationship(raw,index,items){
+export function ticketRelationship(raw,index,items){
   const rel=raw.followUpOf??raw.parentIndex??raw.seguimientoDe??null;
   if(rel===null||rel===undefined||rel==='')return null;
   const parent=Number(rel)-1;
