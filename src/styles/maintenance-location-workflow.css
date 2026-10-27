@@ -479,12 +479,36 @@
     padding: 10px;
   }
 
+  /* Keep both labels readable on phones; reserve the narrow column only for delete. */
   .maintenance-location-work-group__actions {
-    padding-left: 55px;
+    padding-left: 0;
+    display: grid;
+    grid-template-columns: minmax(0, 1fr) var(--touch-target-min);
+    gap: 8px;
   }
 
-  .maintenance-location-work-group__actions .button {
-    flex: 1 1 auto;
+  .maintenance-location-work-group__actions > .button {
+    min-width: 0;
+    min-height: var(--touch-target-min);
+    width: 100%;
+    white-space: nowrap;
+  }
+
+  .maintenance-location-work-group__actions > .button--primary {
+    grid-column: 1 / -1;
+  }
+
+  .maintenance-location-work-group__actions > .button--secondary {
+    grid-column: 1;
+  }
+
+  .maintenance-location-work-group__actions > .button--secondary:last-child {
+    grid-column: 1 / -1;
+  }
+
+  .maintenance-location-work-group__actions > .icon-button {
+    grid-column: 2;
+    justify-self: end;
   }
 
   .maintenance-location-work-group__content {
@@ -575,9 +599,5 @@
     height: 40px;
   }
 
-  .maintenance-location-work-group__actions {
-    padding-left: 0;
-    display: grid;
-    grid-template-columns: minmax(0, 1fr) var(--touch-target-min);
-  }
+
 }
