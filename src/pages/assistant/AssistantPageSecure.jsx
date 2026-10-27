@@ -887,6 +887,10 @@ export default function AssistantPageSecure() {
   const [speechSupported] = useState(() => Boolean(
     typeof window !== 'undefined' && (window.SpeechRecognition || window.webkitSpeechRecognition)
   ));
+  const [microphonePermission, setMicrophonePermission] = useState('prompt');
+  const [microphoneRequesting, setMicrophoneRequesting] = useState(false);
+  const [microphoneFeedback, setMicrophoneFeedback] = useState('');
+  const [microphoneHelpOpen, setMicrophoneHelpOpen] = useState(false);
   const speechRef = useRef(null);
   const [sending, setSending] = useState(false);
   const [error, setError] = useState('');
@@ -898,6 +902,81 @@ export default function AssistantPageSecure() {
   const fromRoute = searchParams.get('from') || '';
   const pageContext = useMemo(() => pageContextFromRoute(fromRoute), [fromRoute]);
   const isAdmin = hasPermission('USUARIOS_GESTIONAR');
+
+  // El estado de permisos es informativo; el navegador decide si puede solicitarlo.
+  // Consultarlo nunca abre el micrófono ni muestra una petición automática de acceso.
+  useEffect(() => {
+    let active = true;
+    let permissionStatus = null;
+
+    async function refreshMicrophonePermission() {
+      if (!navigator.permissions?.query) return;
+      try {
+        const status = await navigator.permissions.query({ name: 'microphone' });
+        if (!active) return;
+        if (permissionStatus) permissionStatus.onchange = null;
+        permissionStatus = status;
+        setMicrophonePermission(status.state);
+        status.onchange = () => {
+          if (!active) return;
+          setMicrophonePermission(status.state);
+          if (status.state === 'granted') setMicrophoneHelpOpen(false);
+        };
+      } catch {
+        // Safari y algunos navegadores no admiten consultar este permiso.
+      }
+    }
+
+    function refreshOnReturn() {
+      if (document.visibilityState === 'visible') refreshMicrophonePermission();
+    }
+
+    refreshMicrophonePermission();
+    document.addEventListener('visibilitychange', refreshOnReturn);
+    return () => {
+      active = false;
+      if (permissionStatus) permissionStatus.onchange = null;
+      document.removeEventListener('visibilitychange', refreshOnReturn);
+    };
+  }, []);
+
+  async function requestMicrophonePermission() {
+    if (sending || dictating || microphoneRequesting) return;
+    if (!window.isSecureContext || !navigator.mediaDevices?.getUserMedia) {
+      setMicrophoneFeedback('El navegador no permite solicitar el micrófono aquí. Abra DMS por HTTPS y revise los permisos del dispositivo.');
+      setMicrophoneHelpOpen(true);
+      return;
+    }
+
+    setMicrophoneRequesting(true);
+    setMicrophoneFeedback('');
+    let stream;
+    try {
+      // Se solicita solo tras pulsar el botón; la captura de prueba se cierra inmediatamente.
+      stream = await navigator.mediaDevices.getUserMedia({ audio: true });
+      setMicrophonePermission('granted');
+      setMicrophoneHelpOpen(false);
+      setMicrophoneFeedback(speechSupported
+        ? 'Micrófono autorizado. Ahora puede usar el botón de dictado.'
+        : 'Micrófono autorizado, pero este navegador no admite dictado web. Use el micrófono del teclado.');
+    } catch (permissionError) {
+      const code = String(permissionError?.name || '');
+      if (['NotAllowedError', 'PermissionDeniedError', 'SecurityError'].includes(code)) {
+        setMicrophonePermission('denied');
+        setMicrophoneFeedback('Acceso al micrófono bloqueado o rechazado. Revise los permisos del sitio y vuelva a intentarlo.');
+      } else if (code === 'NotFoundError' || code === 'DevicesNotFoundError') {
+        setMicrophoneFeedback('No se encontró un micrófono. Conecte uno o revise el dispositivo.');
+      } else if (code === 'NotReadableError' || code === 'TrackStartError') {
+        setMicrophoneFeedback('El micrófono está ocupado o no se puede utilizar. Cierre otras aplicaciones que lo estén usando.');
+      } else {
+        setMicrophoneFeedback('No se pudo comprobar el micrófono. Revise el navegador y los permisos del dispositivo.');
+      }
+      setMicrophoneHelpOpen(true);
+    } finally {
+      stream?.getTracks().forEach((track) => track.stop());
+      setMicrophoneRequesting(false);
+    }
+  }
 
   // SpeechRecognition solo entrega texto; no almacenamos audio ni enviamos dictados automáticamente.
   useEffect(() => () => {
@@ -969,7 +1048,8 @@ export default function AssistantPageSecure() {
       if (speechRef.current !== recognition) return;
       const code = String(event.error || '');
       if (['not-allowed', 'service-not-allowed'].includes(code)) {
-        setError('No se autorizó el micrófono. Revise los permisos del navegador o use el teclado.');
+        setError('El navegador bloqueó el reconocimiento de voz. Revise el acceso al micrófono o use el teclado.');
+        setMicrophoneHelpOpen(true);
       } else if (code === 'audio-capture') {
         setError('No se detectó un micrófono disponible.');
       } else if (code !== 'no-speech' && code !== 'aborted') {
@@ -1392,6 +1472,29 @@ export default function AssistantPageSecure() {
               <Icon name={sending ? 'progress_activity' : 'send'} />
               <span>Enviar</span>
             </button>
+          </div>
+          <div className="assistant-microphone-access" aria-label="Acceso al micrófono">
+            <button type="button" className="assistant-microphone-access__action"
+              onClick={requestMicrophonePermission} disabled={sending || dictating || microphoneRequesting}>
+              <Icon name={microphonePermission === 'granted' ? 'check_circle' : 'mic'} />
+              {microphoneRequesting ? 'Solicitando acceso…' : microphonePermission === 'granted'
+                ? 'Comprobar micrófono' : microphonePermission === 'denied' ? 'Reintentar permiso' : 'Permitir micrófono'}
+            </button>
+            <button type="button" className="assistant-microphone-access__help"
+              aria-expanded={microphoneHelpOpen} aria-controls="assistant-microphone-help"
+              onClick={() => setMicrophoneHelpOpen((open) => !open)}>
+              <Icon name="help_outline" /> Cómo habilitarlo
+            </button>
+            {microphoneFeedback && <p className="assistant-microphone-access__feedback" role="status">{microphoneFeedback}</p>}
+            {microphoneHelpOpen && (
+              <div className="assistant-microphone-access__instructions" id="assistant-microphone-help">
+                <p>El permiso solo lo concede el navegador. Si está bloqueado, la app no puede activarlo automáticamente:</p>
+                <p><strong>PC (Chrome/Edge):</strong> abra los controles del sitio junto a la dirección, cambie Micrófono a Permitir y vuelva a cargar la página.</p>
+                <p><strong>Android:</strong> revise el permiso de micrófono de Chrome y del sitio en Configuración, Permisos o Configuración de sitios.</p>
+                <p><strong>iPhone/iPad:</strong> revise el menú del sitio de Safari y sus permisos de micrófono en Ajustes. En otros navegadores, revise los permisos de la app en Ajustes.</p>
+                {!speechSupported && <p>Este navegador no ofrece dictado directo en DMS; puede usar el micrófono del teclado del teléfono.</p>}
+              </div>
+            )}
           </div>
           <small>
             Puede dictar y corregir el texto antes de enviarlo.{' '}
