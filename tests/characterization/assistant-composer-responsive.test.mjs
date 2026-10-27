@@ -28,5 +28,5 @@ test('composer móvil usa texto de ancho completo y botones en segunda fila sin 
   }
   assert.match(page, /aria-label="Enviar pregunta"/);
   assert.match(page, /placeholder="Escriba o dicte su mensaje…"/);
-  assert.match(page, /!speechSupported && 'Para dictar, use el micrófono del teclado/);
+  assert.match(page, /!speechSupported && !recordingSupported && 'Para dictar, use el micrófono del teclado/);
 });
