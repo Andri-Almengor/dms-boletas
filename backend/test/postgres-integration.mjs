@@ -43,6 +43,61 @@ const {
 
 const suffix = `${Date.now()}-${Math.random().toString(16).slice(2)}`;
 
+test('maintenance progress never sends the historical PENDIENTE duplicate after finalization', async () => {
+  const { latestMaintenanceProgressRows } = await import('../src/core/maintenance-progress.js');
+  const { notifyMaintenanceProgress } = await import('../src/services/maintenance-progress-chat.service.js');
+  const maintenanceId = 'stage6-progress-duplicate-' + suffix;
+  const historical = {
+    MantenimientoID: maintenanceId,
+    TituloMantenimiento: 'Proyecto Zeus',
+    Cliente: 'Digital Management Systems, S.A.',
+    Ubicacion: 'Oficinas Sabana',
+    Estado: 'PENDIENTE',
+    Activo: true,
+  };
+  try {
+    await appendRow('Mantenimiento', historical);
+    await appendRow('Mantenimiento', {
+      ...historical,
+      Cliente: 'Cliente corregido',
+      Ubicacion: 'Sede corregida',
+    });
+    await updateRow('Mantenimiento', maintenanceId, {
+      Estado: 'FINALIZADO',
+      EstadoFinalizacion: 'COMPLETADO',
+      FechaActualizacion: '2026-10-26T22:00:00.000Z',
+    });
+
+    const duplicates = (await readTable('Mantenimiento'))
+      .filter((row) => row.MantenimientoID === maintenanceId);
+    assert.equal(duplicates.length, 2);
+    assert.equal(duplicates[0].Estado, 'PENDIENTE');
+    assert.equal(duplicates[1].Estado, 'FINALIZADO');
+
+    const latest = latestMaintenanceProgressRows(duplicates);
+    assert.equal(latest.length, 1);
+    assert.equal(latest[0].Estado, 'FINALIZADO');
+    assert.equal(latest[0].Cliente, 'Cliente corregido');
+    assert.equal((await findRows('Mantenimiento', { MantenimientoID: maintenanceId }, { limit: 1, order: 'DESC' }))[0].Estado, 'FINALIZADO');
+
+    const result = await notifyMaintenanceProgress({
+      maintenance: historical,
+      reason: 'SCHEDULED',
+      slot: '17:00',
+      slotKey: '2026-10-26|17:00',
+      now: new Date('2026-10-26T23:00:00.000Z'),
+    });
+    assert.equal(result.sent, false);
+    assert.equal(result.skipped, 'NOT_PENDING');
+    assert.equal((await findRows('Notificaciones', { EntidadID: maintenanceId }, { limit: 10 })).length, 0);
+  } finally {
+    await query('DELETE FROM "Mantenimiento" WHERE "MantenimientoID"=$1', [maintenanceId], {
+      label: 'test.progress.finalizedDuplicateCleanup',
+      write: true,
+    }).catch(() => {});
+  }
+});
+
 test('moving a maintenance between clients preserves device identity and requires valid destination locations', async () => {
   const { maintenanceLocationGroupHandlers } = await import('../src/modules/maintenance-location-groups.module.js');
   const ids = {
