@@ -1239,6 +1239,12 @@ async function resolveTicketBatch(ctx,rawItems){
     const hours=calculateMinimumOneHourTotalHours(horaInicio,horaFinal);
     if(horaInicio&&horaFinal&&!hours)missing.push('Horario inválido');
     if(!deviceName)missing.push('Nombre o descripción del equipo');
+    let mac='';
+    const rawMac=ticketField(raw,'DireccionMAC','mac',50);
+    if(rawMac){
+      try{mac=normalizeMacAddress(rawMac);}
+      catch{missing.push('Dirección MAC inválida');}
+    }
     const rel=ticketRelationship(raw,index,rawItems);
     if(rel?.error)missing.push(rel.error);
     if(rel&&Number.isInteger(rel.parent)&&resolved.client?.id!==items[rel.parent]?.payload?.ClienteID)missing.push('No se permiten seguimientos entre clientes distintos');
@@ -1256,7 +1262,7 @@ async function resolveTicketBatch(ctx,rawItems){
       ModeloID:resolved.model?.id||'',Modelo:resolved.model?.name||'',
       Serie:ticketField(raw,'Serie','serial',250),
       Descripcion:deviceName,
-      DireccionMAC:ticketField(raw,'DireccionMAC','mac',50),
+      DireccionMAC:mac,
       RazonVisita:ticketField(raw,'RazonVisita','reason',3000),
       PruebasRealizadas:ticketField(raw,'PruebasRealizadas','tests',3000),
       Resultado:ticketField(raw,'Resultado','result',3000),
