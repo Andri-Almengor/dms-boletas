@@ -2,6 +2,7 @@ import { env } from '../config/env.js';
 import { nowIso, uuid } from '../core/utils.js';
 import {
   buildMaintenanceProgress,
+  latestMaintenanceProgressRows,
   formatMaintenanceProgressMessage,
   isMaintenanceProgressWeekday,
   maintenanceProgressScheduleSlot,
@@ -527,15 +528,7 @@ async function dispatchScheduledMaintenanceProgress({ slot, slotKey, now = new D
     'Clientes',
   ], { force: true });
 
-  // readTable orders by __db_id ASC but updateRow writes the LAST matching
-  // valid ID. Dedupe before checking status, otherwise a legacy PENDIENTE
-  // snapshot can keep reporting after the current record was FINALIZADO.
-  const latestById = new Map();
-  for (const row of tables.Mantenimiento || []) {
-    const id = clean(row.MantenimientoID);
-    if (id) latestById.set(id, row);
-  }
-  const pending = [...latestById.values()].filter(pendingMaintenance);
+  const pending = latestMaintenanceProgressRows(tables.Mantenimiento || []).filter(pendingMaintenance);
   const context = {
     devices: tables.Evidencia_Mantenimientos || [],
     deviceTypes: tables.TiposDispositivo || [],
