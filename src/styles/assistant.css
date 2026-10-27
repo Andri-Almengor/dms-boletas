@@ -832,3 +832,41 @@ body:has(.app-shell--form):has(.form-recovery-status) .assistant-fab {
     animation: none;
   }
 }
+
+/* Entrada de voz del Asistente DMS; usa los mismos botones y variables del composer. */
+.assistant-microphone.is-listening {
+  color: var(--error, #ba1a1a);
+  background: color-mix(in srgb, var(--error, #ba1a1a) 12%, var(--surface));
+  animation: assistant-mic-pulse 1.6s ease-in-out infinite;
+}
+.assistant-dictation-status {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  min-width: 0;
+  padding: 6px 10px;
+  margin-bottom: 8px;
+  border-radius: 10px;
+  background: var(--surface-low);
+  color: var(--text);
+  font-size: .8rem;
+}
+.assistant-dictation-status > span {
+  min-width: 0;
+  flex: 1;
+  overflow-wrap: anywhere;
+}
+.assistant-dictation-status > button {
+  border: 0;
+  background: transparent;
+  color: var(--primary);
+  cursor: pointer;
+  font: inherit;
+  font-weight: 700;
+}
+@keyframes assistant-mic-pulse {
+  50% { box-shadow: 0 0 0 5px color-mix(in srgb, var(--error, #ba1a1a) 15%, transparent); }
+}
+@media (prefers-reduced-motion: reduce) {
+  .assistant-microphone.is-listening { animation: none; }
+}
