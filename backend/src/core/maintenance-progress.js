@@ -117,18 +117,6 @@ function dynamicDefinitionForType(definitions, typeId, typeName, expected = 0) {
   return definition;
 }
 
-// PostgreSQL preserves imported duplicates. readTable returns valid rows in
-// __db_id ASC order while updateRow updates the LAST matching ID. Only the
-// latest revision may participate in scheduled notifications.
-export function latestMaintenanceProgressRows(rows = []) {
-  const latestById = new Map();
-  for (const row of rows) {
-    const id = clean(row?.MantenimientoID);
-    if (id) latestById.set(id, row);
-  }
-  return [...latestById.values()];
-}
-
 export function buildMaintenanceProgress({ maintenance = {}, devices = [], deviceTypes = [], images = [] } = {}) {
   const definitions = new Map();
   // Los reportes reciben conteos agrupados de PostgreSQL. También admitimos
