@@ -12,7 +12,7 @@ export default function MetricsPage() {
   const [tab, setTab] = useState('tickets');
   return <div className="page metrics-page">
     <header className="metrics-page__hero">
-      <div><span className="eyebrow">Panel administrativo</span><h1>Métricas y reportes</h1><p>Seguimiento de boletas y mantenimientos con información actualizada desde DMS y Google Sheets.</p></div>
+      <div><span className="eyebrow">Supervisión operativa</span><h1>Métricas operativas</h1><p>Análisis de boletas y mantenimientos con los datos operativos de DMS Boletas.</p></div>
       <span className="metrics-page__hero-icon"><Icon name="monitoring" /></span>
     </header>
 
