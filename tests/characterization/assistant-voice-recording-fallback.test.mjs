@@ -4,8 +4,13 @@ import { readFileSync } from 'node:fs';
 import { runInNewContext } from 'node:vm';
 
 const page = readFileSync(new URL('../../src/pages/assistant/AssistantPageSecure.jsx', import.meta.url), 'utf8');
-const capture = page.match(/  async function startRecordedDictation\(\) \{[\s\S]*?\n  \}\n\n  function startDictation/);
-assert.ok(capture, 'fallback must reuse the assistant composer, not a separate page');
+const startIndex = page.indexOf('  async function startRecordedDictation() {');
+const nextIndex = page.indexOf('  function startDictation() {', startIndex);
+assert.ok(startIndex >= 0 && nextIndex > startIndex, 'recorded dictation must reuse the assistant composer');
+const methodRegion = page.slice(startIndex, nextIndex);
+const lastClose = methodRegion.lastIndexOf('\n  }');
+assert.ok(lastClose >= 0, 'recorded dictation must have a closing brace');
+const capture = methodRegion.slice(0, lastClose + 4);
 
 function harness() {
   let stopped = 0;
@@ -45,7 +50,7 @@ function harness() {
     blobBase64: async () => 'fake-base64-for-test',
     apiRequest: async (...args) => { sent.push(args); return { transcript: 'Reparación de la cámara uno' }; },
   };
-  const start = runInNewContext('(' + capture[0].replace(/\n\n  function startDictation$/, '').trim() + ')', context);
+  const start = runInNewContext('(' + capture.trim() + ')', context);
   return { start, recordingRef, recordingSessionRef, sent, state, getStopped: () => stopped };
 }
 
