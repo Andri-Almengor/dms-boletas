@@ -114,9 +114,9 @@ export default function TicketMetricsDashboard() {
 
         <MetricsPanel title="Estado de las boletas" hint="Seleccione un estado para aplicarlo como filtro.">
           <DonutBreakdown total={totals.total} selected={filters.estado} onSelect={(value) => toggleFilter('estado', value)} items={[
-            { label: 'Pendiente', value: totals.pendientes, filterValue: 'pendiente', color: '#c77800' },
-            { label: 'Finalizado', value: totals.finalizadas, filterValue: 'finalizado', color: '#16845b' },
-            { label: 'En proceso / otros', value: totals.enProceso, filterValue: 'otro', color: '#6161ff' },
+            { label: 'Pendiente', value: totals.pendientes, filterValue: 'pendiente', color: 'var(--warning)' },
+            { label: 'Finalizado', value: totals.finalizadas, filterValue: 'finalizado', color: 'var(--success)' },
+            { label: 'En proceso / otros', value: totals.enProceso, filterValue: 'otro', color: 'var(--metrics-info)' },
           ]} />
         </MetricsPanel>
 

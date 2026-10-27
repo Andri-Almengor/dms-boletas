@@ -84,7 +84,7 @@ export function DateColumns({ rows = [], onSelect, selected = '' }) {
 }
 
 export function DonutBreakdown({ total = 0, items = [], onSelect, selected = '' }) {
-  const colors = ['#c77800', '#16845b', '#6161ff', '#af101a', '#5f5e5e'];
+  const colors = ['var(--warning)', 'var(--success)', 'var(--metrics-info)', 'var(--primary)', 'var(--muted)'];
   const safeTotal = Math.max(Number(total) || 0, items.reduce((sum, item) => sum + (Number(item.value) || 0), 0));
   let cursor = 0;
   const stops = items.map((item, index) => {
