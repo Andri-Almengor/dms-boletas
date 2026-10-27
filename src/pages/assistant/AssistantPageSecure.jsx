@@ -1382,8 +1382,8 @@ export default function AssistantPageSecure() {
               value={input}
               onChange={(event) => setInput(event.target.value)}
               onKeyDown={handleKeyDown}
-              placeholder="Ej. Dame las credenciales de cámaras de Asamblea o ¿cuántos casos quedan sin asignar?"
-              rows="2"
+              placeholder="Escriba o dicte su mensaje…"
+              rows="3"
               maxLength="5000"
               disabled={sending}
               aria-label="Pregunta para el asistente"
@@ -1393,7 +1393,12 @@ export default function AssistantPageSecure() {
               <span>Enviar</span>
             </button>
           </div>
-          <small>Puede dictar, detener y corregir el texto antes de enviarlo. ${!speechSupported ? 'Para dictar use el micrófono del teclado del dispositivo. ' : ''}El dictado depende del reconocimiento disponible en el navegador y puede usar sus servicios de voz. No se almacena el audio en DMS. Los adjuntos y respuestas mantienen sus permisos actuales.</small>
+          <small>
+            Puede dictar y corregir el texto antes de enviarlo.{' '}
+            {!speechSupported && 'Para dictar, use el micrófono del teclado del dispositivo. '}
+            El reconocimiento puede usar servicios de voz del navegador; DMS no almacena audio.
+            Los adjuntos y las respuestas mantienen sus permisos actuales.
+          </small>
         </form>
       </section>
     </div>
