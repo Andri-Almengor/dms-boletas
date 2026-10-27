@@ -1435,27 +1435,31 @@ async function commitTicketBatch(ctx,op){
       }
       persisted.set(id,stored);
       created.push({id,number:stored.number,client:stored.client,followUpOf:parentIndex===null?null:parentIndex+1,url:'/boletas/'+encodeURIComponent(id)});
+      // Sync debe confirmarse antes de marcar el ítem completamente procesado.
+      // Si falla, la boleta ya persistida se informa y se recupera por UUID al reintentar.
+      await recordClassifiedSyncChange({
+        classification:SYNC_MUTATION_CLASS.SYNC_RESOURCE,resource:'ticket',entityId:id,
+        entityIds:parentId?[id,parentId]:[id],operation:'UPSERT',
+        metadata:{action:'AI_TICKET_BATCH_CREATE',source:'AI_AGENT'},
+      },{...ctx,route:'ai.operation.commit',payload:{mutationId:op.OperationID+':'+i}});
       // Punto de control durable para recuperación tras caída o pérdida de conexión.
       await query(
         'UPDATE "AiPendingOperations" SET "ResultJSON"=$2::jsonb,"UpdatedAt"=$3 WHERE "__valid"=TRUE AND "OperationID"=$1 AND "Status"=\'COMMITTING\'',
         [op.OperationID,JSON.stringify({created,failed,createdCount:created.length,failedCount:failed.length,total:originals.length}),nowIso()],
         {label:'ai.ticket.checkpoint',write:true},
       );
-      await recordClassifiedSyncChange({
-        classification:SYNC_MUTATION_CLASS.SYNC_RESOURCE,resource:'ticket',entityId:id,
-        entityIds:parentId?[id,parentId]:[id],operation:'UPSERT',
-        metadata:{action:'AI_TICKET_BATCH_CREATE',source:'AI_AGENT'},
-      },{...ctx,route:'ai.operation.commit',payload:{mutationId:op.OperationID+':'+i}}).catch(()=>{});
     }catch(error){
       failed.push({index:i+1,message:clean(error?.message||'No fue posible crear la boleta.',400)});
     }
   }
   const result={created,failed,createdCount:created.length,failedCount:failed.length,total:originals.length};
-  await finishOperation(op.OperationID,failed.length?'PARTIAL':'COMMITTED',result,
-    failed.length?{message:'Existen boletas pendientes. Reintente la misma operación, sin crear duplicados.'}:null);
+  // La auditoría también forma parte de la finalización controlada;
+  // los errores no se silencian como si todo hubiera terminado correctamente.
   await audit(ctx,'AI_TICKET_BATCH_CREATE','Boletas',op.OperationID,null,{
     OperationID:op.OperationID,Created:created.length,Failed:failed.length,Total:originals.length,
-  }).catch(()=>{});
+  });
+  await finishOperation(op.OperationID,failed.length?'PARTIAL':'COMMITTED',result,
+    failed.length?{message:'Existen boletas pendientes o pendientes de sincronización. Reintente la misma operación, sin crear duplicados.'}:null);
   return result;
 }
 
