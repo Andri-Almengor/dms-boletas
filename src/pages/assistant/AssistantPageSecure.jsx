@@ -775,6 +775,12 @@ export default function AssistantPageSecure() {
   const [context, setContext] = useState(() => readJson(contextKey, {}));
   const [conversationId] = useState(() => localStorage.getItem(conversationKey) || messageId());
   const [input, setInput] = useState('');
+  const [dictating, setDictating] = useState(false);
+  const [interimTranscript, setInterimTranscript] = useState('');
+  const [speechSupported] = useState(() => Boolean(
+    typeof window !== 'undefined' && (window.SpeechRecognition || window.webkitSpeechRecognition)
+  ));
+  const speechRef = useRef(null);
   const [sending, setSending] = useState(false);
   const [error, setError] = useState('');
   const [pendingFiles, setPendingFiles] = useState([]);
@@ -785,6 +791,98 @@ export default function AssistantPageSecure() {
   const fromRoute = searchParams.get('from') || '';
   const pageContext = useMemo(() => pageContextFromRoute(fromRoute), [fromRoute]);
   const isAdmin = hasPermission('USUARIOS_GESTIONAR');
+
+  // SpeechRecognition solo entrega texto; no almacenamos audio ni enviamos dictados automáticamente.
+  useEffect(() => () => {
+    const recognition = speechRef.current;
+    if (recognition) {
+      recognition.onresult = null;
+      recognition.onerror = null;
+      recognition.onend = null;
+      recognition.abort();
+    }
+    speechRef.current = null;
+  }, []);
+
+  function endDictation(cancel = false) {
+    const recognition = speechRef.current;
+    if (!recognition) return;
+    // El texto final reconocido queda editable; cancelar descarta los resultados provisionales.
+    speechRef.current = null;
+    recognition.onresult = null;
+    recognition.onerror = null;
+    recognition.onend = null;
+    if (cancel) recognition.abort();
+    else recognition.stop();
+    setInterimTranscript('');
+    setDictating(false);
+  }
+
+  function startDictation() {
+    if (sending || speechRef.current) return;
+    const Constructor = window.SpeechRecognition || window.webkitSpeechRecognition;
+    if (!Constructor) {
+      setError('Este navegador no admite dictado directo. Puede usar el micrófono del teclado para escribir su mensaje.');
+      return;
+    }
+    setError('');
+    const recognition = new Constructor();
+    const handledFinals = new Set();
+    recognition.lang = 'es-CR';
+    recognition.interimResults = true;
+    // Safari y Chrome móvil pueden detener el reconocimiento por su cuenta.
+    recognition.continuous = false;
+    recognition.maxAlternatives = 1;
+    recognition.onresult = (event) => {
+      if (speechRef.current !== recognition) return;
+      let interim = '';
+      for (let i = 0; i < event.results.length; i += 1) {
+        const segment = String(event.results[i]?.[0]?.transcript || '').trim();
+        if (!segment) continue;
+        if (event.results[i].isFinal) {
+          if (!handledFinals.has(i)) {
+            handledFinals.add(i);
+            setInput((current) => {
+              const separator = current && !/\\s$/.test(current) ? ' ' : '';
+              return (current + separator + segment).slice(0, 5000);
+            });
+          }
+        } else {
+          interim += (interim ? ' ' : '') + segment;
+        }
+      }
+      setInterimTranscript(interim);
+    };
+    recognition.onerror = (event) => {
+      if (speechRef.current !== recognition) return;
+      const code = String(event.error || '');
+      if (['not-allowed', 'service-not-allowed'].includes(code)) {
+        setError('No se autorizó el micrófono. Revise los permisos del navegador o use el teclado.');
+      } else if (code === 'audio-capture') {
+        setError('No se detectó un micrófono disponible.');
+      } else if (code !== 'no-speech' && code !== 'aborted') {
+        setError('No fue posible reconocer la voz. Revise la conexión o escriba el mensaje.');
+      }
+      speechRef.current = null;
+      setInterimTranscript('');
+      setDictating(false);
+    };
+    recognition.onend = () => {
+      if (speechRef.current !== recognition) return;
+      speechRef.current = null;
+      setInterimTranscript('');
+      setDictating(false);
+    };
+    try {
+      speechRef.current = recognition;
+      recognition.start(); // Solo tras un clic explícito del usuario.
+      setDictating(true);
+    } catch {
+      speechRef.current = null;
+      setDictating(false);
+      setError('No se pudo activar el micrófono. Intente nuevamente o escriba el mensaje.');
+    }
+  }
 
   useEffect(() => { localStorage.setItem(conversationKey, conversationId); }, [conversationId, conversationKey]);
   useEffect(() => {
@@ -1000,6 +1098,7 @@ export default function AssistantPageSecure() {
 
   function clearConversation() {
     if (!window.confirm('¿Desea limpiar la conversación y el contexto del asistente?')) return;
+    endDictation(true);
     const cleanMessages = [initialMessage()];
     setMessages(cleanMessages);
     setContext({});
@@ -1015,11 +1114,11 @@ export default function AssistantPageSecure() {
 
   function submit(event) {
     event.preventDefault();
-    sendQuestion(input, {}, { includePendingFiles: true });
+    if (!dictating) sendQuestion(input, {}, { includePendingFiles: true });
   }
 
   function handleKeyDown(event) {
-    if (event.key === 'Enter' && !event.shiftKey) {
+    if (!dictating && event.key === 'Enter' && !event.shiftKey) {
       event.preventDefault();
       sendQuestion(input, {}, { includePendingFiles: true });
     }
@@ -1092,9 +1191,21 @@ export default function AssistantPageSecure() {
             onChange={(event) => addPendingFiles(event.target.files)}
             disabled={sending}
           />
+          {dictating && <div className="assistant-dictation-status" role="status"><Icon name="mic" /><span>Escuchando… {interimTranscript || 'Hable claramente en español.'}</span><button type="button" onClick={() => endDictation(true)}>Cancelar</button></div>}
           <div className="assistant-composer__row">
             <button className="assistant-attach-button" type="button" disabled={sending || pendingFiles.length >= MAX_ASSISTANT_FILES} onClick={() => fileInputRef.current?.click()} title="Adjuntar imágenes o documentos">
               <Icon name="attach_file" />
+            </button>
+            <button
+              className={`assistant-attach-button assistant-microphone ${dictating ? 'is-listening' : ''}`}
+              type="button"
+              disabled={sending || !speechSupported}
+              aria-label={dictating ? 'Detener dictado' : 'Dictar mensaje por voz'}
+              aria-pressed={dictating}
+              title={speechSupported ? (dictating ? 'Detener dictado' : 'Dictar con el micrófono') : 'Use el micrófono del teclado; su navegador no admite dictado web'}
+              onClick={() => dictating ? endDictation() : startDictation()}
+            >
+              <Icon name={dictating ? 'stop_circle' : 'mic'} />
             </button>
             <textarea
               value={input}
@@ -1106,12 +1217,12 @@ export default function AssistantPageSecure() {
               disabled={sending}
               aria-label="Pregunta para el asistente"
             />
-            <button className="button button--primary" type="submit" disabled={sending || (!input.trim() && !pendingFiles.length)} aria-label="Enviar pregunta">
+            <button className="button button--primary" type="submit" disabled={sending || dictating || (!input.trim() && !pendingFiles.length)} aria-label="Enviar pregunta">
               <Icon name={sending ? 'progress_activity' : 'send'} />
               <span>Enviar</span>
             </button>
           </div>
-          <small>Puede adjuntar imágenes, PDF, DOCX, XLSX, CSV o TXT. Los archivos se cargan de forma privada y Gemini recibe solo referencias seguras; las respuestas respetan los permisos de la sesión.</small>
+          <small>Puede dictar, detener y corregir el texto antes de enviarlo. ${!speechSupported ? 'Para dictar use el micrófono del teclado del dispositivo. ' : ''}El dictado depende del reconocimiento disponible en el navegador y puede usar sus servicios de voz. No se almacena el audio en DMS. Los adjuntos y respuestas mantienen sus permisos actuales.</small>
         </form>
       </section>
     </div>
