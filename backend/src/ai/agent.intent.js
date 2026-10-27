@@ -78,6 +78,7 @@ export function classifyAiIntent({message='',context={},attachments=[]}={}){
   const wantsWrite=/\b(crea|crear|agrega|agregar|añade|anade|sube|subir|carga|cargar|pon(?:las|los)?|importa|importar|edita|editar|modifica|modificar|actualiza|actualizar|cambia|cambiar|elimina|eliminar|quita|quitar|borra|borrar|reemplaza|reemplazar)\b/i.test(value);
 
   const explicitTicket=TICKET_HINT.test(value);
+  const naturalTicketCreate=/\b(?:cr[eé]a(?:me|nos|r)?|haz(?:me|nos)?|hac[eé](?:me|r)|hice|registr[aá](?:me|r)?|gener[aá](?:me|r)?|levant[aá](?:me|r)?|necesito hacer)\b/i.test(value);
   const explicitMaintenance=MAINTENANCE_HINT.test(value);
   const projectComponentInventory=PROJECT_COMPONENT_HINT.test(value)&&INVENTORY_QUERY_HINT.test(value);
   const explicitDevice=DEVICE_HINT.test(value)||projectComponentInventory;
@@ -92,7 +93,7 @@ export function classifyAiIntent({message='',context={},attachments=[]}={}){
   const deviceContext=hasActive(context,'lastDeviceId');
 
   // La creación explícita de boletas nunca se desvía hacia herramientas de mantenimiento.
-  if(wantsWrite && explicitTicket && /\b(boletas?|tickets?|visitas?)\b/i.test(value)
+  if((wantsWrite||naturalTicketCreate) && explicitTicket && /\b(boletas?|tickets?|visitas?)\b/i.test(value)
     && !/\b(evidencias?|fotos?|im[aá]genes?)\b/i.test(value)) return AI_INTENTS.WRITE_TICKETS;
   if(wantsWrite&&(explicitMaintenance||maintenanceContext||explicitDevice||deviceContext||hasFiles)) return AI_INTENTS.WRITE_MAINTENANCE;
   if(WEB_HINT.test(value)) return AI_INTENTS.WEB;
