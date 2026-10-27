@@ -153,6 +153,29 @@ export const TOOL_DECLARATIONS=Object.freeze({
     note:{type:'string'},
     uploadIds:{type:'array',items:{type:'string'}},
   },['maintenanceId','deviceId','uploadIds']),
+  prepare_ticket_batch_create:fn('prepare_ticket_batch_create',
+    'PREPARE: interpreta una o varias boletas de servicio. Devuelve propuestas con catálogos, fechas, técnicos, campos faltantes y seguimiento. No crea ni finaliza boletas. El usuario confirma solo desde la interfaz.',
+    {tickets:{type:'array',minItems:1,maxItems:10,items:{type:'object',properties:{
+      title:{type:'string',description:'Título profesional basado en lo que realmente dijo el usuario.'},
+      client:{type:'string',description:'Cliente real (nombre o ID). Nunca inventar.'},
+      date:{type:'string',description:'Fecha YYYY-MM-DD en America/Costa_Rica; no inventar fechas faltantes.'},
+      startTime:{type:'string',description:'Hora HH:mm en formato de 24 horas.'},
+      endTime:{type:'string',description:'Hora HH:mm en formato de 24 horas.'},
+      category:{type:'string',description:'Categoría real del catálogo.'},
+      failureType:{type:'string',description:'Tipo de falla real.'},
+      deviceType:{type:'string',description:'Tipo de dispositivo real.'},
+      deviceName:{type:'string',description:'Nombre o descripción del equipo.'},
+      location:{type:'string',description:'Sede/ubicación del cliente, cuando se indicó.'},
+      equipmentLocation:{type:'string',description:'Ubicación del equipo, cuando se indicó.'},
+      supervisor:{type:'string',description:'Supervisor del cliente, cuando se indicó.'},
+      manufacturer:{type:'string'},model:{type:'string'},serial:{type:'string'},mac:{type:'string'},
+      reason:{type:'string',description:'Razón de visita, sin suposiciones.'},
+      tests:{type:'string',description:'Pruebas realizadas realmente indicadas.'},
+      result:{type:'string',description:'Resultado realmente indicado.'},
+      recommendations:{type:'string',description:'Recomendaciones indicadas o cadena vacía.'},
+      technicians:{type:'array',items:{type:'string'},description:'Nombres o IDs de técnicos activos. «yo» = usuario autenticado.'},
+      followUpOf:{type:'integer',minimum:1,description:'Índice 1-based de una boleta anterior del mismo lote, solo si el usuario indicó explícitamente seguimiento.'},
+    },additionalProperties:false}}},['tickets']),
   get_ai_operation_status:fn('get_ai_operation_status','Consulta el estado sanitizado de una operación PREPARE/COMMIT ya existente. Nunca repite el COMMIT.',{operationId:{type:'string'}},['operationId']),
   search_agenda:fn('search_agenda','Consulta agenda DMS. Técnicos solo ven sus propias asignaciones; administradores pueden filtrar por técnico.',{query:{type:'string'},technicianId:{type:'string'},status:{type:'string'},limit:{type:'integer',minimum:1,maximum:50},offset:{type:'integer',minimum:0},...COMMON_DATE_PROPERTIES}),
   search_network_devices:fn('search_network_devices','Busca dispositivos integrados por nombre, IP, MAC, fabricante o modelo. Solo administradores.',{query:{type:'string'},limit:{type:'integer',minimum:1,maximum:50}},['query']),
@@ -172,6 +195,10 @@ function maintenanceWriteAllowed(ctx){
   );
 }
 
+function ticketWriteAllowed(ctx){
+  return aiConfig.writeEnabled && Array.isArray(ctx?.permissions) && ctx.permissions.includes('BOLETAS_CREAR');
+}
+
 function allowedNames(ctx){
   const access=aiAccess(ctx); const names=['search_internal','search_agenda','get_app_help'];
   if(access.attachments) names.push('read_chat_attachment');
@@ -183,6 +210,7 @@ function allowedNames(ctx){
   if(access.cases) names.push('search_cases','get_case');
   if(access.admin) names.push('search_network_devices');
   if(access.statistics) names.push('get_statistics');
+  if(ticketWriteAllowed(ctx)) names.push('prepare_ticket_batch_create','get_ai_operation_status');
   if(maintenanceWriteAllowed(ctx)) names.push('parse_device_import_file','prepare_maintenance_device_bulk_create','prepare_maintenance_project_device_update','prepare_maintenance_evidence_upload','get_ai_operation_status');
   return names;
 }
