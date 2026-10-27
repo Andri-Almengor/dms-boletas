@@ -895,7 +895,6 @@ export default function AssistantPageSecure() {
   ));
   const [audioTranscribing, setAudioTranscribing] = useState(false);
   const [recordingStarting, setRecordingStarting] = useState(false);
-  const [nativeSpeechFailed, setNativeSpeechFailed] = useState(false);
   const recordingRef = useRef(null);
   const recordingSessionRef = useRef(0);
   const transcriptionAbortRef = useRef(null);
@@ -968,11 +967,11 @@ export default function AssistantPageSecure() {
       stream = await navigator.mediaDevices.getUserMedia({ audio: true });
       setMicrophonePermission('granted');
       setMicrophoneHelpOpen(false);
-      setMicrophoneFeedback(speechSupported
-        ? 'Micrófono autorizado. Ahora puede usar el botón de dictado.'
-        : recordingSupported
-          ? 'Micrófono autorizado. Pulse el botón de dictado para grabar y transcribir con Gemini.'
-          : 'Micrófono autorizado, pero este navegador no admite dictado. Use el micrófono del teclado.');
+      setMicrophoneFeedback(recordingSupported
+        ? 'Micrófono autorizado. Pulse «Iniciar dictado» para grabar y detenga la grabación para transcribirla.'
+        : speechSupported
+          ? 'Micrófono autorizado. Pulse «Iniciar dictado» para utilizar el reconocimiento del navegador.'
+          : 'Micrófono autorizado, pero el navegador no permite grabar ni reconocer voz. Use el micrófono del teclado.');
     } catch (permissionError) {
       const code = String(permissionError?.name || '');
       if (['NotAllowedError', 'PermissionDeniedError', 'SecurityError'].includes(code)) {
@@ -1143,9 +1142,18 @@ export default function AssistantPageSecure() {
     } catch (recordError) {
       if (session === recordingSessionRef.current) {
         const name = String(recordError?.name || '');
-        setError(['NotAllowedError', 'SecurityError'].includes(name)
-          ? 'El sistema bloqueó la grabación. Revise el permiso de micrófono del navegador.'
-          : 'No se pudo iniciar la grabación. Revise que el micrófono esté disponible.');
+        if (['NotAllowedError', 'PermissionDeniedError', 'SecurityError'].includes(name)) {
+          setMicrophonePermission('denied');
+          setError('El navegador o el sistema bloquearon la captura de audio. Revise el permiso del sitio y el permiso de micrófono del dispositivo.');
+        } else if (['NotFoundError', 'DevicesNotFoundError'].includes(name)) {
+          setError('No se encontró un micrófono. Compruebe que esté conectado y habilitado en el sistema.');
+        } else if (['NotReadableError', 'TrackStartError'].includes(name)) {
+          setError('No se pudo abrir el micrófono. Puede estar ocupado por otra aplicación o bloqueado por Windows.');
+        } else if (name === 'NotSupportedError') {
+          setError('El formato de grabación de este navegador no es compatible. Pruebe Chrome, Edge o Safari actualizados.');
+        } else {
+          setError('El navegador no pudo iniciar la grabación. Compruebe el micrófono y los controles del sitio.');
+        }
         setMicrophoneHelpOpen(true);
       }
     } finally {
@@ -1154,11 +1162,26 @@ export default function AssistantPageSecure() {
     }
   }
 
+  // Una sola acción visible: grabación real primero, sin depender del servicio
+  // SpeechRecognition de Chrome (su permiso es independiente de getUserMedia).
   function startDictation() {
+    if (recordingSupported) {
+      void startRecordedDictation();
+      return;
+    }
+    if (!speechSupported) {
+      setError('Este navegador no permite grabar ni reconocer voz. Abra DMS con HTTPS en Chrome, Edge o Safari, o use el dictado del teclado.');
+      setMicrophoneHelpOpen(true);
+      return;
+    }
+    startNativeDictation();
+  }
+
+  function startNativeDictation() {
     if (sending || speechRef.current || recordingRef.current || recordingStarting || audioTranscribing) return;
     const Constructor = window.SpeechRecognition || window.webkitSpeechRecognition;
     if (!Constructor) {
-      void startRecordedDictation();
+      setError('El reconocimiento de voz no está disponible en este navegador.');
       return;
     }
     setError('');
@@ -1196,12 +1219,10 @@ export default function AssistantPageSecure() {
         setError(recordingSupported
           ? 'El reconocimiento de voz fue rechazado por el navegador. Pruebe «Grabar con Gemini».'
           : 'El reconocimiento de voz fue rechazado. Revise los permisos o use el teclado.');
-        setNativeSpeechFailed(true);
         setMicrophoneHelpOpen(true);
       } else if (code === 'audio-capture') {
         setError('No se detectó un micrófono disponible.');
       } else if (code !== 'no-speech' && code !== 'aborted') {
-        setNativeSpeechFailed(true);
         setError(recordingSupported
           ? 'No se pudo usar el dictado del navegador. Pruebe «Grabar con Gemini».'
           : 'No fue posible reconocer la voz. Revise la conexión o escriba el mensaje.');
@@ -1223,7 +1244,6 @@ export default function AssistantPageSecure() {
     } catch {
       speechRef.current = null;
       setDictating(false);
-      setNativeSpeechFailed(true);
       setError(recordingSupported
         ? 'No se pudo iniciar el reconocimiento de voz. Pruebe «Grabar con Gemini».'
         : 'No se pudo activar el micrófono. Intente nuevamente o escriba el mensaje.');
@@ -1614,11 +1634,11 @@ export default function AssistantPageSecure() {
             <button
               className={`assistant-attach-button assistant-microphone ${dictating ? 'is-listening' : ''}`}
               type="button"
-              disabled={sending || recordingStarting || audioTranscribing || (!speechSupported && !recordingSupported)}
-              aria-label={dictating ? 'Detener dictado' : 'Dictar mensaje por voz'}
+              disabled={sending || recordingStarting || audioTranscribing}
+              aria-label={dictating ? (recordingRef.current ? 'Detener y transcribir grabación' : 'Detener dictado') : 'Iniciar dictado de voz'}
               aria-pressed={dictating}
-              title={dictating ? 'Detener dictado' : speechSupported ? 'Dictar con el micrófono' : recordingSupported
-                ? 'Grabar y transcribir con Gemini' : 'Use el dictado del teclado; el navegador no ofrece grabación'}
+              title={dictating ? (recordingRef.current ? 'Detener y transcribir grabación' : 'Detener dictado')
+                : 'Iniciar dictado (solicita acceso al micrófono si es necesario)'}
               onClick={() => dictating ? endDictation() : startDictation()}
             >
               <Icon name={dictating ? 'stop_circle' : 'mic'} />
@@ -1639,25 +1659,33 @@ export default function AssistantPageSecure() {
             </button>
           </div>
           <div className="assistant-microphone-access" aria-label="Acceso al micrófono">
+            <button type="button" className="assistant-microphone-access__action assistant-microphone-access__action--start"
+              onClick={() => dictating ? endDictation() : startDictation()}
+              disabled={sending || recordingStarting || audioTranscribing || microphoneRequesting}
+              aria-pressed={dictating}>
+              <Icon name={dictating ? 'stop_circle' : 'mic'} />
+              {dictating ? (recordingRef.current ? 'Detener y transcribir' : 'Detener dictado') : 'Iniciar dictado'}
+            </button>
             <button type="button" className="assistant-microphone-access__action"
               onClick={requestMicrophonePermission} disabled={sending || dictating || audioTranscribing || recordingStarting || microphoneRequesting}>
-              <Icon name={microphonePermission === 'granted' ? 'check_circle' : 'mic'} />
-              {microphoneRequesting ? 'Solicitando acceso…' : microphonePermission === 'granted'
-                ? 'Comprobar micrófono' : microphonePermission === 'denied' ? 'Reintentar permiso' : 'Permitir micrófono'}
+              <Icon name={microphonePermission === 'granted' ? 'check_circle' : 'tune'} />
+              {microphoneRequesting ? 'Comprobando…' : microphonePermission === 'granted'
+                ? 'Probar acceso' : microphonePermission === 'denied' ? 'Reintentar permiso' : 'Solicitar permiso'}
             </button>
-            {recordingSupported && speechSupported && <button type="button" className="assistant-microphone-access__action"
-              onClick={() => recordingRef.current ? endDictation() : void startRecordedDictation()}
-              disabled={sending || recordingStarting || audioTranscribing || (dictating && !recordingRef.current)}>
-              <Icon name="graphic_eq" /> {recordingRef.current ? 'Transcribir grabación' : nativeSpeechFailed ? 'Grabar con Gemini (alternativa)' : 'Grabar con Gemini'}
-            </button>}
             <button type="button" className="assistant-microphone-access__help"
               aria-expanded={microphoneHelpOpen} aria-controls="assistant-microphone-help"
               onClick={() => setMicrophoneHelpOpen((open) => !open)}>
               <Icon name="help_outline" /> Cómo habilitarlo
             </button>
+            <p className="assistant-microphone-access__hint">
+              {recordingSupported ? 'Pulse «Iniciar dictado» y hable. Pulse otra vez para transcribir con Gemini.'
+                : speechSupported ? 'Pulse «Iniciar dictado» para usar la voz del navegador.'
+                  : 'Este navegador no dispone de grabación ni dictado integrado.'}
+            </p>
             {microphoneFeedback && <p className="assistant-microphone-access__feedback" role="status">{microphoneFeedback}</p>}
             {microphoneHelpOpen && (
               <div className="assistant-microphone-access__instructions" id="assistant-microphone-help">
+                <p><strong>Diagnóstico local:</strong> HTTPS seguro: {window.isSecureContext ? 'Sí' : 'No'} · Grabación: {recordingSupported ? 'Disponible' : 'No disponible'} · Reconocimiento nativo: {speechSupported ? 'Disponible' : 'No disponible'} · Permiso: {microphonePermission === 'granted' ? 'Concedido' : microphonePermission === 'denied' ? 'Bloqueado' : 'Sin confirmar'}.</p>
                 <p>El permiso solo lo concede el navegador. Si está bloqueado, la app no puede activarlo automáticamente:</p>
                 <p><strong>PC (Chrome/Edge):</strong> abra los controles del sitio junto a la dirección, cambie Micrófono a Permitir y vuelva a cargar la página.</p>
                 <p><strong>Android:</strong> revise el permiso de micrófono de Chrome y del sitio en Configuración, Permisos o Configuración de sitios.</p>
@@ -1669,7 +1697,7 @@ export default function AssistantPageSecure() {
           <small>
             Puede dictar y corregir el texto antes de enviarlo.{' '}
             {!speechSupported && !recordingSupported && 'Para dictar, use el micrófono del teclado del dispositivo. '}
-            El dictado nativo puede utilizar servicios del navegador. La grabación alternativa se transmite al backend de DMS y a Gemini para transcribirse, sin almacenamiento permanente de audio.
+            El dictado nativo puede utilizar servicios del navegador. Cuando existe grabación, el audio se transmite al backend de DMS y a Gemini para transcribirse, sin almacenamiento permanente de audio.
             Los adjuntos y las respuestas mantienen sus permisos actuales.
           </small>
         </form>

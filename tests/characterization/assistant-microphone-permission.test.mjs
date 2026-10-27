@@ -83,7 +83,7 @@ test('dictado no soportado no promete que conceder permiso lo habilite', async (
     getUserMedia: () => ({ getTracks: () => [] }),
   });
   await request();
-  assert.match(state.feedback, /no admite dictado/i);
+  assert.match(state.feedback, /no permite grabar ni reconocer voz/i);
   assert.match(state.feedback, /teclado/i);
 });
 
@@ -94,13 +94,14 @@ test('cuando no hay reconocimiento nativo, la autorización ofrece grabación co
     getUserMedia: () => ({ getTracks: () => [] }),
   });
   await request();
-  assert.match(state.feedback, /grabar y transcribir con Gemini/i);
+  assert.match(state.feedback, /Pulse «Iniciar dictado» para grabar/i);
+  assert.match(page, /speech\.transcribe/);
 });
 
 test('los controles de permiso se integran al composer y a su tema', () => {
   assert.match(page, /className="assistant-microphone-access"/);
   assert.match(page, /aria-expanded=\{microphoneHelpOpen\}/);
-  assert.match(page, /Solicitando acceso/);
+  assert.match(page, /Comprobando…/);
   assert.match(page, /onClick=\{\(\) => setMicrophoneHelpOpen/);
   assert.match(css, /\.assistant-microphone-access__instructions\s*\{[^}]*var\(--outline-soft\)/s);
   assert.match(css, /\.assistant-microphone-access__action:focus-visible/s);
