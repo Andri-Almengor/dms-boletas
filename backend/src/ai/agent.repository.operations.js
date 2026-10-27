@@ -1485,12 +1485,36 @@ export async function decideAiOperation(ctx,args={}){
     else if(op.Action==='MAINTENANCE_EVIDENCE_UPLOAD') result=await commitEvidence(ctx,op);
     else throw badRequest('La operación no es compatible con esta versión del agente.');
   }catch(error){
-    // Una escritura de lote puede haber persistido resultados antes del error.
-    // Mantenerla reintentable recuperando IDs determinísticos de PostgreSQL.
-    await finishOperation(operationId,op.Action==='TICKET_BATCH_CREATE'?'PARTIAL':'FAILED',operationResult(op)||{}, {
+    await finishOperation(operationId,'FAILED',operationResult(op)||{}, {
       code:clean(error?.code||'AI_OPERATION_FAILED',80),
       message:clean(error?.message||'No se pudo completar la operación.',600),
     }).catch(()=>{});
+    if(op.Action==='TICKET_BATCH_CREATE'){
+      // Solo si hay filas persistidas existe progreso parcial recuperable.
+      // Los dispositivos/mantenimientos anteriores conservan FAILED sin cambios.
+      try{
+        const saved=parseJson(op.ArgumentsJSON,{});
+        const expected=(Array.isArray(saved.tickets)?saved.tickets:[]).map((_,i)=>ticketUuid(op.OperationID,i));
+        if(expected.length){
+          const persisted=await query(
+            'SELECT "BoletaUID" AS id,"BoletaID" AS number,"Cliente" AS client FROM "Boletas" WHERE "__valid"=TRUE AND "BoletaUID"=ANY($1::text[])',
+            [expected],{label:'ai.ticket.recoverPartial'},
+          );
+          if(persisted.rowCount){
+            const byId=new Map(persisted.rows.map(row=>[row.id,row]));
+            const created=expected.flatMap((id,index)=>byId.has(id)?[{
+              id,number:byId.get(id).number,client:byId.get(id).client,
+              followUpOf:saved.tickets[index].followUpOf===null?null:saved.tickets[index].followUpOf+1,
+              url:'/boletas/'+encodeURIComponent(id),
+            }]:[]);
+            const result={created,failed:[],createdCount:created.length,failedCount:0,total:expected.length};
+            await finishOperation(operationId,'PARTIAL',result,{
+              message:'La creación quedó interrumpida. Reintente la misma operación para completar las boletas restantes.',
+            });
+          }
+        }
+      }catch{ /* FAILED remains visible; never claim success for an unverified write */ }
+    }
     throw error;
   }
   const current=await findOperation(ctx,operationId);
