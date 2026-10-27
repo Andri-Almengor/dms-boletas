@@ -173,8 +173,8 @@ export default function MaintenanceMetricsDashboard() {
 
         <MetricsPanel title="Estatus de funcionamiento" hint={`${formatMetric(totals.dispositivosFiltrados, 0)} dispositivo(s). Seleccione un estado para filtrar.`}>
           <DonutBreakdown total={operationalTotal} selected={filters.funcionamientoGrupo} onSelect={(value) => toggleFilter('funcionamientoGrupo', value)} items={[
-            { label: 'Funcional', value: charts.operating || 0, filterValue: 'operativo', color: '#16845b' },
-            { label: 'Con falla / sin dato', value: charts.failing || 0, filterValue: 'falla', color: '#ba1a1a' },
+            { label: 'Funcional', value: charts.operating || 0, filterValue: 'operativo', color: 'var(--success)' },
+            { label: 'Con falla / sin dato', value: charts.failing || 0, filterValue: 'falla', color: 'var(--danger)' },
           ]} />
         </MetricsPanel>
 
