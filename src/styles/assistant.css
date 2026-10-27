@@ -922,6 +922,27 @@ body:has(.app-shell--form):has(.form-recovery-status) .assistant-fab {
   color: var(--muted);
 }
 
+/* La acción principal realmente comienza a grabar. Probar acceso es secundario. */
+.assistant-microphone-access__action--start {
+  min-height: var(--touch-target-min, 44px);
+  padding-inline: 12px;
+  border: 1px solid var(--primary);
+  background: var(--primary-soft);
+  color: var(--primary);
+}
+
+.assistant-microphone-access__hint {
+  flex: 1 1 100%;
+  margin: 0;
+  color: var(--muted);
+  font-size: .69rem;
+  line-height: 1.4;
+}
+
+.assistant-microphone-access__action--start:hover:not(:disabled) {
+  background: color-mix(in srgb, var(--primary) 18%, var(--surface));
+}
+
 .assistant-microphone-access__action .material-symbols-outlined,
 .assistant-microphone-access__help .material-symbols-outlined {
   font-size: 18px;
