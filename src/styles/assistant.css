@@ -890,6 +890,99 @@ body:has(.app-shell--form):has(.form-recovery-status) .assistant-fab {
   .assistant-microphone.is-listening { animation: none; }
 }
 
+/* Permiso de micrófono: reutiliza el composer sin abrir audio automáticamente. */
+.assistant-microphone-access {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 4px 12px;
+  margin-top: 7px;
+  min-width: 0;
+}
+
+.assistant-microphone-access__action,
+.assistant-microphone-access__help {
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  min-height: 32px;
+  padding: 3px 5px;
+  border: 0;
+  border-radius: 8px;
+  background: transparent;
+  color: var(--primary);
+  font: inherit;
+  font-size: .72rem;
+  font-weight: 750;
+  text-align: left;
+  cursor: pointer;
+}
+
+.assistant-microphone-access__help {
+  color: var(--muted);
+}
+
+.assistant-microphone-access__action .material-symbols-outlined,
+.assistant-microphone-access__help .material-symbols-outlined {
+  font-size: 18px;
+}
+
+.assistant-microphone-access__action:focus-visible,
+.assistant-microphone-access__help:focus-visible {
+  outline: 2px solid var(--primary);
+  outline-offset: 2px;
+}
+
+.assistant-microphone-access__action:hover:not(:disabled),
+.assistant-microphone-access__help:hover {
+  background: var(--primary-soft);
+}
+
+.assistant-microphone-access__action:disabled {
+  opacity: .55;
+  cursor: not-allowed;
+}
+
+.assistant-microphone-access__feedback,
+.assistant-microphone-access__instructions {
+  flex: 1 1 100%;
+  min-width: 0;
+  margin: 3px 0 0;
+  overflow-wrap: anywhere;
+  color: var(--muted);
+  font-size: .72rem;
+  line-height: 1.45;
+}
+
+.assistant-microphone-access__instructions {
+  max-height: min(26dvh, 210px);
+  padding: 10px 12px;
+  overflow-y: auto;
+  border: 1px solid var(--outline-soft);
+  border-radius: 12px;
+  background: var(--surface-low);
+  color: var(--text);
+}
+
+.assistant-microphone-access__instructions p {
+  margin: 0 0 7px;
+}
+
+.assistant-microphone-access__instructions p:last-child {
+  margin-bottom: 0;
+}
+
+@media (max-width: 620px) {
+  .assistant-microphone-access {
+    gap: 2px 8px;
+  }
+
+  .assistant-microphone-access__action,
+  .assistant-microphone-access__help {
+    font-size: .68rem;
+  }
+}
+
 /* Propuestas de boleta reutilizan la tarjeta de confirmación del asistente. */
 .assistant-ticket-proposals { display: grid; gap: 10px; padding: 10px; }
 .assistant-ticket-proposal { min-width: 0; border: 1px solid var(--outline-soft); border-radius: 12px; background: var(--surface-low); overflow: hidden; }
