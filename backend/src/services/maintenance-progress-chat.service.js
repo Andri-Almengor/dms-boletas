@@ -2,7 +2,6 @@ import { env } from '../config/env.js';
 import { nowIso, uuid } from '../core/utils.js';
 import {
   buildMaintenanceProgress,
-  latestMaintenanceProgressRows,
   formatMaintenanceProgressMessage,
   isMaintenanceProgressWeekday,
   maintenanceProgressScheduleSlot,
@@ -286,9 +285,9 @@ async function claimNotification({
   });
 }
 
-async function persistAttempt({ existing, key, maintenance, reason, webhook, actor, progress, result, error, now }) {
+async function persistAttempt({ existing, key, maintenance, reason, webhook, actor, progress, result, error, now, skipped = false }) {
   const timestamp = now.toISOString();
-  const sent = Boolean(result?.sent) && !error;
+  const sent = !skipped && Boolean(result?.sent) && !error;
   const attempts = Math.max(1, Number(existing?.Intentos || 1));
   const row = {
     ClaveIdempotencia: key,
@@ -297,10 +296,10 @@ async function persistAttempt({ existing, key, maintenance, reason, webhook, act
     Canal: 'GOOGLE_CHAT',
     Destino: redactWebhook(webhook),
     Tipo: notificationType(reason),
-    Estado: sent ? 'ENVIADO' : 'ERROR',
+    Estado: skipped ? 'OMITIDO' : sent ? 'ENVIADO' : 'ERROR',
     Intentos: attempts,
     Respuesta: sent ? responseText(result) : '',
-    Error: sent ? '' : errorText(error),
+    Error: skipped || sent ? '' : errorText(error),
     FechaCreacion: existing?.FechaCreacion || timestamp,
     FechaEnvio: sent ? timestamp : existing?.FechaEnvio || '',
     UltimoIntento: timestamp,
@@ -461,11 +460,9 @@ export async function notifyMaintenanceProgress({
       || clean(latest.FechaActualizacion) !== clean(currentMaintenance.FechaActualizacion)
     );
     if (!latest || !pendingMaintenance(latest) || contextChanged) {
-      await updateRow('Notificaciones', existing.NotificacionID, {
-        Estado: 'OMITIDO',
-        Respuesta: '',
-        Error: '',
-        UltimoIntento: now.toISOString(),
+      await persistAttempt({
+        existing, key, maintenance: currentMaintenance, reason, webhook, actor, progress, now,
+        skipped: true,
       });
       return { sent: false, skipped: contextChanged ? 'STALE_CONTEXT' : 'NOT_PENDING', progress };
     }
@@ -528,7 +525,7 @@ async function dispatchScheduledMaintenanceProgress({ slot, slotKey, now = new D
     'Clientes',
   ], { force: true });
 
-  const pending = latestMaintenanceProgressRows(tables.Mantenimiento || []).filter(pendingMaintenance);
+  const pending = (tables.Mantenimiento || []).filter(pendingMaintenance);
   const context = {
     devices: tables.Evidencia_Mantenimientos || [],
     deviceTypes: tables.TiposDispositivo || [],
