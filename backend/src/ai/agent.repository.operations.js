@@ -1162,7 +1162,9 @@ function ticketMatch(catalog,key,value){
   if(!label)return {row:null,ambiguous:false};
   const normalized=normalize(key==='client'?aliasQuery(label):label);
   const rows=catalog[key]||[];
-  const exact=rows.filter(row=>clean(row.id)===label || normalize(row.name)===normalized || normalize(row.alt)===normalized);
+  const byId=rows.filter(row=>clean(row.id)===label);
+  if(byId.length===1)return {row:byId[0],ambiguous:false};
+  const exact=rows.filter(row=>normalize(row.name)===normalized || (row.alt&&normalize(row.alt)===normalized));
   if(exact.length===1)return {row:exact[0],ambiguous:false};
   if(exact.length>1)return {row:null,ambiguous:true};
   const partial=rows.filter(row=>normalize(row.name).includes(normalized)||normalize(row.alt).includes(normalized));
@@ -1266,24 +1268,34 @@ async function resolveTicketBatch(ctx,rawItems){
     };
     items.push({index:index+1,payload,followUpOf:rel?.parent??null,missing:[...new Set(missing)]});
   }
-  return items;
+  return {items,catalog};
+}
+
+function ticketBatchPreview(items,catalog){
+  return items.map(item=>({
+    index:item.index,title:item.payload.Titulo,client:item.payload.Cliente,clientName:item.payload.Cliente,
+    date:item.payload.Fecha,startTime:item.payload.HoraInicio,endTime:item.payload.HoraFinal,
+    hours:item.payload.HorasTotales,
+    technicians:item.payload.AsignadoA.map(id=>(catalog.technician||[]).find(user=>user.id===id)?.name||id),
+    device:item.payload.Descripcion,deviceType:item.payload.TipoDispositivo,
+    location:item.payload.Ubicacion,equipmentLocation:item.payload.UbicacionEquipo,
+    supervisor:item.payload.Supervisor,manufacturer:item.payload.Fabricante,model:item.payload.Modelo,
+    serial:item.payload.Serie,mac:item.payload.DireccionMAC,
+    reason:item.payload.RazonVisita,tests:item.payload.PruebasRealizadas,
+    result:item.payload.Resultado,recommendations:item.payload.Recomendaciones,
+    category:item.payload.Categoria,failureType:item.payload.TipoFalla,
+    followUpOf:item.followUpOf===null?null:item.followUpOf+1,
+    missing:item.missing,
+  }));
 }
 
 export async function prepareTicketBatchCreate(ctx,args={}){
   assertTicketWrite(ctx);
   const tickets=Array.isArray(args.tickets)?args.tickets:[];
   if(!tickets.length||tickets.length>TICKET_BATCH_LIMIT)throw badRequest('Indique entre 1 y '+TICKET_BATCH_LIMIT+' boletas.');
-  const items=await resolveTicketBatch(ctx,tickets);
+  const {items,catalog}=await resolveTicketBatch(ctx,tickets);
   const invalid=items.filter(item=>item.missing.length);
-  const preview=items.map(item=>({
-    index:item.index,title:item.payload.Titulo,client:item.payload.Client,clientName:item.payload.Cliente,
-    date:item.payload.Fecha,startTime:item.payload.HoraInicio,endTime:item.payload.HoraFinal,
-    hours:item.payload.HorasTotales,technicians:item.payload.AsignadoA.length,
-    device:item.payload.Descripcion,reason:item.payload.RazonVisita,tests:item.payload.PruebasRealizadas,
-    result:item.payload.Resultado,recommendations:item.payload.Recomendaciones,
-    category:item.payload.Categoria,failure:item.payload.TipoFalla,followUpOf:item.followUpOf===null?null:item.followUpOf+1,
-    missing:item.missing,
-  }));
+  const preview=ticketBatchPreview(items,catalog);
   if(invalid.length){
     return {modelData:{ready:false,needsInput:true,items:preview,message:'Faltan referencias u horarios reales. Solicite únicamente los datos que aparecen en missing; no se guardó ninguna boleta.'}};
   }
@@ -1305,7 +1317,7 @@ async function commitTicketBatch(ctx,op){
   const originals=Array.isArray(saved.tickets)?saved.tickets:[];
   if(!originals.length||originals.length>TICKET_BATCH_LIMIT)throw badRequest('La propuesta ya no es válida.');
   // Revalidación frente a cambios entre PREPARE y COMMIT.
-  const reread=await resolveTicketBatch(ctx,originals.map(item=>({
+  const {items:reread}=await resolveTicketBatch(ctx,originals.map(item=>({
     ...item.payload,
     technicians:item.payload.AsignadoA,
     followUpOf:item.followUpOf===null?null:item.followUpOf+1,
