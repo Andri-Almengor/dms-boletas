@@ -132,6 +132,7 @@ function ticketPayload(p, existing = {}) {
     ModeloID: pick(p, ['ModeloID', 'modeloId'], existing.ModeloID),
     Modelo: pick(p, ['Modelo', 'modelo'], existing.Modelo),
     Serie: pick(p, ['Serie', 'serie'], existing.Serie),
+    DireccionMAC: pick(p, ['DireccionMAC', 'macAddress', 'direccionMAC'], existing.DireccionMAC),
     RazonVisita: pick(p, ['RazonVisita', 'razonVisita'], existing.RazonVisita),
     Descripcion: pick(p, ['Descripcion', 'descripcion'], existing.Descripcion),
     PruebasRealizadas: pick(p, ['PruebasRealizadas', 'pruebasRealizadas'], existing.PruebasRealizadas),
