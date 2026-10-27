@@ -43,6 +43,51 @@ const {
 
 const suffix = `${Date.now()}-${Math.random().toString(16).slice(2)}`;
 
+test('maintenance progress ignores an old queued snapshot once the same maintenance is finalized', async () => {
+  const { notifyMaintenanceProgress } = await import('../src/services/maintenance-progress-chat.service.js');
+  const maintenanceId = 'stage6-progress-close-race-' + suffix;
+  const historical = {
+    MantenimientoID: maintenanceId,
+    TituloMantenimiento: 'Proyecto Zeus',
+    Cliente: 'Digital Management Systems, S.A.',
+    Ubicacion: 'Oficinas Sabana',
+    Estado: 'PENDIENTE',
+    Activo: true,
+  };
+  try {
+    await appendRow('Mantenimiento', historical);
+    await updateRow('Mantenimiento', maintenanceId, {
+      Cliente: 'Cliente corregido',
+      Ubicacion: 'Sede corregida',
+      Estado: 'FINALIZADO',
+      EstadoFinalizacion: 'COMPLETADO',
+      FechaActualizacion: '2026-10-26T22:00:00.000Z',
+    });
+
+    const stored = (await findRows('Mantenimiento', { MantenimientoID: maintenanceId }, { limit: 2 }));
+    assert.equal(stored.length, 1, 'El esquema único de mantenimiento permite un solo ID vigente');
+    assert.equal(stored[0].Estado, 'FINALIZADO');
+    assert.equal(stored[0].Cliente, 'Cliente corregido');
+
+    // Simula un worker que encoló un objeto anterior a la finalización.
+    // No debe preparar webhook ni registrar un envío para este slot.
+    const result = await notifyMaintenanceProgress({
+      maintenance: historical,
+      reason: 'SCHEDULED',
+      slot: '17:00',
+      slotKey: '2026-10-26|17:00',
+      now: new Date('2026-10-26T23:00:00.000Z'),
+    });
+    assert.equal(result.sent, false);
+    assert.equal(result.skipped, 'NOT_PENDING');
+    assert.equal((await findRows('Notificaciones', { EntidadID: maintenanceId }, { limit: 10 })).length, 0);
+  } finally {
+    await query('DELETE FROM "Mantenimiento" WHERE "MantenimientoID"=$1', [maintenanceId], {
+      label: 'test.progress.closeRaceCleanup', write: true,
+    }).catch(() => {});
+  }
+});
+
 test('moving a maintenance between clients preserves device identity and requires valid destination locations', async () => {
   const { maintenanceLocationGroupHandlers } = await import('../src/modules/maintenance-location-groups.module.js');
   const ids = {

@@ -24,6 +24,24 @@ function devices(category, count, extra = {}) {
   }));
 }
 
+test('el worker vuelve a validar el mantenimiento y el cliente justo antes del webhook', () => {
+  const service = source('backend/src/services/maintenance-progress-chat.service.js');
+  const repo = source('backend/src/infra/postgres.repository.core.js');
+
+  // El esquema actual tiene una clave única. No se simulan IDs duplicados.
+  assert.match(repo, /ORDER BY "__db_id" DESC LIMIT 1 FOR UPDATE/);
+  assert.match(service, /const currentRows = await findRows\([\s\S]*?\{ limit: 1, order: 'DESC' \}/);
+  assert.match(service, /const latestRows = await findRows\([\s\S]*?\{ limit: 1, order: 'DESC' \}/);
+  assert.ok(service.indexOf('const latestRows = await findRows') < service.indexOf('result = await sendChatMessage'));
+  assert.match(service, /if \(!latest \|\| !pendingMaintenance\(latest\) \|\| contextChanged\)/);
+  assert.match(service, /clean\(latest\.Cliente\) !== clean\(currentMaintenance\.Cliente\)/);
+  assert.match(service, /clean\(latest\.Ubicacion\) !== clean\(currentMaintenance\.Ubicacion\)/);
+  assert.match(service, /skipped: true/);
+  assert.match(service, /Estado: skipped \? 'OMITIDO'/);
+  assert.match(service, /if \(state === 'OMITIDO'\) return false/);
+  assert.match(service, /STALE_CONTEXT/);
+});
+
 test('calcula avance fijo por categoría y total del mantenimiento', () => {
   const progress = buildMaintenanceProgress({
     maintenance: {

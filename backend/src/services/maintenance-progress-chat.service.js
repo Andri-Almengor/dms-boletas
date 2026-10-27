@@ -193,6 +193,7 @@ function shouldRetry(existing, now = new Date()) {
   // la política previa: ENVIADO/ENVIANDO no se repiten y solo ERROR puede
   // reintentarse de forma acotada.
   if (state === 'ENVIADO' || state === 'ENVIANDO') return false;
+  if (state === 'OMITIDO') return false;
 
   const attempts = Number(existing.Intentos || 0);
   if (attempts >= MAX_NOTIFICATION_ATTEMPTS) return false;
@@ -204,6 +205,7 @@ function skipReason(existing) {
   const state = normalized(existing?.Estado);
   if (state === 'ENVIADO') return 'ALREADY_SENT';
   if (state === 'ENVIANDO') return 'ALREADY_RUNNING';
+  if (state === 'OMITIDO') return 'NOT_PENDING';
   if (scheduledProgressNotification(existing)) return 'SCHEDULED_ALREADY_ATTEMPTED';
   return 'RETRY_LIMIT';
 }
@@ -283,9 +285,9 @@ async function claimNotification({
   });
 }
 
-async function persistAttempt({ existing, key, maintenance, reason, webhook, actor, progress, result, error, now }) {
+async function persistAttempt({ existing, key, maintenance, reason, webhook, actor, progress, result, error, now, skipped = false }) {
   const timestamp = now.toISOString();
-  const sent = Boolean(result?.sent) && !error;
+  const sent = !skipped && Boolean(result?.sent) && !error;
   const attempts = Math.max(1, Number(existing?.Intentos || 1));
   const row = {
     ClaveIdempotencia: key,
@@ -294,10 +296,10 @@ async function persistAttempt({ existing, key, maintenance, reason, webhook, act
     Canal: 'GOOGLE_CHAT',
     Destino: redactWebhook(webhook),
     Tipo: notificationType(reason),
-    Estado: sent ? 'ENVIADO' : 'ERROR',
+    Estado: skipped ? 'OMITIDO' : sent ? 'ENVIADO' : 'ERROR',
     Intentos: attempts,
     Respuesta: sent ? responseText(result) : '',
-    Error: sent ? '' : errorText(error),
+    Error: skipped || sent ? '' : errorText(error),
     FechaCreacion: existing?.FechaCreacion || timestamp,
     FechaEnvio: sent ? timestamp : existing?.FechaEnvio || '',
     UltimoIntento: timestamp,
@@ -398,7 +400,9 @@ export async function notifyMaintenanceProgress({
   const currentRows = await findRows(
     'Mantenimiento',
     { MantenimientoID: clean(maintenance.MantenimientoID) },
-    { limit: 1 },
+    // PostgreSQL updates the LAST valid duplicate ID; read the same canonical
+    // row, never the oldest historical PENDIENTE row.
+    { limit: 1, order: 'DESC' },
   );
   const currentMaintenance = currentRows[0];
   if (!currentMaintenance || !pendingMaintenance(currentMaintenance)) {
@@ -437,6 +441,31 @@ export async function notifyMaintenanceProgress({
       };
     }
     const existing = reservation.existing;
+
+    // Finalization/client reassignment may commit while evidence is loaded or
+    // while this slot is being reserved. Never send the previously built
+    // message if the authoritative maintenance is no longer pending or its
+    // notification context changed. Keep the slot claimed (at-most-once).
+    const latestRows = await findRows(
+      'Mantenimiento',
+      { MantenimientoID: clean(currentMaintenance.MantenimientoID) },
+      { limit: 1, order: 'DESC' },
+    );
+    const latest = latestRows[0];
+    const contextChanged = latest && (
+      clean(latest.ClienteID || latest.ClienteRef) !== clean(currentMaintenance.ClienteID || currentMaintenance.ClienteRef)
+      || clean(latest.Cliente) !== clean(currentMaintenance.Cliente)
+      || clean(latest.UbicacionID) !== clean(currentMaintenance.UbicacionID)
+      || clean(latest.Ubicacion) !== clean(currentMaintenance.Ubicacion)
+      || clean(latest.FechaActualizacion) !== clean(currentMaintenance.FechaActualizacion)
+    );
+    if (!latest || !pendingMaintenance(latest) || contextChanged) {
+      await persistAttempt({
+        existing, key, maintenance: currentMaintenance, reason, webhook, actor, progress, now,
+        skipped: true,
+      });
+      return { sent: false, skipped: contextChanged ? 'STALE_CONTEXT' : 'NOT_PENDING', progress };
+    }
 
     const message = formatMaintenanceProgressMessage({
       maintenance: currentMaintenance,
