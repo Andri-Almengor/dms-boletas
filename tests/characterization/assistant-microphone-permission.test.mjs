@@ -8,13 +8,14 @@ const css = readFileSync(new URL('../../src/styles/assistant.css', import.meta.u
 const functionSource = page.match(/  async function requestMicrophonePermission\(\) \{[\s\S]*?\n  \}\n\n  \/\/ SpeechRecognition/);
 assert.ok(functionSource, 'the existing assistant page must own the permission request');
 
-function permissionHarness({ getUserMedia, secure = true, speechSupported = true } = {}) {
+function permissionHarness({ getUserMedia, secure = true, speechSupported = true, recordingSupported = false } = {}) {
   const state = { requesting: false, permission: 'prompt', feedback: '', help: false, calls: 0 };
   const context = {
     sending: false,
     dictating: false,
     microphoneRequesting: false,
     speechSupported,
+    recordingSupported,
     window: { isSecureContext: secure },
     navigator: {
       mediaDevices: getUserMedia && {
@@ -82,8 +83,18 @@ test('dictado no soportado no promete que conceder permiso lo habilite', async (
     getUserMedia: () => ({ getTracks: () => [] }),
   });
   await request();
-  assert.match(state.feedback, /no admite dictado web/i);
+  assert.match(state.feedback, /no admite dictado/i);
   assert.match(state.feedback, /teclado/i);
+});
+
+test('cuando no hay reconocimiento nativo, la autorización ofrece grabación con Gemini', async () => {
+  const { request, state } = permissionHarness({
+    speechSupported: false,
+    recordingSupported: true,
+    getUserMedia: () => ({ getTracks: () => [] }),
+  });
+  await request();
+  assert.match(state.feedback, /grabar y transcribir con Gemini/i);
 });
 
 test('los controles de permiso se integran al composer y a su tema', () => {
