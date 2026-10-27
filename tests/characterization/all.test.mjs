@@ -17,6 +17,7 @@ import './knowledge-assistant-aux-responsive-stage.test.mjs';
 import './assistant-history-retention.test.mjs';
 import './assistant-integral-agent-ui.test.mjs';
 import './assistant-composer-responsive.test.mjs';
+import './assistant-microphone-permission.test.mjs';
 import './assistant-password-vault-sheets-cache.test.mjs';
 import './backend-batching.test.mjs';
 import './backend-readiness-gate.test.mjs';
