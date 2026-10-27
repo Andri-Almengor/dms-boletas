@@ -134,7 +134,7 @@ function externalRequested(message){
   const internal=/\b(dms|boleta|boletas|mantenimiento|mantenimientos|cliente|clientes|técnico|tecnico|supervisor|evidencia|evidencias|dispositivo|caso|agenda|knowledge|conocimiento)\b/i.test(text);
   return !internal&&/\b(actual(?:izado|izada|es)?|hoy en día|hoy en dia|latest|reciente)\b/i.test(text);
 }
-function assertRateLimit(ctx){
+export function assertRateLimit(ctx){
   const key=clean(ctx?.user?.UsuarioID||ctx?.sessionToken,250)||'anonymous';
   const now=Date.now(),recent=(REQUESTS.get(key)||[]).filter(ts=>now-ts<60000);
   if(recent.length>=aiConfig.rateLimitPerMinute)throw new AppError('AI_RATE_LIMIT','Ha realizado demasiadas consultas al asistente. Intente nuevamente en un momento.',429);
