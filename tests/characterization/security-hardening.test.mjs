@@ -123,3 +123,20 @@ test('la aplicación activa CSP, validación, rate limit y errores sin filtrar d
   assert.match(packageJson, /"report:final"/);
   assert.match(backendPackage, /"nodemailer": "10\.0\.13"/);
 });
+
+
+test('el backend fija body-parser corregido contra caída por solicitudes comprimidas', () => {
+  const lock = JSON.parse(source('backend/package-lock.json'));
+  const parser = lock.packages['node_modules/body-parser'];
+  const express = lock.packages['node_modules/express'];
+  const [major, minor, patch] = parser.version.split('.').map(Number);
+  const safe = major === 1 && (minor > 20 || (minor === 20 && patch >= 9))
+    || major === 2 && (minor > 4 || (minor === 4 && patch >= 0))
+    || major > 2;
+
+  assert.ok(safe, `body-parser ${parser.version} es vulnerable a GHSA-27r3-jxmh-p828`);
+  assert.match(parser.resolved, new RegExp(`/body-parser-${parser.version.replaceAll('.', '\\.')}\\.tgz$`));
+  assert.match(parser.integrity, /^sha512-[A-Za-z0-9+/]+={0,2}$/);
+  assert.equal(express.dependencies['body-parser'], '~1.20.5');
+  assert.equal(major, 1, 'Express 4 debe continuar usando la línea 1.x compatible');
+});
