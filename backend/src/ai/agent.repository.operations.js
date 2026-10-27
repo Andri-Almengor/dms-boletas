@@ -434,7 +434,7 @@ async function createOperation(ctx,{action,args={},files=[],preview={}}){
   assertOperationPermission(ctx,action);
   const userId=clean(ctx?.user?.UsuarioID,250);
   const fingerprint=sessionHash(ctx);
-  const key=hash({userId,fingerprint,action,args,files});
+  let key=hash({userId,fingerprint,action,args,files});
   const existing=await query(
     `SELECT * FROM "AiPendingOperations"
       WHERE "__valid"=TRUE AND "IdempotencyKey"=$1
@@ -445,6 +445,8 @@ async function createOperation(ctx,{action,args={},files=[],preview={}}){
   if(previous&&!expired(previous.ExpiresAt)&&!['CANCELLED','FAILED'].includes(String(previous.Status||''))){
     return previous;
   }
+  // Operaciones canceladas/fallidas ocupan el índice UNIQUE; un nuevo PREPARE no debe chocar con ellas.
+  if(previous)key=hash({userId,fingerprint,action,args,files,newAttempt:uuid()});
   const operationId=uuid(); const now=nowIso(); const expiresAt=expiryIso();
   const inserted=await query(
     `INSERT INTO "AiPendingOperations"
@@ -1128,9 +1130,13 @@ function ticketRefCandidates(value,key){
   const v=clean(value,300);
   return key==='client'?[v,aliasQuery(v)].filter(Boolean):[v];
 }
-async function ticketReferenceCatalog(items){
+async function ticketReferenceCatalog(ctx,items){
   const results=await Promise.all(TICKET_REFERENCES.map(async spec=>{
-    const refs=[...new Set(items.flatMap(item=>ticketRefs(item,spec.key)).flatMap(value=>ticketRefCandidates(value,spec.key)))];
+    const refs=[...new Set([
+      ...items.flatMap(item=>ticketRefs(item,spec.key)).flatMap(value=>ticketRefCandidates(value,spec.key)),
+      ...(spec.key==='technician'&&items.some(item=>ticketRefs(item,'technician').some(value=>['yo','mi'].includes(normalize(value))))
+        ? [clean(ctx?.user?.UsuarioID,250)] : []),
+    ].filter(Boolean))];
     if(!refs.length)return [spec.key,[]];
     const names=refs.map(value=>like(value));
     const col=field=>'"'+field+'"';
@@ -1141,8 +1147,9 @@ async function ticketReferenceCatalog(items){
       ...(spec.parent?[col(spec.parent)+' AS parent']:[]),
       ...(spec.otherParent?[col(spec.otherParent)+' AS otherParent']:[])];
     const where=spec.key==='technician' ? ' AND UPPER(COALESCE("Estado",\'ACTIVO\'))=\'ACTIVO\'' : '';
+    const activeFilter=spec.key==='technician'?'':' AND LOWER(COALESCE("Activo",\'true\'))<>\'false\'';
     const response=await query(
-      'SELECT '+fields.join(',')+' FROM "'+spec.table+'" WHERE "__valid"=TRUE AND LOWER(COALESCE("Activo",\'true\'))<>\'false\''+where+
+      'SELECT '+fields.join(',')+' FROM "'+spec.table+'" WHERE "__valid"=TRUE'+activeFilter+where+
       ' AND ('+clauses.join(' OR ')+') ORDER BY '+col(spec.name)+' ASC LIMIT 120',
       [refs,names],{label:'ai.ticket.catalog.'+spec.key}
     );
@@ -1186,7 +1193,7 @@ function ticketRelationship(raw,index,items){
   return {parent};
 }
 async function resolveTicketBatch(ctx,rawItems){
-  const catalog=await ticketReferenceCatalog(rawItems);
+  const catalog=await ticketReferenceCatalog(ctx,rawItems);
   const items=[];
   for(let index=0;index<rawItems.length;index++){
     const raw=rawItems[index]||{};
@@ -1376,6 +1383,19 @@ export async function decideAiOperation(ctx,args={}){
   }
   if(!['confirmar','confirm','retry','reintentar'].includes(decision))throw badRequest('La decisión debe ser confirm o cancel.');
   if(op.Status==='COMMITTED')return publicOperation(op);
+  if(op.Status==='COMMITTING' && op.Action==='TICKET_BATCH_CREATE'){
+    // El agente no dura más de 180 s; después de diez minutos un COMMITTING
+    // abandonado puede reclamarse explícitamente sin crear nuevos IDs.
+    const staleBefore=new Date(Date.now()-10*60_000).toISOString();
+    await query(
+      `UPDATE "AiPendingOperations" SET "Status"='PARTIAL',"UpdatedAt"=$4
+        WHERE "__valid"=TRUE AND "OperationID"=$1 AND "UserID"=$2 AND "SessionHash"=$3
+          AND "Status"='COMMITTING' AND "UpdatedAt"<$5`,
+      [operationId,clean(ctx?.user?.UsuarioID,250),sessionHash(ctx),nowIso(),staleBefore],
+      {label:'ai.ticket.reclaim',write:true},
+    );
+    op=await findOperation(ctx,operationId);
+  }
   if(op.Status==='COMMITTING')return publicOperation(op);
   op=await claimOperation(ctx,operationId);
   if(op.Status!=='COMMITTING')return publicOperation(op);
@@ -1388,7 +1408,9 @@ export async function decideAiOperation(ctx,args={}){
     else if(op.Action==='MAINTENANCE_EVIDENCE_UPLOAD') result=await commitEvidence(ctx,op);
     else throw badRequest('La operación no es compatible con esta versión del agente.');
   }catch(error){
-    await finishOperation(operationId,'FAILED',operationResult(op)||{}, {
+    // Una escritura de lote puede haber persistido resultados antes del error.
+    // Mantenerla reintentable recuperando IDs determinísticos de PostgreSQL.
+    await finishOperation(operationId,op.Action==='TICKET_BATCH_CREATE'?'PARTIAL':'FAILED',operationResult(op)||{}, {
       code:clean(error?.code||'AI_OPERATION_FAILED',80),
       message:clean(error?.message||'No se pudo completar la operación.',600),
     }).catch(()=>{});
