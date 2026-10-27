@@ -637,7 +637,7 @@ const TICKET_PROPOSAL_FIELDS = [
   ['result', 'Resultado'], ['recommendations', 'Recomendaciones'],
   ['followUpOf', 'Seguimiento de boleta del lote (0 = independiente)'],
 ];
-function AssistantConfirmations({ confirmations = [], busyOperationId, onDecision, onRevise }) {
+function AssistantConfirmations({ confirmations = [], busyOperationId, onDecision, onRevise, onStatus }) {
   const [ticketDrafts, setTicketDrafts] = useState({});
   function fieldValue(item, row, field) {
     const edited = ticketDrafts[item.operationId]?.[row.index]?.[field];
@@ -766,7 +766,7 @@ function AssistantConfirmations({ confirmations = [], busyOperationId, onDecisio
               </div>
             ) : null}
             <footer>
-              {!terminal && !partial && (
+              {status === 'PENDING' && (
                 <>
                   <button className="button button--primary button--compact" type="button" disabled={busy} onClick={() => onDecision(item, 'confirm')}>
                     <Icon name={busy ? 'progress_activity' : 'check'} /> {item.confirmLabel || 'Confirmar'}
@@ -781,7 +781,13 @@ function AssistantConfirmations({ confirmations = [], busyOperationId, onDecisio
                   <Icon name={busy ? 'progress_activity' : 'refresh'} /> Reintentar pendientes
                 </button>
               )}
-              {item.expiresAt && !terminal && <small>Confirmación temporal y ligada a esta sesión.</small>}
+              {item.operationId && !['CANCELLED', 'EXPIRED'].includes(status) && (
+                <button className="button button--secondary button--compact" type="button" disabled={busy} onClick={() => onStatus(item)}>
+                  <Icon name="search" /> Consultar estado
+                </button>
+              )}
+              {status === 'COMMITTING' && <small>Procesando la confirmación. Consulte el estado antes de repetir.</small>}
+              {item.expiresAt && status === 'PENDING' && <small>Confirmación temporal y ligada a esta sesión.</small>}
             </footer>
           </section>
         );
@@ -809,7 +815,7 @@ function AssistantSourceLink({ source }) {
   return <span className="assistant-source-static">{content}</span>;
 }
 
-function AssistantMessage({ message, onSuggestion, onOption, onDecision, onRevise, busyOperationId }) {
+function AssistantMessage({ message, onSuggestion, onOption, onDecision, onRevise, onStatus, busyOperationId }) {
   const assistant = message.role === 'assistant';
   return (
     <article className={`assistant-message assistant-message--${message.role}`}>
@@ -837,7 +843,7 @@ function AssistantMessage({ message, onSuggestion, onOption, onDecision, onRevis
         <AssistantUserFiles files={message.userFiles || []} />
         <AssistantEntities entities={message.entities || []} />
         <AssistantAttachments attachments={message.attachments || []} />
-        <AssistantConfirmations confirmations={message.confirmations || []} busyOperationId={busyOperationId} onDecision={onDecision} onRevise={onRevise} />
+        <AssistantConfirmations confirmations={message.confirmations || []} busyOperationId={busyOperationId} onDecision={onDecision} onRevise={onRevise} onStatus={onStatus} />
 
         {message.sources?.length > 0 && (
           <div className="assistant-sources">
@@ -1148,6 +1154,31 @@ export default function AssistantPageSecure() {
     });
   }
 
+  async function checkOperationStatus(item) {
+    if (!item?.operationId || busyOperationId) return;
+    setBusyOperationId(item.operationId);
+    setError('');
+    try {
+      const response = await apiRequest('assistant.chat', {
+        assistantAction: 'operation.status',
+        operationId: item.operationId,
+      }, sessionToken, { cache: 'no-store' });
+      setMessages((current) => current.map((message) => ({
+        ...message,
+        confirmations: Array.isArray(message.confirmations)
+          ? message.confirmations.map(confirmation => confirmation.operationId === item.operationId
+            ? { ...confirmation, ...response, preview: response.preview || confirmation.preview,
+                result: response.result || confirmation.result }
+            : confirmation)
+          : message.confirmations,
+      })));
+    } catch (error) {
+      setError(error?.message || 'No se pudo consultar el estado de la operación.');
+    } finally {
+      setBusyOperationId('');
+    }
+  }
+
   async function reviseOperation(item, index, fields) {
     if (!item?.operationId || busyOperationId) return false;
     setBusyOperationId(item.operationId);
@@ -1298,7 +1329,7 @@ export default function AssistantPageSecure() {
       <section className="assistant-chat" aria-live="polite">
         <div className="assistant-chat__messages">
           {messages.map((message) => (
-            <AssistantMessage key={message.id} message={message} onSuggestion={sendQuestion} onOption={chooseOption} onDecision={decideOperation} onRevise={reviseOperation} busyOperationId={busyOperationId} />
+            <AssistantMessage key={message.id} message={message} onSuggestion={sendQuestion} onOption={chooseOption} onDecision={decideOperation} onRevise={reviseOperation} onStatus={checkOperationStatus} busyOperationId={busyOperationId} />
           ))}
           {sending && (
             <article className="assistant-message assistant-message--assistant assistant-message--typing">
