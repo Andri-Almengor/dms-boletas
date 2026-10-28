@@ -44,7 +44,9 @@ export function requestSecurityMiddleware(req, res, next) {
   req.requestId = requestId;
   res.setHeader('X-Request-ID', requestId);
   res.setHeader('Referrer-Policy', 'strict-origin-when-cross-origin');
-  res.setHeader('Permissions-Policy', 'microphone=(), payment=(), usb=(), browsing-topics=()');
+  // El asistente solicita permiso explícito mediante getUserMedia en el mismo origen.
+  // No habilitar el micrófono para iframes ni otros orígenes.
+  res.setHeader('Permissions-Policy', 'microphone=(self), payment=(), usb=(), browsing-topics=()');
   next();
 }
 
