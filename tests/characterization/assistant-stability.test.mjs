@@ -131,6 +131,21 @@ test('assistant mixed-action envelope is never automatically replayed or cached'
   assert.doesNotMatch(backend.split('function isHeavyRoute(route) {')[1].split('function addBusyContext')[0], /assistant\.chat|asistente\.chat/);
 });
 
+test('Knowledge skips a redundant refresh only for already-indexed documents', () => {
+  const documents = source('backend/src/ai/agent.repository.knowledge-documents.js');
+  assert.match(documents, /if \(rows\.some\(\(row\) => extractionState\(row\.extractionStatus\) !== 'READY'\)\)/);
+  assert.match(documents, /appendKnowledgeVisibility\(ctx, params, 'a'\)/);
+  assert.match(documents, /'ai\.knowledgeDocuments\.refresh'/);
+  assert.match(documents, /rows\.map\(\(row\) => \(\{ \.\.\.row, \.\.\.\(byId\.get\(row\.id\) \|\| \{\}\) \}\)\)/);
+});
+
+test('correlation logging sanitizes Cloudflare header without request contents', () => {
+  const metrics = source('backend/src/services/performance-observability.service.js');
+  const app = source('backend/src/app.js');
+  assert.match(metrics, /cfRay: \/\^\[a-zA-Z0-9-\]\{1,80\}\$\//);
+  assert.match(app, /cfRay: req\.get\('cf-ray'\)/);
+});
+
 test('UI shows neutral progress and elapsed time; uncertain COMMIT checks status without redoing decide', () => {
   const page = source('src/pages/assistant/AssistantPageSecure.jsx');
   assert.match(page, /setElapsedSeconds\(seconds\)/);
