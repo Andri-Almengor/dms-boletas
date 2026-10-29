@@ -1,5 +1,8 @@
 # Evidencia, comandos y pruebas de ciberseguridad
 
+> **Estado final de la rama de auditoría (29/10/2026 UTC, previo al merge):** Node.js 24.22.1, Vite 6.4.5, React Router DOM 6.30.6 y Nodemailer 10.2.1 se encuentran declarados y alineados en manifests y lockfiles. La auditoría npm completa en el runner aislado con estas versiones muestra **0 críticas y 0 altas** en frontend y backend; **2 moderadas frontend y 7 moderadas backend**. Los parches de paquetes y el runtime no se han desplegado a Render. La revisión dinámica de roles/permisos entre clientes, firmas multi-instancia, plataforma Render y GitHub Rulesets sigue fuera de alcance y requiere infraestructura autorizada. Ningún aviso residual se resolvió con actualizaciones mayores automáticas.
+
+
 Fecha de corte 28/10/2026; fuente `main` commit `31f585c6bd71a2e23b6df011dc47596de58471e1`. Toda prueba que no fue efectivamente ejecutada figura expresamente como pendiente.
 
 ## Ejecutado: inspección estática y lectura de GitHub
@@ -12,7 +15,7 @@ Fecha de corte 28/10/2026; fuente `main` commit `31f585c6bd71a2e23b6df011dc47596
 7. **CI externo preexistente:** PR #372 `Validate application` run `40713271732` **success**, paso `Audit production dependencies` **success**. CI del commit `main`: `Stage 0 Characterization` run `40713683365` **success**.
 8. **Producción:** no se realizaron peticiones de explotación, fuzzing, carga, credenciales ni acceso a registros de usuarios.
 
-## No ejecutado: lista de verificación
+## Verificación dinámica y controles restantes (no ejecutados en esta auditoría)
 | Prueba | Estado | Bloqueo |
 |---|---|---|
 | `npm audit --json` completo (frontend/backend) | Pendiente | Dependencias no instaladas en entorno de ejecución de esta auditoría |

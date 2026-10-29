@@ -1,5 +1,8 @@
 # Resumen ejecutivo — Auditoría de seguridad DMS Boletas
 
+> **Estado final de la rama de auditoría (29/10/2026 UTC, previo al merge):** Node.js 24.22.1, Vite 6.4.5, React Router DOM 6.30.6 y Nodemailer 10.2.1 se encuentran declarados y alineados en manifests y lockfiles. La auditoría npm completa en el runner aislado con estas versiones muestra **0 críticas y 0 altas** en frontend y backend; **2 moderadas frontend y 7 moderadas backend**. Los parches de paquetes y el runtime no se han desplegado a Render. La revisión dinámica de roles/permisos entre clientes, firmas multi-instancia, plataforma Render y GitHub Rulesets sigue fuera de alcance y requiere infraestructura autorizada. Ningún aviso residual se resolvió con actualizaciones mayores automáticas.
+
+
 **Corte:** 28 de octubre de 2026 · **Commit examinado:** `31f585c6bd71a2e23b6df011dc47596de58471e1`.
 
 ## Dictamen
@@ -19,7 +22,7 @@ No se debe interpretar “0 críticos” como garantía de seguridad. Las puntua
 
 ## Diez riesgos en orden operativo
 1. Verificación de límites de acceso por cliente a contraseñas almacenadas.
-2. Desfase de versión Node.js 24.21.0 frente a parche de seguridad 24.22.1 (21/10/2026).
+2. Desfase de Node.js 24.21.0 en main: corregido a 24.22.1 en esta rama; pendiente de merge y verificación en Render.
 3. Interpretación de cuerpos HTTP de hasta 50 MB antes del rate limit por acción.
 4. Cambio de contraseña sin revocación de otras sesiones activas.
 5. Rama `main` sin protección ni rulesets pese a auto-despliegue.

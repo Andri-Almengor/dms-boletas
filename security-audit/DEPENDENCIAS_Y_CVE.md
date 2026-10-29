@@ -1,8 +1,11 @@
 # Dependencias, versiones y avisos de seguridad
 
+> **Estado final de la rama de auditoría (29/10/2026 UTC, previo al merge):** Node.js 24.22.1, Vite 6.4.5, React Router DOM 6.30.6 y Nodemailer 10.2.1 se encuentran declarados y alineados en manifests y lockfiles. La auditoría npm completa en el runner aislado con estas versiones muestra **0 críticas y 0 altas** en frontend y backend; **2 moderadas frontend y 7 moderadas backend**. Los parches de paquetes y el runtime no se han desplegado a Render. La revisión dinámica de roles/permisos entre clientes, firmas multi-instancia, plataforma Render y GitHub Rulesets sigue fuera de alcance y requiere infraestructura autorizada. Ningún aviso residual se resolvió con actualizaciones mayores automáticas.
+
+
 Fecha 28/10/2026 · Commit `31f585c6bd71a2e23b6df011dc47596de58471e1`.
 
-## Inventario de lockfiles
+## Inventario de lockfiles en el commit original (línea base histórica)
 - `package-lock.json`: lockfile v3, **120 registros de paquetes**; React 18.3.1, React DOM 18.3.1, react-router-dom 6.30.4, Vite 6.4.3, @vitejs/plugin-react 4.7.0. `package.json` usa varios rangos `^`; no confundir versión declarada con fijada en lock.
 - `backend/package-lock.json`: lockfile v3, **213 registros**; Express 4.22.2, body-parser 1.20.9, cors 2.8.6, Helmet 8.3.0, pg 8.23.0, nodemailer 10.0.13, googleapis 144.0.0, proxy-addr 2.0.8, qs 6.15.3, path-to-regexp 0.1.13.
 - **No** aparecen `react-server-dom-webpack`, `react-server-dom-parcel` ni `react-server-dom-turbopack` en ninguno de los lockfiles.
@@ -32,10 +35,10 @@ Fuentes oficiales:
 - https://github.com/react/react/security/advisories
 - https://www.oracle.com/security-alerts/alert-cve-2026-109618.html
 
-## Auditoría de dependencias ejecutada versus pendiente
+## Auditoría de dependencias de CI: evidencia histórica y estado ampliado
 **Evidencia indirecta confirmada:** `.github/workflows/validate.yml` ejecuta `npm run audit:security`. En el PR #372, run 40713271732 el paso “Audit production dependencies” terminó success. El script revisa frontend y backend con `--omit=dev --audit-level=high`. Por tanto **en ese run** no hubo un fallo por alerta de alta gravedad en paquetes de producción según el auditor npm de ese momento.
 
-**No ejecutado por esta auditoría:** `npm audit --json` completo en ambos árboles, `npm ls --all`, SBOM, CodeQL, OSV, Dependabot, análisis de integridad de tarballs, detección de typosquatting, cambios de mantenedor o confirmación de reachability por cada dependencia. No declarar cero vulnerabilidades totales.
+**Ejecutado en el PR:** `npm audit --json` completo en ambos árboles dentro de `Validate application`, con artefactos y conteos. **Pendiente:** `npm ls --all`, SBOM, CodeQL, OSV, Dependabot, pruebas de explotabilidad y verificación real en Render. No declarar cero vulnerabilidades totales.
 
 ## Procedimiento reproducible en entorno autorizado
 ```bash

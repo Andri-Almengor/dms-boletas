@@ -1,5 +1,8 @@
 # Matriz de cobertura de seguridad (OWASP ASVS 5.0, WSTG, API Top 10)
 
+> **Estado final de la rama de auditoría (29/10/2026 UTC, previo al merge):** Node.js 24.22.1, Vite 6.4.5, React Router DOM 6.30.6 y Nodemailer 10.2.1 se encuentran declarados y alineados en manifests y lockfiles. La auditoría npm completa en el runner aislado con estas versiones muestra **0 críticas y 0 altas** en frontend y backend; **2 moderadas frontend y 7 moderadas backend**. Los parches de paquetes y el runtime no se han desplegado a Render. La revisión dinámica de roles/permisos entre clientes, firmas multi-instancia, plataforma Render y GitHub Rulesets sigue fuera de alcance y requiere infraestructura autorizada. Ningún aviso residual se resolvió con actualizaciones mayores automáticas.
+
+
 **Estado = evidencia disponible, no nivel de certificación**. Las 12 filas con **No verificado** o **Bloqueado** son brechas de cobertura que deben probarse antes de cerrar la auditoría. Base `31f585c6bd71a2e23b6df011dc47596de58471e1`.
 
 | Control / referencia | Componente | Estado | Evidencia y acción |
