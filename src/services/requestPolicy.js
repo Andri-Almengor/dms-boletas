@@ -3,9 +3,9 @@ export function requestTimeoutMs(route) {
   const value = String(route || '').toLowerCase();
   if (value === 'auth.login') return 20_000;
   if (value === 'auth.me') return 25_000;
-  // Must stay above AI_AGENT_TOTAL_TIMEOUT_MS (max configured backend default: 120 s)
-  // so the browser does not abandon a valid Gemini/tool loop first.
-  if (['assistant.chat','asistente.chat'].includes(value)) return 195_000;
+  // Incluye el máximo del agente (180 s) y margen para cola, transporte y respuesta.
+  // El navegador nunca debe abandonar antes que el presupuesto del backend.
+  if (['assistant.chat','asistente.chat'].includes(value)) return 240_000;
   // La redacción técnica puede necesitar esperar un modelo lento y luego rotar
   // a uno o más modelos alternativos. El backend tiene un presupuesto total
   // menor que esta ventana para que el navegador no abandone primero.
