@@ -13,8 +13,13 @@ test('router Gemini rota ante saturación y JSON inválido, sin reintentar error
     calls.push(JSON.parse(init.body).model);
     const next = scriptedResponses.shift();
     assert.ok(next, 'No debe repetir indefinidamente un modelo');
-    if (next.hang) return new Promise((_, reject) => {
-      const abort = () => reject(init.signal.reason || new DOMException('Aborted', 'AbortError'));
+    if (next.hang) return new Promise((resolve, reject) => {
+      // Timer de prueba referenciado para simular una conexión que no responde.
+      const slow = setTimeout(() => resolve(new Response('{}', { status: 504 })), 1_000);
+      const abort = () => {
+        clearTimeout(slow);
+        reject(init.signal.reason || new DOMException('Aborted', 'AbortError'));
+      };
       if (init.signal.aborted) abort();
       else init.signal.addEventListener('abort', abort, { once: true });
     });
