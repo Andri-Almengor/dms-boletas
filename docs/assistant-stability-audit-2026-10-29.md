@@ -88,3 +88,25 @@ El observador de rendimiento existente admite `cfRay` sanitizado de la cabecera 
 5. **Pruebas E2E:** requieren sesión autorizada, cuenta Gemini, datos de pruebas, Render logs y cortes de conexión controlados. No ejecutarlas con datos de clientes reales ni finalizar/enviar reportes como prueba sintética.
 
 **Puerta de salida:** mantener el PR en borrador hasta terminar CI del head y los escenarios operativos representativos. Si no es posible acceder a la infraestructura para reproducir los incidentes, registrar el bloqueo, el indicador por medir y no afirmar que desaparecieron.
+
+## Continuación — admisión HTTP y clientes desconectados (29-10-2026)
+
+### Hallazgo reproducible: espera AI ocupaba `http-all`
+
+`server.js` pasa los requests API por `concurrencyMiddleware` antes de Express. Antes, una solicitud `assistant.chat` consumía inmediatamente uno de los slots de `http-all` y luego quedaba en espera de `action-ai` dentro de `/api/action`. Con dos IA activas y otras dos esperando, estas últimas no ejecutaban nada útil pero retenían hasta dos cupos HTTP de Render durante hasta `HTTP_QUEUE_TIMEOUT_MS`, retrasando autosaves y otras gestiones.
+
+Se reutiliza `AsyncSemaphore` y `concurrencyMiddleware` existentes con un gate de **admisión HTTP AI**, `http-assistant`, adquirido **antes de `http-all`**. Máximo de gate: `max(1,min(2,AI_ACTION_MAX_CONCURRENT,HTTP_MAX_CONCURRENT_REQUESTS-2))`. El cliente Node añade la cabecera opcional `X-DMS-Workload: assistant` solamente para rutas Gemini/asistente. Es **pista de planificación, no fuente de verdad**; no interviene en permisos, autenticación, validaciones ni despacho. Las solicitudes antiguas o externas sin cabecera conservan el control autoritativo de `action-ai`. La cabecera nunca se envía al fallback de Apps Script.
+
+Las solicitudes AI que esperan en `http-assistant` no ocupan `http-all`; el gate tiene una cola acotada y duración máxima configurada. `/api/health` sigue fuera de la cola HTTP por el flujo existente de `server.js`. No cambia el número general de cupos ni la lógica de negocio.
+
+### Cliente desconectado durante la espera
+
+`concurrencyMiddleware` ahora entrega al dispatcher una `AbortSignal` derivada del cierre de la conexión. `runWithActionConcurrency` la pasa únicamente a `AsyncSemaphore.acquire()` y comprueba si el request se abortó **antes de llamar al handler**. Una acción en cola cuyo cliente cerró la pestaña se retira de la cola en lugar de seguir esperando y ejecutarse minutos después. **Una vez iniciada la ejecución**, esa señal no interrumpe SQL, Drive, finalizaciones, correo, Chat ni COMMIT; el backend continúa como fuente de verdad.
+
+Pruebas: `backend/test/assistant-http-admission.test.js` (tres requests de IA frente a tráfico foreground) y `backend/test/assistant-action-queue-abort.test.js` (cancelar uno en cola sin ejecutarlo; preservar una operación ya comenzada). Se ajustó el test de caracterización de aislamiento heavy/write porque su regex anterior exigía `acquire()` sin opciones; conserva las aserciones de aislamiento con `acquire({signal})`.
+
+### Limitaciones y despliegue
+
+La reserva AI es una optimización de cliente cooperativo: peticiones sin cabecera no pasan por el gate y siguen sujetas a `http-all`, `action-ai` y todas las validaciones backend. No constituye protección completa contra tráfico arbitrario; para eso serían necesarios límites por ruta identificada tras validación y/o reverse proxy. No se modifican esquemas, permisos ni variables obligatorias. Desplegar frontend y backend del mismo commit para obtener la reserva efectiva. Comprobar `concurrency.assistantRequests` en diagnósticos autorizados si procede.
+
+El problema de ejecución subyacente de herramientas que terminan tarde tras el `Promise.race` permanece identificado; cancelar de modo indiscriminado una herramienta de preparación o una escritura sería peligroso. Requiere distinguir lecturas seguras y comandos de PREPARE y validar un camino real de cancelación por herramienta.
