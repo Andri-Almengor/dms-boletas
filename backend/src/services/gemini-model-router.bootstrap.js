@@ -27,7 +27,7 @@ function positiveInteger(value, fallback, minimum, maximum) {
 }
 
 function resolveModels(requestedModel = '') {
-  const primary = clean(process.env.GEMINI_MODEL || 'gemini-3.5-flash', 100);
+  const primary = clean(process.env.GEMINI_PRIMARY_MODEL || process.env.GEMINI_MODEL || 'gemini-3.5-flash', 100);
   const configured = clean(process.env.GEMINI_FALLBACK_MODELS, 500)
     .split(',')
     .map((value) => clean(value, 100))
@@ -171,6 +171,42 @@ function retryableModelFailure(response, message = '') {
   return '';
 }
 
+// Un intento que se congela no puede consumir todo el presupuesto antes
+// de probar los fallbacks. La señal del llamador siempre tiene prioridad.
+function syntheticModelFailure(status, message) {
+  return new Response(JSON.stringify({ error: { code: status, message } }), {
+    status, headers: { 'content-type': 'application/json' },
+  });
+}
+
+async function attemptModelWithinBudget(input, init, body, attemptMs) {
+  const upstream = init.signal;
+  if (upstream?.aborted) throw upstream.reason || new DOMException('Aborted', 'AbortError');
+  const controller = new AbortController();
+  let timedOut = false;
+  const abortUpstream = () => controller.abort(upstream.reason);
+  upstream?.addEventListener('abort', abortUpstream, { once: true });
+  const timeout = setTimeout(() => {
+    timedOut = true;
+    controller.abort(new DOMException('Gemini model attempt timed out', 'TimeoutError'));
+  }, Math.max(1, attemptMs));
+  timeout.unref?.();
+  try {
+    const { __dmsGeminiTimeoutMs: _privateTimeout, ...safeInit } = init;
+    return await originalFetch(input, {
+      ...safeInit, body: JSON.stringify(body), signal: controller.signal,
+    });
+  } catch (error) {
+    if (upstream?.aborted) throw error; // Cancelación del solicitante, nunca fallback.
+    if (timedOut) return syntheticModelFailure(504, 'Gemini model attempt timed out');
+    // Un fallo de transporte de Gemini también puede recuperarse con otro modelo.
+    return syntheticModelFailure(503, 'Gemini model transport unavailable');
+  } finally {
+    clearTimeout(timeout);
+    upstream?.removeEventListener('abort', abortUpstream);
+  }
+}
+
 async function routedGeminiFetch(input, init = {}) {
   if (requestUrl(input).split('?')[0] !== GEMINI_INTERACTIONS_URL) {
     return originalFetch(input, init);
@@ -184,10 +220,23 @@ async function routedGeminiFetch(input, init = {}) {
   const available = ordered.filter(candidateAvailable);
   if (!available.length) return allModelsCoolingResponse(models);
 
+  const timeoutMs = positiveInteger(
+    init.__dmsGeminiTimeoutMs,
+    positiveInteger(process.env.AI_GEMINI_TIMEOUT_MS || process.env.GEMINI_TIMEOUT_MS, 60_000, 5_000, 120_000),
+    1, 120_000,
+  );
+  const deadline = Date.now() + timeoutMs;
   let lastResponse = null;
   for (const [attemptIndex, model] of available.entries()) {
+    if (init.signal?.aborted) throw init.signal.reason || new DOMException('Aborted', 'AbortError');
+    const remainingMs = Math.max(0, deadline - Date.now());
+    if (!remainingMs) break;
+    const remainingCandidates = available.length - attemptIndex;
+    const attemptMs = remainingCandidates > 1
+      ? Math.min(remainingMs, Math.max(1_000, Math.floor(remainingMs / remainingCandidates)))
+      : remainingMs;
     const body = { ...originalBody, model };
-    const response = await originalFetch(input, { ...init, body: JSON.stringify(body) });
+    const response = await attemptModelWithinBudget(input, init, body, attemptMs);
     // La telemetría también debe identificar el modelo real cuando la última respuesta es un error.
     Object.defineProperty(response, '__dmsGeminiModel', { value: model });
     Object.defineProperty(response, '__dmsGeminiFallbackCount', { value: attemptIndex });
@@ -211,9 +260,8 @@ async function routedGeminiFetch(input, init = {}) {
     );
   }
 
-  if (models.every((model) => routerState.unavailableModels.has(model) || cooldownRemaining(model) > 0)) {
-    return allModelsCoolingResponse(models);
-  }
+  // Devolver el último error real del intento actual; el cooldown aplica
+  // a solicitudes futuras, no convierte retroactivamente un 504 en cuota 429.
   return lastResponse || allModelsCoolingResponse(models);
 }
 
