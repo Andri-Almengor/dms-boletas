@@ -45,18 +45,6 @@ jobs:
           cache-dependency-path: |
             package-lock.json
             backend/package-lock.json
-      - name: Generate audited lockfile candidates (temporary)
-        # Executed only in disposable CI; candidates are reviewed and committed
-        # separately, then this temporary step is removed before final approval.
-        shell: bash
-        run: |
-          npm install --package-lock-only --ignore-scripts
-          npm --prefix backend install --package-lock-only --ignore-scripts
-          npm audit fix --package-lock-only --ignore-scripts || true
-          npm --prefix backend audit fix --package-lock-only --ignore-scripts || true
-          mkdir -p .artifacts
-          cp package-lock.json .artifacts/npm-lockfile-frontend.candidate.json
-          cp backend/package-lock.json .artifacts/npm-lockfile-backend.candidate.json
       - name: Install frontend dependencies
         run: npm ci
       - name: Install backend dependencies
