@@ -49,6 +49,13 @@ test('assistant.chat uses the existing AI lane while heavy finalization remains 
   assert.equal(backendProcess(script), 'ok');
 });
 
+test('request HTTP queue time feeds existing per-route metrics without sensitive payload logging', () => {
+  const middleware = source('backend/src/middleware/concurrency.middleware.js');
+  const app = source('backend/src/app.js');
+  assert.match(middleware, /req\.dmsHttpQueueWaitMs = Math\.max\(0, performance\.now\(\) - httpQueuedAt\)/);
+  assert.match(app, /observation\.markQueueWait\(req\.dmsHttpQueueWaitMs \|\| 0\)/);
+});
+
 test('Gemini timeout aliases in render.yaml are effective and explicit AI values win', () => {
   const render = source('render.yaml');
   assert.match(render, /GEMINI_TIMEOUT_MS/);
