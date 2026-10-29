@@ -5,6 +5,7 @@ import { once } from 'node:events';
 
 import { app } from '../src/app.js';
 import { createInteraction } from '../src/ai/agent.gemini.js';
+import { aiAgentHandlers } from '../src/ai/agent.module.js';
 
 test('backend health remains available when Gemini credentials are missing', async (t) => {
   const server = createServer(app);
@@ -27,5 +28,21 @@ test('backend health remains available when Gemini credentials are missing', asy
   } finally {
     if (originalKey === undefined) delete process.env.GEMINI_API_KEY;
     else process.env.GEMINI_API_KEY = originalKey;
+  }
+});
+
+test('existing admin AI health exposes aggregate HTTP/AI queues without request content', async () => {
+  const diagnostic = await aiAgentHandlers.health();
+  assert.equal(typeof diagnostic.enabled, 'boolean');
+  assert.equal(diagnostic.queues.httpAssistant.lane, 'http-assistant');
+  assert.equal(diagnostic.queues.aiActions.lane, 'action-ai');
+  for (const queue of Object.values(diagnostic.queues)) {
+    assert.ok(Number.isInteger(queue.active));
+    assert.ok(Number.isInteger(queue.waiting));
+    assert.ok(Number.isInteger(queue.max));
+    assert.ok(queue.max >= 1);
+    assert.equal('sessionToken' in queue, false);
+    assert.equal('user' in queue, false);
+    assert.equal('payload' in queue, false);
   }
 });
