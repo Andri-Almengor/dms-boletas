@@ -55,3 +55,36 @@ No requiere migración PostgreSQL, cambio de URL Apps Script, ni secreto nuevo. 
 ## Objetivos de métricas al terminar (no medidos aún)
 
 Recolectar por `X-Request-ID` y `bootId`: primera respuesta, latencia p50/p95, cola AI, cola HTTP, éxito por modelo, fallbacks, errores categorizados, RAM, impacto en autosaves y cero duplicaciones en ensayos concurrentes. Contrastar antes y después usando el mismo tipo de cargas y período.
+
+## Continuación de implementación — etapas 1, 4, 6 y 7
+
+### Rotación de Gemini ante modelos sin respuesta
+
+La rotación existente `gemini-model-router.bootstrap.js` usaba una sola señal de timeout por solicitud. Si el primer modelo agotaba su plazo, la señal quedaba abortada y ningún fallback podía recuperarse. Ahora el router divide un **único presupuesto total** entre los modelos disponibles, usa un AbortController independiente por candidato y propaga la cancelación del solicitante para no repetir una consulta cancelada. La petición original de Gemini permanece sin efectos operativos: COMMIT se sigue ejecutando solamente por el flujo del backend y confirmación humana.
+
+Se añade `__dmsGeminiTimeoutMs` como opción privada al `fetch` interno del agente, eliminada antes del transporte, y se preserva `GEMINI_PRIMARY_MODEL` como preferencia sobre `GEMINI_MODEL`. El timeout del navegador conserva margen. No se hacen reintentos sobre 400/401/403 determinísticos.
+
+La transcripción de audio ahora calcula el tiempo restante antes de cada modelo, para que el fallback no inicie una nueva solicitud de 60 s cuando el presupuesto global de voz esté casi agotado.
+
+### Trazabilidad y coste de Knowledge
+
+El observador de rendimiento existente admite `cfRay` sanitizado de la cabecera `CF-Ray` (si está disponible) sin registrar preguntas, sesiones, secretos ni evidencias. El tiempo de admisión HTTP también se suma al tiempo de cola observado de `/api/action`.
+
+`searchKnowledgeDocuments` conserva sus permisos y la consulta paginada. Solo evita la consulta batch adicional de estado de indexación cuando todos los documentos recuperados ya constan como `READY`. Los documentos en procesamiento mantienen la actualización del estado. No se crea caché compartida entre usuarios ni se cambian índices sin `EXPLAIN ANALYZE`.
+
+### Pruebas y evidencia de CI
+
+- `backend/test/gemini-model-router-failover.test.js`: un primer modelo atascado debe rotar al siguiente dentro del presupuesto; una cancelación del solicitante debe detener toda rotación.
+- `tests/characterization/assistant-stability.test.mjs`: quinto chat recibe `SERVER_BUSY` cuando AI está saturada y un autosave puede atravesar su carril de acción de escritura; regresiones de Knowledge y correlación Cloudflare.
+- Se detectó una **falla real de una prueba nueva** con solo 90 ms de presupuesto total en CI: 504 en vez de fallback 200. No correspondía al presupuesto real de producción ni a una regresión de negocio: el presupuesto de la prueba se cambió a 1.200 ms para verificar un plazo con tiempo disponible para ambos intentos. La aplicación **conserva** su presupuesto configurado; no se amplió un timeout de producción para pasar CI.
+- PostgreSQL Stage 6 había pasado en varios commits intermedios. Validar el **último commit del PR** antes de fusionar, no usar checks verdes de una versión anterior.
+
+### Límites que no se pueden declarar resueltos sin observabilidad real
+
+1. **Cold start y Render Free:** no se cuenta con el tiempo real de despliegue, conexiones o arranque. El health check existente distingue backend activo de fallos propios de Gemini, pero una instancia dormida sigue dependiendo de la infraestructura.
+2. **Capacidad `http-all`:** el límite global sigue vigente y puede saturarse con mezcla de AI, medios y cargas; la cola AI acotada reduce exposición pero no crea prioridad garantizada HTTP para autosaves. La prueba de carriles no equivale a una prueba del proxy o de cinco usuarios reales.
+3. **Herramientas después del timeout:** `withTimeout` mantiene una carrera de promesas; cancelar operaciones PostgreSQL/Drive sin demostrar soporte de cancelación y distinguir consultas de PREPARE/COMMIT podría afectar escrituras. Sin ese soporte verificado, no se afirma que el trabajo subyacente se cancele.
+4. **Rendimiento SQL:** no se dispone de `EXPLAIN ANALYZE` de producción, índices efectivos ni p50/p95 de las consultas. Por compatibilidad no se añaden migraciones hipotéticas.
+5. **Pruebas E2E:** requieren sesión autorizada, cuenta Gemini, datos de pruebas, Render logs y cortes de conexión controlados. No ejecutarlas con datos de clientes reales ni finalizar/enviar reportes como prueba sintética.
+
+**Puerta de salida:** mantener el PR en borrador hasta terminar CI del head y los escenarios operativos representativos. Si no es posible acceder a la infraestructura para reproducir los incidentes, registrar el bloqueo, el indicador por medir y no afirmar que desaparecieron.
