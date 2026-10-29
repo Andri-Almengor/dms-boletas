@@ -6,8 +6,9 @@ const uploadActions = new AsyncSemaphore({ name: 'action-upload', max: 1, queueL
 const aiActions = new AsyncSemaphore({
   name: 'action-ai',
   max: env.aiActionMaxConcurrent,
-  queueLimit: Math.max(6, env.httpQueueLimit),
-  timeoutMs: Math.max(env.httpQueueTimeoutMs, 60_000),
+  // La cola de IA debe rechazar con rapidez ante saturación; no acumular minutos de espera.
+  queueLimit: Math.min(6, Math.max(1, env.httpQueueLimit)),
+  timeoutMs: env.httpQueueTimeoutMs,
 });
 
 const writeActions = new AsyncSemaphore({
@@ -28,6 +29,10 @@ function normalizedRoute(route) {
   return String(route || '').trim().toLowerCase();
 }
 
+function isAssistantChatRoute(route) {
+  return ['assistant.chat', 'asistente.chat'].includes(normalizedRoute(route));
+}
+
 function isAiRewriteRoute(route) {
   return [
     'ai.technicalrewrite',
@@ -45,8 +50,6 @@ function isReadRoute(route) {
   return isAiRewriteRoute(value)
     || value === 'auth.me'
     || value === 'sync.delta'
-    || value === 'assistant.chat'
-    || value === 'asistente.chat'
     || value === 'config.get'
     || value === 'app.config.get'
     || value.endsWith('.list')
@@ -58,9 +61,7 @@ function isReadRoute(route) {
 
 function isHeavyRoute(route) {
   const value = normalizedRoute(route);
-  return value.includes('assistant.chat')
-    || value.includes('asistente.chat')
-    || value.includes('metrics.')
+  return value.includes('metrics.')
     || value.includes('metricas.')
     || value.includes('finalize')
     || value.includes('finalizar')
@@ -105,7 +106,7 @@ export async function runWithActionConcurrency(route, operation) {
     // incrementales no deben competir con finalizaciones/reportes pesados.
     if (normalizedRoute(route).startsWith('auth.')) {
       releaseDedicated = await authActions.acquire();
-    } else if (isAiRewriteRoute(route)) {
+    } else if (isAssistantChatRoute(route) || isAiRewriteRoute(route)) {
       releaseDedicated = await aiActions.acquire();
     } else if (/evidence|images|imagenes|grande|attachments|adjuntos/.test(normalizedRoute(route))) {
       releaseDedicated = await uploadActions.acquire();
