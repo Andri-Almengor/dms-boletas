@@ -147,6 +147,9 @@ app.post('/api/action', actionEnvelopeMiddleware, actionRateLimitMiddleware, asy
   let envelope = null;
   let sessionToken = '';
   const observation = startRouteObservation(req.actionEnvelope?.route, { requestId: req.requestId });
+  // La instrumentación de /api/action empieza después del control HTTP;
+  // incluir también esa espera para explicar solicitudes lentas desde Render.
+  observation.markQueueWait(req.dmsHttpQueueWaitMs || 0);
   const finishObservation = () => {
     const header = res.getHeader('content-length');
     const responseSize = typeof header === 'string' || typeof header === 'number' ? Number(header) || 0 : 0;
