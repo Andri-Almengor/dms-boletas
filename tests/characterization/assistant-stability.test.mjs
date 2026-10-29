@@ -88,6 +88,28 @@ test('AI backlog rejects its fifth simultaneous chat rather than accumulating in
   }), 'ok');
 });
 
+test('assistant workload hints are never authorization and do not go to legacy Apps Script', () => {
+  const frontend = source('src/api.js');
+  const gate = source('backend/src/middleware/concurrency.middleware.js');
+  const server = source('backend/src/server.js');
+  assert.match(frontend, /'X-DMS-Workload': 'assistant'/);
+  assert.match(frontend, /!isAppsScriptUrl\(API_URL\)/);
+  assert.match(gate, /requestPath === '\/api\/action'/);
+  assert.match(gate, /assistantRequests\.acquire\(\{ signal: controller\.signal \}\)/);
+  assert.match(gate, /releaseAssistant\?\.\(\)/);
+  assert.match(server, /concurrencyMiddleware\(req, res,/);
+});
+
+test('client abort signal reaches action lanes but cannot interrupt running operation', () => {
+  const middleware = source('backend/src/middleware/concurrency.middleware.js');
+  const actions = source('backend/src/services/action-concurrency.service.js');
+  const app = source('backend/src/app.js');
+  assert.match(middleware, /req\.dmsHttpAbortSignal = controller\.signal/);
+  assert.match(app, /\{ signal: req\.dmsHttpAbortSignal \}/);
+  assert.match(actions, /if \(signal\?\.aborted\) throw signal\.reason/);
+  assert.match(actions, /return await operation\(\)/);
+});
+
 test('request HTTP queue time feeds existing per-route metrics without sensitive payload logging', () => {
   const middleware = source('backend/src/middleware/concurrency.middleware.js');
   const app = source('backend/src/app.js');
