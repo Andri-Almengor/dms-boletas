@@ -1,3 +1,4 @@
+import { performance } from 'node:perf_hooks';
 import { env } from '../config/env.js';
 import { AsyncSemaphore } from '../core/semaphore.js';
 
@@ -38,6 +39,7 @@ export function concurrencySnapshot() {
 }
 
 export async function concurrencyMiddleware(req, res, next) {
+  const httpQueuedAt = performance.now();
   let releaseAll;
   let releaseLarge;
   let releaseSmall;
@@ -69,6 +71,8 @@ export async function concurrencyMiddleware(req, res, next) {
       }
     }
     if (controller.signal.aborted) throw new Error('Client disconnected');
+    // Se integra con observabilidad existente tras analizar el sobre /api/action.
+    req.dmsHttpQueueWaitMs = Math.max(0, performance.now() - httpQueuedAt);
     const release = () => {
       releaseAll?.();
       releaseLarge?.();
