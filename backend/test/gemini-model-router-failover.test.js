@@ -13,6 +13,11 @@ test('router Gemini rota ante saturación y JSON inválido, sin reintentar error
     calls.push(JSON.parse(init.body).model);
     const next = scriptedResponses.shift();
     assert.ok(next, 'No debe repetir indefinidamente un modelo');
+    if (next.hang) return new Promise((_, reject) => {
+      const abort = () => reject(init.signal.reason || new DOMException('Aborted', 'AbortError'));
+      if (init.signal.aborted) abort();
+      else init.signal.addEventListener('abort', abort, { once: true });
+    });
     return new Response(JSON.stringify(next.body), {
       status: next.status,
       headers: { 'content-type': 'application/json' },
@@ -29,7 +34,7 @@ test('router Gemini rota ante saturación y JSON inválido, sin reintentar error
 
   await import('../src/services/gemini-model-router.bootstrap.js');
   const state = globalThis.__DMS_GEMINI_MODEL_ROUTER_STATE__;
-  const perform = async (responses) => {
+  const perform = async (responses, fetchOptions = {}) => {
     calls.length = 0;
     scriptedResponses = [...responses];
     state.activeIndex = 0;
@@ -38,7 +43,7 @@ test('router Gemini rota ante saturación y JSON inválido, sin reintentar error
     state.unavailableModels.clear();
     const response = await globalThis.fetch('https://generativelanguage.googleapis.com/v1beta/interactions', {
       method: 'POST',
-      body: JSON.stringify({ model:'gemini-test-primary', input:'hola' }),
+      body: JSON.stringify({ model:'gemini-test-primary', input:'hola' }), ...fetchOptions,
     });
     return response;
   };
@@ -51,6 +56,38 @@ test('router Gemini rota ante saturación y JSON inválido, sin reintentar error
   assert.deepEqual(calls,['gemini-test-primary','gemini-test-fallback']);
   assert.equal(overload.__dmsGeminiModel,'gemini-test-fallback');
   assert.equal(overload.__dmsGeminiFallbackCount,1);
+
+  // La primera llamada nunca responde: el router cancela ese intento,
+  // rota al siguiente y conserva el presupuesto global (sin tocar un COMMIT).
+  const timedOut = await perform([
+    {hang:true},
+    {status:200,body:{output_text:'Fallback después de timeout'}},
+  ], {__dmsGeminiTimeoutMs: 90});
+  assert.equal(timedOut.status,200);
+  assert.deepEqual(calls,['gemini-test-primary','gemini-test-fallback']);
+  assert.equal(timedOut.__dmsGeminiFallbackCount,1);
+
+  // Si el llamador cancela la petición completa, no se rota a otro modelo.
+  state.activeIndex=0;
+  state.cooldowns.clear();
+  state.quotaStrikes.clear();
+  state.unavailableModels.clear();
+  calls.length=0;
+  scriptedResponses=[{hang:true},{status:200,body:{output_text:'No debería usarse'}}];
+  const aborted=new AbortController();
+  const abortTimer=setTimeout(()=>aborted.abort(new DOMException('Cancelled','AbortError')),10);
+  try {
+    await assert.rejects(
+      globalThis.fetch('https://generativelanguage.googleapis.com/v1beta/interactions',{
+        method:'POST',signal:aborted.signal,__dmsGeminiTimeoutMs:90,
+        body:JSON.stringify({model:'gemini-test-primary',input:'cancelar'}),
+      }),
+      error=>error?.name==='AbortError',
+    );
+    assert.deepEqual(calls,['gemini-test-primary']);
+  } finally {
+    clearTimeout(abortTimer);
+  }
 
   const invalidJson = await perform([
     {status:502,body:{error:{message:'Model generated invalid JSON syntax and the output could not be parsed.'}}},
