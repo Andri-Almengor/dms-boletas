@@ -47,8 +47,10 @@ export async function transcribeAssistantAudio(ctx, overrides = {}) {
   const instruction = 'Transcribe literalmente el habla de este audio a texto en español. Conserva nombres propios, fechas, horas, números, marcas, responsables, clientes, términos técnicos, separaciones entre boletas y visitas. No redactes boletas ni infieras información. Devuelve únicamente la transcripción, sin explicaciones ni Markdown.';
   let lastError;
   const started = Date.now();
+  const transcriptionBudgetMs = 150_000;
   for (const model of models) {
-    if (Date.now() - started > 150_000) break;
+    const remainingMs = transcriptionBudgetMs - (Date.now() - started);
+    if (remainingMs <= 1_000) break;
     try {
       const response = await interact({
         model,
@@ -59,7 +61,7 @@ export async function transcribeAssistantAudio(ctx, overrides = {}) {
         ],
         tools: [],
         maxOutputTokens: 2500,
-        timeoutMs: Math.min(aiConfig.requestTimeoutMs, 60_000),
+        timeoutMs: Math.min(aiConfig.requestTimeoutMs, 60_000, remainingMs),
       });
       const transcript = outputText(response).trim().slice(0, 5000);
       if (!transcript) {
@@ -71,6 +73,9 @@ export async function transcribeAssistantAudio(ctx, overrides = {}) {
       lastError = error;
       if (!aiConfig.modelFallbackEnabled || !fallbackCompatible(error)) throw error;
     }
+  }
+  if (Date.now() - started >= transcriptionBudgetMs - 1_000) {
+    throw new AppError('AI_AUDIO_TIMEOUT', 'La transcripción agotó el tiempo de procesamiento. Intente con un audio más corto.', 504);
   }
   throw lastError || new AppError('AUDIO_TRANSCRIPTION_UNAVAILABLE', 'No se pudo transcribir la grabación.', 503);
 }
