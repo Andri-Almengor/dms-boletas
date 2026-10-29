@@ -64,6 +64,9 @@ test('AI backlog rejects its fifth simultaneous chat rather than accumulating in
     await new Promise(resolve => setImmediate(resolve));
     assert.equal(actionConcurrencySnapshot().ai.active, 2);
     assert.equal(actionConcurrencySnapshot().ai.waiting, 2);
+    // Un autosave debe continuar aunque todos los slots AI estén ocupados.
+    assert.equal(await runWithActionConcurrency('boletas.autosave', async () => 'saved'), 'saved');
+    assert.equal(actionConcurrencySnapshot().writes.active, 0);
     await assert.rejects(
       () => runWithActionConcurrency('assistant.chat', hold),
       error => error.code === 'SERVER_BUSY' && error.status === 503
