@@ -14,6 +14,11 @@ function intEnv(name, fallback, min, max) {
   return Math.min(max, Math.max(min, value));
 }
 
+function intEnvWithLegacy(primary, legacy, fallback, min, max) {
+  const configured = clean(process.env[primary], 30);
+  return configured ? intEnv(primary, fallback, min, max) : intEnv(legacy, fallback, min, max);
+}
+
 function modelEnv(name) {
   return clean(process.env[name], 160);
 }
@@ -35,9 +40,9 @@ export const aiConfig = Object.freeze({
   maxModelFallbacks: intEnv('AI_MAX_MODEL_FALLBACKS', 2, 0, 4),
 
   timezone: 'America/Costa_Rica',
-  requestTimeoutMs: intEnv('AI_GEMINI_TIMEOUT_MS', 60_000, 5_000, 120_000),
+  requestTimeoutMs: intEnvWithLegacy('AI_GEMINI_TIMEOUT_MS', 'GEMINI_TIMEOUT_MS', 60_000, 5_000, 120_000),
   toolTimeoutMs: intEnv('AI_TOOL_TIMEOUT_MS', 15_000, 1_000, 60_000),
-  totalTimeoutMs: intEnv('AI_AGENT_TOTAL_TIMEOUT_MS', 120_000, 10_000, 180_000),
+  totalTimeoutMs: intEnvWithLegacy('AI_AGENT_TOTAL_TIMEOUT_MS', 'GEMINI_TOTAL_TIMEOUT_MS', 120_000, 10_000, 180_000),
   maxToolRounds: intEnv('AI_MAX_TOOL_ROUNDS', 8, 1, 12),
   maxParallelTools: intEnv('AI_MAX_PARALLEL_TOOLS', 3, 1, 4),
   maxToolResultRows: intEnv('AI_MAX_TOOL_RESULT_ROWS', 50, 5, 100),
