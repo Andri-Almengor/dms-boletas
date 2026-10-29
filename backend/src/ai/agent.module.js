@@ -1,6 +1,8 @@
 import { AppError } from '../core/errors.js';
 import { aiConfig, configuredModels } from './agent.config.js';
 import { aiMetricsSnapshot } from './agent.metrics.js';
+import { actionConcurrencySnapshot } from '../services/action-concurrency.service.js';
+import { concurrencySnapshot } from '../middleware/concurrency.middleware.js';
 import { createInteraction, fallbackCompatible, outputText } from './agent.gemini.js';
 import { audit } from '../services/audit.service.js';
 import { assertRateLimit, modelFallbackChain, runDmsAgent } from './agent.service.js';
@@ -92,6 +94,12 @@ async function health() {
     knowledgeDocumentsEnabled: aiConfig.knowledgeDocumentsEnabled,
     stateless: true,
     metrics: aiMetricsSnapshot(),
+    // Este endpoint ya exige USUARIOS_GESTIONAR en app.js. Solo agrega
+    // contadores sin usuarios, preguntas, mensajes ni credenciales.
+    queues: {
+      httpAssistant: concurrencySnapshot().assistantRequests,
+      aiActions: actionConcurrencySnapshot().ai,
+    },
   };
 }
 
