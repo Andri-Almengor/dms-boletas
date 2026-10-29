@@ -67,7 +67,9 @@ test('router Gemini rota ante saturación y JSON inválido, sin reintentar error
   const timedOut = await perform([
     {hang:true},
     {status:200,body:{output_text:'Fallback después de timeout'}},
-  ], {__dmsGeminiTimeoutMs: 90});
+  // 90 ms era menor que el jitter de CI bajo carga: un plazo agotado no
+  // obliga a ejecutar otro modelo. Dar margen real para verificar el fallback.
+  ], {__dmsGeminiTimeoutMs: 1_200});
   assert.equal(timedOut.status,200);
   assert.deepEqual(calls,['gemini-test-primary','gemini-test-fallback']);
   assert.equal(timedOut.__dmsGeminiFallbackCount,1);
