@@ -7,7 +7,9 @@ const aiActions = new AsyncSemaphore({
   name: 'action-ai',
   max: env.aiActionMaxConcurrent,
   // La cola de IA debe rechazar con rapidez ante saturación; no acumular minutos de espera.
-  queueLimit: Math.min(6, Math.max(1, env.httpQueueLimit)),
+  // En Render (6 slots HTTP), 2 activos + 2 en espera dejan capacidad a DMS.
+  // La cola corta evita que múltiples usuarios ocupen todos los slots globales.
+  queueLimit: Math.min(2, Math.max(0, env.httpQueueLimit)),
   timeoutMs: env.httpQueueTimeoutMs,
 });
 
