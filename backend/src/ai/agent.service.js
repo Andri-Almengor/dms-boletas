@@ -287,6 +287,11 @@ export async function runDmsAgent(ctx, overrides = {}){
         });
         modelMs+=performance.now()-modelStarted;
         noteRouterModel(interaction.__dmsModelUsed,interaction.__dmsRouterFallbackCount,model);
+        // Un 200 sin texto ni function_call tampoco es una respuesta útil:
+        // dar oportunidad al fallback existente sin ejecutar herramientas.
+        if(!outputText(interaction)&&!functionCalls(interaction).length) {
+          throw new AppError('MODEL_INVALID_RESPONSE','Gemini no devolvió contenido utilizable.',502);
+        }
         const u=usage(interaction);totalInput+=u.inputTokens;totalOutput+=u.outputTokens;
         requestBytes+=Number(interaction.__dmsRequestBytes||0);
         return interaction;
