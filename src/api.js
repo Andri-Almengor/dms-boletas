@@ -225,6 +225,12 @@ async function performRequest(route, payload, sessionToken, { signal } = {}) {
       'Content-Type': isAppsScriptUrl(API_URL)
         ? 'text/plain;charset=utf-8'
         : 'application/json;charset=utf-8',
+      // Sugerencia de admisión HTTP únicamente, nunca permiso ni ruta autoritativa.
+      // No añade cabeceras de Node al endpoint de Apps Script heredado.
+      ...(!isAppsScriptUrl(API_URL) && (
+        ['assistant.chat', 'asistente.chat'].includes(String(route || '').trim().toLowerCase())
+        || isReplaySafeAiRoute(route)
+      ) ? { 'X-DMS-Workload': 'assistant' } : {}),
     },
     body: JSON.stringify({ route, payload: requestPayload, sessionToken }),
     signal,
