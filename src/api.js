@@ -435,6 +435,12 @@ export async function apiRequest(route, payload = {}, sessionToken = '', options
     return performRequestWithRetry(route, payload, sessionToken, { signal });
   }
 
+  // assistant.chat transporta consultas y PREPARE/COMMIT: sin caché ni reintentos
+  // automáticos, pero tampoco invalida todas las lecturas como una escritura común.
+  if (['assistant.chat', 'asistente.chat'].includes(String(route || '').toLowerCase())) {
+    return performRequestWithRetry(route, payload, sessionToken, { signal });
+  }
+
   if (!isReadRoute(route)) {
     const releaseMedia = isMediaUploadRoute(route) ? beginMediaUpload() : null;
     try {
