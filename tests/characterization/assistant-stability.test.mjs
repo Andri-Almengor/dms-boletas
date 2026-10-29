@@ -120,6 +120,10 @@ test('assistant mixed-action envelope is never automatically replayed or cached'
   assert.match(frontend, /return performRequestWithRetry\(route, payload, sessionToken, \{ signal \}\);/);
   assert.match(frontend, /const retrySafe = read \|\| replaySafeAi/);
   assert.match(frontend, /createUnknownResultError/);
+  assert.match(frontend, /const confirmedAssistantRejection = assistantRoute && backendReached/);
+  assert.match(frontend, /!confirmedAssistantRejection/);
+  assert.match(frontend, /SERVER_BUSY_TIMEOUT/);
+  assert.match(frontend, /AI_CHAT_DISABLED/);
   const backend = source('backend/src/services/action-concurrency.service.js');
   assert.match(backend, /isAssistantChatRoute\(route\) \|\| isAiRewriteRoute\(route\)/);
   assert.doesNotMatch(backend.split('function isHeavyRoute(route) {')[1].split('function addBusyContext')[0], /assistant\.chat|asistente\.chat/);
