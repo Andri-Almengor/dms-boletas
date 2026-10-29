@@ -174,7 +174,10 @@ export async function searchKnowledgeDocuments(ctx, args = {}) {
     queueKnowledgeDocumentIndexing(row, ctx.user?.UsuarioID || '');
   }
 
-  if (rows.length) {
+  // El SELECT anterior ya devolvió metadatos autoritativos. Evitar un
+  // segundo viaje a PostgreSQL cuando todos los documentos están indexados.
+  // Solo refrescar los estados que podrían cambiar por la recuperación en curso.
+  if (rows.some((row) => extractionState(row.extractionStatus) !== 'READY')) {
     const refreshed = await many(
       `SELECT "AdjuntoID" AS id,"ExtractionStatus" AS "extractionStatus","IndexedAt" AS "indexedAt"
          FROM "KnowledgeAttachments"
