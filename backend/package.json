@@ -4,7 +4,7 @@
   "private": true,
   "type": "module",
   "engines": {
-    "node": "24.21.0"
+    "node": "24.22.1"
   },
   "scripts": {
     "dev": "node --expose-gc --import ./src/services/gemini-model-router.bootstrap.js --import ./src/services/maintenance-finalization-router.bootstrap.js --watch src/server.js",
@@ -39,7 +39,7 @@
     "express": "^4.21.2",
     "googleapis": "^144.0.0",
     "helmet": "^8.0.0",
-    "nodemailer": "10.0.13",
+    "nodemailer": "10.2.1",
     "pg": "8.23.0"
   },
   "devDependencies": {

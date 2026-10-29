@@ -37,9 +37,9 @@ test('cold start validates PostgreSQL without warming operational tables and run
   assert.match(server, /SELECT schema_version FROM sync_state WHERE singleton=TRUE/);
   assert.doesNotMatch(server, /readTables\(/);
   const version = read('.node-version').trim();
-  assert.equal(version, '24.21.0');
+  assert.equal(version, '24.22.1', 'Node LTS debe contener el parche de seguridad del 21/10/2026');
   for (const path of ['package.json','backend/package.json']) assert.equal(JSON.parse(read(path)).engines.node, version);
-  assert.match(read('render.yaml'), /key: NODE_VERSION\s+value: "24\.21\.0"/);
+  assert.match(read('render.yaml'), /key: NODE_VERSION\s+value: "24\.22\.1"/);
 });
 
 test('PostgreSQL runtime avoids Sheets-wide warmups and exposes bounded query paths', () => {
