@@ -245,3 +245,27 @@ test('device batch preserves optional structured project fields without changing
   assert.equal(item.answers.length, 1);
   assert.equal(item.components.length, 1);
 });
+
+test('AI general answer rotates from an empty Gemini model response without repeating tools', async () => {
+  const {runDmsAgent, _resetAiRateLimitForTests} = await import('../src/ai/agent.service.js');
+  _resetAiRateLimitForTests();
+  const attempted=[];
+  const result = await runDmsAgent({
+    user:{UsuarioID:'test-empty-model-fallback'},
+    permissions:[],
+    sessionToken:'test-empty-model-fallback-session',
+    requestId:'test-empty-model-fallback',
+    payload:{message:'¿Qué es RTSP?',history:[]},
+  },{
+    models:['first-model','second-model'],
+    createInteraction:async ({model}) => {
+      attempted.push(model);
+      return {output_text:model==='first-model'?'':'RTSP es un protocolo de control de streaming.'};
+    },
+    executeAiTool:async () => { throw new Error('No deben ejecutarse herramientas para una pregunta general.'); },
+    audit:async () => {},
+  });
+  assert.deepEqual(attempted,['first-model','second-model']);
+  assert.match(result.answer,/RTSP/);
+  assert.equal(result.agent.fallbackCount,1);
+});
