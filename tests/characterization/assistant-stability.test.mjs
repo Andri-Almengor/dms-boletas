@@ -49,6 +49,42 @@ test('assistant.chat uses the existing AI lane while heavy finalization remains 
   assert.equal(backendProcess(script), 'ok');
 });
 
+test('AI backlog rejects its fifth simultaneous chat rather than accumulating indefinitely', () => {
+  const script = `
+    import assert from 'node:assert/strict';
+    const {runWithActionConcurrency, actionConcurrencySnapshot} =
+      await import('./backend/src/services/action-concurrency.service.js');
+    const resolvers = [];
+    const hold = () => new Promise(resolve => { resolvers.push(resolve); });
+    const first = runWithActionConcurrency('assistant.chat', hold);
+    const second = runWithActionConcurrency('asistente.chat', hold);
+    await new Promise(resolve => setImmediate(resolve));
+    const third = runWithActionConcurrency('assistant.chat', hold);
+    const fourth = runWithActionConcurrency('assistant.chat', hold);
+    await new Promise(resolve => setImmediate(resolve));
+    assert.equal(actionConcurrencySnapshot().ai.active, 2);
+    assert.equal(actionConcurrencySnapshot().ai.waiting, 2);
+    await assert.rejects(
+      () => runWithActionConcurrency('assistant.chat', hold),
+      error => error.code === 'SERVER_BUSY' && error.status === 503
+    );
+    resolvers.shift()('first');
+    resolvers.shift()('second');
+    await new Promise(resolve => setImmediate(resolve));
+    resolvers.shift()('third');
+    resolvers.shift()('fourth');
+    assert.deepEqual(await Promise.all([first,second,third,fourth]),
+      ['first','second','third','fourth']);
+    assert.equal(actionConcurrencySnapshot().ai.active, 0);
+    console.log('ok');
+  `;
+  assert.equal(backendProcess(script, {
+    HTTP_QUEUE_LIMIT: '12',
+    HTTP_MAX_CONCURRENT_REQUESTS: '6',
+    AI_ACTION_MAX_CONCURRENT: '2',
+  }), 'ok');
+});
+
 test('request HTTP queue time feeds existing per-route metrics without sensitive payload logging', () => {
   const middleware = source('backend/src/middleware/concurrency.middleware.js');
   const app = source('backend/src/app.js');
