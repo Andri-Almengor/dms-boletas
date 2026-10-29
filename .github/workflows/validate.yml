@@ -46,9 +46,9 @@ jobs:
             package-lock.json
             backend/package-lock.json
       - name: Install frontend dependencies
-        run: npm install
+        run: npm ci
       - name: Install backend dependencies
-        run: npm install --prefix backend
+        run: npm ci --prefix backend
       - name: PostgreSQL status before migrations
         run: npm --prefix backend run db:status
       - name: Apply PostgreSQL migrations
@@ -73,6 +73,22 @@ jobs:
         run: |
           find backend/src -name '*.js' -print0 | xargs -0 -n1 node --check
           npm run check:backend
+      - name: Record all npm advisories (production and development)
+        shell: bash
+        run: |
+          mkdir -p .artifacts
+          npm audit --json > .artifacts/npm-audit-frontend-all.json || true
+          npm --prefix backend audit --json > .artifacts/npm-audit-backend-all.json || true
+          node --input-type=module <<'NODE'
+          import { readFileSync } from 'node:fs';
+          for (const name of ['frontend', 'backend']) {
+            const report = JSON.parse(readFileSync(`.artifacts/npm-audit-${name}-all.json`, 'utf8'));
+            if (report.error || !report.metadata?.vulnerabilities) {
+              throw new Error(`npm audit report unavailable: ${name}`);
+            }
+            console.log(JSON.stringify({ ecosystem: name, vulnerabilities: report.metadata.vulnerabilities }));
+          }
+          NODE
       - name: Audit production dependencies
         run: npm run audit:security
       - name: Collect final metrics and validation
