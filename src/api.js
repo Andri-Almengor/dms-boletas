@@ -79,7 +79,10 @@ function nextClientMutationRevision() {
 function preparePayload(route, payload) {
   const value = String(route || '').toLowerCase();
   const target = payload && typeof payload === 'object' ? payload : {};
-  if (!isReadRoute(route) && !target.__clientRequestId) {
+  // El sobre AI es mixto. Mantener su payload histórico sin añadir campos
+  // reservados para escrituras normales; la operación AI usa operationId.
+  const assistantRoute = ['assistant.chat', 'asistente.chat'].includes(value);
+  if (!isReadRoute(route) && !assistantRoute && !target.__clientRequestId) {
     target.__clientRequestId = createLocalId('req');
   }
   if (value === 'boletas.autosave' && !Number(target.__clientRevision || 0)) {
