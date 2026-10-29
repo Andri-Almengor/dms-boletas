@@ -12,6 +12,8 @@ test('Node.js LTS parchado se declara coherentemente en frontend, backend y Rend
   assert.equal(version, '24.22.1');
   assert.equal(JSON.parse(file('package.json')).engines.node, version);
   assert.equal(JSON.parse(file('backend/package.json')).engines.node, version);
+  assert.equal(JSON.parse(file('package-lock.json')).packages[''].engines.node, version);
+  assert.equal(JSON.parse(file('backend/package-lock.json')).packages[''].engines.node, version);
   assert.match(file('render.yaml'), /key: NODE_VERSION\s+value: "24\.22\.1"/);
   for (const workflow of ['.github/workflows/validate.yml', '.github/workflows/stage-0-characterization.yml', '.github/workflows/postgres-stage6-ci.yml']) {
     assert.match(file(workflow), /node-version-file:/);
