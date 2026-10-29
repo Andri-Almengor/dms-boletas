@@ -93,7 +93,7 @@ function addBusyContext(error, route, { heavy, write }) {
   return error;
 }
 
-export async function runWithActionConcurrency(route, operation) {
+export async function runWithActionConcurrency(route, operation, { signal } = {}) {
   const heavy = isHeavyRoute(route);
   const write = !isReadRoute(route);
   let releaseDedicated;
@@ -107,16 +107,17 @@ export async function runWithActionConcurrency(route, operation) {
     // Las lecturas de medios solo emiten un grant temporal y las lecturas
     // incrementales no deben competir con finalizaciones/reportes pesados.
     if (normalizedRoute(route).startsWith('auth.')) {
-      releaseDedicated = await authActions.acquire();
+      releaseDedicated = await authActions.acquire({ signal });
     } else if (isAssistantChatRoute(route) || isAiRewriteRoute(route)) {
-      releaseDedicated = await aiActions.acquire();
+      releaseDedicated = await aiActions.acquire({ signal });
     } else if (/evidence|images|imagenes|grande|attachments|adjuntos/.test(normalizedRoute(route))) {
-      releaseDedicated = await uploadActions.acquire();
+      releaseDedicated = await uploadActions.acquire({ signal });
     } else if (heavy) {
-      releaseHeavy = await heavyActions.acquire();
+      releaseHeavy = await heavyActions.acquire({ signal });
     } else if (write) {
-      releaseWrite = await writeActions.acquire();
+      releaseWrite = await writeActions.acquire({ signal });
     }
+    if (signal?.aborted) throw signal.reason || new Error('Client disconnected before action dispatch');
     return await operation();
   } catch (error) {
     throw addBusyContext(error, route, { heavy, write });
