@@ -32,11 +32,17 @@ test('AI waits before the global HTTP gate and foreground requests remain admiss
   const b = startRequest('assistant');
   await Promise.all([a.passed, b.passed]);
   const c = startRequest('assistant');
-  // The third AI request waits on assistant admission instead of occupying http-all.
+  const d = startRequest('assistant');
+  // 2 concurrent + 2 queued. The fifth receives a bounded 503 instead
+  // of taking another global HTTP slot or waiting without limit.
   await new Promise((resolve) => setImmediate(resolve));
+  const e = startRequest('assistant');
+  const fifthFailure = await e.passed;
+  assert.equal(fifthFailure?.code, 'SERVER_BUSY');
+  assert.equal(fifthFailure?.status, 503);
   const during = concurrencySnapshot();
   assert.equal(during.assistantRequests.active, 2);
-  assert.equal(during.assistantRequests.waiting, 1);
+  assert.equal(during.assistantRequests.waiting, 2);
   assert.equal(during.requests.active, 2);
   assert.equal(during.requests.waiting, 0);
 
@@ -49,8 +55,9 @@ test('AI waits before the global HTTP gate and foreground requests remain admiss
     a.close();
     b.close();
   }
-  assert.equal(await c.passed, null);
+  assert.deepEqual(await Promise.all([c.passed, d.passed]), [null, null]);
   c.close();
+  d.close();
   assert.equal(concurrencySnapshot().assistantRequests.active, 0);
   assert.equal(concurrencySnapshot().requests.active, 0);
 });
