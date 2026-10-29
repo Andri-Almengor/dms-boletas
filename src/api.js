@@ -53,8 +53,6 @@ function isReadRoute(route) {
   const value = String(route || '').toLowerCase();
   return value === 'sync.delta'
     || value === 'auth.me'
-    || value === 'assistant.chat'
-    || value === 'asistente.chat'
     || value === 'config.get'
     || value === 'app.config.get'
     || value.endsWith('.list')
@@ -286,7 +284,7 @@ async function retryRequest(route, payload, sessionToken, signal) {
       // Si DMS ya respondió que Gemini agotó sus modelos/presupuesto, repetir
       // automáticamente toda la cadena solo alarga la espera. Sí reintentamos
       // errores de transporte/edge donde el backend no llegó a procesar la IA.
-      const terminalAiFailure = replaySafeAi
+      const terminalAiFailure = (replaySafeAi || ['assistant.chat', 'asistente.chat'].includes(String(route || '').toLowerCase()))
         && backendReached
         && String(error?.code || '').toUpperCase().startsWith('GEMINI_');
       const retryable = transientError(error) && !terminalAiFailure;
