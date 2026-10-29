@@ -49,6 +49,7 @@ test('CI conserva gate de producción y audita también paquetes de desarrollo',
   assert.match(wf, /run: npm ci --prefix backend/);
   assert.match(wf, /npm audit --json > \.artifacts\/npm-audit-frontend-all\.json/);
   assert.match(wf, /npm --prefix backend audit --json > \.artifacts\/npm-audit-backend-all\.json/);
+  assert.match(wf, /Number\(counts\.high \|\| 0\) \+ Number\(counts\.critical \|\| 0\) > 0/);
   assert.match(wf, /run: npm run audit:security/);
   assert.match(wf, /actions\/upload-artifact@v4/);
 });

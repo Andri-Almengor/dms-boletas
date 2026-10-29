@@ -15,7 +15,7 @@
 | PostCSS | 8.5.16 | **8.5.32** vía lockfile |
 | Browserslist | 4.28.5 | **4.29.5** vía lockfile |
 | nanoid | 3.3.15 | **3.3.20** vía lockfile |
-| Auditoría CI | Omite dev, umbral HIGH | **npm audit completo** (JSON adjunto) + gate productivo HIGH existente |
+| Auditoría CI | Omite dev, umbral HIGH | **npm audit completo** (JSON adjunto) con puerta HIGH/CRITICAL incluyendo dev + gate productivo HIGH existente |
 | Reproducibilidad CI | npm install en Validate | **npm ci** en frontend/backend, sin pasos temporales |
 
 El frontend sigue siendo SPA React 18; la base de datos continúa siendo PostgreSQL y Drive permanece para archivos.
@@ -31,7 +31,7 @@ Lectura de `npm-audit-frontend-all.json` y `npm-audit-backend-all.json` generado
 | **Antes — backend (incluye desarrollo)** | 0 | 0 | 7 | 0 |
 | **Después — backend (incluye desarrollo)** | 0 | 0 | **7** | 0 |
 
-Estas cifras son **paquetes señalados por npm**, no vulnerabilidades explotadas ni CVE independientes. La reducción de 5 avisos altos del frontend se logró sin actualizaciones mayores. El resultado de la auditoría npm puede evolucionar conforme se publiquen nuevos avisos; se guarda evidencia por run de CI.
+Estas cifras son **paquetes señalados por npm**, no vulnerabilidades explotadas ni CVE independientes. La reducción de 5 avisos altos del frontend se logró sin actualizaciones mayores. El resultado de la auditoría npm puede evolucionar conforme se publiquen nuevos avisos; se guarda evidencia por run de CI. A partir de esta actualización, el job falla ante **cualquier HIGH/CRITICAL** en frontend o backend, incluyendo devDependencies, y conserva el gate de producción existente.
 
 ### Riesgos moderados restantes
 
