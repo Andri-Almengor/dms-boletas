@@ -16,6 +16,7 @@ import './admin-config-performance.test.mjs';
 import './knowledge-assistant-aux-responsive-stage.test.mjs';
 import './assistant-history-retention.test.mjs';
 import './assistant-integral-agent-ui.test.mjs';
+import './assistant-stability.test.mjs';
 import './assistant-composer-responsive.test.mjs';
 import './assistant-microphone-permission.test.mjs';
 import './assistant-microphone-http-policy.test.mjs';
