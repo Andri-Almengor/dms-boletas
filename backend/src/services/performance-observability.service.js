@@ -258,7 +258,7 @@ export function recordCacheEvictions(count = 1) {
   if (context) context.cacheEvictions += Math.max(0, Number(count) || 0);
 }
 
-export function startRouteObservation(routeName, { requestId = '' } = {}) {
+export function startRouteObservation(routeName, { requestId = '', cfRay = '' } = {}) {
   if (!enabled()) {
     return {
       enabled: false,
@@ -275,6 +275,8 @@ export function startRouteObservation(routeName, { requestId = '' } = {}) {
   const context = {
     routeName: canonicalRouteName(routeName),
     requestId: safeRequestId(requestId),
+    // Correlación Cloudflare opcional; sin IP, cookies, body ni credenciales.
+    cfRay: /^[a-zA-Z0-9-]{1,80}$/.test(String(cfRay || '')) ? String(cfRay) : '',
     sheetsReadCount: 0,
     sheetsReadMs: 0,
     sheetsQueueMs: 0,
@@ -337,6 +339,7 @@ export function startRouteObservation(routeName, { requestId = '' } = {}) {
       console.info(JSON.stringify({
         event,
         requestId: context.requestId || undefined,
+        cfRay: context.cfRay || undefined,
         action: context.routeName,
         durationMs: Number(totalDurationMs.toFixed(2)),
         queueWaitMs: Number(queueWaitMs.toFixed(2)),
