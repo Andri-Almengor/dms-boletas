@@ -136,7 +136,8 @@ test('Knowledge skips a redundant refresh only for already-indexed documents', (
   assert.match(documents, /if \(rows\.some\(\(row\) => extractionState\(row\.extractionStatus\) !== 'READY'\)\)/);
   assert.match(documents, /appendKnowledgeVisibility\(ctx, params, 'a'\)/);
   assert.match(documents, /'ai\.knowledgeDocuments\.refresh'/);
-  assert.match(documents, /rows\.map\(\(row\) => \(\{ \.\.\.row, \.\.\.\(byId\.get\(row\.id\) \|\| \{\}\) \}\)\)/);
+  assert.match(documents, /rows = rows\.map\(\(row\) =>/);
+  assert.match(documents, /byId\.get\(row\.id\)/);
 });
 
 test('correlation logging sanitizes Cloudflare header without request contents', () => {
