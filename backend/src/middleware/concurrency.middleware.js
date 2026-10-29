@@ -92,6 +92,8 @@ export async function concurrencyMiddleware(req, res, next) {
     if (controller.signal.aborted) throw new Error('Client disconnected');
     // Se integra con observabilidad existente tras analizar el sobre /api/action.
     req.dmsHttpQueueWaitMs = Math.max(0, performance.now() - httpQueuedAt);
+    // Solo permite cancelar esperas; jamás interrumpe un COMMIT iniciado.
+    req.dmsHttpAbortSignal = controller.signal;
     const release = () => {
       releaseAll?.();
       releaseLarge?.();
