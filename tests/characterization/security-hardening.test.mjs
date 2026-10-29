@@ -118,10 +118,10 @@ test('la aplicación activa CSP, validación, rate limit y errores sin filtrar d
   assert.doesNotMatch(workflow, /git push origin/);
   assert.match(workflow, /Audit production dependencies/);
   assert.match(workflow, /Collect final metrics and validation/);
-  assert.match(packageJson, /"react-router-dom": "6\.30\.4"/);
+  assert.match(packageJson, /"react-router-dom": "6\.30\.6"/);
   assert.match(packageJson, /"audit:security"/);
   assert.match(packageJson, /"report:final"/);
-  assert.match(backendPackage, /"nodemailer": "10\.0\.13"/);
+  assert.match(backendPackage, /"nodemailer": "10\.2\.1"/);
 });
 
 
