@@ -284,15 +284,21 @@ async function retryRequest(route, payload, sessionToken, signal) {
       // Si DMS ya respondió que Gemini agotó sus modelos/presupuesto, repetir
       // automáticamente toda la cadena solo alarga la espera. Sí reintentamos
       // errores de transporte/edge donde el backend no llegó a procesar la IA.
-      const terminalAiFailure = (replaySafeAi || ['assistant.chat', 'asistente.chat'].includes(String(route || '').toLowerCase()))
-        && backendReached
-        && String(error?.code || '').toUpperCase().startsWith('GEMINI_');
+      const code = String(error?.code || '').toUpperCase();
+      const assistantRoute = ['assistant.chat', 'asistente.chat'].includes(String(route || '').toLowerCase());
+      const modelFailure = /^(GEMINI_|MODEL_|AI_GEMINI_|AI_AGENT_TOTAL_TIMEOUT)/.test(code);
+      const terminalAiFailure = (replaySafeAi || assistantRoute) && backendReached && modelFailure;
       const retryable = transientError(error) && !terminalAiFailure;
       const safeMutationRetry = !read
-        && String(error?.code || '').toUpperCase() === 'BACKEND_EDGE_THROTTLED'
+        && code === 'BACKEND_EDGE_THROTTLED'
         && !backendReached;
+      // Un rechazo estructurado antes de ejecutar (cola llena, asistente
+      // inactivo o falla explícita de Gemini) no es un COMMIT incierto.
+      const confirmedAssistantRejection = assistantRoute && backendReached
+        && (modelFailure || ['AI_CHAT_DISABLED', 'AI_RATE_LIMIT', 'SERVER_BUSY', 'SERVER_BUSY_TIMEOUT'].includes(code));
       const ambiguousMutation = !retrySafe
         && !safeMutationRetry
+        && !confirmedAssistantRejection
         && (retryable || Number(error?.status || 0) >= 500);
 
       // Una pérdida de transporte después de enviar una escritura no demuestra
