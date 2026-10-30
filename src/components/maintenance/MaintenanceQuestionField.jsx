@@ -8,7 +8,8 @@ function Choice({ value, onChange, options, disabled }) {
       type="button"
       key={option}
       className={String(value ?? '') === String(option) ? 'is-selected' : ''}
-      onClick={() => onChange(option)}
+      aria-pressed={String(value ?? '') === String(option)}
+      onClick={() => onChange(String(value ?? '') === String(option) ? '' : option)}
       disabled={disabled}
     >{option}</button>)}
   </div>;
