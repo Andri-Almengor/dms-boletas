@@ -1,5 +1,6 @@
 import React, { useEffect, useMemo, useState } from 'react';
 import Icon from '../common/Icon';
+import { compareNatural } from '../../utils/naturalSort';
 import { getMaintenanceCategory } from '../../config/maintenanceCategories';
 import {
   effectiveMaintenanceDeviceState,
@@ -64,7 +65,7 @@ export default function MaintenanceDevicesStep({
   const [page, setPage] = useState(1);
 
   const categories = useMemo(() => [...new Set(devices.map((item) => item.categoria).filter(Boolean))]
-    .sort((a, b) => String(a).localeCompare(String(b), 'es')), [devices]);
+    .sort(compareNatural), [devices]);
 
   const filtered = useMemo(() => {
     const search = normalized(query);
