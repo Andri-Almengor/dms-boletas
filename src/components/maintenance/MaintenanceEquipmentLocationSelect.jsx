@@ -248,7 +248,7 @@ export default function MaintenanceEquipmentLocationSelect({
       setModalOpen(false);
       // En detalle, la vinculación debe concluir antes de invalidar el catálogo.
       // Así una lectura previa no sobrescribe el inventario recién actualizado.
-      await onCreated?.({
+      const linked = await onCreated?.({
         id: created.value,
         name: created.name,
         locationId: created.locationId,
@@ -257,6 +257,8 @@ export default function MaintenanceEquipmentLocationSelect({
         active: true,
         deviceCount: 0,
       });
+      // Si falla la vinculación, conservar la selección y el error visible.
+      if (linked === false) return;
       window.dispatchEvent(new CustomEvent('dms-client-equipment-catalog-updated', {
         detail: { locationId: parentLocationId, equipmentLocationId: created.value },
       }));
