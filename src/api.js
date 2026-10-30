@@ -295,7 +295,7 @@ async function retryRequest(route, payload, sessionToken, signal) {
       // errores de transporte/edge donde el backend no llegó a procesar la IA.
       const code = String(error?.code || '').toUpperCase();
       const assistantRoute = ['assistant.chat', 'asistente.chat'].includes(String(route || '').toLowerCase());
-      const modelFailure = /^(GEMINI_|MODEL_|AI_GEMINI_|AI_AGENT_TOTAL_TIMEOUT|AI_IMAGE_UNAVAILABLE)/.test(code);
+      const modelFailure = /^(GEMINI_|MODEL_|AI_GEMINI_|AI_AGENT_TOTAL_TIMEOUT|AI_IMAGE_UNAVAILABLE|AI_ATTACHMENTS_UNAVAILABLE)/.test(code);
       const terminalAiFailure = (replaySafeAi || assistantRoute) && backendReached && modelFailure;
       const retryable = transientError(error) && !terminalAiFailure;
       const safeMutationRetry = !read
