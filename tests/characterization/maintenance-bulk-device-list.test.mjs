@@ -35,7 +35,7 @@ test('ofrece creación masiva en las tarjetas de ubicación para mantenimiento y
   assert.match(detail, /availableDeviceTypes=\{maintenanceCatalogs\.deviceTypes\}/);
 });
 
-test('registra solo nombre, tipo, ubicación y defaults pendientes por el alta existente con IDs estables', () => {
+test('registra nombre, tipo, ubicación, técnicos opcionales y defaults pendientes con IDs estables', () => {
   const creator = source('src/components/maintenance/MaintenanceQuickDeviceCreator.jsx');
   assert.match(creator, /createMaintenanceDevice\(bulkSelectedType\.key, maintenanceType\)/);
   assert.match(creator, /nombre: item\.name/);
@@ -67,4 +67,44 @@ test('sin rutas, permisos ni flujo offline paralelo: reutiliza los existentes y 
   assert.match(creator, /await onCreated\?\.\(feedback\)/);
   assert.match(styles, /maintenance-bulk-device-form__fields/);
   assert.match(styles, /@media \(max-width: 760px\)/);
+});
+
+test('la carga masiva permite asignar varios técnicos a todos los dispositivos y conservarlos en reintentos', () => {
+  const creator = source('src/components/maintenance/MaintenanceQuickDeviceCreator.jsx');
+  const selector = source('src/components/forms/TechnicianMultiSelect.jsx');
+  const domain = source('src/features/maintenance/maintenanceFormDomain.js');
+  const payload = source('src/pages/maintenance/maintenanceFormData.js');
+  const backend = source('backend/src/modules/maintenance-automation.module.js');
+  const router = source('backend/src/core/action-router.js');
+  const styles = source('src/styles/maintenance-device-mobile-ux.css');
+
+  assert.match(creator, /import TechnicianMultiSelect from '\.\.\/forms\/TechnicianMultiSelect'/);
+  assert.match(creator, /users\.assignment\.list/);
+  assert.match(creator, /buildMaintenanceTechnicians\(activeMaintenanceUsers\(items\)\)/);
+  assert.match(domain, /export function buildMaintenanceTechnicians/);
+  assert.match(domain, /export function activeMaintenanceUsers/);
+  assert.match(creator, /<TechnicianMultiSelect[\s\S]*users=\{bulkTechnicians\}[\s\S]*selectedIds=\{bulkTechnicianIds\}[\s\S]*onChange=\{setBulkTechnicianIds\}/);
+  assert.match(creator, /disabled=\{saving \|\| bulkEntries\.length > 0 \|\| bulkTechnicianLoading\}/, 'la selección queda congelada durante y después de una creación parcial');
+  assert.match(creator, /tecnicoIds: \[\.\.\.bulkTechnicianIds\]/);
+  assert.match(creator, /if \(item\.done\) continue/, 'los reintentos no recrean elementos confirmados');
+  assert.match(creator, /maintenanceDevicePayload\(draft, maintenanceId, maintenanceType\)/);
+  assert.match(payload, /TecnicoIDs: technicianIds/);
+  assert.match(payload, /TecnicoIDsJSON: JSON\.stringify\(technicianIds\)/);
+  assert.match(backend, /TecnicoIDsJSON: metadata\.TecnicoIDsJSON/);
+  assert.match(router, /users\.assignment\.list/);
+  assert.match(selector, /selectedIds = \[\]/);
+  assert.match(styles, /\.maintenance-bulk-device-form__technicians/);
+  assert.match(styles, /\.maintenance-bulk-device-form__technicians \.technician-options[\s\S]*max-height:/);
+});
+
+test('seleccionar técnicos en lista masiva es opcional y no altera estado, fecha ni creación individual', () => {
+  const creator = source('src/components/maintenance/MaintenanceQuickDeviceCreator.jsx');
+  const defaults = source('src/pages/maintenance/maintenanceFormData.js');
+
+  assert.match(creator, /const \[bulkTechnicianIds, setBulkTechnicianIds\] = useState\(\[\]\)/);
+  assert.match(creator, /Técnicos asignados \(opcional\)/);
+  assert.match(creator, /if \(!bulk \|\| !sessionToken\) return undefined/);
+  assert.match(defaults, /fechaTrabajo: todayInCostaRica\(\), tecnicoIds: \[\]/);
+  assert.match(defaults, /estado: AUTOMATIC_PENDING_STATE/);
+  assert.match(creator, /<MaintenanceDeviceEditor/);
 });

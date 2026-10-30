@@ -507,6 +507,22 @@ body.maintenance-device-editor-open .offline-status > button {
   min-width: 0;
 }
 
+.maintenance-bulk-device-form__technicians {
+  grid-column: 1 / -1;
+  display: grid;
+  gap: 8px;
+  min-width: 0;
+}
+
+.maintenance-bulk-device-form__technicians .technician-select {
+  min-width: 0;
+}
+
+.maintenance-bulk-device-form__technicians .technician-options {
+  max-height: 220px;
+  overflow-y: auto;
+}
+
 .maintenance-bulk-device-form__names {
   grid-column: 1 / -1;
 }

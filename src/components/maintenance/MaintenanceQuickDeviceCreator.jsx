@@ -2,6 +2,7 @@ import React, { useEffect, useRef, useState } from 'react';
 import Icon from '../common/Icon';
 import ProcessingOverlay from '../feedback/ProcessingOverlay';
 import MaintenanceDeviceEditor from './MaintenanceDeviceEditor';
+import TechnicianMultiSelect from '../forms/TechnicianMultiSelect';
 import { MaintenanceCountsProvider } from '../../context/MaintenanceCountsContext';
 import {
   hasSelectedMaintenanceCategory,
@@ -13,6 +14,8 @@ import {
   maintenanceDevicePayload,
 } from '../../pages/maintenance/maintenanceFormData';
 import { showMaintenanceDeviceCreatedFeedback } from '../../services/maintenanceDeviceCreatedFeedback';
+import { loadCatalogResource } from '../../services/catalogResource';
+import { activeMaintenanceUsers, buildMaintenanceTechnicians } from '../../features/maintenance/maintenanceFormDomain';
 import { MAX_BULK_MAINTENANCE_DEVICES, parseBulkMaintenanceDeviceNames } from '../../features/maintenance/maintenanceDeviceState';
 import { createLocalId } from '../../utils/localId';
 import {
@@ -75,12 +78,40 @@ export default function MaintenanceQuickDeviceCreator({
   const [bulkLocationId, setBulkLocationId] = useState(() => String(initialEquipmentLocation?.id || ''));
   const [bulkEntries, setBulkEntries] = useState([]);
   const [bulkOfflinePending, setBulkOfflinePending] = useState(false);
+  const [bulkTechnicians, setBulkTechnicians] = useState([]);
+  const [bulkTechnicianIds, setBulkTechnicianIds] = useState([]);
+  const [bulkTechnicianLoading, setBulkTechnicianLoading] = useState(false);
+  const [bulkTechnicianError, setBulkTechnicianError] = useState('');
   const deviceRef = useRef(device);
   useOverlaySurface({ open: true, onClose, busy: saving });
 
   useEffect(() => {
     deviceRef.current = device;
   }, [device]);
+
+  useEffect(() => {
+    if (!bulk || !sessionToken) return undefined;
+    const controller = new AbortController();
+    setBulkTechnicianLoading(true);
+    setBulkTechnicianError('');
+    // Mismo catálogo asignable que utiliza el formulario de mantenimiento.
+    // No requiere permisos de administración de usuarios.
+    loadCatalogResource({
+      routes: ['users.assignment.list', 'users.list'],
+      payload: { page: 1, pageSize: 1000 },
+      sessionToken,
+      signal: controller.signal,
+    }).then(({ items }) => {
+      if (!controller.signal.aborted) {
+        setBulkTechnicians(buildMaintenanceTechnicians(activeMaintenanceUsers(items)));
+      }
+    }).catch((loadError) => {
+      if (!controller.signal.aborted) setBulkTechnicianError(loadError.message || 'No se pudieron cargar los técnicos.');
+    }).finally(() => {
+      if (!controller.signal.aborted) setBulkTechnicianLoading(false);
+    });
+    return () => controller.abort();
+  }, [bulk, sessionToken]);
 
   useEffect(() => {
     let active = true;
@@ -285,6 +316,7 @@ export default function MaintenanceQuickDeviceCreator({
           nombre: item.name,
           tipoDispositivoId: String(bulkSelectedType.typeId || ''),
           ubicacionEquipoId: bulkLocationId,
+          tecnicoIds: [...bulkTechnicianIds],
           ubicacionEquipoNombre: selectedLocation.name,
           zona: selectedLocation.name,
         };
@@ -345,7 +377,7 @@ export default function MaintenanceQuickDeviceCreator({
         ) : bulk ? (
           <div className="maintenance-bulk-device-form">
             <header className="maintenance-bulk-device-form__header">
-              <div><span className="eyebrow">MANTENIMIENTO · DISPOSITIVOS</span><h2>Agregar lista de dispositivos</h2><p>Seleccione un tipo y una ubicación. Los demás campos quedarán pendientes para completar al editar cada equipo.</p></div>
+              <div><span className="eyebrow">MANTENIMIENTO · DISPOSITIVOS</span><h2>Agregar lista de dispositivos</h2><p>Seleccione el tipo, la ubicación y los técnicos que trabajarán en los equipos. Los demás campos quedarán pendientes para completarlos al editar cada dispositivo.</p></div>
               <button type="button" className="icon-button" aria-label="Cerrar lista de dispositivos" onClick={onClose} disabled={saving}><Icon name="close" /></button>
             </header>
             {error && <div className="alert alert--error" role="alert"><Icon name="error" /><span>{error}</span></div>}
@@ -361,6 +393,18 @@ export default function MaintenanceQuickDeviceCreator({
                   {equipmentOptions.map((item) => <option key={item.value} value={item.value}>{item.label}</option>)}
                 </select>
               </label>
+              <div className="maintenance-bulk-device-form__technicians">
+                <span className="field-label">Técnicos asignados (opcional)</span>
+                {bulkTechnicianLoading && <small className="field-hint">Cargando técnicos...</small>}
+                {bulkTechnicianError && <div className="alert alert--error" role="alert"><Icon name="error" /><span>{bulkTechnicianError}</span></div>}
+                <TechnicianMultiSelect
+                  users={bulkTechnicians}
+                  selectedIds={bulkTechnicianIds}
+                  onChange={setBulkTechnicianIds}
+                  disabled={saving || bulkEntries.length > 0 || bulkTechnicianLoading}
+                />
+                <small className="field-hint">La selección se aplicará a todos los dispositivos de esta lista. Luego podrá modificar los técnicos en cada equipo.</small>
+              </div>
               <label className="field-group maintenance-bulk-device-form__names"><span className="field-label">Nombres de los dispositivos</span>
                 <textarea className="form-control ticket-textarea" rows="7" value={bulkNamesInput} onChange={(event) => setBulkNamesInput(event.target.value)} disabled={saving || bulkEntries.length > 0} placeholder={['Cámara uno', 'Cámara dos', 'Cámara tres'].join('\n')} />
               </label>
@@ -368,7 +412,7 @@ export default function MaintenanceQuickDeviceCreator({
             <p className="field-hint">Pegue los nombres separados por tabulación (Tab), uno debajo de otro o ambos. Se respetan los nombres y las mayúsculas que escriba; los espacios dentro del nombre se conservan.</p>
             <div className="maintenance-bulk-device-form__summary" aria-live="polite">
               <strong>{bulkEntries.length || bulkNames.length} dispositivo{(bulkEntries.length || bulkNames.length) === 1 ? '' : 's'} en la lista</strong>
-              <span>{bulkDoneCount ? `${bulkDoneCount} confirmado${bulkDoneCount === 1 ? '' : 's'}${bulkOfflinePending ? ' (incluye guardados offline)' : ''}` : 'Todos se crearán en estado pendiente.'}</span>
+              <span>{bulkDoneCount ? `${bulkDoneCount} confirmado${bulkDoneCount === 1 ? '' : 's'}${bulkOfflinePending ? ' (incluye guardados offline)' : ''}` : `Todos se crearán en estado pendiente · ${bulkTechnicianIds.length} técnico${bulkTechnicianIds.length === 1 ? '' : 's'} asignado${bulkTechnicianIds.length === 1 ? '' : 's'}.`}</span>
             </div>
             {bulkNames.length > MAX_BULK_MAINTENANCE_DEVICES && <div className="alert alert--error" role="alert">El límite por lista es de {MAX_BULK_MAINTENANCE_DEVICES} dispositivos. Divida la lista en varios grupos.</div>}
             {bulkNames.length > 0 && <div className="maintenance-bulk-device-form__preview"><strong>Vista previa</strong><div>{bulkNames.slice(0, 8).map((name, index) => <span key={index}>{name}</span>)}{bulkNames.length > 8 && <small>y {bulkNames.length - 8} más...</small>}</div></div>}
