@@ -5,6 +5,7 @@ import InlineCreateModal from '../forms/InlineCreateModal';
 import Icon from '../common/Icon';
 import { MODULE_ROUTES, normalizeItems, pick, requestAvailable } from '../../services/moduleApi';
 import { fetchClientRelations } from '../../services/clientRelations';
+import { sortItemsNaturally, sortOptionsNaturally } from '../../utils/naturalSort';
 
 const EMPTY_OPTIONS = Object.freeze([]);
 
@@ -66,15 +67,6 @@ function uniqueOptions(options = EMPTY_OPTIONS) {
     if (!key || seen.has(key)) return false;
     seen.add(key);
     return true;
-  });
-}
-
-function sortOptions(options = EMPTY_OPTIONS, preferredLocationId = '') {
-  return [...options].sort((a, b) => {
-    const aPreferred = String(a.locationId || '') === String(preferredLocationId || '') ? 0 : 1;
-    const bPreferred = String(b.locationId || '') === String(preferredLocationId || '') ? 0 : 1;
-    if (aPreferred !== bPreferred) return aPreferred - bPreferred;
-    return String(a.label || '').localeCompare(String(b.label || ''), 'es', { sensitivity: 'base' });
   });
 }
 
@@ -169,12 +161,12 @@ export default function MaintenanceEquipmentLocationSelect({
           .map((option) => seedOption(option, locationMap, locationId, showParent))
           .filter(Boolean);
 
-        setClientLocations(locations);
-        setLoadedOptions(sortOptions(uniqueOptions([...fetched, ...seeded]), locationId));
+        setClientLocations(sortItemsNaturally(locations, (item) => item.name));
+        setLoadedOptions(sortOptionsNaturally(uniqueOptions([...fetched, ...seeded]), locationId));
       } catch (error) {
         if (!active) return;
         const fallbackMap = new Map();
-        setLoadedOptions(sortOptions(uniqueOptions(options.map((option) => seedOption(option, fallbackMap, locationId, false)).filter(Boolean)), locationId));
+        setLoadedOptions(sortOptionsNaturally(uniqueOptions(options.map((option) => seedOption(option, fallbackMap, locationId, false)).filter(Boolean)), locationId));
         setCatalogError(error.message || 'No se pudieron cargar las ubicaciones del equipo.');
       } finally {
         if (active) setLoading(false);
@@ -243,7 +235,7 @@ export default function MaintenanceEquipmentLocationSelect({
       const locationMap = new Map(clientLocations.map((location) => [location.id, location]));
       const created = optionFromRow(result, locationMap, parentLocationId, clientLocations.length > 1);
       if (!created) throw new Error('El servidor no devolvió la ubicación creada.');
-      setLoadedOptions((current) => sortOptions(uniqueOptions([...current, created]), locationId));
+      setLoadedOptions((current) => sortOptionsNaturally(uniqueOptions([...current, created]), locationId));
       onChange?.(created.value, created.name, created.locationId, created.locationName);
       setModalOpen(false);
       // En detalle, la vinculación debe concluir antes de invalidar el catálogo.
@@ -307,7 +299,7 @@ export default function MaintenanceEquipmentLocationSelect({
             value={modalValues.ubicacionId}
             onChange={(event) => setModalValues((current) => ({ ...current, ubicacionId: event.target.value }))}
           >
-            {clientLocations.map((location) => <option key={location.id} value={location.id}>{location.name || 'Ubicación del mantenimiento'}</option>)}
+            {sortItemsNaturally(clientLocations, (location) => location.name).map((location) => <option key={location.id} value={location.id}>{location.name || 'Ubicación del mantenimiento'}</option>)}
           </select>
         </label>
       )}
