@@ -5,7 +5,7 @@ import { actionConcurrencySnapshot } from '../services/action-concurrency.servic
 import { concurrencySnapshot } from '../middleware/concurrency.middleware.js';
 import { createInteraction, fallbackCompatible, outputText } from './agent.gemini.js';
 import { audit } from '../services/audit.service.js';
-import { assertRateLimit, modelFallbackChain, runDmsAgent } from './agent.service.js';
+import { aiToolWorkSnapshot, assertRateLimit, modelFallbackChain, runDmsAgent } from './agent.service.js';
 
 async function chat(ctx) {
   if (!aiConfig.enabled) {
@@ -99,6 +99,7 @@ async function health() {
     queues: {
       httpAssistant: concurrencySnapshot().assistantRequests,
       aiActions: actionConcurrencySnapshot().ai,
+      aiTools: aiToolWorkSnapshot(),
     },
   };
 }
