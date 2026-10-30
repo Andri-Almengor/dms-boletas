@@ -1,9 +1,13 @@
 import './stage2-maintenance-list.test.mjs';
 import test from 'node:test';
 import assert from 'node:assert/strict';
+import { readFileSync as readFile } from 'node:fs';
+import { fileURLToPath as filePath } from 'node:url';
+import { join as pathJoin } from 'node:path';
 import {
   AUTOMATIC_PENDING_STATE,
   MANUAL_PENDING_STATE,
+  activeMaintenanceQuestionView,
   effectiveMaintenanceDeviceState,
   isMaintenanceChecklistPending,
   isManualChecklistPending,
@@ -100,3 +104,94 @@ test('un estado explícito distinto de pendiente se conserva después de complet
 
   assert.equal(state, 'Mal estado');
 });
+
+test('el catálogo vigente conserva la respuesta pero no el orden ni la definición obsoleta de una cámara', () => {
+  const saved = {
+    questionId: 'CAM-1',
+    key: 'limpieza',
+    label: 'Texto anterior',
+    order: 10,
+    responseType: 'SI_NO',
+    config: { required: true },
+    value: 'Sí',
+  };
+  const current = {
+    ...saved,
+    label: '¿Se realizó la limpieza correctamente?',
+    order: 50,
+    responseType: 'TEXTO',
+    config: { required: false },
+    value: '',
+  };
+  const merged = activeMaintenanceQuestionView(current, saved);
+
+  assert.deepEqual(merged, { ...current, value: 'Sí' });
+  assert.equal(merged.order, 50);
+  assert.equal(merged.label, current.label);
+  assert.equal(merged.responseType, 'TEXTO');
+  assert.deepEqual(merged.config, { required: false });
+  assert.equal(activeMaintenanceQuestionView(current, undefined), current);
+});
+
+test('cambiar una pregunta a opcional no mantiene una obligación almacenada en RespuestasJSON o questionDetails', () => {
+  const previous = { key: 'montaje', order: 10, config: { required: true }, activeAtSave: true };
+  const device = {
+    funcionamiento: 'Sí',
+    enUso: 'Sí, en uso',
+    respuestas: { montaje: '', __preguntas: [previous] },
+    questionDetails: [previous],
+  };
+  const catalog = [{ key: 'montaje', order: 50, config: { required: false }, activeAtSave: true }];
+  assert.deepEqual(maintenanceChecklistCompletion(device, catalog), {
+    complete: true,
+    missing: [],
+    requiredKeys: [],
+  });
+});
+
+test('una pregunta desactivada no bloquea la checklist aunque su snapshot anterior siga activo', () => {
+  const device = {
+    funcionamiento: 'Sí',
+    enUso: 'Sí, en uso',
+    respuestas: {
+      antigua: '',
+      nueva: '',
+      __preguntas: [{ key: 'antigua', activeAtSave: true, config: { required: true } }],
+    },
+    questionDetails: [{ key: 'antigua', activeAtSave: true, config: { required: true } }],
+  };
+  const catalog = [
+    { key: 'antigua', historical: true, activeAtSave: false },
+    { key: 'nueva', order: 10, config: { required: true }, activeAtSave: true },
+  ];
+  assert.deepEqual(maintenanceChecklistCompletion(device, catalog), {
+    complete: false,
+    missing: ['nueva'],
+    requiredKeys: ['nueva'],
+  });
+});
+
+test('editor y backend usan la definición vigente y conservan snapshots históricos', () => {
+  const { readFileSync } = requireSourceContracts();
+  const hook = readFileSync('src/hooks/useMaintenanceQuestionCatalog.js');
+  const editor = readFileSync('src/components/maintenance/MaintenanceDeviceEditor.jsx');
+  const backend = readFileSync('backend/src/modules/maintenance-dynamic-questions.module.js');
+  const catalog = readFileSync('backend/src/services/maintenance-question-catalog.service.js');
+
+  assert.match(hook, /activeMaintenanceQuestionView\(question, savedByKey\.get\(question\.key\)\)/);
+  assert.match(editor, /catalogQuestions\.map\(\(question\) => \(\{/);
+  assert.match(editor, /\.sort\(\(left, right\) => left\.order - right\.order/);
+  assert.match(backend, /if \(!saved \|\| item\.activeAtSave !== false\) return item/);
+  assert.match(catalog, /activeAtSave: false/);
+  assert.match(catalog, /return snapshot\.sort\(\(left, right\) => left\.order - right\.order/);
+});
+
+// Lectura de contratos mínimos del flujo real sin importar módulos con side effects de infraestructura.
+function requireSourceContracts() {
+  const readFileSync = readFile;
+  const fileURLToPath = filePath;
+  const join = pathJoin;
+  const root = fileURLToPath(new URL('../../', import.meta.url));
+  return { readFileSync: (file) => readFileSync(join(root, file), 'utf8') };
+}
+
