@@ -147,7 +147,7 @@ export const MODULE_ROUTES = {
     responsesList: ['survey.responses.list', 'encuestas.respuestas.list'],
     responsesGet: ['survey.responses.get', 'encuestas.respuestas.get'],
   },
-  users: { list: ['users.assignment.list', 'users.list'], adminList: ['users.list'] },
+  users: { list: ['users.assignment.list', 'users.list'], assignmentList: ['users.assignment.list'], adminList: ['users.list'] },
   config: { get: ['config.get', 'app.config.get'] },
 };
 
