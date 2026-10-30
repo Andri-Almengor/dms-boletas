@@ -170,7 +170,7 @@
   background: transparent;
   border: 1px solid transparent;
   border-radius: 11px;
-  color: var(--text-muted);
+  color: var(--muted);
   cursor: grab;
   touch-action: none;
   user-select: none;
