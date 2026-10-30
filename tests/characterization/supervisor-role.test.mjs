@@ -94,7 +94,7 @@ test('los selectores consumen exclusivamente usuarios asignables y la administra
   const ticketList = source('src/pages/tickets/TicketListPage.jsx');
   const ticketForm = source('src/pages/tickets/TicketFormPage.jsx');
   assert.match(quickEdit, /requestAvailable\(MODULE_ROUTES\.users\.assignmentList/);
-  assert.match(quickDevice, /routes: MODULE_ROUTES\.users\.assignmentList/);
+  assert.match(quickDevice, /routes: \['users\.assignment\.list'\]/);
   assert.match(ticketList, /\['users', MODULE_ROUTES\.users\.assignmentList/);
   assert.match(ticketForm, /if \(editing \|\| loading \|\| agendaId \|\| !user\?\.UsuarioID\) return/);
   assert.match(ticketForm, /current\.asignados\.filter\(\(id\) => String\(id\) !== ownId\)/);
