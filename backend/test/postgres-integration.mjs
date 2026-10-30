@@ -1187,4 +1187,44 @@ test('Gemini ticket PREPARE/REVISE/COMMIT creates real pending follow-up tickets
   }
 });
 
+test('AI COMMITTING remains recoverable after proposal TTL, while unclaimed PENDING still expires', async () => {
+  const { createHash } = await import('node:crypto');
+  const { decideAiOperation, getAiOperationStatus } = await import('../src/ai/agent.repository.operations.js');
+  const ctx={
+    user:{UsuarioID:'stage6-expiration-user'},
+    sessionToken:'stage6-expiration-session',
+    permissions:['BOLETAS_CREAR'],
+  };
+  const fingerprint=createHash('sha256').update(ctx.sessionToken).digest('base64url');
+  const committingId='stage6-committing-ttl-'+suffix;
+  const pendingId='stage6-pending-ttl-'+suffix;
+  const now=new Date().toISOString();
+  const expiredAt=new Date(Date.now()-60_000).toISOString();
+  try {
+    for(const [id,status] of [[committingId,'COMMITTING'],[pendingId,'PENDING']]){
+      await query(
+        `INSERT INTO "AiPendingOperations"
+          ("OperationID","UserID","SessionHash","Action","Status","IdempotencyKey",
+           "ExpiresAt","CreatedAt","UpdatedAt","__valid")
+          VALUES ($1,$2,$3,'TICKET_BATCH_CREATE',$4,$5,$6,$7,$7,TRUE)`,
+        [id,ctx.user.UsuarioID,fingerprint,status,id+'-key',expiredAt,now],
+        {label:'test.ai.expiredCommit.setup',write:true},
+      );
+    }
+    const confirming=await decideAiOperation(ctx,{operationId:committingId,decision:'confirm'});
+    assert.equal(confirming.status,'COMMITTING', 'in-flight commit cannot be marked EXPIRED just because PREPARE TTL elapsed');
+    const after=await getAiOperationStatus(ctx,{operationId:committingId});
+    assert.equal(after.modelData.status,'COMMITTING');
+    await assert.rejects(
+      decideAiOperation(ctx,{operationId:pendingId,decision:'confirm'}),
+      error=>error.code==='AI_OPERATION_EXPIRED' && error.status===409,
+    );
+    const pending=await getAiOperationStatus(ctx,{operationId:pendingId});
+    assert.equal(pending.modelData.status,'EXPIRED', 'unclaimed proposals still enforce their original TTL');
+  } finally {
+    await query('DELETE FROM "AiPendingOperations" WHERE "OperationID"=ANY($1::text[])',
+      [[committingId,pendingId]],{label:'test.ai.expiredCommit.cleanup',write:true}).catch(()=>{});
+  }
+});
+
 test.after(async () => { await closePostgres(); });
