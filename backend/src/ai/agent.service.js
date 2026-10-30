@@ -115,10 +115,13 @@ export async function loadDiagnosticImageInputs(attachments = [], {
       // Descarga de solo lectura. Retiene su cupo incluso si vence el plazo
       // visible; una respuesta tardía no puede mutar el historial ni volver
       // a ejecutar esta consulta.
+      const readTimeoutMs = Math.max(1, Math.min(timeoutMs, Math.floor(remainingMs)));
       const response = await withTimeout(() => driveApi.files.get(
         { fileId: item.__file, alt: 'media', supportsAllDrives: true },
-        { responseType: 'arraybuffer' },
-      ), Math.max(1, Math.min(timeoutMs, Math.floor(remainingMs))), 'ai.diagnosticImage');
+        // Gaxios aplica también el timeout sobre la operación HTTP de
+        // lectura para evitar dejar conexiones de Drive indefinidamente abiertas.
+        { responseType: 'arraybuffer', timeout: readTimeoutMs },
+      ), readTimeoutMs, 'ai.diagnosticImage');
       const buffer = Buffer.from(response.data);
       if (!buffer.length || buffer.length > MAX_DIAGNOSTIC_IMAGE_BYTES) continue;
       output.push({
