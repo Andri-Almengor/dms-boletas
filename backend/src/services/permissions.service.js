@@ -1,5 +1,6 @@
 import { findRows, readTable } from '../infra/postgres.repository.js';
 import { asBool } from '../core/utils.js';
+import { badRequest } from '../core/errors.js';
 
 export const PERMISSION_TABLE_NAMES = ['Roles', 'Permisos', 'RolPermisos', 'UsuarioPermisos'];
 
@@ -67,6 +68,6 @@ export function assertNewAssignmentsAssignable(ids = [], users = [], roles = [],
   if (invalid.length) {
     // Los registros históricos pueden conservar un Supervisor ya asignado;
     // nunca se permite asignarlo a un trabajo nuevo o distinto.
-    throw new Error('La asignación incluye una persona inactiva o con rol Supervisor, que no realiza visitas.');
+    throw badRequest('La asignación incluye una persona inactiva o con rol Supervisor, que no realiza visitas.');
   }
 }
