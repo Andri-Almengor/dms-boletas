@@ -100,7 +100,9 @@ const businessBaseline = {
   // Evidence deletion is intentionally changed by PR #361; its behavior is now covered
   // by maintenance-evidence-technician-camera-recovery.test.mjs, not a frozen hash.
   "backend/src/services/maintenance-device-delete-permissions.patch.js": "40cf84fbc2552b8e00b16d840d11c0f9825c71819c6bf4bcb86e630d7e359903",
-  "backend/src/modules/agenda.module.js": "9b2b364f7a825cefa4c39849b9b54da5356c6882282be10450baeaddc52bd8d0",
+  // PR #380 cambia intencionalmente los candidatos asignables de Agenda.
+  // supervisor-role.test.mjs ahora cubre autorización, filtrado y controles del backend.
+
   "backend/src/modules/ticket-signature.module.js": "c1df58a8a8a5303d10ba236335eef7a3d7d12c643057be6f6063a60f72271ba0",
   "backend/src/services/maintenance-finalization-resume.patch.js": "0f9dca7d2a8110451d52dbe152bb6b8df654579e190dfb44046eef2f775478e6",
   "backend/src/services/maintenance-finalization-schedule.patch.js": "5cf11b8c7837d5aac9c5b3bfcfada9d736ed82a258419aee4a22b8f6fe4933e3",
