@@ -229,7 +229,8 @@ async function performRequest(route, payload, sessionToken, { signal } = {}) {
       // No añade cabeceras de Node al endpoint de Apps Script heredado.
       ...(!isAppsScriptUrl(API_URL) && (
         (['assistant.chat', 'asistente.chat'].includes(String(route || '').trim().toLowerCase())
-          && String(requestPayload.assistantAction || '').trim().toLowerCase() !== 'operation.status')
+          && !['operation.status', 'attachment.init', 'attachment.chunk'].includes(
+            String(requestPayload.assistantAction || '').trim().toLowerCase()))
         || isReplaySafeAiRoute(route)
       ) ? { 'X-DMS-Workload': 'assistant' } : {}),
     },
