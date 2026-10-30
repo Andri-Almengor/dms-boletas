@@ -68,6 +68,12 @@ test('la migración agrega Supervisor sin modificar roles ni usuarios anteriores
   assert.match(sql, /'true'/);
   assert.match(sql, /WHERE NOT EXISTS/);
   assert.doesNotMatch(sql, /UPDATE\s+"Usuarios"|DELETE\s+FROM\s+"Roles"/i);
+  const importer = source('backend/src/scripts/db-import-xlsx.js');
+  assert.match(importer, /const supervisorSeedId = 'e43c8e48-73c8-4f77-909e-35d2b74d0cc0'/);
+  assert.match(importer, /"RolID" IS DISTINCT FROM/);
+  assert.match(importer, /"Nombre" IS DISTINCT FROM 'Supervisor'/);
+  assert.match(importer, /await client.query\(supervisorSeedSql\)/);
+  assert.match(importer, /!options.replace/);
 });
 
 test('los selectores consumen exclusivamente usuarios asignables y la administración conserva users.list', () => {
