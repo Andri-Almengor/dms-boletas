@@ -505,7 +505,9 @@ function preserveHistoricalQuestionText(generated, previous) {
     .filter(([key]) => key));
   return generated.map((item) => {
     const saved = previousByKey.get(cleanMaintenanceQuestionValue(item.key));
-    if (!saved) return item;
+    // Los metadatos del catálogo activo son la fuente de verdad al guardar.
+    // Solo se conserva la definición anterior de preguntas ya históricas.
+    if (!saved || item.activeAtSave !== false) return item;
     return {
       ...item,
       questionId: cleanMaintenanceQuestionValue(saved.questionId || saved.PreguntaDispositivoID, item.questionId),
