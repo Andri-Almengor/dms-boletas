@@ -1,3 +1,4 @@
+import { assignableUsers, assertNewAssignmentsAssignable } from '../services/permissions.service.js';
 import { badRequest, forbidden, notFound } from '../core/errors.js';
 import { nowIso, uuid } from '../core/utils.js';
 import {
@@ -363,10 +364,10 @@ async function create(ctx) {
   if (requested.length > MAX_BATCH) throw badRequest(`Puede crear un máximo de ${MAX_BATCH} agendas por envío.`);
 
   const [tables, ticketExceptions] = await Promise.all([
-    readTables(['Usuarios', 'Clientes']),
+    readTables(['Usuarios', 'Roles', 'Clientes']),
     getAgendaTicketExceptions(),
   ]);
-  const users = (tables.Usuarios || []).filter(activeUser);
+  const users = assignableUsers(tables.Usuarios || [], tables.Roles || []).filter(activeUser);
   const userById = new Map(users.map((user) => [clean(user.UsuarioID), user]));
   const clientById = new Map((tables.Clientes || []).map((client) => [clientId(client), client]).filter(([id]) => Boolean(id)));
   const timestamp = nowIso();
@@ -377,6 +378,7 @@ async function create(ctx) {
     const values = normalizeAgendaInput(input, {}, ticketExceptions, clientById);
     const userIds = normalizeUserIds(input.usuarioIds || input.UsuarioIDs || input.asignados || []);
     if (!userIds.length) throw badRequest(`La agenda #${index + 1} debe tener al menos una persona asignada.`);
+    assertNewAssignmentsAssignable(userIds, tables.Usuarios || [], tables.Roles || []);
     const invalidUsers = userIds.filter((id) => !userById.has(id));
     if (invalidUsers.length) throw badRequest(`La agenda #${index + 1} contiene usuarios inactivos o inexistentes.`);
 
@@ -442,10 +444,10 @@ async function update(ctx) {
   ));
   const before = await findById('Agendas', agendaId);
   const [tables, ticketExceptions] = await Promise.all([
-    readTables(['AgendaAsignados', 'Usuarios', 'Clientes', 'Boletas', 'BoletaAsignados']),
+    readTables(['AgendaAsignados', 'Usuarios', 'Roles', 'Clientes', 'Boletas', 'BoletaAsignados']),
     getAgendaTicketExceptions(),
   ]);
-  const users = (tables.Usuarios || []).filter(activeUser);
+  const users = assignableUsers(tables.Usuarios || [], tables.Roles || []).filter(activeUser);
   const userById = new Map(users.map((user) => [clean(user.UsuarioID), user]));
   const clientById = new Map((tables.Clientes || []).map((client) => [clientId(client), client]).filter(([id]) => Boolean(id)));
   const activeRows = (tables.AgendaAsignados || []).filter((row) => activeAssignment(row) && clean(row.AgendaID) === agendaId);
@@ -457,7 +459,10 @@ async function update(ctx) {
     ? normalizeUserIds(ctx.payload.usuarioIds || ctx.payload.UsuarioIDs || ctx.payload.asignados)
     : oldUserIds;
   if (!newUserIds.length) throw badRequest('La agenda debe tener al menos una persona asignada.');
-  if (newUserIds.some((id) => !userById.has(id))) throw badRequest('La agenda contiene usuarios inactivos o inexistentes.');
+  if (hasAssignmentPayload) {
+    assertNewAssignmentsAssignable(newUserIds, tables.Usuarios || [], tables.Roles || [], oldUserIds);
+  }
+  if (newUserIds.some((id) => !userById.has(id) && !oldUserIds.includes(id))) throw badRequest('La agenda contiene usuarios inactivos o inexistentes.');
 
   const values = normalizeAgendaInput(ctx.payload, before, ticketExceptions, clientById);
   const oldDate = agendaDate(before.Fecha);
