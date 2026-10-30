@@ -89,6 +89,15 @@ test('los selectores consumen exclusivamente usuarios asignables y la administra
   assert.match(maintenance, /routes: MODULE_ROUTES\.users\.assignmentList/);
   assert.match(device, /requestAvailable\(MODULE_ROUTES\.users\.assignmentList/);
   assert.match(agenda, /apiRequest\('users\.assignment\.list'/);
+  const quickEdit = source('src/pages/tickets/TicketQuickEditPage.jsx');
+  const quickDevice = source('src/components/maintenance/MaintenanceQuickDeviceCreator.jsx');
+  const ticketList = source('src/pages/tickets/TicketListPage.jsx');
+  const ticketForm = source('src/pages/tickets/TicketFormPage.jsx');
+  assert.match(quickEdit, /requestAvailable\(MODULE_ROUTES\.users\.assignmentList/);
+  assert.match(quickDevice, /routes: MODULE_ROUTES\.users\.assignmentList/);
+  assert.match(ticketList, /\['users', MODULE_ROUTES\.users\.assignmentList/);
+  assert.match(ticketForm, /if \(editing \|\| loading \|\| agendaId \|\| !user\?\.UsuarioID\) return/);
+  assert.match(ticketForm, /current\.asignados\.filter\(\(id\) => String\(id\) !== ownId\)/);
   assert.match(users, /assignableUsers\(Usuarios, Roles\)/);
   assert.match(users, /list: async \(\{ payload \}\) => filterRows\(\(await readTable\('Usuarios'\)\)/);
 });
