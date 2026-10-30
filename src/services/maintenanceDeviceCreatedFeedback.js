@@ -16,34 +16,6 @@ function normalized(value) {
     .trim();
 }
 
-function setNativeValue(element, value) {
-  const descriptor = Object.getOwnPropertyDescriptor(Object.getPrototypeOf(element), 'value');
-  if (descriptor?.set) descriptor.set.call(element, value);
-  else element.value = value;
-}
-
-function resetInventoryFilters() {
-  const search = document.querySelector('.maintenance-device-toolbar--detail .maintenance-device-search input');
-  if (search && search.value) {
-    setNativeValue(search, '');
-    search.dispatchEvent(new Event('input', { bubbles: true }));
-    search.dispatchEvent(new Event('change', { bubbles: true }));
-  }
-
-  document.querySelectorAll('.maintenance-device-toolbar--detail select').forEach((select) => {
-    const options = Array.from(select.options || []);
-    const defaultValue = options.some((option) => option.value === 'TODAS')
-      ? 'TODAS'
-      : options.some((option) => option.value === 'TODOS') ? 'TODOS' : '';
-    if (!defaultValue || select.value === defaultValue) return;
-    setNativeValue(select, defaultValue);
-    select.dispatchEvent(new Event('change', { bubbles: true }));
-  });
-
-  const allCategories = document.querySelector('.maintenance-device-category-chips button:first-child');
-  if (allCategories && !allCategories.classList.contains('is-active')) allCategories.click();
-}
-
 function findLocationGroup(locationName) {
   const wanted = normalized(locationName);
   return Array.from(document.querySelectorAll(GROUP_SELECTOR)).find((group) => {
@@ -181,7 +153,7 @@ function renderFeedback(group, detail) {
   group.classList.add('has-device-created-feedback');
   group.querySelector('.maintenance-location-work-group__header')?.insertAdjacentElement('afterend', feedback);
   window.setTimeout(() => renderOfflinePreview(group, detail), FIND_DELAY_MS);
-  window.requestAnimationFrame(() => group.scrollIntoView({ behavior: 'smooth', block: 'center' }));
+  // El usuario conserva el piso abierto y su posición; el aviso aparece allí mismo.
   window.setTimeout(() => {
     feedback.remove();
     group.classList.remove('has-device-created-feedback');
@@ -192,7 +164,7 @@ export function showMaintenanceDeviceCreatedFeedback(detail = {}) {
   if (typeof window === 'undefined' || typeof document === 'undefined') return;
   const locationName = String(detail.locationName || '').trim();
   if (!locationName) return;
-  resetInventoryFilters();
+  // No modificar los filtros ni desplazar el inventario después de crear.
   let attempts = 0;
 
   const reveal = () => {
