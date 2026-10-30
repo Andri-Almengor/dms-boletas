@@ -155,6 +155,62 @@
   grid-template-columns: 38px minmax(0, 1fr) auto auto;
 }
 
+.maintenance-question-manager__list > article:has(.maintenance-question-drag-handle) {
+  grid-template-columns: 66px minmax(0, 1fr) auto auto;
+}
+
+.maintenance-question-drag-handle {
+  width: 66px;
+  min-height: 44px;
+  padding: 2px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 3px;
+  background: transparent;
+  border: 1px solid transparent;
+  border-radius: 11px;
+  color: var(--muted);
+  cursor: grab;
+  touch-action: none;
+  user-select: none;
+}
+
+.maintenance-question-drag-handle .maintenance-question-order {
+  pointer-events: none;
+}
+
+.maintenance-question-drag-handle > .material-symbols-rounded {
+  font-size: 20px;
+}
+
+.maintenance-question-drag-handle:active { cursor: grabbing; }
+.maintenance-question-drag-handle:focus-visible {
+  outline: 2px solid var(--primary);
+  outline-offset: 2px;
+}
+.maintenance-question-drag-handle:disabled { cursor: default; opacity: .5; }
+.maintenance-question-manager__list > article.is-dragging { opacity: .52; }
+.maintenance-question-manager__list > article.is-drop-target {
+  outline: 2px solid var(--primary);
+  outline-offset: -2px;
+  background: var(--primary-soft);
+}
+
+.maintenance-question-manager__drag-hint {
+  margin-right: auto;
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  font-size: .75rem;
+  color: var(--muted);
+}
+
+.maintenance-question-manager__saved {
+  font-size: .78rem;
+  color: var(--success, #168452);
+}
+
 .maintenance-question-manager__list .maintenance-question-actions {
   grid-column: auto;
   padding-top: 0;
@@ -263,8 +319,27 @@
     width: 100%;
   }
 
-  .maintenance-question-manager__list > article {
-    grid-template-columns: 34px minmax(0, 1fr);
+  .maintenance-question-manager__list > article,
+  .maintenance-question-manager__list > article:has(.maintenance-question-drag-handle) {
+    grid-template-columns: 56px minmax(0, 1fr);
+  }
+
+  .maintenance-question-drag-handle {
+    width: 54px;
+  }
+
+  .maintenance-question-drag-handle .maintenance-question-order {
+    width: 27px;
+    height: 30px;
+    font-size: .71rem;
+  }
+
+  .maintenance-question-manager__toolbar {
+    flex-wrap: wrap;
+  }
+
+  .maintenance-question-manager__drag-hint {
+    flex: 1 1 100%;
   }
 
   .maintenance-question-manager__list > article > .status-chip {

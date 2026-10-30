@@ -1,5 +1,6 @@
 import { useEffect, useMemo, useState } from 'react';
 import { canonicalMaintenanceCategoryName } from '../config/maintenanceCategories.js';
+import { activeMaintenanceQuestionView } from '../utils/maintenanceChecklistStatus.js';
 import { requestAvailable } from '../services/moduleApi';
 
 const CONFIG_ROUTES = ['maintenance.config', 'mantenimientos.config'];
@@ -162,21 +163,7 @@ export default function useMaintenanceQuestionCatalog(sessionToken) {
       .filter((item) => item.key && (!item.typeId || !typeId || item.typeId === typeId))
       .map((item) => [item.key, item]));
 
-    return selected.map((question) => {
-      const saved = savedByKey.get(question.key);
-      if (!saved) return question;
-      return {
-        ...question,
-        questionId: saved.questionId || question.questionId,
-        label: saved.label || question.label,
-        order: saved.order || question.order,
-        responseType: saved.responseType || question.responseType,
-        appliesTo: saved.appliesTo || question.appliesTo,
-        relatedTypeId: saved.relatedTypeId || question.relatedTypeId,
-        config: saved.config || question.config,
-        value: saved.value,
-      };
-    });
+    return selected.map((question) => activeMaintenanceQuestionView(question, savedByKey.get(question.key)));
   }
 
   return { questions, forDevice, loading, error };

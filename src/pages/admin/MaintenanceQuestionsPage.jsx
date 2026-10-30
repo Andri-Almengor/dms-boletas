@@ -1,10 +1,11 @@
-import React, { useEffect, useMemo, useState } from 'react';
+import React, { useEffect, useMemo, useRef, useState } from 'react';
 import { Navigate, useSearchParams } from 'react-router-dom';
 import { useAuth } from '../../AuthContext';
 import Icon from '../../components/common/Icon';
 import useOverlaySurface from '../../hooks/useOverlaySurface';
 import { getMaintenanceCategory } from '../../config/maintenanceCategories';
 import { compareNatural } from '../../utils/naturalSort';
+import { moveMaintenanceQuestionIds } from '../../utils/maintenanceQuestionInteractions.js';
 import { MODULE_ROUTES, normalizeItems, pick, requestAvailable, toBoolean } from '../../services/moduleApi';
 
 const QUESTION_ROUTES = {
@@ -201,6 +202,11 @@ export default function MaintenanceQuestionsPage() {
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState('');
   const [managerError, setManagerError] = useState('');
+  const [managerNotice, setManagerNotice] = useState('');
+  const [draggedQuestionId, setDraggedQuestionId] = useState('');
+  const [dropTargetId, setDropTargetId] = useState('');
+  const dragRef = useRef(null);
+  const listRef = useRef(null);
 
   async function load() {
     setLoading(true);
@@ -281,6 +287,8 @@ export default function MaintenanceQuestionsPage() {
   }
 
   function openManager(group) {
+    resetDrag();
+    setManagerNotice('');
     setSelectedTypeId(group.id);
     setEditor(null);
     setManagerError('');
@@ -289,10 +297,112 @@ export default function MaintenanceQuestionsPage() {
 
   function closeManager() {
     if (saving) return;
+    resetDrag();
+    setManagerNotice('');
     setEditor(null);
     setSelectedTypeId('');
     setManagerError('');
     updateQuestionViewQuery({ nextTypeId: '' });
+  }
+
+  function resetDrag() {
+    dragRef.current = null;
+    setDraggedQuestionId('');
+    setDropTargetId('');
+  }
+
+  async function moveQuestion(sourceId, targetId) {
+    if (!canManage || saving || !selectedGroup || !sourceId || sourceId === targetId) return;
+    const rows = selectedGroup.questions;
+    const originalIds = rows.map(questionId);
+    const from = originalIds.indexOf(sourceId);
+    const to = originalIds.indexOf(targetId);
+    if (from < 0 || to < 0) return;
+    const orderedIds = moveMaintenanceQuestionIds(originalIds, sourceId, targetId);
+    if (orderedIds.every((id, index) => id === originalIds[index])) return;
+    const updatedOrders = new Map(orderedIds.map((id, index) => [id, (index + 1) * 10]));
+    const expectedQuestionOrder = rows.map((row) => ({
+      id: questionId(row),
+      order: Number(row.Orden || 0),
+      updatedAt: clean(row.FechaActualizacion),
+    }));
+
+    setSaving(true);
+    setManagerError('');
+    setManagerNotice('');
+    // Actualización optimista; si el servidor rechaza el cambio se recarga
+    // el orden autoritativo y se muestra el error, sin dejar datos parciales.
+    setQuestions((current) => current.map((row) => updatedOrders.has(questionId(row))
+      ? { ...row, Orden: updatedOrders.get(questionId(row)) }
+      : row));
+    try {
+      const response = await requestAvailable(QUESTION_ROUTES.update, {
+        tipoDispositivoId: selectedGroup.id,
+        orderedQuestionIds: orderedIds,
+        expectedQuestionOrder,
+      }, sessionToken);
+      const byId = new Map((response.items || []).map((row) => [questionId(row), row]));
+      if (byId.size !== orderedIds.length) throw new Error('El servidor devolvió un orden incompleto.');
+      setQuestions((current) => current.map((row) => byId.has(questionId(row))
+        ? { ...row, ...byId.get(questionId(row)) }
+        : row));
+      setManagerNotice('Orden actualizado y guardado.');
+    } catch (requestError) {
+      // Ante un conflicto o una respuesta incierta, la próxima lectura del
+      // servidor determina el estado real; no se repite la escritura.
+      setQuestions((current) => current.map((row) => {
+        const original = rows.find((item) => questionId(item) === questionId(row));
+        return original ? { ...row, Orden: original.Orden } : row;
+      }));
+      await load();
+      setManagerError(requestError?.message || 'No se pudo guardar el nuevo orden.');
+    } finally {
+      setSaving(false);
+    }
+  }
+
+  function onHandlePointerDown(event, id) {
+    if (saving || !canManage || (event.pointerType === 'mouse' && event.button !== 0)) return;
+    dragRef.current = { pointerId: event.pointerId, id, startX: event.clientX, startY: event.clientY, moved: false, overId: '' };
+    event.currentTarget.setPointerCapture?.(event.pointerId);
+  }
+
+  function onHandlePointerMove(event) {
+    const drag = dragRef.current;
+    if (!drag || drag.pointerId !== event.pointerId) return;
+    if (!drag.moved && Math.hypot(event.clientX - drag.startX, event.clientY - drag.startY) < 6) return;
+    drag.moved = true;
+    setDraggedQuestionId(drag.id);
+    // Permite arrastrar hasta el inicio o final de listas largas.
+    const container = listRef.current;
+    if (container) {
+      const rect = container.getBoundingClientRect();
+      if (event.clientY < rect.top + 42) container.scrollTop -= 20;
+      else if (event.clientY > rect.bottom - 42) container.scrollTop += 20;
+    }
+    const target = document.elementFromPoint(event.clientX, event.clientY)?.closest('[data-question-id]');
+    const over = target?.dataset.questionId || '';
+    if (drag.overId !== over) {
+      drag.overId = over;
+      setDropTargetId(over);
+    }
+  }
+
+  function onHandlePointerUp(event) {
+    const drag = dragRef.current;
+    if (!drag || drag.pointerId !== event.pointerId) return;
+    const targetId = drag.moved ? drag.overId : '';
+    resetDrag();
+    if (targetId && targetId !== drag.id) void moveQuestion(drag.id, targetId);
+  }
+
+  function onHandleKeyDown(event, id, index) {
+    if (event.key !== 'ArrowUp' && event.key !== 'ArrowDown') return;
+    event.preventDefault();
+    if (!selectedGroup || saving) return;
+    const nextIndex = index + (event.key === 'ArrowUp' ? -1 : 1);
+    const target = selectedGroup.questions[nextIndex];
+    if (target) void moveQuestion(id, questionId(target));
   }
 
   function openCreate(group = selectedGroup) {
@@ -503,15 +613,20 @@ export default function MaintenanceQuestionsPage() {
           </footer>
         </form> : <>
           <div className="maintenance-question-manager__toolbar">
+            {canManage && selectedGroup.questions.length > 1 && <span className="maintenance-question-manager__drag-hint"><Icon name="drag_indicator" />Arrastre para ordenar · teclado: flechas ↑↓</span>}
+            {managerNotice && <span className="maintenance-question-manager__saved" role="status">{managerNotice}</span>}
             {!selectedGroup.active && <span className="status-chip status-chip--inactive">TIPO INACTIVO</span>}
             {canManage && selectedGroup.active && <button className="button button--primary button--compact" type="button" onClick={() => openCreate(selectedGroup)} disabled={saving}><Icon name="add" />Nueva pregunta</button>}
           </div>
 
-          <div className="maintenance-question-manager__list maintenance-question-list">
-            {selectedGroup.questions.length ? selectedGroup.questions.map((question) => {
+          <div ref={listRef} className="maintenance-question-manager__list maintenance-question-list">
+            {selectedGroup.questions.length ? selectedGroup.questions.map((question, index) => {
               const active = activeRecord(question);
-              return <article key={questionId(question)} className={active ? '' : 'is-inactive'}>
-                <span className="maintenance-question-order">{Number(question.Orden || 0)}</span>
+              const id = questionId(question);
+              return <article key={id} data-question-id={id} className={`${active ? '' : 'is-inactive'}${draggedQuestionId === id ? ' is-dragging' : ''}${dropTargetId === id && draggedQuestionId !== id ? ' is-drop-target' : ''}`}>
+                {canManage
+                  ? <button type="button" className="maintenance-question-drag-handle" disabled={saving} aria-label={`Reordenar ${questionText(question)}: arrastre o use las flechas arriba y abajo`} title="Arrastrar para cambiar el orden" onPointerDown={(event) => onHandlePointerDown(event, id)} onPointerMove={onHandlePointerMove} onPointerUp={onHandlePointerUp} onPointerCancel={resetDrag} onKeyDown={(event) => onHandleKeyDown(event, id, index)}><span className="maintenance-question-order">{Number(question.Orden || 0)}</span><Icon name="drag_indicator" /></button>
+                  : <span className="maintenance-question-order">{Number(question.Orden || 0)}</span>}
                 <div><strong>{questionText(question)}</strong><small>{clean(question.AplicaModo || question.appliesTo || 'MANTENIMIENTO')} · {clean(question.TipoRespuesta || question.responseType || 'SI_NO')} · {parseQuestionConfig(question).required === false ? 'Opcional' : 'Obligatoria'} · Clave interna: {clean(question.Clave)}</small></div>
                 <span className={`status-chip ${active ? 'status-chip--active' : 'status-chip--inactive'}`}>{active ? 'ACTIVA' : 'INACTIVA'}</span>
                 {canManage && <div className="maintenance-question-actions">

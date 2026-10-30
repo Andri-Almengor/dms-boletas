@@ -1,6 +1,7 @@
 import React from 'react';
 import { formatMacAddressInput, normalizeMacAddress } from '../../utils/macAddress';
 import { projectQuestionConfig, projectQuestionRequired } from '../../features/maintenance/maintenanceProjectRelations';
+import { toggleMaintenanceQuestionChoice } from '../../utils/maintenanceQuestionInteractions.js';
 
 function Choice({ value, onChange, options, disabled }) {
   return <div className="maintenance-choice">
@@ -8,7 +9,8 @@ function Choice({ value, onChange, options, disabled }) {
       type="button"
       key={option}
       className={String(value ?? '') === String(option) ? 'is-selected' : ''}
-      onClick={() => onChange(option)}
+      aria-pressed={String(value ?? '') === String(option)}
+      onClick={() => onChange(toggleMaintenanceQuestionChoice(value, option))}
       disabled={disabled}
     >{option}</button>)}
   </div>;

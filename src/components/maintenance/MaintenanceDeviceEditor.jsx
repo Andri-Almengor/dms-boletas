@@ -16,6 +16,7 @@ import {
 import MaintenanceProjectRelationField from './MaintenanceProjectRelationField';
 import MaintenanceProjectProgressChecklist from './MaintenanceProjectProgressChecklist';
 import MaintenanceQuestionField from './MaintenanceQuestionField';
+import { toggleMaintenanceQuestionChoice } from '../../utils/maintenanceQuestionInteractions.js';
 import { getMaintenanceCategory } from '../../config/maintenanceCategories';
 import useMaintenanceQuestionCatalog from '../../hooks/useMaintenanceQuestionCatalog';
 import useMaintenanceDeviceCatalogData from '../../hooks/useMaintenanceDeviceCatalogData';
@@ -47,8 +48,8 @@ function Field({ label, multiline = false, ...props }) {
   return <label className="field-group"><span className="field-label">{label}</span>{multiline ? <textarea className="form-control ticket-textarea" rows="5" {...props} /> : <input className="form-control" {...props} />}</label>;
 }
 
-function Choice({ label, value, onChange, options = ['Sí', 'No'], disabled = false, note = '' }) {
-  return <div className="field-group maintenance-dynamic-question"><span className="field-label">{label}</span>{note && <small className="field-hint">{note}</small>}<div className="maintenance-choice">{options.map((option) => <button type="button" key={option} className={value === option ? 'is-selected' : ''} onClick={() => onChange(option)} disabled={disabled}>{option}</button>)}</div></div>;
+function Choice({ label, value, onChange, options = ['Sí', 'No'], disabled = false, note = '', allowClear = false }) {
+  return <div className="field-group maintenance-dynamic-question"><span className="field-label">{label}</span>{note && <small className="field-hint">{note}</small>}<div className="maintenance-choice">{options.map((option) => <button type="button" key={option} className={value === option ? 'is-selected' : ''} aria-pressed={value === option} onClick={() => onChange(allowClear ? toggleMaintenanceQuestionChoice(value, option) : option)} disabled={disabled}>{option}</button>)}</div></div>;
 }
 
 function currentRoute() {
@@ -583,8 +584,8 @@ export default function MaintenanceDeviceEditor({
         <div className="maintenance-checklist__heading"><h3><Icon name={category.icon} /> Checklist de {device.categoria || category.key}</h3><label className={`maintenance-checklist-pending-toggle${manualPending ? ' is-checked' : ''}`}><input type="checkbox" checked={manualPending} onChange={(event) => toggleChecklistPending(event.target.checked)} disabled={locked} /><span className="maintenance-checklist-pending-toggle__box" aria-hidden="true">{manualPending && <Icon name="check" />}</span><span className="maintenance-checklist-pending-toggle__text"><strong>Pendiente</strong><small>Bloquear pruebas por ahora</small></span></label></div>
         {manualPending && <div className="maintenance-checklist-pending-note"><Icon name="schedule" /><p>Este dispositivo fue marcado manualmente como pendiente. Quite la marca para habilitar y completar la checklist.</p></div>}
         {automaticPending && <div className="maintenance-checklist-pending-note maintenance-checklist-pending-note--automatic"><Icon name="pending_actions" /><p>Estado pendiente automático: faltan {checklistCompletion.missing.length} respuesta{checklistCompletion.missing.length === 1 ? '' : 's'} obligatoria{checklistCompletion.missing.length === 1 ? '' : 's'}.</p></div>}
-        <Choice label="¿El dispositivo está funcionando correctamente?" value={device.funcionamiento} onChange={(value) => patch({ funcionamiento: value })} disabled={checklistLocked} />
-        <Choice label="¿El dispositivo está en uso?" value={device.enUso} onChange={(value) => patch({ enUso: value })} options={['Sí, en uso', 'No, está guardado', 'No']} disabled={checklistLocked} />
+        <Choice label="¿El dispositivo está funcionando correctamente?" value={device.funcionamiento} onChange={(value) => patch({ funcionamiento: value })} disabled={checklistLocked} allowClear />
+        <Choice label="¿El dispositivo está en uso?" value={device.enUso} onChange={(value) => patch({ enUso: value })} options={['Sí, en uso', 'No, está guardado', 'No']} disabled={checklistLocked} allowClear />
         {questionCatalog.loading && <div className="maintenance-question-state"><Icon name="progress_activity" /><span>Cargando preguntas relacionadas con el tipo de dispositivo...</span></div>}
         {dynamicQuestions.map((question) => <MaintenanceQuestionField key={`${question.questionId || question.key}-${question.key}`} question={question} value={device.respuestas?.[question.key] ?? question.value ?? ''} onChange={(value) => updateQuestion(question, value)} disabled={checklistLocked || question.historical} note={question.historical ? 'Pregunta histórica: fue eliminada o desactivada después de este mantenimiento.' : ''} />)}
         {!questionCatalog.loading && !dynamicQuestions.length && <div className="info-box"><Icon name="info" /><p>Este tipo no tiene preguntas específicas activas. Puede agregarlas desde Administración → Preguntas de mantenimiento.</p></div>}

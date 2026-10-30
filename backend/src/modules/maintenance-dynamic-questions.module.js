@@ -12,6 +12,7 @@ import {
   updateRow,
 } from '../infra/sheets.repository.js';
 import { audit } from '../services/audit.service.js';
+import { query, withTransaction } from '../infra/postgres.js';
 import { normalizeMacAddress } from '../services/evidence-media-policy.service.js';
 import { assertProjectEvidenceTargetsStillExist } from '../services/maintenance-evidence-policy.service.js';
 import { createDynamicMaintenanceSpreadsheetReport } from '../services/maintenance-dynamic-spreadsheet.service.js';
@@ -41,6 +42,16 @@ function withQuestionWriteLock(operation) {
   const current = questionWriteTail.then(operation, operation);
   questionWriteTail = current.catch(() => {});
   return current;
+}
+
+// El lock en PostgreSQL protege este catálogo entre instancias de Render.
+function withQuestionTypeLock(typeId, operation) {
+  return withTransaction(async () => {
+    await query('SELECT pg_advisory_xact_lock(hashtext($1), hashtext($2))', [
+      MAINTENANCE_QUESTION_SHEET, typeId,
+    ], { label: 'maintenance.questions.typeLock' });
+    return operation();
+  });
 }
 
 function canManageQuestions(ctx) {
@@ -392,6 +403,7 @@ async function create(ctx) {
     await ensureMaintenanceQuestionCatalog(ctx.user.UsuarioID);
     const typeId = cleanMaintenanceQuestionValue(pick(ctx.payload, ['TipoDispositivoID', 'tipoDispositivoId']));
     const deviceType = await assertMaintenanceDeviceType(typeId);
+    return withQuestionTypeLock(typeId, async () => {
     const text = questionText(ctx.payload);
     if (!text) throw badRequest('Escriba la pregunta o campo que se mostrará para este tipo de dispositivo.');
     const existingQuestions = await readMaintenanceQuestions({ includeInactive: true, typeId });
@@ -418,6 +430,65 @@ async function create(ctx) {
     await appendRow(MAINTENANCE_QUESTION_SHEET, row);
     await audit(ctx, 'CREAR_PREGUNTA_MANTENIMIENTO', MAINTENANCE_QUESTION_SHEET, row.PreguntaDispositivoID, null, row);
     return { ...row, TipoDispositivo: cleanMaintenanceQuestionValue(deviceType.Nombre) };
+    });
+  });
+}
+
+// Se utiliza la misma acción update, autorización y auditoría. Un solo lote
+// atómico evita reordenamientos parciales al mover varias preguntas.
+async function reorderQuestions(ctx) {
+  const typeId = cleanMaintenanceQuestionValue(pick(ctx.payload, ['TipoDispositivoID', 'tipoDispositivoId']));
+  const orderedIds = ctx.payload.orderedQuestionIds;
+  const expected = ctx.payload.expectedQuestionOrder;
+  if (!typeId || !Array.isArray(orderedIds) || !orderedIds.length || orderedIds.length > 1000
+    || !Array.isArray(expected) || orderedIds.some((id) => typeof id !== 'string' || !id.trim())
+    || new Set(orderedIds).size !== orderedIds.length) {
+    throw badRequest('El orden solicitado no es válido. Actualice la lista e inténtelo nuevamente.');
+  }
+  await assertMaintenanceDeviceType(typeId);
+  return withQuestionTypeLock(typeId, async () => {
+    const result = await query(
+      `SELECT "PreguntaDispositivoID", "TipoDispositivoID", "Pregunta", "Orden", "FechaActualizacion"
+       FROM "TipoDispositivoPreguntas"
+       WHERE "__valid"=TRUE AND "TipoDispositivoID"=$1
+       ORDER BY "__db_id" ASC
+       FOR UPDATE`,
+      [typeId], { label: 'maintenance.questions.reorder.current' },
+    );
+    const rows = result.rows;
+    const current = new Map(rows.map((row) => [String(row.PreguntaDispositivoID), row]));
+    const prior = new Map(expected.map((item) => [String(item?.id || ''), item]));
+    if (rows.length !== orderedIds.length || expected.length !== rows.length || prior.size !== rows.length
+      || orderedIds.some((id) => !current.has(id))
+      || rows.some((row) => {
+        const original = prior.get(String(row.PreguntaDispositivoID));
+        return !original || Number(original.order) !== Number(row.Orden || 0)
+          || String(original.updatedAt || '') !== String(row.FechaActualizacion || '');
+      })) {
+      throw badRequest('Otro administrador cambió las preguntas. Actualice la lista antes de reordenar.');
+    }
+    const now = nowIso();
+    const positions = orderedIds.map((_, index) => String((index + 1) * 10));
+    const changed = orderedIds.some((id, index) => Number(current.get(id).Orden || 0) !== Number(positions[index]));
+    if (!changed) return { items: rows };
+    const updated = await query(
+      `UPDATE "TipoDispositivoPreguntas" AS q
+       SET "Orden"=next.position,
+           "ActualizadoPor"=$3,
+           "FechaActualizacion"=$4,
+           "__payload"=COALESCE(q."__payload", '{}'::jsonb)
+             || jsonb_build_object('Orden', next.position, 'ActualizadoPor', $3::text, 'FechaActualizacion', $4::text)
+       FROM UNNEST($1::text[], $2::text[]) AS next(id, position)
+       WHERE q."__valid"=TRUE AND q."TipoDispositivoID"=$5 AND q."PreguntaDispositivoID"=next.id
+       RETURNING q."PreguntaDispositivoID", q."Orden", q."FechaActualizacion"`,
+      [orderedIds, positions, ctx.user.UsuarioID, now, typeId],
+      { label: 'maintenance.questions.reorder.batch', write: true },
+    );
+    if (updated.rowCount !== rows.length) throw badRequest('No se pudo guardar el orden completo.');
+    await audit(ctx, 'REORDENAR_PREGUNTAS_MANTENIMIENTO', MAINTENANCE_QUESTION_SHEET, typeId,
+      rows.map((row) => ({ id: row.PreguntaDispositivoID, orden: row.Orden })),
+      orderedIds.map((id, index) => ({ id, orden: positions[index] })));
+    return { items: updated.rows };
   });
 }
 
@@ -425,10 +496,15 @@ async function update(ctx) {
   if (!canManageQuestions(ctx)) throw forbidden('No cuenta con permiso para administrar preguntas de mantenimiento.');
   return withQuestionWriteLock(async () => {
     await ensureMaintenanceQuestionCatalog(ctx.user.UsuarioID);
+    if (Object.prototype.hasOwnProperty.call(ctx.payload || {}, 'orderedQuestionIds')) {
+      return reorderQuestions(ctx);
+    }
     const id = cleanMaintenanceQuestionValue(pick(ctx.payload, ['PreguntaDispositivoID', 'preguntaDispositivoId', 'questionId', 'id']));
     if (!id) throw badRequest('Falta el identificador de la pregunta.');
+    const existing = await findById(MAINTENANCE_QUESTION_SHEET, id);
+    const typeId = cleanMaintenanceQuestionValue(existing.TipoDispositivoID);
+    return withQuestionTypeLock(typeId, async () => {
     const before = await findById(MAINTENANCE_QUESTION_SHEET, id);
-    const typeId = cleanMaintenanceQuestionValue(before.TipoDispositivoID);
     const patch = {};
 
     if (hasOwn(ctx.payload, ['Pregunta', 'pregunta', 'label', 'nombre'])) {
@@ -462,6 +538,7 @@ async function update(ctx) {
     await audit(ctx, 'EDITAR_PREGUNTA_MANTENIMIENTO', MAINTENANCE_QUESTION_SHEET, id, before, after);
     const deviceType = await findById('TiposDispositivo', typeId).catch(() => null);
     return { ...after, TipoDispositivo: cleanMaintenanceQuestionValue(deviceType?.Nombre) };
+    });
   });
 }
 
@@ -471,10 +548,13 @@ async function remove(ctx) {
     await ensureMaintenanceQuestionCatalog(ctx.user.UsuarioID);
     const id = cleanMaintenanceQuestionValue(pick(ctx.payload, ['PreguntaDispositivoID', 'preguntaDispositivoId', 'questionId', 'id']));
     if (!id) throw badRequest('Falta el identificador de la pregunta.');
+    const existing = await findById(MAINTENANCE_QUESTION_SHEET, id);
+    return withQuestionTypeLock(cleanMaintenanceQuestionValue(existing.TipoDispositivoID), async () => {
     const before = await findById(MAINTENANCE_QUESTION_SHEET, id);
     const after = await softDelete(MAINTENANCE_QUESTION_SHEET, id, ctx.user.UsuarioID);
     await audit(ctx, 'ELIMINAR_PREGUNTA_MANTENIMIENTO', MAINTENANCE_QUESTION_SHEET, id, before, after);
     return after;
+    });
   });
 }
 
@@ -505,7 +585,9 @@ function preserveHistoricalQuestionText(generated, previous) {
     .filter(([key]) => key));
   return generated.map((item) => {
     const saved = previousByKey.get(cleanMaintenanceQuestionValue(item.key));
-    if (!saved) return item;
+    // Los metadatos del catálogo activo son la fuente de verdad al guardar.
+    // Solo se conserva la definición anterior de preguntas ya históricas.
+    if (!saved || item.activeAtSave !== false) return item;
     return {
       ...item,
       questionId: cleanMaintenanceQuestionValue(saved.questionId || saved.PreguntaDispositivoID, item.questionId),

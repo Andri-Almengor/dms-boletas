@@ -7,6 +7,7 @@ import {
   legacyMaintenanceQuestions,
   parseMaintenanceAnswers,
   parseMaintenanceQuestionSnapshot,
+  readMaintenanceQuestions,
   resolveMaintenanceQuestionsForType,
 } from './maintenance-question-catalog.service.js';
 import { getConfig } from '../modules/config.module.js';
@@ -165,10 +166,18 @@ function questionFromCatalog(row = {}, index = 0) {
   };
 }
 
-async function questionsForDevice(device) {
+async function questionsForDevice(device, currentOrders) {
   const answers = parseMaintenanceAnswers(device.RespuestasJSON);
   const snapshot = parseMaintenanceQuestionSnapshot(answers.__preguntas);
-  if (snapshot.length) return snapshot.map(questionFromCatalog).filter((item) => item.key && item.label);
+  if (snapshot.length) return snapshot.map(questionFromCatalog)
+    .filter((item) => item.key && item.label)
+    .map((item) => {
+      // Conserva el texto y la respuesta histórica: solo el orden de una
+      // pregunta aún activa procede del catálogo al generar un nuevo Excel.
+      const id = clean(device.TipoDispositivoID || item.typeId);
+      const order = currentOrders.get(`${id}::${item.key}`);
+      return order === undefined ? item : { ...item, order };
+    });
 
   const typeId = clean(device.TipoDispositivoID);
   const typeName = clean(device.TipoDispositivo || device.Categoria);
@@ -178,6 +187,12 @@ async function questionsForDevice(device) {
 }
 
 async function buildSections(data) {
+  // Una lectura de catálogo para todos los dispositivos, sin consultas por tarjeta.
+  const rows = await readMaintenanceQuestions({ includeInactive: false });
+  const currentOrders = new Map(rows.map((row) => [
+    `${clean(row.TipoDispositivoID)}::${clean(row.Clave)}`,
+    Number(row.Orden || 0),
+  ]));
   const groups = new Map();
   for (const device of data.dispositivos || []) {
     const groupId = clean(device.TipoDispositivoID) || `name:${normalize(device.TipoDispositivo || device.Categoria)}`;
@@ -187,7 +202,7 @@ async function buildSections(data) {
       devices: [],
       questionMap: new Map(),
     };
-    const questions = await questionsForDevice(device);
+    const questions = await questionsForDevice(device, currentOrders);
     questions.forEach((question) => {
       const existing = current.questionMap.get(question.key);
       if (!existing || question.order < existing.order) current.questionMap.set(question.key, question);
