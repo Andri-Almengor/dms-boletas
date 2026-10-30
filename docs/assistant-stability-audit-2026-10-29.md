@@ -230,3 +230,36 @@ Se añadió a `backend/test/postgres-integration.mjs` una prueba que ejecuta `EX
 Se identificó y corrigió una carrera adicional: `decideAiOperation` aplicaba el TTL de la propuesta a una operación **ya reclamada** (`COMMITTING`). Si el COMMIT continuaba mientras vencía `ExpiresAt`, una segunda consulta de confirmación podía marcar el estado `EXPIRED` aunque el backend estuviese creando boletas. El TTL sigue expirando `PENDING` y `PARTIAL` como antes, pero no se aplica a `COMMITTING`. La recuperación por antigüedad de diez minutos permanece igual y usa la misma operación e IDs originales. Una prueba de integración inserta ambos estados con expiración vencida y verifica el comportamiento sin crear boletas.
 
 **Límite de la simulación:** forzar un estado de base de pruebas y descartar la respuesta del método no reproduce la desconexión real TCP ni matar un proceso de Render; esto debe comprobarse operativamente antes de completar la etapa 8.
+
+## Continuación — diagnóstico seguro para pruebas operativas y desconexiones (29-10-2026)
+
+### No duplicar endpoints: ampliar solamente `/api/ai/health`
+
+El endpoint administrativo existente ya requería `USUARIOS_GESTIONAR` y mostraba contadores agregados de las colas `http-assistant`, `action-ai` y `ai-tool-work`, sin información de usuario. Ahora también reutiliza `postgresSnapshot()` de `infra/postgres.js` para consultar **sin ejecutar SQL adicional** el número de conexiones abiertas, inactivas y en espera, el total acumulado de consultas, errores, consultas lentas, tiempo SQL y espera por conexión. Se incluye `uptimeSeconds` para distinguir arranques recientes de Render de errores de Gemini. Los contadores son acumulados **por proceso**, no promedios del clúster ni telemetría histórica; los valores se reinician cuando Render inicia otra instancia.
+
+`modelRouter` se obtiene del `geminiModelRouterSnapshot()` que ya administra el fallback por modelo y los cooldowns de cuota. Se exponen únicamente modelo activo, cantidad de modelos disponibles, enfriándose o descartados y segundos hasta el siguiente reintento; `modelsConfigured` representa los candidatos que realmente considera el router (cuando existe un primario configurado), incluidos los de `GEMINI_FALLBACK_MODELS`. No se exponen claves, prompts, sesiones, documentos, SQL ni contenido de tickets.
+
+`GET /api/ai/health` continúa exigiendo autorización de administrador con el permiso ya existente. En pruebas, una solicitud sin sesión debe recibir HTTP 401 sin revelar datos SQL. **No** habilitar `HEALTH_DETAILS_PUBLIC` para conseguir estas métricas; utilizar la ruta protegida. El endpoint público `/api/health` sigue con su contrato previo.
+
+### Guía de lectura de las métricas
+
+| Síntoma | Qué comprobar | Interpretación con límites |
+|---|---|---|
+| Primera consulta se demora después de inactividad | `uptimeSeconds` cercano a cero y duración de la primera petición en navegador | Señal de arranque reciente, no prueba de cold start ni latencia de red por sí sola |
+| Chat espera y otras pantallas responden | `queues.aiActions.active` y `waiting` próximos al máximo | Saturación del carril Gemini; comparar con `queues.httpAssistant` |
+| Gemini rechaza respuestas | `modelRouter.coolingModels`, `unavailableModels`, `nextRetrySeconds` | Distinguir agotamiento de cuota/modelo retirado; no presupone que exista otro modelo |
+| El estado de una confirmación tarda | `postgres.waitingCount`, `dbPoolWaitMs` y `dbSlowQueries` | Conexión SQL o consulta lenta; diferenciar contadores acumulados de latencias p95 |
+| Una consulta AI supera su plazo pero sigue ejecutándose | `queues.aiTools.active` y `waiting` | Trabajo real contabilizado hasta terminar, incluso si la UI ya recibió timeout |
+| Se reinician los contadores | Disminuye `uptimeSeconds` | Posible reinicio o cambio de instancia; no inferir por sí solo causa del reinicio |
+
+### Regresión de desconexión HTTP antes de producción
+
+La prueba `backend/test/assistant-http-admission.test.js` emite un evento de desconexión **simulado** después de que una solicitud `assistant` fue admitida y marcada `dmsActionRunning`. Comprueba que `http-assistant` y `http-all` continúan ocupados mientras el backend trabaja, que una solicitud foreground puede ejecutarse, y que los cupos se liberan solo cuando llega el evento `dms-action-settled` del manejador existente. La simulación **no** ejecuta un envío real ni corta una conexión TCP de Render. No prueba por sí sola idempotencia de Google Drive, correo ni Google Chat.
+
+La prueba de seguridad `backend/test/assistant-backend-health-isolation.test.js` requiere HTTP 401 en la ruta de diagnóstico sin sesión y verifica que únicamente aparecen métricas agregadas, incluso con Gemini sin clave. Estas pruebas usan servidor local y objetos simulados; no modifican producción.
+
+### Evidencia operativa aún no verificada
+
+Se intentó consultar de forma no invasiva `https://dms-boletas-mfqj.onrender.com/api/health`, pero la herramienta de navegación no pudo acceder al endpoint. No se debe afirmar que se midieron latencias o arranque frío reales. Además, **el código de este PR no está desplegado**: cualquier métrica que devolviera el Render actual correspondería a `main`, no al branch, hasta que exista un despliegue controlado.
+
+Para aceptar la etapa 8, hacer un despliegue de prueba autorizado del mismo commit del frontend/backend, capturar antes/después de `/api/ai/health` desde una sesión administradora, y probar solamente operaciones de boletas simuladas sin correos ni chats productivos. Proteger la sesión y no pegar respuestas de diagnóstico con tokens en issues o logs. Los resultados y criterios de aceptación están documentados en la matriz anterior.
