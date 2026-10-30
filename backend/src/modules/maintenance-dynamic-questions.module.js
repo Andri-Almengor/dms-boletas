@@ -451,7 +451,7 @@ async function reorderQuestions(ctx) {
       `SELECT "PreguntaDispositivoID", "TipoDispositivoID", "Pregunta", "Orden", "FechaActualizacion"
        FROM "TipoDispositivoPreguntas"
        WHERE "__valid"=TRUE AND "TipoDispositivoID"=$1
-       ORDER BY "Orden"::numeric ASC NULLS LAST, "Pregunta" ASC, "__db_id" ASC
+       ORDER BY NULLIF("Orden",'')::numeric ASC NULLS LAST, "Pregunta" ASC, "__db_id" ASC
        FOR UPDATE`,
       [typeId], { label: 'maintenance.questions.reorder.current' },
     );
