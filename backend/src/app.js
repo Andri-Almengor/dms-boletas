@@ -183,7 +183,7 @@ app.post('/api/action', actionEnvelopeMiddleware, actionRateLimitMiddleware, asy
         } finally {
           observation.markHandlerDuration(performance.now() - handlerStartedAt);
         }
-      }, { signal: req.dmsHttpAbortSignal });
+      }, { signal: req.dmsHttpAbortSignal, assistantAction: envelope.payload?.assistantAction });
     });
     const data = await observation.run(() => runWithActionSingleFlight({
       route: envelope.route,
