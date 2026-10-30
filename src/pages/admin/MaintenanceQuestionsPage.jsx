@@ -5,6 +5,7 @@ import Icon from '../../components/common/Icon';
 import useOverlaySurface from '../../hooks/useOverlaySurface';
 import { getMaintenanceCategory } from '../../config/maintenanceCategories';
 import { compareNatural } from '../../utils/naturalSort';
+import { moveMaintenanceQuestionIds } from '../../utils/maintenanceQuestionInteractions.js';
 import { MODULE_ROUTES, normalizeItems, pick, requestAvailable, toBoolean } from '../../services/moduleApi';
 
 const QUESTION_ROUTES = {
@@ -317,8 +318,7 @@ export default function MaintenanceQuestionsPage() {
     const from = originalIds.indexOf(sourceId);
     const to = originalIds.indexOf(targetId);
     if (from < 0 || to < 0) return;
-    const orderedIds = originalIds.filter((id) => id !== sourceId);
-    orderedIds.splice(to, 0, sourceId);
+    const orderedIds = moveMaintenanceQuestionIds(originalIds, sourceId, targetId);
     if (orderedIds.every((id, index) => id === originalIds[index])) return;
     const updatedOrders = new Map(orderedIds.map((id, index) => [id, (index + 1) * 10]));
     const expectedQuestionOrder = rows.map((row) => ({
@@ -627,7 +627,6 @@ export default function MaintenanceQuestionsPage() {
                 {canManage
                   ? <button type="button" className="maintenance-question-drag-handle" disabled={saving} aria-label={`Reordenar ${questionText(question)}: arrastre o use las flechas arriba y abajo`} title="Arrastrar para cambiar el orden" onPointerDown={(event) => onHandlePointerDown(event, id)} onPointerMove={onHandlePointerMove} onPointerUp={onHandlePointerUp} onPointerCancel={resetDrag} onKeyDown={(event) => onHandleKeyDown(event, id, index)}><span className="maintenance-question-order">{Number(question.Orden || 0)}</span><Icon name="drag_indicator" /></button>
                   : <span className="maintenance-question-order">{Number(question.Orden || 0)}</span>}
-                
                 <div><strong>{questionText(question)}</strong><small>{clean(question.AplicaModo || question.appliesTo || 'MANTENIMIENTO')} · {clean(question.TipoRespuesta || question.responseType || 'SI_NO')} · {parseQuestionConfig(question).required === false ? 'Opcional' : 'Obligatoria'} · Clave interna: {clean(question.Clave)}</small></div>
                 <span className={`status-chip ${active ? 'status-chip--active' : 'status-chip--inactive'}`}>{active ? 'ACTIVA' : 'INACTIVA'}</span>
                 {canManage && <div className="maintenance-question-actions">
