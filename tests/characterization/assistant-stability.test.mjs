@@ -165,6 +165,10 @@ test('unavailable Drive image is a known chat failure rather than an ambiguous C
   assert.match(page, /Se conservaron los adjuntos/);
   assert.match(agent, /withTimeout\(\(\) => driveApi\.files\.get\(/);
   assert.match(agent, /deadline - performance\.now\(\)/);
+  assert.match(agent, /loadChatAttachments\(ctx,attachmentIds,\{deadline\}\)/);
+  assert.match(agent, /AI_ATTACHMENTS_UNAVAILABLE/);
+  assert.match(frontend, /AI_ATTACHMENTS_UNAVAILABLE/);
+  assert.match(page, /code === 'AI_ATTACHMENTS_UNAVAILABLE'/);
 });
 
 test('Knowledge skips a redundant refresh only for already-indexed documents', () => {
