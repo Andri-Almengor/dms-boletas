@@ -1,5 +1,6 @@
 import React, { useEffect, useMemo, useState } from 'react';
 import Icon from '../common/Icon';
+import { sortOptionsNaturally } from '../../utils/naturalSort';
 import MaintenanceEvidenceImage from './MaintenanceEvidenceImage';
 import MaintenanceProjectProgressChecklist from './MaintenanceProjectProgressChecklist';
 import { pick } from '../../services/moduleApi';
@@ -216,7 +217,7 @@ export default function MaintenanceProjectDeviceDetail({
       <div className="maintenance-inventory-evidence-heading">
         <div><strong>Evidencias</strong><span>{images.length} de {allImages.length} archivo{allImages.length === 1 ? '' : 's'} · más reciente primero</span></div>
         <div className="maintenance-project-evidence-heading-actions">
-          {targetOptions.length > 1 && <label className="maintenance-project-evidence-filter"><span>Mostrar</span><select value={evidenceTargetFilter} onChange={(event) => setEvidenceTargetFilter(event.target.value)}><option value="TODAS">Todas las evidencias</option>{targetOptions.map((target) => <option key={target.value} value={target.value}>{target.label}</option>)}</select></label>}
+          {targetOptions.length > 1 && <label className="maintenance-project-evidence-filter"><span>Mostrar</span><select value={evidenceTargetFilter} onChange={(event) => setEvidenceTargetFilter(event.target.value)}><option value="TODAS">Todas las evidencias</option>{sortOptionsNaturally(targetOptions).map((target) => <option key={target.value} value={target.value}>{target.label}</option>)}</select></label>}
           {evidenceEnabled && pending && canEdit && onAddEvidence && <button className="button button--secondary button--compact" type="button" onClick={() => onAddEvidence(device)}><Icon name="add_a_photo" />Agregar evidencia</button>}
         </div>
       </div>
