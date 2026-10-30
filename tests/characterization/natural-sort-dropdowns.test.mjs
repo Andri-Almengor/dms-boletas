@@ -45,7 +45,7 @@ test('ubicaciones de equipo se ordenan naturalmente sin priorizar sede ni altera
   assert.match(selector, /sortItemsNaturally\(locations, \(item\) => item\.name\)/);
   assert.match(selector, /sortItemsNaturally\(clientLocations, \(location\) => location\.name\)/);
   assert.doesNotMatch(selector, /aPreferred|bPreferred/);
-  assert.match(picker, /existingLocations=\[\]/);
+  assert.match(picker, /existingLocations\s*=\s*\[\]/);
 });
 
 test('boletas, usuarios, clientes, mantenimiento y bóveda usan el orden natural compartido', () => {
