@@ -1,5 +1,6 @@
 import React, { useEffect, useRef, useState } from 'react';
 import Icon from '../common/Icon';
+import { sortOptionsNaturally } from '../../utils/naturalSort';
 import { useAuth } from '../../AuthContext';
 import {
   recoverMaintenanceEvidenceDrafts,
@@ -292,7 +293,7 @@ function DeviceEvidenceUploader({ device, maintenanceId, sessionToken, onClose, 
                     }}
                     disabled={saving}
                   >
-                    {targets.map((target) => <option key={target.value} value={target.value}>{target.label}</option>)}
+                    {sortOptionsNaturally(targets).map((target) => <option key={target.value} value={target.value}>{target.label}</option>)}
                   </select>
                 </label>}
                 <label>
