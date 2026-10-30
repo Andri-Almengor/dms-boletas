@@ -1,4 +1,5 @@
 import React, { useEffect, useMemo, useState } from 'react';
+import { sortItemsNaturally } from '../../utils/naturalSort';
 import { useSearchParams } from 'react-router-dom';
 import { useAuth } from '../../AuthContext';
 import Icon from '../../components/common/Icon';
@@ -67,8 +68,8 @@ function CategoryForm({ form, setForm, busy, error, onSubmit, onCancel }) {
 function CredentialForm({ form, setForm, clients, categories, busy, error, editing, onSubmit, onCancel }) {
   const change = (name) => (event) => setForm((current) => ({ ...current, [name]: event.target.value }));
   return <form className="password-vault-form password-vault-form--credential" onSubmit={onSubmit} autoComplete="off">
-    <label><span>Cliente *</span><select value={form.clientId} onChange={change('clientId')} required><option value="">Seleccione un cliente</option>{clients.filter((item) => item.active).map((client) => <option key={client.id} value={client.id}>{client.name}</option>)}</select></label>
-    <label><span>Categoría *</span><select value={form.categoryId} onChange={change('categoryId')} required><option value="">Seleccione una categoría</option>{categories.filter((item) => item.active).map((category) => <option key={category.id} value={category.id}>{category.name}</option>)}</select></label>
+    <label><span>Cliente *</span><select value={form.clientId} onChange={change('clientId')} required><option value="">Seleccione un cliente</option>{sortItemsNaturally(clients.filter((item) => item.active), (client) => client.name).map((client) => <option key={client.id} value={client.id}>{client.name}</option>)}</select></label>
+    <label><span>Categoría *</span><select value={form.categoryId} onChange={change('categoryId')} required><option value="">Seleccione una categoría</option>{sortItemsNaturally(categories.filter((item) => item.active), (category) => category.name).map((category) => <option key={category.id} value={category.id}>{category.name}</option>)}</select></label>
     <label className="is-wide"><span>Nombre del sistema o servicio *</span><input value={form.name} onChange={change('name')} maxLength="250" required placeholder="Ej. Milestone XProtect, NVR Recepción, Lenel OnGuard" /></label>
     <label><span>Usuario *</span><input value={form.username} onChange={change('username')} maxLength="500" required autoComplete="off" placeholder="Ej. Admin" /></label>
     <label><span>Contraseña {editing ? '' : '*'}</span><input value={form.password} onChange={change('password')} type="password" maxLength="4096" required={!editing} autoComplete="new-password" placeholder={editing ? 'Déjela vacía para conservar la actual' : 'Escriba la contraseña'} /></label>
@@ -369,7 +370,7 @@ export default function PasswordVaultPage() {
 
     <section className="password-vault-toolbar">
       <label><Icon name="search" /><input type="search" value={search} onChange={(event) => changeSearch(event.target.value)} placeholder="Buscar cliente, categoría, sistema, usuario, URL o nota..." aria-label="Buscar credenciales" enterKeyHint="search" autoComplete="off" /></label>
-      <select value={clientFilter} onChange={(event) => changeClientFilter(event.target.value)}><option value="">Todos los clientes</option>{data.clients.map((client) => <option key={client.id} value={client.id}>{client.name} ({client.credentialCount})</option>)}</select>
+      <select value={clientFilter} onChange={(event) => changeClientFilter(event.target.value)}><option value="">Todos los clientes</option>{sortItemsNaturally(data.clients, (client) => client.name).map((client) => <option key={client.id} value={client.id}>{client.name} ({client.credentialCount})</option>)}</select>
       <button type="button" className="button button--secondary button--compact" onClick={() => load()} disabled={loading}><Icon name={loading ? 'progress_activity' : 'refresh'} />Actualizar</button>
     </section>
 
