@@ -36,6 +36,7 @@ test('existing admin AI health exposes aggregate HTTP/AI queues without request 
   assert.equal(typeof diagnostic.enabled, 'boolean');
   assert.equal(diagnostic.queues.httpAssistant.lane, 'http-assistant');
   assert.equal(diagnostic.queues.aiActions.lane, 'action-ai');
+  assert.equal(diagnostic.queues.aiTools.lane, 'ai-tool-work');
   for (const queue of Object.values(diagnostic.queues)) {
     assert.ok(Number.isInteger(queue.active));
     assert.ok(Number.isInteger(queue.waiting));
