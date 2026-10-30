@@ -4,6 +4,7 @@ import { useAuth } from '../../AuthContext';
 import Icon from '../../components/common/Icon';
 import AdminEntityModal from '../../components/forms/AdminEntityModal';
 import { indexCatalogById } from '../../utils/catalogCollection';
+import { sortItemsNaturally } from '../../utils/naturalSort';
 import { MODULE_ROUTES, normalizeItems, pick, requestAvailable, toBoolean } from '../../services/moduleApi';
 
 const TABS = [
@@ -37,7 +38,7 @@ function TextField({ label, multiline = false, ...props }) {
 }
 
 function Select({ label, records, idKeys, labelKeys, ...props }) {
-  return <label className="field-group"><span className="field-label">{label}</span><select className="form-control" {...props}><option value="">Seleccione</option>{records.map((record) => <option key={pick(record, idKeys)} value={pick(record, idKeys)}>{pick(record, labelKeys)}</option>)}</select></label>;
+  return <label className="field-group"><span className="field-label">{label}</span><select className="form-control" {...props}><option value="">Seleccione</option>{sortItemsNaturally(records, (record) => pick(record, labelKeys)).map((record) => <option key={pick(record, idKeys)} value={pick(record, idKeys)}>{pick(record, labelKeys)}</option>)}</select></label>;
 }
 
 function emptyValues() {
