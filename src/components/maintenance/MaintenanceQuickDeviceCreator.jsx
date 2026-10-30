@@ -3,6 +3,7 @@ import Icon from '../common/Icon';
 import ProcessingOverlay from '../feedback/ProcessingOverlay';
 import MaintenanceDeviceEditor from './MaintenanceDeviceEditor';
 import TechnicianMultiSelect from '../forms/TechnicianMultiSelect';
+import { sortOptionsNaturally, sortItemsNaturally } from '../../utils/naturalSort';
 import { MaintenanceCountsProvider } from '../../context/MaintenanceCountsContext';
 import {
   hasSelectedMaintenanceCategory,
@@ -283,7 +284,7 @@ export default function MaintenanceQuickDeviceCreator({
   }
 
   const bulkNames = parseBulkMaintenanceDeviceNames(bulkNamesInput);
-  const bulkTypes = selectedMaintenanceCategories(availableDeviceTypes, maintenanceCounts);
+  const bulkTypes = sortItemsNaturally(selectedMaintenanceCategories(availableDeviceTypes, maintenanceCounts), (item) => item.label || item.key);
   const bulkSelectedType = bulkTypes.find((item) => String(item.typeId || `legacy:${item.key}`) === bulkTypeSelection)
     || (!bulkTypeSelection ? bulkTypes[0] : null);
   const bulkDoneCount = bulkEntries.filter((item) => item.done).length;
@@ -390,7 +391,7 @@ export default function MaintenanceQuickDeviceCreator({
               <label className="field-group"><span className="field-label">Ubicación de los dispositivos</span>
                 <select className="form-control" value={bulkLocationId} onChange={(event) => setBulkLocationId(event.target.value)} disabled={saving || bulkEntries.length > 0}>
                   <option value="">Seleccione una ubicación</option>
-                  {equipmentOptions.map((item) => <option key={item.value} value={item.value}>{item.label}</option>)}
+                  {sortOptionsNaturally(equipmentOptions).map((item) => <option key={item.value} value={item.value}>{item.label}</option>)}
                 </select>
               </label>
               <div className="maintenance-bulk-device-form__technicians">
