@@ -48,10 +48,7 @@ export default function DependentSelect({
   const showAddButton = Boolean(onAdd) && (canAdd || canAddFromOperation);
   const normalizedLabel = normalizeSearch(label);
   const useSearchable = searchable ?? normalizedLabel === 'cliente';
-  const displayedOptions = useMemo(
-    () => normalizedLabel === 'modelo' ? sortOptionsNaturally(options) : options,
-    [normalizedLabel, options],
-  );
+  const displayedOptions = useMemo(() => sortOptionsNaturally(options), [options]);
   const selectedOption = displayedOptions.find((option) => String(option.value) === String(value || ''))
     || (value && selectedLabel ? { value: String(value), label: String(selectedLabel) } : null);
 
