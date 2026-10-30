@@ -1482,7 +1482,11 @@ export async function decideAiOperation(ctx,args={}){
   if(!operationId)throw badRequest('Falta operationId.');
   let op=await findOperation(ctx,operationId);
   assertOperationPermission(ctx,op.Action);
-  if(expired(op.ExpiresAt)&&!['COMMITTED','CANCELLED'].includes(String(op.Status||''))){
+  // TTL limita la ventana de confirmación de una propuesta, no una ejecución
+  // ya reclamada por PostgreSQL. Expirar COMMITTING mientras aún procesa
+  // boletas puede ocultar un COMMIT real y producir un estado engañoso.
+  // La recuperación stale existente (10 min, UUID determinísticos) se conserva.
+  if(expired(op.ExpiresAt)&&!['COMMITTED','CANCELLED','COMMITTING'].includes(String(op.Status||''))){
     await finishOperation(operationId,'EXPIRED',operationResult(op)||{},null);
     throw new AppError('AI_OPERATION_EXPIRED','La confirmación expiró. Prepare la operación nuevamente.',409);
   }
