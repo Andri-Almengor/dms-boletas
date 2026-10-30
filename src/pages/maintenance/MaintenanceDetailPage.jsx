@@ -376,14 +376,18 @@ export default function MaintenanceDetailPage() {
     setQuickDeviceLocation(location);
   }
 
-  function editDevice(device) {
+  function editDevice(device, inventoryContext = null) {
     const id = String(pick(device, ['EvidenciaMantenimientoID', 'deviceId', 'id']));
     if (!id) {
       setError('No fue posible identificar el dispositivo seleccionado.');
       return;
     }
     navigate(`/mantenimientos/${encodeURIComponent(maintenanceId)}/editar?directDevice=1&device=${encodeURIComponent(id)}`, {
-      state: { ...routeLocation.state, returnTo: detailUrl },
+      state: {
+        ...routeLocation.state,
+        returnTo: detailUrl,
+        ...(inventoryContext ? { maintenanceInventory: inventoryContext } : {}),
+      },
     });
   }
 
@@ -509,6 +513,7 @@ export default function MaintenanceDetailPage() {
         maintenanceId={maintenanceId}
         devices={devices}
         locations={maintenanceLocations}
+        returnContext={routeLocation.state?.maintenanceInventory}
         status={status}
         canEdit={canEdit}
         sessionToken={sessionToken}
@@ -531,7 +536,14 @@ export default function MaintenanceDetailPage() {
       </section>
 
       <MaintenanceLocationPickerModal open={locationPickerOpen} clientId={String(pick(row, ['ClienteID', 'ClienteRef'], ''))} maintenanceLocationId={String(pick(row, ['UbicacionID'], ''))} existingLocations={maintenanceLocations} saving={working === 'locations'} onClose={() => setLocationPickerOpen(false)} onSave={addLocation} />
-      {quickDeviceLocation && <MaintenanceQuickDeviceCreator maintenanceId={maintenanceId} sessionToken={sessionToken} initialEquipmentLocation={quickDeviceLocation} bulk={quickDeviceBulk} availableDeviceTypes={maintenanceCatalogs.deviceTypes} onClose={() => setQuickDeviceLocation(null)} onCreated={(feedback) => { if (feedback?.bulk && !feedback.partial) setNotice(`${feedback.count} dispositivos ${feedback.offlinePending ? 'guardados (pendientes de sincronizar)' : 'agregados'} en “${feedback.locationName}”.`); return load({ silent: true, forceSync: navigator.onLine !== false }); }} />}
+      {quickDeviceLocation && <MaintenanceQuickDeviceCreator maintenanceId={maintenanceId} sessionToken={sessionToken} initialEquipmentLocation={quickDeviceLocation} bulk={quickDeviceBulk} availableDeviceTypes={maintenanceCatalogs.deviceTypes} onClose={() => setQuickDeviceLocation(null)} onCreated={(feedback) => {
+        if (feedback?.bulk) {
+          setNotice(`${feedback.count} dispositivos ${feedback.offlinePending ? 'guardados (pendientes de sincronizar)' : 'agregados'} en “${feedback.locationName}”.`);
+        } else {
+          setNotice(`Dispositivo “${feedback.deviceName}” ${feedback.offlinePending ? 'guardado offline' : 'agregado'} en “${feedback.locationName}”.`);
+        }
+        return load({ silent: true, forceSync: navigator.onLine !== false });
+      }} />}
       {evidenceDevice && <MaintenanceEvidenceUploader device={evidenceDevice} maintenanceId={maintenanceId} sessionToken={sessionToken} projectMode={projectMode} onClose={() => setEvidenceDevice(null)} onUploaded={() => load({ silent: true, forceSync: navigator.onLine !== false })} />}
       {!projectMode && quickEvidenceOpen && <MaintenanceEvidenceUploader devices={devices} maintenanceId={maintenanceId} sessionToken={sessionToken} onClose={() => setQuickEvidenceOpen(false)} onUploaded={() => load({ silent: true, forceSync: navigator.onLine !== false })} />}
       {editingEvidence && <MaintenanceEvidenceEditor image={editingEvidence.image} device={editingEvidence.device} maintenanceId={maintenanceId} sessionToken={sessionToken} isAdmin={isAdmin} projectMode={projectMode} onClose={() => setEditingEvidence(null)} onUpdated={() => load({ silent: true, forceSync: navigator.onLine !== false })} />}

@@ -133,6 +133,6 @@ test('la ubicación muestra un estado offline compacto y editable', () => {
   assert.match(feedback, /statusTitle\.textContent = 'Guardado offline'/);
   assert.match(feedback, /statusText\.textContent = 'Pendiente de sincronizar'/);
   assert.match(feedback, /Editar dispositivo y evidencias/);
-  assert.match(feedback, /resetInventoryFilters/);
-  assert.match(feedback, /scrollIntoView/);
+  assert.doesNotMatch(feedback, /resetInventoryFilters/);
+  assert.doesNotMatch(feedback, /scrollIntoView/);
 });
