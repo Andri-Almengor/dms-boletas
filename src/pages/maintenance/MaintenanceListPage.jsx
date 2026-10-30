@@ -1,4 +1,5 @@
 import React, { useEffect, useMemo, useState } from 'react';
+import { compareNatural } from '../../utils/naturalSort';
 import { Link, useLocation, useNavigate, useSearchParams } from 'react-router-dom';
 import { useAuth } from '../../AuthContext';
 import Icon from '../../components/common/Icon';
@@ -177,7 +178,7 @@ export default function MaintenanceListPage() {
       const data = await requestAvailable(MODULE_ROUTES.clients.list, { page: 1, pageSize: 300, activo: true, sortBy: 'Nombre', sortDir: 'asc' }, sessionToken, { signal: controller.signal });
       setClientOptions(Array.from(new Set(normalizeItems(data).map((row) => String(pick(row,['Clientes','Cliente','Nombre'],'')).trim()).filter(Boolean))));
     } catch {
-      setClientOptions(Array.from(new Set(records.map((row) => String(pick(row,['Cliente','ClienteRef'],'')).trim()).filter(Boolean))).sort((a,b) => a.localeCompare(b,'es')));
+      setClientOptions(Array.from(new Set(records.map((row) => String(pick(row,['Cliente','ClienteRef'],'')).trim()).filter(Boolean))).sort(compareNatural));
     } finally { setFilterLoading(false); }
   }
 
