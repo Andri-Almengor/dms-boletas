@@ -83,15 +83,28 @@ export function parseMaintenanceAnswers(device = {}) {
   return { answers, metadataQuestions };
 }
 
+// Solo las respuestas se recuperan del dispositivo. Una pregunta activa debe
+// mostrarse con el texto, orden, tipo y configuración actuales del catálogo.
+export function activeMaintenanceQuestionView(question, saved) {
+  return saved ? { ...question, value: saved.value ?? '' } : question;
+}
+
 export function maintenanceChecklistCompletion(device = {}, fallbackQuestions = []) {
   const { answers, metadataQuestions } = parseMaintenanceAnswers(device);
   const explicitQuestions = Array.isArray(device.questionDetails) ? device.questionDetails : [];
-  const questionSource = [
-    ...(Array.isArray(fallbackQuestions) ? fallbackQuestions : []),
+  // El catálogo vigente (fallbackQuestions) prevalece sobre los metadatos guardados
+  // para una misma clave. No se deben exigir preguntas antiguas ya desactivadas
+  // ni mantener la obligatoriedad anterior tras editar la configuración.
+  const questionsByKey = new Map();
+  for (const question of [
     ...metadataQuestions,
     ...explicitQuestions,
-  ];
-  const requiredQuestions = questionSource
+    ...(Array.isArray(fallbackQuestions) ? fallbackQuestions : []),
+  ]) {
+    const key = questionKey(question);
+    if (key) questionsByKey.set(key, question);
+  }
+  const requiredQuestions = [...questionsByKey.values()]
     .filter(activeQuestion)
     .filter(requiredQuestion);
   const requiredKeys = [...new Set(requiredQuestions
