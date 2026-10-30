@@ -105,7 +105,7 @@ test('client abort signal reaches action lanes but cannot interrupt running oper
   const actions = source('backend/src/services/action-concurrency.service.js');
   const app = source('backend/src/app.js');
   assert.match(middleware, /req\.dmsHttpAbortSignal = controller\.signal/);
-  assert.match(app, /\{ signal: req\.dmsHttpAbortSignal \}/);
+  assert.match(app, /\{ signal: req\.dmsHttpAbortSignal, assistantAction: envelope\.payload\?\.assistantAction \}/);
   assert.match(actions, /if \(signal\?\.aborted\) throw signal\.reason/);
   assert.match(actions, /return await operation\(\)/);
 });
