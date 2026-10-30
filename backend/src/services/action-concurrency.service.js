@@ -42,6 +42,11 @@ function isAssistantStatusLookup(route, assistantAction) {
   return isAssistantChatRoute(route) && normalizedRoute(assistantAction) === 'operation.status';
 }
 
+function isAssistantAttachmentUpload(route, assistantAction) {
+  return isAssistantChatRoute(route)
+    && ['attachment.init', 'attachment.chunk'].includes(normalizedRoute(assistantAction));
+}
+
 function isAiRewriteRoute(route) {
   return [
     'ai.technicalrewrite',
@@ -102,6 +107,7 @@ function addBusyContext(error, route, { heavy, write }) {
 
 export async function runWithActionConcurrency(route, operation, { signal, assistantAction = '' } = {}) {
   const statusLookup = isAssistantStatusLookup(route, assistantAction);
+  const assistantUpload = isAssistantAttachmentUpload(route, assistantAction);
   const heavy = !statusLookup && isHeavyRoute(route);
   const write = !statusLookup && !isReadRoute(route);
   let releaseDedicated;
@@ -116,6 +122,10 @@ export async function runWithActionConcurrency(route, operation, { signal, assis
     // incrementales no deben competir con finalizaciones/reportes pesados.
     if (normalizedRoute(route).startsWith('auth.')) {
       releaseDedicated = await authActions.acquire({ signal });
+    } else if (assistantUpload) {
+      // La transferencia de adjuntos ya utiliza los handlers existentes de
+      // carga de archivos; no debe retener slots para respuestas Gemini.
+      releaseDedicated = await uploadActions.acquire({ signal });
     } else if ((isAssistantChatRoute(route) && !statusLookup) || isAiRewriteRoute(route)) {
       releaseDedicated = await aiActions.acquire({ signal });
     } else if (/evidence|images|imagenes|grande|attachments|adjuntos/.test(normalizedRoute(route))) {
