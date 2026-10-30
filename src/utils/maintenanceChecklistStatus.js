@@ -102,7 +102,11 @@ export function maintenanceChecklistCompletion(device = {}, fallbackQuestions = 
     ...(Array.isArray(fallbackQuestions) ? fallbackQuestions : []),
   ]) {
     const key = questionKey(question);
-    if (key) questionsByKey.set(key, question);
+    if (key) {
+      // Map.set no mueve una clave existente: reinsertar respeta el orden actual.
+      questionsByKey.delete(key);
+      questionsByKey.set(key, question);
+    }
   }
   const requiredQuestions = [...questionsByKey.values()]
     .filter(activeQuestion)
