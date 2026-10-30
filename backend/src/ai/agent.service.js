@@ -1,6 +1,8 @@
 import crypto from 'node:crypto';
 import { performance } from 'node:perf_hooks';
 import { AppError, badRequest } from '../core/errors.js';
+import { AsyncSemaphore } from '../core/semaphore.js';
+import { env } from '../config/env.js';
 import { query, withDbRequestMetrics } from '../infra/postgres.js';
 import { audit } from '../services/audit.service.js';
 import { aiConfig, configuredModels } from './agent.config.js';
@@ -15,6 +17,19 @@ import { sanitizeActiveContext } from './agent.sanitize.js';
 import { declarationsForUser, executeAiTool } from './agent.tools.js';
 
 const REQUESTS=new Map();
+
+// El carril action-ai limita solicitudes completas, pero un Promise.race
+// vencido no detiene la consulta Drive/PostgreSQL que ya arrancó. Reutilizamos
+// AsyncSemaphore para contabilizar el trabajo REAL hasta que se resuelva,
+// evitando acumulaciones tras varios timeouts. No cancela COMMIT ni PREPARE.
+const AI_TOOL_WORK = new AsyncSemaphore({
+  name:'ai-tool-work',
+  max:Math.max(1,env.pgPoolMax),
+  queueLimit:Math.max(2,env.aiActionMaxConcurrent*aiConfig.maxParallelTools),
+  timeoutMs:aiConfig.toolTimeoutMs,
+});
+
+export function aiToolWorkSnapshot(){return AI_TOOL_WORK.snapshot();}
 
 function clean(value,max=4000){return String(value??'').trim().slice(0,max);}
 function uniqueBy(items,key){const seen=new Set();return items.filter(item=>{const value=key(item);if(!value||seen.has(value))return false;seen.add(value);return true;});}
@@ -141,10 +156,33 @@ export function assertRateLimit(ctx){
   recent.push(now);REQUESTS.set(key,recent);
   if(REQUESTS.size>2000){for(const [id,times] of REQUESTS){if(!times.some(ts=>now-ts<60000))REQUESTS.delete(id);}}
 }
-async function withTimeout(promise,ms,name){
-  let timer;
-  try{return await Promise.race([promise,new Promise((_,reject)=>{timer=setTimeout(()=>reject(new AppError('AI_TOOL_TIMEOUT',`La consulta ${name} tardó demasiado.`,504)),Math.max(1,ms));timer.unref?.();})]);}
-  finally{clearTimeout(timer);}
+// Mantiene el límite de tiempo visible para el usuario, pero el slot no se
+// libera hasta que termine la ejecución real. Un timeout nunca finge que una
+// operación PostgreSQL/Drive (y especialmente PREPARE) fue cancelada.
+export async function withTimeout(operation,ms,name){
+  const error=new AppError('AI_TOOL_TIMEOUT',`La consulta ${name} tardó demasiado.`,504);
+  const controller=new AbortController();
+  let rejectDeadline;
+  const deadline=new Promise((_,reject)=>{rejectDeadline=reject;});
+  // También debe quedar manejada si vence mientras se espera el semáforo.
+  deadline.catch(()=>{});
+  const timer=setTimeout(()=>{
+    controller.abort(error);
+    rejectDeadline(error);
+  },Math.max(1,ms));
+  timer.unref?.();
+  try{
+    const release=await AI_TOOL_WORK.acquire({signal:controller.signal});
+    if(controller.signal.aborted){
+      release();
+      throw error;
+    }
+    const work=Promise.resolve().then(operation);
+    // No usar work.finally(release): generaría una promesa rechazada huérfana.
+    // La liberación depende del trabajo REAL, no de Promise.race.
+    work.then(release,release);
+    return await Promise.race([work,deadline]);
+  }finally{clearTimeout(timer);}
 }
 function mergeUi(target,ui={}){
   target.entities.push(...(ui.entities||[]));
@@ -433,7 +471,7 @@ export async function runDmsAgent(ctx, overrides = {}){
           }
           try{
             const measured=await withTimeout(
-              withDbRequestMetrics(()=>executeAiToolFn(ctx,call.name,call.arguments||{})),
+              ()=>withDbRequestMetrics(()=>executeAiToolFn(ctx,call.name,call.arguments||{})),
               Math.max(1,Math.min(aiConfig.toolTimeoutMs,Math.floor(remaining()))),call.name,
             );
             dbQueries+=Number(measured.metrics?.queries||0);dbQueryMs+=Number(measured.metrics?.queryMs||0);
