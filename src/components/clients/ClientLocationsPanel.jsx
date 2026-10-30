@@ -1,6 +1,7 @@
 import React, { useState } from 'react';
 import { useAuth } from '../../AuthContext';
 import Icon from '../common/Icon';
+import { sortItemsNaturally } from '../../utils/naturalSort';
 import { MODULE_ROUTES, normalizeItems, pick, requestAvailable, toBoolean } from '../../services/moduleApi';
 
 const EMPTY_LOCATION = {
@@ -365,7 +366,7 @@ export default function ClientLocationsPanel({ clientId, clientName }) {
                               <label className="field-group">
                                 <span className="field-label">Ubicación padre</span>
                                 <select className="form-control" value={equipmentForm.parentId} onChange={(event) => setEquipmentForm((current) => ({ ...current, parentId: event.target.value }))} required>
-                                  {items.map((locationRecord) => {
+                                  {sortItemsNaturally(items, (item) => locationView(item).nombre).map((locationRecord) => {
                                     const option = locationView(locationRecord);
                                     return <option key={option.id} value={option.id}>{option.nombre || 'Sin nombre'}{option.status === 'INACTIVO' ? ' (INACTIVA)' : ''}</option>;
                                   })}

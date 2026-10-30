@@ -45,6 +45,7 @@ import './gemini-model-rotation.test.mjs';
 import './indexeddb-version-recovery.test.mjs';
 import './knowledge-long-content.test.mjs';
 import './model-order-mac-format.test.mjs';
+import './natural-sort-dropdowns.test.mjs';
 import './list-pages.test.mjs';
 import './maintenance-checklist-status.test.mjs';
 import './maintenance-device-created-feedback.test.mjs';

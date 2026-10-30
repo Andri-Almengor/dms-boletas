@@ -45,7 +45,8 @@ test('boletas y dispositivos de mantenimiento reutilizan el mismo formato MAC y 
   const ticketForm = source('src/pages/tickets/TicketFormPage.jsx');
   const maintenanceEditor = source('src/components/maintenance/MaintenanceDeviceEditor.jsx');
 
-  assert.match(dependentSelect, /normalizedLabel === 'modelo'/);
+  // El orden natural ahora aplica a todos los catálogos del selector compartido, no solo a Modelo.
+  assert.match(dependentSelect, /const displayedOptions = useMemo\(\(\) => sortOptionsNaturally\(options\), \[options\]\)/);
   assert.match(dependentSelect, /sortOptionsNaturally\(options\)/);
   assert.match(dependentSelect, /displayedOptions\.map/);
   assert.match(formField, /formatMacAddressInput/);

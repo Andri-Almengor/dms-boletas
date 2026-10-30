@@ -1,5 +1,6 @@
 import React, { useMemo, useState } from 'react';
 import Icon from '../common/Icon';
+import { sortOptionsNaturally } from '../../utils/naturalSort';
 
 function normalized(value) {
   return String(value || '')
@@ -15,9 +16,9 @@ export default function TechnicianMultiSelect({ users = [], selectedIds = [], on
   const selectedSet = useMemo(() => new Set(selectedIds.map(String)), [selectedIds]);
   const filtered = useMemo(() => {
     const term = normalized(search);
-    return users.filter((item) => !term || normalized(`${item.label} ${item.note || ''}`).includes(term));
+    return sortOptionsNaturally(users.filter((item) => !term || normalized(`${item.label} ${item.note || ''}`).includes(term)));
   }, [users, search]);
-  const selected = users.filter((item) => selectedSet.has(String(item.value)));
+  const selected = sortOptionsNaturally(users.filter((item) => selectedSet.has(String(item.value))));
 
   function toggle(value) {
     const id = String(value);

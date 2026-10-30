@@ -1,6 +1,7 @@
 import React, { useState } from 'react';
 import { useAuth } from '../../AuthContext';
 import Icon from '../common/Icon';
+import { sortOptionsNaturally } from '../../utils/naturalSort';
 import MaintenanceEvidenceImage from './MaintenanceEvidenceImage';
 import useOverlaySurface from '../../hooks/useOverlaySurface';
 import { MODULE_ROUTES, pick, requestAvailable } from '../../services/moduleApi';
@@ -124,7 +125,7 @@ export default function MaintenanceEvidenceEditor({
             {projectMode && <label className="field-group">
               <span className="field-label">Corresponde a</span>
               <select className="form-control" value={targetValue} onChange={(event) => setTargetValue(event.target.value)} disabled={saving}>
-                {targets.map((target) => <option key={target.value} value={target.value}>{target.label}</option>)}
+                {sortOptionsNaturally(targets).map((target) => <option key={target.value} value={target.value}>{target.label}</option>)}
               </select>
             </label>}
             {projectMode && <div className="maintenance-project-evidence-time"><Icon name="schedule" /><div><span>Fecha y hora</span><strong>{new Intl.DateTimeFormat('es-CR', { dateStyle: 'medium', timeStyle: 'short' }).format(new Date(pick(image, ['FechaCaptura', 'FechaCreacion'], Date.now())))}</strong></div></div>}

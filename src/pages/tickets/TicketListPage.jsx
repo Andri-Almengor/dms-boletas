@@ -4,6 +4,7 @@ import { useAuth } from '../../AuthContext';
 import Icon from '../../components/common/Icon';
 import FilterDrawer from '../../components/forms/FilterDrawer';
 import TicketCard from '../../components/tickets/TicketCard';
+import { sortOptionsNaturally } from '../../utils/naturalSort';
 import usePaginatedResource from '../../hooks/usePaginatedResource';
 import { MODULE_ROUTES, normalizeItems, pick, requestAvailable } from '../../services/moduleApi';
 import {
@@ -17,7 +18,7 @@ const TICKET_PAGE_SIZE = 50;
 const EMPTY_FILTERS = { clienteId: '', dateFrom: '', dateTo: '', asignadoUsuarioId: '', categoriaId: '', tipoDispositivoId: '', fabricanteId: '', modeloId: '' };
 
 function Select({ label, value, onChange, options }) {
-  return <label className="field-group"><span className="field-label">{label}</span><select className="form-control" value={value} onChange={onChange}><option value="">Todos</option>{options.map((option) => <option key={option.value} value={option.value}>{option.label}</option>)}</select></label>;
+  return <label className="field-group"><span className="field-label">{label}</span><select className="form-control" value={value} onChange={onChange}><option value="">Todos</option>{sortOptionsNaturally(options).map((option) => <option key={option.value} value={option.value}>{option.label}</option>)}</select></label>;
 }
 function options(records, idKeys, labelKeys) { return records.map((record) => ({ value: String(pick(record, idKeys)), label: pick(record, labelKeys) })).filter((item) => item.value && item.label); }
 function invalidDateRange(filters) { return Boolean(filters.dateFrom && filters.dateTo && filters.dateFrom > filters.dateTo); }

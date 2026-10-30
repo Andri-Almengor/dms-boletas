@@ -1,4 +1,5 @@
 import React, { useCallback, useMemo, useState } from 'react';
+import { sortItemsNaturally } from '../../utils/naturalSort';
 import { useAuth } from '../../AuthContext';
 import Icon from '../common/Icon';
 import { requestAvailable } from '../../services/moduleApi';
@@ -87,9 +88,9 @@ export default function TicketMetricsDashboard() {
     </div>
 
     <section className="metrics-filters">
-      <label><span>Cliente</span><select value={filters.cliente} onChange={(event) => updateFilter('cliente', event.target.value)} disabled={loading}><option value="">Todos los clientes</option>{(options.clientes || []).map((item) => <option key={item} value={item}>{item}</option>)}</select></label>
+      <label><span>Cliente</span><select value={filters.cliente} onChange={(event) => updateFilter('cliente', event.target.value)} disabled={loading}><option value="">Todos los clientes</option>{sortItemsNaturally(options.clientes || []).map((item) => <option key={item} value={item}>{item}</option>)}</select></label>
       <label><span>Fecha</span><select value={filters.fecha} onChange={(event) => updateFilter('fecha', event.target.value)} disabled={loading}><option value="">Todas las fechas</option>{(options.fechas || []).map((item) => <option key={item} value={item}>{item}</option>)}</select></label>
-      <label><span>Tipo de falla</span><select value={filters.tipoFalla} onChange={(event) => updateFilter('tipoFalla', event.target.value)} disabled={loading}><option value="">Todos los tipos</option>{(options.tiposFalla || []).map((item) => <option key={item} value={item}>{item}</option>)}</select></label>
+      <label><span>Tipo de falla</span><select value={filters.tipoFalla} onChange={(event) => updateFilter('tipoFalla', event.target.value)} disabled={loading}><option value="">Todos los tipos</option>{sortItemsNaturally(options.tiposFalla || []).map((item) => <option key={item} value={item}>{item}</option>)}</select></label>
       <label><span>Estado</span><select value={filters.estado} onChange={(event) => updateFilter('estado', event.target.value)} disabled={loading}><option value="">Todos los estados</option>{(options.estados || []).map((item) => <option key={item.value} value={item.value}>{item.label}</option>)}</select></label>
       <button type="button" className="button button--ghost" onClick={() => setFilters(INITIAL_FILTERS)} disabled={loading || !activeFilters.length}><Icon name="filter_alt_off" />Limpiar</button>
     </section>

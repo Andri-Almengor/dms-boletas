@@ -4,6 +4,7 @@ import { useAuth } from '../../AuthContext';
 import Icon from '../../components/common/Icon';
 import useOverlaySurface from '../../hooks/useOverlaySurface';
 import { getMaintenanceCategory } from '../../config/maintenanceCategories';
+import { compareNatural } from '../../utils/naturalSort';
 import { MODULE_ROUTES, normalizeItems, pick, requestAvailable, toBoolean } from '../../services/moduleApi';
 
 const QUESTION_ROUTES = {
@@ -209,7 +210,7 @@ export default function MaintenanceQuestionsPage() {
         requestAvailable(MODULE_ROUTES.deviceTypes.list, { page: 1, pageSize: 1000, includeTotal: false, includeInactive: canManage, sortBy: 'Nombre', sortDir: 'asc' }, sessionToken),
         requestAvailable(QUESTION_ROUTES.list, { page: 1, pageSize: 1000, includeTotal: false, includeTypeName: false, includeInactive: canManage, sortBy: 'Orden', sortDir: 'asc' }, sessionToken),
       ]);
-      setDeviceTypes(normalizeItems(typeData).sort((left, right) => typeName(left).localeCompare(typeName(right), 'es')));
+      setDeviceTypes(normalizeItems(typeData).sort((left, right) => compareNatural(typeName(left), typeName(right))));
       setQuestions(normalizeItems(questionData));
     } catch (requestError) {
       setError(requestError?.message || 'No se pudo cargar el panel de preguntas.');

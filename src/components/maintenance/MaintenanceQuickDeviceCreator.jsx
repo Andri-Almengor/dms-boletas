@@ -3,6 +3,7 @@ import Icon from '../common/Icon';
 import ProcessingOverlay from '../feedback/ProcessingOverlay';
 import MaintenanceDeviceEditor from './MaintenanceDeviceEditor';
 import TechnicianMultiSelect from '../forms/TechnicianMultiSelect';
+import { sortOptionsNaturally, sortItemsNaturally } from '../../utils/naturalSort';
 import { MaintenanceCountsProvider } from '../../context/MaintenanceCountsContext';
 import {
   hasSelectedMaintenanceCategory,
@@ -384,13 +385,13 @@ export default function MaintenanceQuickDeviceCreator({
             <div className="maintenance-bulk-device-form__fields">
               <label className="field-group"><span className="field-label">Tipo de dispositivo</span>
                 <select className="form-control" value={bulkTypeSelection || (bulkTypes[0] ? String(bulkTypes[0].typeId || `legacy:${bulkTypes[0].key}`) : '')} onChange={(event) => setBulkTypeSelection(event.target.value)} disabled={saving || bulkEntries.length > 0}>
-                  {bulkTypes.map((item) => <option key={item.typeId || item.key} value={item.typeId || `legacy:${item.key}`}>{item.label || item.key}</option>)}
+                  {sortItemsNaturally(bulkTypes, (item) => item.label || item.key).map((item) => <option key={item.typeId || item.key} value={item.typeId || `legacy:${item.key}`}>{item.label || item.key}</option>)}
                 </select>
               </label>
               <label className="field-group"><span className="field-label">Ubicación de los dispositivos</span>
                 <select className="form-control" value={bulkLocationId} onChange={(event) => setBulkLocationId(event.target.value)} disabled={saving || bulkEntries.length > 0}>
                   <option value="">Seleccione una ubicación</option>
-                  {equipmentOptions.map((item) => <option key={item.value} value={item.value}>{item.label}</option>)}
+                  {sortOptionsNaturally(equipmentOptions).map((item) => <option key={item.value} value={item.value}>{item.label}</option>)}
                 </select>
               </label>
               <div className="maintenance-bulk-device-form__technicians">
