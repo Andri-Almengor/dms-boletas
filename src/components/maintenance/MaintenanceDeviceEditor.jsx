@@ -2,6 +2,7 @@ import React, { useEffect, useMemo, useRef, useState } from 'react';
 import { useAuth } from '../../AuthContext';
 import AutosaveIndicator from '../feedback/AutosaveIndicator';
 import Icon from '../common/Icon';
+import { sortOptionsNaturally } from '../../utils/naturalSort';
 import TechnicianMultiSelect from '../forms/TechnicianMultiSelect';
 import MaintenanceDeviceCatalogFields from './MaintenanceDeviceCatalogFields';
 import MaintenanceEquipmentLocationSelect from './MaintenanceEquipmentLocationSelect';
@@ -629,7 +630,7 @@ export default function MaintenanceDeviceEditor({
                   ProyectoComponenteTipoDispositivoID: targetPatch.projectComponentTypeId,
                   ProyectoComponenteNombre: targetPatch.projectComponentName,
                 });
-              }} disabled={locked}>{projectEvidenceTargetOptions.map((target) => <option key={target.value} value={target.value}>{target.label}</option>)}</select></label>
+              }} disabled={locked}>{sortOptionsNaturally(projectEvidenceTargetOptions).map((target) => <option key={target.value} value={target.value}>{target.label}</option>)}</select></label>
               <label><span>Nota</span><input value={pick(image, ['Nota'])} onChange={(event) => updateExistingImage(image.id, { Nota: event.target.value })} placeholder="Descripción opcional" disabled={locked} /></label>
               <small className="maintenance-project-evidence-meta"><Icon name="schedule" />{evidenceDateLabel(image)}</small>
             </article>;
@@ -642,7 +643,7 @@ export default function MaintenanceDeviceEditor({
               <label><span>Corresponde a</span><select value={currentTarget} onChange={(event) => {
                 const target = projectEvidenceTargetOptions.find((item) => item.value === event.target.value) || projectDefaultEvidenceTarget;
                 updateNewImage(image.localId, projectEvidenceTargetPatch(target || {}));
-              }} disabled={locked}>{projectEvidenceTargetOptions.map((target) => <option key={target.value} value={target.value}>{target.label}</option>)}</select></label>
+              }} disabled={locked}>{sortOptionsNaturally(projectEvidenceTargetOptions).map((target) => <option key={target.value} value={target.value}>{target.label}</option>)}</select></label>
               <label><span>Nota</span><input value={image.note} onChange={(event) => updateNewImage(image.localId, { note: event.target.value })} placeholder="Descripción opcional" disabled={locked} /></label>
               <small className="maintenance-project-evidence-meta"><Icon name="schedule" />{evidenceDateLabel(image)}</small>
               {image.mediaType === 'video' && <small>Video · {Math.ceil(Number(image.durationSeconds || 0))} segundos</small>}
