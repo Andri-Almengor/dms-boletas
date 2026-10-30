@@ -5,6 +5,7 @@ import Icon from '../../components/common/Icon';
 import DependentSelect from '../../components/forms/DependentSelect';
 import InlineCreateModal from '../../components/forms/InlineCreateModal';
 import TechnicianMultiSelect from '../../components/forms/TechnicianMultiSelect';
+import { sortOptionsNaturally } from '../../utils/naturalSort';
 import TechnicalWritingAssistant from '../../components/tickets/TechnicalWritingAssistant';
 import { MODULE_ROUTES, normalizeItems, pick, requestAvailable, toBoolean } from '../../services/moduleApi';
 
@@ -95,7 +96,7 @@ function Select({ label, value, onChange, options, disabled = false, required = 
       <span className="field-label">{label}</span>
       <select className="form-control" value={value} onChange={onChange} disabled={disabled} required={required}>
         <option value="">{emptyLabel}</option>
-        {options.map((option) => <option key={option.value} value={option.value}>{option.label}</option>)}
+        {sortOptionsNaturally(options).map((option) => <option key={option.value} value={option.value}>{option.label}</option>)}
       </select>
     </label>
   );
