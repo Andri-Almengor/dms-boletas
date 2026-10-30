@@ -165,7 +165,7 @@ export default function TicketListPage({ status }) {
       ['manufacturers', MODULE_ROUTES.manufacturers.list, { page: 1, pageSize: 250, activo: true }],
       ['models', MODULE_ROUTES.models.list, { page: 1, pageSize: 500, activo: true }],
     ];
-    if (isAdmin) jobs.push(['users', ['users.assignment.list', ...MODULE_ROUTES.users.list], { page: 1, pageSize: 250 }]);
+    if (isAdmin) jobs.push(['users', MODULE_ROUTES.users.assignmentList, { page: 1, pageSize: 250 }]);
     Promise.allSettled(jobs.map(([, routes, payload]) => requestAvailable(routes, payload, sessionToken, { signal: controller.signal })))
       .then((results) => {
         if (controller.signal.aborted) return;
