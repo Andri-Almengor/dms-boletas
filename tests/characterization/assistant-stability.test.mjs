@@ -160,7 +160,11 @@ test('assistant mixed-action envelope is never automatically replayed or cached'
   assert.match(app, /assistantAction: envelope\.payload\?\.assistantAction/);
   assert.match(assistantDispatcher, /if \(action === 'operation\.status'\) return \(await getAiOperationStatus\(ctx, ctx\.payload\)\)\.modelData/);
   assert.match(operations, /"OperationID"=\$1 AND "UserID"=\$2 AND "SessionHash"=\$3 LIMIT 1/);
-  assert.match(frontend, /!== 'operation\.status'/);
+  assert.match(frontend, /!\['operation\.status', 'attachment\.init', 'attachment\.chunk'\]\.includes/);
+  assert.match(backend, /assistantUpload\) \{/);
+  assert.match(backend, /uploadActions\.acquire\(\{ signal \}\)/);
+  assert.match(assistantDispatcher, /if \(action === 'attachment\.init'\) return largeEvidenceUploadHandlers\.assistantInit\(ctx\)/);
+  assert.match(assistantDispatcher, /if \(action === 'attachment\.chunk'\) return largeEvidenceUploadHandlers\.assistantChunk\(ctx\)/);
   assert.match(frontend, /const retrySafe = read \|\| replaySafeAi \|\| isAssistantStatusLookup\(route, payload\)/);
   assert.match(frontend, /const timeout = isAssistantStatusLookup\(route, payload\) \? 90_000 : requestTimeoutMs\(route\)/);
   assert.match(frontend, /const ambiguousMutation = !retrySafe/);
