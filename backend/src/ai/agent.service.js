@@ -24,7 +24,10 @@ const REQUESTS=new Map();
 // evitando acumulaciones tras varios timeouts. No cancela COMMIT ni PREPARE.
 const AI_TOOL_WORK = new AsyncSemaphore({
   name:'ai-tool-work',
-  max:Math.max(1,env.pgPoolMax),
+  // No permitir que las herramientas AI reserven por sí solas todas las
+  // conexiones del pool compartido con autosaves, finalización y SyncChanges.
+  // PG_POOL_MAX=1 no permite una reserva efectiva: documentar ese límite.
+  max:Math.max(1,env.pgPoolMax-1),
   queueLimit:Math.max(2,env.aiActionMaxConcurrent*aiConfig.maxParallelTools),
   timeoutMs:aiConfig.toolTimeoutMs,
 });
