@@ -157,6 +157,17 @@ function uniqueTypes(devices) {
   return [...new Set(devices.map(deviceType).filter(Boolean))].sort(naturalCompare);
 }
 
+function findVisibleInventoryAnchor(deviceIdValue = '', groupIdValue = '') {
+  const visible = (node) => node.getClientRects().length > 0;
+  if (deviceIdValue) {
+    const device = Array.from(document.querySelectorAll('[data-maintenance-device-id]'))
+      .find((node) => node.dataset.maintenanceDeviceId === deviceIdValue && visible(node));
+    if (device) return device;
+  }
+  return Array.from(document.querySelectorAll('[data-maintenance-group-id]'))
+    .find((node) => node.dataset.maintenanceGroupId === groupIdValue && visible(node)) || null;
+}
+
 function FilterSelect({ label, value, onChange, children }) {
   return <label className="field-group"><span className="field-label">{label}</span><select className="form-control" value={value} onChange={onChange}>{children}</select></label>;
 }
@@ -318,10 +329,7 @@ export default function MaintenanceLocationInventory({
     const frame = window.requestAnimationFrame(() => {
       if (restoreAttemptedRef.current) return;
       restoreAttemptedRef.current = true;
-      const anchor = Array.from(document.querySelectorAll('[data-maintenance-device-id]'))
-        .find((node) => node.dataset.maintenanceDeviceId === savedContext.anchorDeviceId)
-        || Array.from(document.querySelectorAll('[data-maintenance-group-id]'))
-          .find((node) => node.dataset.maintenanceGroupId === savedContext.anchorGroupId);
+      const anchor = findVisibleInventoryAnchor(savedContext.anchorDeviceId, savedContext.anchorGroupId);
       const previousY = Math.max(0, Number(savedContext.scrollY) || 0);
       const targetY = anchor && savedContext.anchorTop != null && Number.isFinite(Number(savedContext.anchorTop))
         ? window.scrollY + anchor.getBoundingClientRect().top - Number(savedContext.anchorTop)
@@ -356,10 +364,7 @@ export default function MaintenanceLocationInventory({
     const group = focusedDeviceId
       ? groups.find((item) => item.items.some((row) => deviceId(row) === focusedDeviceId))
       : null;
-    const anchor = Array.from(document.querySelectorAll('[data-maintenance-device-id]'))
-      .find((node) => node.dataset.maintenanceDeviceId === focusedDeviceId)
-      || Array.from(document.querySelectorAll('[data-maintenance-group-id]'))
-        .find((node) => node.dataset.maintenanceGroupId === group?.id);
+    const anchor = findVisibleInventoryAnchor(focusedDeviceId, group?.id || '');
 
     return {
       maintenanceId: String(maintenanceId),
