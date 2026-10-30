@@ -35,6 +35,13 @@ function isAssistantChatRoute(route) {
   return ['assistant.chat', 'asistente.chat'].includes(normalizedRoute(route));
 }
 
+// La lectura de una operación ya existente no llama a Gemini ni escribe.
+// Se identifica con el mismo assistantAction que consume el dispatcher real;
+// el handler sigue autenticando al usuario y vinculando su SessionHash.
+function isAssistantStatusLookup(route, assistantAction) {
+  return isAssistantChatRoute(route) && normalizedRoute(assistantAction) === 'operation.status';
+}
+
 function isAiRewriteRoute(route) {
   return [
     'ai.technicalrewrite',
@@ -93,9 +100,10 @@ function addBusyContext(error, route, { heavy, write }) {
   return error;
 }
 
-export async function runWithActionConcurrency(route, operation, { signal } = {}) {
-  const heavy = isHeavyRoute(route);
-  const write = !isReadRoute(route);
+export async function runWithActionConcurrency(route, operation, { signal, assistantAction = '' } = {}) {
+  const statusLookup = isAssistantStatusLookup(route, assistantAction);
+  const heavy = !statusLookup && isHeavyRoute(route);
+  const write = !statusLookup && !isReadRoute(route);
   let releaseDedicated;
   let releaseHeavy;
   let releaseWrite;
@@ -108,7 +116,7 @@ export async function runWithActionConcurrency(route, operation, { signal } = {}
     // incrementales no deben competir con finalizaciones/reportes pesados.
     if (normalizedRoute(route).startsWith('auth.')) {
       releaseDedicated = await authActions.acquire({ signal });
-    } else if (isAssistantChatRoute(route) || isAiRewriteRoute(route)) {
+    } else if ((isAssistantChatRoute(route) && !statusLookup) || isAiRewriteRoute(route)) {
       releaseDedicated = await aiActions.acquire({ signal });
     } else if (/evidence|images|imagenes|grande|attachments|adjuntos/.test(normalizedRoute(route))) {
       releaseDedicated = await uploadActions.acquire({ signal });
