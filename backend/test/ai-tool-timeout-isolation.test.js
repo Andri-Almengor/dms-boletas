@@ -1,7 +1,7 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
 
-import { withTimeout, aiToolWorkSnapshot, loadDiagnosticImageInputs } from '../src/ai/agent.service.js';
+import { withTimeout, aiToolWorkSnapshot, loadDiagnosticImageInputs, loadChatAttachments } from '../src/ai/agent.service.js';
 
 const tick = () => new Promise((resolve) => setImmediate(resolve));
 
@@ -77,4 +77,36 @@ test('when Drive supplies no usable image the assistant reports a recoverable im
     error => error.code==='AI_IMAGE_UNAVAILABLE' && error.status===503,
   );
   assert.deepEqual(await loadDiagnosticImageInputs([]),[]);
+});
+
+test('slow attachment metadata cannot freeze the assistant and retains its real DB slot', async () => {
+  const ctx={user:{UsuarioID:'test-ai-user'},sessionToken:'test-session-token'};
+  let releaseQuery;
+  const queryFn=(_sql,_params) => new Promise((resolve) => {releaseQuery=resolve;});
+  const request=loadChatAttachments(ctx,['fake-upload-id'],{queryFn,timeoutMs:30});
+  await assert.rejects(request, error =>
+    error.code==='AI_ATTACHMENTS_UNAVAILABLE' && error.status===503);
+  assert.equal(aiToolWorkSnapshot().active,1);
+  releaseQuery({rows:[{uploadId:'fake-upload-id',mimeType:'image/png',name:'file.png',size:300,__file:'fake-drive-file'}]});
+  await tick();
+  assert.equal(aiToolWorkSnapshot().active,0);
+});
+
+test('attachment metadata queries preserve user and session ownership checks', async () => {
+  const ctx={user:{UsuarioID:'test-ai-user'},sessionToken:'test-session-token'};
+  const data=await loadChatAttachments(ctx,['upload-a'],{
+    queryFn:async (sql,params) => {
+      assert.match(sql,/AND "UserID"=\$2 AND "SessionHash"=\$3/);
+      assert.deepEqual(params[0],['upload-a']);
+      assert.equal(params[1],'test-ai-user');
+      assert.notEqual(params[2],ctx.sessionToken);
+      return {rows:[{uploadId:'upload-a',mimeType:'image/jpeg',name:'evidence.jpg',size:200,__file:'file-id'}]};
+    },
+  });
+  assert.equal(data.length,1);
+  assert.equal(data[0].uploadId,'upload-a');
+  await assert.rejects(
+    loadChatAttachments(ctx,['not-owned'],{queryFn:async()=>({rows:[]})}),
+    error => error.code==='BAD_REQUEST' || error.status===400,
+  );
 });
