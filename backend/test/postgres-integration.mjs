@@ -1159,6 +1159,22 @@ test('Gemini ticket PREPARE/REVISE/COMMIT creates real pending follow-up tickets
     const second=await decideAiOperation(ctx,{operationId,decision:'confirm'});
     assert.deepEqual(second.result.created.map(item=>item.id),first.result.created.map(item=>item.id));
 
+    // Simula reinicio de Render DESPUÉS de persistir boletas pero ANTES de
+    // marcar COMMITTED: se deja un COMMITTING durable abandonado 11 minutos.
+    // La recuperación existente debe reutilizar los UUID, no crear duplicados.
+    await query(
+      `UPDATE "AiPendingOperations"
+          SET "Status"='COMMITTING',"UpdatedAt"=$2
+        WHERE "__valid"=TRUE AND "OperationID"=$1`,
+      [operationId,new Date(Date.now()-11*60_000).toISOString()],
+      {label:'test.ai.ticket.simulatedInterruptedCommit',write:true},
+    );
+    const resumed=await decideAiOperation(ctx,{operationId,decision:'confirm'});
+    assert.equal(resumed.status,'COMMITTED');
+    assert.deepEqual(resumed.result.created.map(item=>item.id),
+      first.result.created.map(item=>item.id),
+      'stale COMMITTING must reconcile deterministic UUIDs instead of duplicating tickets');
+
     const createdIds=first.result.created.map(row=>row.id);
     const tickets=await query(
       'SELECT "BoletaUID" AS id,"BoletaID" AS number,"Estado" AS status,"GrupoVisitaID" AS group_id,"NumeroVisita" AS visit_number,"HorasTotales" AS hours,"PDFURL" AS pdf,"FirmaArchivoID" AS signature FROM "Boletas" WHERE "__valid"=TRUE AND "BoletaUID"=ANY($1::text[])',
