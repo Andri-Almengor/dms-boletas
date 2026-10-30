@@ -131,6 +131,7 @@ test('el catálogo vigente conserva la respuesta pero no el orden ni la definici
   assert.equal(merged.responseType, 'TEXTO');
   assert.deepEqual(merged.config, { required: false });
   assert.equal(activeMaintenanceQuestionView(current, undefined), current);
+  assert.equal(activeMaintenanceQuestionView({ ...current, order: 0 }, saved).order, 0);
 });
 
 test('cambiar una pregunta a opcional no mantiene una obligación almacenada en RespuestasJSON o questionDetails', () => {
@@ -206,6 +207,8 @@ test('editor y backend usan la definición vigente y conservan snapshots histór
   assert.match(editor, /\.sort\(\(left, right\) => left\.order - right\.order/);
   assert.match(backend, /if \(!saved \|\| item\.activeAtSave !== false\) return item/);
   assert.match(catalog, /activeAtSave: false/);
+  assert.match(catalog, /order: Number\(question\.Orden \?\? existing\.order \?\? \(index \+ 1\) \* 10\)/);
+  assert.match(catalog, /order: Number\(item\.order \?\? item\.Orden \?\? 9999\)/);
   assert.match(catalog, /return snapshot\.sort\(\(left, right\) => left\.order - right\.order/);
   // El Excel actualizado respeta el orden activo sin alterar snapshots previos
   // ni consultar preguntas por cada dispositivo.
