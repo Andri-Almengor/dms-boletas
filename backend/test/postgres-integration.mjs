@@ -1318,4 +1318,51 @@ test('AI recovery and knowledge lookups retain indexed PostgreSQL plans', async 
   });
 });
 
+test('timed-out AI PostgreSQL reads leave a connection for foreground operations', async (t) => {
+  const { env }=await import('../src/config/env.js');
+  const { withTimeout,aiToolWorkSnapshot }=await import('../src/ai/agent.service.js');
+  if (env.pgPoolMax < 2) {
+    t.skip('A single PostgreSQL connection cannot be reserved for foreground traffic');
+    return;
+  }
+  const toolLimit=aiToolWorkSnapshot().max;
+  assert.ok(toolLimit <= env.pgPoolMax-1,
+    'AI tool work must reserve at least one shared pool connection');
+
+  // Simula consultas SQL que mantienen la conexión tras superar su deadline
+  // visible. Nunca requiere tablas ni filas productivas: TEST_DATABASE_URL.
+  const stalled=Array.from({length:toolLimit},()=>withTimeout(
+    ()=>query('SELECT pg_sleep(1.6)',[],{label:'test.ai.longRunningRead'}),
+    75,'test.ai.longRunningRead',
+  ));
+  try {
+    await Promise.all(stalled.map(p=>assert.rejects(
+      p,error=>error.code==='AI_TOOL_TIMEOUT' && error.status===504,
+    )));
+    assert.equal(aiToolWorkSnapshot().active,toolLimit,
+      'the timed-out work still owns its real slots');
+
+    // The existing postgres.query pool is shared; unlike a mock semaphore,
+    // this foreground query proves a spare DB connection really exists.
+    let timer;
+    const foreground=Promise.race([
+      query('SELECT 1 AS ready',[],{label:'test.ai.foregroundAfterGhost'}),
+      new Promise((_,reject)=>{timer=setTimeout(
+        ()=>reject(new Error('AI ghost reads exhausted foreground PostgreSQL capacity')),850);
+      }),
+    ]);
+    try {
+      const result=await foreground;
+      assert.equal(result.rows[0].ready,1);
+    } finally {
+      clearTimeout(timer);
+    }
+  } finally {
+    // A pg_sleep query is a real DB operation and cannot be aborted merely by
+    // the outer Promise deadline. Wait for its actual settlement before exit.
+    await new Promise(resolve=>setTimeout(resolve,1750));
+    assert.equal(aiToolWorkSnapshot().active,0);
+  }
+});
+
 test.after(async () => { await closePostgres(); });
