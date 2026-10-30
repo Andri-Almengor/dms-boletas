@@ -162,11 +162,11 @@ export default function MaintenanceEquipmentLocationSelect({
           .filter(Boolean);
 
         setClientLocations(sortItemsNaturally(locations, (item) => item.name));
-        setLoadedOptions(sortOptionsNaturally(uniqueOptions([...fetched, ...seeded]), locationId));
+        setLoadedOptions(sortOptionsNaturally(uniqueOptions([...fetched, ...seeded])));
       } catch (error) {
         if (!active) return;
         const fallbackMap = new Map();
-        setLoadedOptions(sortOptionsNaturally(uniqueOptions(options.map((option) => seedOption(option, fallbackMap, locationId, false)).filter(Boolean)), locationId));
+        setLoadedOptions(sortOptionsNaturally(uniqueOptions(options.map((option) => seedOption(option, fallbackMap, locationId, false)).filter(Boolean))));
         setCatalogError(error.message || 'No se pudieron cargar las ubicaciones del equipo.');
       } finally {
         if (active) setLoading(false);
@@ -235,7 +235,7 @@ export default function MaintenanceEquipmentLocationSelect({
       const locationMap = new Map(clientLocations.map((location) => [location.id, location]));
       const created = optionFromRow(result, locationMap, parentLocationId, clientLocations.length > 1);
       if (!created) throw new Error('El servidor no devolvió la ubicación creada.');
-      setLoadedOptions((current) => sortOptionsNaturally(uniqueOptions([...current, created]), locationId));
+      setLoadedOptions((current) => sortOptionsNaturally(uniqueOptions([...current, created])));
       onChange?.(created.value, created.name, created.locationId, created.locationName);
       setModalOpen(false);
       // En detalle, la vinculación debe concluir antes de invalidar el catálogo.
