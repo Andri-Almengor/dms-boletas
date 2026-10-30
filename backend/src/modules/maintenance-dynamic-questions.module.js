@@ -501,11 +501,10 @@ async function update(ctx) {
     }
     const id = cleanMaintenanceQuestionValue(pick(ctx.payload, ['PreguntaDispositivoID', 'preguntaDispositivoId', 'questionId', 'id']));
     if (!id) throw badRequest('Falta el identificador de la pregunta.');
-    const before = await findById(MAINTENANCE_QUESTION_SHEET, id);
-    const typeId = cleanMaintenanceQuestionValue(before.TipoDispositivoID);
+    const existing = await findById(MAINTENANCE_QUESTION_SHEET, id);
+    const typeId = cleanMaintenanceQuestionValue(existing.TipoDispositivoID);
     return withQuestionTypeLock(typeId, async () => {
-    const latest = await findById(MAINTENANCE_QUESTION_SHEET, id);
-    const before = latest;
+    const before = await findById(MAINTENANCE_QUESTION_SHEET, id);
     const patch = {};
 
     if (hasOwn(ctx.payload, ['Pregunta', 'pregunta', 'label', 'nombre'])) {
