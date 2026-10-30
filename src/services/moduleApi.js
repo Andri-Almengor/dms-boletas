@@ -858,6 +858,9 @@ export async function preloadOfflineCatalogs(sessionToken = '') {
     MODULE_ROUTES.models.list,
     MODULE_ROUTES.deviceManufacturers.list,
     MODULE_ROUTES.users.list,
+    // Precarga la clave exacta de los selectores operativos para IndexedDB;
+    // la clave histórica users.list se conserva para vistas existentes.
+    MODULE_ROUTES.users.assignmentList,
   ];
   return Promise.allSettled(jobs.map((routes) => requestAvailable(routes, OFFLINE_CATALOG_PAYLOAD, sessionToken)));
 }
