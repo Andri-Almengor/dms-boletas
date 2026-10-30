@@ -48,6 +48,7 @@ import './model-order-mac-format.test.mjs';
 import './natural-sort-dropdowns.test.mjs';
 import './list-pages.test.mjs';
 import './maintenance-checklist-status.test.mjs';
+import './maintenance-question-interactions.test.mjs';
 import './maintenance-device-created-feedback.test.mjs';
 import './maintenance-inventory-context-return.test.mjs';
 import './maintenance-bulk-device-list.test.mjs';
