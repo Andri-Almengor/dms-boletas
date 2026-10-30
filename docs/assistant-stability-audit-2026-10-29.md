@@ -116,3 +116,27 @@ El problema de ejecución subyacente de herramientas que terminan tarde tras el 
 Se extendió exclusivamente la respuesta existente de `GET /api/ai/health`, que ya exige autenticación y `USUARIOS_GESTIONAR` en `app.js`. Su objeto `queues` contiene dos snapshots del sistema de semáforos existente: `httpAssistant` (`http-assistant`) y `aiActions` (`action-ai`), con cupos activos, en espera y máximo. No contiene mensajes, permisos individuales, correos, sessionTokens ni datos de clientes. Se agregó una prueba de regresión del contrato. Esto permite diferenciar un cuello de botella en admisión HTTP de uno en el procesamiento de Gemini sin exponer las métricas de producción a usuarios no autorizados.
 
 **Guía rápida de diagnóstico:** autenticar una sesión con `USUARIOS_GESTIONAR`, revisar `/api/ai/health` con su token en un entorno autorizado; observar `queues.httpAssistant.waiting`, `queues.aiActions.waiting`, el modelo activo y las métricas existentes durante una solicitud lenta. Correlacionar con `X-Request-ID`/`CF-Ray` y los logs de Render. Nunca compartir tokens o mensajes en los reportes.
+
+## Continuación: trabajo realmente activo de herramientas y PREPARE concurrente
+
+### Causa: `Promise.race` terminaba antes del trabajo subyacente
+
+El agente ejecutaba hasta `AI_MAX_PARALLEL_TOOLS` herramientas simultáneas y aplicaba un timeout con `Promise.race`. Cuando éste vencía, la consulta real a PostgreSQL/Drive no se cancelaba y podía permanecer activa, pero el asistente quedaba libre para ejecutar otras herramientas o peticiones. Sucesivos errores podían acumular trabajo y presión en el pool PostgreSQL.
+
+Se **amplió el helper existente `withTimeout`** en `agent.service.js` reutilizando `AsyncSemaphore`, con el nombre `ai-tool-work`. El número máximo de trabajos reales simultáneos está acotado por `PG_POOL_MAX`; cada espera también observa el presupuesto de timeout de su llamada. La acción se inicia solo después de obtener el cupo. El helper devuelve `AI_TOOL_TIMEOUT` cuando vence el presupuesto, pero conserva el cupo hasta que la promesa **original** termine (por éxito o fallo). Una herramienta que venció esperando cupo nunca se ejecuta tardíamente. No se descarta ningún resultado de escritura como si hubiera sido revertido.
+
+Este mecanismo **no es cancelación real de SQL/Drive** ni pretende serlo. Se evita introducir `pg_cancel_backend`, abortos indiscriminados de clientes, o cortes de PREPARE/COMMIT sin evidencia de seguridad. El endpoint de diagnóstico `GET /api/ai/health`, ya autorizado con `USUARIOS_GESTIONAR`, añade el snapshot agregado `queues.aiTools` para mostrar los trabajos reales retenidos y en espera. No expone preguntas, correos, sesión ni secretos.
+
+### Causa: carrera de idempotencia de PREPARE
+
+`createOperation` consultaba primero `AiPendingOperations` buscando una misma `IdempotencyKey`, y luego insertaba una nueva propuesta. Dos solicitudes idénticas concurrentes podían ver «ninguna operación» y ambas intentar insertar, aunque el índice UNIQUE de la migración `012_ai_integral_agent.sql` ya impide dos filas con la misma clave. La perdedora recibía error PostgreSQL 23505, no una confirmación reutilizable.
+
+La escritura ahora usa `INSERT ... ON CONFLICT ("IdempotencyKey") WHERE "__valid"=TRUE DO NOTHING RETURNING *` y, si se produce conflicto, consulta la propuesta ganadora que ya quedó persistida y devuelve su mismo `OperationID` cuando sigue vigente. No genera nuevas propuestas para el mismo PREPARE ni cambia confirmaciones, permisos, estados o negocio; el aislamiento de múltiples instancias de Render sigue basado en el índice UNIQUE de PostgreSQL, no en locks en memoria. Si la operación competidora fue cancelada o está fallida, se devuelve un error de conflicto explícito que no inventa éxito.
+
+### Pruebas de regresión
+
+- `backend/test/postgres-integration.mjs`: dos `prepareTicketBatchCreate` simultáneos para el mismo lote/sesión deben devolver el mismo `OperationID` real, bajo PostgreSQL migrado, y la posterior confirmación de dos boletas debe conservar su idempotencia.
+- `backend/test/ai-tool-timeout-isolation.test.js`: una herramienta simulada que tarda más que el timeout sigue ocupando un slot; su terminación real libera el slot. Si toda la capacidad ya está ocupada, una solicitud que expiró esperando no debe arrancar luego.
+- `backend/test/assistant-backend-health-isolation.test.js`: los contadores del endpoint de salud siguen siendo agregados y sin contenidos sensibles.
+
+Estas pruebas no requieren datos de clientes ni ejecutan envíos reales de correo o Google Chat. El ensayo de caída de red durante COMMIT y las mediciones de latencia/PG en Render deben realizarse en un entorno controlado antes de fusionar.
