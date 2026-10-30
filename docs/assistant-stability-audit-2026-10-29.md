@@ -198,3 +198,35 @@ Desplegar el frontend y backend del mismo commit para obtener ambas mejoras (el 
 Ahora el selector **reutiliza `uploadActions`** para esos dos valores exactos de `assistantAction` (sin crear rutas, semáforos ni permisos nuevos), y el cliente no manda la pista de admisión Gemini para dichas transferencias. El dispatcher real no cambia: continúa autenticando, validando sesión, tipo de archivo, límites, Drive y auditoría según los handlers existentes. Las preguntas normales y decisiones `operation.decide` permanecen bajo la contención AI.
 
 La prueba `backend/test/assistant-action-queue-abort.test.js` verifica con dos consultas Gemini activas y dos esperando que `attachment.init` y `attachment.chunk` todavía atraviesan el carril de subida, y que no incrementan `action-ai`. La caracterización comprueba los dos handlers originales del dispatcher. Requiere desplegar frontend y backend del mismo commit para evitar que una interfaz anterior siga enviando la pista HTTP de Gemini; el backend conserva controles de escritura y permisos.
+
+## Etapa 7 — línea base de consultas e índices (29-10-2026)
+
+Se revisó el recorrido de `getAiOperationStatus`, `createOperation`, `loadChatAttachments` y `searchKnowledgeDocumentChunks`. Las consultas operativas ya están parametrizadas, limitadas por IDs/usuario/sesión y apoyadas en índices existentes de las migraciones `012_ai_integral_agent.sql` y `011_ai_search_indexes.sql`. No se identificó una necesidad fundada de agregar índices ni migraciones nuevas para estos accesos.
+
+Se añadió a `backend/test/postgres-integration.mjs` una prueba que ejecuta `EXPLAIN (ANALYZE, BUFFERS, FORMAT JSON)` de cuatro patrones representativos sobre **`TEST_DATABASE_URL` exclusivamente**, dentro de una transacción y con `SET LOCAL enable_seqscan=off`. Verifica por separado la existencia del índice requerido en `pg_indexes`, que el plan tiene una operación indexada y que retorna métricas numéricas; imprime exclusivamente el nombre de la consulta, índices elegidos, tiempo de ejecución y bloques cacheados, nunca filas, sesiones ni secretos.
+
+**Interpretación importante:** `enable_seqscan=off` y los escasos datos de CI prueban elegibilidad de índices, no el rendimiento del planificador ni el p95 real en Render. PostgreSQL puede escoger el índice `ix_ai_pending_operations_actor_status` en vez del único `ux_ai_pending_operations_id` si las estadísticas y volúmenes de la base de pruebas lo favorecen. No es motivo para añadir un índice redundante o forzar el plan en producción. En PostgreSQL real se deben medir los mismos patrones con estadísticas actuales y parámetros de prueba representativos, sin registrar contenidos sensibles.
+
+### Matriz de aceptación operativa pendiente
+
+| Caso | Prueba y criterio |
+|---|---|
+| Arranque frío de Render | Abrir sesión y ejecutar la primera consulta técnica tras inactividad; medir tiempo hasta HTTP, primera respuesta Gemini, código y modelo final; compararlo con consulta posterior |
+| Cinco usuarios simultáneos | Dos IA activas, dos en espera y una rechazada de forma controlada; confirmar que autosaves, Home y operaciones normales responden sin retener slots globales |
+| Fallback Gemini | Simular o observar un modelo 429/504/no disponible y comprobar transición al siguiente configurado dentro de presupuesto total; no revelar API keys |
+| Drive lento/no disponible | Adjuntar imágenes de prueba; comprobar `AI_IMAGE_UNAVAILABLE`/`AI_ATTACHMENTS_UNAVAILABLE` y conservación de entrada/adjuntos sin mensaje alucinando lectura |
+| Preparar dos boletas idénticas a la vez | Verificar que comparten `OperationID` mediante la clave única PostgreSQL |
+| Desconexión durante COMMIT | Confirmar lote de prueba, cortar transporte **después de admitir la solicitud**; consultar `operation.status` con misma sesión y cotejar UUID/total real, sin volver a crear boletas |
+| Reinicio después de COMMIT parcial | Reanudar un `COMMITTING` con antigüedad recuperable, garantizar que IDs ya persistidos no se duplican; cotejar `BoletaAsignados` y `SyncChanges` |
+| Privacidad y permisos | Validar que otra sesión/usuario no puede leer operación ajena y que el endpoint `/api/ai/health` solo sirve a `USUARIOS_GESTIONAR` |
+| Latencias y planes reales | Capturar `aiTools`, `aiActions`, `httpAssistant`, query labels, duración/pool wait y planes SQL sanitizados con tráfico controlado |
+
+**No ejecutar confirmaciones ni pruebas de correo/Chat con boletas de clientes reales.** No hay evidencia de pruebas en Render/Gemini/Drive productivos en esta entrega. Si se detecta una regresión, revertir el PR completo o el despliegue al commit anterior mediante el proceso existente de Render, sin alterar estados ni datos a mano.
+
+## Etapa 8 — recuperación determinística tras interrupción
+
+`backend/test/postgres-integration.mjs` ahora protege tres momentos de la operación de boletas: **(1)** después de PREPARE concurrente, ambas solicitudes reciben el mismo `OperationID`; **(2)** después de COMMIT, si se pierde la respuesta HTTP, `getAiOperationStatus` recupera los UUID persistidos y la confirmación repetida devuelve el mismo resultado sin duplicar; y **(3)** se simula un reinicio dejando `COMMITTING` abandonado durante once minutos con boletas ya persistidas, y la recuperación controlada debe reconstruir el lote usando `ticketUuid(OperationID,index)` sin crear nuevas boletas.
+
+Se identificó y corrigió una carrera adicional: `decideAiOperation` aplicaba el TTL de la propuesta a una operación **ya reclamada** (`COMMITTING`). Si el COMMIT continuaba mientras vencía `ExpiresAt`, una segunda consulta de confirmación podía marcar el estado `EXPIRED` aunque el backend estuviese creando boletas. El TTL sigue expirando `PENDING` y `PARTIAL` como antes, pero no se aplica a `COMMITTING`. La recuperación por antigüedad de diez minutos permanece igual y usa la misma operación e IDs originales. Una prueba de integración inserta ambos estados con expiración vencida y verifica el comportamiento sin crear boletas.
+
+**Límite de la simulación:** forzar un estado de base de pruebas y descartar la respuesta del método no reproduce la desconexión real TCP ni matar un proceso de Render; esto debe comprobarse operativamente antes de completar la etapa 8.
