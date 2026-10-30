@@ -1113,7 +1113,13 @@ test('Gemini ticket PREPARE/REVISE/COMMIT creates real pending follow-up tickets
     assert.equal(invalid.modelData.ready,false);
     assert.equal(invalid.confirmations,undefined);
 
-    const prep=await prepareTicketBatchCreate(ctx,{tickets:twoTickets});
+    // Dos agentes/requests con la misma sesión y el mismo lote deben obtener
+    // una sola propuesta durable aun cuando compitan desde varias instancias.
+    const [prep, duplicatePrep]=await Promise.all([
+      prepareTicketBatchCreate(ctx,{tickets:twoTickets}),
+      prepareTicketBatchCreate(ctx,{tickets:twoTickets}),
+    ]);
+    assert.equal(duplicatePrep.modelData.operationId,prep.modelData.operationId);
     assert.equal(prep.modelData.ready,true);
     assert.equal(prep.modelData.tickets.length,2);
     assert.equal(prep.modelData.tickets[0].location,'Sede Central');
