@@ -171,6 +171,28 @@ test('una pregunta desactivada no bloquea la checklist aunque su snapshot anteri
   });
 });
 
+test('reordenar preguntas modifica también el orden de los faltantes, sin perder respuestas', () => {
+  const previous = [
+    { key: 'montaje', order: 10, config: { required: true } },
+    { key: 'limpieza', order: 20, config: { required: true } },
+  ];
+  const device = {
+    funcionamiento: 'Sí',
+    enUso: 'Sí, en uso',
+    respuestas: { __preguntas: previous },
+    questionDetails: previous,
+  };
+  const catalog = [
+    { key: 'limpieza', order: 10, config: { required: true } },
+    { key: 'montaje', order: 20, config: { required: true } },
+  ];
+  assert.deepEqual(maintenanceChecklistCompletion(device, catalog), {
+    complete: false,
+    missing: ['limpieza', 'montaje'],
+    requiredKeys: ['limpieza', 'montaje'],
+  });
+});
+
 test('editor y backend usan la definición vigente y conservan snapshots históricos', () => {
   const { readFileSync } = requireSourceContracts();
   const hook = readFileSync('src/hooks/useMaintenanceQuestionCatalog.js');
