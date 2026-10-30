@@ -161,6 +161,10 @@ test('assistant mixed-action envelope is never automatically replayed or cached'
   assert.match(assistantDispatcher, /if \(action === 'operation\.status'\) return \(await getAiOperationStatus\(ctx, ctx\.payload\)\)\.modelData/);
   assert.match(operations, /"OperationID"=\$1 AND "UserID"=\$2 AND "SessionHash"=\$3 LIMIT 1/);
   assert.match(frontend, /!== 'operation\.status'/);
+  assert.match(frontend, /const retrySafe = read \|\| replaySafeAi \|\| isAssistantStatusLookup\(route, payload\)/);
+  assert.match(frontend, /const timeout = isAssistantStatusLookup\(route, payload\) \? 90_000 : requestTimeoutMs\(route\)/);
+  assert.match(frontend, /const ambiguousMutation = !retrySafe/);
+  assert.match(frontend, /assistantAction: 'operation\.status'/);
   assert.doesNotMatch(backend.split('function isHeavyRoute(route) {')[1].split('function addBusyContext')[0], /assistant\.chat|asistente\.chat/);
 });
 
