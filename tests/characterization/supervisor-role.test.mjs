@@ -85,6 +85,7 @@ test('los selectores consumen exclusivamente usuarios asignables y la administra
   const users = source('backend/src/modules/users.module.js');
   assert.match(routes, /assignmentList:\s*\['users\.assignment\.list'\]/);
   assert.match(routes, /adminList:\s*\['users\.list'\]/);
+  assert.match(routes, /MODULE_ROUTES\.users\.list,\s*\/\/[^\n]*\n\s*\/\/[^\n]*\n\s*MODULE_ROUTES\.users\.assignmentList/);
   assert.match(ticket, /users: \{ routes: MODULE_ROUTES\.users\.assignmentList/);
   assert.match(maintenance, /routes: MODULE_ROUTES\.users\.assignmentList/);
   assert.match(device, /requestAvailable\(MODULE_ROUTES\.users\.assignmentList/);
