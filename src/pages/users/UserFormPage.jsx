@@ -5,6 +5,7 @@ import { useAuth } from '../../AuthContext';
 import ErrorMessage from '../../components/common/ErrorMessage';
 import Icon from '../../components/common/Icon';
 import useRoles from '../../hooks/useRoles';
+import { sortItemsNaturally } from '../../utils/naturalSort';
 
 export default function UserFormPage({ mode }) {
   const { usuarioId } = useParams();
@@ -102,7 +103,7 @@ export default function UserFormPage({ mode }) {
           <div className="field-group"><label className="field-label" htmlFor="nombreCompleto">Nombre completo</label><input id="nombreCompleto" className="form-control" name="nombreCompleto" value={form.nombreCompleto} onChange={updateField} required /></div>
           <div className="field-group"><label className="field-label" htmlFor="nombreUsuario">Nombre de usuario</label><input id="nombreUsuario" className="form-control" name="nombreUsuario" value={form.nombreUsuario} onChange={updateField} required /></div>
           <div className="field-group"><label className="field-label" htmlFor="correo">Correo</label><input id="correo" className="form-control" type="email" name="correo" value={form.correo} onChange={updateField} required /></div>
-          <div className="field-group"><label className="field-label" htmlFor="rolId">Rol</label><select id="rolId" className="form-control" name="rolId" value={form.rolId} onChange={updateField} required><option value="">Seleccione</option>{roles.map((role) => <option key={role.RolID} value={role.RolID}>{role.Nombre}</option>)}</select></div>
+          <div className="field-group"><label className="field-label" htmlFor="rolId">Rol</label><select id="rolId" className="form-control" name="rolId" value={form.rolId} onChange={updateField} required><option value="">Seleccione</option>{sortItemsNaturally(roles, (role) => role.Nombre).map((role) => <option key={role.RolID} value={role.RolID}>{role.Nombre}</option>)}</select></div>
           {mode === 'edit' && <div className="field-group"><label className="field-label" htmlFor="estado">Estado</label><select id="estado" className="form-control" name="estado" value={form.estado} onChange={updateField}><option value="ACTIVO">ACTIVO</option><option value="INACTIVO">INACTIVO</option></select></div>}
 
           <div className="form-actions">
