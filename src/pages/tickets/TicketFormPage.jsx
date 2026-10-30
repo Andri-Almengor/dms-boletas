@@ -114,7 +114,7 @@ export default function TicketFormPage({ mode = 'create' }) {
     setForm((current) => current.asignados?.includes(ownId)
       ? { ...current, asignados: current.asignados.filter((id) => String(id) !== ownId) }
       : current);
-  }, [editing, loading, agendaId, user?.UsuarioID, catalogs.users]);
+  }, [editing, loading, agendaId, user?.UsuarioID, catalogs.users, form.asignados]);
 
   const restore = useCallback((draftData) => {
     if (draftData.form) {
