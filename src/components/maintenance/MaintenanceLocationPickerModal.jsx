@@ -7,6 +7,7 @@ import useOverlaySurface from '../../hooks/useOverlaySurface';
 export default function MaintenanceLocationPickerModal({
   open,
   maintenanceLocationId,
+  clientId,
   existingLocations = [],
   onClose,
   onSave,
@@ -26,8 +27,15 @@ export default function MaintenanceLocationPickerModal({
   async function submit(event) {
     event.preventDefault();
     if (!selection?.id || duplicate) return;
-    await onSave?.(selection);
-    setSelection(null);
+    const saved = await onSave?.(selection);
+    if (saved) setSelection(null);
+  }
+
+  async function handleCreated(location) {
+    setSelection(location);
+    const saved = await onSave?.(location);
+    if (saved) setSelection(null);
+    return saved;
   }
 
   function close() {
@@ -48,7 +56,9 @@ export default function MaintenanceLocationPickerModal({
 
         <form className="maintenance-location-picker-modal__content" onSubmit={submit}>
           <MaintenanceEquipmentLocationSelect
+            clientId={clientId}
             locationId={maintenanceLocationId}
+            onCreated={handleCreated}
             value={selection?.id || ''}
             disabled={saving}
             onChange={(id, name, locationId, locationName) => setSelection({
