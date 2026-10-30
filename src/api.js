@@ -228,7 +228,8 @@ async function performRequest(route, payload, sessionToken, { signal } = {}) {
       // Sugerencia de admisión HTTP únicamente, nunca permiso ni ruta autoritativa.
       // No añade cabeceras de Node al endpoint de Apps Script heredado.
       ...(!isAppsScriptUrl(API_URL) && (
-        ['assistant.chat', 'asistente.chat'].includes(String(route || '').trim().toLowerCase())
+        (['assistant.chat', 'asistente.chat'].includes(String(route || '').trim().toLowerCase())
+          && String(requestPayload.assistantAction || '').trim().toLowerCase() !== 'operation.status')
         || isReplaySafeAiRoute(route)
       ) ? { 'X-DMS-Workload': 'assistant' } : {}),
     },
