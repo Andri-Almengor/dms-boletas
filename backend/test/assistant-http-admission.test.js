@@ -4,14 +4,14 @@ import { EventEmitter } from 'node:events';
 import { concurrencyMiddleware, concurrencySnapshot } from '../src/middleware/concurrency.middleware.js';
 
 function mockRequest(workload = '') {
-  return {
+  return Object.assign(new EventEmitter(), {
     method: 'POST',
     url: '/api/action',
     headers: {
       'content-length': '300',
       ...(workload ? { 'x-dms-workload': workload } : {}),
     },
-  };
+  });
 }
 
 function startRequest(workload = '') {
@@ -73,4 +73,31 @@ test('hint does not apply to other routes and does not change backend authorizat
   assert.equal(await passed, null);
   assert.equal(concurrencySnapshot().assistantRequests.active, 0);
   res.emit('finish');
+});
+
+test('disconnect while a COMMIT-like action is running retains HTTP resources until backend settles', async () => {
+  const committing=startRequest('assistant');
+  assert.equal(await committing.passed,null);
+  committing.req.dmsActionRunning=true;
+  assert.equal(concurrencySnapshot().assistantRequests.active,1);
+  assert.equal(concurrencySnapshot().requests.active,1);
+
+  // The client socket disappeared AFTER the backend admitted the write.
+  committing.res.emit('close');
+  assert.equal(committing.req.dmsHttpAbortSignal.aborted,true);
+  assert.equal(concurrencySnapshot().assistantRequests.active,1,
+    'HTTP gate cannot be recycled while the critical operation is still executing');
+  assert.equal(concurrencySnapshot().requests.active,1);
+
+  // Other non-AI requests still have capacity while COMMIT works.
+  const foreground=startRequest();
+  assert.equal(await foreground.passed,null);
+  foreground.close();
+  assert.equal(concurrencySnapshot().requests.active,1);
+
+  // Equivalent to the existing app.js finally event: only then can the
+  // server release both http-all and http-assistant.
+  committing.req.emit('dms-action-settled');
+  assert.equal(concurrencySnapshot().assistantRequests.active,0);
+  assert.equal(concurrencySnapshot().requests.active,0);
 });
