@@ -1150,6 +1150,12 @@ test('Gemini ticket PREPARE/REVISE/COMMIT creates real pending follow-up tickets
     assert.equal(first.status,'COMMITTED');
     assert.equal(first.result.created.length,2);
     assert.equal(first.result.failed.length,0);
+    // Simula que la respuesta HTTP de COMMIT se pierde DESPUÉS del commit:
+    // el cliente debe recuperar el resultado por estado, sin crear otros IDs.
+    const recovered=await getAiOperationStatus(ctx,{operationId});
+    assert.equal(recovered.modelData.status,'COMMITTED');
+    assert.deepEqual(recovered.modelData.result.created.map(item=>item.id),
+      first.result.created.map(item=>item.id));
     const second=await decideAiOperation(ctx,{operationId,decision:'confirm'});
     assert.deepEqual(second.result.created.map(item=>item.id),first.result.created.map(item=>item.id));
 
