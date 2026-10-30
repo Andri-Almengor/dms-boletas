@@ -4,6 +4,7 @@ import DependentSelect from '../forms/DependentSelect';
 import InlineCreateModal from '../forms/InlineCreateModal';
 import Icon from '../common/Icon';
 import { MODULE_ROUTES, normalizeItems, pick, requestAvailable } from '../../services/moduleApi';
+import { fetchClientRelations } from '../../services/clientRelations';
 
 const EMPTY_OPTIONS = Object.freeze([]);
 
@@ -78,11 +79,13 @@ function sortOptions(options = EMPTY_OPTIONS, preferredLocationId = '') {
 }
 
 export default function MaintenanceEquipmentLocationSelect({
+  clientId = '',
   locationId,
   value,
   options = EMPTY_OPTIONS,
   disabled = false,
   onChange,
+  onCreated,
 }) {
   const { sessionToken, hasPermission } = useAuth();
   const [loadedOptions, setLoadedOptions] = useState(options);
@@ -124,10 +127,8 @@ export default function MaintenanceEquipmentLocationSelect({
       setLoading(true);
       setCatalogError('');
       try {
-        let resolvedClientId = '';
-        let locations = [];
-
-        if (locationId) {
+        let resolvedClientId = String(clientId || '').trim();
+        if (!resolvedClientId && locationId) {
           try {
             const currentLocation = await requestAvailable(
               LOCATION_GET_ROUTES,
@@ -136,52 +137,40 @@ export default function MaintenanceEquipmentLocationSelect({
             );
             resolvedClientId = String(pick(currentLocation, ['ClienteID', 'clienteId'], '')).trim();
           } catch {
-            // Se conserva la sede actual como respaldo aunque no se pueda resolver el cliente.
+            // Conservar la sede seleccionada cuando la relación no esté disponible.
           }
         }
 
+        let locations = [];
+        let equipmentRows = [];
         if (resolvedClientId) {
-          const locationData = await requestAvailable(
-            MODULE_ROUTES.clients.locationsList,
-            { clienteId: resolvedClientId, activo: true, page: 1, pageSize: 1000, sortBy: 'Nombre', sortDir: 'asc' },
+          // Reutilizar la consulta batch por cliente; no ejecutar N requests por sede.
+          const relations = await fetchClientRelations({ clientId: resolvedClientId, sessionToken });
+          locations = relations.locations.map(locationView).filter(Boolean);
+          equipmentRows = relations.equipment;
+        } else if (locationId) {
+          // Respaldo para formularios antiguos que solo entregan la sede.
+          locations = [{ id: String(locationId), name: '' }];
+          const equipmentData = await requestAvailable(
+            MODULE_ROUTES.clients.equipmentLocationsList,
+            { ubicacionId: locationId, UbicacionID: locationId, activo: true, page: 1, pageSize: 1000, sortBy: 'Nombre', sortDir: 'asc' },
             sessionToken,
           );
-          locations = normalizeItems(locationData).map(locationView).filter(Boolean);
-        }
-
-        if (!locations.length && locationId) {
-          locations = [{ id: String(locationId), name: '' }];
+          equipmentRows = normalizeItems(equipmentData);
         }
 
         if (!active) return;
-        setClientLocations(locations);
-
         const locationMap = new Map(locations.map((location) => [location.id, location]));
         const showParent = locations.length > 1;
-        const results = await Promise.allSettled(locations.map((location) => requestAvailable(
-          MODULE_ROUTES.clients.equipmentLocationsList,
-          { ubicacionId: location.id, UbicacionID: location.id, activo: true, page: 1, pageSize: 1000, sortBy: 'Nombre', sortDir: 'asc' },
-          sessionToken,
-        )));
-
-        const fetched = results.flatMap((result, index) => {
-          if (result.status !== 'fulfilled') return [];
-          const parentId = locations[index]?.id || '';
-          return normalizeItems(result.value)
-            .map((row) => optionFromRow(row, locationMap, parentId, showParent))
-            .filter(Boolean);
-        });
+        const fetched = equipmentRows
+          .map((row) => optionFromRow(row, locationMap, String(pick(row, ['UbicacionID', 'ubicacionId'], locationId || '')), showParent))
+          .filter(Boolean);
         const seeded = options
           .map((option) => seedOption(option, locationMap, locationId, showParent))
           .filter(Boolean);
 
-        if (!active) return;
+        setClientLocations(locations);
         setLoadedOptions(sortOptions(uniqueOptions([...fetched, ...seeded]), locationId));
-
-        const failedLoads = results.filter((result) => result.status === 'rejected');
-        if (failedLoads.length === results.length && results.length) {
-          setCatalogError('No se pudieron cargar las ubicaciones del equipo. Pulse reintentar.');
-        }
       } catch (error) {
         if (!active) return;
         const fallbackMap = new Map();
@@ -194,7 +183,7 @@ export default function MaintenanceEquipmentLocationSelect({
 
     loadClientEquipmentCatalog();
     return () => { active = false; };
-  }, [locationId, sessionToken, options, catalogRevision]);
+  }, [clientId, locationId, sessionToken, options, catalogRevision]);
 
   const currentOptions = useMemo(() => uniqueOptions(loadedOptions), [loadedOptions]);
   const canCreate = canManageOperationalData && clientLocations.length > 0;
@@ -257,6 +246,17 @@ export default function MaintenanceEquipmentLocationSelect({
       setLoadedOptions((current) => sortOptions(uniqueOptions([...current, created]), locationId));
       onChange?.(created.value, created.name, created.locationId, created.locationName);
       setModalOpen(false);
+      // En detalle, la vinculación debe concluir antes de invalidar el catálogo.
+      // Así una lectura previa no sobrescribe el inventario recién actualizado.
+      await onCreated?.({
+        id: created.value,
+        name: created.name,
+        locationId: created.locationId,
+        locationName: created.locationName,
+        available: true,
+        active: true,
+        deviceCount: 0,
+      });
       window.dispatchEvent(new CustomEvent('dms-client-equipment-catalog-updated', {
         detail: { locationId: parentLocationId, equipmentLocationId: created.value },
       }));
