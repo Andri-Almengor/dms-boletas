@@ -67,6 +67,7 @@ function assistantFailureMessage(error) {
   if (code === 'SERVER_BUSY' || code === 'SERVER_BUSY_TIMEOUT') return 'El asistente tiene demasiadas solicitudes. Intente de nuevo en unos momentos; las demás funciones de DMS siguen disponibles.';
   if (code === 'ONLINE_REQUIRED' || (typeof navigator !== 'undefined' && navigator.onLine === false)) return 'No hay conexión con el servidor. Conserve la consulta para enviarla cuando vuelva la conexión.';
   if (code === 'AI_IMAGE_UNAVAILABLE') return 'No fue posible cargar las imágenes desde Drive. Se conservaron los adjuntos; intente de nuevo cuando el servicio se recupere.';
+  if (code === 'AI_ATTACHMENTS_UNAVAILABLE') return 'La consulta de adjuntos tardó demasiado. Se conservaron los archivos cargados; vuelva a intentar sin subirlos nuevamente.';
   if (/^(MODEL_|GEMINI_|AI_GEMINI_|AI_AGENT_TOTAL_TIMEOUT)/.test(code)) return 'Gemini no pudo completar la respuesta. DMS puede seguir disponible. Intente nuevamente cuando se recupere el servicio.';
   if (code === 'REQUEST_TIMEOUT') return 'La solicitud superó el tiempo de espera. Compruebe el estado de cualquier operación pendiente antes de repetirla.';
   return error?.message || 'No se pudo consultar el asistente.';
