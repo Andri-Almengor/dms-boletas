@@ -1,7 +1,7 @@
-import { appendRow, filterRows, findById, readTable, updateRow } from '../infra/sheets.repository.js';
+import { appendRow, filterRows, findById, readTable, readTables, updateRow } from '../infra/sheets.repository.js';
 import { badRequest } from '../core/errors.js';
 import { asBool, hashPassword, nowIso, pick, randomPassword, uuid } from '../core/utils.js';
-import { safeUser } from '../services/permissions.service.js';
+import { safeUser, assignableUsers } from '../services/permissions.service.js';
 import { sendTemporaryCredentialsWithAppsScript } from '../services/apps-script-user-invitation.service.js';
 import { audit } from '../services/audit.service.js';
 
@@ -42,9 +42,8 @@ export const usersHandlers = {
     // tiene columna Activo; utiliza Estado. Si se pasa ese filtro genérico, la
     // lista quedaba vacía aunque existieran técnicos activos.
     const { activo: _ignoredActiveFilter, ...filters } = payload;
-    const users = (await readTable('Usuarios'))
-      .filter((user) => String(user.Estado || '').trim().toUpperCase() === 'ACTIVO')
-      .map(normalizeUser);
+    const { Usuarios, Roles } = await readTables(['Usuarios', 'Roles']);
+    const users = assignableUsers(Usuarios, Roles).map(normalizeUser);
     return filterRows(users, filters, ['NombreCompleto','Nombre','NombreUsuario','Correo']);
   },
   get: async ({ payload }) => ({ user: normalizeUser(await findById('Usuarios', pick(payload,['usuarioId','UsuarioID','id']))) }),
