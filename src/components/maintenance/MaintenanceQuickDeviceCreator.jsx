@@ -284,7 +284,7 @@ export default function MaintenanceQuickDeviceCreator({
   }
 
   const bulkNames = parseBulkMaintenanceDeviceNames(bulkNamesInput);
-  const bulkTypes = sortItemsNaturally(selectedMaintenanceCategories(availableDeviceTypes, maintenanceCounts), (item) => item.label || item.key);
+  const bulkTypes = selectedMaintenanceCategories(availableDeviceTypes, maintenanceCounts);
   const bulkSelectedType = bulkTypes.find((item) => String(item.typeId || `legacy:${item.key}`) === bulkTypeSelection)
     || (!bulkTypeSelection ? bulkTypes[0] : null);
   const bulkDoneCount = bulkEntries.filter((item) => item.done).length;
@@ -385,7 +385,7 @@ export default function MaintenanceQuickDeviceCreator({
             <div className="maintenance-bulk-device-form__fields">
               <label className="field-group"><span className="field-label">Tipo de dispositivo</span>
                 <select className="form-control" value={bulkTypeSelection || (bulkTypes[0] ? String(bulkTypes[0].typeId || `legacy:${bulkTypes[0].key}`) : '')} onChange={(event) => setBulkTypeSelection(event.target.value)} disabled={saving || bulkEntries.length > 0}>
-                  {bulkTypes.map((item) => <option key={item.typeId || item.key} value={item.typeId || `legacy:${item.key}`}>{item.label || item.key}</option>)}
+                  {sortItemsNaturally(bulkTypes, (item) => item.label || item.key).map((item) => <option key={item.typeId || item.key} value={item.typeId || `legacy:${item.key}`}>{item.label || item.key}</option>)}
                 </select>
               </label>
               <label className="field-group"><span className="field-label">Ubicación de los dispositivos</span>
