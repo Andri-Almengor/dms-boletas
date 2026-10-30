@@ -140,3 +140,26 @@ La escritura ahora usa `INSERT ... ON CONFLICT ("IdempotencyKey") WHERE "__valid
 - `backend/test/assistant-backend-health-isolation.test.js`: los contadores del endpoint de salud siguen siendo agregados y sin contenidos sensibles.
 
 Estas pruebas no requieren datos de clientes ni ejecutan envíos reales de correo o Google Chat. El ensayo de caída de red durante COMMIT y las mediciones de latencia/PG en Render deben realizarse en un entorno controlado antes de fusionar.
+
+## Continuación: precarga de adjuntos e imágenes antes de Gemini (29-10-2026)
+
+### Causa identificada
+
+El flujo `runDmsAgent` obtenía los metadatos autorizados desde `AiChatUploads` y después descargaba hasta tres imágenes de Drive **antes del primer modelo**. La descarga `driveApi.files.get({alt:'media'})` estaba dentro de un bucle secuencial sin límite de tiempo propio. Si Drive no devolvía una respuesta, se detenía el chat en precarga, sin oportunidad para que Gemini, sus fallbacks o las herramientas internas procesaran la consulta. El presupuesto total del agente se inicializaba, pero no se comprobaba activamente mientras esperaba estos recursos.
+
+### Cambio mínimo, reutilizando el helper existente
+
+- `loadDiagnosticImageInputs` usa `withTimeout` y `ai-tool-work` ya existentes para cada lectura de imagen (máximo configurado `AI_TOOL_TIMEOUT_MS`, limitado además por el tiempo total que resta al asistente). La función no introduce solicitudes duplicadas a Drive ni reintentos determinísticos. Un archivo que responde tarde sigue ocupando su cupo real hasta que se resuelva, pero no bloquea el avance del agente.
+- Si no se logra recuperar ninguna imagen elegible, se devuelve `AI_IMAGE_UNAVAILABLE` sin intentar describir contenido que Gemini no recibió. Los adjuntos se mantienen en la UI para reintentar. Se conservan las restricciones existentes de MIME, número y tamaño de imágenes.
+- `loadChatAttachments` ejecuta el **mismo SELECT autorizado** (`UserID`, `SessionHash`, IDs y estado) dentro de `withTimeout`, con límite de tiempo compartido. Si esa lectura se demora o agota la cola controlada, informa `AI_ATTACHMENTS_UNAVAILABLE`. Nunca omite el filtro de propiedad de archivos ni devuelve metadatos ajenos.
+- El frontend clasifica `AI_IMAGE_UNAVAILABLE` y `AI_ATTACHMENTS_UNAVAILABLE` como **fallos conocidos de precarga**, no como confirmaciones COMMIT inciertas. Mantiene la entrada y los archivos; no repite automáticamente operaciones.
+- Las operaciones de Drive aquí son lecturas; las reglas de negocio, el PREPARE/COMMIT, PostgreSQL operativo y el almacenamiento Drive no cambian.
+
+### Pruebas automatizadas
+
+`backend/test/ai-tool-timeout-isolation.test.js` contiene pruebas con Drive simulado que no responde, descarga posterior que sí llega, liberación del cupo al completarse realmente y diagnóstico cuando no hay imagen usable. También incluye un SELECT de adjuntos simulado que nunca responde y una prueba de que la consulta sigue obligando a verificar `UserID` y `SessionHash`. `tests/characterization/assistant-stability.test.mjs` protege los códigos frontend/servidor. CI usa PostgreSQL de pruebas sin datos ni credenciales productivas.
+
+### Limitaciones de aceptación
+
+- El tiempo y la memoria de descargas de imagen deben medirse con documentos de prueba y latencia real de Drive. Una descarga subyacente sin soporte nativo de cancelación puede seguir consumiendo un slot después del timeout, ahora contabilizado y acotado.
+- No se han medido arranques en frío de Render, cuota real Gemini ni recuperación E2E después de desconectar una sesión durante COMMIT. No fusionar en producción solo por CI verde.
