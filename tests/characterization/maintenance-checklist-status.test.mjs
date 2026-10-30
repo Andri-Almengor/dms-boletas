@@ -199,6 +199,7 @@ test('editor y backend usan la definición vigente y conservan snapshots histór
   const editor = readFileSync('src/components/maintenance/MaintenanceDeviceEditor.jsx');
   const backend = readFileSync('backend/src/modules/maintenance-dynamic-questions.module.js');
   const catalog = readFileSync('backend/src/services/maintenance-question-catalog.service.js');
+  const excel = readFileSync('backend/src/services/maintenance-dynamic-spreadsheet.service.js');
 
   assert.match(hook, /activeMaintenanceQuestionView\(question, savedByKey\.get\(question\.key\)\)/);
   assert.match(editor, /catalogQuestions\.map\(\(question\) => \(\{/);
@@ -206,6 +207,12 @@ test('editor y backend usan la definición vigente y conservan snapshots histór
   assert.match(backend, /if \(!saved \|\| item\.activeAtSave !== false\) return item/);
   assert.match(catalog, /activeAtSave: false/);
   assert.match(catalog, /return snapshot\.sort\(\(left, right\) => left\.order - right\.order/);
+  // El Excel actualizado respeta el orden activo sin alterar snapshots previos
+  // ni consultar preguntas por cada dispositivo.
+  assert.match(excel, /const rows = await readMaintenanceQuestions\(\{ includeInactive: false \}\)/);
+  assert.match(excel, /const order = currentOrders\.get\(/);
+  assert.match(excel, /order === undefined \? item : \{ \.\.\.item, order \}/);
+  assert.match(excel, /questionsForDevice\(device, currentOrders\)/);
 });
 
 // Lectura de contratos mínimos del flujo real sin importar módulos con side effects de infraestructura.
