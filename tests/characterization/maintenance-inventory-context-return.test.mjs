@@ -38,6 +38,8 @@ test('al montar de nuevo el inventario restaura los grupos, los filtros y el anc
   assert.match(inventory, /new Set\(savedContext\?\.openGroups \|\| \[\]\)/);
   assert.match(inventory, /data-maintenance-group-id=\{group\.id\}/);
   assert.match(inventory, /data-maintenance-device-id=\{id\}/);
+  assert.match(inventory, /function findVisibleInventoryAnchor/);
+  assert.match(inventory, /node\.getClientRects\(\)\.length > 0/, 'ignorar DOM oculto en vista móvil o escritorio');
   assert.match(inventory, /restoreAttemptedRef\.current = true/);
   assert.match(inventory, /anchor\.getBoundingClientRect\(\)\.top/);
   assert.match(inventory, /window\.scrollTo\(\{ top: Math\.max\(0, targetY\), behavior: 'auto' \}\)/);
