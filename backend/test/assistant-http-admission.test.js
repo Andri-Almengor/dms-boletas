@@ -1,6 +1,7 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import { EventEmitter } from 'node:events';
+import { EventEmitter, once } from 'node:events';
+import { createServer } from 'node:http';
 import { concurrencyMiddleware, concurrencySnapshot } from '../src/middleware/concurrency.middleware.js';
 
 function mockRequest(workload = '') {
@@ -100,4 +101,70 @@ test('disconnect while a COMMIT-like action is running retains HTTP resources un
   committing.req.emit('dms-action-settled');
   assert.equal(concurrencySnapshot().assistantRequests.active,0);
   assert.equal(concurrencySnapshot().requests.active,0);
+});
+
+test('real loopback TCP disconnect preserves a running assistant action until it settles', async (t) => {
+  assert.equal(concurrencySnapshot().assistantRequests.active,0);
+  assert.equal(concurrencySnapshot().requests.active,0);
+
+  let signalStarted,signalSocketClosed,signalSettled,releaseAction;
+  const started=new Promise(resolve=>{signalStarted=resolve;});
+  const socketClosed=new Promise(resolve=>{signalSocketClosed=resolve;});
+  const settled=new Promise(resolve=>{signalSettled=resolve;});
+
+  const server=createServer((req,res)=>{
+    void concurrencyMiddleware(req,res,async (error)=>{
+      if(error){
+        res.writeHead(error.status || 503);
+        res.end('busy');
+        return;
+      }
+      if(req.url==='/foreground'){
+        res.writeHead(200);
+        res.end('foreground ok');
+        return;
+      }
+      req.dmsActionRunning=true;
+      res.once('close',signalSocketClosed);
+      signalStarted();
+      await new Promise(resolve=>{releaseAction=resolve;});
+      req.dmsActionRunning=false;
+      req.emit('dms-action-settled');
+      signalSettled();
+      if(!res.destroyed)res.end('completed');
+    });
+  });
+  server.listen(0,'127.0.0.1');
+  await once(server,'listening');
+  t.after(()=>new Promise((resolve,reject)=>
+    server.close(error=>error?reject(error):resolve())));
+  const origin='http://127.0.0.1:'+server.address().port;
+  const controller=new AbortController();
+  const pending=fetch(origin+'/api/action',{
+    method:'POST',headers:{'X-DMS-Workload':'assistant','Content-Type':'application/json'},
+    body:'{}',signal:controller.signal,
+  });
+  try {
+    await started;
+    controller.abort();
+    await assert.rejects(pending,error=>error?.name==='AbortError');
+    await socketClosed;
+
+    assert.equal(concurrencySnapshot().assistantRequests.active,1);
+    assert.equal(concurrencySnapshot().requests.active,1);
+
+    const foreground=await fetch(origin+'/foreground');
+    assert.equal(foreground.status,200,'foreground routes still work during interrupted AI');
+    assert.equal(await foreground.text(),'foreground ok');
+    assert.equal(concurrencySnapshot().requests.active,1);
+
+    releaseAction();
+    await settled;
+    assert.equal(concurrencySnapshot().assistantRequests.active,0);
+    assert.equal(concurrencySnapshot().requests.active,0);
+  } finally {
+    releaseAction?.();
+    controller.abort();
+    await Promise.allSettled([pending]);
+  }
 });
