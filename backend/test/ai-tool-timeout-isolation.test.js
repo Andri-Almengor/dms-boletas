@@ -52,7 +52,9 @@ test('a stalled Drive image never blocks later images or frees its in-flight slo
     {__file:'fake-image-one',mimeType:'image/jpeg',size:500},
     {__file:'fake-image-two',mimeType:'image/png',size:500},
   ];
-  const driveApiOverride = {files:{get:async ({fileId}) => {
+  const driveApiOverride = {files:{get:async ({fileId}, options) => {
+    assert.equal(options?.responseType,'arraybuffer');
+    assert.equal(options?.timeout,30);
     ids.push(fileId);
     if(fileId === 'fake-image-one') {
       return new Promise((resolve) => {completeDrive = resolve;});
