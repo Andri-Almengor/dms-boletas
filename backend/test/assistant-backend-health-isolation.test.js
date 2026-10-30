@@ -76,3 +76,27 @@ test('existing admin AI health exposes aggregate HTTP/AI queues without request 
     assert.equal('payload' in queue, false);
   }
 });
+
+test('admin health reflects Gemini quota cooldown without exposing API credentials or user data', async () => {
+  const state=globalThis.__DMS_GEMINI_MODEL_ROUTER_STATE__;
+  assert.ok(state?.cooldowns instanceof Map);
+  const base=await aiAgentHandlers.health();
+  const {geminiModelRouterSnapshot}=await import('../src/services/gemini-model-router.bootstrap.js');
+  const target=geminiModelRouterSnapshot().models[0];
+  assert.ok(target);
+  const previous=state.cooldowns.get(target);
+  try {
+    state.cooldowns.set(target, Date.now() + 30_000);
+    const diagnostics=await aiAgentHandlers.health();
+    assert.ok(diagnostics.modelRouter.coolingModels>=1);
+    assert.ok(diagnostics.modelRouter.nextRetrySeconds>=1);
+    assert.ok(diagnostics.modelRouter.availableModels<=base.modelRouter.availableModels);
+    const serialized=JSON.stringify(diagnostics);
+    assert.equal(serialized.includes('apiKey'),false);
+    assert.equal(serialized.includes('sessionToken'),false);
+    assert.equal(serialized.includes('DATABASE_URL'),false);
+  } finally {
+    if(previous===undefined) state.cooldowns.delete(target);
+    else state.cooldowns.set(target,previous);
+  }
+});
