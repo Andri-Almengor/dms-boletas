@@ -26,7 +26,7 @@ test('Proyecto abre cada dispositivo en una ruta protegida propia sin crear perm
 test('Mantenimiento normal abre cada dispositivo dentro de su tarjeta y Proyecto conserva la ruta dedicada', () => {
   const inventory = source('src/components/maintenance/MaintenanceLocationInventory.jsx');
 
-  assert.match(inventory, /const \[openDeviceIds, setOpenDeviceIds\] = useState\(\(\) => new Set\(\)\)/);
+  assert.match(inventory, /const \[openDeviceIds, setOpenDeviceIds\] = useState\(\(\) => new Set\(savedContext\?\.openDeviceIds \|\| \[\]\)\)/);
   assert.match(inventory, /maintenance-inventory-device-cards/);
   assert.match(inventory, /maintenance-inventory-device-card\$\{expanded \? ' is-expanded' : ''\}/);
   assert.match(inventory, /aria-expanded=\{expanded\}/);
