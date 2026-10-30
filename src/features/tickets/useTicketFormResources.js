@@ -24,7 +24,7 @@ const INITIAL_CATALOG_JOBS = Object.freeze({
   categories: { routes: MODULE_ROUTES.categories.list, payload: { page: 1, pageSize: 1000, activo: true } },
   failures: { routes: MODULE_ROUTES.failureTypes.list, payload: { page: 1, pageSize: 1000, activo: true } },
   devices: { routes: MODULE_ROUTES.deviceTypes.list, payload: { page: 1, pageSize: 1000, activo: true } },
-  users: { routes: MODULE_ROUTES.users.list, payload: { page: 1, pageSize: 1000, activo: true } },
+  users: { routes: MODULE_ROUTES.users.assignmentList, payload: { page: 1, pageSize: 1000, activo: true } },
 });
 
 const CATALOG_ID_KEYS = Object.freeze({

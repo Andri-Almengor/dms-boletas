@@ -232,7 +232,7 @@ export default function MaintenanceDeviceEditor({
   useEffect(() => {
     if (technicians.length || !sessionToken) return undefined;
     let active = true;
-    requestAvailable(MODULE_ROUTES.users.list, { page: 1, pageSize: 1000, activo: true }, sessionToken)
+    requestAvailable(MODULE_ROUTES.users.assignmentList, { page: 1, pageSize: 1000, activo: true }, sessionToken)
       .then((data) => {
         if (!active) return;
         setLoadedTechnicians(normalizeItems(data)

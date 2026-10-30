@@ -1,3 +1,4 @@
+import { readFile } from 'node:fs/promises';
 import { analyzeWorkbook, publicAnalysis } from './xlsx-migration.js';
 import { DATABASE_TABLES } from '../config/database-tables.js';
 import { scriptPool, quoted } from './db-script.js';
@@ -50,7 +51,13 @@ try{
   const previous=await client.query("SELECT migration_run_id FROM migration_runs WHERE source_sha256=$1 AND status='APPLIED' ORDER BY completed_at DESC LIMIT 1",[analysis.file.sha256]);
   if(previous.rows[0]){console.log(`Workbook already applied: run=${previous.rows[0].migration_run_id}`); process.exitCode=0;}
   else {
-    const nonEmpty=await client.query(`SELECT ${Object.keys(DATABASE_TABLES).map((name)=>`EXISTS(SELECT 1 FROM ${quoted(name)} LIMIT 1)`).join(' OR ')} AS present`);
+    // El rol Supervisor se instala por migración del esquema incluso en una BD nueva.
+    // No cuenta como información operativa para el cutover, pero cualquier otro
+    // registro (incluido otro rol) continúa bloqueando importaciones accidentales.
+    const supervisorSeedId = 'e43c8e48-73c8-4f77-909e-35d2b74d0cc0';
+    const nonEmpty=await client.query(`SELECT ${Object.keys(DATABASE_TABLES).map((name)=>name==='Roles'
+      ? `EXISTS(SELECT 1 FROM "Roles" WHERE "RolID" IS DISTINCT FROM '${supervisorSeedId}' OR "Nombre" IS DISTINCT FROM 'Supervisor' LIMIT 1)`
+      : `EXISTS(SELECT 1 FROM ${quoted(name)} LIMIT 1)`).join(' OR ')} AS present`);
     if(nonEmpty.rows[0]?.present&&!options.replace) throw new Error('La base operativa no está vacía. Use --replace únicamente durante un cutover controlado.');
     await client.query('BEGIN');
     if(options.replace){
@@ -71,6 +78,10 @@ try{
     for(const [name,row] of Object.entries(analysis.reconciliation)){
       await client.query('INSERT INTO migration_reconciliation(migration_run_id,sheet_name,source_rows,raw_rows,canonical_rows,valid_canonical_rows,duplicates,malformed,orphans,checksum,status,detail) VALUES($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12::jsonb)',[analysis.runId,name,row.sourceRows,row.rawRows,row.canonicalRows,row.validCanonicalRows,row.duplicates,row.malformed,row.orphans,row.checksum,row.status,JSON.stringify({legacy:!DATABASE_TABLES[name]})]);
     }
+    // --replace trunca Roles. Reutiliza exactamente el SQL idempotente de la
+    // migración para restaurar Supervisor sin tocar otros registros importados.
+    const supervisorSeedSql = await readFile(new URL('../../migrations/022_supervisor_role.sql', import.meta.url), 'utf8');
+    await client.query(supervisorSeedSql);
     const legacyCursor=String(analysis.sheets.get('SyncChanges')?.rows.find((row)=>row.data.Cursor!==''&&row.data.Cursor!==undefined)?.data.Cursor??'');
     await client.query('INSERT INTO sync_state(singleton,generation,schema_version,legacy_sheets_cursor,migration_run_id,updated_at) VALUES(TRUE,$1,2,$2,$3,NOW()) ON CONFLICT(singleton) DO UPDATE SET generation=EXCLUDED.generation,schema_version=EXCLUDED.schema_version,legacy_sheets_cursor=EXCLUDED.legacy_sheets_cursor,migration_run_id=EXCLUDED.migration_run_id,updated_at=NOW()',[analysis.runId,legacyCursor,analysis.runId]);
     await client.query("UPDATE migration_runs SET status='APPLIED',completed_at=NOW(),report=$2::jsonb WHERE migration_run_id=$1",[analysis.runId,JSON.stringify(report)]);

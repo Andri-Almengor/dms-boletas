@@ -104,6 +104,18 @@ export default function TicketFormPage({ mode = 'create' }) {
     onError: setError,
   });
 
+  // El alta de boletas normalmente preselecciona al usuario autenticado.
+  // Si es Supervisor, no debe quedar seleccionado como técnico oculto:
+  // la fuente de verdad es el catálogo asignable del backend.
+  useEffect(() => {
+    if (editing || loading || agendaId || !user?.UsuarioID) return;
+    const ownId = String(user.UsuarioID);
+    if (catalogs.users.some((item) => String(item.UsuarioID) === ownId)) return;
+    setForm((current) => current.asignados?.includes(ownId)
+      ? { ...current, asignados: current.asignados.filter((id) => String(id) !== ownId) }
+      : current);
+  }, [editing, loading, agendaId, user?.UsuarioID, catalogs.users, form.asignados]);
+
   const restore = useCallback((draftData) => {
     if (draftData.form) {
       const agendaAssigned = agenda?.AgendaID
