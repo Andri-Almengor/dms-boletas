@@ -2,6 +2,7 @@ import { AppError } from '../core/errors.js';
 import { aiConfig, configuredModels } from './agent.config.js';
 import { aiMetricsSnapshot } from './agent.metrics.js';
 import { actionConcurrencySnapshot } from '../services/action-concurrency.service.js';
+import { postgresSnapshot } from '../infra/postgres.js';
 import { concurrencySnapshot } from '../middleware/concurrency.middleware.js';
 import { createInteraction, fallbackCompatible, outputText } from './agent.gemini.js';
 import { audit } from '../services/audit.service.js';
@@ -93,6 +94,11 @@ async function health() {
     maintenanceWriteEnabled: aiConfig.maintenanceWriteEnabled,
     knowledgeDocumentsEnabled: aiConfig.knowledgeDocumentsEnabled,
     stateless: true,
+    // Indicadores agregados de esta instancia para distinguir cold start,
+    // presión sobre el pool SQL y saturación de Gemini; no hacen consultas
+    // nuevas ni incluyen sentencias SQL, IDs, usuarios o credenciales.
+    uptimeSeconds: Math.floor(process.uptime()),
+    postgres: postgresSnapshot(),
     metrics: aiMetricsSnapshot(),
     // Este endpoint ya exige USUARIOS_GESTIONAR en app.js. Solo agrega
     // contadores sin usuarios, preguntas, mensajes ni credenciales.
