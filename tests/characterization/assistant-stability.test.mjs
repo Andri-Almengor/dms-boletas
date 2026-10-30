@@ -156,6 +156,17 @@ test('assistant mixed-action envelope is never automatically replayed or cached'
   assert.doesNotMatch(backend.split('function isHeavyRoute(route) {')[1].split('function addBusyContext')[0], /assistant\.chat|asistente\.chat/);
 });
 
+test('unavailable Drive image is a known chat failure rather than an ambiguous COMMIT', () => {
+  const frontend = source('src/api.js');
+  const page = source('src/pages/assistant/AssistantPageSecure.jsx');
+  const agent = source('backend/src/ai/agent.service.js');
+  assert.match(frontend, /AI_IMAGE_UNAVAILABLE/);
+  assert.match(page, /code === 'AI_IMAGE_UNAVAILABLE'/);
+  assert.match(page, /Se conservaron los adjuntos/);
+  assert.match(agent, /withTimeout\(\(\) => driveApi\.files\.get\(/);
+  assert.match(agent, /deadline - performance\.now\(\)/);
+});
+
 test('Knowledge skips a redundant refresh only for already-indexed documents', () => {
   const documents = source('backend/src/ai/agent.repository.knowledge-documents.js');
   assert.match(documents, /if \(rows\.some\(\(row\) => extractionState\(row\.extractionStatus\) !== 'READY'\)\)/);
