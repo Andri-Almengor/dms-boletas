@@ -1,4 +1,4 @@
-import { withRequestDeadline } from './services/requestPolicy';
+import { requestTimeoutMs, withRequestDeadline } from './services/requestPolicy';
 import { isOfflineModeEnabled } from './services/offlineMode';
 import { beginMediaUpload } from './services/mediaActivity';
 import {
@@ -270,8 +270,17 @@ async function performRequest(route, payload, sessionToken, { signal } = {}) {
   return result.data;
 }
 
+function isAssistantStatusLookup(route, payload = {}) {
+  return ['assistant.chat', 'asistente.chat'].includes(String(route || '').trim().toLowerCase())
+    && String(payload?.assistantAction || '').trim().toLowerCase() === 'operation.status';
+}
+
 function performRequestWithRetry(route, payload, sessionToken, { signal } = {}) {
-  return withRequestDeadline(route, signal, (deadlineSignal) => retryRequest(route, payload, sessionToken, deadlineSignal));
+  // operation.status es una lectura idempotente de PostgreSQL: responde aun
+  // cuando Gemini esté ocupado, sin usar el presupuesto de un chat de 240 s.
+  const timeout = isAssistantStatusLookup(route, payload) ? 90_000 : requestTimeoutMs(route);
+  return withRequestDeadline(route, signal,
+    (deadlineSignal) => retryRequest(route, payload, sessionToken, deadlineSignal), timeout);
 }
 
 async function retryRequest(route, payload, sessionToken, signal) {
@@ -282,7 +291,7 @@ async function retryRequest(route, payload, sessionToken, signal) {
 
   const read = isReadRoute(route);
   const replaySafeAi = isReplaySafeAiRoute(route);
-  const retrySafe = read || replaySafeAi;
+  const retrySafe = read || replaySafeAi || isAssistantStatusLookup(route, payload);
   let lastError;
   for (let attempt = 0; attempt <= TRANSIENT_RETRY_DELAYS_MS.length; attempt += 1) {
     try {
