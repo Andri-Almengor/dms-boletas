@@ -40,3 +40,46 @@ test('disconnect after a running operation begins never cancels the operation', 
   assert.equal(await action, 'completed by backend');
   assert.equal(actionConcurrencySnapshot().ai.active, 0);
 });
+
+test('operation.status remains readable while the Gemini action lane is saturated', async () => {
+  const release = [];
+  const hold = () => new Promise(resolve => { release.push(resolve); });
+  const active = [
+    runWithActionConcurrency('assistant.chat',hold),
+    runWithActionConcurrency('asistente.chat',hold),
+  ];
+  await new Promise(resolve=>setImmediate(resolve));
+  const waiting = [
+    runWithActionConcurrency('assistant.chat',hold),
+    runWithActionConcurrency('assistant.chat',hold),
+  ];
+  await new Promise(resolve=>setImmediate(resolve));
+  assert.equal(actionConcurrencySnapshot().ai.active,2);
+  assert.equal(actionConcurrencySnapshot().ai.waiting,2);
+  try {
+    // Estado y autorización se resuelven en action-router/findOperation;
+    // la selección del carril no concede acceso a una operación.
+    const status = await runWithActionConcurrency('assistant.chat',async()=> 'COMMITTING',
+      {assistantAction:'operation.status'});
+    assert.equal(status,'COMMITTING');
+    assert.equal(actionConcurrencySnapshot().ai.active,2);
+    assert.equal(actionConcurrencySnapshot().ai.waiting,2);
+    await assert.rejects(
+      () => runWithActionConcurrency('assistant.chat',async()=> 'must-not-commit',
+        {assistantAction:'operation.decide'}),
+      error=>error.code==='SERVER_BUSY' && error.status===503,
+    );
+    await assert.rejects(
+      () => runWithActionConcurrency('assistant.chat',async()=> 'must-not-revise',
+        {assistantAction:'operation.revise'}),
+      error=>error.code==='SERVER_BUSY' && error.status===503,
+    );
+  } finally {
+    release.splice(0,2).forEach(resolve=>resolve('completed'));
+    await new Promise(resolve=>setImmediate(resolve));
+    release.splice(0,2).forEach(resolve=>resolve('queued-completed'));
+    await Promise.all([...active,...waiting]);
+  }
+  assert.equal(actionConcurrencySnapshot().ai.active,0);
+  assert.equal(actionConcurrencySnapshot().ai.waiting,0);
+});
