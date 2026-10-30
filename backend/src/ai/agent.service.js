@@ -93,21 +93,32 @@ function updateTroubleshootingContext(context = {}, message = '') {
 
 const MAX_DIAGNOSTIC_IMAGE_BYTES = 10 * 1024 * 1024;
 const DIAGNOSTIC_IMAGE_MIME = /^image\/(?:png|jpe?g|webp|gif)$/i;
-async function loadDiagnosticImageInputs(attachments = []) {
+export async function loadDiagnosticImageInputs(attachments = [], {
+  driveApiOverride = null,
+  timeoutMs = aiConfig.toolTimeoutMs,
+  deadline = Infinity,
+} = {}) {
   const candidates = (Array.isArray(attachments) ? attachments : [])
     .filter((item) => DIAGNOSTIC_IMAGE_MIME.test(String(item?.mimeType || '')))
     .slice(0, 3);
-  if (!candidates.length) return [];
-  const { driveApi } = await import('../infra/google.js');
-  const output = [];
-  for (const item of candidates) {
+  const eligible = candidates.filter((item) => {
     const size = Number(item?.size || 0);
-    if (!item?.__file || !Number.isFinite(size) || size <= 0 || size > MAX_DIAGNOSTIC_IMAGE_BYTES) continue;
+    return item?.__file && Number.isFinite(size) && size > 0 && size <= MAX_DIAGNOSTIC_IMAGE_BYTES;
+  });
+  if (!eligible.length) return [];
+  const driveApi = driveApiOverride || (await import('../infra/google.js')).driveApi;
+  const output = [];
+  for (const item of eligible) {
+    const remainingMs = deadline - performance.now();
+    if (remainingMs <= 250) break;
     try {
-      const response = await driveApi.files.get(
+      // Descarga de solo lectura. Retiene su cupo incluso si vence el plazo
+      // visible; una respuesta tardía no puede mutar el historial ni volver
+      // a ejecutar esta consulta.
+      const response = await withTimeout(() => driveApi.files.get(
         { fileId: item.__file, alt: 'media', supportsAllDrives: true },
         { responseType: 'arraybuffer' },
-      );
+      ), Math.max(1, Math.min(timeoutMs, Math.floor(remainingMs))), 'ai.diagnosticImage');
       const buffer = Buffer.from(response.data);
       if (!buffer.length || buffer.length > MAX_DIAGNOSTIC_IMAGE_BYTES) continue;
       output.push({
@@ -117,8 +128,13 @@ async function loadDiagnosticImageInputs(attachments = []) {
         resolution: 'high',
       });
     } catch {
-      // El archivo sigue disponible por metadata; una falla visual no expone Drive ni rompe toda la conversación.
+      // No imprimir IDs de Drive ni datos visuales. El chat puede continuar
+      // solo con imágenes realmente recuperadas.
     }
+  }
+  if (!output.length) {
+    throw new AppError('AI_IMAGE_UNAVAILABLE',
+      'No se pudieron recuperar las imágenes de Drive. Vuelva a intentar cuando estén disponibles.', 503);
   }
   return output;
 }
@@ -257,7 +273,7 @@ export async function runDmsAgent(ctx, overrides = {}){
   const contextualIds=Array.isArray(context.pendingUploadIds)?context.pendingUploadIds:[];
   const attachmentIds=payloadAttachmentIds.length?payloadAttachmentIds:contextualIds;
   const chatAttachments=await loadChatAttachments(ctx,attachmentIds);
-  const diagnosticImages=await loadDiagnosticImageInputs(chatAttachments);
+  const diagnosticImages=await loadDiagnosticImageInputs(chatAttachments,{deadline});
   if(payloadAttachmentIds.length)context=sanitizeActiveContext({...context,pendingUploadIds:chatAttachments.map(item=>item.uploadId)});
 
   const history=conversationParts(ctx.payload?.history||[]);
