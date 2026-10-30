@@ -228,18 +228,29 @@ function outputBudget(intent,message){
 }
 function safeTelemetry(value){return clean(value,160).replace(/[\r\n]/g,' ');}
 
-async function loadChatAttachments(ctx,ids=[]){
+export async function loadChatAttachments(ctx,ids=[],{queryFn=query,deadline=Infinity,timeoutMs=aiConfig.toolTimeoutMs}={}){
   const requested=[...new Set((Array.isArray(ids)?ids:[]).map(value=>clean(value,250)).filter(Boolean))].slice(0,aiConfig.maxEvidenceUploadBatch);
   if(!requested.length)return[];
-  const result=await query(
-    `SELECT "UploadID" AS "uploadId","NombreArchivo" AS name,"MimeType" AS "mimeType","SizeBytes" AS size,
+  let result;
+  try {
+    const remainingMs=deadline-performance.now();
+    if(remainingMs<=250)throw new AppError('AI_AGENT_TOTAL_TIMEOUT','El asistente agotó el tiempo total de procesamiento.',504);
+    result=await withTimeout(()=>queryFn(
+      `SELECT "UploadID" AS "uploadId","NombreArchivo" AS name,"MimeType" AS "mimeType","SizeBytes" AS size,
             "DriveFileID" AS "__file","Status" AS status,"ExpiresAt" AS "expiresAt"
        FROM "AiChatUploads"
       WHERE "__valid"=TRUE AND "UploadID"=ANY($1::text[]) AND "UserID"=$2 AND "SessionHash"=$3
         AND "Status" IN ('AVAILABLE','CONSUMED')`,
-    [requested,clean(ctx?.user?.UsuarioID,250),sessionFingerprint(ctx.sessionToken)],
-    {label:'ai.attachments.metadata'},
-  );
+      [requested,clean(ctx?.user?.UsuarioID,250),sessionFingerprint(ctx.sessionToken)],
+      {label:'ai.attachments.metadata'},
+    ),Math.max(1,Math.min(timeoutMs,Math.floor(remainingMs))),'ai.attachmentMetadata');
+  }catch(error){
+    if(error?.code==='AI_TOOL_TIMEOUT'||error?.code==='SERVER_BUSY'||error?.code==='SERVER_BUSY_TIMEOUT'){
+      throw new AppError('AI_ATTACHMENTS_UNAVAILABLE',
+        'Los adjuntos tardaron demasiado en consultarse. Intente nuevamente sin volver a subir los archivos.',503);
+    }
+    throw error;
+  }
   const byId=new Map(result.rows.map(row=>[row.uploadId,row]));
   const ordered=requested.map(id=>byId.get(id)).filter(Boolean);
   if(ordered.length!==requested.length)throw badRequest('Uno o más adjuntos ya no están disponibles o pertenecen a otra sesión.');
@@ -272,7 +283,7 @@ export async function runDmsAgent(ctx, overrides = {}){
   const payloadAttachmentIds=Array.isArray(ctx.payload?.attachmentIds)?ctx.payload.attachmentIds:[];
   const contextualIds=Array.isArray(context.pendingUploadIds)?context.pendingUploadIds:[];
   const attachmentIds=payloadAttachmentIds.length?payloadAttachmentIds:contextualIds;
-  const chatAttachments=await loadChatAttachments(ctx,attachmentIds);
+  const chatAttachments=await loadChatAttachments(ctx,attachmentIds,{deadline});
   const diagnosticImages=await loadDiagnosticImageInputs(chatAttachments,{deadline});
   if(payloadAttachmentIds.length)context=sanitizeActiveContext({...context,pendingUploadIds:chatAttachments.map(item=>item.uploadId)});
 
