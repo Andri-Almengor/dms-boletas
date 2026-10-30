@@ -271,3 +271,28 @@ El módulo `agent.metrics.js` ya acumulaba solicitudes, errores y sumas de durac
 El percentil usa nearest rank sobre las últimas solicitudes **que llegaron a `recordAiMetrics`**. Fallos muy tempranos (rechazo de autenticación, cola llena, error previo al registro de métricas) no están necesariamente incluidos: para ellos usar los contadores de errores, rechazo de cola, correlación HTTP y registros de Render ya existentes. No interpretar la ventana como p95 global del clúster ni SLA productivo. La ventana se vacía al reiniciar el proceso, igual que los contadores existentes; se verifican límite, reinicio, percentiles y ausencia de texto de mensajes con `backend/test/ai-metrics-latency.test.js`.
 
 Para verificar la mejora en un despliegue de prueba, comparar p50/p95/max antes y después de consultas concurrentes reales y correlacionarlos con `queues`, `postgres`, `modelRouter` y `uptimeSeconds`. No exportar ni registrar sesiones, payloads, claves ni preguntas.
+
+## Continuación — aislamiento real de conexiones PostgreSQL y cierre TCP local (29-10-2026)
+
+### Causa raíz adicional: herramientas IA podían ocupar el pool completo
+
+El `AI_TOOL_WORK` de `backend/src/ai/agent.service.js` contabiliza las herramientas que siguen activas después de vencer su límite visible. Sin embargo, el máximo anterior era `PG_POOL_MAX`; esto permitía que **todas las conexiones disponibles del pool PostgreSQL compartido** fueran tomadas por consultas SQL lentas de IA. Aunque `action-ai` y `http-assistant` aislaban el chat de autosaves a nivel de admisión HTTP, las escrituras normales podían seguir esperando una conexión SQL libre.
+
+Se corrigió **en el semáforo ya existente**, reduciendo la capacidad máxima de herramientas simultáneas a `Math.max(1, PG_POOL_MAX - 1)`. Para la configuración usual `PG_POOL_MAX=3`, significa **2 herramientas activas y al menos 1 conexión potencialmente disponible** para las operaciones normales; para `PG_POOL_MAX=2`, significa una herramienta. No se crea otro pool, ruta, permiso o migración. Esta reserva limita **solo la carga de herramientas admitida por el agente**, no garantiza aislamiento absoluto si otras partes del backend ocupan el pool o una herramienta usa más de una conexión a la vez. Con `PG_POOL_MAX=1` no es posible reservar una conexión para otras acciones y el diagnóstico debe señalar esa restricción operativa.
+
+Se agregó una prueba de integración en `backend/test/postgres-integration.mjs` que usa **exclusivamente `TEST_DATABASE_URL`**: ocupa todos los cupos de herramientas con `SELECT pg_sleep(1.6)`, deja vencer los deadlines visibles, verifica que el trabajo SQL continúa contabilizado y exige que otra consulta `SELECT 1` obtenga conexión por el pool compartido mientras esas herramientas siguen activas. Ningún SQL de prueba toca tablas operativas ni sale hacia producción. La prueba está limitada a entornos con al menos dos conexiones de pool.
+
+### Desconexión TCP verdadera en localhost, sin mutaciones de clientes
+
+Las pruebas anteriores de `backend/test/assistant-http-admission.test.js` simulaban `res.emit('close')` mediante objetos `EventEmitter`. Se añadió una prueba más representativa, que crea un servidor HTTP real en `127.0.0.1` con `concurrencyMiddleware`, admite un `POST /api/action` con pista de carga `assistant`, inicia una acción diferida sin mutaciones, cancela de verdad el `fetch` cliente y espera el evento de cierre de socket del servidor. Mientras el trabajo sigue activo, **ambos cupos `http-all` y `http-assistant` deben seguir reservados**, y otra ruta foreground debe recibir HTTP 200. Los cupos se liberan únicamente cuando la acción diferida emite el evento existente `dms-action-settled`.
+
+Esta prueba valida eventos HTTP reales del mismo middleware, pero **no** confirma una boleta ni emite PDF/correo/Chat, no envía datos a Render y no simula un corte físico entre proxies de producción. La idempotencia de boletas tras COMMIT se valida por separado en la integración PostgreSQL de la etapa 8. No fusionar basándose exclusivamente en estas simulaciones.
+
+### Criterios finales para la aceptación en Render
+
+- Comprobar `PG_POOL_MAX` efectivo y `/api/ai/health` con sesión administradora; con pool de 3, `queues.aiTools.max` debería ser 2. Comparar `postgres.waitingCount` y `postgres.dbPoolWaitMs` antes/después de una prueba autorizada de saturación; este último es acumulado por proceso.
+- Comprobar que un autosave, una consulta de Home y `operation.status` responden mientras dos herramientas Gemini están esperando SQL. No crear boletas productivas para medirlo.
+- Cortar una conexión de prueba durante COMMIT controlado **sin correo ni Google Chat real** y recuperar `OperationID` desde la misma sesión. Contrastar los UUID persistidos con el estado COMMITTED/PARTIAL y comprobar que no hay duplicados ni cambios inesperados en SyncChanges.
+- Repetir después de reiniciar la instancia de Render y confirmar que la recuperación usa PostgreSQL, no locks de memoria. Registrar resultados de pruebas, latencias y códigos de error, sin tokens ni identificadores de clientes reales.
+
+**Restricción:** el endpoint público `https://dms-boletas-mfqj.onrender.com/api/health` se consultó nuevamente pero no pudo abrirse mediante la herramienta web. No se presume que el PR esté desplegado ni que se hayan medido latencias reales allí.
