@@ -152,7 +152,15 @@ test('assistant mixed-action envelope is never automatically replayed or cached'
   assert.match(frontend, /SERVER_BUSY_TIMEOUT/);
   assert.match(frontend, /AI_CHAT_DISABLED/);
   const backend = source('backend/src/services/action-concurrency.service.js');
-  assert.match(backend, /isAssistantChatRoute\(route\) \|\| isAiRewriteRoute\(route\)/);
+  assert.match(backend, /\(isAssistantChatRoute\(route\) && !statusLookup\) \|\| isAiRewriteRoute\(route\)/);
+  assert.match(backend, /isAssistantStatusLookup\(route, assistantAction\)/);
+  const app = source('backend/src/app.js');
+  const assistantDispatcher = source('backend/src/modules/assistant-agenda.module.js');
+  const operations = source('backend/src/ai/agent.repository.operations.js');
+  assert.match(app, /assistantAction: envelope\.payload\?\.assistantAction/);
+  assert.match(assistantDispatcher, /if \(action === 'operation\.status'\) return \(await getAiOperationStatus\(ctx, ctx\.payload\)\)\.modelData/);
+  assert.match(operations, /"OperationID"=\$1 AND "UserID"=\$2 AND "SessionHash"=\$3 LIMIT 1/);
+  assert.match(frontend, /!== 'operation\.status'/);
   assert.doesNotMatch(backend.split('function isHeavyRoute(route) {')[1].split('function addBusyContext')[0], /assistant\.chat|asistente\.chat/);
 });
 
