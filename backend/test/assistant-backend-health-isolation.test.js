@@ -37,6 +37,18 @@ test('existing admin AI health exposes aggregate HTTP/AI queues without request 
   assert.equal(diagnostic.queues.httpAssistant.lane, 'http-assistant');
   assert.equal(diagnostic.queues.aiActions.lane, 'action-ai');
   assert.equal(diagnostic.queues.aiTools.lane, 'ai-tool-work');
+  assert.equal(Number.isInteger(diagnostic.uptimeSeconds),true);
+  assert.ok(diagnostic.uptimeSeconds >= 0);
+  const expectedDbKeys = [
+    'totalCount','idleCount','waitingCount','dbQueries','dbQueryMs',
+    'dbRowsRead','dbRowsWritten','dbPoolWaitMs','dbErrors','dbSlowQueries',
+  ];
+  assert.deepEqual(Object.keys(diagnostic.postgres).sort(),expectedDbKeys.sort());
+  for (const key of expectedDbKeys) {
+    assert.equal(typeof diagnostic.postgres[key], 'number');
+    assert.ok(Number.isFinite(diagnostic.postgres[key]));
+    assert.ok(diagnostic.postgres[key] >= 0);
+  }
   for (const queue of Object.values(diagnostic.queues)) {
     assert.ok(Number.isInteger(queue.active));
     assert.ok(Number.isInteger(queue.waiting));
