@@ -70,8 +70,11 @@ test('acciones de ubicaciones móviles no comprimen Agregar lista ni alteran las
   const mobile = styles.split('@media (max-width: 760px) {')[1]?.split('@media (max-width: 420px) {')[0] || '';
   const narrow = styles.split('@media (max-width: 420px) {')[1] || '';
 
-  assert.match(inventory, /onClick=\{\(\) => onAddDevice\(group\)\}/);
-  assert.match(inventory, /onClick=\{\(\) => onAddDeviceList\(group\)\}/);
+  assert.match(inventory, /onClick=\{\(\) => beginAddDevice\(group\)\}/);
+  assert.match(inventory, /onClick=\{\(\) => beginAddDevice\(group, true\)\}/);
+  assert.match(inventory, /if \(bulk\) onAddDeviceList\(group\)/);
+  assert.match(inventory, /else onAddDevice\(group\)/);
+  assert.match(inventory, /setOpenGroups\(\(current\) => new Set\(\[\.\.\.current, group\.id\]\)\)/);
   assert.match(inventory, /canRemoveLocations && !group\.legacy/);
   assert.match(mobile, /\.maintenance-location-work-group__actions\s*\{[^}]*display:\s*grid;[^}]*grid-template-columns:\s*minmax\(0, 1fr\) var\(--touch-target-min\)/s);
   assert.match(mobile, /\.maintenance-location-work-group__actions > \.button\s*\{[^}]*min-width:\s*0;[^}]*min-height:\s*var\(--touch-target-min\);[^}]*width:\s*100%;[^}]*white-space:\s*nowrap;/s);
