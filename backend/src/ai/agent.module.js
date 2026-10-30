@@ -1,5 +1,6 @@
 import { AppError } from '../core/errors.js';
-import { aiConfig, configuredModels } from './agent.config.js';
+import { aiConfig } from './agent.config.js';
+import { geminiModelRouterSnapshot } from '../services/gemini-model-router.bootstrap.js';
 import { aiMetricsSnapshot } from './agent.metrics.js';
 import { actionConcurrencySnapshot } from '../services/action-concurrency.service.js';
 import { postgresSnapshot } from '../infra/postgres.js';
@@ -84,10 +85,25 @@ export async function transcribeAssistantAudio(ctx, overrides = {}) {
 }
 
 async function health() {
+  // Misma fuente de verdad que usa el router para GEMINI_FALLBACK_MODELS,
+  // cooldown 429 y modelos retirados. El snapshot es local y no hace red.
+  const modelRouter = geminiModelRouterSnapshot();
+  const available = modelRouter.models.filter((model) =>
+    !modelRouter.unavailableModels.includes(model) && !(modelRouter.cooldowns[model] > 0));
+  const cooling = modelRouter.models.filter((model) => modelRouter.cooldowns[model] > 0);
   return {
     enabled: aiConfig.enabled,
     model: aiConfig.primaryModel,
-    modelsConfigured: configuredModels().length,
+    modelsConfigured: aiConfig.primaryModel ? modelRouter.models.length : 0,
+    modelRouter: {
+      activeModel: modelRouter.activeModel,
+      availableModels: available.length,
+      coolingModels: cooling.length,
+      unavailableModels: modelRouter.unavailableModels.length,
+      nextRetrySeconds: cooling.length
+        ? Math.max(1, Math.ceil(Math.min(...cooling.map((model) => modelRouter.cooldowns[model])) / 1000))
+        : 0,
+    },
     modelFallbackEnabled: aiConfig.modelFallbackEnabled,
     webSearchEnabled: aiConfig.webSearchEnabled,
     writeEnabled: aiConfig.writeEnabled,
