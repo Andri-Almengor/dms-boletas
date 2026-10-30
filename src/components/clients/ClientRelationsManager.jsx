@@ -1,6 +1,7 @@
 import React, { useEffect, useMemo, useRef, useState } from 'react';
 import { useAuth } from '../../AuthContext';
 import Icon from '../common/Icon';
+import { sortItemsNaturally } from '../../utils/naturalSort';
 import { MODULE_ROUTES, pick, requestAvailable, toBoolean } from '../../services/moduleApi';
 
 const LOCATION_DELETE_ROUTES = [
@@ -569,7 +570,7 @@ export default function ClientRelationsManager({
 
           <div className="client-relation-editor__grid">
             <label className="field-group"><span className="field-label">Nombre *</span><input className="form-control" value={editor.values.nombre} onChange={(event) => updateEditor({ nombre: event.target.value })} required /></label>
-            {editor.type === 'equipment' && <label className="field-group"><span className="field-label">Sede o zona principal *</span><select className="form-control" value={editor.values.parentId} onChange={(event) => updateEditor({ parentId: event.target.value })} required><option value="">Seleccione una opción</option>{locationItems.map((location) => <option key={location.id} value={location.id}>{location.nombre || 'Sin nombre'}</option>)}</select></label>}
+            {editor.type === 'equipment' && <label className="field-group"><span className="field-label">Sede o zona principal *</span><select className="form-control" value={editor.values.parentId} onChange={(event) => updateEditor({ parentId: event.target.value })} required><option value="">Seleccione una opción</option>{sortItemsNaturally(locationItems, (location) => location.nombre).map((location) => <option key={location.id} value={location.id}>{location.nombre || 'Sin nombre'}</option>)}</select></label>}
             {editor.type === 'supervisor' && <>
               <label className="field-group"><span className="field-label">Puesto</span><input className="form-control" value={editor.values.puesto} onChange={(event) => updateEditor({ puesto: event.target.value })} /></label>
               <label className="field-group"><span className="field-label">Correo</span><input className="form-control" type="email" value={editor.values.correo} onChange={(event) => updateEditor({ correo: event.target.value })} /></label>
