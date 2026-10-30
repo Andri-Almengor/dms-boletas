@@ -45,6 +45,11 @@ test('el toggle se aplica solo a preguntas dinámicas Sí/No, con borrado real d
   assert.match(ui, /toggleMaintenanceQuestionChoice\(value, option\)/);
   assert.match(ui, /aria-pressed=\{String\(value \?\? ''\) === String\(option\)\}/);
   assert.match(ui, /if \(type === 'OPCIONES'\)/);
+  const editor = source('src/components/maintenance/MaintenanceDeviceEditor.jsx');
+  assert.match(editor, /allowClear \? toggleMaintenanceQuestionChoice\(value, option\) : option/);
+  assert.match(editor, /funcionamiento: value \}\)} disabled=\{checklistLocked\} allowClear/);
+  assert.match(editor, /enUso: value \}\)} options=\{\['Sí, en uso', 'No, está guardado', 'No'\]\} disabled=\{checklistLocked\} allowClear/);
+  assert.match(editor, /label="Estado"[\s\S]*?disabled=\{checklistLocked \|\| !checklistCompletion\.complete\}/);
 });
 
 test('drag usa pointer events para móvil, asa visible y teclado accesible sin guardar cada pixel', () => {
