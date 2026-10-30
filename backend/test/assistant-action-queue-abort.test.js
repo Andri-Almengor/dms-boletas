@@ -83,3 +83,42 @@ test('operation.status remains readable while the Gemini action lane is saturate
   assert.equal(actionConcurrencySnapshot().ai.active,0);
   assert.equal(actionConcurrencySnapshot().ai.waiting,0);
 });
+
+test('assistant attachment transfers use existing upload lane even when Gemini queue is full', async () => {
+  const resolveAi=[];
+  const hold=()=>new Promise(resolve=>{resolveAi.push(resolve);});
+  const active=[
+    runWithActionConcurrency('assistant.chat',hold),
+    runWithActionConcurrency('asistente.chat',hold),
+  ];
+  await new Promise(resolve=>setImmediate(resolve));
+  const waiting=[
+    runWithActionConcurrency('assistant.chat',hold),
+    runWithActionConcurrency('assistant.chat',hold),
+  ];
+  await new Promise(resolve=>setImmediate(resolve));
+  assert.equal(actionConcurrencySnapshot().ai.active,2);
+  assert.equal(actionConcurrencySnapshot().ai.waiting,2);
+
+  try {
+    const init=await runWithActionConcurrency('assistant.chat',async()=>{
+      assert.equal(actionConcurrencySnapshot().uploads.active,1);
+      return 'upload initialized';
+    },{assistantAction:'attachment.init'});
+    const chunk=await runWithActionConcurrency('asistente.chat',async()=>{
+      assert.equal(actionConcurrencySnapshot().uploads.active,1);
+      return 'chunk saved';
+    },{assistantAction:'attachment.chunk'});
+    assert.equal(init,'upload initialized');
+    assert.equal(chunk,'chunk saved');
+    assert.equal(actionConcurrencySnapshot().ai.active,2);
+    assert.equal(actionConcurrencySnapshot().ai.waiting,2);
+    assert.equal(actionConcurrencySnapshot().uploads.active,0);
+  } finally {
+    resolveAi.splice(0,2).forEach(resolve=>resolve('active finished'));
+    await new Promise(resolve=>setImmediate(resolve));
+    resolveAi.splice(0,2).forEach(resolve=>resolve('queued finished'));
+    await Promise.all([...active,...waiting]);
+  }
+  assert.equal(actionConcurrencySnapshot().ai.active,0);
+});
