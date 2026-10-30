@@ -1227,4 +1227,63 @@ test('AI COMMITTING remains recoverable after proposal TTL, while unclaimed PEND
   }
 });
 
+test('AI recovery and knowledge lookups retain indexed PostgreSQL plans', async () => {
+  // EXPLAIN ANALYZE here uses ONLY the disposable TEST_DATABASE_URL from CI.
+  // enable_seqscan=off probes index eligibility, not production p95 latency.
+  // Never log result rows, sessions, tokens, or SQL parameters.
+  const cases=[
+    {
+      label:'ai.operation.get',
+      index:'ux_ai_pending_operations_id',
+      sql:`SELECT "OperationID" FROM "AiPendingOperations"
+        WHERE "__valid"=TRUE AND "OperationID"=$1 AND "UserID"=$2 AND "SessionHash"=$3 LIMIT 1`,
+      params:['missing-id','test-user','test-hash'],
+    },
+    {
+      label:'ai.operation.idempotency',
+      index:'ux_ai_pending_operations_idempotency',
+      sql:`SELECT "OperationID" FROM "AiPendingOperations"
+        WHERE "__valid"=TRUE AND "IdempotencyKey"=$1 ORDER BY "__db_id" DESC LIMIT 1`,
+      params:['missing-key'],
+    },
+    {
+      label:'ai.attachments.ownership',
+      index:'ux_ai_chat_uploads_id',
+      sql:`SELECT "UploadID" FROM "AiChatUploads" WHERE "__valid"=TRUE
+        AND "UploadID"=ANY($1::text[]) AND "UserID"=$2 AND "SessionHash"=$3
+        AND "Status" IN ('AVAILABLE','CONSUMED')`,
+      params:[['missing-upload'],'test-user','test-hash'],
+    },
+    {
+      label:'ai.knowledge.chunksByDocument',
+      index:'ix_knowledge_document_chunks_document',
+      sql:`SELECT "ChunkID" FROM "KnowledgeDocumentChunks"
+        WHERE "__valid"=TRUE AND "DocumentID"=$1 ORDER BY "ChunkIndex" LIMIT 5`,
+      params:['missing-document'],
+    },
+  ];
+  await withTransaction(async client=>{
+    await client.query('SET LOCAL enable_seqscan=off');
+    for(const item of cases){
+      const rows=await client.query('EXPLAIN (ANALYZE, BUFFERS, FORMAT JSON) '+item.sql,item.params);
+      const value=rows.rows[0]?.['QUERY PLAN'];
+      const report=(Array.isArray(value)?value:JSON.parse(value))[0];
+      const indexes=[];
+      const walk=node=>{
+        if(node['Index Name'])indexes.push(node['Index Name']);
+        for(const child of node.Plans||[])walk(child);
+      };
+      walk(report.Plan);
+      assert.ok(indexes.includes(item.index),
+        `${item.label} must remain eligible for the existing ${item.index} index; got ${indexes.join(',')}`);
+      assert.ok(Number.isFinite(Number(report['Execution Time'])));
+      console.info('[test-ai-query-plan] '+JSON.stringify({
+        label:item.label,index:item.index,
+        executionMs:Number(Number(report['Execution Time']).toFixed(3)),
+        sharedHitBlocks:Number(report.Plan['Shared Hit Blocks']||0),
+      }));
+    }
+  });
+});
+
 test.after(async () => { await closePostgres(); });
