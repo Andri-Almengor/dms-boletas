@@ -1101,7 +1101,7 @@ test('Gemini ticket PREPARE/REVISE/COMMIT creates real pending follow-up tickets
     await appendRow('Usuarios',{UsuarioID:ids.user,NombreCompleto:'Técnico agente CI',NombreUsuario:'ci-ticket-agent',Estado:'ACTIVO'});
 
     const {
-      prepareTicketBatchCreate,reviseAiTicketOperation,decideAiOperation,
+      prepareTicketBatchCreate,reviseAiTicketOperation,decideAiOperation,getAiOperationStatus,
     }=await import('../src/ai/agent.repository.operations.js');
     await assert.rejects(
       prepareTicketBatchCreate({...ctx,permissions:['BOLETAS_VER']},{tickets:twoTickets}),
@@ -1125,6 +1125,19 @@ test('Gemini ticket PREPARE/REVISE/COMMIT creates real pending follow-up tickets
     assert.equal(prep.modelData.tickets[0].location,'Sede Central');
     operationId=prep.modelData.operationId;
     assert.ok(operationId);
+
+    // El carril rápido de operación.status nunca equivale a autorización:
+    // la consulta PostgreSQL debe verificar el usuario Y la sesión.
+    const ownedStatus=await getAiOperationStatus(ctx,{operationId});
+    assert.equal(ownedStatus.modelData.status,'PENDING');
+    await assert.rejects(
+      getAiOperationStatus({...ctx,user:{UsuarioID:'different-ai-user'}},{operationId}),
+      error=>error.status===404,
+    );
+    await assert.rejects(
+      getAiOperationStatus({...ctx,sessionToken:'different-ai-session'},{operationId}),
+      error=>error.status===404,
+    );
 
     const revised=await reviseAiTicketOperation(ctx,{
       operationId,index:1,fields:{endTime:'09:15'},
