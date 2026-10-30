@@ -1,4 +1,5 @@
 import React, { useCallback, useMemo, useState } from 'react';
+import { sortItemsNaturally } from '../../utils/naturalSort';
 import { useAuth } from '../../AuthContext';
 import Icon from '../common/Icon';
 import { requestAvailable } from '../../services/moduleApi';
@@ -142,7 +143,7 @@ export default function MaintenanceMetricsDashboard() {
     </div>
 
     <section className="metrics-filters">
-      <label><span>Cliente</span><select value={filters.cliente} onChange={(event) => updateFilter('cliente', event.target.value)} disabled={loading}><option value="">Todos los clientes</option>{(options.clientes || []).map((item) => <option key={item} value={item}>{item}</option>)}</select></label>
+      <label><span>Cliente</span><select value={filters.cliente} onChange={(event) => updateFilter('cliente', event.target.value)} disabled={loading}><option value="">Todos los clientes</option>{sortItemsNaturally(options.clientes || []).map((item) => <option key={item} value={item}>{item}</option>)}</select></label>
       <label><span>Fecha de mantenimiento</span><select value={filters.fecha} onChange={(event) => updateFilter('fecha', event.target.value)} disabled={loading}><option value="">Todas las fechas</option>{(options.fechas || []).map((item) => <option key={item} value={item}>{item}</option>)}</select></label>
       <label><span>Funcionamiento</span><select value={filters.funcionamiento} onChange={(event) => updateFilter('funcionamiento', event.target.value)} disabled={loading}><option value="">Todos</option>{(options.funcionamiento || []).map((item) => <option key={item} value={item}>{item}</option>)}</select></label>
       <label><span>En uso</span><select value={filters.enUso} onChange={(event) => updateFilter('enUso', event.target.value)} disabled={loading}><option value="">Todos</option>{(options.enUso || []).map((item) => <option key={item} value={item}>{item}</option>)}</select></label>
