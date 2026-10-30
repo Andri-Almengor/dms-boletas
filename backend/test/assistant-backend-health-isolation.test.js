@@ -41,6 +41,10 @@ test('backend health remains available when Gemini credentials are missing', asy
 test('existing admin AI health exposes aggregate HTTP/AI queues without request content', async () => {
   const diagnostic = await aiAgentHandlers.health();
   assert.equal(typeof diagnostic.enabled, 'boolean');
+  for (const key of ['count','windowSize','p50Ms','p95Ms','maxMs']) {
+    assert.equal(typeof diagnostic.metrics.recentLatency[key], 'number');
+    assert.ok(diagnostic.metrics.recentLatency[key] >= 0);
+  }
   assert.equal(typeof diagnostic.modelRouter.activeModel, 'string');
   for (const key of ['availableModels','coolingModels','unavailableModels','nextRetrySeconds']) {
     assert.ok(Number.isInteger(diagnostic.modelRouter[key]),key);
