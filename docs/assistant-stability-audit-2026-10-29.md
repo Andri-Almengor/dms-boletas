@@ -167,3 +167,26 @@ El flujo `runDmsAgent` obtenía los metadatos autorizados desde `AiChatUploads` 
 ### Timeout del transporte de Drive
 
 Además del límite externo de `withTimeout`, las lecturas de diagnóstico ahora envían `timeout: readTimeoutMs` a `driveApi.files.get` (opción HTTP del cliente Gaxios utilizado por Google APIs). Esto solicita el cierre del **GET de solo lectura** si excede el presupuesto asignado. Se comprueba por prueba con Drive simulado que el timeout llega al transporte. El semáforo sigue reteniendo el cupo hasta que se resuelve la promesa original, porque no se debe asumir que todos los adaptadores HTTP cancelan de forma instantánea.
+
+## Continuación: consulta de estado durante saturación de Gemini
+
+### Incidencia reproducible
+
+La interfaz del asistente recupera la confirmación de una boleta con `apiRequest('assistant.chat',{assistantAction:'operation.status',operationId})`. El dispatcher existente `assistant-agenda.module.js` resuelve esa acción directamente por `getAiOperationStatus`, que consulta PostgreSQL y vincula la operación al usuario y a `SessionHash`. **No ejecuta Gemini**. No obstante, la solicitud seguía consumiendo un cupo de `action-ai` y, desde el navegador, una reserva `http-assistant`. Cuando había dos sesiones Gemini ejecutándose y dos esperando, `operation.status` podía recibir 503 o esperar antes de hacer el SELECT simple, impidiendo saber si un COMMIT finalizó.
+
+### Cambio mínimo sin rutas, permisos ni servicios paralelos
+
+- El selector `runWithActionConcurrency` ahora recibe `assistantAction` desde el sobre que ya valida Express. **Solo** `assistant.chat`/`asistente.chat` con `assistantAction === 'operation.status'` evita el carril de Gemini y utiliza la capacidad de lectura normal del HTTP global. `operation.decide`, `operation.revise`, voz, adjuntos y chat natural mantienen sus carriles y validaciones actuales.
+- `src/api.js` no envía la pista `X-DMS-Workload: assistant` para la lectura de estado, por lo que el gate HTTP previo tampoco puede bloquearla. Esa cabecera sigue siendo una pista de planificación y nunca una autorización.
+- El frontend considera exclusivamente `operation.status` una consulta segura para reintentos transitorios de transporte/503, con un plazo total de 90 s. Los demás mensajes y **COMMIT** mantienen su política de no repetición automática. La consulta no se guarda en caché ni se trata como mutación offline.
+- La ruta `assistant.chat` sigue autenticada mediante `dispatchAction`; `getAiOperationStatus` sigue comprobando el `OperationID`, `UserID`, `SessionHash` y `__valid`. No se amplían roles ni visibilidad. No se cambia el estado de ninguna operación.
+
+### Pruebas
+
+- `backend/test/assistant-action-queue-abort.test.js`: simula dos llamadas Gemini activas y dos en espera; la consulta de estado responde, pero `operation.decide` y `operation.revise` no eluden el gate.
+- `backend/test/postgres-integration.mjs`: una propuesta legítima responde a su dueño y se oculta a otro usuario o a la misma identidad con sesión diferente (404).
+- `tests/characterization/assistant-stability.test.mjs`: caracteriza el recorrido `app.js → runWithActionConcurrency → assistant-agenda → getAiOperationStatus`, la propiedad en PostgreSQL, el bypass de la pista HTTP solo para estado y la política de reintentos seguros.
+
+### Despliegue y validación manual
+
+Desplegar el frontend y backend del mismo commit para obtener ambas mejoras (el backend aislado resuelve `action-ai`, pero el navegador anterior todavía puede enviar la pista HTTP). En pruebas autorizadas: abrir dos chats lentos y otras dos solicitudes en cola, confirmar una boleta de prueba y consultar su estado desde otra pestaña autenticada. Verificar que el estado pertenece a la sesión original y que otra sesión no puede consultar esa operación. No usar datos ni envíos productivos para la prueba. La validación de latencia real y reinicio de Render sigue pendiente.
