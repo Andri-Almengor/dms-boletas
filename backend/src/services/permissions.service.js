@@ -43,3 +43,30 @@ export function safeUser(user) {
   const { PasswordHash, PasswordSalt, __rowNumber, ...safe } = user;
   return safe;
 }
+/**
+ * Solo las personas operativas aparecen en AsignadoA, Agenda y responsables.
+ * EsAdministrador sigue siendo la única fuente de permisos del rol Supervisor.
+ * No se eliminan usuarios históricos de boletas o mantenimientos existentes.
+ */
+export function isSupervisorRole(role = {}) {
+  return String(role.Nombre || '').trim().toUpperCase() === 'SUPERVISOR';
+}
+
+export function assignableUsers(users = [], roles = []) {
+  const supervisorIds = new Set(roles.filter(isSupervisorRole).map((role) => String(role.RolID)));
+  return users.filter((user) => (
+    String(user.Estado || '').trim().toUpperCase() === 'ACTIVO'
+    && !supervisorIds.has(String(user.RolID || ''))
+  ));
+}
+
+export function assertNewAssignmentsAssignable(ids = [], users = [], roles = [], previousIds = []) {
+  const previous = new Set(previousIds.map(String));
+  const eligible = new Set(assignableUsers(users, roles).map((user) => String(user.UsuarioID)));
+  const invalid = ids.map(String).filter((id) => !eligible.has(id) && !previous.has(id));
+  if (invalid.length) {
+    // Los registros históricos pueden conservar un Supervisor ya asignado;
+    // nunca se permite asignarlo a un trabajo nuevo o distinto.
+    throw new Error('La asignación incluye una persona inactiva o con rol Supervisor, que no realiza visitas.');
+  }
+}
