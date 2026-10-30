@@ -25,6 +25,13 @@ test('backend health remains available when Gemini credentials are missing', asy
     const response = await fetch(origin + '/api/health', {cache:'no-store'});
     assert.equal(response.status, 200);
     assert.equal((await response.json()).ok, true);
+
+    // Los detalles de PostgreSQL/colas no pueden filtrarse por el endpoint
+    // de diagnóstico AI si no hay sesión administradora.
+    const forbiddenHealth = await fetch(origin + '/api/ai/health', {cache:'no-store'});
+    assert.equal(forbiddenHealth.status, 401);
+    const unauthenticated = await forbiddenHealth.text();
+    assert.doesNotMatch(unauthenticated, /dbPoolWaitMs|dbQueries|ai-tool-work|postgres/i);
   } finally {
     if (originalKey === undefined) delete process.env.GEMINI_API_KEY;
     else process.env.GEMINI_API_KEY = originalKey;
