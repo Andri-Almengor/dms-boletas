@@ -163,3 +163,7 @@ El flujo `runDmsAgent` obtenía los metadatos autorizados desde `AiChatUploads` 
 
 - El tiempo y la memoria de descargas de imagen deben medirse con documentos de prueba y latencia real de Drive. Una descarga subyacente sin soporte nativo de cancelación puede seguir consumiendo un slot después del timeout, ahora contabilizado y acotado.
 - No se han medido arranques en frío de Render, cuota real Gemini ni recuperación E2E después de desconectar una sesión durante COMMIT. No fusionar en producción solo por CI verde.
+
+### Timeout del transporte de Drive
+
+Además del límite externo de `withTimeout`, las lecturas de diagnóstico ahora envían `timeout: readTimeoutMs` a `driveApi.files.get` (opción HTTP del cliente Gaxios utilizado por Google APIs). Esto solicita el cierre del **GET de solo lectura** si excede el presupuesto asignado. Se comprueba por prueba con Drive simulado que el timeout llega al transporte. El semáforo sigue reteniendo el cupo hasta que se resuelve la promesa original, porque no se debe asumir que todos los adaptadores HTTP cancelan de forma instantánea.
