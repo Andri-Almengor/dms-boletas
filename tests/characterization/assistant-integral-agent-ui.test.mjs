@@ -5,8 +5,8 @@ import { readFile } from 'node:fs/promises';
 import { requestTimeoutMs } from '../../src/services/requestPolicy.js';
 
 test('assistant frontend deadline stays above backend total agent timeout', () => {
-  assert.equal(requestTimeoutMs('assistant.chat'), 195_000);
-  assert.equal(requestTimeoutMs('asistente.chat'), 195_000);
+  assert.equal(requestTimeoutMs('assistant.chat'), 240_000);
+  assert.equal(requestTimeoutMs('asistente.chat'), 240_000);
   assert.equal(requestTimeoutMs('assistant.operations.decide'), 90_000);
   assert.ok(requestTimeoutMs('assistant.chat') > 180_000);
 });
@@ -25,17 +25,16 @@ test('AssistantPageSecure exposes secure attachments and controlled confirmation
   assert.doesNotMatch(source, /readAsDataURL|localStorage\.setItem\([^\n]*base64/i);
 });
 
-test('assistant UI uses useful long-running states without fake percentages', async () => {
+test('assistant UI reports only confirmed frontend states, not invented backend stages', async () => {
   const source = await readFile(new URL('../../src/pages/assistant/AssistantPageSecure.jsx', import.meta.url), 'utf8');
   for (const label of [
-    'Analizando solicitud',
-    'Consultando DMS',
-    'Buscando evidencias',
-    'Consultando Base de Conocimiento',
-    'Revisando documentación',
-    'Preparando respuesta',
+    'Preparando consulta',
+    'Esperando respuesta del servidor',
+    'La consulta sigue en curso',
+    'La respuesta está tardando más de lo habitual',
   ]) {
     assert.match(source, new RegExp(label, 'i'));
   }
   assert.doesNotMatch(source, /progressPercent|\b\d{1,3}%\b/);
+  assert.doesNotMatch(source, /'Buscando evidencias…'|'Consultando Base de Conocimiento…'/);
 });

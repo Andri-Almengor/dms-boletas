@@ -1,9 +1,13 @@
 import { AppError } from '../core/errors.js';
-import { aiConfig, configuredModels } from './agent.config.js';
+import { aiConfig } from './agent.config.js';
+import { geminiModelRouterSnapshot } from '../services/gemini-model-router.bootstrap.js';
 import { aiMetricsSnapshot } from './agent.metrics.js';
+import { actionConcurrencySnapshot } from '../services/action-concurrency.service.js';
+import { postgresSnapshot } from '../infra/postgres.js';
+import { concurrencySnapshot } from '../middleware/concurrency.middleware.js';
 import { createInteraction, fallbackCompatible, outputText } from './agent.gemini.js';
 import { audit } from '../services/audit.service.js';
-import { assertRateLimit, modelFallbackChain, runDmsAgent } from './agent.service.js';
+import { aiToolWorkSnapshot, assertRateLimit, modelFallbackChain, runDmsAgent } from './agent.service.js';
 
 async function chat(ctx) {
   if (!aiConfig.enabled) {
@@ -47,8 +51,10 @@ export async function transcribeAssistantAudio(ctx, overrides = {}) {
   const instruction = 'Transcribe literalmente el habla de este audio a texto en español. Conserva nombres propios, fechas, horas, números, marcas, responsables, clientes, términos técnicos, separaciones entre boletas y visitas. No redactes boletas ni infieras información. Devuelve únicamente la transcripción, sin explicaciones ni Markdown.';
   let lastError;
   const started = Date.now();
+  const transcriptionBudgetMs = 150_000;
   for (const model of models) {
-    if (Date.now() - started > 150_000) break;
+    const remainingMs = transcriptionBudgetMs - (Date.now() - started);
+    if (remainingMs <= 1_000) break;
     try {
       const response = await interact({
         model,
@@ -59,7 +65,7 @@ export async function transcribeAssistantAudio(ctx, overrides = {}) {
         ],
         tools: [],
         maxOutputTokens: 2500,
-        timeoutMs: Math.min(aiConfig.requestTimeoutMs, 60_000),
+        timeoutMs: Math.min(aiConfig.requestTimeoutMs, 60_000, remainingMs),
       });
       const transcript = outputText(response).trim().slice(0, 5000);
       if (!transcript) {
@@ -72,21 +78,51 @@ export async function transcribeAssistantAudio(ctx, overrides = {}) {
       if (!aiConfig.modelFallbackEnabled || !fallbackCompatible(error)) throw error;
     }
   }
+  if (Date.now() - started >= transcriptionBudgetMs - 1_000) {
+    throw new AppError('AI_AUDIO_TIMEOUT', 'La transcripción agotó el tiempo de procesamiento. Intente con un audio más corto.', 504);
+  }
   throw lastError || new AppError('AUDIO_TRANSCRIPTION_UNAVAILABLE', 'No se pudo transcribir la grabación.', 503);
 }
 
 async function health() {
+  // Misma fuente de verdad que usa el router para GEMINI_FALLBACK_MODELS,
+  // cooldown 429 y modelos retirados. El snapshot es local y no hace red.
+  const modelRouter = geminiModelRouterSnapshot();
+  const available = modelRouter.models.filter((model) =>
+    !modelRouter.unavailableModels.includes(model) && !(modelRouter.cooldowns[model] > 0));
+  const cooling = modelRouter.models.filter((model) => modelRouter.cooldowns[model] > 0);
   return {
     enabled: aiConfig.enabled,
     model: aiConfig.primaryModel,
-    modelsConfigured: configuredModels().length,
+    modelsConfigured: aiConfig.primaryModel ? modelRouter.models.length : 0,
+    modelRouter: {
+      activeModel: modelRouter.activeModel,
+      availableModels: available.length,
+      coolingModels: cooling.length,
+      unavailableModels: modelRouter.unavailableModels.length,
+      nextRetrySeconds: cooling.length
+        ? Math.max(1, Math.ceil(Math.min(...cooling.map((model) => modelRouter.cooldowns[model])) / 1000))
+        : 0,
+    },
     modelFallbackEnabled: aiConfig.modelFallbackEnabled,
     webSearchEnabled: aiConfig.webSearchEnabled,
     writeEnabled: aiConfig.writeEnabled,
     maintenanceWriteEnabled: aiConfig.maintenanceWriteEnabled,
     knowledgeDocumentsEnabled: aiConfig.knowledgeDocumentsEnabled,
     stateless: true,
+    // Indicadores agregados de esta instancia para distinguir cold start,
+    // presión sobre el pool SQL y saturación de Gemini; no hacen consultas
+    // nuevas ni incluyen sentencias SQL, IDs, usuarios o credenciales.
+    uptimeSeconds: Math.floor(process.uptime()),
+    postgres: postgresSnapshot(),
     metrics: aiMetricsSnapshot(),
+    // Este endpoint ya exige USUARIOS_GESTIONAR en app.js. Solo agrega
+    // contadores sin usuarios, preguntas, mensajes ni credenciales.
+    queues: {
+      httpAssistant: concurrencySnapshot().assistantRequests,
+      aiActions: actionConcurrencySnapshot().ai,
+      aiTools: aiToolWorkSnapshot(),
+    },
   };
 }
 

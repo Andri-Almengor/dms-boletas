@@ -126,7 +126,7 @@ app.get('/api/ai/health', async (req, res, next) => {
 });
 
 app.get('/api/media/stream', async (req, res, next) => {
-  const observation = startRouteObservation('ticket.media.stream', { requestId: req.requestId });
+  const observation = startRouteObservation('ticket.media.stream', { requestId: req.requestId, cfRay: req.get('cf-ray') });
   const finishObservation = () => {
     const header = res.getHeader('content-length');
     const responseSize = typeof header === 'string' || typeof header === 'number' ? Number(header) || 0 : 0;
@@ -146,7 +146,10 @@ app.post('/api/action', actionEnvelopeMiddleware, actionRateLimitMiddleware, asy
   req.dmsActionRunning = true;
   let envelope = null;
   let sessionToken = '';
-  const observation = startRouteObservation(req.actionEnvelope?.route, { requestId: req.requestId });
+  const observation = startRouteObservation(req.actionEnvelope?.route, { requestId: req.requestId, cfRay: req.get('cf-ray') });
+  // La instrumentación de /api/action empieza después del control HTTP;
+  // incluir también esa espera para explicar solicitudes lentas desde Render.
+  observation.markQueueWait(req.dmsHttpQueueWaitMs || 0);
   const finishObservation = () => {
     const header = res.getHeader('content-length');
     const responseSize = typeof header === 'string' || typeof header === 'number' ? Number(header) || 0 : 0;
@@ -180,7 +183,7 @@ app.post('/api/action', actionEnvelopeMiddleware, actionRateLimitMiddleware, asy
         } finally {
           observation.markHandlerDuration(performance.now() - handlerStartedAt);
         }
-      });
+      }, { signal: req.dmsHttpAbortSignal, assistantAction: envelope.payload?.assistantAction });
     });
     const data = await observation.run(() => runWithActionSingleFlight({
       route: envelope.route,

@@ -1101,7 +1101,7 @@ test('Gemini ticket PREPARE/REVISE/COMMIT creates real pending follow-up tickets
     await appendRow('Usuarios',{UsuarioID:ids.user,NombreCompleto:'Técnico agente CI',NombreUsuario:'ci-ticket-agent',Estado:'ACTIVO'});
 
     const {
-      prepareTicketBatchCreate,reviseAiTicketOperation,decideAiOperation,
+      prepareTicketBatchCreate,reviseAiTicketOperation,decideAiOperation,getAiOperationStatus,
     }=await import('../src/ai/agent.repository.operations.js');
     await assert.rejects(
       prepareTicketBatchCreate({...ctx,permissions:['BOLETAS_VER']},{tickets:twoTickets}),
@@ -1113,12 +1113,31 @@ test('Gemini ticket PREPARE/REVISE/COMMIT creates real pending follow-up tickets
     assert.equal(invalid.modelData.ready,false);
     assert.equal(invalid.confirmations,undefined);
 
-    const prep=await prepareTicketBatchCreate(ctx,{tickets:twoTickets});
+    // Dos agentes/requests con la misma sesión y el mismo lote deben obtener
+    // una sola propuesta durable aun cuando compitan desde varias instancias.
+    const [prep, duplicatePrep]=await Promise.all([
+      prepareTicketBatchCreate(ctx,{tickets:twoTickets}),
+      prepareTicketBatchCreate(ctx,{tickets:twoTickets}),
+    ]);
+    assert.equal(duplicatePrep.modelData.operationId,prep.modelData.operationId);
     assert.equal(prep.modelData.ready,true);
     assert.equal(prep.modelData.tickets.length,2);
     assert.equal(prep.modelData.tickets[0].location,'Sede Central');
     operationId=prep.modelData.operationId;
     assert.ok(operationId);
+
+    // El carril rápido de operación.status nunca equivale a autorización:
+    // la consulta PostgreSQL debe verificar el usuario Y la sesión.
+    const ownedStatus=await getAiOperationStatus(ctx,{operationId});
+    assert.equal(ownedStatus.modelData.status,'PENDING');
+    await assert.rejects(
+      getAiOperationStatus({...ctx,user:{UsuarioID:'different-ai-user'}},{operationId}),
+      error=>error.status===404,
+    );
+    await assert.rejects(
+      getAiOperationStatus({...ctx,sessionToken:'different-ai-session'},{operationId}),
+      error=>error.status===404,
+    );
 
     const revised=await reviseAiTicketOperation(ctx,{
       operationId,index:1,fields:{endTime:'09:15'},
@@ -1131,8 +1150,30 @@ test('Gemini ticket PREPARE/REVISE/COMMIT creates real pending follow-up tickets
     assert.equal(first.status,'COMMITTED');
     assert.equal(first.result.created.length,2);
     assert.equal(first.result.failed.length,0);
+    // Simula que la respuesta HTTP de COMMIT se pierde DESPUÉS del commit:
+    // el cliente debe recuperar el resultado por estado, sin crear otros IDs.
+    const recovered=await getAiOperationStatus(ctx,{operationId});
+    assert.equal(recovered.modelData.status,'COMMITTED');
+    assert.deepEqual(recovered.modelData.result.created.map(item=>item.id),
+      first.result.created.map(item=>item.id));
     const second=await decideAiOperation(ctx,{operationId,decision:'confirm'});
     assert.deepEqual(second.result.created.map(item=>item.id),first.result.created.map(item=>item.id));
+
+    // Simula reinicio de Render DESPUÉS de persistir boletas pero ANTES de
+    // marcar COMMITTED: se deja un COMMITTING durable abandonado 11 minutos.
+    // La recuperación existente debe reutilizar los UUID, no crear duplicados.
+    await query(
+      `UPDATE "AiPendingOperations"
+          SET "Status"='COMMITTING',"UpdatedAt"=$2
+        WHERE "__valid"=TRUE AND "OperationID"=$1`,
+      [operationId,new Date(Date.now()-11*60_000).toISOString()],
+      {label:'test.ai.ticket.simulatedInterruptedCommit',write:true},
+    );
+    const resumed=await decideAiOperation(ctx,{operationId,decision:'confirm'});
+    assert.equal(resumed.status,'COMMITTED');
+    assert.deepEqual(resumed.result.created.map(item=>item.id),
+      first.result.created.map(item=>item.id),
+      'stale COMMITTING must reconcile deterministic UUIDs instead of duplicating tickets');
 
     const createdIds=first.result.created.map(row=>row.id);
     const tickets=await query(
@@ -1165,6 +1206,162 @@ test('Gemini ticket PREPARE/REVISE/COMMIT creates real pending follow-up tickets
     await query('DELETE FROM "TiposFalla" WHERE "TipoFallaID"=$1',[ids.failure],{label:'test.ai.ticket.cleanupFailure',write:true}).catch(()=>{});
     await query('DELETE FROM "TiposDispositivo" WHERE "TipoDispositivoID"=$1',[ids.type],{label:'test.ai.ticket.cleanupDeviceType',write:true}).catch(()=>{});
     await query('DELETE FROM "Usuarios" WHERE "UsuarioID"=$1',[ids.user],{label:'test.ai.ticket.cleanupUser',write:true}).catch(()=>{});
+  }
+});
+
+test('AI COMMITTING remains recoverable after proposal TTL, while unclaimed PENDING still expires', async () => {
+  const { createHash } = await import('node:crypto');
+  const { decideAiOperation, getAiOperationStatus } = await import('../src/ai/agent.repository.operations.js');
+  const ctx={
+    user:{UsuarioID:'stage6-expiration-user'},
+    sessionToken:'stage6-expiration-session',
+    permissions:['BOLETAS_CREAR'],
+  };
+  const fingerprint=createHash('sha256').update(ctx.sessionToken).digest('base64url');
+  const committingId='stage6-committing-ttl-'+suffix;
+  const pendingId='stage6-pending-ttl-'+suffix;
+  const now=new Date().toISOString();
+  const expiredAt=new Date(Date.now()-60_000).toISOString();
+  try {
+    for(const [id,status] of [[committingId,'COMMITTING'],[pendingId,'PENDING']]){
+      await query(
+        `INSERT INTO "AiPendingOperations"
+          ("OperationID","UserID","SessionHash","Action","Status","IdempotencyKey",
+           "ExpiresAt","CreatedAt","UpdatedAt","__valid")
+          VALUES ($1,$2,$3,'TICKET_BATCH_CREATE',$4,$5,$6,$7,$7,TRUE)`,
+        [id,ctx.user.UsuarioID,fingerprint,status,id+'-key',expiredAt,now],
+        {label:'test.ai.expiredCommit.setup',write:true},
+      );
+    }
+    const confirming=await decideAiOperation(ctx,{operationId:committingId,decision:'confirm'});
+    assert.equal(confirming.status,'COMMITTING', 'in-flight commit cannot be marked EXPIRED just because PREPARE TTL elapsed');
+    const after=await getAiOperationStatus(ctx,{operationId:committingId});
+    assert.equal(after.modelData.status,'COMMITTING');
+    await assert.rejects(
+      decideAiOperation(ctx,{operationId:pendingId,decision:'confirm'}),
+      error=>error.code==='AI_OPERATION_EXPIRED' && error.status===409,
+    );
+    const pending=await getAiOperationStatus(ctx,{operationId:pendingId});
+    assert.equal(pending.modelData.status,'EXPIRED', 'unclaimed proposals still enforce their original TTL');
+  } finally {
+    await query('DELETE FROM "AiPendingOperations" WHERE "OperationID"=ANY($1::text[])',
+      [[committingId,pendingId]],{label:'test.ai.expiredCommit.cleanup',write:true}).catch(()=>{});
+  }
+});
+
+test('AI recovery and knowledge lookups retain indexed PostgreSQL plans', async () => {
+  // EXPLAIN ANALYZE here uses ONLY the disposable TEST_DATABASE_URL from CI.
+  // enable_seqscan=off probes index eligibility, not production p95 latency.
+  // Never log result rows, sessions, tokens, or SQL parameters.
+  const cases=[
+    {
+      label:'ai.operation.get',
+      index:'ux_ai_pending_operations_id',
+      sql:`SELECT "OperationID" FROM "AiPendingOperations"
+        WHERE "__valid"=TRUE AND "OperationID"=$1 AND "UserID"=$2 AND "SessionHash"=$3 LIMIT 1`,
+      params:['missing-id','test-user','test-hash'],
+    },
+    {
+      label:'ai.operation.idempotency',
+      index:'ux_ai_pending_operations_idempotency',
+      sql:`SELECT "OperationID" FROM "AiPendingOperations"
+        WHERE "__valid"=TRUE AND "IdempotencyKey"=$1 ORDER BY "__db_id" DESC LIMIT 1`,
+      params:['missing-key'],
+    },
+    {
+      label:'ai.attachments.ownership',
+      index:'ux_ai_chat_uploads_id',
+      sql:`SELECT "UploadID" FROM "AiChatUploads" WHERE "__valid"=TRUE
+        AND "UploadID"=ANY($1::text[]) AND "UserID"=$2 AND "SessionHash"=$3
+        AND "Status" IN ('AVAILABLE','CONSUMED')`,
+      params:[['missing-upload'],'test-user','test-hash'],
+    },
+    {
+      label:'ai.knowledge.chunksByDocument',
+      index:'ix_knowledge_document_chunks_document',
+      sql:`SELECT "ChunkID" FROM "KnowledgeDocumentChunks"
+        WHERE "__valid"=TRUE AND "DocumentID"=$1 ORDER BY "ChunkIndex" LIMIT 5`,
+      params:['missing-document'],
+    },
+  ];
+  await withTransaction(async client=>{
+    await client.query('SET LOCAL enable_seqscan=off');
+    for(const item of cases){
+      const rows=await client.query('EXPLAIN (ANALYZE, BUFFERS, FORMAT JSON) '+item.sql,item.params);
+      const value=rows.rows[0]?.['QUERY PLAN'];
+      const report=(Array.isArray(value)?value:JSON.parse(value))[0];
+      const indexes=[];
+      const walk=node=>{
+        if(node['Index Name'])indexes.push(node['Index Name']);
+        for(const child of node.Plans||[])walk(child);
+      };
+      walk(report.Plan);
+      // With small CI fixtures PostgreSQL may legitimately prefer another
+      // existing B-tree index (e.g. actor_status over the OperationID UNIQUE).
+      // Verify schema coverage separately from the chosen access path.
+      const indexPresent=await client.query(
+        `SELECT 1 FROM pg_indexes
+           WHERE schemaname=current_schema() AND indexname=$1 LIMIT 1`,
+        [item.index],
+      );
+      assert.equal(indexPresent.rowCount,1,
+        `${item.label}: required migration index ${item.index} is absent`);
+      assert.ok(indexes.length,
+        `${item.label} must use an index under enable_seqscan=off`);
+      assert.ok(Number.isFinite(Number(report['Execution Time'])));
+      console.info('[test-ai-query-plan] '+JSON.stringify({
+        label:item.label,indexesUsed:indexes,requiredIndex:item.index,
+        executionMs:Number(Number(report['Execution Time']).toFixed(3)),
+        sharedHitBlocks:Number(report.Plan['Shared Hit Blocks']||0),
+      }));
+    }
+  });
+});
+
+test('timed-out AI PostgreSQL reads leave a connection for foreground operations', async (t) => {
+  const { env }=await import('../src/config/env.js');
+  const { withTimeout,aiToolWorkSnapshot }=await import('../src/ai/agent.service.js');
+  if (env.pgPoolMax < 2) {
+    t.skip('A single PostgreSQL connection cannot be reserved for foreground traffic');
+    return;
+  }
+  const toolLimit=aiToolWorkSnapshot().max;
+  assert.ok(toolLimit <= env.pgPoolMax-1,
+    'AI tool work must reserve at least one shared pool connection');
+
+  // Simula consultas SQL que mantienen la conexión tras superar su deadline
+  // visible. Nunca requiere tablas ni filas productivas: TEST_DATABASE_URL.
+  const stalled=Array.from({length:toolLimit},()=>withTimeout(
+    ()=>query('SELECT pg_sleep(1.6)',[],{label:'test.ai.longRunningRead'}),
+    75,'test.ai.longRunningRead',
+  ));
+  try {
+    await Promise.all(stalled.map(p=>assert.rejects(
+      p,error=>error.code==='AI_TOOL_TIMEOUT' && error.status===504,
+    )));
+    assert.equal(aiToolWorkSnapshot().active,toolLimit,
+      'the timed-out work still owns its real slots');
+
+    // The existing postgres.query pool is shared; unlike a mock semaphore,
+    // this foreground query proves a spare DB connection really exists.
+    let timer;
+    const foreground=Promise.race([
+      query('SELECT 1 AS ready',[],{label:'test.ai.foregroundAfterGhost'}),
+      new Promise((_,reject)=>{timer=setTimeout(
+        ()=>reject(new Error('AI ghost reads exhausted foreground PostgreSQL capacity')),850);
+      }),
+    ]);
+    try {
+      const result=await foreground;
+      assert.equal(result.rows[0].ready,1);
+    } finally {
+      clearTimeout(timer);
+    }
+  } finally {
+    // A pg_sleep query is a real DB operation and cannot be aborted merely by
+    // the outer Promise deadline. Wait for its actual settlement before exit.
+    await new Promise(resolve=>setTimeout(resolve,1750));
+    assert.equal(aiToolWorkSnapshot().active,0);
   }
 });
 

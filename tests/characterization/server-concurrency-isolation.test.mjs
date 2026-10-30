@@ -30,7 +30,9 @@ test('una acción pesada no reserva además el carril de escrituras normales', (
   const contents = source('backend/src/services/action-concurrency.service.js');
   assert.match(contents, /name:\s*'action-heavy'/);
   assert.match(contents, /name:\s*'action-write'/);
-  assert.match(contents, /if \(heavy\) \{[\s\S]*?heavyActions\.acquire\(\);[\s\S]*?\} else if \(write\) \{[\s\S]*?writeActions\.acquire\(\);/);
+  // Los carriles no se combinan; el AbortSignal solo cancela la espera, no el trabajo activo.
+  assert.match(contents, /if \(heavy\) \{[\s\S]*?heavyActions\.acquire\(\{ signal \}\);[\s\S]*?\} else if \(write\) \{[\s\S]*?writeActions\.acquire\(\{ signal \}\);/);
+  assert.match(contents, /return await operation\(\)/);
   assert.match(contents, /route:\s*normalizedRoute\(route\)/);
 });
 

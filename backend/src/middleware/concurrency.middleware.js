@@ -1,3 +1,4 @@
+import { performance } from 'node:perf_hooks';
 import { env } from '../config/env.js';
 import { AsyncSemaphore } from '../core/semaphore.js';
 
@@ -28,32 +29,52 @@ const mediaRequests = new AsyncSemaphore({
   timeoutMs: env.httpQueueTimeoutMs,
 });
 
+// Es un gate de admisión HTTP, no otro ejecutor de IA. El cliente envía
+// una pista de carga que nunca participa en autenticación, permisos o despacho.
+// Si falta, el backend conserva los controles autoritativos de action-ai.
+const assistantRequests = new AsyncSemaphore({
+  name: 'http-assistant',
+  max: Math.max(1, Math.min(2, env.aiActionMaxConcurrent, env.httpMaxConcurrentRequests - 2)),
+  queueLimit: Math.min(2, Math.max(0, env.httpQueueLimit)),
+  timeoutMs: env.httpQueueTimeoutMs,
+});
+
 export function concurrencySnapshot() {
   return {
     requests: allRequests.snapshot(),
     largeRequests: largeRequests.snapshot(),
     smallRequests: smallRequests.snapshot(),
     mediaRequests: mediaRequests.snapshot(),
+    assistantRequests: assistantRequests.snapshot(),
   };
 }
 
 export async function concurrencyMiddleware(req, res, next) {
+  const httpQueuedAt = performance.now();
   let releaseAll;
   let releaseLarge;
   let releaseSmall;
   let releaseMedia;
+  let releaseAssistant;
   const controller = new AbortController();
   const abort = () => controller.abort();
   res.once('close', abort);
   try {
     const requestPath = String(req.url || '').split('?', 1)[0];
     const media = requestPath === '/api/media/stream';
+    // Pista limitada a /api/action; otros endpoints jamás reservan este gate.
+    // No es una regla de seguridad: action-router valida la ruta real del body.
+    const assistantHint = req.method === 'POST' && requestPath === '/api/action'
+      && String(req.headers['x-dms-workload'] || '').toLowerCase() === 'assistant';
     const size = Number(req.headers['content-length'] || 0);
     const hasBody = !['GET', 'HEAD', 'OPTIONS'].includes(req.method);
     const unknown = hasBody && !req.headers['content-length'];
     const encoded = req.headers['content-encoding'] && req.headers['content-encoding'] !== 'identity';
     const large = !media && (size >= env.httpLargeRequestBytes || unknown || encoded);
     // IncomingMessage stays paused while queued: no body parser runs yet.
+    // Las solicitudes AI esperan ANTES de reservar http-all para no bloquear
+    // autosaves, autenticación y acciones foreground durante sus esperas largas.
+    if (assistantHint) releaseAssistant = await assistantRequests.acquire({ signal: controller.signal });
     if (media) releaseMedia = await mediaRequests.acquire({ signal: controller.signal });
     else if (large) releaseLarge = await largeRequests.acquire({ signal: controller.signal });
     else releaseSmall = await smallRequests.acquire({ signal: controller.signal });
@@ -69,11 +90,16 @@ export async function concurrencyMiddleware(req, res, next) {
       }
     }
     if (controller.signal.aborted) throw new Error('Client disconnected');
+    // Se integra con observabilidad existente tras analizar el sobre /api/action.
+    req.dmsHttpQueueWaitMs = Math.max(0, performance.now() - httpQueuedAt);
+    // Solo permite cancelar esperas; jamás interrumpe un COMMIT iniciado.
+    req.dmsHttpAbortSignal = controller.signal;
     const release = () => {
       releaseAll?.();
       releaseLarge?.();
       releaseSmall?.();
       releaseMedia?.();
+      releaseAssistant?.();
       res.off('close', abort);
     };
     res.once('finish', release);
@@ -88,6 +114,7 @@ export async function concurrencyMiddleware(req, res, next) {
     releaseLarge?.();
     releaseSmall?.();
     releaseMedia?.();
+    releaseAssistant?.();
     res.off('close', abort);
     if (controller.signal.aborted) return;
     if (error && ['SERVER_BUSY', 'SERVER_BUSY_TIMEOUT'].includes(error.code)) {

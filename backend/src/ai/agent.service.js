@@ -1,6 +1,8 @@
 import crypto from 'node:crypto';
 import { performance } from 'node:perf_hooks';
 import { AppError, badRequest } from '../core/errors.js';
+import { AsyncSemaphore } from '../core/semaphore.js';
+import { env } from '../config/env.js';
 import { query, withDbRequestMetrics } from '../infra/postgres.js';
 import { audit } from '../services/audit.service.js';
 import { aiConfig, configuredModels } from './agent.config.js';
@@ -15,6 +17,22 @@ import { sanitizeActiveContext } from './agent.sanitize.js';
 import { declarationsForUser, executeAiTool } from './agent.tools.js';
 
 const REQUESTS=new Map();
+
+// El carril action-ai limita solicitudes completas, pero un Promise.race
+// vencido no detiene la consulta Drive/PostgreSQL que ya arrancó. Reutilizamos
+// AsyncSemaphore para contabilizar el trabajo REAL hasta que se resuelva,
+// evitando acumulaciones tras varios timeouts. No cancela COMMIT ni PREPARE.
+const AI_TOOL_WORK = new AsyncSemaphore({
+  name:'ai-tool-work',
+  // No permitir que las herramientas AI reserven por sí solas todas las
+  // conexiones del pool compartido con autosaves, finalización y SyncChanges.
+  // PG_POOL_MAX=1 no permite una reserva efectiva: documentar ese límite.
+  max:Math.max(1,env.pgPoolMax-1),
+  queueLimit:Math.max(2,env.aiActionMaxConcurrent*aiConfig.maxParallelTools),
+  timeoutMs:aiConfig.toolTimeoutMs,
+});
+
+export function aiToolWorkSnapshot(){return AI_TOOL_WORK.snapshot();}
 
 function clean(value,max=4000){return String(value??'').trim().slice(0,max);}
 function uniqueBy(items,key){const seen=new Set();return items.filter(item=>{const value=key(item);if(!value||seen.has(value))return false;seen.add(value);return true;});}
@@ -78,21 +96,35 @@ function updateTroubleshootingContext(context = {}, message = '') {
 
 const MAX_DIAGNOSTIC_IMAGE_BYTES = 10 * 1024 * 1024;
 const DIAGNOSTIC_IMAGE_MIME = /^image\/(?:png|jpe?g|webp|gif)$/i;
-async function loadDiagnosticImageInputs(attachments = []) {
+export async function loadDiagnosticImageInputs(attachments = [], {
+  driveApiOverride = null,
+  timeoutMs = aiConfig.toolTimeoutMs,
+  deadline = Infinity,
+} = {}) {
   const candidates = (Array.isArray(attachments) ? attachments : [])
     .filter((item) => DIAGNOSTIC_IMAGE_MIME.test(String(item?.mimeType || '')))
     .slice(0, 3);
-  if (!candidates.length) return [];
-  const { driveApi } = await import('../infra/google.js');
-  const output = [];
-  for (const item of candidates) {
+  const eligible = candidates.filter((item) => {
     const size = Number(item?.size || 0);
-    if (!item?.__file || !Number.isFinite(size) || size <= 0 || size > MAX_DIAGNOSTIC_IMAGE_BYTES) continue;
+    return item?.__file && Number.isFinite(size) && size > 0 && size <= MAX_DIAGNOSTIC_IMAGE_BYTES;
+  });
+  if (!eligible.length) return [];
+  const driveApi = driveApiOverride || (await import('../infra/google.js')).driveApi;
+  const output = [];
+  for (const item of eligible) {
+    const remainingMs = deadline - performance.now();
+    if (remainingMs <= 250) break;
     try {
-      const response = await driveApi.files.get(
+      // Descarga de solo lectura. Retiene su cupo incluso si vence el plazo
+      // visible; una respuesta tardía no puede mutar el historial ni volver
+      // a ejecutar esta consulta.
+      const readTimeoutMs = Math.max(1, Math.min(timeoutMs, Math.floor(remainingMs)));
+      const response = await withTimeout(() => driveApi.files.get(
         { fileId: item.__file, alt: 'media', supportsAllDrives: true },
-        { responseType: 'arraybuffer' },
-      );
+        // Gaxios aplica también el timeout sobre la operación HTTP de
+        // lectura para evitar dejar conexiones de Drive indefinidamente abiertas.
+        { responseType: 'arraybuffer', timeout: readTimeoutMs },
+      ), readTimeoutMs, 'ai.diagnosticImage');
       const buffer = Buffer.from(response.data);
       if (!buffer.length || buffer.length > MAX_DIAGNOSTIC_IMAGE_BYTES) continue;
       output.push({
@@ -102,8 +134,13 @@ async function loadDiagnosticImageInputs(attachments = []) {
         resolution: 'high',
       });
     } catch {
-      // El archivo sigue disponible por metadata; una falla visual no expone Drive ni rompe toda la conversación.
+      // No imprimir IDs de Drive ni datos visuales. El chat puede continuar
+      // solo con imágenes realmente recuperadas.
     }
+  }
+  if (!output.length) {
+    throw new AppError('AI_IMAGE_UNAVAILABLE',
+      'No se pudieron recuperar las imágenes de Drive. Vuelva a intentar cuando estén disponibles.', 503);
   }
   return output;
 }
@@ -141,10 +178,33 @@ export function assertRateLimit(ctx){
   recent.push(now);REQUESTS.set(key,recent);
   if(REQUESTS.size>2000){for(const [id,times] of REQUESTS){if(!times.some(ts=>now-ts<60000))REQUESTS.delete(id);}}
 }
-async function withTimeout(promise,ms,name){
-  let timer;
-  try{return await Promise.race([promise,new Promise((_,reject)=>{timer=setTimeout(()=>reject(new AppError('AI_TOOL_TIMEOUT',`La consulta ${name} tardó demasiado.`,504)),Math.max(1,ms));timer.unref?.();})]);}
-  finally{clearTimeout(timer);}
+// Mantiene el límite de tiempo visible para el usuario, pero el slot no se
+// libera hasta que termine la ejecución real. Un timeout nunca finge que una
+// operación PostgreSQL/Drive (y especialmente PREPARE) fue cancelada.
+export async function withTimeout(operation,ms,name){
+  const error=new AppError('AI_TOOL_TIMEOUT',`La consulta ${name} tardó demasiado.`,504);
+  const controller=new AbortController();
+  let rejectDeadline;
+  const deadline=new Promise((_,reject)=>{rejectDeadline=reject;});
+  // También debe quedar manejada si vence mientras se espera el semáforo.
+  deadline.catch(()=>{});
+  const timer=setTimeout(()=>{
+    controller.abort(error);
+    rejectDeadline(error);
+  },Math.max(1,ms));
+  timer.unref?.();
+  try{
+    const release=await AI_TOOL_WORK.acquire({signal:controller.signal});
+    if(controller.signal.aborted){
+      release();
+      throw error;
+    }
+    const work=Promise.resolve().then(operation);
+    // No usar work.finally(release): generaría una promesa rechazada huérfana.
+    // La liberación depende del trabajo REAL, no de Promise.race.
+    work.then(release,release);
+    return await Promise.race([work,deadline]);
+  }finally{clearTimeout(timer);}
 }
 function mergeUi(target,ui={}){
   target.entities.push(...(ui.entities||[]));
@@ -174,18 +234,29 @@ function outputBudget(intent,message){
 }
 function safeTelemetry(value){return clean(value,160).replace(/[\r\n]/g,' ');}
 
-async function loadChatAttachments(ctx,ids=[]){
+export async function loadChatAttachments(ctx,ids=[],{queryFn=query,deadline=Infinity,timeoutMs=aiConfig.toolTimeoutMs}={}){
   const requested=[...new Set((Array.isArray(ids)?ids:[]).map(value=>clean(value,250)).filter(Boolean))].slice(0,aiConfig.maxEvidenceUploadBatch);
   if(!requested.length)return[];
-  const result=await query(
-    `SELECT "UploadID" AS "uploadId","NombreArchivo" AS name,"MimeType" AS "mimeType","SizeBytes" AS size,
+  let result;
+  try {
+    const remainingMs=deadline-performance.now();
+    if(remainingMs<=250)throw new AppError('AI_AGENT_TOTAL_TIMEOUT','El asistente agotó el tiempo total de procesamiento.',504);
+    result=await withTimeout(()=>queryFn(
+      `SELECT "UploadID" AS "uploadId","NombreArchivo" AS name,"MimeType" AS "mimeType","SizeBytes" AS size,
             "DriveFileID" AS "__file","Status" AS status,"ExpiresAt" AS "expiresAt"
        FROM "AiChatUploads"
       WHERE "__valid"=TRUE AND "UploadID"=ANY($1::text[]) AND "UserID"=$2 AND "SessionHash"=$3
         AND "Status" IN ('AVAILABLE','CONSUMED')`,
-    [requested,clean(ctx?.user?.UsuarioID,250),sessionFingerprint(ctx.sessionToken)],
-    {label:'ai.attachments.metadata'},
-  );
+      [requested,clean(ctx?.user?.UsuarioID,250),sessionFingerprint(ctx.sessionToken)],
+      {label:'ai.attachments.metadata'},
+    ),Math.max(1,Math.min(timeoutMs,Math.floor(remainingMs))),'ai.attachmentMetadata');
+  }catch(error){
+    if(error?.code==='AI_TOOL_TIMEOUT'||error?.code==='SERVER_BUSY'||error?.code==='SERVER_BUSY_TIMEOUT'){
+      throw new AppError('AI_ATTACHMENTS_UNAVAILABLE',
+        'Los adjuntos tardaron demasiado en consultarse. Intente nuevamente sin volver a subir los archivos.',503);
+    }
+    throw error;
+  }
   const byId=new Map(result.rows.map(row=>[row.uploadId,row]));
   const ordered=requested.map(id=>byId.get(id)).filter(Boolean);
   if(ordered.length!==requested.length)throw badRequest('Uno o más adjuntos ya no están disponibles o pertenecen a otra sesión.');
@@ -218,8 +289,8 @@ export async function runDmsAgent(ctx, overrides = {}){
   const payloadAttachmentIds=Array.isArray(ctx.payload?.attachmentIds)?ctx.payload.attachmentIds:[];
   const contextualIds=Array.isArray(context.pendingUploadIds)?context.pendingUploadIds:[];
   const attachmentIds=payloadAttachmentIds.length?payloadAttachmentIds:contextualIds;
-  const chatAttachments=await loadChatAttachments(ctx,attachmentIds);
-  const diagnosticImages=await loadDiagnosticImageInputs(chatAttachments);
+  const chatAttachments=await loadChatAttachments(ctx,attachmentIds,{deadline});
+  const diagnosticImages=await loadDiagnosticImageInputs(chatAttachments,{deadline});
   if(payloadAttachmentIds.length)context=sanitizeActiveContext({...context,pendingUploadIds:chatAttachments.map(item=>item.uploadId)});
 
   const history=conversationParts(ctx.payload?.history||[]);
@@ -285,6 +356,11 @@ export async function runDmsAgent(ctx, overrides = {}){
         const interaction=await createInteractionFn({
           systemInstruction,input:localInput,tools:noTools?[]:toolset,model,timeoutMs,maxOutputTokens,
         });
+        // Un 200 sin texto ni function_call tampoco es una respuesta útil:
+        // dar oportunidad al fallback existente sin ejecutar herramientas.
+        if(!outputText(interaction)&&!functionCalls(interaction).length) {
+          throw new AppError('MODEL_INVALID_RESPONSE','Gemini no devolvió contenido utilizable.',502);
+        }
         modelMs+=performance.now()-modelStarted;
         noteRouterModel(interaction.__dmsModelUsed,interaction.__dmsRouterFallbackCount,model);
         const u=usage(interaction);totalInput+=u.inputTokens;totalOutput+=u.outputTokens;
@@ -428,7 +504,7 @@ export async function runDmsAgent(ctx, overrides = {}){
           }
           try{
             const measured=await withTimeout(
-              withDbRequestMetrics(()=>executeAiToolFn(ctx,call.name,call.arguments||{})),
+              ()=>withDbRequestMetrics(()=>executeAiToolFn(ctx,call.name,call.arguments||{})),
               Math.max(1,Math.min(aiConfig.toolTimeoutMs,Math.floor(remaining()))),call.name,
             );
             dbQueries+=Number(measured.metrics?.queries||0);dbQueryMs+=Number(measured.metrics?.queryMs||0);

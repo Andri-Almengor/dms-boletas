@@ -453,11 +453,25 @@ async function createOperation(ctx,{action,args={},files=[],preview={}}){
       ("OperationID","UserID","SessionHash","Action","ArgumentsJSON","FilesJSON","PreviewJSON","Status",
        "IdempotencyKey","ExpiresAt","CreatedAt","UpdatedAt","__valid")
      VALUES ($1,$2,$3,$4,$5::jsonb,$6::jsonb,$7::jsonb,'PENDING',$8,$9,$10,$10,TRUE)
+     ON CONFLICT ("IdempotencyKey") WHERE "__valid"=TRUE DO NOTHING
      RETURNING *`,
     [operationId,userId,fingerprint,action,JSON.stringify(args),JSON.stringify(files),JSON.stringify(preview),key,expiresAt,now],
     {label:'ai.operation.create',write:true},
   );
-  return inserted.rows[0];
+  if(inserted.rows[0])return inserted.rows[0];
+  // Dos solicitudes PREPARE idénticas pueden leer "no existe" simultáneamente.
+  // El UNIQUE existente decide el ganador en PostgreSQL (también con varias
+  // instancias de Render). El perdedor devuelve exactamente la propuesta
+  // persistida, sin lanzar 23505 ni crear otro OperationID.
+  const concurrent=await query(
+    `SELECT * FROM "AiPendingOperations"
+      WHERE "__valid"=TRUE AND "IdempotencyKey"=$1
+      ORDER BY "__db_id" DESC LIMIT 1`,
+    [key],{label:'ai.operation.concurrentIdempotency'},
+  );
+  const winner=concurrent.rows[0];
+  if(winner&&!expired(winner.ExpiresAt)&&!['CANCELLED','FAILED'].includes(String(winner.Status||'')))return winner;
+  throw new AppError('AI_OPERATION_CONFLICT','La propuesta cambió durante su preparación. Intente nuevamente.',409);
 }
 
 function confirmation(op,title,summary,items=[]){
@@ -1468,7 +1482,11 @@ export async function decideAiOperation(ctx,args={}){
   if(!operationId)throw badRequest('Falta operationId.');
   let op=await findOperation(ctx,operationId);
   assertOperationPermission(ctx,op.Action);
-  if(expired(op.ExpiresAt)&&!['COMMITTED','CANCELLED'].includes(String(op.Status||''))){
+  // TTL limita la ventana de confirmación de una propuesta, no una ejecución
+  // ya reclamada por PostgreSQL. Expirar COMMITTING mientras aún procesa
+  // boletas puede ocultar un COMMIT real y producir un estado engañoso.
+  // La recuperación stale existente (10 min, UUID determinísticos) se conserva.
+  if(expired(op.ExpiresAt)&&!['COMMITTED','CANCELLED','COMMITTING'].includes(String(op.Status||''))){
     await finishOperation(operationId,'EXPIRED',operationResult(op)||{},null);
     throw new AppError('AI_OPERATION_EXPIRED','La confirmación expiró. Prepare la operación nuevamente.',409);
   }

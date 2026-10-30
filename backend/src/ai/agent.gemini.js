@@ -91,6 +91,8 @@ export async function createInteraction({
   try{
     const response=await fetch(ENDPOINT,{
       method:'POST',signal:controller.signal,
+      // Opción privada consumida solo por el router existente (no es header HTTP).
+      __dmsGeminiTimeoutMs: timeoutMs,
       headers:{'Content-Type':'application/json','x-goog-api-key':key},
       body:JSON.stringify(payload),
     });

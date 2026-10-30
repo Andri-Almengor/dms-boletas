@@ -5,13 +5,12 @@ import { useAuth } from '../../AuthContext';
 import Icon from '../../components/common/Icon';
 import '../../styles/assistant-sensitive.css';
 
+// Solo describir etapas verificables en el navegador, nunca herramientas supuestas del backend.
 const ASSISTANT_PROGRESS_STATES = [
-  'Analizando solicitud…',
-  'Consultando DMS…',
-  'Buscando evidencias…',
-  'Consultando Base de Conocimiento…',
-  'Revisando documentación…',
-  'Preparando respuesta…',
+  'Preparando consulta…',
+  'Esperando respuesta del servidor…',
+  'La consulta sigue en curso…',
+  'La respuesta está tardando más de lo habitual. Puede continuar cuando llegue.',
 ];
 
 const ASSISTANT_FILE_EXTENSIONS = new Set(['pdf', 'doc', 'docx', 'xls', 'xlsx', 'csv', 'txt']);
@@ -47,9 +46,36 @@ function initialMessage() {
   };
 }
 
+function safeStorageGet(key) {
+  try { return localStorage.getItem(key); } catch { return null; }
+}
+
+function safeStorageSet(key, value) {
+  try { localStorage.setItem(key, value); } catch { /* QuotaExceededError o almacenamiento restringido */ }
+}
+
+function safeStorageRemove(key) {
+  try { localStorage.removeItem(key); } catch { /* El historial en memoria continúa disponible */ }
+}
+
+function assistantFailureMessage(error) {
+  const code = String(error?.code || '').toUpperCase();
+  const status = Number(error?.status || 0);
+  if (status === 401) return 'La sesión expiró. Inicie sesión nuevamente y conserve su consulta.';
+  if (status === 403) return 'Su usuario no tiene permiso para esta operación.';
+  if (code === 'UNKNOWN_RESULT') return 'No se pudo confirmar el resultado. Antes de repetir una confirmación, consulte el estado de la operación.';
+  if (code === 'SERVER_BUSY' || code === 'SERVER_BUSY_TIMEOUT') return 'El asistente tiene demasiadas solicitudes. Intente de nuevo en unos momentos; las demás funciones de DMS siguen disponibles.';
+  if (code === 'ONLINE_REQUIRED' || (typeof navigator !== 'undefined' && navigator.onLine === false)) return 'No hay conexión con el servidor. Conserve la consulta para enviarla cuando vuelva la conexión.';
+  if (code === 'AI_IMAGE_UNAVAILABLE') return 'No fue posible cargar las imágenes desde Drive. Se conservaron los adjuntos; intente de nuevo cuando el servicio se recupere.';
+  if (code === 'AI_ATTACHMENTS_UNAVAILABLE') return 'La consulta de adjuntos tardó demasiado. Se conservaron los archivos cargados; vuelva a intentar sin subirlos nuevamente.';
+  if (/^(MODEL_|GEMINI_|AI_GEMINI_|AI_AGENT_TOTAL_TIMEOUT)/.test(code)) return 'Gemini no pudo completar la respuesta. DMS puede seguir disponible. Intente nuevamente cuando se recupere el servicio.';
+  if (code === 'REQUEST_TIMEOUT') return 'La solicitud superó el tiempo de espera. Compruebe el estado de cualquier operación pendiente antes de repetirla.';
+  return error?.message || 'No se pudo consultar el asistente.';
+}
+
 function readJson(key, fallback) {
   try {
-    const parsed = JSON.parse(localStorage.getItem(key) || 'null');
+    const parsed = JSON.parse(safeStorageGet(key) || 'null');
     return parsed ?? fallback;
   } catch {
     return fallback;
@@ -882,7 +908,7 @@ export default function AssistantPageSecure() {
     return Array.isArray(stored) && stored.length ? stored.filter((item) => !item.sensitive).slice(-40) : [initialMessage()];
   });
   const [context, setContext] = useState(() => readJson(contextKey, {}));
-  const [conversationId] = useState(() => localStorage.getItem(conversationKey) || messageId());
+  const [conversationId] = useState(() => safeStorageGet(conversationKey) || messageId());
   const [input, setInput] = useState('');
   const [dictating, setDictating] = useState(false);
   const [interimTranscript, setInterimTranscript] = useState('');
@@ -904,6 +930,8 @@ export default function AssistantPageSecure() {
   const [microphoneHelpOpen, setMicrophoneHelpOpen] = useState(false);
   const speechRef = useRef(null);
   const [sending, setSending] = useState(false);
+  const sendingRef = useRef(false);
+  const [elapsedSeconds, setElapsedSeconds] = useState(0);
   const [error, setError] = useState('');
   const [pendingFiles, setPendingFiles] = useState([]);
   const [progressLabel, setProgressLabel] = useState(ASSISTANT_PROGRESS_STATES[0]);
@@ -1250,7 +1278,7 @@ export default function AssistantPageSecure() {
     }
   }
 
-  useEffect(() => { localStorage.setItem(conversationKey, conversationId); }, [conversationId, conversationKey]);
+  useEffect(() => { safeStorageSet(conversationKey, conversationId); }, [conversationId, conversationKey]);
   useEffect(() => {
     const safeMessages = messages.filter((item) => !item.sensitive);
     const persistableMessages = safeMessages
@@ -1269,21 +1297,24 @@ export default function AssistantPageSecure() {
           ))
           : [],
       }));
-    localStorage.setItem(messagesKey, JSON.stringify(persistableMessages));
+    safeStorageSet(messagesKey, JSON.stringify(persistableMessages));
   }, [messages, messagesKey]);
-  useEffect(() => { localStorage.setItem(contextKey, JSON.stringify(context)); }, [context, contextKey]);
+  useEffect(() => { safeStorageSet(contextKey, JSON.stringify(context)); }, [context, contextKey]);
   useEffect(() => { endRef.current?.scrollIntoView({ behavior: 'smooth', block: 'end' }); }, [messages, sending]);
   useEffect(() => {
     if (!sending) {
+      setElapsedSeconds(0);
       setProgressLabel(ASSISTANT_PROGRESS_STATES[0]);
       return undefined;
     }
-    let index = 0;
-    setProgressLabel(ASSISTANT_PROGRESS_STATES[0]);
+    const started = Date.now();
+    setElapsedSeconds(0);
     const timer = window.setInterval(() => {
-      index = Math.min(index + 1, ASSISTANT_PROGRESS_STATES.length - 1);
+      const seconds = Math.floor((Date.now() - started) / 1000);
+      setElapsedSeconds(seconds);
+      const index = seconds < 5 ? 0 : seconds < 15 ? 1 : seconds < 35 ? 2 : 3;
       setProgressLabel(ASSISTANT_PROGRESS_STATES[index]);
-    }, 2600);
+    }, 1000);
     return () => window.clearInterval(timer);
   }, [sending]);
   useEffect(() => () => {
@@ -1304,7 +1335,9 @@ export default function AssistantPageSecure() {
     const files = includePendingFiles ? pendingFiles : [];
     const typedQuestion = String(rawQuestion || '').trim();
     const question = typedQuestion || (files.length ? 'Analiza los archivos adjuntos.' : '');
-    if (!question || sending) return;
+    if (!question || sendingRef.current) return;
+    // Bloqueo síncrono: evita dobles envíos antes de que React actualice sending.
+    sendingRef.current = true;
 
     const nextContext = { ...context, ...contextPatch, pageContext };
     setInput('');
@@ -1362,12 +1395,13 @@ export default function AssistantPageSecure() {
       }
       if (response.context && typeof response.context === 'object') setContext(response.context);
     } catch (requestError) {
-      const message = requestError?.message || 'No se pudo consultar el asistente.';
+      const message = assistantFailureMessage(requestError);
       setError(message);
       // Conservar el dictado en el editor si la red o Gemini fallaron.
       setInput((current) => current || question);
       setMessages((current) => [...current, { id: messageId(), role: 'assistant', text: message, sources: [], entities: [], attachments: [], confirmations: [], options: [], suggestions: [], tables: [], stats: [], sensitive: false }]);
     } finally {
+      sendingRef.current = false;
       setSending(false);
     }
   }
@@ -1508,7 +1542,31 @@ export default function AssistantPageSecure() {
         }]);
       }
     } catch (operationError) {
-      setError(operationError?.message || 'No se pudo confirmar la operación.');
+      // Nunca repetir COMMIT a ciegas. Consultar el estado persistido con la
+      // operación existente; si tampoco responde, permitir revisión manual.
+      if (operationError?.code === 'UNKNOWN_RESULT' || operationError?.code === 'REQUEST_TIMEOUT'
+        || [502, 503, 504].includes(Number(operationError?.status))) {
+        try {
+          const statusResponse = await apiRequest('assistant.chat', {
+            assistantAction: 'operation.status',
+            operationId: item.operationId,
+          }, sessionToken, { cache: 'no-store' });
+          setMessages((current) => current.map((message) => ({
+            ...message,
+            confirmations: Array.isArray(message.confirmations)
+              ? message.confirmations.map((confirmation) => confirmation.operationId === item.operationId
+                ? { ...confirmation, ...statusResponse, preview: statusResponse.preview || confirmation.preview,
+                    result: statusResponse.result || confirmation.result }
+                : confirmation)
+              : message.confirmations,
+          })));
+          setError('La confirmación perdió su respuesta. Se consultó el estado real del servidor; revise el resultado antes de continuar.');
+        } catch {
+          setError('No fue posible verificar la confirmación. Use «Consultar estado» cuando vuelva la conexión. No repita la confirmación a ciegas.');
+        }
+      } else {
+        setError(assistantFailureMessage(operationError));
+      }
     } finally {
       setBusyOperationId('');
     }
@@ -1536,8 +1594,8 @@ export default function AssistantPageSecure() {
     });
     setPendingFiles([]);
     setError('');
-    localStorage.removeItem(messagesKey);
-    localStorage.removeItem(contextKey);
+    safeStorageRemove(messagesKey);
+    safeStorageRemove(contextKey);
   }
 
   function submit(event) {
@@ -1591,7 +1649,7 @@ export default function AssistantPageSecure() {
           {sending && (
             <article className="assistant-message assistant-message--assistant assistant-message--typing">
               <div className="assistant-message__avatar"><Icon name="smart_toy" /></div>
-              <div className="assistant-message__content"><div className="assistant-message__bubble"><Icon name="progress_activity" /><span>{progressLabel}</span></div></div>
+              <div className="assistant-message__content"><div className="assistant-message__bubble" role="status"><Icon name="progress_activity" /><span>{progressLabel} <small className="assistant-message__elapsed">({elapsedSeconds} s)</small></span></div></div>
             </article>
           )}
           <div ref={endRef} />

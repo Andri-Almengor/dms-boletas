@@ -6,8 +6,11 @@ const uploadActions = new AsyncSemaphore({ name: 'action-upload', max: 1, queueL
 const aiActions = new AsyncSemaphore({
   name: 'action-ai',
   max: env.aiActionMaxConcurrent,
-  queueLimit: Math.max(6, env.httpQueueLimit),
-  timeoutMs: Math.max(env.httpQueueTimeoutMs, 60_000),
+  // La cola de IA debe rechazar con rapidez ante saturación; no acumular minutos de espera.
+  // En Render (6 slots HTTP), 2 activos + 2 en espera dejan capacidad a DMS.
+  // La cola corta evita que múltiples usuarios ocupen todos los slots globales.
+  queueLimit: Math.min(2, Math.max(0, env.httpQueueLimit)),
+  timeoutMs: env.httpQueueTimeoutMs,
 });
 
 const writeActions = new AsyncSemaphore({
@@ -28,6 +31,22 @@ function normalizedRoute(route) {
   return String(route || '').trim().toLowerCase();
 }
 
+function isAssistantChatRoute(route) {
+  return ['assistant.chat', 'asistente.chat'].includes(normalizedRoute(route));
+}
+
+// La lectura de una operación ya existente no llama a Gemini ni escribe.
+// Se identifica con el mismo assistantAction que consume el dispatcher real;
+// el handler sigue autenticando al usuario y vinculando su SessionHash.
+function isAssistantStatusLookup(route, assistantAction) {
+  return isAssistantChatRoute(route) && normalizedRoute(assistantAction) === 'operation.status';
+}
+
+function isAssistantAttachmentUpload(route, assistantAction) {
+  return isAssistantChatRoute(route)
+    && ['attachment.init', 'attachment.chunk'].includes(normalizedRoute(assistantAction));
+}
+
 function isAiRewriteRoute(route) {
   return [
     'ai.technicalrewrite',
@@ -45,8 +64,6 @@ function isReadRoute(route) {
   return isAiRewriteRoute(value)
     || value === 'auth.me'
     || value === 'sync.delta'
-    || value === 'assistant.chat'
-    || value === 'asistente.chat'
     || value === 'config.get'
     || value === 'app.config.get'
     || value.endsWith('.list')
@@ -58,9 +75,7 @@ function isReadRoute(route) {
 
 function isHeavyRoute(route) {
   const value = normalizedRoute(route);
-  return value.includes('assistant.chat')
-    || value.includes('asistente.chat')
-    || value.includes('metrics.')
+  return value.includes('metrics.')
     || value.includes('metricas.')
     || value.includes('finalize')
     || value.includes('finalizar')
@@ -90,9 +105,11 @@ function addBusyContext(error, route, { heavy, write }) {
   return error;
 }
 
-export async function runWithActionConcurrency(route, operation) {
-  const heavy = isHeavyRoute(route);
-  const write = !isReadRoute(route);
+export async function runWithActionConcurrency(route, operation, { signal, assistantAction = '' } = {}) {
+  const statusLookup = isAssistantStatusLookup(route, assistantAction);
+  const assistantUpload = isAssistantAttachmentUpload(route, assistantAction);
+  const heavy = !statusLookup && isHeavyRoute(route);
+  const write = !statusLookup && !isReadRoute(route);
   let releaseDedicated;
   let releaseHeavy;
   let releaseWrite;
@@ -104,16 +121,21 @@ export async function runWithActionConcurrency(route, operation) {
     // Las lecturas de medios solo emiten un grant temporal y las lecturas
     // incrementales no deben competir con finalizaciones/reportes pesados.
     if (normalizedRoute(route).startsWith('auth.')) {
-      releaseDedicated = await authActions.acquire();
-    } else if (isAiRewriteRoute(route)) {
-      releaseDedicated = await aiActions.acquire();
+      releaseDedicated = await authActions.acquire({ signal });
+    } else if (assistantUpload) {
+      // La transferencia de adjuntos ya utiliza los handlers existentes de
+      // carga de archivos; no debe retener slots para respuestas Gemini.
+      releaseDedicated = await uploadActions.acquire({ signal });
+    } else if ((isAssistantChatRoute(route) && !statusLookup) || isAiRewriteRoute(route)) {
+      releaseDedicated = await aiActions.acquire({ signal });
     } else if (/evidence|images|imagenes|grande|attachments|adjuntos/.test(normalizedRoute(route))) {
-      releaseDedicated = await uploadActions.acquire();
+      releaseDedicated = await uploadActions.acquire({ signal });
     } else if (heavy) {
-      releaseHeavy = await heavyActions.acquire();
+      releaseHeavy = await heavyActions.acquire({ signal });
     } else if (write) {
-      releaseWrite = await writeActions.acquire();
+      releaseWrite = await writeActions.acquire({ signal });
     }
+    if (signal?.aborted) throw signal.reason || new Error('Client disconnected before action dispatch');
     return await operation();
   } catch (error) {
     throw addBusyContext(error, route, { heavy, write });

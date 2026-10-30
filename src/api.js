@@ -1,4 +1,4 @@
-import { withRequestDeadline } from './services/requestPolicy';
+import { requestTimeoutMs, withRequestDeadline } from './services/requestPolicy';
 import { isOfflineModeEnabled } from './services/offlineMode';
 import { beginMediaUpload } from './services/mediaActivity';
 import {
@@ -53,8 +53,6 @@ function isReadRoute(route) {
   const value = String(route || '').toLowerCase();
   return value === 'sync.delta'
     || value === 'auth.me'
-    || value === 'assistant.chat'
-    || value === 'asistente.chat'
     || value === 'config.get'
     || value === 'app.config.get'
     || value.endsWith('.list')
@@ -81,7 +79,10 @@ function nextClientMutationRevision() {
 function preparePayload(route, payload) {
   const value = String(route || '').toLowerCase();
   const target = payload && typeof payload === 'object' ? payload : {};
-  if (!isReadRoute(route) && !target.__clientRequestId) {
+  // El sobre AI es mixto. Mantener su payload histórico sin añadir campos
+  // reservados para escrituras normales; la operación AI usa operationId.
+  const assistantRoute = ['assistant.chat', 'asistente.chat'].includes(value);
+  if (!isReadRoute(route) && !assistantRoute && !target.__clientRequestId) {
     target.__clientRequestId = createLocalId('req');
   }
   if (value === 'boletas.autosave' && !Number(target.__clientRevision || 0)) {
@@ -224,6 +225,14 @@ async function performRequest(route, payload, sessionToken, { signal } = {}) {
       'Content-Type': isAppsScriptUrl(API_URL)
         ? 'text/plain;charset=utf-8'
         : 'application/json;charset=utf-8',
+      // Sugerencia de admisión HTTP únicamente, nunca permiso ni ruta autoritativa.
+      // No añade cabeceras de Node al endpoint de Apps Script heredado.
+      ...(!isAppsScriptUrl(API_URL) && (
+        (['assistant.chat', 'asistente.chat'].includes(String(route || '').trim().toLowerCase())
+          && !['operation.status', 'attachment.init', 'attachment.chunk'].includes(
+            String(requestPayload.assistantAction || '').trim().toLowerCase()))
+        || isReplaySafeAiRoute(route)
+      ) ? { 'X-DMS-Workload': 'assistant' } : {}),
     },
     body: JSON.stringify({ route, payload: requestPayload, sessionToken }),
     signal,
@@ -262,8 +271,17 @@ async function performRequest(route, payload, sessionToken, { signal } = {}) {
   return result.data;
 }
 
+function isAssistantStatusLookup(route, payload = {}) {
+  return ['assistant.chat', 'asistente.chat'].includes(String(route || '').trim().toLowerCase())
+    && String(payload?.assistantAction || '').trim().toLowerCase() === 'operation.status';
+}
+
 function performRequestWithRetry(route, payload, sessionToken, { signal } = {}) {
-  return withRequestDeadline(route, signal, (deadlineSignal) => retryRequest(route, payload, sessionToken, deadlineSignal));
+  // operation.status es una lectura idempotente de PostgreSQL: responde aun
+  // cuando Gemini esté ocupado, sin usar el presupuesto de un chat de 240 s.
+  const timeout = isAssistantStatusLookup(route, payload) ? 90_000 : requestTimeoutMs(route);
+  return withRequestDeadline(route, signal,
+    (deadlineSignal) => retryRequest(route, payload, sessionToken, deadlineSignal), timeout);
 }
 
 async function retryRequest(route, payload, sessionToken, signal) {
@@ -274,7 +292,7 @@ async function retryRequest(route, payload, sessionToken, signal) {
 
   const read = isReadRoute(route);
   const replaySafeAi = isReplaySafeAiRoute(route);
-  const retrySafe = read || replaySafeAi;
+  const retrySafe = read || replaySafeAi || isAssistantStatusLookup(route, payload);
   let lastError;
   for (let attempt = 0; attempt <= TRANSIENT_RETRY_DELAYS_MS.length; attempt += 1) {
     try {
@@ -286,15 +304,21 @@ async function retryRequest(route, payload, sessionToken, signal) {
       // Si DMS ya respondió que Gemini agotó sus modelos/presupuesto, repetir
       // automáticamente toda la cadena solo alarga la espera. Sí reintentamos
       // errores de transporte/edge donde el backend no llegó a procesar la IA.
-      const terminalAiFailure = replaySafeAi
-        && backendReached
-        && String(error?.code || '').toUpperCase().startsWith('GEMINI_');
+      const code = String(error?.code || '').toUpperCase();
+      const assistantRoute = ['assistant.chat', 'asistente.chat'].includes(String(route || '').toLowerCase());
+      const modelFailure = /^(GEMINI_|MODEL_|AI_GEMINI_|AI_AGENT_TOTAL_TIMEOUT|AI_IMAGE_UNAVAILABLE|AI_ATTACHMENTS_UNAVAILABLE)/.test(code);
+      const terminalAiFailure = (replaySafeAi || assistantRoute) && backendReached && modelFailure;
       const retryable = transientError(error) && !terminalAiFailure;
       const safeMutationRetry = !read
-        && String(error?.code || '').toUpperCase() === 'BACKEND_EDGE_THROTTLED'
+        && code === 'BACKEND_EDGE_THROTTLED'
         && !backendReached;
+      // Un rechazo estructurado antes de ejecutar (cola llena, asistente
+      // inactivo o falla explícita de Gemini) no es un COMMIT incierto.
+      const confirmedAssistantRejection = assistantRoute && backendReached
+        && (modelFailure || ['AI_CHAT_DISABLED', 'AI_RATE_LIMIT', 'SERVER_BUSY', 'SERVER_BUSY_TIMEOUT'].includes(code));
       const ambiguousMutation = !retrySafe
         && !safeMutationRetry
+        && !confirmedAssistantRejection
         && (retryable || Number(error?.status || 0) >= 500);
 
       // Una pérdida de transporte después de enviar una escritura no demuestra
@@ -434,6 +458,12 @@ export async function apiRequest(route, payload = {}, sessionToken = '', options
   // en la caché de lecturas: cada pulsación explícita debe poder pedir una
   // nueva redacción sin invalidar colecciones operativas.
   if (isReplaySafeAiRoute(route)) {
+    return performRequestWithRetry(route, payload, sessionToken, { signal });
+  }
+
+  // assistant.chat transporta consultas y PREPARE/COMMIT: sin caché ni reintentos
+  // automáticos, pero tampoco invalida todas las lecturas como una escritura común.
+  if (['assistant.chat', 'asistente.chat'].includes(String(route || '').toLowerCase())) {
     return performRequestWithRetry(route, payload, sessionToken, { signal });
   }
 
