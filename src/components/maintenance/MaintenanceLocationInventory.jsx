@@ -323,7 +323,7 @@ export default function MaintenanceLocationInventory({
         || Array.from(document.querySelectorAll('[data-maintenance-group-id]'))
           .find((node) => node.dataset.maintenanceGroupId === savedContext.anchorGroupId);
       const previousY = Math.max(0, Number(savedContext.scrollY) || 0);
-      const targetY = anchor && Number.isFinite(Number(savedContext.anchorTop))
+      const targetY = anchor && savedContext.anchorTop != null && Number.isFinite(Number(savedContext.anchorTop))
         ? window.scrollY + anchor.getBoundingClientRect().top - Number(savedContext.anchorTop)
         : previousY;
       window.scrollTo({ top: Math.max(0, targetY), behavior: 'auto' });
@@ -376,8 +376,8 @@ export default function MaintenanceLocationInventory({
   function beginAddDevice(group, bulk = false) {
     // Al crear equipos desde un piso cerrado, dejarlo desplegado después del alta.
     setOpenGroups((current) => new Set([...current, group.id]));
-    if (bulk) onAddDeviceList?.(group);
-    else onAddDevice?.(group);
+    if (bulk) onAddDeviceList(group);
+    else onAddDevice(group);
   }
 
   function editDeviceInContext(device) {
