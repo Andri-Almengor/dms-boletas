@@ -190,3 +190,11 @@ La interfaz del asistente recupera la confirmación de una boleta con `apiReques
 ### Despliegue y validación manual
 
 Desplegar el frontend y backend del mismo commit para obtener ambas mejoras (el backend aislado resuelve `action-ai`, pero el navegador anterior todavía puede enviar la pista HTTP). En pruebas autorizadas: abrir dos chats lentos y otras dos solicitudes en cola, confirmar una boleta de prueba y consultar su estado desde otra pestaña autenticada. Verificar que el estado pertenece a la sesión original y que otra sesión no puede consultar esa operación. No usar datos ni envíos productivos para la prueba. La validación de latencia real y reinicio de Render sigue pendiente.
+
+### Adjuntos del asistente sin consumir cupos Gemini
+
+`assistant-agenda.module.js` también maneja `assistantAction='attachment.init'` y `attachment.chunk` usando los handlers de cargas existentes `largeEvidenceUploadHandlers.assistantInit/assistantChunk`; esas acciones no llaman a Gemini. Antes, por tener ruta exterior `assistant.chat`, ambas consumían `action-ai` y la pista HTTP `http-assistant`, por lo que un video/archivo grande podía ocupar capacidad que se reserva para preguntas.
+
+Ahora el selector **reutiliza `uploadActions`** para esos dos valores exactos de `assistantAction` (sin crear rutas, semáforos ni permisos nuevos), y el cliente no manda la pista de admisión Gemini para dichas transferencias. El dispatcher real no cambia: continúa autenticando, validando sesión, tipo de archivo, límites, Drive y auditoría según los handlers existentes. Las preguntas normales y decisiones `operation.decide` permanecen bajo la contención AI.
+
+La prueba `backend/test/assistant-action-queue-abort.test.js` verifica con dos consultas Gemini activas y dos esperando que `attachment.init` y `attachment.chunk` todavía atraviesan el carril de subida, y que no incrementan `action-ai`. La caracterización comprueba los dos handlers originales del dispatcher. Requiere desplegar frontend y backend del mismo commit para evitar que una interfaz anterior siga enviando la pista HTTP de Gemini; el backend conserva controles de escritura y permisos.
