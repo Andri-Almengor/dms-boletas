@@ -1,3 +1,4 @@
+import { assertNewAssignmentsAssignable } from '../services/permissions.service.js';
 import {
   appendRow,
   filterRows,
@@ -297,9 +298,10 @@ export const maintenanceHandlers = {
 
     const base = maintenancePayload(ctx.payload);
     if (!base.TituloMantenimiento || !base.ClienteID) throw badRequest('Título y cliente son obligatorios.');
-    const users = await readTable('Usuarios');
+    const { Usuarios: users, Roles: roles } = await readTables(['Usuarios', 'Roles']);
     const usersById = indexRowsBy(users, (user) => user.UsuarioID);
     const ids = asArray(base.ResponsableIDsJSON);
+    assertNewAssignmentsAssignable(ids, users, roles);
     const row = {
       MantenimientoID: requestedId || uuid(),
       ...base,
@@ -317,7 +319,7 @@ export const maintenanceHandlers = {
 
   update: async (ctx) => {
     const id = pick(ctx.payload, ['maintenanceId', 'MantenimientoID']);
-    const tables = await readTables(['Mantenimiento', 'Usuarios', 'Evidencia_Mantenimientos', 'Mantenimiento imagenes', 'TiposDispositivo']);
+    const tables = await readTables(['Mantenimiento', 'Usuarios', 'Roles', 'Evidencia_Mantenimientos', 'Mantenimiento imagenes', 'TiposDispositivo']);
     const before = maintenanceRow(tables, id);
     const payload = maintenancePayload(ctx.payload, before);
     // Client changes must not keep a main location belonging to the previous
@@ -364,6 +366,7 @@ export const maintenanceHandlers = {
       if (hasDevices) throw badRequest('No se puede cambiar entre Mantenimiento y Proyecto después de registrar dispositivos. Cree otro registro o elimine primero los dispositivos.');
     }
     const usersById = indexRowsBy(tables.Usuarios || [], (user) => user.UsuarioID);
+    assertNewAssignmentsAssignable(asArray(payload.ResponsableIDsJSON), tables.Usuarios || [], tables.Roles || [], asArray(before.ResponsableIDsJSON));
     payload.Responsables = asArray(payload.ResponsableIDsJSON)
       .map((userId) => usersById.get(String(userId))?.NombreCompleto || userId)
       .join(', ');

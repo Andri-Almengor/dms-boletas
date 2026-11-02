@@ -98,7 +98,7 @@ export default function MaintenanceQuickDeviceCreator({
     // Mismo catálogo asignable que utiliza el formulario de mantenimiento.
     // No requiere permisos de administración de usuarios.
     loadCatalogResource({
-      routes: ['users.assignment.list', 'users.list'],
+      routes: ['users.assignment.list'],
       payload: { page: 1, pageSize: 1000 },
       sessionToken,
       signal: controller.signal,

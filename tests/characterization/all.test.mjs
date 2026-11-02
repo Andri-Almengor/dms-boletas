@@ -102,6 +102,7 @@ import './paginated-resource.test.mjs';
 import './password-vault.test.mjs';
 import './password-vault-system-search.test.mjs';
 import './render-edge-429-recovery.test.mjs';
+import './supervisor-role.test.mjs';
 import './security-hardening.test.mjs';
 import './security-runtime-baseline.test.mjs';
 import './server-concurrency-isolation.test.mjs';

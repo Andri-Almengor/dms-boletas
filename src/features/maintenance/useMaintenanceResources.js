@@ -129,7 +129,7 @@ export default function useMaintenanceResources({
         signal: controller.signal,
       }),
       loadCatalogResource({
-        routes: ['users.assignment.list', 'users.list'],
+        routes: MODULE_ROUTES.users.assignmentList,
         payload: { page: 1, pageSize: 1000 },
         sessionToken,
         signal: controller.signal,

@@ -254,7 +254,7 @@ export default function TicketQuickEditPage() {
         requestAvailable(MODULE_ROUTES.manufacturers.list, { page: 1, pageSize: 1000, activo: true }, sessionToken),
         requestAvailable(MODULE_ROUTES.models.list, { page: 1, pageSize: 1500, activo: true }, sessionToken),
         requestAvailable(MODULE_ROUTES.deviceManufacturers.list, { page: 1, pageSize: 1500, activo: true }, sessionToken),
-        requestAvailable(MODULE_ROUTES.users.list, { page: 1, pageSize: 1000 }, sessionToken),
+        requestAvailable(MODULE_ROUTES.users.assignmentList, { page: 1, pageSize: 1000 }, sessionToken),
       ]),
     ]).then(([ticket, results]) => {
       if (!active) return;

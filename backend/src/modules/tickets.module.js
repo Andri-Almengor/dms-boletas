@@ -1,3 +1,4 @@
+import { assertNewAssignmentsAssignable } from '../services/permissions.service.js';
 import {
   appendRow,
   appendRows,
@@ -155,11 +156,12 @@ function hasAssignedPayload(payload = {}) {
 }
 
 async function replaceAssigned(ticketId, ids, ctx) {
-  const tables = await readTables(['BoletaAsignados', 'Usuarios']);
+  const tables = await readTables(['BoletaAsignados', 'Usuarios', 'Roles']);
   const active = tables.BoletaAsignados
     .filter((item) => String(item.BoletaUID) === String(ticketId) && item.Activo !== false);
   const nextIds = normalizedIds(ids);
   if (sameIds(active.map((item) => item.UsuarioID), nextIds)) return false;
+  assertNewAssignmentsAssignable(nextIds, tables.Usuarios, tables.Roles, active.map((item) => item.UsuarioID));
 
   if (active.length) {
     await updateRows('BoletaAsignados', active.map((row) => ({
