@@ -3,6 +3,7 @@ import fs from 'node:fs';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 import {
+  agendaDate,
   agendaRequiresTicket as backendRequiresTicket,
   agendaTicketMatchScore,
   buildAgendaViews,
@@ -27,6 +28,20 @@ assert.equal(backendRequiresTicket('Revisión RNX'), true);
 assert.equal(frontendRequiresTicket('oficina'), false);
 assert.equal(frontendRequiresTicket('RN'), false);
 assert.equal(frontendRequiresTicket('Mantenimiento de cámaras'), true);
+
+// La fecha civil enviada por el formulario debe persistir sin moverse a mañana.
+assert.equal(agendaDate('2026-11-04'), '2026-11-04', 'El backend debe conservar la fecha de hoy al recibir YYYY-MM-DD.');
+const sameDayViews = buildAgendaViews({
+  agendas: [{ AgendaID: 'HOY-1', Fecha: '2026-11-04', HoraInicio: '07:00', HoraFin: '17:00', Detalle: 'Visita pendiente', Estado: 'ACTIVA' }],
+  agendaAssignments: [{ AgendaID: 'HOY-1', UsuarioID: 'U1', Activo: true }],
+  users: [{ UsuarioID: 'U1', NombreCompleto: 'Técnico Uno' }],
+  tickets: [],
+  ticketAssignments: [],
+  today: '2026-11-04',
+});
+assert.equal(sameDayViews[0].Fecha, '2026-11-04');
+assert.equal(sameDayViews[0].status, 'PENDIENTE', 'Una agenda creada para hoy debe ser visible como pendiente.');
+
 
 const range = calendarMonthRange('2026-08');
 assert.deepEqual(range, { from: '2026-07-27', to: '2026-09-06' });
@@ -155,6 +170,16 @@ assert.match(assistantSource, /agendaResults/);
 assert.match(appSource, /path="agenda"/);
 assert.match(agendaPageSource, /Separar por persona/);
 assert.match(agendaPageSource, /Puede agregar varias agendas con la misma fecha/);
+assert.match(agendaPageSource, /fecha: tomorrowCostaRicaDate\(\)/, 'Una agenda nueva sigue proponiendo mañana.');
+assert.match(
+  agendaPageSource,
+  /function resetDraft\(\) \{[\s\S]*?setDraft\(\(current\) => \(\{ \.\.\.EMPTY_DRAFT, fecha: current\.fecha \}\)\);/,
+  'Agregar una agenda a la lista no debe regresar la fecha elegida a mañana.',
+);
+assert.match(agendaPageSource, /const row = \{ \.\.\.draft, detalle: draft\.detalle\.trim\(\), usuarioIds: \[\.\.\.draft\.usuarioIds\] \};/);
+assert.match(agendaPageSource, /apiRequest\('agenda\.create', \{ agendas: queue \}, sessionToken\)/);
+assert.match(agendaModuleSource, /const fecha = normalizeDate\(input\.fecha \?\? input\.Fecha \?\? fallback\.Fecha\)/);
+
 assert.match(agendaPageSource, /AgendaClientAssignment/);
 assert.match(agendaPageSource, /sortAgendaDatesNewestFirst\(grouped\.keys\(\)\)/);
 assert.doesNotMatch(agendaPageSource, /clients\.list/);

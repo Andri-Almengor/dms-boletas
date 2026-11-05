@@ -210,7 +210,8 @@ function AgendaEditor({ users, editItem, onClose, onSaved, sessionToken, ticketE
   }
 
   function resetDraft() {
-    setDraft({ ...EMPTY_DRAFT, fecha: tomorrowCostaRicaDate() });
+    // Conservar la fecha elegida al agregar varias agendas, incluso si es hoy.
+    setDraft((current) => ({ ...EMPTY_DRAFT, fecha: current.fecha }));
     setQueueEditIndex(-1);
   }
 
