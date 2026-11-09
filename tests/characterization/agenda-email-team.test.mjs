@@ -139,6 +139,13 @@ test('payload anterior sin nombres de equipo mantiene compatibilidad y nombres h
   assert.match(namesake.body, /^Hola Ana Pérez, Ana Soto\./);
 });
 
+test('la guía de despliegue exige la misma implementación Apps Script', () => {
+  const readme = source('apps-script/report-service/README.md');
+  assert.match(readme, /2026-11-09-V7\.16-AGENDA-TEAM-EMAIL/);
+  assert.match(readme, /misma URL/);
+  assert.match(readme, /Nueva versión/);
+});
+
 test('el reenvío reutiliza el constructor de notificaciones sin enviar Google Chat', () => {
   assert.match(resend, /import \{ agendaHandlers, buildDeliveries \} from '\.\/agenda\.module\.js'/);
   assert.match(resend, /buildDeliveries\(\[item\], item\.asignados \|\| \[\], 'RESENT'\)/);
