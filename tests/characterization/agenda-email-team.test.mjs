@@ -43,7 +43,7 @@ const sendAgendaDeliveryEmail = vm.runInNewContext([
   formatAgendaDate_: (value) => String(value),
   escapeHtml_: htmlEscape,
   nl2br_: (value) => htmlEscape(value).replace(/\n/g, '<br>'),
-  buttonHtml_: () => '<a>Agenda</a>',
+  buttonHtml_: (_url, label) => `<a>${htmlEscape(label)}</a>`,
   sendDmsEmail_: (data) => sent.push(JSON.parse(JSON.stringify(data))),
   sendAgendaTicketCreatedPendingEmail_: () => { throw new Error('Flujo ajeno a la prueba'); },
   BRAND_BACKGROUND: '#ffffff',
