@@ -3,7 +3,7 @@ import { env } from '../config/env.js';
 import { audit } from '../services/audit.service.js';
 import { sendAgendaChatNotification } from '../services/agenda-chat.service.js';
 import { sendAppsScriptAction } from '../services/apps-script-action.service.js';
-import { agendaHandlers } from './agenda.module.js';
+import { agendaHandlers, buildDeliveries } from './agenda.module.js';
 
 const PENDING_TICKET_TEST_TYPE = 'PENDING_TICKET_TEST';
 
@@ -46,27 +46,6 @@ async function loadAgenda(ctx) {
   });
   if (!response?.item) throw badRequest('No fue posible cargar la agenda para reenviarla.');
   return response.item;
-}
-
-function emailDeliveries(item = {}) {
-  const recipients = new Map();
-  for (const user of Array.isArray(item.asignados) ? item.asignados : []) {
-    const email = clean(user?.Correo).toLowerCase();
-    if (!email) continue;
-    recipients.set(email, {
-      correo: email,
-      nombre: personName(user),
-      agendas: [{
-        agendaId: item.AgendaID,
-        fecha: item.Fecha,
-        horaInicio: item.HoraInicio,
-        horaFin: item.HoraFin,
-        detalle: item.Detalle,
-        assigned: true,
-      }],
-    });
-  }
-  return [...recipients.values()];
 }
 
 function pendingTestAssignees(item = {}) {
@@ -230,7 +209,7 @@ async function resendEmail(ctx) {
   }
 
   const item = await loadAgenda(ctx);
-  const deliveries = emailDeliveries(item);
+  const deliveries = buildDeliveries([item], item.asignados || [], 'RESENT');
   if (!deliveries.length) {
     return {
       channel: 'email',

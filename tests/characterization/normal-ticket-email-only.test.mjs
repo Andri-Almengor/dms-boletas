@@ -61,7 +61,7 @@ test('EnviarCorreoCliente no desactiva el correo completo de una boleta normal',
   assert.match(resolver, /isMaintenanceArchiveDelivery_/);
   assert.match(resolver, /request\.sendEmail/);
   assert.doesNotMatch(resolver, /EnviarCorreoCliente/);
-  assert.match(script, /2026-10-09-V7\.15-VIDEO-DRIVE-LINK/);
+  assert.match(script, /2026-11-09-V7\.16-AGENDA-TEAM-EMAIL/);
 });
 
 test('la finalización usa la selección actual de copia al cliente y CC del formulario', () => {

@@ -178,7 +178,7 @@ test('Apps Script no materializa ni bloquea videos grandes al enviar la boleta',
   const reportScript = source('apps-script/report-service/Code.gs');
 
   assert.doesNotThrow(() => new Function(reportScript));
-  assert.match(reportScript, /2026-10-09-V7\.15-VIDEO-DRIVE-LINK/);
+  assert.match(reportScript, /2026-11-09-V7\.16-AGENDA-TEAM-EMAIL/);
   assert.match(reportScript, /const isVideo = \/\^video\\\//);
   assert.match(reportScript, /if \(isVideo && \(linkVideos \|\| fileSize > MAX_EMAIL_BYTES\)\)/);
   assert.match(reportScript, /oversizedVideo: true/);

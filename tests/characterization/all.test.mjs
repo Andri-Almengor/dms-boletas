@@ -1,5 +1,6 @@
 import './low-memory-headers.test.mjs';
 import './agenda-operativa.test.mjs';
+import './agenda-email-team.test.mjs';
 import './agenda-chat.test.mjs';
 import './agenda-resend.test.mjs';
 import './agenda-ticket-exceptions-config.test.mjs';

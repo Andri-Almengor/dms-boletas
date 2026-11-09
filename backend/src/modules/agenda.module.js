@@ -185,7 +185,7 @@ function filterViews(views, payload = {}, ctx = {}) {
   return result;
 }
 
-function buildDeliveries(views, users, mode = 'CREATED', removedByAgenda = new Map()) {
+export function buildDeliveries(views, users, mode = 'CREATED', removedByAgenda = new Map()) {
   const userById = new Map(users.map((user) => [clean(user.UsuarioID), user]));
   const deliveries = new Map();
 
@@ -204,6 +204,8 @@ function buildDeliveries(views, users, mode = 'CREATED', removedByAgenda = new M
       detalle: agenda.Detalle,
       clienteId: agenda.ClienteID,
       clienteNombre: agenda.ClienteNombre,
+      assignedNames: (Array.isArray(agenda.asignados) ? agenda.asignados : [])
+        .map((assignedUser) => userDisplay(assignedUser)),
       assigned,
     });
   }
