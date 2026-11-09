@@ -1,5 +1,20 @@
 # Apps Script completo: servicio real de reportes y Casos
 
+## Agenda personal: mostrar quién acompaña a cada técnico (V7.16)
+
+Las notificaciones personales **Nueva agenda** y **Agenda modificada** mantienen la misma plantilla HTML, asunto, destinatarios, horarios, enlaces y política de correo. Al crear o modificar una visita con dos o más asignados, cada destinatario recibe un saludo con los nombres de pila de los participantes, por ejemplo **«Hola Andrick, Dixon.»**, y la tarjeta identifica el **Personal asignado** con nombres completos. Cuando una persona va sola se conserva el saludo original.
+
+El backend envía los nombres desde las asignaciones reales de la agenda (no desde la petición del navegador). Si un lote incluye varias visitas con equipos diferentes, el saludo queda individual y cada tarjeta muestra los nombres de su propia visita; si alguien fue retirado, su correo de actualización sigue avisando que ya no está asignado y no lo saluda como integrante. Se incluye el reenvío manual, reutilizando `buildDeliveries` existente. Los payloads históricos que no envían nombres de equipo siguen funcionando.
+
+**Despliegue manual necesario:**
+1. Fusionar el PR y desplegar el backend de Render, que ahora incluye `assignedNames` en la acción existente `agenda.notification.send`.
+2. Copiar la versión fusionada de `apps-script/report-service/Code.gs` al **mismo** proyecto Apps Script configurado en el backend; actualizar `APPS_SCRIPT_VERSION` a `2026-11-09-V7.16-AGENDA-TEAM-EMAIL` (ya viene actualizado en el archivo).
+3. En **Implementar → Gestionar implementaciones**, editar la implementación Web App **actual**, seleccionar **Nueva versión** y publicar, manteniendo la misma URL `/exec`; no crear una implementación paralela.
+4. Crear una agenda de prueba con dos técnicos, verificar que ambos reciben un correo individual con saludo compartido y equipo completo, probar una visita individual y otra con varias visitas de equipos distintos, y confirmar que Google Chat no recibe mensajes adicionales por reenviar solo el correo.
+
+No requiere migraciones PostgreSQL, permisos nuevos, triggers, variables de entorno ni cambios en sincronización/offline, finalización o recordatorios.
+
+
 `Code.gs` parte del archivo completo aportado por el usuario el 11 de septiembre de 2026, versión `2026-09-03-AGENDA-V7.9-TICKET-CREATION-FINALIZATION`. Conserva sus funciones y añade transporte por bloques para Casos. Nueva versión: `2026-09-11-V7.9-BOUNDED-CASE-UPLOADS`.
 
 ## Corrección de videos en el envío de boletas (V7.15)
