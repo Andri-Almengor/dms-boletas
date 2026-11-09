@@ -11,7 +11,7 @@ const BRAND_BORDER = '#ead5d7';
 const BRAND_BACKGROUND = '#fffafa';
 const DMS_EMAIL_FROM_ALIAS = 'reportes@solutionsdms.com';
 const DMS_EMAIL_FROM_NAME = 'DMS Boletas';
-const APPS_SCRIPT_VERSION = '2026-10-09-V7.15-VIDEO-DRIVE-LINK';
+const APPS_SCRIPT_VERSION = '2026-11-09-V7.16-AGENDA-TEAM-EMAIL';
 const MAINTENANCE_ARCHIVE_DELIVERY_TYPE = 'MAINTENANCE_ARCHIVE';
 
 /*
@@ -8413,6 +8413,25 @@ function sendAgendaPendingReminderTest_(payload) {
 /**
  * Correo de creación/modificación para un usuario asignado.
  */
+/**
+ * Nombres de los técnicos de cada visita enviados por el backend.
+ * Los payloads históricos sin este campo conservan el saludo anterior.
+ */
+function agendaAssignedNames_(agenda) {
+  const values = Array.isArray(agenda && agenda.assignedNames)
+    ? agenda.assignedNames
+    : [];
+  const seen = {};
+  return values.map(function (value) {
+    return clean_(value);
+  }).filter(function (value) {
+    const key = value.toLowerCase();
+    if (!key || seen[key]) return false;
+    seen[key] = true;
+    return true;
+  });
+}
+
 function sendAgendaDeliveryEmail_(email, name, agendas, mode, appUrl) {
   if (MailApp.getRemainingDailyQuota() < 1) {
     throw new Error('La cuota diaria de correo de Apps Script se agotó.');
@@ -8426,6 +8445,32 @@ function sendAgendaDeliveryEmail_(email, name, agendas, mode, appUrl) {
       appUrl,
     );
   }
+
+  // Saludo grupal únicamente para una visita con el destinatario aún asignado.
+  // Los lotes pueden contener visitas con compañeros diferentes.
+  const recipientName = clean_(name, 'Técnico');
+  const greetingTeam = agendas.length === 1 && agendas[0].assigned !== false
+    ? agendaAssignedNames_(agendas[0])
+    : [];
+  const recipientKey = recipientName.toLowerCase();
+  const companions = greetingTeam.some(function (person) {
+    return person.toLowerCase() === recipientKey;
+  }) ? greetingTeam.filter(function (person) {
+    return person.toLowerCase() !== recipientKey;
+  }) : [];
+  const greetingPeople = [recipientName].concat(companions);
+  const shortNames = greetingPeople.map(function (person) {
+    return person.split(/\s+/)[0];
+  });
+  const greetingName = companions.length
+    ? greetingPeople.map(function (person, index) {
+      const matches = shortNames.filter(function (shortName) {
+        return shortName.toLowerCase() === shortNames[index].toLowerCase();
+      }).length;
+      return matches > 1 ? person : shortNames[index];
+    }).join(', ')
+    : recipientName;
+  const greetingPunctuation = companions.length ? '.' : ',';
 
   const created = mode !== 'UPDATED';
   const active = agendas.filter(function (agenda) {
@@ -8448,7 +8493,7 @@ function sendAgendaDeliveryEmail_(email, name, agendas, mode, appUrl) {
     );
 
   const plainLines = [
-    `Hola ${name},`,
+    `Hola ${greetingName}${greetingPunctuation}`,
     '',
     created
       ? 'Se registró una nueva agenda para usted en DMS Boletas.'
@@ -8461,6 +8506,10 @@ function sendAgendaDeliveryEmail_(email, name, agendas, mode, appUrl) {
       `${index + 1}. ${formatAgendaDate_(agenda.fecha)} · ${clean_(agenda.horaInicio, '07:00')} - ${clean_(agenda.horaFin, '17:00')}`,
     );
     plainLines.push(`   ${clean_(agenda.detalle, 'Sin detalle')}`);
+    const assignedNames = agendaAssignedNames_(agenda);
+    if (agenda.assigned !== false && assignedNames.length > 1) {
+      plainLines.push(`   Personal asignado: ${assignedNames.join(', ')}`);
+    }
     if (agenda.assigned === false) {
       plainLines.push('   Ya no está asignado a esta visita.');
     }
@@ -8472,6 +8521,16 @@ function sendAgendaDeliveryEmail_(email, name, agendas, mode, appUrl) {
 
   const cards = agendas.map(function (agenda) {
     const assigned = agenda.assigned !== false;
+    const assignedNames = agendaAssignedNames_(agenda);
+    const teamHtml = assigned && assignedNames.length > 1
+      ? [
+        '<div style="margin-top:8px;font-size:13px;color:',
+        BRAND_MUTED,
+        ';">Personal asignado: ',
+        escapeHtml_(assignedNames.join(', ')),
+        '</div>',
+      ].join('')
+      : '';
     const statusHtml = assigned
       ? ''
       : [
@@ -8499,6 +8558,7 @@ function sendAgendaDeliveryEmail_(email, name, agendas, mode, appUrl) {
       ';font-weight:700;">',
       nl2br_(clean_(agenda.detalle, 'Sin detalle')),
       '</div>',
+      teamHtml,
       statusHtml,
       '</div>',
     ].join('');
@@ -8538,8 +8598,10 @@ function sendAgendaDeliveryEmail_(email, name, agendas, mode, appUrl) {
     BRAND_BORDER,
     ';border-top:0;border-radius:0 0 18px 18px;">',
     '<p style="margin-top:0;">Hola <strong>',
-    escapeHtml_(name),
-    '</strong>,</p>',
+    escapeHtml_(greetingName),
+    '</strong>',
+    greetingPunctuation,
+    '</p>',
     '<p>',
     escapeHtml_(intro),
     '</p>',
