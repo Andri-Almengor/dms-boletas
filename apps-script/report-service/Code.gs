@@ -8411,9 +8411,6 @@ function sendAgendaPendingReminderTest_(payload) {
 }
 
 /**
- * Correo de creación/modificación para un usuario asignado.
- */
-/**
  * Nombres de los técnicos de cada visita enviados por el backend.
  * Los payloads históricos sin este campo conservan el saludo anterior.
  */
@@ -8421,7 +8418,7 @@ function agendaAssignedNames_(agenda) {
   const values = Array.isArray(agenda && agenda.assignedNames)
     ? agenda.assignedNames
     : [];
-  const seen = {};
+  const seen = Object.create(null);
   return values.map(function (value) {
     return clean_(value);
   }).filter(function (value) {
@@ -8432,6 +8429,9 @@ function agendaAssignedNames_(agenda) {
   });
 }
 
+/**
+ * Correo de creación/modificación para un usuario asignado.
+ */
 function sendAgendaDeliveryEmail_(email, name, agendas, mode, appUrl) {
   if (MailApp.getRemainingDailyQuota() < 1) {
     throw new Error('La cuota diaria de correo de Apps Script se agotó.');
