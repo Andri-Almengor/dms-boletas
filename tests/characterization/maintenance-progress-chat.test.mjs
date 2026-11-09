@@ -442,7 +442,7 @@ test('un trigger tardío no puede reenviar un slot ya reclamado y el Apps Script
     assert.match(script, /\/api\/maintenance-progress\/wake/);
   });
 
-  assert.match(reportScript, /2026-10-09-V7\.15-VIDEO-DRIVE-LINK/);
+  assert.match(reportScript, /2026-11-09-V7\.16-AGENDA-TEAM-EMAIL/);
   assert.match(reportScript, /dmsDiagnoseMaintenanceProgressTriggers/);
   assert.match(reportScript, /runDmsMaintenanceProgressSlot_\(\s*'17:00'/);
 });
