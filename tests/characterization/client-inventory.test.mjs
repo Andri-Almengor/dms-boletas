@@ -131,3 +131,41 @@ test('la normalización conserva números y no inventa identificadores', () => {
   assert.equal(normalizeInventoryText(' C3 - Puesto 12 '),'c3 puesto 12');
   assert.notEqual(normalizeInventoryText('Puesto 12 C3'),normalizeInventoryText('Puesto 12 C4'));
 });
+
+
+test('no fusiona el mismo número de serie cuando el fabricante es diferente', () => {
+  const first = camera('one','Puesto 12 C3',{ Serie:'SERIE-123',FabricanteID:'manufacturer-A' });
+  const second = camera('two','Puesto 12 C3',{ Serie:'SERIE-123',FabricanteID:'manufacturer-B' });
+  assert.equal(sameInventoryDevice(first,second),false);
+  assert.equal(groupInventoryDevices([first,second]).length,2);
+});
+
+test('historial de mantenimiento incorpora checklist de Sí/No sin modificar los registros', () => {
+  const snapshot = buildInventorySnapshot({
+    clientId:'test-client',
+    groups:groupInventoryDevices([camera('one','C3 puesto 12',{
+      RespuestasJSON: JSON.stringify({ limpieza:'Sí', conexion:'No', __preguntas:[
+        { key:'limpieza',label:'¿Se realizó la limpieza?' },
+        { key:'conexion',label:'¿La conexión es correcta?' },
+      ] }),
+    })]),
+  });
+  assert.equal(snapshot.events.length,1);
+  assert.match(snapshot.events[0].summary,/¿Se realizó la limpieza\?: Sí/);
+  assert.match(snapshot.events[0].summary,/¿La conexión es correcta\?: No/);
+});
+
+test('consulta de boletas respeta el esquema existente sin columna Activo', () => {
+  const module = source('backend/src/modules/client-inventory.module.js');
+  assert.doesNotMatch(module, /active\('b'\)/);
+  assert.match(module,/b\."__valid"=TRUE/);
+  assert.match(module,/eventOffset/);
+  assert.match(module,/mediaOffset/);
+  assert.match(module,/LIMIT \$5 OFFSET \$6/);
+  assert.match(module,/hasMoreEvents/);
+  assert.match(module,/hasMoreMedia/);
+  const page = source('src/pages/inventory/ClientInventoryPage.jsx');
+  assert.match(page,/Mostrar más trabajos/);
+  assert.match(page,/Mostrar más fotografías/);
+  assert.match(page,/pendingArrowRef/);
+});
