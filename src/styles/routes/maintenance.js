@@ -23,4 +23,6 @@ import '../maintenance-evidence-gallery.css';
 import '../maintenance-finalizations.css';
 import '../public-signature.css';
 import '../maintenance-signature-fixes.css';
+// ImageViewer es compartido con boletas: cargar sus estilos al abrir Inventario.
+import '../ticket-evidence-viewer.css';
 import '../client-inventory.css';
