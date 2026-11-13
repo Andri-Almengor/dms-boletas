@@ -932,3 +932,83 @@
   .client-inventory-current-status{padding:12px;}
   .client-inventory-current-status__heading{align-items:flex-start;}
 }
+
+
+/* Vinculación humana de duplicados: dentro del detalle compartido. */
+.client-inventory-manual-link{
+  margin-top:16px;
+  padding-top:15px;
+  border-top:1px solid var(--outline-soft);
+}
+.client-inventory-manual-link > .button{
+  display:inline-flex;
+  align-items:center;
+  gap:7px;
+  min-height:42px;
+}
+.client-inventory-manual-link__panel{
+  margin-top:12px;
+  padding:15px;
+  border:1px solid var(--outline-soft);
+  border-radius:13px;
+  background:var(--surface-low);
+  color:var(--text);
+  display:grid;
+  gap:12px;
+  min-width:0;
+}
+.client-inventory-manual-link__panel > p{
+  margin:0;
+  color:var(--muted);
+  font-size:.83rem;
+  line-height:1.55;
+}
+.client-inventory-manual-link__panel > p strong{color:var(--text);}
+.client-inventory-manual-link__panel .field-group{min-width:0;}
+.client-inventory-manual-link__panel input{
+  border:1px solid var(--outline);
+  border-radius:11px;
+  background:var(--surface-card);
+  color:var(--text);
+}
+.client-inventory-manual-link__panel > small{
+  font-size:.72rem;
+  line-height:1.55;
+  color:var(--muted);
+}
+.client-inventory-manual-link__results{
+  display:flex;
+  flex-direction:column;
+  gap:6px;
+  max-height:235px;
+  overflow:auto;
+  scrollbar-color:var(--outline) transparent;
+}
+.client-inventory-manual-link__results > button{
+  width:100%;
+  min-height:55px;
+  display:flex;
+  gap:12px;
+  align-items:center;
+  justify-content:space-between;
+  padding:10px 12px;
+  border:1px solid var(--outline-soft);
+  border-radius:11px;
+  background:var(--surface-card);
+  color:var(--text);
+  text-align:left;
+  cursor:pointer;
+}
+.client-inventory-manual-link__results > button:hover:not(:disabled){
+  border-color:var(--primary);
+  background:var(--primary-soft);
+}
+.client-inventory-manual-link__results > button:disabled{cursor:wait;opacity:.5;}
+.client-inventory-manual-link__results > button span{display:grid;gap:4px;min-width:0;}
+.client-inventory-manual-link__results > button strong{font-size:.85rem;overflow-wrap:anywhere;}
+.client-inventory-manual-link__results > button small{font-size:.72rem;color:var(--muted);overflow-wrap:anywhere;}
+.client-inventory-manual-link__results > button > .material-symbols-outlined{color:var(--primary);flex:0 0 auto;}
+@media(max-width:700px){
+  .client-inventory-manual-link__panel{padding:11px;}
+  .client-inventory-manual-link > .button{width:100%;justify-content:center;}
+}
