@@ -306,14 +306,17 @@
 }
 .client-inventory-table tbody tr:last-child td { border-bottom: 0; }
 .client-inventory-table tbody tr:hover td { background: var(--surface-low); }
-.client-inventory-table__name {
+.client-inventory-table__name { font-weight: 700; }
+.client-inventory-table__name-wrap {
   display: flex;
   align-items: center;
   gap: 10px;
-  max-width: 400px;
-  font-weight: 700;
+  min-width: 0;
 }
-.client-inventory-table__name strong { font-weight: 780; }
+.client-inventory-table__name strong {
+  font-weight: 780;
+  overflow-wrap: anywhere;
+}
 .client-inventory-table__device-icon {
   display: inline-grid;
   place-items: center;
