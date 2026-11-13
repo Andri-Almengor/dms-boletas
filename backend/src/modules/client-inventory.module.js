@@ -312,6 +312,27 @@ export const clientInventoryHandlers = {
       + ' AND ' + mediaVisibilityCondition('e')
       + ' ORDER BY e.occurred_at DESC,e.media_key DESC LIMIT $5 OFFSET $6',
       [id,target,permission,userId,101,mediaOffset], { label: 'inventory.device.media' })) : [];
+    const current = device.details?.currentStatus;
+    // No filtrar historial protegido mediante el resumen persistido por el admin.
+    // Si el último registro es una boleta no visible para este técnico, mostrar
+    // únicamente la intervención visible más reciente y NO el texto de Gemini.
+    if (loadEvents && current?.sourceType === 'BOLETA'
+      && !events.some((entry) => entry.id === current.eventKey)) {
+      const visible = events[0];
+      device.details = {
+        ...device.details,
+        currentStatus: visible ? {
+          condition: 'NO_DETERMINADO',
+          summary: 'Último trabajo visible: ' + clean(visible.title).slice(0, 130)
+            + '. ' + clean(visible.summary).slice(0, 220),
+          date: clean(visible.date),
+          sourceType: clean(visible.type),
+          sourceId: clean(visible.sourceId),
+          eventKey: clean(visible.id),
+          origin: 'registro',
+        } : null,
+      };
+    }
     return {
       device, events: events.slice(0,100), media: media.slice(0,100),
       hasMoreEvents: events.length>100, hasMoreMedia: media.length>100,
