@@ -5,6 +5,21 @@ export const normalizeInventoryText = (value) => clean(value).normalize('NFD')
   .replace(/[\u0300-\u036f]/g, '').toLowerCase().replace(/[^a-z0-9]+/g, ' ').trim()
   .replace(/\s+/g, ' ');
 
+// Gemini no puede declarar funcionamiento o falla sin respaldo del registro.
+// La negación en frases como "sin fallas" NO constituye una avería.
+export function verifiedInventoryCondition(candidateCondition, recordSummary = '') {
+  const condition = String(candidateCondition || '');
+  if (condition === 'NO_DETERMINADO') return condition;
+  const text = normalizeInventoryText(recordSummary);
+  const working = /\bfuncionamiento si\b|\bfunciona correctamente\b|\bfuncionando correctamente\b|\bestado correcto\b|\bequipo operativo\b|\bresultado correcto\b|\boperativo\b/.test(text);
+  const problem = /\bno funciona\b|\baveria\b|\bfalla\b|\bfallas\b|\bdefectuoso\b|\bno operativo\b|\bmal estado\b|\bpendiente de reparacion\b/.test(text);
+  const noProblem = /\bsin fallas?\b|\bsin averias?\b|\bno presenta fallas?\b|\bno se detectaron? fallas?\b|\bno se reporta averia\b|\bfalla (?:corregida|solucionada|resuelta)\b|\baveria resuelta\b/.test(text);
+  const unresolved = problem && !noProblem;
+  if (condition === 'OPERATIVO' && working && !unresolved) return condition;
+  if (condition === 'REQUIERE_ATENCION' && unresolved) return condition;
+  return 'NO_DETERMINADO';
+}
+
 function tokens(value) {
   return [...new Set(normalizeInventoryText(value).split(' ').filter(Boolean))].sort();
 }
