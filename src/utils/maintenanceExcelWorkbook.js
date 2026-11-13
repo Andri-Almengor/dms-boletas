@@ -100,7 +100,11 @@ function worksheetXml(sheet) {
     + ' errorTitle="Seleccione un valor" error="Use una opción de la lista" sqref="'
     + columnName(rule.column) + '2:' + columnName(rule.column)
     + Math.max(2, Number(sheet.inputRows || 100) + 1) + '"><formula1>'
-    + escapeXml(rule.formula || (rule.list ? '=' + rule.list : '')) + '</formula1></dataValidation>').join('');
+    // OOXML stores the formula expression WITHOUT the UI's leading '='.
+    // Prefixing '=' broke ALL named-list validations (locations, manufacturers,
+    // states and checklist options), not just the dependent model dropdown.
+    + escapeXml(String(rule.formula || rule.list || '').replace(/^=/, ''))
+    + '</formula1></dataValidation>').join('');
   return '<?xml version="1.0" encoding="UTF-8" standalone="yes"?>'
     + '<worksheet xmlns="http://schemas.openxmlformats.org/spreadsheetml/2006/main">'
     + '<sheetViews><sheetView workbookViewId="0"><pane ySplit="1" topLeftCell="A2" activePane="bottomLeft" state="frozen"/></sheetView></sheetViews>'
