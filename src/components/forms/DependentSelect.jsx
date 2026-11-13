@@ -30,6 +30,8 @@ export default function DependentSelect({
   onSearch,
   searchDelay = 300,
   searchMinLength = 0,
+  allowCustomValue = false,
+  hint = '',
 }) {
   const { hasPermission } = useAuth();
   const generatedId = useId();
@@ -50,13 +52,14 @@ export default function DependentSelect({
   const useSearchable = searchable ?? normalizedLabel === 'cliente';
   const displayedOptions = useMemo(() => sortOptionsNaturally(options), [options]);
   const selectedOption = displayedOptions.find((option) => String(option.value) === String(value || ''))
-    || (value && selectedLabel ? { value: String(value), label: String(selectedLabel) } : null);
+    || (value && selectedLabel ? { value: String(value), label: String(selectedLabel) } : null)
+    || (allowCustomValue && value ? { value: String(value), label: String(value) } : null);
 
   const filteredOptions = useMemo(() => {
     const term = normalizeSearch(query);
-    if (!term || term === normalizeSearch(selectedOption?.label)) return displayedOptions;
+    if (!term || (!allowCustomValue && term === normalizeSearch(selectedOption?.label))) return displayedOptions;
     return displayedOptions.filter((option) => normalizeSearch(option.label).includes(term));
-  }, [displayedOptions, query, selectedOption]);
+  }, [displayedOptions, query, selectedOption, allowCustomValue]);
 
   useEffect(() => {
     if (!open) setQuery(selectedOption?.label || '');
@@ -126,9 +129,16 @@ export default function DependentSelect({
       setOpen(false);
       inputRef.current?.blur();
     }
-    if (event.key === 'Enter' && open && filteredOptions.length) {
-      event.preventDefault();
-      chooseOption(filteredOptions[0]);
+    if (event.key === 'Enter' && open) {
+      // Con texto libre Enter conserva exactamente lo escrito; nunca fuerza
+      // la primera sugerencia del inventario ni envía el formulario por error.
+      if (allowCustomValue) {
+        event.preventDefault();
+        setOpen(false);
+      } else if (filteredOptions.length) {
+        event.preventDefault();
+        chooseOption(filteredOptions[0]);
+      }
     }
   }
 
@@ -171,6 +181,7 @@ export default function DependentSelect({
             onChange={(event) => {
               setQuery(event.target.value);
               setOpen(true);
+              if (allowCustomValue) emitChange(event.target.value);
             }}
             onKeyDown={handleKeyDown}
           />
@@ -202,7 +213,8 @@ export default function DependentSelect({
                   </button>
                 );
               }) : (
-                <div className="searchable-select__empty">{remoteLoading ? 'Buscando...' : 'No se encontraron coincidencias.'}</div>
+                <div className="searchable-select__empty">{remoteLoading ? 'Buscando...' : allowCustomValue
+                  ? 'Sin coincidencias. Puede conservar el nombre escrito.' : 'No se encontraron coincidencias.'}</div>
               )}
             </div>
           )}
@@ -216,6 +228,7 @@ export default function DependentSelect({
           <Icon name="expand_more" />
         </div>
       )}
+      {hint && <small className="field-hint">{hint}</small>}
     </div>
   );
 }
