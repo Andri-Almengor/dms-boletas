@@ -2,7 +2,7 @@ import { badRequest, forbidden, notFound } from '../core/errors.js';
 import { query, withTransaction } from '../infra/postgres.js';
 import { findById } from '../infra/sheets.repository.js';
 import { audit } from '../services/audit.service.js';
-import { suggestInventoryMerges } from '../services/assistant-gemini.service.js';
+import { suggestInventoryMerges, summarizeInventoryDeviceStatuses } from '../services/assistant-gemini.service.js';
 import {
   groupInventoryDevices, candidateInventoryAliases, mergeInventoryAliases,
   buildInventorySnapshot,
@@ -135,6 +135,101 @@ function mediaVisibilityCondition(alias) {
     + ' AND a."BoletaUID"=' + alias + '.source_id AND a."UsuarioID"=$4))';
 }
 
+
+function inventorySourcesKey(device) {
+  // Firma estable aunque un inventario previo haya asignado otros IDs.
+  return [...(device.sourceIds || [])].map(clean).sort().join('|');
+}
+function latestInventoryEvents(snapshot) {
+  const newest = new Map();
+  for (const event of snapshot.events) {
+    const previous = newest.get(event.deviceId);
+    if (!previous || (event.date || '').localeCompare(previous.date || '') > 0
+      || ((event.date || '') === (previous.date || '') && event.key > previous.key)) {
+      newest.set(event.deviceId, event);
+    }
+  }
+  return snapshot.devices.map((device) => {
+    const event = newest.get(device.deviceId) || null;
+    return {
+      id: device.deviceId,
+      key: inventorySourcesKey(device),
+      name: device.name,
+      type: device.type,
+      latest: event,
+    };
+  });
+}
+function recordedCurrentStatus(work) {
+  const event = work.latest;
+  return {
+    condition: 'NO_DETERMINADO',
+    summary: event
+      ? 'Último registro: ' + clean(event.title || 'Intervención').slice(0, 100) + '. '
+        + clean(event.summary || 'Sin observaciones específicas.').slice(0, 240)
+      : 'Sin intervenciones registradas para este equipo.',
+    date: clean(event?.date),
+    sourceType: clean(event?.type),
+    sourceId: clean(event?.sourceId),
+    eventKey: clean(event?.key),
+    origin: 'registro',
+    model: '',
+  };
+}
+async function inventoryCurrentStatusBySource(snapshot) {
+  const work = latestInventoryEvents(snapshot);
+  const results = new Map(work.map((item) => [item.key, recordedCurrentStatus(item)]));
+  const total = work.filter((item) => item.latest).length;
+  const batches = [];
+  const eligible = work.filter((item) => item.latest);
+  for (let i = 0; i < eligible.length; i += 60) batches.push(eligible.slice(i, i+60));
+  // Presupuesto acotado: NO detener escrituras normales ni mantener
+  // la transacción abierta mientras Gemini responde.
+  const deadline = Date.now() + 110_000;
+  let cursor = 0;
+  let unavailable = false;
+  let processed = 0;
+  const modelNames = new Set();
+  async function worker() {
+    while (cursor < batches.length && Date.now() < deadline && !unavailable) {
+      const batch = batches[cursor++];
+      try {
+        const response = await summarizeInventoryDeviceStatuses({ devices: batch });
+        if (response.model) modelNames.add(response.model);
+        const byId = new Map(response.items.map((item) => [item.id, item]));
+        for (const workItem of batch) {
+          const candidate = byId.get(workItem.id);
+          if (!candidate) continue;
+          const sourceText = clean(workItem.latest.summary).toLowerCase();
+          // Un estado afirmativo requiere respaldo explícito en el registro.
+          const explicitlyWorking = /(?:funcionamiento:\s*s[ií]|funciona correctamente|funcionando correctamente|estado:\s*correcto|equipo operativo|resultado:\s*correcto|operativo)/i.test(sourceText);
+          const explicitlyFailed = /(?:no funciona|aver[ií]a|falla|defectuoso|no operativo|mal estado|pendiente de reparaci[oó]n)/i.test(sourceText);
+          let condition = candidate.condition;
+          if (condition === 'OPERATIVO' && !explicitlyWorking) condition = 'NO_DETERMINADO';
+          if (condition === 'REQUIERE_ATENCION' && !explicitlyFailed) condition = 'NO_DETERMINADO';
+          results.set(workItem.key, {
+            ...recordedCurrentStatus(workItem),
+            condition,
+            summary: clean(candidate.summary).slice(0, 260),
+            origin: 'gemini',
+            model: clean(response.model).slice(0, 100),
+          });
+          processed++;
+        }
+      } catch {
+        unavailable = true; // el cliente Gemini ya aplicó fallback de modelos
+      }
+    }
+  }
+  await Promise.all(Array.from({ length: Math.min(3,batches.length) }, () => worker()));
+  return {
+    bySource: results, processed, total,
+    status: processed === total ? 'completo'
+      : processed ? 'parcial' : 'no_disponible',
+    models: [...modelNames].join(',').slice(0, 150),
+  };
+}
+
 export const clientInventoryHandlers = {
   clients: async (ctx) => {
     readGuard(ctx);
@@ -251,6 +346,13 @@ export const clientInventoryHandlers = {
         aiStatus = 'gemini_no_disponible';
       }
     }
+    // Solo se consulta Gemini al generar/actualizar, nunca al abrir el detalle.
+    // Se prepara fuera de la transacción para no bloquear PostgreSQL.
+    const preview = buildInventorySnapshot({
+      clientId: id, groups, tickets: source.tickets,
+      ticketEvidence: source.ticketEvidence, maintenanceImages: source.maintenanceImages,
+    });
+    const currentStates = await inventoryCurrentStatusBySource(preview);
     let snapshot;
     await withTransaction(async () => {
       await query('SELECT pg_advisory_xact_lock(hashtext($1))', ['client-inventory:'+id],
@@ -263,6 +365,9 @@ export const clientInventoryHandlers = {
         tickets: source.tickets, ticketEvidence: source.ticketEvidence,
         maintenanceImages: source.maintenanceImages,
       });
+      for (const device of snapshot.devices) {
+        device.details.currentStatus = currentStates.bySource.get(inventorySourcesKey(device)) || null;
+      }
       const prior = await selectOne('SELECT revision FROM dms_client_inventory WHERE client_id=$1 FOR UPDATE',
         [id], 'inventory.generate.prior');
       await query(
@@ -271,7 +376,8 @@ export const clientInventoryHandlers = {
         + ' ON CONFLICT(client_id) DO UPDATE SET generated_at=EXCLUDED.generated_at,'
         + ' generated_by=EXCLUDED.generated_by,revision=EXCLUDED.revision,'
         + ' device_count=EXCLUDED.device_count,ai_status=EXCLUDED.ai_status',
-        [id,clean(ctx.user.UsuarioID),Number(prior?.revision||0)+1,snapshot.devices.length,aiStatus],
+        [id,clean(ctx.user.UsuarioID),Number(prior?.revision||0)+1,snapshot.devices.length,
+          aiStatus + ';estado:' + currentStates.status + ':' + currentStates.processed + '/' + currentStates.total],
         { label: 'inventory.generate.snapshot', write: true });
       await query('DELETE FROM dms_client_inventory_devices WHERE client_id=$1',
         [id], { label: 'inventory.generate.replace', write: true });
@@ -292,10 +398,12 @@ export const clientInventoryHandlers = {
     await audit(ctx, 'GENERAR_INVENTARIO_CLIENTE', 'Clientes', id, null, {
       dispositivos: snapshot.devices.length, eventos: snapshot.events.length,
       imagenes: snapshot.media.length, aiStatus,
+      resumenEstado: currentStates.status, resumenGemini: currentStates.processed,
     });
     return {
       generated: true, count: snapshot.devices.length, events: snapshot.events.length,
       images: snapshot.media.length, aiStatus,
+      currentStatus: currentStates.status, summarized: currentStates.processed,
     };
   },
 };
