@@ -505,16 +505,16 @@ export default function MaintenanceQuickDeviceCreator({
                 <textarea className="form-control ticket-textarea" rows="7" value={bulkNamesInput} onChange={(event) => setBulkNamesInput(event.target.value)} disabled={saving || bulkEntries.length > 0 || excelActive} placeholder={['Cámara uno', 'Cámara dos', 'Cámara tres'].join('\n')} />
               </label>
             </div>
-            <div className="maintenance-bulk-excel" style={{ marginTop: 14, padding: 14, border: '1px solid var(--outline-soft)', borderRadius: 12 }}>
-              <div style={{ display: 'flex', gap: 10, flexWrap: 'wrap', alignItems: 'center' }}>
-                <button type="button" className="button button--secondary" onClick={downloadExcelTemplate} disabled={saving || excelReading || !excelCatalogReady}>
-                  <Icon name="download" /> Descargar plantilla Excel
+            <div className="maintenance-bulk-excel">
+              <div className="maintenance-bulk-excel__actions" role="group" aria-label="Herramientas de Excel">
+                <button type="button" className="button button--secondary maintenance-bulk-excel__button" onClick={downloadExcelTemplate} disabled={saving || excelReading || !excelCatalogReady}>
+                  <Icon name="download" /> <span>Descargar plantilla</span><small>Excel .xlsx</small>
                 </button>
-                <label className="button button--secondary" style={{ cursor: bulkEntries.length ? 'not-allowed' : 'pointer' }}>
-                  <Icon name="upload_file" /> {excelReading ? 'Leyendo Excel...' : 'Importar desde Excel (.xlsx)'}
-                  <input type="file" accept=".xlsx,application/vnd.openxmlformats-officedocument.spreadsheetml.sheet" onChange={readExcelFile} disabled={saving || excelReading || bulkEntries.length > 0 || !excelCatalogReady} style={{ display: 'none' }} />
+                <label className={'button button--secondary maintenance-bulk-excel__button maintenance-bulk-excel__upload' + ((saving || excelReading || bulkEntries.length > 0 || !excelCatalogReady) ? ' is-disabled' : '')}>
+                  <Icon name="upload_file" /> <span>{excelReading ? 'Leyendo Excel…' : 'Importar dispositivos'}</span><small>Excel .xlsx</small>
+                  <input type="file" accept=".xlsx,application/vnd.openxmlformats-officedocument.spreadsheetml.sheet" onChange={readExcelFile} disabled={saving || excelReading || bulkEntries.length > 0 || !excelCatalogReady} aria-label="Importar desde Excel (.xlsx)" />
                 </label>
-                {excelActive && <button type="button" className="button button--secondary" onClick={clearExcel} disabled={saving || bulkEntries.length > 0}><Icon name="close" /> Quitar Excel</button>}
+                {excelActive && <button type="button" className="button button--secondary maintenance-bulk-excel__clear" onClick={clearExcel} disabled={saving || bulkEntries.length > 0}><Icon name="close" /> Quitar Excel</button>}
               </div>
               <p className="field-hint">El Excel genera una pestaña por cada tipo planificado, con ubicaciones del cliente, fabricantes y modelos relacionados, preguntas actuales y listas de Sí/No. No necesita conocer IDs. Descargue una nueva copia cuando cambien los catálogos o las preguntas.</p>
               {!excelCatalogReady && <small className="field-hint">Cargando catálogos de dispositivos, preguntas y técnicos para Excel...</small>}
