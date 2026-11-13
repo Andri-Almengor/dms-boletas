@@ -146,7 +146,7 @@ function InventoryDetailModal({ clientId, items, index, onMove, onClose, session
               </dl>
               {current.details?.aliases?.length > 1 && <p className="client-inventory-aliases">
                 <Icon name="merge_type" /> <span><strong>Nombres consolidados:</strong> {current.details.aliases.join(' · ')}</span>
-              </p>
+              </p>}
             </section>
             <section className="client-inventory-detail__section">
               <h3><Icon name="history" /> Historial de trabajos <span className="client-inventory-count">{data.events?.length || 0}{data.hasMoreEvents ? '+' : ''}</span></h3>
