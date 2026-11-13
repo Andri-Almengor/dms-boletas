@@ -130,7 +130,11 @@ test('el ajuste esperado ocurre solo en un alta real y dentro de la transacción
   assert.match(module, /withDeviceCreateLock\(\(\) => withTransaction\(async \(\) => \{/);
   assert.match(module, /SELECT "MantenimientoID" FROM "Mantenimiento"/);
   assert.match(module, /FOR UPDATE/);
-  assert.match(module, /if \(total <= planned\) return/);
+  // El helper compartido mantiene la misma condición para no reducir planes:
+  // en lote continúa con el siguiente tipo, en alta individual termina sin cambios.
+  assert.match(module, /if \(total <= target\.planned\) continue/);
+  assert.match(module, /if \(!changes\.length\) return/);
+  assert.match(module, /export async function raiseExpectedCountsForCreatedDevices/);
   assert.match(module, /await appendRow\('Evidencia_Mantenimientos', row\);[\s\S]*await raiseExpectedCountForCreatedDevice/);
   assert.match(module, /AJUSTAR_CANTIDAD_ESPERADA_AUTOMATICA/);
   assert.match(module, /SELECT "TipoDispositivoID", "TipoDispositivo", "Categoria", COUNT\(\*\)/);
