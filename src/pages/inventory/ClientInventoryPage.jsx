@@ -29,6 +29,7 @@ function InventoryDetailModal({ clientId, items, index, onMove, onClose, session
   const [error, setError] = useState('');
   const [loading, setLoading] = useState(true);
   const [lightboxIndex, setLightboxIndex] = useState(-1);
+  const [loadingMore, setLoadingMore] = useState('');
 
   useOverlaySurface({ open: Boolean(item), onClose });
   useEffect(() => {
@@ -52,6 +53,31 @@ function InventoryDetailModal({ clientId, items, index, onMove, onClose, session
     window.addEventListener('keydown', onKey);
     return () => window.removeEventListener('keydown', onKey);
   }, [item, onMove, lightboxIndex]);
+
+  async function loadMore(kind) {
+    if (!data || loadingMore) return;
+    setLoadingMore(kind);
+    setError('');
+    try {
+      const extra = await requestAvailable(MODULE_ROUTES.inventory.detail, {
+        clientId, deviceId: item.id,
+        includeEvents: kind === 'events',
+        includeMedia: kind === 'media',
+        eventOffset: kind === 'events' ? (data.events || []).length : 0,
+        mediaOffset: kind === 'media' ? (data.media || []).length : 0,
+      }, sessionToken, { cache: 'no-store' });
+      if (kind === 'events') setData((current) => ({
+        ...current, events: [...(current?.events || []), ...(extra.events || [])],
+        hasMoreEvents: Boolean(extra.hasMoreEvents),
+      }));
+      else setData((current) => ({
+        ...current, media: [...(current?.media || []), ...(extra.media || [])],
+        hasMoreMedia: Boolean(extra.hasMoreMedia),
+      }));
+    } catch (cause) {
+      setError(cause.message || 'No se pudo cargar más información.');
+    } finally { setLoadingMore(''); }
+  }
 
   const sourceLoader = useCallback(async (photo) => {
     const route = photo.type === 'BOLETA'
@@ -133,6 +159,10 @@ function InventoryDetailModal({ clientId, items, index, onMove, onClose, session
                     </div>
                   </article>
                 ))}</div>}
+              {data.hasMoreEvents && <button type="button" className="button button--secondary"
+                disabled={Boolean(loadingMore)} onClick={() => loadMore('events')}>
+                {loadingMore === 'events' ? 'Cargando…' : 'Mostrar más trabajos'}
+              </button>}
             </section>
             <section className="client-inventory-detail__section">
               <h3>Galería de evidencias <span>({photos.length})</span></h3>
@@ -150,6 +180,10 @@ function InventoryDetailModal({ clientId, items, index, onMove, onClose, session
                     <small>{sourceLabel(photo.type)} · {readableDate(photo.date)}</small>
                   </button>)}
                 </div>}
+              {data.hasMoreMedia && <button type="button" className="button button--secondary"
+                disabled={Boolean(loadingMore)} onClick={() => loadMore('media')}>
+                {loadingMore === 'media' ? 'Cargando…' : 'Mostrar más fotografías'}
+              </button>}
             </section>
           </>}
         </div>
