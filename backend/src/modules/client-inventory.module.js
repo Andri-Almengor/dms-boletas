@@ -313,6 +313,11 @@ export const clientInventoryHandlers = {
       + ' ORDER BY e.occurred_at DESC,e.media_key DESC LIMIT $5 OFFSET $6',
       [id,target,permission,userId,101,mediaOffset], { label: 'inventory.device.media' })) : [];
     const current = device.details?.currentStatus;
+    // Las peticiones de solo medios nunca deben usar includeEvents=false para
+    // eludir el filtro de visibilidad del último registro.
+    if (!loadEvents && device.details) {
+      device.details = { ...device.details, currentStatus: null };
+    }
     // No filtrar historial protegido mediante el resumen persistido por el admin.
     // Si el último registro es una boleta no visible para este técnico, mostrar
     // únicamente la intervención visible más reciente y NO el texto de Gemini.
