@@ -346,6 +346,7 @@ export default function MaintenanceQuickDeviceCreator({
       deviceTypes: bulkTypes,
       equipmentOptions,
       technicians: bulkTechnicians,
+      catalogs: excelCatalog.catalogs,
       questions: questionCatalog.questions,
       mode: maintenanceType,
     }));
@@ -390,13 +391,13 @@ export default function MaintenanceQuickDeviceCreator({
         if (item.done) continue;
         current = item;
         const draft = {
-          ...createMaintenanceDevice(bulkSelectedType?.key || 'Cámara', maintenanceType),
+          ...createMaintenanceDevice(bulkSelectedType.key, maintenanceType),
           id: item.id,
           nombre: item.name,
           tipoDispositivoId: String(bulkSelectedType.typeId || ''),
           ubicacionEquipoId: bulkLocationId,
           tecnicoIds: [...bulkTechnicianIds],
-          ubicacionEquipoNombre: selectedLocation.name,
+          ubicacionEquipoNombre: selectedLocation?.name || '',
           zona: selectedLocation?.name || '',
           ...(item.draft || {}),
         };
