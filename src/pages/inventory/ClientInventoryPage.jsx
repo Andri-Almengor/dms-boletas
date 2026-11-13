@@ -134,6 +134,32 @@ function InventoryDetailModal({ clientId, items, index, onMove, onClose, session
           {loading && <div className="state-card state-card--loading"><Icon name="progress_activity" /> Cargando información...</div>}
           {error && <div className="alert alert--error" role="alert">{error}</div>}
           {!loading && !error && data && <>
+            <section className="client-inventory-detail__section client-inventory-current-status" aria-label="Estado documentado del dispositivo">
+              <div className="client-inventory-current-status__heading">
+                <div><Icon name="monitor_heart" />
+                  <h3>Estado actual según el último registro</h3></div>
+                {current.details?.currentStatus && <span className={'client-inventory-condition client-inventory-condition--'
+                  + (current.details.currentStatus.condition || 'NO_DETERMINADO').toLowerCase()}>
+                  {current.details.currentStatus.condition === 'OPERATIVO' ? 'Operativo según registro'
+                    : current.details.currentStatus.condition === 'REQUIERE_ATENCION' ? 'Requiere atención'
+                      : 'Estado no confirmado'}
+                </span>}
+              </div>
+              {current.details?.currentStatus ? <>
+                <p>{current.details.currentStatus.summary || 'El registro no permite confirmar el estado del dispositivo.'}</p>
+                <div className="client-inventory-current-status__footer">
+                  <span><Icon name="event" /> {readableDate(current.details.currentStatus.date)}</span>
+                  <span><Icon name="auto_awesome" /> {current.details.currentStatus.origin === 'gemini'
+                    ? 'Resumen asistido por Gemini' : 'Resumen del registro disponible'}</span>
+                  {current.details.currentStatus.sourceId && <Link
+                    to={sourcePath(current.details.currentStatus.sourceType, current.details.currentStatus.sourceId)}
+                    target="_blank" rel="noopener noreferrer">
+                    Ver último {sourceLabel(current.details.currentStatus.sourceType).toLowerCase()} <Icon name="open_in_new" />
+                  </Link>}
+                </div>
+                <small>Estado basado en documentos del sistema; no es un diagnóstico ni una lectura del equipo en tiempo real.</small>
+              </> : <p>El resumen estará disponible cuando un Administrador o Supervisor actualice el inventario.</p>}
+            </section>
             <section className="client-inventory-detail__section">
               <h3><Icon name="tune" /> Características del equipo</h3>
               <dl className="client-inventory-features">
