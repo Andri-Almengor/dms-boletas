@@ -300,9 +300,13 @@ export function buildInventorySnapshot({
     for (const source of group.sources) {
       const maintenanceId = clean(source.MantenimientoRef);
       const date = cut(source.FechaTrabajo || source.maintenanceDate || source.maintenanceFinishedAt, 40);
-      const note = [source.Observacion, maintenanceChecklistSummary(source.RespuestasJSON),
-        source.maintenanceDescription]
-        .map((value) => cut(value, 600)).filter(Boolean).join(' · ');
+      const note = [
+        source.Funcionamiento ? 'Funcionamiento: ' + cut(source.Funcionamiento, 70) : '',
+        source.Estado ? 'Estado: ' + cut(source.Estado, 70) : '',
+        source.EnUso ? 'En uso: ' + cut(source.EnUso, 70) : '',
+        source.Observacion, maintenanceChecklistSummary(source.RespuestasJSON),
+        source.maintenanceDescription,
+      ].map((value) => cut(value, 600)).filter(Boolean).join(' · ');
       events.push({
         clientId, deviceId, key: 'M:' + clean(source.EvidenciaMantenimientoID),
         type: 'MANTENIMIENTO', sourceId: maintenanceId,
