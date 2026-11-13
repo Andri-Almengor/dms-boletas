@@ -276,8 +276,7 @@ export const clientInventoryHandlers = {
       // de extensiones PostgreSQL o cargar las tablas completas.
       const search = clean(ctx.payload?.search).slice(0, 120)
         .normalize('NFD').replace(/[\u0300-\u036f]/g, '').toLowerCase();
-      const pattern = '%' + search.replace(/[\\%_]/g, '\\    if (!summary) return { generated: false, items: [], page, pageSize, hasMore: false };
-    const filterSql') + '%';
+      const pattern = '%' + search.replace(/[\\%_]/g, '\\$&') + '%';
       const limit = cap(ctx.payload?.pageSize, 30, 20);
       const matches = rows(await query(
         'SELECT DISTINCT device_name AS name FROM dms_client_inventory_devices'
