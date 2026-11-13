@@ -119,9 +119,22 @@ function availableManufacturers(type, catalogs) {
 }
 
 function availableModels(type, maker, catalogs) {
-  return (catalogs.models || []).filter((model) =>
-    (!type.typeId || clean(pick(model, ['TipoDispositivoID'])) === clean(type.typeId))
-    && clean(pick(model, ['FabricanteID'])) === clean(pick(maker, ['FabricanteID', 'id'])));
+  // Misma relación tipo + fabricante del selector del mantenimiento.
+  // Admitir modelos históricos sin TipoDispositivoID únicamente cuando su
+  // fabricante ya está vinculado al tipo (nunca exponer modelos de otro tipo).
+  const typeId = clean(type.typeId);
+  const makerId = clean(pick(maker, ['FabricanteID', 'ID', 'id']));
+  const manufacturerLinked = (catalogs.relations || []).some((relation) =>
+    clean(pick(relation, ['TipoDispositivoID'])) === typeId
+    && clean(pick(relation, ['FabricanteID'])) === makerId
+    && relation.Activo !== false && identity(relation.Estado || 'ACTIVO') !== 'inactivo');
+  return (catalogs.models || []).filter((model) => {
+    const modelType = clean(pick(model, ['TipoDispositivoID', 'TipoDispositivoRef']));
+    const modelMaker = clean(pick(model, ['FabricanteID', 'FabricanteRef']));
+    return modelMaker === makerId
+      && (!typeId || modelType === typeId || (!modelType && manufacturerLinked))
+      && model.Activo !== false && identity(model.Estado || 'ACTIVO') !== 'inactivo';
+  });
 }
 
 function questionHeader(question) {
@@ -168,7 +181,7 @@ export function excelTemplateSheets({
     const validations = [
       { column: 1, list: 'LOCACIONES' },
       { column: 2, list: makerRange },
-      { column: 3, formula: 'INDIRECT("MODELOS_' + index + '_"&IFERROR(MATCH($C2,' + makerRange + ',0),0))' },
+      { column: 3, formula: '=IFERROR(INDIRECT("MODELOS_' + index + '_"&MATCH($C2,' + makerRange + ',0)),SIN_MODELOS)' },
       { column: 8, list: 'FUNCIONAMIENTO' },
       { column: 9, list: 'EN_USO' },
       { column: 10, list: 'ESTADO' },

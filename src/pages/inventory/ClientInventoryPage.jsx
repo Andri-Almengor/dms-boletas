@@ -134,6 +134,32 @@ function InventoryDetailModal({ clientId, items, index, onMove, onClose, session
           {loading && <div className="state-card state-card--loading"><Icon name="progress_activity" /> Cargando información...</div>}
           {error && <div className="alert alert--error" role="alert">{error}</div>}
           {!loading && !error && data && <>
+            <section className="client-inventory-detail__section client-inventory-current-status" aria-label="Estado documentado del dispositivo">
+              <div className="client-inventory-current-status__heading">
+                <div><Icon name="monitor_heart" />
+                  <h3>Estado actual según el último registro</h3></div>
+                {current.details?.currentStatus && <span className={'client-inventory-condition client-inventory-condition--'
+                  + (current.details.currentStatus.condition || 'NO_DETERMINADO').toLowerCase()}>
+                  {current.details.currentStatus.condition === 'OPERATIVO' ? 'Operativo según registro'
+                    : current.details.currentStatus.condition === 'REQUIERE_ATENCION' ? 'Requiere atención'
+                      : 'Estado no confirmado'}
+                </span>}
+              </div>
+              {current.details?.currentStatus ? <>
+                <p>{current.details.currentStatus.summary || 'El registro no permite confirmar el estado del dispositivo.'}</p>
+                <div className="client-inventory-current-status__footer">
+                  <span><Icon name="event" /> {readableDate(current.details.currentStatus.date)}</span>
+                  <span><Icon name="auto_awesome" /> {current.details.currentStatus.origin === 'gemini'
+                    ? 'Resumen asistido por Gemini' : 'Resumen del registro disponible'}</span>
+                  {current.details.currentStatus.sourceId && <Link
+                    to={sourcePath(current.details.currentStatus.sourceType, current.details.currentStatus.sourceId)}
+                    target="_blank" rel="noopener noreferrer">
+                    Ver {current.details.currentStatus.sourceType === 'BOLETA' ? 'última boleta' : 'último mantenimiento'} <Icon name="open_in_new" />
+                  </Link>}
+                </div>
+                <small>Estado basado en documentos del sistema; no es un diagnóstico ni una lectura del equipo en tiempo real.</small>
+              </> : <p>El resumen estará disponible cuando un Administrador o Supervisor actualice el inventario.</p>}
+            </section>
             <section className="client-inventory-detail__section">
               <h3><Icon name="tune" /> Características del equipo</h3>
               <dl className="client-inventory-features">
@@ -353,6 +379,14 @@ function InventoryClientTable({ clientId, sessionToken, navigate }) {
     }
   },[selected,page,result.items.length,result.hasMore]);
 
+  const totalPages = Math.max(1, Math.ceil(Number(result.totalFiltered ?? result.total ?? 0) / 50));
+  const goToPage = (delta) => {
+    if (loading) return;
+    setSelected(-1);
+    pendingArrowRef.current = '';
+    setPage((current) => Math.min(totalPages, Math.max(1, current + delta)));
+  };
+
   return <div className="client-inventory-page client-inventory-page--table">
     <header className="client-inventory-page__header">
       <div><button type="button" className="button button--secondary" onClick={()=>navigate('/inventario')}>
@@ -367,10 +401,21 @@ function InventoryClientTable({ clientId, sessionToken, navigate }) {
       <div><strong>{result.total} dispositivos</strong><small>Inventario consolidado</small></div>
       <span className="client-inventory-summary__date"><Icon name="update" /> Actualizado: {readableDate(result.generatedAt)}</span>
     </div>}
-    <label className="field-group client-inventory-search"><span className="field-label">Buscar dispositivo</span>
+    <div className="client-inventory-table-tools">
+      <label className="field-group client-inventory-search"><span className="field-label">Buscar dispositivo</span>
       <span className="client-inventory-search__input"><Icon name="search" />
         <input className="form-control" type="search" value={search} onChange={(e)=>setSearch(e.target.value)}
           placeholder="Nombre, ubicación, fabricante, modelo, serie..." /></span></label>
+      {result.generated && <nav className="client-inventory-top-pager" aria-label="Páginas del inventario">
+        <button type="button" onClick={() => goToPage(-1)} disabled={loading || page <= 1}
+          aria-label="Página anterior"><Icon name="chevron_left" /></button>
+        <span aria-live="polite" aria-label={'Página ' + page + ' de ' + totalPages}>
+          <strong>{page}</strong><span>/</span>{totalPages}
+        </span>
+        <button type="button" onClick={() => goToPage(1)} disabled={loading || page >= totalPages}
+          aria-label="Página siguiente"><Icon name="chevron_right" /></button>
+      </nav>}
+    </div>
     {error && <div className="alert alert--error" role="alert">{error}</div>}
     {loading && <div className="state-card state-card--loading"><Icon name="progress_activity" /> Cargando equipos...</div>}
     {!loading && !result.generated && <div className="empty-state">
@@ -397,13 +442,7 @@ function InventoryClientTable({ clientId, sessionToken, navigate }) {
         </tr>)}</tbody>
       </table>
     </div>}
-    <footer className="client-inventory-pagination">
-      <button type="button" className="button button--secondary" onClick={()=>{setPage(n=>Math.max(1,n-1));setSelected(-1);}}
-        disabled={loading||page===1}>Anterior</button>
-      <span>Página {page}</span>
-      <button type="button" className="button button--secondary" disabled={loading||!result.hasMore}
-        onClick={()=>{setPage(n=>n+1);setSelected(-1);}}>Siguiente</button>
-    </footer>
+
     {selected>=0 && <InventoryDetailModal clientId={clientId} items={result.items} index={selected}
       sessionToken={sessionToken} onClose={()=>setSelected(-1)} onMove={moveDevice}/>}
   </div>;

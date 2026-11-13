@@ -205,7 +205,10 @@ export default function MorePage() {
       <div className="more-page__column more-page__column--right">
         {canViewMaintenance && <section className="menu-section more-page__section more-page__section--operation">
           <h2>Operación técnica</h2>
-          <div className="menu-list"><MenuRow to="/mantenimientos" icon="engineering" label="Mantenimientos" note="Equipos, checklists, evidencias, Excel y presentaciones" /></div>
+          <div className="menu-list">
+            <MenuRow to="/mantenimientos" icon="engineering" label="Mantenimientos" note="Equipos, checklists, evidencias, Excel y presentaciones" />
+            <MenuRow to="/inventario" icon="inventory_2" label="Inventario" note="Equipos de clientes con mantenimientos e historial de trabajos" />
+          </div>
         </section>}
 
         <section className="menu-section more-page__section more-page__section--administration">

@@ -801,3 +801,134 @@
   .client-inventory-gallery__zoom,
   .client-inventory-detail__arrow { transition: none; }
 }
+
+
+/* Controles de página a la derecha del buscador (sin paginación duplicada abajo). */
+.client-inventory-table-tools{
+  width:100%;
+  display:flex;
+  align-items:end;
+  justify-content:space-between;
+  gap:16px;
+  flex-wrap:wrap;
+}
+.client-inventory-table-tools .client-inventory-search{flex:1 1 360px;max-width:560px;}
+.client-inventory-top-pager{
+  margin-left:auto;
+  min-height:48px;
+  display:inline-flex;
+  align-items:center;
+  justify-content:center;
+  gap:4px;
+  padding:4px;
+  color:var(--text);
+  background:var(--surface-card);
+  border:1px solid var(--outline-soft);
+  border-radius:14px;
+  box-shadow:var(--shadow-sm);
+}
+.client-inventory-top-pager > button{
+  width:40px;
+  height:40px;
+  display:grid;
+  place-items:center;
+  padding:0;
+  background:var(--surface-low);
+  color:var(--text);
+  border:1px solid transparent;
+  border-radius:10px;
+  cursor:pointer;
+}
+.client-inventory-top-pager > button:hover:not(:disabled){
+  background:var(--primary-soft);
+  color:var(--primary);
+  border-color:var(--outline-soft);
+}
+.client-inventory-top-pager > button:disabled{opacity:.35;cursor:not-allowed;}
+.client-inventory-top-pager > span{
+  display:flex;
+  justify-content:center;
+  gap:5px;
+  align-items:center;
+  min-width:78px;
+  padding:0 4px;
+  font-size:.91rem;
+  font-variant-numeric:tabular-nums;
+  font-weight:700;
+  color:var(--muted);
+}
+.client-inventory-top-pager > span strong{color:var(--text);font-size:1rem;}
+.client-inventory-top-pager .material-symbols-outlined{font-size:24px;}
+@media(max-width:700px){
+  .client-inventory-table-tools{align-items:stretch;gap:9px;}
+  .client-inventory-table-tools .client-inventory-search{flex:1 1 100%;max-width:none;}
+  .client-inventory-top-pager{margin-left:auto;min-height:45px;}
+}
+
+
+/* Resumen del último trabajo: nunca simular telemetría en tiempo real. */
+.client-inventory-current-status{
+  padding:17px 18px;
+  border:1px solid var(--outline-soft);
+  border-radius:15px;
+  background:var(--surface-low);
+  color:var(--text);
+}
+.client-inventory-current-status__heading{
+  display:flex;
+  justify-content:space-between;
+  align-items:center;
+  flex-wrap:wrap;
+  gap:10px;
+  margin-bottom:10px;
+}
+.client-inventory-current-status__heading>div{
+  display:flex;
+  gap:8px;
+  align-items:center;
+  min-width:0;
+}
+.client-inventory-current-status__heading>div>.material-symbols-outlined{font-size:22px;color:var(--primary);}
+.client-inventory-current-status__heading h3{margin:0;font-size:.98rem;line-height:1.4;color:var(--text);}
+.client-inventory-current-status>p{
+  margin:10px 0 12px;
+  font-size:.88rem;
+  line-height:1.65;
+  white-space:pre-line;
+  overflow-wrap:anywhere;
+  color:var(--text);
+}
+.client-inventory-condition{
+  display:inline-flex;
+  align-items:center;
+  border:1px solid var(--outline-soft);
+  border-radius:99px;
+  padding:5px 10px;
+  font-size:.74rem;
+  line-height:1.3;
+  font-weight:800;
+  background:var(--surface-container);
+  color:var(--muted);
+}
+.client-inventory-condition--operativo{background:var(--success-soft);color:var(--success);}
+.client-inventory-condition--requiere_atencion{background:var(--danger-soft);color:var(--danger);}
+.client-inventory-current-status__footer{
+  display:flex;
+  align-items:center;
+  flex-wrap:wrap;
+  gap:8px 16px;
+  color:var(--muted);
+  font-size:.77rem;
+}
+.client-inventory-current-status__footer>span,.client-inventory-current-status__footer>a{
+  display:inline-flex;
+  gap:5px;
+  align-items:center;
+}
+.client-inventory-current-status__footer .material-symbols-outlined{font-size:17px;}
+.client-inventory-current-status__footer>a{color:var(--primary);font-weight:800;text-decoration:none;}
+.client-inventory-current-status>small{display:block;margin-top:12px;font-size:.7rem;color:var(--muted);line-height:1.5;}
+@media(max-width:700px){
+  .client-inventory-current-status{padding:12px;}
+  .client-inventory-current-status__heading{align-items:flex-start;}
+}
