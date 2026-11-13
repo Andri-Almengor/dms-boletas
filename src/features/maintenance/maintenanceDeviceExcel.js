@@ -128,7 +128,8 @@ export function validateDeviceExcelRows({
     questionsForDevice({ tipoDispositivoId: type.typeId, categoria: type.key }, maintenanceType)
       .map((q) => 'Pregunta:' + q.key)));
   headers.filter((h) => h?.startsWith('Pregunta:') && !knownQuestions.has(h))
-    .forEach((h) => problems.push('Pregunta no reconocida: ' + h));
+    .filter((h) => rows.some((row) => value(row, h)))
+    .forEach((h) => problems.push('Pregunta no reconocida con respuestas: ' + h));
 
   const prepared = rows.slice(0, MAX_BULK_MAINTENANCE_DEVICES).map((row, index) => {
     const issues = [];
