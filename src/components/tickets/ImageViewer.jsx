@@ -21,6 +21,7 @@ export default function ImageViewer({
   initialIndex = 0,
   open,
   onClose,
+  sourceLoader = null,
 }) {
   const { sessionToken } = useAuth();
   const closeRef = useRef(null);
@@ -77,18 +78,18 @@ export default function ImageViewer({
     setPreviewSource(fallback);
     setSource(fallback);
     setShowingPreview(Boolean(fallback));
-    setLoadingOriginal(Boolean(item.evidenceId || item.fileId || item.kind === 'signature'));
+    setLoadingOriginal(Boolean(sourceLoader || item.evidenceId || item.fileId || item.kind === 'signature'));
     setLoadError(false);
     resetZoom();
 
-    if (!(item.evidenceId || item.fileId || item.kind === 'signature')) {
+    if (!(sourceLoader || item.evidenceId || item.fileId || item.kind === 'signature')) {
       setLoadError(!fallback);
       setLoadingOriginal(false);
       return;
     }
 
     try {
-      const original = item.fullSource || await requestTicketProtectedSource({
+      const original = item.fullSource || (sourceLoader ? await sourceLoader(item, { force }) : await requestTicketProtectedSource({
         boletaUid,
         evidenceId: item.evidenceId,
         fileId: item.fileId,
@@ -97,7 +98,7 @@ export default function ImageViewer({
       }, {
         priority: 250,
         force,
-      });
+      }));
       if (requestVersionRef.current !== requestVersion) return;
       if (original) {
         setSource(original);
@@ -151,14 +152,15 @@ export default function ImageViewer({
     };
     // La carga se reinicia solo al abrir otra selección.
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [open, initialIndex, items, boletaUid, sessionToken]);
+  }, [open, initialIndex, items, boletaUid, sessionToken, sourceLoader]);
 
   useEffect(() => {
     if (!open || !items.length) return undefined;
 
     [activeIndex - 1, activeIndex + 1].forEach((index) => {
       const neighbor = items[index];
-      if (!neighbor || !(neighbor.evidenceId || neighbor.fileId || neighbor.kind === 'signature')) return;
+      if (!neighbor || !(sourceLoader || neighbor.evidenceId || neighbor.fileId || neighbor.kind === 'signature')) return;
+      if (sourceLoader) { Promise.resolve(sourceLoader(neighbor)).catch(() => {}); return; }
       requestTicketProtectedSource({
         boletaUid,
         evidenceId: neighbor.evidenceId,
@@ -240,6 +242,10 @@ export default function ImageViewer({
         </div>
       )}
 
+      {(activeItem.sourceLabel || activeItem.sourceDate) && <div className="image-viewer__source-caption">
+        <strong>{activeItem.sourceLabel || 'Evidencia'}</strong>
+        <span>{activeItem.sourceDate || ''}</span>
+      </div>}
       <div className="image-viewer__zoom-controls" aria-label="Controles de zoom">
         <button type="button" onClick={() => zoomBy(-ZOOM_STEP)} disabled={zoom <= MIN_ZOOM} aria-label="Alejar imagen"><Icon name="zoom_out" /></button>
         <button type="button" className="image-viewer__zoom-value" onClick={resetZoom} aria-label="Restablecer zoom">{Math.round(zoom * 100)}%</button>
