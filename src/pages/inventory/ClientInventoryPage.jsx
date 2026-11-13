@@ -154,7 +154,7 @@ function InventoryDetailModal({ clientId, items, index, onMove, onClose, session
                   {current.details.currentStatus.sourceId && <Link
                     to={sourcePath(current.details.currentStatus.sourceType, current.details.currentStatus.sourceId)}
                     target="_blank" rel="noopener noreferrer">
-                    Ver último {sourceLabel(current.details.currentStatus.sourceType).toLowerCase()} <Icon name="open_in_new" />
+                    Ver {current.details.currentStatus.sourceType === 'BOLETA' ? 'última boleta' : 'último mantenimiento'} <Icon name="open_in_new" />
                   </Link>}
                 </div>
                 <small>Estado basado en documentos del sistema; no es un diagnóstico ni una lectura del equipo en tiempo real.</small>
