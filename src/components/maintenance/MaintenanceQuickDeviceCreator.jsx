@@ -27,7 +27,7 @@ import { uploadMaintenanceImagesInBatches } from '../../services/maintenanceImag
 import useMaintenanceQuestionCatalog from '../../hooks/useMaintenanceQuestionCatalog';
 import useMaintenanceDeviceCatalogData from '../../hooks/useMaintenanceDeviceCatalogData';
 import { createDeviceExcelWorkbook, readDeviceExcelWorkbook } from '../../utils/maintenanceExcelWorkbook';
-import { excelTemplateSheets, validateDeviceExcelRows } from '../../features/maintenance/maintenanceDeviceExcel';
+import { excelTemplateSheets, validateDeviceExcelWorkbook } from '../../features/maintenance/maintenanceDeviceExcel';
 import { MODULE_ROUTES, normalizeItems, pick, requestAvailable } from '../../services/moduleApi';
 import useOverlaySurface from '../../hooks/useOverlaySurface';
 
@@ -88,6 +88,7 @@ export default function MaintenanceQuickDeviceCreator({
   const [bulkTechnicianLoading, setBulkTechnicianLoading] = useState(false);
   const [bulkTechnicianError, setBulkTechnicianError] = useState('');
   const [excelName, setExcelName] = useState('');
+  const [excelLocations, setExcelLocations] = useState([]);
   const [excelRows, setExcelRows] = useState([]);
   const [excelIssues, setExcelIssues] = useState([]);
   const [excelReading, setExcelReading] = useState(false);
@@ -160,6 +161,15 @@ export default function MaintenanceQuickDeviceCreator({
           return;
         }
 
+        // Solo ubicaciones del equipo vinculadas y activas del cliente de
+        // este mantenimiento. No se exportan ubicaciones ajenas ni históricas.
+        setExcelLocations((data?.ubicacionesEquipo || data?.equipmentLocations || [])
+          .filter((group) => group.available && group.active && !group.foreignClient && group.id)
+          .map((group) => ({
+            value: String(group.id), name: String(group.name || ''),
+            locationName: String(group.locationName || ''),
+            label: [group.locationName, group.name].filter(Boolean).join(' / '),
+          })));
         const counts = parseMaintenanceCounts(row);
         setMaintenanceCounts(counts);
         const nextMaintenanceType = String(pick(row, ['TipoMantenimiento'], 'MANTENIMIENTO')).toUpperCase() === 'PROYECTO' ? 'PROYECTO' : 'MANTENIMIENTO';
@@ -300,6 +310,10 @@ export default function MaintenanceQuickDeviceCreator({
   const bulkDoneCount = bulkEntries.filter((item) => item.done).length;
   const pendingImageCount = Number(device.newImages?.length || 0);
   const excelActive = Boolean(excelName);
+  const excelEquipmentOptions = excelLocations.length ? excelLocations : equipmentOptions.map((item) => ({
+    ...item, name: item.name || item.label,
+    label: [item.locationName, item.label].filter(Boolean).join(' / ') || item.label,
+  }));
   const bulkTotal = excelActive ? excelRows.length : bulkNames.length;
   const excelCatalogReady = !excelCatalog.loading && !excelCatalog.error
     && !questionCatalog.loading && !questionCatalog.error && !bulkTechnicianLoading
@@ -316,10 +330,10 @@ export default function MaintenanceQuickDeviceCreator({
     try {
       if (!excelCatalogReady) throw new Error('Espere a que finalice la carga de ubicaciones, técnicos y preguntas.');
       const parsed = await readDeviceExcelWorkbook(file);
-      const result = validateDeviceExcelRows({
+      const result = validateDeviceExcelWorkbook({
         ...parsed,
         deviceTypes: bulkTypes,
-        equipmentOptions,
+        equipmentOptions: excelEquipmentOptions,
         catalogs: excelCatalog.catalogs,
         technicians: bulkTechnicians,
         questionsForDevice: questionCatalog.forDevice,
@@ -338,17 +352,18 @@ export default function MaintenanceQuickDeviceCreator({
   }
 
   function downloadExcelTemplate() {
-    if (!excelCatalogReady || !bulkTypes.length || !equipmentOptions.length) {
+    if (!excelCatalogReady || !bulkTypes.length || !excelEquipmentOptions.length) {
       setError('Espere a que se carguen los catálogos antes de descargar la plantilla.');
       return;
     }
     const workbook = createDeviceExcelWorkbook(excelTemplateSheets({
       deviceTypes: bulkTypes,
-      equipmentOptions,
+      equipmentOptions: excelEquipmentOptions,
       technicians: bulkTechnicians,
       catalogs: excelCatalog.catalogs,
-      questions: questionCatalog.questions,
+      questionsForDevice: questionCatalog.forDevice,
       mode: maintenanceType,
+      counts: maintenanceCounts,
     }));
     const url = URL.createObjectURL(workbook);
     const anchor = document.createElement('a');
@@ -501,7 +516,7 @@ export default function MaintenanceQuickDeviceCreator({
                 </label>
                 {excelActive && <button type="button" className="button button--secondary" onClick={clearExcel} disabled={saving || bulkEntries.length > 0}><Icon name="close" /> Quitar Excel</button>}
               </div>
-              <p className="field-hint">La plantilla incluye ubicaciones y tipos habilitados, IDs, técnicos y preguntas dinámicas actuales. Se valida todo antes de guardar. Las ubicaciones deben existir en el mantenimiento.</p>
+              <p className="field-hint">El Excel genera una pestaña por cada tipo planificado, con ubicaciones del cliente, fabricantes y modelos relacionados, preguntas actuales y listas de Sí/No. No necesita conocer IDs. Descargue una nueva copia cuando cambien los catálogos o las preguntas.</p>
               {!excelCatalogReady && <small className="field-hint">Cargando catálogos de dispositivos, preguntas y técnicos para Excel...</small>}
               {excelActive && <p><strong>{excelName}</strong> · {excelRows.length} filas detectadas · {excelIssues.length ? excelIssues.length + ' errores' : 'sin errores de validación'}</p>}
               {excelIssues.length > 0 && <div className="alert alert--error" role="alert" style={{ display: 'block', maxHeight: 210, overflow: 'auto' }}>
@@ -513,7 +528,7 @@ export default function MaintenanceQuickDeviceCreator({
                 <table className="maintenance-device-list" style={{ width: '100%', marginTop: 10 }}>
                   <thead><tr><th>Fila</th><th>Dispositivo</th><th>Tipo</th><th>Ubicación</th><th>Validación</th></tr></thead>
                   <tbody>{excelRows.slice(0, 12).map((item) => <tr key={item.rowNumber}>
-                    <td>{item.rowNumber}</td><td>{item.name || 'Sin nombre'}</td><td>{item.draft.categoria}</td>
+                    <td>{item.sheetName ? item.sheetName + ' · ' : ''}{item.rowNumber}</td><td>{item.name || 'Sin nombre'}</td><td>{item.draft.categoria}</td>
                     <td>{item.locationName}</td><td>{item.issues.length ? item.issues.join(' · ') : 'Lista'}</td>
                   </tr>)}</tbody>
                 </table>
