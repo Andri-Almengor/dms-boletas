@@ -185,11 +185,6 @@ export function compatibleManualInventoryDevices(left, right) {
 }
 
 /**
- * Reaplica los enlaces históricos guardados en PostgreSQL ANTES de asociar
- * boletas y construir el snapshot. Así se agrupan también fotos y eventos.
- * Conserva como representante la evidencia de referencia elegida manualmente.
- */
-/**
  * Revisa la identidad física de TODAS las evidencias de los dos grupos con
  * una sola pasada. Nunca permitir seriales, MAC o tipos contradictorios.
  * Los campos vacíos, ubicaciones, modelos y nombres antiguos no bloquean por
@@ -203,6 +198,10 @@ export function validateManualInventorySourceUnion(sources = []) {
   return types.size === 1 && !types.has('') && serials.size <= 1 && macs.size <= 1;
 }
 
+/**
+ * Reaplica enlaces históricos ANTES de asociar boletas y generar historial.
+ * El nombre principal elegido no se pierde al regenerar desde mantenimientos.
+ */
 export function applyManualInventoryLinks(groups = [], manualLinks = []) {
   if (!manualLinks.length) return groups;
   const active = groups.map((g) => ({
@@ -211,6 +210,7 @@ export function applyManualInventoryLinks(groups = [], manualLinks = []) {
     aliases: [...g.aliases],
   }));
   const sourceToGroup = new Map();
+  const sourceMetadata = new Map(manualLinks.map((link) => [clean(link.source_id || link.sourceId),link]));
   for (const group of active) {
     for (const source of group.sources) sourceToGroup.set(clean(source.EvidenciaMantenimientoID), group);
   }
@@ -231,7 +231,14 @@ export function applyManualInventoryLinks(groups = [], manualLinks = []) {
     for (const entry of source.sources) sourceToGroup.set(clean(entry.EvidenciaMantenimientoID),canonical);
     removed.add(source);
   }
-  return active.filter((group) => !removed.has(group));
+  return active.filter((group) => !removed.has(group)).map((group) => {
+    const preferredName = group.sources.map((source) =>
+      clean(sourceMetadata.get(clean(source.EvidenciaMantenimientoID))?.preferred_device_name))
+      .find(Boolean);
+    if (!preferredName) return group;
+    // El nombre canónico de la ficha es una vista, no modifica la fuente.
+    return { ...group, representative: { ...group.representative, NombreDispositivo: preferredName } };
+  });
 }
 
 export function inventoryDeviceId(clientId, group, previousSourceIds = new Map()) {
