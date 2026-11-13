@@ -7,6 +7,8 @@ import {
   normalizeInventoryText, sameInventoryDevice, groupInventoryDevices,
   candidateInventoryAliases, mergeInventoryAliases, attachInventoryTickets,
   buildInventorySnapshot, verifiedInventoryCondition,
+  applyManualInventoryLinks, compatibleManualInventoryDevices,
+  validateManualInventorySourceUnion,
 } from '../../backend/src/core/client-inventory-domain.js';
 
 const ROOT = fileURLToPath(new URL('../../', import.meta.url));
@@ -397,4 +399,117 @@ test('selector reutilizado conserva texto libre, con clic, flechas y Enter sin s
   assert.match(select, /allowCustomValue && value \? \{ value: String\(value\), label: String\(value\) \}/);
   assert.match(ticketView, /searchable|DependentSelect/);
   assert.doesNotMatch(ticketView, /onChange=\{\(\) =>/);
+});
+
+
+test('enlazar manualmente dos fichas consolida todas sus evidencias, eventos, fotos y nombres', () => {
+  const first=camera('source-first','Puesto 12 C3',{Serie:'',DireccionMAC:'',Observacion:'Instalación'});
+  const duplicate=camera('source-second','Cámara cabina 12 C3',{Serie:'',DireccionMAC:'',Observacion:'Limpieza'});
+  const existing=groupInventoryDevices([first,duplicate]);
+  assert.equal(existing.length,2,'Antes de vincular deben existir dos fichas separadas');
+  const merged=applyManualInventoryLinks(existing,[
+    {source_id:'source-first',canonical_source_id:'source-first'},
+    {source_id:'source-second',canonical_source_id:'source-first'},
+  ]);
+  assert.equal(merged.length,1);
+  assert.equal(merged[0].sources.length,2);
+  assert.deepEqual(merged[0].aliases.sort(),['Cámara cabina 12 C3','Puesto 12 C3']);
+  assert.equal(existing.length,2,'La reconstrucción no debe modificar el conjunto original');
+  const snapshot=buildInventorySnapshot({
+    clientId:'test-client',groups:merged,
+    maintenanceImages:[
+      {FotoDispositivoID:'photo1',DispositivoMantenimientoRef:'source-first',MimeType:'image/jpeg'},
+      {FotoDispositivoID:'photo2',DispositivoMantenimientoRef:'source-second',MimeType:'image/jpeg'},
+    ],
+  });
+  assert.equal(snapshot.devices.length,1);
+  assert.equal(snapshot.events.length,2);
+  assert.equal(snapshot.media.length,2);
+  assert.deepEqual(snapshot.devices[0].sourceIds.sort(),['source-first','source-second']);
+  assert.equal(snapshot.events[0].deviceId,snapshot.events[1].deviceId);
+  assert.equal(snapshot.media[0].deviceId,snapshot.media[1].deviceId);
+});
+
+test('enlaces manuales se reaplican transitivamente tras actualizar inventario', () => {
+  const devices=[
+    camera('a','Cámara norte 12',{Serie:'',DireccionMAC:''}),
+    camera('b','Cámara norte 13',{Serie:'',DireccionMAC:'',Zona:'Piso 2'}),
+    camera('c','Cámara norte 14',{Serie:'',DireccionMAC:'',Zona:'Piso 3'}),
+  ];
+  const links=[
+    {source_id:'a',canonical_source_id:'a'},
+    {source_id:'b',canonical_source_id:'a'},
+    {source_id:'c',canonical_source_id:'a'},
+  ];
+  const first=applyManualInventoryLinks(groupInventoryDevices(devices),links);
+  const refresh=applyManualInventoryLinks(groupInventoryDevices(devices),links);
+  assert.equal(first.length,1);
+  assert.equal(refresh.length,1);
+  assert.deepEqual(new Set(refresh[0].sources.map(x=>x.EvidenciaMantenimientoID)),new Set(['a','b','c']));
+  assert.equal(refresh[0].representative.NombreDispositivo,'Cámara norte 12');
+  assert.equal(applyManualInventoryLinks(groupInventoryDevices(devices),[
+    ...links,{source_id:'old-deleted',canonical_source_id:'a'},
+  ]).length,1,'Enlaces de evidencias eliminadas no deben introducir dispositivos fantasma');
+});
+
+test('unión administrativa rechaza tipos, series o MAC incompatibles sin alterar datos', () => {
+  const a=camera('a','Puesto 12 C3',{Serie:'S-1',DireccionMAC:'AA:11'});
+  const b=camera('b','Cámara cabina 12 C3',{Serie:'S-2',DireccionMAC:'AA:11'});
+  const c=camera('c','Cámara cabina 12 C3',{Serie:'S-1',DireccionMAC:'BB:22'});
+  const d=camera('d','Puerta cabina',{TipoDispositivo:'Puerta',Serie:'S-1'});
+  assert.equal(validateManualInventorySourceUnion([a,b]),false);
+  assert.equal(validateManualInventorySourceUnion([a,c]),false);
+  assert.equal(validateManualInventorySourceUnion([a,d]),false);
+  assert.equal(validateManualInventorySourceUnion([a,{...a,Serie:'',DireccionMAC:'',NombreDispositivo:'Otro nombre'}]),true);
+  assert.equal(compatibleManualInventoryDevices(a,b),false);
+  for(const row of [b,c,d]){
+    assert.throws(()=>applyManualInventoryLinks(groupInventoryDevices([a,row]),[
+      {source_id:row.EvidenciaMantenimientoID,canonical_source_id:'a'},
+    ]),/no es compatible|ya no es compatible/);
+  }
+});
+
+test('vinculación es administrativa, transaccional, idempotente y auditable en backend', () => {
+  const migration=source('backend/migrations/024_client_inventory_manual_links.sql');
+  const module=source('backend/src/modules/client-inventory.module.js');
+  const routes=source('backend/src/core/action-router.js');
+  const api=source('src/services/moduleApi.js');
+  assert.match(migration,/CREATE TABLE IF NOT EXISTS dms_client_inventory_manual_links/);
+  assert.match(migration,/PRIMARY KEY \(client_id, source_id\)/);
+  assert.match(migration,/CREATE TABLE IF NOT EXISTS dms_client_inventory_manual_link_requests/);
+  assert.match(migration,/PRIMARY KEY \(client_id, request_key\)/);
+  assert.match(routes,/add\('inventory\.devices\.link', clientInventoryHandlers\.link, 'USUARIOS_GESTIONAR'\)/);
+  assert.match(api,/link: \['inventory\.devices\.link'\]/);
+  const handler=module.slice(module.indexOf('link: async (ctx) =>'),module.indexOf('generate: async (ctx) =>'));
+  assert.match(handler,/adminGuard\(ctx\)/);
+  assert.match(handler,/await withTransaction\(async \(\) => \{/);
+  assert.match(handler,/pg_advisory_xact_lock/);
+  assert.match(handler,/dms_client_inventory_manual_link_requests/);
+  assert.match(handler,/expectedRevision/);
+  assert.match(handler,/FOR UPDATE/);
+  assert.match(handler,/validateManualInventorySourceUnion\(original\)/);
+  assert.match(handler,/ON CONFLICT\(client_id,source_id\) DO UPDATE/);
+  assert.match(handler,/ON CONFLICT\(client_id,device_id,event_key\) DO NOTHING/);
+  assert.match(handler,/ON CONFLICT\(client_id,device_id,media_key\) DO NOTHING/);
+  assert.match(handler,/device_count=device_count-1,revision=revision\+1/);
+  assert.match(handler,/VINCULAR_DISPOSITIVOS_INVENTARIO/);
+  assert.match(handler,/if \(!outcome\.alreadyLinked\)/);
+  assert.doesNotMatch(handler,/UPDATE "Boletas"|UPDATE "Mantenimiento"|DELETE FROM "Evidencia_Mantenimientos"/);
+  const generation=module.slice(module.indexOf('generate: async (ctx) =>'));
+  assert.match(generation,/applyManualInventoryLinks\(groups, await manualInventoryLinks\(id\)\)/);
+  assert.match(generation,/applyManualInventoryLinks\(groups, await manualInventoryLinks\(id\)\)/);
+  assert.ok((generation.match(/manualInventoryLinks\(id\)/g)||[]).length>=2);
+});
+
+test('interfaz ofrece vincular duplicados solo a administradores y supervisores, con confirmación', () => {
+  const page=source('src/pages/inventory/ClientInventoryPage.jsx');
+  const css=source('src/styles/client-inventory.css');
+  assert.match(page,/isAdmin=hasPermission\('USUARIOS_GESTIONAR'\)/);
+  assert.match(page,/isAdmin && <div className="client-inventory-manual-link"/);
+  assert.match(page,/Vincular dispositivo duplicado/);
+  assert.match(page,/window\.confirm\(message\)/);
+  assert.match(page,/expectedRevision: revision, requestKey/);
+  assert.match(page,/MODULE_ROUTES\.inventory\.link/);
+  assert.match(page,/setVersion\(\(value\) => value \+ 1\)/);
+  assert.match(css,/\.client-inventory-manual-link__panel/);
 });
