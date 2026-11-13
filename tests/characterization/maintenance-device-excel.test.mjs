@@ -201,3 +201,20 @@ test('las acciones de Excel conservan etiquetas accesibles y dos botones compact
   assert.match(css,/\.maintenance-bulk-excel__actions/);
   assert.match(css,/@media\(max-width:620px\)/);
 });
+
+
+test('cada descarga refresca el catálogo real de modelos y no usa una copia obsoleta', () => {
+  const creator=source('src/components/maintenance/MaintenanceQuickDeviceCreator.jsx');
+  const hook=source('src/hooks/useMaintenanceDeviceCatalogData.js');
+  const start=creator.indexOf('async function downloadExcelTemplate()');
+  const end=creator.indexOf('function clearExcel()',start);
+  const download=creator.slice(start,end);
+  assert.ok(start >= 0 && end > start);
+  assert.match(download,/await excelCatalog\.reload\(\{ force: true \}\)/);
+  assert.match(download,/catalogs: latestCatalogs/);
+  assert.match(download,/setExcelDownloading\(true\)/);
+  assert.match(download,/finally \{\s*setExcelDownloading\(false\)/);
+  assert.match(hook,/loadCatalogResource\(/);
+  assert.match(hook,/force,/);
+  assert.match(creator,/excelDownloading \|\| !excelCatalogReady/);
+});
