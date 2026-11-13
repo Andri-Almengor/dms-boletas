@@ -327,3 +327,74 @@ test('Gemini no presenta fallas negadas como averías, ni equipo sin pruebas com
   assert.equal(verifiedInventoryCondition('OPERATIVO', 'Funcionamiento: Sí; Estado: Correcto'), 'OPERATIVO');
   assert.equal(verifiedInventoryCondition('OPERATIVO', 'Equipo no operativo'), 'NO_DETERMINADO');
 });
+
+
+test('autocomplete de boletas reutiliza inventario generado, pero devuelve solo nombres del cliente actual', () => {
+  const router = source('backend/src/core/action-router.js');
+  const module = source('backend/src/modules/client-inventory.module.js');
+  const route = module.slice(module.indexOf('devices: async (ctx) =>'), module.indexOf('detail: async (ctx) =>'));
+  assert.match(router, /add\('inventory\.devices\.list', clientInventoryHandlers\.devices,[\s\S]*?'BOLETAS_CREAR', 'BOLETAS_EDITAR'/);
+  assert.match(route, /const namesOnly = ctx\.payload\?\.namesOnly === true/);
+  assert.match(route, /!ticketRead && !canRead\(ctx\)/);
+  assert.match(route, /readGuard\(ctx\)/);
+  assert.match(route, /const id = clientId\(ctx\)/);
+  assert.match(route, /if \(!summary\) return \{ generated: false, items: \[\]/);
+  assert.match(route, /SELECT DISTINCT device_name AS name FROM dms_client_inventory_devices/);
+  assert.match(route, /WHERE client_id=\$1/);
+  assert.match(route, /translate\(lower\(device_name\)/);
+  assert.match(route, /LIKE \$2 ESCAPE/);
+  assert.match(route, /ORDER BY name LIMIT \$3/);
+  assert.match(route, /cap\(ctx\.payload\?\.pageSize, 30, 20\)/);
+  assert.match(route, /items: matches\.slice\(0, limit\)\.map\(\(item\) => \(\{ name: item\.name \}\)\)/);
+  assert.doesNotMatch(route.slice(route.indexOf('if (namesOnly) {',route.indexOf('if (!summary)'))), /item\.serial|item\.mac|item\.model|item\.source_ids/);
+  assert.match(router, /add\('inventory\.device\.get', clientInventoryHandlers\.detail, maintenanceReadPermissions\)/);
+  assert.match(router, /add\('inventory\.generate', clientInventoryHandlers\.generate, 'USUARIOS_GESTIONAR'\)/);
+});
+
+test('Nombre del dispositivo comparte una sola implementación de sugerencias en las tres superficies de boletas', () => {
+  const shared = source('src/components/tickets/TicketDeviceNameAutocomplete.jsx');
+  const full = source('src/pages/tickets/TicketFormPage.jsx');
+  const quick = source('src/pages/tickets/TicketQuickEditPage.jsx');
+  const related = source('src/pages/tickets/TicketRelatedVisitPage.jsx');
+  const domain = source('src/features/tickets/ticketFormDomain.js');
+  for (const view of [full, quick, related]) {
+    assert.match(view, /import TicketDeviceNameAutocomplete from/);
+    assert.match(view, /<TicketDeviceNameAutocomplete/);
+    assert.match(view, /name="nombreDispositivo" value=\{form\.nombreDispositivo\} onChange=\{update\} required/);
+    assert.doesNotMatch(view, /<(?:FormField|Field) label="Nombre del dispositivo"/);
+  }
+  assert.match(full, /<TicketDeviceNameAutocomplete clientId=\{form\.clienteId\}/);
+  assert.match(quick, /<TicketDeviceNameAutocomplete clientId=\{form\.clienteId\}/);
+  assert.match(related, /<TicketDeviceNameAutocomplete clientId=\{parentClientId\}/);
+  assert.match(shared, /MODULE_ROUTES\.inventory\.devices/);
+  assert.match(shared, /clienteId: clientId/);
+  assert.match(shared, /namesOnly: true/);
+  assert.match(shared, /search: String\(term \|\| ''\)\.trim\(\)/);
+  assert.match(shared, /pageSize: 25/);
+  assert.match(shared, /searchDelay=\{280\}/);
+  assert.match(shared, /allowCustomValue/);
+  assert.match(shared, /generation\.current \+= 1/);
+  assert.match(shared, /requestGeneration !== generation\.current/);
+  assert.match(shared, /catch \{/);
+  assert.match(shared, /setOptions\(\[\]\)/);
+  // La estructura de datos de boletas se mantiene: se guarda texto en Descripcion.
+  assert.match(domain, /Descripcion: form\.nombreDispositivo/);
+});
+
+test('selector reutilizado conserva texto libre, con clic, flechas y Enter sin selección forzada', () => {
+  const select = source('src/components/forms/DependentSelect.jsx');
+  const ticketView = source('src/components/tickets/TicketDeviceNameAutocomplete.jsx');
+  assert.match(select, /allowCustomValue = false/);
+  assert.match(select, /if \(allowCustomValue\) emitChange\(event\.target\.value\)/);
+  assert.match(select, /allowCustomValue && open && filteredOptions\.length/);
+  assert.match(select, /event\.key === 'ArrowDown'/);
+  assert.match(select, /event\.key === 'ArrowUp'/);
+  assert.match(select, /if \(activeIndex >= 0 && filteredOptions\[activeIndex\]\)/);
+  assert.match(select, /chooseOption\(filteredOptions\[activeIndex\]\)/);
+  assert.match(select, /Con texto libre|modo libre/);
+  assert.match(select, /Sin coincidencias\. Puede conservar el nombre escrito\./);
+  assert.match(select, /selectedLabel = ''/);
+  assert.match(select, /allowCustomValue && value \? \{ value: String\(value\), label: String\(value\) \}/);
+  assert.match(ticketView, /searchable|DependentSelect/);
+  assert.doesNotMatch(ticketView, /onChange=\{\(\) =>/);
+});
