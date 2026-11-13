@@ -29,7 +29,7 @@ function readGuard(ctx) {
 }
 function adminGuard(ctx) {
   readGuard(ctx);
-  if (!canAdmin(ctx)) throw forbidden('Solo un administrador puede generar o actualizar el inventario.');
+  if (!canAdmin(ctx)) throw forbidden('Solo usuarios con acceso administrativo (Administrador o Supervisor) pueden generar o actualizar el inventario.');
 }
 function clientId(ctx) {
   const id = clean(ctx.payload?.clienteId || ctx.payload?.clientId);
@@ -222,7 +222,7 @@ export const clientInventoryHandlers = {
     if (!client || client.Activo === false || String(client.Activo).toLowerCase() === 'false') {
       throw badRequest('El cliente ya no está activo.');
     }
-    // Única vía de actualización: botón explícito de administrador.
+    // Única vía de actualización: acción explícita con permisos administrativos (incluye Supervisor).
     const source = await loadSources(id);
     let groups = groupInventoryDevices(source.devices);
     let aiStatus = 'sin_candidatos';
