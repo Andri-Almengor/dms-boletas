@@ -86,7 +86,7 @@ export const DEVICE_EXCEL_LABELS = Object.freeze([
 export function excelDeviceSheetNames(deviceTypes = []) {
   const used = new Set(['instrucciones', 'listas', 'preguntas', 'dispositivos']);
   return deviceTypes.map((type, index) => {
-    const label = clean(type.label || type.key).replace(/[\[\]:*?/\\]/g, ' ').trim() || 'Dispositivo';
+    const label = clean(type.label || type.key).replace(/[\[\]:*?\/\\]/g, ' ').trim() || 'Dispositivo';
     let name = label.slice(0, 31);
     let suffix = 2;
     while (used.has(identity(name))) {
