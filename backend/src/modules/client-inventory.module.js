@@ -6,6 +6,7 @@ import { suggestInventoryMerges, summarizeInventoryDeviceStatuses } from '../ser
 import {
   groupInventoryDevices, candidateInventoryAliases, mergeInventoryAliases,
   buildInventorySnapshot, verifiedInventoryCondition,
+  applyManualInventoryLinks, validateManualInventorySourceUnion,
 } from '../core/client-inventory-domain.js';
 
 const MAX_SOURCE_DEVICES = 20000;
@@ -113,6 +114,13 @@ async function bulkInsert(prefix, values, width, label) {
       + Array.from({ length: width }, (__, col) => '$' + (row * width + col + 1)).join(',') + ')');
     await query(prefix + placeholders.join(','), batch.flat(), { label, write: true });
   }
+}
+
+
+async function manualInventoryLinks(id) {
+  return rows(await query(
+    'SELECT source_id,canonical_source_id FROM dms_client_inventory_manual_links WHERE client_id=$1',
+    [id], { label: 'inventory.manualLinks.read' }));
 }
 
 async function previousIdMap(id) {
@@ -402,10 +410,14 @@ export const clientInventoryHandlers = {
         aiStatus = 'gemini_no_disponible';
       }
     }
+    // La unión humana prevalece sobre el reconocimiento automático/Gemini.
+    // Leer antes para elaborar resúmenes fuera del lock; volver a consultar
+    // dentro de la transacción para no perder vínculos concurrentes.
+    const preparedGroups = applyManualInventoryLinks(groups, await manualInventoryLinks(id));
     // Solo se consulta Gemini al generar/actualizar, nunca al abrir el detalle.
     // Se prepara fuera de la transacción para no bloquear PostgreSQL.
     const preview = buildInventorySnapshot({
-      clientId: id, groups, tickets: source.tickets,
+      clientId: id, groups: preparedGroups, tickets: source.tickets,
       ticketEvidence: source.ticketEvidence, maintenanceImages: source.maintenanceImages,
     });
     const currentStates = await inventoryCurrentStatusBySource(preview);
@@ -416,13 +428,19 @@ export const clientInventoryHandlers = {
       // La asignación de IDs históricos se lee BAJO el lock; las generaciones
       // concurrentes no pueden calcular una versión con IDs ya reemplazados.
       const previous = await previousIdMap(id);
+      const currentGroups = applyManualInventoryLinks(groups, await manualInventoryLinks(id));
       snapshot = buildInventorySnapshot({
-        clientId: id, groups, previousSourceIds: previous,
+        clientId: id, groups: currentGroups, previousSourceIds: previous,
         tickets: source.tickets, ticketEvidence: source.ticketEvidence,
         maintenanceImages: source.maintenanceImages,
       });
+      const latestById = new Map(latestInventoryEvents(snapshot).map((item) => [item.id, item]));
       for (const device of snapshot.devices) {
-        device.details.currentStatus = currentStates.bySource.get(inventorySourcesKey(device)) || null;
+        // Si se vinculó otro registro mientras Gemini estaba procesando,
+        // el resumen calculado antes del lock no corresponde al nuevo grupo.
+        // En ese caso usar únicamente el registro más reciente, sin inventar.
+        device.details.currentStatus = currentStates.bySource.get(inventorySourcesKey(device))
+          || recordedCurrentStatus(latestById.get(device.deviceId) || { latest: null });
       }
       const prior = await selectOne('SELECT revision FROM dms_client_inventory WHERE client_id=$1 FOR UPDATE',
         [id], 'inventory.generate.prior');
