@@ -358,14 +358,19 @@ function InventoryClientTable({ clientId, sessionToken, navigate }) {
       <div><button type="button" className="button button--secondary" onClick={()=>navigate('/inventario')}>
         <Icon name="arrow_back" /> Volver a clientes</button>
         <span className="eyebrow">INVENTARIO DEL CLIENTE</span><h1>Dispositivos</h1>
-        <p>Registro consolidado desde mantenimientos y boletas relacionadas.</p></div>
+        <p>Equipos consolidados desde mantenimientos, con historial de boletas relacionadas.</p></div>
       <button type="button" className="button button--secondary" onClick={()=>setVersion((v)=>v+1)}>
         <Icon name="refresh" /> Recargar vista</button>
     </header>
-    {result.generated && <p className="field-hint">Total: {result.total} dispositivos · Última generación: {readableDate(result.generatedAt)}</p>}
+    {result.generated && <div className="client-inventory-summary">
+      <span className="client-inventory-summary__icon"><Icon name="inventory_2" /></span>
+      <div><strong>{result.total} dispositivos</strong><small>Inventario consolidado</small></div>
+      <span className="client-inventory-summary__date"><Icon name="update" /> Actualizado: {readableDate(result.generatedAt)}</span>
+    </div>}
     <label className="field-group client-inventory-search"><span className="field-label">Buscar dispositivo</span>
-      <input className="form-control" type="search" value={search} onChange={(e)=>setSearch(e.target.value)}
-        placeholder="Nombre, ubicación, modelo, serie..." /></label>
+      <span className="client-inventory-search__input"><Icon name="search" />
+        <input className="form-control" type="search" value={search} onChange={(e)=>setSearch(e.target.value)}
+          placeholder="Nombre, ubicación, fabricante, modelo, serie..." /></span></label>
     {error && <div className="alert alert--error" role="alert">{error}</div>}
     {loading && <div className="state-card state-card--loading"><Icon name="progress_activity" /> Cargando equipos...</div>}
     {!loading && !result.generated && <div className="empty-state">
@@ -377,8 +382,11 @@ function InventoryClientTable({ clientId, sessionToken, navigate }) {
         <thead><tr><th>Nombre del dispositivo</th><th>Tipo</th><th>Ubicación</th>
           <th>Fabricante</th><th>Modelo</th><th>Serie</th><th>Detalle</th></tr></thead>
         <tbody>{result.items.map((item,index)=><tr key={item.id}>
-          <td className="client-inventory-table__name">{item.name}</td>
-          <td className="client-inventory-table__extra">{item.type||'—'}</td>
+          <td className="client-inventory-table__name"><span className="client-inventory-table__name-wrap">
+            <span className="client-inventory-table__device-icon"><Icon name="devices" /></span>
+            <strong>{item.name}</strong>
+          </span></td>
+          <td className="client-inventory-table__extra"><span className="client-inventory-type">{item.type||'—'}</span></td>
           <td className="client-inventory-table__extra">{item.location||'—'}</td>
           <td className="client-inventory-table__extra">{item.manufacturer||'—'}</td>
           <td className="client-inventory-table__extra">{item.model||'—'}</td>
