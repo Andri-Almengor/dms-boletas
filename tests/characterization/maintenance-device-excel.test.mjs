@@ -136,3 +136,68 @@ test('el ajuste esperado ocurre solo en un alta real y dentro de la transacción
   assert.match(module, /SELECT "TipoDispositivoID", "TipoDispositivo", "Categoria", COUNT\(\*\)/);
   assert.match(module, /if \(existing\) \{[\s\S]*return existing;/);
 });
+
+
+test('los modelos del Excel dependen del fabricante y tipo, incluidos los catálogos históricos vinculados', () => {
+  const sourceText = source('src/features/maintenance/maintenanceDeviceExcel.js');
+  const start = sourceText.indexOf('function availableModels(');
+  const end = sourceText.indexOf('function questionHeader(', start);
+  assert.ok(start >= 0 && end > start);
+  const clean = (value) => String(value ?? '').trim();
+  const pick = (row, names) => names.map((name) => row?.[name]).find((value) => value !== undefined && value !== '') || '';
+  const identity = (value) => clean(value).toLowerCase();
+  const availableModels = new Function('clean', 'pick', 'identity',
+    sourceText.slice(start, end) + '\nreturn availableModels;')(clean, pick, identity);
+  const catalogs = {
+    relations: [{ TipoDispositivoID:'camera', FabricanteID:'axis', Activo:true }],
+    models: [
+      { ModeloID:'m1', Nombre:'Modelo de cámara', TipoDispositivoID:'camera', FabricanteID:'axis' },
+      { ModeloID:'m2', Nombre:'Modelo histórico relacionado', FabricanteID:'axis' },
+      { ModeloID:'m3', Nombre:'Modelo de puertas', TipoDispositivoID:'door', FabricanteID:'axis' },
+      { ModeloID:'m4', Nombre:'Otro fabricante', TipoDispositivoID:'camera', FabricanteID:'other' },
+      { ModeloID:'m5', Nombre:'Modelo inactivo', TipoDispositivoID:'camera', FabricanteID:'axis', Activo:false },
+    ],
+  };
+  const names = availableModels({ typeId:'camera' }, { FabricanteID:'axis' }, catalogs)
+    .map((row) => row.Nombre);
+  assert.deepEqual(names, ['Modelo de cámara','Modelo histórico relacionado']);
+  assert.deepEqual(availableModels({ typeId:'door' }, { FabricanteID:'axis' }, catalogs)
+    .map((row) => row.Nombre), ['Modelo de puertas']);
+});
+
+test('el XLSX exporta los rangos de modelos con fórmula Excel dependiente de cada fila y fabricante', async () => {
+  const sheets = [
+    { name:'Cámara',rows:[['Nombre del dispositivo','Ubicación del equipo','Fabricante','Modelo']],
+      inputRows:20, validations:[
+        { column:2,list:'FABRICANTES_1' },
+        { column:3,formula:'=IFERROR(INDIRECT("MODELOS_1_"&MATCH($C2,FABRICANTES_1,0)),SIN_MODELOS)' },
+      ] },
+    { name:'Listas',hidden:true,rows:[
+      ['FABRICANTES_1','MODELOS_1_1','MODELOS_1_2','SIN_MODELOS'],
+      ['Axis','Q6135','Modelo 2',''],
+    ] },
+  ];
+  sheets.definedNames=[
+    { name:'FABRICANTES_1', formula:"'Listas'!$A$2:$A$2" },
+    { name:'MODELOS_1_1', formula:"'Listas'!$B$2:$B$2" },
+    { name:'MODELOS_1_2', formula:"'Listas'!$C$2:$C$2" },
+    { name:'SIN_MODELOS', formula:"'Listas'!$D$2:$D$2" },
+  ];
+  const xml=new TextDecoder().decode(await createDeviceExcelWorkbook(sheets).arrayBuffer());
+  assert.match(xml, /<definedName name="MODELOS_1_1">/);
+  assert.match(xml, /Q6135/);
+  assert.match(xml, /<formula1>=FABRICANTES_1<\/formula1>/);
+  assert.match(xml, /<formula1>=IFERROR\(INDIRECT\(&quot;MODELOS_1_&quot;&amp;MATCH\(\$C2,FABRICANTES_1,0\)\),SIN_MODELOS\)<\/formula1>/);
+  assert.match(sourceTextOrFallback(), /MODELOS_/);
+  function sourceTextOrFallback() { return source('src/features/maintenance/maintenanceDeviceExcel.js'); }
+});
+
+test('las acciones de Excel conservan etiquetas accesibles y dos botones compactos', () => {
+  const creator=source('src/components/maintenance/MaintenanceQuickDeviceCreator.jsx');
+  const css=source('src/styles/maintenance-quick-evidence.css');
+  assert.match(creator,/maintenance-bulk-excel__actions/);
+  assert.match(creator,/maintenance-bulk-excel__button/);
+  assert.match(creator,/aria-label="Importar desde Excel \(\.xlsx\)"/);
+  assert.match(css,/\.maintenance-bulk-excel__actions/);
+  assert.match(css,/@media\(max-width:620px\)/);
+});
