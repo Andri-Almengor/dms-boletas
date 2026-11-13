@@ -292,7 +292,7 @@ async function inventoryDevicesForEquipmentLocation(clientId, equipmentLocationI
     'SELECT d.device_id,d.device_type,d.device_name,d.manufacturer,d.model,'
     + ' d.serial,d.mac,d.details FROM dms_client_inventory_devices d'
     + ' JOIN dms_client_inventory inv ON inv.client_id=d.client_id'
-    + ' WHERE d.client_id=$1 AND d.details->>\\'equipmentLocationId\\'=$2'
+    + " WHERE d.client_id=$1 AND d.details->>'equipmentLocationId'=$2"
     + ' ORDER BY d.device_id LIMIT $3',
     [clientId,equipmentLocationId,MAX_IMPORTED_INVENTORY_DEVICES+1],
     { label: 'maintenance.locations.inventory.source' },
