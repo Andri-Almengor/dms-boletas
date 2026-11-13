@@ -221,8 +221,8 @@ export function applyManualInventoryLinks(groups = [], manualLinks = []) {
     // Registros eliminados o retirados dejan su vínculo guardado, pero no
     // producen dispositivos inexistentes ni enlazan con otro cliente.
     if (!source || !canonical || source === canonical) continue;
-    const safe = source.sources.every((a) => canonical.sources.every((b) =>
-      compatibleManualInventoryDevices(a,b)));
+    // O(total de evidencias), no O(n²) al enlazar equipos con años de historial.
+    const safe = validateManualInventorySourceUnion([...canonical.sources, ...source.sources]);
     if (!safe) throw new Error('Un vínculo histórico manual ya no es compatible con el tipo, número de serie o MAC registrados.');
     canonical.sources.push(...source.sources);
     for (const alias of source.aliases) {
