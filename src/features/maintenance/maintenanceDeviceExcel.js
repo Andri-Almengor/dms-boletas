@@ -74,7 +74,7 @@ export function excelQuestionColumns(questions = [], mode = 'MANTENIMIENTO') {
   return [...byKey.values()].sort((a, b) => a.key.localeCompare(b.key, 'es'));
 }
 
-export function excelTemplateSheets({ deviceTypes, equipmentOptions, technicians, questions, mode }) {
+export function excelTemplateSheets({ deviceTypes, equipmentOptions, technicians, catalogs = {}, questions, mode }) {
   const active = excelQuestionColumns(questions, mode);
   return [
     { name: 'Dispositivos', rows: [[...DEVICE_EXCEL_FIELDS, ...active.map((q) => 'Pregunta:' + q.key)]] },
@@ -96,6 +96,8 @@ export function excelTemplateSheets({ deviceTypes, equipmentOptions, technicians
     { name: 'Catalogos', rows: [
       ['TIPO', 'ID', 'NOMBRE'],
       ...deviceTypes.map((item) => ['Tipo de dispositivo', clean(item.typeId), clean(item.label || item.key)]),
+      ...(catalogs.manufacturers || []).map((item) => ['Fabricante', clean(pick(item, ['FabricanteID', 'id'])), clean(pick(item, ['Nombre', 'nombre']))]),
+      ...(catalogs.models || []).map((item) => ['Modelo', clean(pick(item, ['ModeloID', 'id'])), clean(pick(item, ['Nombre', 'nombre'])) + ' | FabricanteID: ' + clean(pick(item, ['FabricanteID']))]),
       ...equipmentOptions.map((item) => ['Ubicación', clean(item.value), clean(item.label)]),
       ...technicians.map((item) => ['Técnico', clean(item.value || item.id || item.UsuarioID), clean(item.label || item.name || item.NombreCompleto)]),
     ] },
@@ -115,6 +117,9 @@ export function validateDeviceExcelRows({
   const columns = new Map(headers.map((name, i) => [clean(name), i]));
   const problems = [];
   if (columns.size !== headers.filter(Boolean).length) problems.push('Encabezados duplicados.');
+  for (const required of ['UbicacionEquipoID', 'TipoDispositivoID', 'NombreDispositivo']) {
+    if (!columns.has(required)) problems.push('Falta la columna ' + required);
+  }
   if (!rows.length) problems.push('La hoja Dispositivos está vacía.');
   if (rows.length > MAX_BULK_MAINTENANCE_DEVICES) problems.push('Máximo ' + MAX_BULK_MAINTENANCE_DEVICES + ' dispositivos.');
   const value = (row, field) => clean(row[columns.get(field)]);
