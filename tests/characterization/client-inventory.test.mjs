@@ -257,3 +257,61 @@ test('la columna de nombre conserva semántica de tabla y la vista móvil mantie
   assert.doesNotMatch(css, /\.client-inventory-table__name\s*\{\s*display: flex/);
   assert.match(jsx, /aria-label=\{'Ver detalle de '\+item\.name\}/);
 });
+
+
+test('el inventario tiene paginador junto al buscador y total exacto con filtro activo', () => {
+  const ui=source('src/pages/inventory/ClientInventoryPage.jsx');
+  const api=source('backend/src/modules/client-inventory.module.js');
+  const css=source('src/styles/client-inventory.css');
+  assert.match(ui,/client-inventory-table-tools/);
+  assert.match(ui,/client-inventory-top-pager/);
+  assert.match(ui,/aria-label="Página anterior"/);
+  assert.match(ui,/aria-label="Página siguiente"/);
+  assert.match(ui,/Number\(result\.totalFiltered \?\? result\.total \?\? 0\) \/ 50/);
+  assert.match(api,/SELECT COUNT\(\*\)::integer AS count/);
+  assert.match(api,/totalFiltered/);
+  assert.match(css,/\.client-inventory-top-pager/);
+  const main=ui.slice(ui.indexOf('function InventoryClientTable('));
+  assert.doesNotMatch(main,/className="client-inventory-pagination"/);
+});
+
+test('Más reutiliza permisos para Inventario y el visor compartido importa sus estilos originales', () => {
+  const more=source('src/pages/MorePage.jsx');
+  const styles=source('src/styles/routes/maintenance.js');
+  assert.match(more,/canViewMaintenance && <section/);
+  assert.match(more,/<MenuRow to="\/inventario" icon="inventory_2" label="Inventario"/);
+  assert.match(styles,/import '\.\.\/ticket-evidence-viewer\.css'/);
+  assert.match(styles,/import '\.\.\/client-inventory\.css'/);
+  const viewer=source('src/components/tickets/ImageViewer.jsx');
+  assert.match(viewer,/image-viewer__nav--previous/);
+  assert.match(viewer,/image-viewer__nav--next/);
+  assert.match(viewer,/sourceLabel/);
+});
+
+test('resumen de estado se guarda solo durante generación manual, con Gemini y modelo alternativo', () => {
+  const backend=source('backend/src/modules/client-inventory.module.js');
+  const ai=source('backend/src/services/assistant-gemini.service.js');
+  const ui=source('src/pages/inventory/ClientInventoryPage.jsx');
+  const gen=backend.slice(backend.indexOf('generate: async (ctx) =>'));
+  const detail=backend.slice(backend.indexOf('detail: async (ctx) =>'),backend.indexOf('generate: async (ctx) =>'));
+  assert.match(gen,/adminGuard\(ctx\)/);
+  assert.match(gen,/inventoryCurrentStatusBySource\(preview\)/);
+  assert.match(gen,/await withTransaction/);
+  assert.ok(gen.indexOf('inventoryCurrentStatusBySource(preview)') < gen.indexOf('await withTransaction'));
+  assert.match(gen,/device\.details\.currentStatus = currentStates\.bySource/);
+  assert.match(gen,/aiStatus/);
+  assert.match(backend,/function latestInventoryEvents\(snapshot\)/);
+  assert.match(backend,/recordedCurrentStatus\(work\)/);
+  assert.match(backend,/const deadline = Date\.now\(\) \+ 110_000/);
+  assert.match(backend,/Math\.min\(3,batches\.length\)/);
+  assert.match(ai,/export async function summarizeInventoryDeviceStatuses/);
+  assert.match(ai,/GEMINI_FALLBACK_MODELS/);
+  assert.match(ai,/No inventes mediciones, reparaciones, fechas, diagnósticos/);
+  assert.match(detail,/currentStatus: null/);
+  assert.match(detail,/current\?\.sourceType === 'BOLETA'/);
+  assert.match(detail,/!events\.some\(\(entry\) => entry\.id === current\.eventKey\)/);
+  assert.match(ui,/Estado actual según el último registro/);
+  assert.match(ui,/Resumen asistido por Gemini/);
+  assert.match(ui,/no es un diagnóstico ni una lectura del equipo en tiempo real/);
+  assert.match(ui,/Ver último/);
+});
