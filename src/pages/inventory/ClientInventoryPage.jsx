@@ -241,22 +241,31 @@ function ClientList({ sessionToken, isAdmin, navigate }) {
 
   return <div className="client-inventory-page">
     <header className="client-inventory-page__header">
-      <div><span className="eyebrow">DMS BOLETAS</span><h1>Inventario</h1>
-        <p>Clientes con boletas o mantenimientos registrados. El inventario se genera solamente al solicitarlo.</p></div>
+      <div><span className="eyebrow">DMS BOLETAS · GESTIÓN DE EQUIPOS</span><h1>Inventario</h1>
+        <p>Clientes con mantenimientos registrados. El inventario se genera o actualiza únicamente cuando lo solicitás.</p></div>
     </header>
     <label className="field-group client-inventory-search"><span className="field-label">Buscar cliente</span>
-      <input className="form-control" type="search" value={search} onChange={(e) => setSearch(e.target.value)}
-        placeholder="Nombre del cliente..." /></label>
+      <span className="client-inventory-search__input"><Icon name="search" />
+        <input className="form-control" type="search" value={search} onChange={(e) => setSearch(e.target.value)}
+          placeholder="Nombre del cliente con mantenimiento..." /></span></label>
     {error && <div className="alert alert--error" role="alert">{error}</div>}
     {loading && <div className="state-card state-card--loading"><Icon name="progress_activity" /> Cargando clientes...</div>}
     {!loading && !result.items.length && <div className="empty-state"><Icon name="groups" />
-      <p>No hay clientes con actividad registrada para esta búsqueda.</p></div>}
+      <p>No hay clientes con mantenimientos registrados para esta búsqueda.</p></div>}
     {!loading && <div className="client-inventory-clients">
       {result.items.map((item) => <article className="client-inventory-client" key={item.id}>
-        <div><h2>{item.name}</h2>
+        <div className="client-inventory-client__top">
+          <span className="client-inventory-client__icon"><Icon name="business" /></span>
+          <span className={'client-inventory-client__status' + (item.generatedAt ? ' is-ready' : '')}>
+            <Icon name={item.generatedAt ? 'check_circle' : 'schedule'} />
+            {item.generatedAt ? 'Disponible' : 'Sin generar'}
+          </span>
+        </div>
+        <div className="client-inventory-client__main">
+          <h2>{item.name}</h2>
           <p>{item.generatedAt
-            ? 'Inventario generado · ' + readableDate(item.generatedAt) + ' · ' + item.deviceCount + ' dispositivos'
-            : 'Todavía no se ha generado un inventario'}</p>
+            ? <><strong>{item.deviceCount} dispositivos</strong> · Actualizado el {readableDate(item.generatedAt)}</>
+            : 'Mantenimiento registrado · Inventario pendiente de generar'}</p>
           {item.aiStatus === 'gemini_no_disponible' && <small className="client-inventory-warning">
             Gemini no estuvo disponible; solo se unificaron coincidencias verificables.</small>}
         </div>
