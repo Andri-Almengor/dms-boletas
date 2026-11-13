@@ -61,6 +61,7 @@ async function loadSources(id) {
   const tickets = rows(await query(
     'SELECT b."BoletaUID",b."BoletaID",b."DispositivoID",b."TipoDispositivoID",'
     + ' b."TipoDispositivo",b."UbicacionEquipoID",b."Serie",b."DireccionMAC",'
+    + ' b."FabricanteID",b."Fabricante",b."ModeloID",b."Modelo",'
     + ' b."Titulo",b."RazonVisita",b."Descripcion",b."PruebasRealizadas",'
     + ' b."Resultado",b."Recomendaciones",b."Fecha",b."FinalizadaEn",b."FechaCreacion",'
     + ' COALESCE(ass.assignees,\'\') AS assignees'
