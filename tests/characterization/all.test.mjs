@@ -53,6 +53,7 @@ import './maintenance-question-interactions.test.mjs';
 import './maintenance-device-created-feedback.test.mjs';
 import './maintenance-inventory-context-return.test.mjs';
 import './maintenance-bulk-device-list.test.mjs';
+import './maintenance-device-excel.test.mjs';
 import './maintenance-device-draft.test.mjs';
 import './maintenance-device-lifecycle.test.mjs';
 import './maintenance-device-persistence.test.mjs';
@@ -151,3 +152,5 @@ import './sync-convergence.test.mjs';
 import './incremental-sync-media-priority.test.mjs';
 
 import './drive-upload-session.test.mjs';
+
+import './client-inventory.test.mjs';

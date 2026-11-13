@@ -24,6 +24,10 @@ import {
   normalizeProjectChecklist,
 } from '../../features/maintenance/maintenanceProjectChecklist';
 import { uploadMaintenanceImagesInBatches } from '../../services/maintenanceImageBatch';
+import useMaintenanceQuestionCatalog from '../../hooks/useMaintenanceQuestionCatalog';
+import useMaintenanceDeviceCatalogData from '../../hooks/useMaintenanceDeviceCatalogData';
+import { createDeviceExcelWorkbook, readDeviceExcelWorkbook } from '../../utils/maintenanceExcelWorkbook';
+import { excelTemplateSheets, validateDeviceExcelWorkbook } from '../../features/maintenance/maintenanceDeviceExcel';
 import { MODULE_ROUTES, normalizeItems, pick, requestAvailable } from '../../services/moduleApi';
 import useOverlaySurface from '../../hooks/useOverlaySurface';
 
@@ -83,6 +87,13 @@ export default function MaintenanceQuickDeviceCreator({
   const [bulkTechnicianIds, setBulkTechnicianIds] = useState([]);
   const [bulkTechnicianLoading, setBulkTechnicianLoading] = useState(false);
   const [bulkTechnicianError, setBulkTechnicianError] = useState('');
+  const [excelName, setExcelName] = useState('');
+  const [excelLocations, setExcelLocations] = useState([]);
+  const [excelRows, setExcelRows] = useState([]);
+  const [excelIssues, setExcelIssues] = useState([]);
+  const [excelReading, setExcelReading] = useState(false);
+  const questionCatalog = useMaintenanceQuestionCatalog(bulk ? sessionToken : null);
+  const excelCatalog = useMaintenanceDeviceCatalogData(sessionToken, { enabled: bulk });
   const deviceRef = useRef(device);
   useOverlaySurface({ open: true, onClose, busy: saving });
 
@@ -150,6 +161,15 @@ export default function MaintenanceQuickDeviceCreator({
           return;
         }
 
+        // Solo ubicaciones del equipo vinculadas y activas del cliente de
+        // este mantenimiento. No se exportan ubicaciones ajenas ni históricas.
+        setExcelLocations((data?.ubicacionesEquipo || data?.equipmentLocations || [])
+          .filter((group) => group.available && group.active && !group.foreignClient && group.id)
+          .map((group) => ({
+            value: String(group.id), name: String(group.name || ''),
+            locationName: String(group.locationName || ''),
+            label: [group.locationName, group.name].filter(Boolean).join(' / '),
+          })));
         const counts = parseMaintenanceCounts(row);
         setMaintenanceCounts(counts);
         const nextMaintenanceType = String(pick(row, ['TipoMantenimiento'], 'MANTENIMIENTO')).toUpperCase() === 'PROYECTO' ? 'PROYECTO' : 'MANTENIMIENTO';
@@ -289,11 +309,83 @@ export default function MaintenanceQuickDeviceCreator({
     || (!bulkTypeSelection ? bulkTypes[0] : null);
   const bulkDoneCount = bulkEntries.filter((item) => item.done).length;
   const pendingImageCount = Number(device.newImages?.length || 0);
+  const excelActive = Boolean(excelName);
+  const excelEquipmentOptions = excelLocations.length ? excelLocations : equipmentOptions.map((item) => ({
+    ...item, name: item.name || item.label,
+    label: [item.locationName, item.label].filter(Boolean).join(' / ') || item.label,
+  }));
+  const bulkTotal = excelActive ? excelRows.length : bulkNames.length;
+  const excelCatalogReady = !excelCatalog.loading && !excelCatalog.error
+    && !questionCatalog.loading && !questionCatalog.error && !bulkTechnicianLoading
+    && !bulkTechnicianError;
+
+  async function readExcelFile(event) {
+    const file = event.target.files?.[0];
+    if (!file || saving || bulkEntries.length) return;
+    setExcelReading(true);
+    setError('');
+    setExcelName('');
+    setExcelRows([]);
+    setExcelIssues([]);
+    try {
+      if (!excelCatalogReady) throw new Error('Espere a que finalice la carga de ubicaciones, técnicos y preguntas.');
+      const parsed = await readDeviceExcelWorkbook(file);
+      const result = validateDeviceExcelWorkbook({
+        ...parsed,
+        deviceTypes: bulkTypes,
+        equipmentOptions: excelEquipmentOptions,
+        catalogs: excelCatalog.catalogs,
+        technicians: bulkTechnicians,
+        questionsForDevice: questionCatalog.forDevice,
+        maintenanceType,
+        fallbackTechnicianIds: bulkTechnicianIds,
+      });
+      setExcelName(file.name);
+      setExcelRows(result.rows);
+      setExcelIssues(result.errors);
+    } catch (readError) {
+      setError(readError.message || 'No fue posible leer el Excel.');
+    } finally {
+      setExcelReading(false);
+      event.target.value = '';
+    }
+  }
+
+  function downloadExcelTemplate() {
+    if (!excelCatalogReady || !bulkTypes.length || !excelEquipmentOptions.length) {
+      setError('Espere a que se carguen los catálogos antes de descargar la plantilla.');
+      return;
+    }
+    const workbook = createDeviceExcelWorkbook(excelTemplateSheets({
+      deviceTypes: bulkTypes,
+      equipmentOptions: excelEquipmentOptions,
+      technicians: bulkTechnicians,
+      catalogs: excelCatalog.catalogs,
+      questionsForDevice: questionCatalog.forDevice,
+      mode: maintenanceType,
+      counts: maintenanceCounts,
+    }));
+    const url = URL.createObjectURL(workbook);
+    const anchor = document.createElement('a');
+    anchor.href = url;
+    anchor.download = 'Plantilla_Dispositivos_DMS_' + maintenanceId + '.xlsx';
+    anchor.click();
+    window.setTimeout(() => URL.revokeObjectURL(url), 1000);
+  }
+
+  function clearExcel() {
+    if (saving || bulkEntries.length) return;
+    setExcelName('');
+    setExcelRows([]);
+    setExcelIssues([]);
+  }
 
   async function saveBulk() {
-    if (!bulkSelectedType || !bulkLocationId || !bulkNames.length || bulkNames.length > MAX_BULK_MAINTENANCE_DEVICES) return;
+    if (excelActive
+      ? (!excelRows.length || excelIssues.length)
+      : (!bulkSelectedType || !bulkLocationId || !bulkNames.length || bulkNames.length > MAX_BULK_MAINTENANCE_DEVICES)) return;
     const selectedLocation = equipmentOptions.find((item) => item.value === bulkLocationId);
-    if (!selectedLocation) {
+    if (!excelActive && !selectedLocation) {
       setError('Seleccione una ubicación del equipo válida.');
       return;
     }
@@ -302,7 +394,9 @@ export default function MaintenanceQuickDeviceCreator({
     // y para que el mecanismo offline existente encole una operación por dispositivo.
     const entries = bulkEntries.length
       ? bulkEntries.map((item) => ({ ...item }))
-      : bulkNames.map((name) => ({ name, id: createLocalId('dispositivo'), done: false, offlinePending: false }));
+      : excelActive
+        ? excelRows.map((item) => ({ name: item.name, draft: item.draft, locationName: item.locationName, id: createLocalId('dispositivo'), done: false, offlinePending: false }))
+        : bulkNames.map((name) => ({ name, id: createLocalId('dispositivo'), done: false, offlinePending: false }));
     setBulkEntries(entries);
     setSaving(true);
     setError('');
@@ -318,8 +412,9 @@ export default function MaintenanceQuickDeviceCreator({
           tipoDispositivoId: String(bulkSelectedType.typeId || ''),
           ubicacionEquipoId: bulkLocationId,
           tecnicoIds: [...bulkTechnicianIds],
-          ubicacionEquipoNombre: selectedLocation.name,
-          zona: selectedLocation.name,
+          ubicacionEquipoNombre: selectedLocation?.name || '',
+          zona: selectedLocation?.name || '',
+          ...(item.draft || {}),
         };
         const result = await requestAvailable(
           MODULE_ROUTES.maintenance.deviceCreate,
@@ -337,7 +432,7 @@ export default function MaintenanceQuickDeviceCreator({
       await onCreated?.({
         bulk: true,
         count: entries.length,
-        locationName: selectedLocation.name,
+        locationName: excelActive ? '' : selectedLocation.name,
         offlinePending: entries.some((item) => item.offlinePending),
       });
       onClose();
@@ -346,7 +441,7 @@ export default function MaintenanceQuickDeviceCreator({
       setError(`Se guardaron ${completed} de ${entries.length} dispositivos. ${current ? `No se pudo guardar “${current.name}”. ` : ''}${saveError.message || 'Vuelva a intentar los pendientes.'}`);
       if (completed) {
         try {
-          await onCreated?.({ bulk: true, count: completed, partial: true, locationName: selectedLocation.name });
+          await onCreated?.({ bulk: true, count: completed, partial: true, locationName: excelActive ? '' : selectedLocation.name });
         } catch { /* El error de refresco no debe ocultar los IDs confirmados. */ }
       }
     } finally {
@@ -407,20 +502,53 @@ export default function MaintenanceQuickDeviceCreator({
                 <small className="field-hint">La selección se aplicará a todos los dispositivos de esta lista. Luego podrá modificar los técnicos en cada equipo.</small>
               </div>
               <label className="field-group maintenance-bulk-device-form__names"><span className="field-label">Nombres de los dispositivos</span>
-                <textarea className="form-control ticket-textarea" rows="7" value={bulkNamesInput} onChange={(event) => setBulkNamesInput(event.target.value)} disabled={saving || bulkEntries.length > 0} placeholder={['Cámara uno', 'Cámara dos', 'Cámara tres'].join('\n')} />
+                <textarea className="form-control ticket-textarea" rows="7" value={bulkNamesInput} onChange={(event) => setBulkNamesInput(event.target.value)} disabled={saving || bulkEntries.length > 0 || excelActive} placeholder={['Cámara uno', 'Cámara dos', 'Cámara tres'].join('\n')} />
               </label>
             </div>
-            <p className="field-hint">Pegue los nombres separados por tabulación (Tab), uno debajo de otro o ambos. Se respetan los nombres y las mayúsculas que escriba; los espacios dentro del nombre se conservan.</p>
+            <div className="maintenance-bulk-excel" style={{ marginTop: 14, padding: 14, border: '1px solid var(--outline-soft)', borderRadius: 12 }}>
+              <div style={{ display: 'flex', gap: 10, flexWrap: 'wrap', alignItems: 'center' }}>
+                <button type="button" className="button button--secondary" onClick={downloadExcelTemplate} disabled={saving || excelReading || !excelCatalogReady}>
+                  <Icon name="download" /> Descargar plantilla Excel
+                </button>
+                <label className="button button--secondary" style={{ cursor: bulkEntries.length ? 'not-allowed' : 'pointer' }}>
+                  <Icon name="upload_file" /> {excelReading ? 'Leyendo Excel...' : 'Importar desde Excel (.xlsx)'}
+                  <input type="file" accept=".xlsx,application/vnd.openxmlformats-officedocument.spreadsheetml.sheet" onChange={readExcelFile} disabled={saving || excelReading || bulkEntries.length > 0 || !excelCatalogReady} style={{ display: 'none' }} />
+                </label>
+                {excelActive && <button type="button" className="button button--secondary" onClick={clearExcel} disabled={saving || bulkEntries.length > 0}><Icon name="close" /> Quitar Excel</button>}
+              </div>
+              <p className="field-hint">El Excel genera una pestaña por cada tipo planificado, con ubicaciones del cliente, fabricantes y modelos relacionados, preguntas actuales y listas de Sí/No. No necesita conocer IDs. Descargue una nueva copia cuando cambien los catálogos o las preguntas.</p>
+              {!excelCatalogReady && <small className="field-hint">Cargando catálogos de dispositivos, preguntas y técnicos para Excel...</small>}
+              {excelActive && <p><strong>{excelName}</strong> · {excelRows.length} filas detectadas · {excelIssues.length ? excelIssues.length + ' errores' : 'sin errores de validación'}</p>}
+              {excelIssues.length > 0 && <div className="alert alert--error" role="alert" style={{ display: 'block', maxHeight: 210, overflow: 'auto' }}>
+                <strong>Corrija el archivo y vuelva a cargarlo antes de importar:</strong>
+                <ul>{excelIssues.slice(0, 40).map((issue, i) => <li key={i}>{issue}</li>)}</ul>
+                {excelIssues.length > 40 && <p>Se muestran los primeros 40 errores.</p>}
+              </div>}
+              {excelActive && excelRows.length > 0 && <div style={{ overflowX: 'auto' }}>
+                <table className="maintenance-device-list" style={{ width: '100%', marginTop: 10 }}>
+                  <thead><tr><th>Fila</th><th>Dispositivo</th><th>Tipo</th><th>Ubicación</th><th>Validación</th></tr></thead>
+                  <tbody>{excelRows.slice(0, 12).map((item) => <tr key={item.rowNumber}>
+                    <td>{item.sheetName ? item.sheetName + ' · ' : ''}{item.rowNumber}</td><td>{item.name || 'Sin nombre'}</td><td>{item.draft.categoria}</td>
+                    <td>{item.locationName}</td><td>{item.issues.length ? item.issues.join(' · ') : 'Lista'}</td>
+                  </tr>)}</tbody>
+                </table>
+                {excelRows.length > 12 && <small className="field-hint">Se muestran 12 de {excelRows.length} filas. Se validarán todas.</small>}
+              </div>}
+            </div>
+            <p className="field-hint">Para pegar solo nombres, use la lista manual. Para incluir toda la información, use el Excel. No mezcle ambos métodos en la misma carga.</p>
             <div className="maintenance-bulk-device-form__summary" aria-live="polite">
-              <strong>{bulkEntries.length || bulkNames.length} dispositivo{(bulkEntries.length || bulkNames.length) === 1 ? '' : 's'} en la lista</strong>
+              <strong>{bulkEntries.length || bulkTotal} dispositivo{(bulkEntries.length || bulkTotal) === 1 ? '' : 's'} en la lista</strong>
               <span>{bulkDoneCount ? `${bulkDoneCount} confirmado${bulkDoneCount === 1 ? '' : 's'}${bulkOfflinePending ? ' (incluye guardados offline)' : ''}` : `Todos se crearán en estado pendiente · ${bulkTechnicianIds.length} técnico${bulkTechnicianIds.length === 1 ? '' : 's'} asignado${bulkTechnicianIds.length === 1 ? '' : 's'}.`}</span>
             </div>
-            {bulkNames.length > MAX_BULK_MAINTENANCE_DEVICES && <div className="alert alert--error" role="alert">El límite por lista es de {MAX_BULK_MAINTENANCE_DEVICES} dispositivos. Divida la lista en varios grupos.</div>}
-            {bulkNames.length > 0 && <div className="maintenance-bulk-device-form__preview"><strong>Vista previa</strong><div>{bulkNames.slice(0, 8).map((name, index) => <span key={index}>{name}</span>)}{bulkNames.length > 8 && <small>y {bulkNames.length - 8} más...</small>}</div></div>}
+            {!excelActive && bulkNames.length > MAX_BULK_MAINTENANCE_DEVICES && <div className="alert alert--error" role="alert">El límite por lista es de {MAX_BULK_MAINTENANCE_DEVICES} dispositivos. Divida la lista en varios grupos.</div>}
+            {!excelActive && bulkNames.length > 0 && <div className="maintenance-bulk-device-form__preview"><strong>Vista previa</strong><div>{bulkNames.slice(0, 8).map((name, index) => <span key={index}>{name}</span>)}{bulkNames.length > 8 && <small>y {bulkNames.length - 8} más...</small>}</div></div>}
             <footer className="maintenance-bulk-device-form__actions">
               <button className="button button--secondary" type="button" onClick={onClose} disabled={saving}>Cerrar</button>
-              <button className="button button--primary" type="button" onClick={saveBulk} disabled={saving || !bulkSelectedType || !bulkLocationId || !bulkNames.length || bulkNames.length > MAX_BULK_MAINTENANCE_DEVICES || bulkDoneCount === bulkEntries.length && bulkEntries.length > 0}>
-                <Icon name="playlist_add" />{bulkEntries.length ? 'Reintentar pendientes' : `Agregar ${bulkNames.length} dispositivos`}
+              <button className="button button--primary" type="button" onClick={saveBulk} disabled={saving || excelReading || (excelActive
+                ? (!excelRows.length || excelIssues.length > 0)
+                : (!bulkSelectedType || !bulkLocationId || !bulkNames.length || bulkNames.length > MAX_BULK_MAINTENANCE_DEVICES))
+                || bulkDoneCount === bulkEntries.length && bulkEntries.length > 0}>
+                <Icon name="playlist_add" />{bulkEntries.length ? 'Reintentar pendientes' : excelActive ? 'Importar ' + excelRows.length + ' dispositivos' : 'Agregar ' + bulkNames.length + ' dispositivos'}
               </button>
             </footer>
           </div>

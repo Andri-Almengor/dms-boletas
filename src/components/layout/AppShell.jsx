@@ -76,6 +76,7 @@ export default function AppShell() {
         {canCreateTickets && <NavLink to="/boletas/nueva"><Icon name="add_circle" /> Crear boleta</NavLink>}
         {canViewTickets && <NavLink to="/boletas/finalizadas"><Icon name="task_alt" /> Boletas finalizadas</NavLink>}
         {canViewMaintenance && <NavLink to="/mantenimientos"><Icon name="engineering" /> Mantenimientos</NavLink>}
+        {canViewMaintenance && <NavLink to="/inventario"><Icon name="inventory_2" /> Inventario</NavLink>}
         {isAdmin && <NavLink to="/metricas"><Icon name="monitoring" /> Métricas</NavLink>}
         {isAdmin && <NavLink to="/administracion/importar-boletas"><Icon name="upload_file" /> Importar boletas anteriores</NavLink>}
         <NavLink to="/conocimiento"><Icon name="menu_book" /> Base de conocimientos</NavLink>

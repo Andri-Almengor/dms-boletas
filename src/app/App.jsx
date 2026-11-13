@@ -60,6 +60,7 @@ const KnowledgeDetailPage = lazyPage(() => import('../pages/knowledge/KnowledgeD
 const KnowledgeEditorPage = lazyPage(() => import('../pages/knowledge/KnowledgeEditorPage'), routeStyles.knowledge);
 const KnowledgeListPage = lazyPage(() => import('../pages/knowledge/KnowledgeListPage'), routeStyles.knowledge);
 const MaintenanceDetailPage = lazyPage(() => import('../pages/maintenance/MaintenanceDetailPage'), routeStyles.maintenance);
+const ClientInventoryPage = lazyPage(() => import('../pages/inventory/ClientInventoryPage'), routeStyles.maintenance);
 const MaintenanceProjectDeviceDetailPage = lazyPage(() => import('../pages/maintenance/MaintenanceProjectDeviceDetailPage'), routeStyles.maintenance);
 const MaintenanceFinalizationsPage = lazyPage(() => import('../pages/maintenance/MaintenanceFinalizationsPage'), routeStyles.maintenance, routeStyles.more);
 const MaintenanceFormPage = lazyPage(() => import('../pages/maintenance/MaintenanceFormPage'), routeStyles.maintenance);
@@ -171,6 +172,8 @@ export default function App() {
           <Route path="casos" element={<PermissionRoute permission="USUARIOS_GESTIONAR"><CustomerCasesPage /></PermissionRoute>} />
           <Route path="casos/:caseId" element={<PermissionRoute permission="USUARIOS_GESTIONAR"><CustomerCaseDetailPage /></PermissionRoute>} />
           <Route path="mantenimientos" element={<PermissionRoute anyOf={MAINTENANCE_VIEW}><MaintenanceListPage /></PermissionRoute>} />
+          <Route path="inventario" element={<PermissionRoute anyOf={MAINTENANCE_VIEW}><ClientInventoryPage /></PermissionRoute>} />
+          <Route path="inventario/:clienteId" element={<PermissionRoute anyOf={MAINTENANCE_VIEW}><ClientInventoryPage /></PermissionRoute>} />
           <Route path="mantenimientos/nuevo" element={<PermissionRoute anyOf={MAINTENANCE_CREATE}><MaintenanceFormPage mode="create" /></PermissionRoute>} />
           <Route path="mantenimientos/:maintenanceId" element={<PermissionRoute anyOf={MAINTENANCE_VIEW}><MaintenanceDetailPage /></PermissionRoute>} />
           <Route path="mantenimientos/:maintenanceId/dispositivos/:deviceId" element={<PermissionRoute anyOf={MAINTENANCE_VIEW}><MaintenanceProjectDeviceDetailPage /></PermissionRoute>} />

@@ -7,6 +7,7 @@ import { rewriteTechnicalReport } from '../services/gemini.service.js';
 import { rewriteKnowledgeTutorial } from '../services/knowledge-gemini.service.js';
 import { assistantAgendaHandlers as assistantOperationalReportHandlers } from '../modules/assistant-agenda.module.js';
 import { agendaHandlers } from '../modules/agenda.module.js';
+import { clientInventoryHandlers } from '../modules/client-inventory.module.js';
 import { agendaResendHandlers } from '../modules/agenda-resend.module.js';
 import { usersHandlers } from '../modules/users.module.js';
 import { crudHandlers } from '../modules/crud.module.js';
@@ -216,6 +217,11 @@ for(const [key,names] of Object.entries(maintenanceAliases)) {
           : maintenanceAutomationHandlers[key];
   add(names,handler,permission);
 }
+// Inventario: lectura mediante permisos existentes; generación SOLO administrador.
+add('inventory.clients.list', clientInventoryHandlers.clients, maintenanceReadPermissions);
+add('inventory.devices.list', clientInventoryHandlers.devices, maintenanceReadPermissions);
+add('inventory.device.get', clientInventoryHandlers.detail, maintenanceReadPermissions);
+add('inventory.generate', clientInventoryHandlers.generate, 'USUARIOS_GESTIONAR');
 add(['maintenance.images.large.init','mantenimientos.imagenes.grande.iniciar'], largeEvidenceUploadHandlers.maintenanceInit, maintenanceEditPermissions);
 add(['maintenance.images.large.chunk','mantenimientos.imagenes.grande.bloque'], largeEvidenceUploadHandlers.maintenanceChunk, maintenanceEditPermissions);
 

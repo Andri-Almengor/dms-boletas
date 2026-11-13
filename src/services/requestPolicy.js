@@ -3,6 +3,8 @@ export function requestTimeoutMs(route) {
   const value = String(route || '').toLowerCase();
   if (value === 'auth.login') return 20_000;
   if (value === 'auth.me') return 25_000;
+  // Gemini + consulta de grandes mantenimientos: superior al presupuesto del backend.
+  if (value === 'inventory.generate') return 240_000;
   // Incluye el máximo del agente (180 s) y margen para cola, transporte y respuesta.
   // El navegador nunca debe abandonar antes que el presupuesto del backend.
   if (['assistant.chat','asistente.chat'].includes(value)) return 240_000;
