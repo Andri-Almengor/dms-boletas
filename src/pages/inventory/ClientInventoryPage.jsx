@@ -348,7 +348,7 @@ function InventoryClientTable({ clientId, sessionToken, navigate }) {
     {error && <div className="alert alert--error" role="alert">{error}</div>}
     {loading && <div className="state-card state-card--loading"><Icon name="progress_activity" /> Cargando equipos...</div>}
     {!loading && !result.generated && <div className="empty-state">
-      <Icon name="inventory_2" /><p>Este cliente aún no tiene inventario generado por un administrador.</p></div>}
+      <Icon name="inventory_2" /><p>Este cliente aún no tiene inventario generado por un Administrador o Supervisor.</p></div>}
     {!loading && result.generated && !result.items.length && <div className="empty-state">
       <Icon name="search_off" /><p>No hay equipos registrados en mantenimientos para esta búsqueda.</p></div>}
     {!loading && result.items.length>0 && <div className="client-inventory-table-wrap">
