@@ -49,7 +49,7 @@ test('al agregar una ubicación solo se ofrece copiar equipos cuando hay inventa
   assert.match(modal,/equipmentLocationId: selection\.id/);
   assert.match(modal,/clienteId: clientId/);
   assert.match(modal,/setIncludeInventoryDevices\(false\)/);
-  assert.match(modal,/inventoryPreview\?\.generated && !projectMode/);
+  assert.match(modal,/inventoryPreview\?\.generated && inventoryPreview\.locationId === selection\?\.id && !projectMode/);
   assert.match(modal,/type="checkbox" checked=\{includeInventoryDevices\}/);
   assert.match(modal,/inventoryPreview\.count < 1/);
   assert.match(modal,/if \(!open \|\| !selection\?\.id \|\| !clientId \|\| !sessionToken \|\| projectMode/);
