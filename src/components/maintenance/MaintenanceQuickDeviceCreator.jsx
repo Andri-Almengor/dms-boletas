@@ -508,10 +508,10 @@ export default function MaintenanceQuickDeviceCreator({
             <div className="maintenance-bulk-excel">
               <div className="maintenance-bulk-excel__actions" role="group" aria-label="Herramientas de Excel">
                 <button type="button" className="button button--secondary maintenance-bulk-excel__button" onClick={downloadExcelTemplate} disabled={saving || excelReading || !excelCatalogReady}>
-                  <Icon name="download" /> <span>Descargar plantilla</span><small>Excel .xlsx</small>
+                  <Icon name="download" /> <span>Descargar plantilla Excel</span>
                 </button>
                 <label className={'button button--secondary maintenance-bulk-excel__button maintenance-bulk-excel__upload' + ((saving || excelReading || bulkEntries.length > 0 || !excelCatalogReady) ? ' is-disabled' : '')}>
-                  <Icon name="upload_file" /> <span>{excelReading ? 'Leyendo Excel…' : 'Importar dispositivos'}</span><small>Excel .xlsx</small>
+                  <Icon name="upload_file" /> <span>{excelReading ? 'Leyendo Excel…' : 'Importar desde Excel (.xlsx)'}</span>
                   <input type="file" accept=".xlsx,application/vnd.openxmlformats-officedocument.spreadsheetml.sheet" onChange={readExcelFile} disabled={saving || excelReading || bulkEntries.length > 0 || !excelCatalogReady} aria-label="Importar desde Excel (.xlsx)" />
                 </label>
                 {excelActive && <button type="button" className="button button--secondary maintenance-bulk-excel__clear" onClick={clearExcel} disabled={saving || bulkEntries.length > 0}><Icon name="close" /> Quitar Excel</button>}
