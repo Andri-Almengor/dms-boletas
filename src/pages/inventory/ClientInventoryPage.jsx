@@ -1,4 +1,4 @@
-import React, { useCallback, useEffect, useRef, useState } from 'react';
+import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { Link, useNavigate, useParams } from 'react-router-dom';
 import { useAuth } from '../../AuthContext';
 import Icon from '../../components/common/Icon';
@@ -94,14 +94,14 @@ function InventoryDetailModal({ clientId, items, index, onMove, onClose, session
 
   if (!item) return null;
   const current = data?.device || item;
-  const photos = (data?.media || []).map((photo) => ({
+  const photos = useMemo(() => (data?.media || []).map((photo) => ({
     ...photo,
     alt: photo.label + ' · ' + sourceLabel(photo.type),
     sourceLabel: sourceLabel(photo.type) + ': ' + (photo.label || ''),
     sourceDate: readableDate(photo.date),
     previewSource: photo.fileId
       ? 'https://drive.google.com/thumbnail?id=' + encodeURIComponent(photo.fileId) + '&sz=w1200' : '',
-  }));
+  })), [data?.media]);
 
   return <>
     <div className="client-inventory-overlay" role="presentation" onMouseDown={(e) => {
