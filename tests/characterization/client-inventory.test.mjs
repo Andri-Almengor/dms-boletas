@@ -6,7 +6,7 @@ import path from 'node:path';
 import {
   normalizeInventoryText, sameInventoryDevice, groupInventoryDevices,
   candidateInventoryAliases, mergeInventoryAliases, attachInventoryTickets,
-  buildInventorySnapshot,
+  buildInventorySnapshot, verifiedInventoryCondition,
 } from '../../backend/src/core/client-inventory-domain.js';
 
 const ROOT = fileURLToPath(new URL('../../', import.meta.url));
@@ -315,4 +315,15 @@ test('resumen de estado se guarda solo durante generación manual, con Gemini y 
   assert.match(ui,/no es un diagnóstico ni una lectura del equipo en tiempo real/);
   assert.match(ui,/sourceType === 'BOLETA' \? 'última boleta' : 'último mantenimiento'/);
   assert.match(ui,/sourcePath\(current\.details\.currentStatus\.sourceType/);
+});
+
+
+test('Gemini no presenta fallas negadas como averías, ni equipo sin pruebas como operativo', () => {
+  assert.equal(verifiedInventoryCondition('REQUIERE_ATENCION', 'Sin fallas detectadas; limpieza realizada'), 'NO_DETERMINADO');
+  assert.equal(verifiedInventoryCondition('REQUIERE_ATENCION', 'No se reporta avería; equipo en revisión'), 'NO_DETERMINADO');
+  assert.equal(verifiedInventoryCondition('REQUIERE_ATENCION', 'Falla corregida y probada'), 'NO_DETERMINADO');
+  assert.equal(verifiedInventoryCondition('REQUIERE_ATENCION', 'Equipo no funciona; pendiente de reparación'), 'REQUIERE_ATENCION');
+  assert.equal(verifiedInventoryCondition('OPERATIVO', 'Solo se hizo limpieza'), 'NO_DETERMINADO');
+  assert.equal(verifiedInventoryCondition('OPERATIVO', 'Funcionamiento: Sí; Estado: Correcto'), 'OPERATIVO');
+  assert.equal(verifiedInventoryCondition('OPERATIVO', 'Equipo no operativo'), 'NO_DETERMINADO');
 });
