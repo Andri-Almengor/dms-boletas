@@ -73,3 +73,6 @@
  .client-inventory-detail__footer>span{display:none}
  .client-inventory-detail__footer>div{width:100%;justify-content:space-between}
 }
+
+/* El visor compartido debe abrir encima del detalle (modal anidado). */
+.client-inventory-page .image-viewer--gallery{z-index:1700}
