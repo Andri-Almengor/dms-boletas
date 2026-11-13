@@ -313,5 +313,6 @@ test('resumen de estado se guarda solo durante generación manual, con Gemini y 
   assert.match(ui,/Estado actual según el último registro/);
   assert.match(ui,/Resumen asistido por Gemini/);
   assert.match(ui,/no es un diagnóstico ni una lectura del equipo en tiempo real/);
-  assert.match(ui,/Ver último/);
+  assert.match(ui,/sourceType === 'BOLETA' \? 'última boleta' : 'último mantenimiento'/);
+  assert.match(ui,/sourcePath\(current\.details\.currentStatus\.sourceType/);
 });
