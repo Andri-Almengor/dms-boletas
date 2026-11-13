@@ -5,7 +5,7 @@ import { audit } from '../services/audit.service.js';
 import { suggestInventoryMerges, summarizeInventoryDeviceStatuses } from '../services/assistant-gemini.service.js';
 import {
   groupInventoryDevices, candidateInventoryAliases, mergeInventoryAliases,
-  buildInventorySnapshot,
+  buildInventorySnapshot, verifiedInventoryCondition,
 } from '../core/client-inventory-domain.js';
 
 const MAX_SOURCE_DEVICES = 20000;
@@ -200,13 +200,10 @@ async function inventoryCurrentStatusBySource(snapshot) {
         for (const workItem of batch) {
           const candidate = byId.get(workItem.id);
           if (!candidate) continue;
-          const sourceText = clean(workItem.latest.summary).toLowerCase();
-          // Un estado afirmativo requiere respaldo explícito en el registro.
-          const explicitlyWorking = /(?:funcionamiento:\s*s[ií]|funciona correctamente|funcionando correctamente|estado:\s*correcto|equipo operativo|resultado:\s*correcto|operativo)/i.test(sourceText);
-          const explicitlyFailed = /(?:no funciona|aver[ií]a|falla|defectuoso|no operativo|mal estado|pendiente de reparaci[oó]n)/i.test(sourceText);
-          let condition = candidate.condition;
-          if (condition === 'OPERATIVO' && !explicitlyWorking) condition = 'NO_DETERMINADO';
-          if (condition === 'REQUIERE_ATENCION' && !explicitlyFailed) condition = 'NO_DETERMINADO';
+          // Si Gemini exagera un estado (ej. "falla" en "sin fallas"),
+          // rechazarlo por completo, incluido su texto; conservar registro.
+          const condition = verifiedInventoryCondition(candidate.condition, workItem.latest.summary);
+          if (condition !== candidate.condition) continue;
           results.set(workItem.key, {
             ...recordedCurrentStatus(workItem),
             condition,
