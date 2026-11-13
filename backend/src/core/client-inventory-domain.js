@@ -171,6 +171,55 @@ export function mergeInventoryAliases(groups, pairs, approved = []) {
   return groups.filter((_, index) => find(index) === index);
 }
 
+
+/**
+ * Una unión manual requiere confirmación administrativa, pero nunca debe mezclar
+ * categorías ni equipos con serie/MAC contradictorios. Fabricante, modelo y
+ * ubicación pueden diferir entre mantenimientos históricos del mismo equipo.
+ */
+export function compatibleManualInventoryDevices(left, right) {
+  if (category(left) !== category(right)) return false;
+  if (serial(left) && serial(right) && serial(left) !== serial(right)) return false;
+  if (mac(left) && mac(right) && mac(left) !== mac(right)) return false;
+  return true;
+}
+
+/**
+ * Reaplica los enlaces históricos guardados en PostgreSQL ANTES de asociar
+ * boletas y construir el snapshot. Así se agrupan también fotos y eventos.
+ * Conserva como representante la evidencia de referencia elegida manualmente.
+ */
+export function applyManualInventoryLinks(groups = [], manualLinks = []) {
+  if (!manualLinks.length) return groups;
+  const active = groups.map((g) => ({
+    representative: g.representative,
+    sources: [...g.sources],
+    aliases: [...g.aliases],
+  }));
+  const sourceToGroup = new Map();
+  for (const group of active) {
+    for (const source of group.sources) sourceToGroup.set(clean(source.EvidenciaMantenimientoID), group);
+  }
+  const removed = new Set();
+  for (const link of manualLinks) {
+    const source = sourceToGroup.get(clean(link.source_id || link.sourceId));
+    const canonical = sourceToGroup.get(clean(link.canonical_source_id || link.canonicalSourceId));
+    // Registros eliminados o retirados dejan su vínculo guardado, pero no
+    // producen dispositivos inexistentes ni enlazan con otro cliente.
+    if (!source || !canonical || source === canonical) continue;
+    const safe = source.sources.every((a) => canonical.sources.every((b) =>
+      compatibleManualInventoryDevices(a,b)));
+    if (!safe) throw new Error('Un vínculo histórico manual ya no es compatible con el tipo, número de serie o MAC registrados.');
+    canonical.sources.push(...source.sources);
+    for (const alias of source.aliases) {
+      if (!canonical.aliases.includes(alias)) canonical.aliases.push(alias);
+    }
+    for (const entry of source.sources) sourceToGroup.set(clean(entry.EvidenciaMantenimientoID),canonical);
+    removed.add(source);
+  }
+  return active.filter((group) => !removed.has(group));
+}
+
 export function inventoryDeviceId(clientId, group, previousSourceIds = new Map()) {
   for (const source of group.sources) {
     const matched = previousSourceIds.get(clean(source.EvidenciaMantenimientoID));
