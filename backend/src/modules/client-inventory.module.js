@@ -166,18 +166,25 @@ export const clientInventoryHandlers = {
       'SELECT client_id,generated_at,revision,device_count,ai_status FROM dms_client_inventory WHERE client_id=$1',
       [id], 'inventory.client.status');
     if (!summary) return { generated: false, items: [], page, pageSize, hasMore: false };
-    const result = rows(await query(
-      'SELECT device_id AS id,device_type AS type,device_name AS name,'
-      + ' location_name AS location,manufacturer,model,serial,mac'
-      + ' FROM dms_client_inventory_devices WHERE client_id=$1'
+    const filterSql = ' FROM dms_client_inventory_devices WHERE client_id=$1'
       + ' AND (device_name ILIKE $2 ESCAPE \'\\\' OR device_type ILIKE $2 ESCAPE \'\\\''
       + ' OR location_name ILIKE $2 ESCAPE \'\\\' OR manufacturer ILIKE $2 ESCAPE \'\\\''
-      + ' OR model ILIKE $2 ESCAPE \'\\\' OR serial ILIKE $2 ESCAPE \'\\\')'
-      + ' ORDER BY device_type,location_name,device_name,device_id LIMIT $3 OFFSET $4',
-      [id, pattern, pageSize + 1, (page - 1) * pageSize], { label: 'inventory.devices.list' }));
+      + ' OR model ILIKE $2 ESCAPE \'\\\' OR serial ILIKE $2 ESCAPE \'\\\')';
+    // Conteo filtrado exacto para "Página 1/5" sin cargar todos los equipos.
+    const [pageResult, countResult] = await Promise.all([
+      query('SELECT device_id AS id,device_type AS type,device_name AS name,'
+        + ' location_name AS location,manufacturer,model,serial,mac'
+        + filterSql
+        + ' ORDER BY device_type,location_name,device_name,device_id LIMIT $3 OFFSET $4',
+        [id, pattern, pageSize + 1, (page - 1) * pageSize], { label: 'inventory.devices.list' }),
+      query('SELECT COUNT(*)::integer AS count' + filterSql, [id, pattern],
+        { label: 'inventory.devices.count' }),
+    ]);
+    const result = rows(pageResult);
+    const totalFiltered = Number(countResult.rows?.[0]?.count || 0);
     return {
       generated: true, generatedAt: summary.generated_at, revision: summary.revision,
-      total: summary.device_count, aiStatus: summary.ai_status,
+      total: summary.device_count, totalFiltered, aiStatus: summary.ai_status,
       items: result.slice(0,pageSize), page, pageSize, hasMore: result.length > pageSize,
     };
   },
