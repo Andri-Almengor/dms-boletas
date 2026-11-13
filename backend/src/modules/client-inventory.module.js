@@ -229,15 +229,18 @@ export const clientInventoryHandlers = {
         aiStatus = 'gemini_no_disponible';
       }
     }
-    const previous = await previousIdMap(id);
-    const snapshot = buildInventorySnapshot({
-      clientId: id, groups, previousSourceIds: previous,
-      tickets: source.tickets, ticketEvidence: source.ticketEvidence,
-      maintenanceImages: source.maintenanceImages,
-    });
+    let snapshot;
     await withTransaction(async () => {
       await query('SELECT pg_advisory_xact_lock(hashtext($1))', ['client-inventory:'+id],
         { label: 'inventory.generate.lock' });
+      // La asignación de IDs históricos se lee BAJO el lock; las generaciones
+      // concurrentes no pueden calcular una versión con IDs ya reemplazados.
+      const previous = await previousIdMap(id);
+      snapshot = buildInventorySnapshot({
+        clientId: id, groups, previousSourceIds: previous,
+        tickets: source.tickets, ticketEvidence: source.ticketEvidence,
+        maintenanceImages: source.maintenanceImages,
+      });
       const prior = await selectOne('SELECT revision FROM dms_client_inventory WHERE client_id=$1 FOR UPDATE',
         [id], 'inventory.generate.prior');
       await query(
