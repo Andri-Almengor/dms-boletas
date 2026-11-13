@@ -10,9 +10,18 @@ function tokens(value) {
 }
 function canonicalName(value) { return tokens(value).join(' '); }
 function compact(value) { return normalizeInventoryText(value).replace(/\s/g, ''); }
-function category(row) { return normalizeInventoryText(row.TipoDispositivo || row.Categoria); }
+function category(row) {
+  const name = normalizeInventoryText(row.TipoDispositivo || row.Categoria);
+  const canonical = {
+    camaras:'camara', camarasip:'camara', puertas:'puerta', servidores:'servidor',
+    grabadores:'grabador', bocinas:'bocina', impresoras:'impresora',
+    gabinetes:'gabinete', sensores:'sensor',
+  };
+  return canonical[name] || name;
+}
 function location(row) { return clean(row.UbicacionEquipoID) || normalizeInventoryText(row.Zona); }
 function model(row) { return clean(row.ModeloID) || normalizeInventoryText(row.Modelo); }
+function manufacturer(row) { return clean(row.FabricanteID) || normalizeInventoryText(row.Fabricante); }
 function serial(row) { return compact(row.Serie); }
 function mac(row) { return compact(row.DireccionMAC); }
 function name(row) { return clean(row.NombreDispositivo); }
@@ -24,6 +33,7 @@ function hasDistinctName(row) {
 }
 export function compatibleInventoryDevices(left, right) {
   if (category(left) !== category(right)) return false;
+  if (manufacturer(left) && manufacturer(right) && manufacturer(left) !== manufacturer(right)) return false;
   if (serial(left) && serial(right) && serial(left) !== serial(right)) return false;
   if (mac(left) && mac(right) && mac(left) !== mac(right)) return false;
   if (model(left) && model(right) && model(left) !== model(right)) {
@@ -162,13 +172,20 @@ function ticketCandidates(ticket, groups, sourceToGroup, evidenceSourceIds = [])
     ...evidenceSourceIds.map(clean),
   ].map((id) => sourceToGroup.get(id)).filter(Boolean);
   if (direct.length) return [...new Set(direct)].length === 1 ? [direct[0]] : [];
-  const ticketType = normalizeInventoryText(ticket.TipoDispositivo);
+  const ticketType = category(ticket);
+  const ticketManufacturer = manufacturer(ticket);
+  const ticketModel = model(ticket);
+  const matchesCatalog = (g) =>
+    (!ticketManufacturer || !manufacturer(g.representative)
+      || ticketManufacturer === manufacturer(g.representative))
+    && (!ticketModel || !model(g.representative)
+      || ticketModel === model(g.representative));
   const ticketSerial = compact(ticket.Serie);
   const ticketMac = compact(ticket.DireccionMAC);
   if (ticketSerial || ticketMac) {
     const matched = groups.filter((g) =>
       (!ticketType || category(g.representative) === ticketType)
-      && g.sources.some((row) =>
+      && matchesCatalog(g) && g.sources.some((row) =>
         ticketSerial && serial(row) === ticketSerial || ticketMac && mac(row) === ticketMac));
     return matched.length === 1 ? matched : [];
   }
@@ -182,7 +199,7 @@ function ticketCandidates(ticket, groups, sourceToGroup, evidenceSourceIds = [])
   const ticketLocation = clean(ticket.UbicacionEquipoID);
   const matches = groups.filter((g) => {
     const r = g.representative;
-    if (category(r) !== ticketType) return false;
+    if (category(r) !== ticketType || !matchesCatalog(g)) return false;
     if (ticketLocation && location(r) !== ticketLocation) return false;
     return g.sources.some((row) => hasDistinctName(row) && tokens(name(row)).every((token) =>
       new RegExp('(?:^| )' + token + '(?: |$)').test(ticketText)));
