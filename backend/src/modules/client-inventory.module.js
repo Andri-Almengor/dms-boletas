@@ -190,22 +190,29 @@ export const clientInventoryHandlers = {
       [id,target], 'inventory.device.detail');
     if (!device) throw notFound('El dispositivo no existe en este inventario.');
     const permission = allTickets(ctx), userId = clean(ctx.user.UsuarioID);
-    const events = rows(await query(
+    const eventOffset = Math.max(0, Math.min(100000, Number(ctx.payload?.eventOffset) || 0));
+    const mediaOffset = Math.max(0, Math.min(100000, Number(ctx.payload?.mediaOffset) || 0));
+    const loadEvents = ctx.payload?.includeEvents !== false;
+    const loadMedia = ctx.payload?.includeMedia !== false;
+    const events = loadEvents ? rows(await query(
       'SELECT e.event_key AS id,e.event_type AS type,e.source_id AS "sourceId",'
       + ' e.occurred_at AS date,e.title,e.summary,e.technicians'
       + ' FROM dms_client_inventory_events e WHERE e.client_id=$1 AND e.device_id=$2'
       + ' AND ' + ticketVisibilityCondition('e')
-      + ' ORDER BY e.occurred_at DESC,e.event_key DESC LIMIT 1000',
-      [id,target,permission,userId], { label: 'inventory.device.events' }));
-    const media = rows(await query(
+      + ' ORDER BY e.occurred_at DESC,e.event_key DESC LIMIT $5 OFFSET $6',
+      [id,target,permission,userId,101,eventOffset], { label: 'inventory.device.events' })) : [];
+    const media = loadMedia ? rows(await query(
       'SELECT e.media_key AS id,e.media_type AS type,e.source_id AS "sourceId",'
       + ' e.evidence_id AS "evidenceId",e.occurred_at AS date,e.label,'
       + ' e.mime_type AS "mimeType",e.file_id AS "fileId"'
       + ' FROM dms_client_inventory_media e WHERE e.client_id=$1 AND e.device_id=$2'
       + ' AND ' + mediaVisibilityCondition('e')
-      + ' ORDER BY e.occurred_at DESC,e.media_key DESC LIMIT 1000',
-      [id,target,permission,userId], { label: 'inventory.device.media' }));
-    return { device, events, media };
+      + ' ORDER BY e.occurred_at DESC,e.media_key DESC LIMIT $5 OFFSET $6',
+      [id,target,permission,userId,101,mediaOffset], { label: 'inventory.device.media' })) : [];
+    return {
+      device, events: events.slice(0,100), media: media.slice(0,100),
+      hasMoreEvents: events.length>100, hasMoreMedia: media.length>100,
+    };
   },
   generate: async (ctx) => {
     adminGuard(ctx);
