@@ -110,11 +110,17 @@ function InventoryDetailModal({ clientId, items, index, onMove, onClose, session
       <section className="client-inventory-detail" role="dialog" aria-modal="true"
         aria-label={'Detalle: ' + current.name}>
         <header className="client-inventory-detail__header">
-          <div><span className="eyebrow">INVENTARIO · DISPOSITIVO</span>
-            <h2>{current.name}</h2>
-            <small>{current.type || 'Tipo sin especificar'} · {current.location || 'Sin ubicación'}</small>
+          <div className="client-inventory-detail__identity">
+            <span className="client-inventory-detail__symbol"><Icon name="devices" /></span>
+            <div><span className="eyebrow">FICHA DEL DISPOSITIVO</span>
+              <h2>{current.name}</h2>
+              <div className="client-inventory-detail__meta">
+                <span><Icon name="category" /> {current.type || 'Tipo sin especificar'}</span>
+                <span><Icon name="location_on" /> {current.location || 'Sin ubicación'}</span>
+              </div>
+            </div>
           </div>
-          <button type="button" className="icon-button" onClick={onClose} aria-label="Cerrar detalle"><Icon name="close" /></button>
+          <button type="button" className="icon-button client-inventory-detail__close" onClick={onClose} aria-label="Cerrar detalle"><Icon name="close" /></button>
         </header>
         <button type="button" className="client-inventory-detail__arrow client-inventory-detail__arrow--left"
           onClick={() => onMove(-1)} aria-label="Dispositivo anterior" title="Dispositivo anterior">
@@ -129,7 +135,7 @@ function InventoryDetailModal({ clientId, items, index, onMove, onClose, session
           {error && <div className="alert alert--error" role="alert">{error}</div>}
           {!loading && !error && data && <>
             <section className="client-inventory-detail__section">
-              <h3>Características del equipo</h3>
+              <h3><Icon name="tune" /> Características del equipo</h3>
               <dl className="client-inventory-features">
                 {[
                   ['Tipo',current.type],['Fabricante',current.manufacturer],['Modelo',current.model],
@@ -138,23 +144,24 @@ function InventoryDetailModal({ clientId, items, index, onMove, onClose, session
                   ['En uso',current.details?.inUse],['Estado',current.details?.state],
                 ].map(([label,value]) => <div key={label}><dt>{label}</dt><dd>{value || 'Sin registrar'}</dd></div>)}
               </dl>
-              {current.details?.aliases?.length > 1 && <p className="field-hint">
-                Nombres consolidados: {current.details.aliases.join(' · ')}
+              {current.details?.aliases?.length > 1 && <p className="client-inventory-aliases">
+                <Icon name="merge_type" /> <span><strong>Nombres consolidados:</strong> {current.details.aliases.join(' · ')}</span>
               </p>}
             </section>
             <section className="client-inventory-detail__section">
-              <h3>Historial de trabajos <span>({data.events?.length || 0})</span></h3>
+              <h3><Icon name="history" /> Historial de trabajos <span className="client-inventory-count">{data.events?.length || 0}{data.hasMoreEvents ? '+' : ''}</span></h3>
               {!(data.events || []).length
                 ? <p className="field-hint">Todavía no hay trabajos relacionados de manera verificable con este dispositivo.</p>
                 : <div className="client-inventory-timeline">{data.events.map((entry) => (
                   <article key={entry.id} className="client-inventory-timeline__event">
-                    <div className="client-inventory-timeline__date">{readableDate(entry.date)}</div>
-                    <div><strong>{entry.title || sourceLabel(entry.type)}</strong>
-                      <small>{sourceLabel(entry.type)}</small>
+                    <div className="client-inventory-timeline__date"><Icon name="event" /> {readableDate(entry.date)}</div>
+                    <div className="client-inventory-timeline__content">
+                      <span className={'client-inventory-origin client-inventory-origin--' + entry.type.toLowerCase()}>{sourceLabel(entry.type)}</span>
+                      <strong>{entry.title || sourceLabel(entry.type)}</strong>
                       <p>{entry.summary || 'Registro de trabajo sin observaciones adicionales.'}</p>
-                      <p className="client-inventory-timeline__people"><Icon name="engineering" /> {entry.technicians || 'Técnicos sin registrar'}</p>
+                      <p className="client-inventory-timeline__people"><Icon name="group" /> {entry.technicians || 'Técnicos sin registrar'}</p>
                       <Link to={sourcePath(entry.type, entry.sourceId)} target="_blank" rel="noopener noreferrer">
-                        <Icon name="open_in_new" /> Ver {sourceLabel(entry.type).toLowerCase()}
+                        Ver {sourceLabel(entry.type).toLowerCase()} <Icon name="open_in_new" />
                       </Link>
                     </div>
                   </article>
@@ -165,19 +172,24 @@ function InventoryDetailModal({ clientId, items, index, onMove, onClose, session
               </button>}
             </section>
             <section className="client-inventory-detail__section">
-              <h3>Galería de evidencias <span>({photos.length})</span></h3>
+              <h3><Icon name="photo_library" /> Galería de evidencias <span className="client-inventory-count">{photos.length}{data.hasMoreMedia ? '+' : ''}</span></h3>
               {!photos.length
                 ? <p className="field-hint">No hay fotografías asociadas a los trabajos registrados.</p>
                 : <div className="client-inventory-gallery">
                   {photos.map((photo, i) => <button type="button" key={photo.id}
                     className="client-inventory-gallery__item" onClick={() => setLightboxIndex(i)}
-                    aria-label={'Abrir fotografía de ' + photo.label}>
-                    {photo.previewSource
-                      ? <img src={photo.previewSource} loading="lazy" alt="" referrerPolicy="no-referrer"
-                        onError={(event) => { event.currentTarget.style.display = 'none'; }} />
-                      : <Icon name="image" />}
-                    <strong>{photo.label}</strong>
-                    <small>{sourceLabel(photo.type)} · {readableDate(photo.date)}</small>
+                    aria-label={'Abrir fotografía de ' + photo.label + ', ' + readableDate(photo.date)}>
+                    <span className="client-inventory-gallery__preview">
+                      <Icon name="image" />
+                      {photo.previewSource && <img src={photo.previewSource} loading="lazy" alt="" referrerPolicy="no-referrer"
+                        onError={(event) => { event.currentTarget.style.display = 'none'; }} />}
+                      <span className="client-inventory-gallery__zoom"><Icon name="zoom_in" /></span>
+                    </span>
+                    <span className="client-inventory-gallery__info">
+                      <span className={'client-inventory-origin client-inventory-origin--' + photo.type.toLowerCase()}>{sourceLabel(photo.type)}</span>
+                      <strong title={photo.label}>{photo.label}</strong>
+                      <small><Icon name="event" /> {readableDate(photo.date)}</small>
+                    </span>
                   </button>)}
                 </div>}
               {data.hasMoreMedia && <button type="button" className="button button--secondary"
@@ -188,11 +200,11 @@ function InventoryDetailModal({ clientId, items, index, onMove, onClose, session
           </>}
         </div>
         <div className="client-inventory-detail__footer">
-          <span>Dispositivo {index+1} de {items.length} en esta página</span>
+          <span><Icon name="inventory_2" /> Dispositivo <strong>{index+1}</strong> de {items.length} en esta página</span>
           <div><button type="button" className="button button--secondary" onClick={() => onMove(-1)}
-            aria-label="Anterior">Anterior</button>
+            aria-label="Anterior"><Icon name="chevron_left" /> Anterior</button>
           <button type="button" className="button button--secondary" onClick={() => onMove(1)}
-            aria-label="Siguiente">Siguiente</button></div>
+            aria-label="Siguiente">Siguiente <Icon name="chevron_right" /></button></div>
         </div>
       </section>
     </div>
@@ -241,22 +253,31 @@ function ClientList({ sessionToken, isAdmin, navigate }) {
 
   return <div className="client-inventory-page">
     <header className="client-inventory-page__header">
-      <div><span className="eyebrow">DMS BOLETAS</span><h1>Inventario</h1>
-        <p>Clientes con boletas o mantenimientos registrados. El inventario se genera solamente al solicitarlo.</p></div>
+      <div><span className="eyebrow">DMS BOLETAS · GESTIÓN DE EQUIPOS</span><h1>Inventario</h1>
+        <p>Clientes con mantenimientos registrados. El inventario se genera o actualiza únicamente cuando lo solicitás.</p></div>
     </header>
     <label className="field-group client-inventory-search"><span className="field-label">Buscar cliente</span>
-      <input className="form-control" type="search" value={search} onChange={(e) => setSearch(e.target.value)}
-        placeholder="Nombre del cliente..." /></label>
+      <span className="client-inventory-search__input"><Icon name="search" />
+        <input className="form-control" type="search" value={search} onChange={(e) => setSearch(e.target.value)}
+          placeholder="Nombre del cliente con mantenimiento..." /></span></label>
     {error && <div className="alert alert--error" role="alert">{error}</div>}
     {loading && <div className="state-card state-card--loading"><Icon name="progress_activity" /> Cargando clientes...</div>}
     {!loading && !result.items.length && <div className="empty-state"><Icon name="groups" />
-      <p>No hay clientes con actividad registrada para esta búsqueda.</p></div>}
+      <p>No hay clientes con mantenimientos registrados para esta búsqueda.</p></div>}
     {!loading && <div className="client-inventory-clients">
       {result.items.map((item) => <article className="client-inventory-client" key={item.id}>
-        <div><h2>{item.name}</h2>
+        <div className="client-inventory-client__top">
+          <span className="client-inventory-client__icon"><Icon name="business" /></span>
+          <span className={'client-inventory-client__status' + (item.generatedAt ? ' is-ready' : '')}>
+            <Icon name={item.generatedAt ? 'check_circle' : 'schedule'} />
+            {item.generatedAt ? 'Disponible' : 'Sin generar'}
+          </span>
+        </div>
+        <div className="client-inventory-client__main">
+          <h2>{item.name}</h2>
           <p>{item.generatedAt
-            ? 'Inventario generado · ' + readableDate(item.generatedAt) + ' · ' + item.deviceCount + ' dispositivos'
-            : 'Todavía no se ha generado un inventario'}</p>
+            ? <><strong>{item.deviceCount} dispositivos</strong> · Actualizado el {readableDate(item.generatedAt)}</>
+            : 'Mantenimiento registrado · Inventario pendiente de generar'}</p>
           {item.aiStatus === 'gemini_no_disponible' && <small className="client-inventory-warning">
             Gemini no estuvo disponible; solo se unificaron coincidencias verificables.</small>}
         </div>
@@ -337,14 +358,19 @@ function InventoryClientTable({ clientId, sessionToken, navigate }) {
       <div><button type="button" className="button button--secondary" onClick={()=>navigate('/inventario')}>
         <Icon name="arrow_back" /> Volver a clientes</button>
         <span className="eyebrow">INVENTARIO DEL CLIENTE</span><h1>Dispositivos</h1>
-        <p>Registro consolidado desde mantenimientos y boletas relacionadas.</p></div>
+        <p>Equipos consolidados desde mantenimientos, con historial de boletas relacionadas.</p></div>
       <button type="button" className="button button--secondary" onClick={()=>setVersion((v)=>v+1)}>
         <Icon name="refresh" /> Recargar vista</button>
     </header>
-    {result.generated && <p className="field-hint">Total: {result.total} dispositivos · Última generación: {readableDate(result.generatedAt)}</p>}
+    {result.generated && <div className="client-inventory-summary">
+      <span className="client-inventory-summary__icon"><Icon name="inventory_2" /></span>
+      <div><strong>{result.total} dispositivos</strong><small>Inventario consolidado</small></div>
+      <span className="client-inventory-summary__date"><Icon name="update" /> Actualizado: {readableDate(result.generatedAt)}</span>
+    </div>}
     <label className="field-group client-inventory-search"><span className="field-label">Buscar dispositivo</span>
-      <input className="form-control" type="search" value={search} onChange={(e)=>setSearch(e.target.value)}
-        placeholder="Nombre, ubicación, modelo, serie..." /></label>
+      <span className="client-inventory-search__input"><Icon name="search" />
+        <input className="form-control" type="search" value={search} onChange={(e)=>setSearch(e.target.value)}
+          placeholder="Nombre, ubicación, fabricante, modelo, serie..." /></span></label>
     {error && <div className="alert alert--error" role="alert">{error}</div>}
     {loading && <div className="state-card state-card--loading"><Icon name="progress_activity" /> Cargando equipos...</div>}
     {!loading && !result.generated && <div className="empty-state">
@@ -356,8 +382,11 @@ function InventoryClientTable({ clientId, sessionToken, navigate }) {
         <thead><tr><th>Nombre del dispositivo</th><th>Tipo</th><th>Ubicación</th>
           <th>Fabricante</th><th>Modelo</th><th>Serie</th><th>Detalle</th></tr></thead>
         <tbody>{result.items.map((item,index)=><tr key={item.id}>
-          <td className="client-inventory-table__name">{item.name}</td>
-          <td className="client-inventory-table__extra">{item.type||'—'}</td>
+          <td className="client-inventory-table__name"><span className="client-inventory-table__name-wrap">
+            <span className="client-inventory-table__device-icon"><Icon name="devices" /></span>
+            <strong>{item.name}</strong>
+          </span></td>
+          <td className="client-inventory-table__extra"><span className="client-inventory-type">{item.type||'—'}</span></td>
           <td className="client-inventory-table__extra">{item.location||'—'}</td>
           <td className="client-inventory-table__extra">{item.manufacturer||'—'}</td>
           <td className="client-inventory-table__extra">{item.model||'—'}</td>

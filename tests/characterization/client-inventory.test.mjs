@@ -208,3 +208,52 @@ test('Supervisor y Administrador pueden generar y actualizar el inventario con l
   assert.match(page, /\{isAdmin && <button type="button" className="button button--primary"/);
   assert.match(page, /Administrador o Supervisor/);
 });
+
+
+test('el listado de inventario incluye exclusivamente clientes con mantenimientos vigentes', () => {
+  const mod = source('backend/src/modules/client-inventory.module.js');
+  const clients = mod.slice(mod.indexOf('clients: async (ctx) =>'),mod.indexOf('devices: async (ctx) =>'));
+  assert.match(clients, /AND EXISTS\(SELECT 1 FROM "Mantenimiento" m/);
+  assert.match(clients, /m\."ClienteID"=c\."ClienteID"/);
+  assert.doesNotMatch(clients, /OR EXISTS\(SELECT 1 FROM "Boletas" b/);
+  assert.match(clients, /LIMIT \$2 OFFSET \$3/);
+  const generate = mod.slice(mod.indexOf('generate: async (ctx) =>'));
+  assert.match(generate, /inventory\.client\.hasMaintenance/);
+  assert.match(generate, /Este cliente no tiene mantenimientos registrados/);
+  assert.match(generate, /adminGuard\(ctx\)/);
+});
+
+test('inventario usa tokens de diseño oficiales para tabla, modal, atributos y galería en ambos temas', () => {
+  const css = source('src/styles/client-inventory.css');
+  const jsx = source('src/pages/inventory/ClientInventoryPage.jsx');
+  const tokens = source('src/styles/tokens.css');
+  const theme = source('src/styles/theme.css');
+  for (const name of ['surface-card','surface-low','outline-soft','text','muted','primary']) {
+    assert.match(tokens, new RegExp('--' + name + ':'));
+    assert.match(css, new RegExp('var\\(--' + name + '\\)'));
+  }
+  assert.match(theme, /:root\[data-theme='dark'\]/);
+  assert.doesNotMatch(css, /var\(--(?:surface-secondary|border|text-secondary)/);
+  assert.match(css, /\.client-inventory-table th\s*\{[^}]*background: var\(--surface-low\)/s);
+  assert.match(css, /\.client-inventory-features dd\s*\{[^}]*color: var\(--text\)/s);
+  assert.match(css, /\.client-inventory-gallery__info > strong\s*\{[^}]*color: var\(--text\)/s);
+  assert.match(css, /\.client-inventory-detail__arrow\s*\{[^}]*background: var\(--surface-high\)/s);
+  assert.match(css, /@media \(max-width: 700px\)/);
+  assert.match(css, /\.client-inventory-table__extra \{ display: none; \}/);
+  assert.match(jsx, /Clientes con mantenimientos registrados/);
+  assert.match(jsx, /client-inventory-client__status/);
+  assert.match(jsx, /client-inventory-summary/);
+  assert.match(jsx, /client-inventory-gallery__info/);
+  assert.match(jsx, /client-inventory-detail__arrow--left/);
+  assert.match(jsx, /client-inventory-detail__arrow--right/);
+  assert.match(jsx, /sourceLoader=\{sourceLoader\}/);
+});
+
+test('la columna de nombre conserva semántica de tabla y la vista móvil mantiene acción de detalle', () => {
+  const css = source('src/styles/client-inventory.css');
+  const jsx = source('src/pages/inventory/ClientInventoryPage.jsx');
+  assert.match(jsx, /<td className="client-inventory-table__name"><span className="client-inventory-table__name-wrap">/);
+  assert.match(css, /\.client-inventory-table__name-wrap\s*\{\s*display: flex/);
+  assert.doesNotMatch(css, /\.client-inventory-table__name\s*\{\s*display: flex/);
+  assert.match(jsx, /aria-label=\{'Ver detalle de '\+item\.name\}/);
+});
