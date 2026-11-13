@@ -7,6 +7,7 @@ import InlineCreateModal from '../../components/forms/InlineCreateModal';
 import TechnicianMultiSelect from '../../components/forms/TechnicianMultiSelect';
 import { sortOptionsNaturally } from '../../utils/naturalSort';
 import TechnicalWritingAssistant from '../../components/tickets/TechnicalWritingAssistant';
+import TicketDeviceNameAutocomplete from '../../components/tickets/TicketDeviceNameAutocomplete';
 import { MODULE_ROUTES, normalizeItems, pick, requestAvailable, toBoolean } from '../../services/moduleApi';
 
 const SECTIONS = {
@@ -709,7 +710,7 @@ export default function TicketQuickEditPage() {
               onAdd={() => openModal('device')}
               onChange={(event) => choose(event, options.devices, 'tipoDispositivoId', 'tipoDispositivo', { fabricanteId: '', fabricante: '', modeloId: '', modelo: '' })}
             />
-            <Field label="Nombre del dispositivo" name="nombreDispositivo" value={form.nombreDispositivo} onChange={update} required />
+            <TicketDeviceNameAutocomplete clientId={form.clienteId} sessionToken={sessionToken} name="nombreDispositivo" value={form.nombreDispositivo} onChange={update} required />
             <div className="ticket-form-grid">
               <DependentSelect
                 label="Fabricante"
