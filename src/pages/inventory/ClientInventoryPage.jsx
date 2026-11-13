@@ -92,7 +92,6 @@ function InventoryDetailModal({ clientId, items, index, onMove, onClose, session
     return url;
   }, [sessionToken]);
 
-  if (!item) return null;
   const current = data?.device || item;
   const photos = useMemo(() => (data?.media || []).map((photo) => ({
     ...photo,
@@ -102,6 +101,7 @@ function InventoryDetailModal({ clientId, items, index, onMove, onClose, session
     previewSource: photo.fileId
       ? 'https://drive.google.com/thumbnail?id=' + encodeURIComponent(photo.fileId) + '&sz=w1200' : '',
   })), [data?.media]);
+  if (!item) return null;
 
   return <>
     <div className="client-inventory-overlay" role="presentation" onMouseDown={(e) => {
