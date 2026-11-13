@@ -148,10 +148,10 @@ export const clientInventoryHandlers = {
       + ' s.revision,s.ai_status AS "aiStatus"'
       + ' FROM "Clientes" c LEFT JOIN dms_client_inventory s ON s.client_id=c."ClienteID"'
       + ' WHERE ' + active('c') + ' AND c."Nombre" ILIKE $1 ESCAPE \'\\\''
-      + ' AND (EXISTS(SELECT 1 FROM "Mantenimiento" m'
+      // Solo clientes que tienen al menos un mantenimiento operativo.
+      // No incluir clientes con únicamente boletas ni exigir dispositivos ya cargados.
+      + ' AND EXISTS(SELECT 1 FROM "Mantenimiento" m'
       + ' WHERE ' + active('m') + ' AND m."ClienteID"=c."ClienteID")'
-      + ' OR EXISTS(SELECT 1 FROM "Boletas" b'
-      + ' WHERE ' + 'b."__valid"=TRUE' + ' AND b."ClienteID"=c."ClienteID"))'
       + ' ORDER BY c."Nombre",c."ClienteID" LIMIT $2 OFFSET $3',
       [term, pageSize + 1, (page - 1) * pageSize], { label: 'inventory.clients.list' }));
     return { items: result.slice(0,pageSize), page, pageSize, hasMore: result.length > pageSize };
@@ -222,6 +222,13 @@ export const clientInventoryHandlers = {
     if (!client || client.Activo === false || String(client.Activo).toLowerCase() === 'false') {
       throw badRequest('El cliente ya no está activo.');
     }
+    // La misma regla rige en backend; no confiar en la lista ni admitir
+    // generaciones manuales para clientes que únicamente tienen boletas.
+    const maintenance = await selectOne(
+      'SELECT m."MantenimientoID" FROM "Mantenimiento" m'
+      + ' WHERE ' + active('m') + ' AND m."ClienteID"=$1 LIMIT 1',
+      [id], 'inventory.client.hasMaintenance');
+    if (!maintenance) throw badRequest('Este cliente no tiene mantenimientos registrados.');
     // Única vía de actualización: acción explícita con permisos administrativos (incluye Supervisor).
     const source = await loadSources(id);
     let groups = groupInventoryDevices(source.devices);
