@@ -23,3 +23,4 @@ import '../maintenance-evidence-gallery.css';
 import '../maintenance-finalizations.css';
 import '../public-signature.css';
 import '../maintenance-signature-fixes.css';
+import '../client-inventory.css';
