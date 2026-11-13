@@ -469,6 +469,28 @@ test('unión administrativa rechaza tipos, series o MAC incompatibles sin altera
   }
 });
 
+test('una actualización posterior conserva el nombre canónico seleccionado manualmente', () => {
+  const devices=[
+    camera('a','Cámara frente principal',{Serie:'',DireccionMAC:''}),
+    camera('b','Punto frontal C3',{Serie:'',DireccionMAC:''}),
+  ];
+  const links=[
+    {source_id:'a',canonical_source_id:'a',preferred_device_name:'Cámara principal frente'},
+    {source_id:'b',canonical_source_id:'a',preferred_device_name:'Cámara principal frente'},
+  ];
+  const first=applyManualInventoryLinks(groupInventoryDevices(devices),links);
+  const refreshed=applyManualInventoryLinks(groupInventoryDevices([
+    {...devices[0],FechaTrabajo:'2026-11-01'},
+    {...devices[1],FechaTrabajo:'2026-11-15',Modelo:'Modelo nuevo'},
+  ]),links);
+  assert.equal(first.length,1);
+  assert.equal(refreshed.length,1);
+  assert.equal(first[0].representative.NombreDispositivo,'Cámara principal frente');
+  assert.equal(refreshed[0].representative.NombreDispositivo,'Cámara principal frente');
+  assert.equal(devices[0].NombreDispositivo,'Cámara frente principal',
+    'El texto original de mantenimiento permanece intacto');
+});
+
 test('vinculación es administrativa, transaccional, idempotente y auditable en backend', () => {
   const migration=source('backend/migrations/024_client_inventory_manual_links.sql');
   const module=source('backend/src/modules/client-inventory.module.js');
@@ -478,6 +500,7 @@ test('vinculación es administrativa, transaccional, idempotente y auditable en 
   assert.match(migration,/PRIMARY KEY \(client_id, source_id\)/);
   assert.match(migration,/CREATE TABLE IF NOT EXISTS dms_client_inventory_manual_link_requests/);
   assert.match(migration,/PRIMARY KEY \(client_id, request_key\)/);
+  assert.match(migration,/preferred_device_name TEXT NOT NULL/);
   assert.match(routes,/add\('inventory\.devices\.link', clientInventoryHandlers\.link, 'USUARIOS_GESTIONAR'\)/);
   assert.match(api,/link: \['inventory\.devices\.link'\]/);
   const handler=module.slice(module.indexOf('link: async (ctx) =>'),module.indexOf('generate: async (ctx) =>'));
