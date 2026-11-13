@@ -5,6 +5,7 @@ CREATE TABLE IF NOT EXISTS dms_client_inventory_manual_links (
   client_id TEXT NOT NULL REFERENCES dms_client_inventory(client_id) ON DELETE CASCADE,
   source_id TEXT NOT NULL,
   canonical_source_id TEXT NOT NULL,
+  preferred_device_name TEXT NOT NULL DEFAULT '',
   linked_by TEXT NOT NULL,
   linked_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
   PRIMARY KEY (client_id, source_id)
