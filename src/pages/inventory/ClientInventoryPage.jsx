@@ -111,10 +111,22 @@ function InventoryDetailModal({ clientId, items, index, onMove, onClose, session
 
   async function linkToDevice(other) {
     if (!isAdmin || mergeSaving || !item || other.id === item.id) return;
+    const different = [
+      ['Tipo', item.type, other.type],
+      ['Fabricante', item.manufacturer, other.manufacturer],
+      ['Modelo', item.model, other.model],
+      ['Serie', item.serial, other.serial],
+      ['MAC', item.mac, other.mac],
+    ].filter(([, current, candidate]) => current && candidate
+      && String(current).trim().toLowerCase() !== String(candidate).trim().toLowerCase());
+    const caution = different.length
+      ? '\n\nDiferencias registradas: ' + different.map(([label, a, b]) =>
+        label + ' (' + a + ' / ' + b + ')').join('; ') + '. Verifique antes de confirmar.'
+      : '';
     const message = '¿Confirmar que "' + other.name + '" y "' + item.name
       + '" son el mismo equipo?\n\nSe conservará "' + item.name
       + '" como nombre principal y se unirán las evidencias, fotografías y el historial. '
-      + 'No se modificarán las boletas ni los mantenimientos originales.';
+      + 'No se modificarán las boletas ni los mantenimientos originales.' + caution;
     if (!window.confirm(message)) return;
     const sameRequest = pendingLinkRef.current?.keepId === item.id
       && pendingLinkRef.current?.mergeId === other.id;
