@@ -152,3 +152,5 @@ import './sync-convergence.test.mjs';
 import './incremental-sync-media-priority.test.mjs';
 
 import './drive-upload-session.test.mjs';
+
+import './client-inventory.test.mjs';
