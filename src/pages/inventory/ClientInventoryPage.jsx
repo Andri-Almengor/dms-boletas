@@ -1,4 +1,4 @@
-import React, { useCallback, useEffect, useState } from 'react';
+import React, { useCallback, useEffect, useRef, useState } from 'react';
 import { Link, useNavigate, useParams } from 'react-router-dom';
 import { useAuth } from '../../AuthContext';
 import Icon from '../../components/common/Icon';
@@ -258,9 +258,10 @@ function InventoryClientTable({ clientId, sessionToken, navigate }) {
   const [error, setError] = useState('');
   const [selected, setSelected] = useState(-1);
   const [version, setVersion] = useState(0);
+  const pendingArrowRef = useRef('');
 
   useEffect(() => {
-    const timer=setTimeout(()=>{setDebouncedSearch(search);setPage(1);setSelected(-1);},250);
+    const timer=setTimeout(()=>{pendingArrowRef.current='';setDebouncedSearch(search);setPage(1);setSelected(-1);},250);
     return ()=>clearTimeout(timer);
   },[search]);
   useEffect(() => {
@@ -269,21 +270,33 @@ function InventoryClientTable({ clientId, sessionToken, navigate }) {
     requestAvailable(MODULE_ROUTES.inventory.devices,
       { clienteId: clientId, page, pageSize: 50, search: debouncedSearch },
       sessionToken, { signal: controller.signal, cache: 'no-store' })
-      .then((data)=>{if(!controller.signal.aborted)setResult(data);})
+      .then((data)=>{
+        if (controller.signal.aborted) return;
+        setResult(data);
+        if (pendingArrowRef.current && data?.items?.length) {
+          setSelected(pendingArrowRef.current === 'last' ? data.items.length - 1 : 0);
+          pendingArrowRef.current='';
+        }
+      })
       .catch((cause)=>{if(!controller.signal.aborted)setError(cause.message||'No se pudo cargar el inventario.');})
       .finally(()=>{if(!controller.signal.aborted)setLoading(false);});
     return ()=>controller.abort();
   },[clientId,page,debouncedSearch,sessionToken,version]);
 
   const moveDevice=useCallback((delta)=>{
-    setSelected((index)=>{
-      const next=index+delta;
-      if(next>=0&&next<result.items.length)return next;
-      if(next>=result.items.length && result.hasMore){setPage((n)=>n+1);return -1;}
-      if(next<0 && page>1){setPage((n)=>n-1);return -1;}
-      return index;
-    });
-  },[page,result.items.length,result.hasMore]);
+    if (selected < 0) return;
+    const next = selected + delta;
+    if (next >= 0 && next < result.items.length) { setSelected(next); return; }
+    if (next >= result.items.length && result.hasMore) {
+      pendingArrowRef.current = 'first';
+      setSelected(-1);
+      setPage((current) => current + 1);
+    } else if (next < 0 && page > 1) {
+      pendingArrowRef.current = 'last';
+      setSelected(-1);
+      setPage((current) => current - 1);
+    }
+  },[selected,page,result.items.length,result.hasMore]);
 
   return <div className="client-inventory-page client-inventory-page--table">
     <header className="client-inventory-page__header">
