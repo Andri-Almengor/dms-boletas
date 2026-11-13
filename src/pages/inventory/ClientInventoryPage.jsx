@@ -23,19 +23,28 @@ const sourcePath = (type, id) =>
     : '/boletas/' + encodeURIComponent(id);
 const sourceLabel = (type) => type === 'MANTENIMIENTO' ? 'Mantenimiento' : 'Boleta';
 
-function InventoryDetailModal({ clientId, items, index, onMove, onClose, sessionToken }) {
+function InventoryDetailModal({ clientId, items, index, onMove, onClose, sessionToken, isAdmin, revision, onLinked }) {
   const item = items[index];
   const [data, setData] = useState(null);
   const [error, setError] = useState('');
   const [loading, setLoading] = useState(true);
   const [lightboxIndex, setLightboxIndex] = useState(-1);
   const [loadingMore, setLoadingMore] = useState('');
+  const [mergeOpen, setMergeOpen] = useState(false);
+  const [mergeQuery, setMergeQuery] = useState('');
+  const [mergeItems, setMergeItems] = useState([]);
+  const [mergeLoading, setMergeLoading] = useState(false);
+  const [mergeError, setMergeError] = useState('');
+  const [mergeSaving, setMergeSaving] = useState(false);
+  const pendingLinkRef = useRef(null);
 
   useOverlaySurface({ open: Boolean(item), onClose });
   useEffect(() => {
     if (!item?.id) return undefined;
     const controller = new AbortController();
     setData(null); setError(''); setLoading(true); setLightboxIndex(-1);
+    setMergeOpen(false); setMergeQuery(''); setMergeItems([]); setMergeError('');
+    pendingLinkRef.current = null;
     requestAvailable(MODULE_ROUTES.inventory.detail, { clientId, deviceId: item.id },
       sessionToken, { signal: controller.signal, cache: 'no-store' })
       .then((result) => { if (!controller.signal.aborted) setData(result); })
@@ -47,6 +56,7 @@ function InventoryDetailModal({ clientId, items, index, onMove, onClose, session
   useEffect(() => {
     if (!item || lightboxIndex >= 0) return undefined;
     const onKey = (event) => {
+      if (event.target?.closest?.('input,textarea,select,[contenteditable="true"]')) return;
       if (event.key === 'ArrowLeft') { event.preventDefault(); onMove(-1); }
       else if (event.key === 'ArrowRight') { event.preventDefault(); onMove(1); }
     };
@@ -77,6 +87,53 @@ function InventoryDetailModal({ clientId, items, index, onMove, onClose, session
     } catch (cause) {
       setError(cause.message || 'No se pudo cargar más información.');
     } finally { setLoadingMore(''); }
+  }
+
+  useEffect(() => {
+    if (!isAdmin || !mergeOpen || !item?.id) return undefined;
+    const controller = new AbortController();
+    const timer = window.setTimeout(() => {
+      setMergeLoading(true);
+      requestAvailable(MODULE_ROUTES.inventory.devices, {
+        clienteId: clientId, page: 1, pageSize: 25, search: mergeQuery,
+      }, sessionToken, { signal: controller.signal, cache: 'no-store' })
+        .then((result) => {
+          if (!controller.signal.aborted) setMergeItems(
+            (result.items || []).filter((candidate) => candidate.id !== item.id));
+        })
+        .catch((cause) => {
+          if (!controller.signal.aborted) setMergeError(cause.message || 'No se pudieron buscar los equipos.');
+        })
+        .finally(() => { if (!controller.signal.aborted) setMergeLoading(false); });
+    }, 250);
+    return () => { window.clearTimeout(timer); controller.abort(); };
+  }, [clientId, isAdmin, item?.id, mergeOpen, mergeQuery, sessionToken]);
+
+  async function linkToDevice(other) {
+    if (!isAdmin || mergeSaving || !item || other.id === item.id) return;
+    const message = '¿Confirmar que "' + other.name + '" y "' + item.name
+      + '" son el mismo equipo?\n\nSe conservará "' + item.name
+      + '" como nombre principal y se unirán las evidencias, fotografías y el historial. '
+      + 'No se modificarán las boletas ni los mantenimientos originales.';
+    if (!window.confirm(message)) return;
+    const sameRequest = pendingLinkRef.current?.keepId === item.id
+      && pendingLinkRef.current?.mergeId === other.id;
+    const requestKey = sameRequest
+      ? pendingLinkRef.current.key
+      : (window.crypto?.randomUUID?.() || 'link-' + Date.now() + '-' + Math.random().toString(36).slice(2));
+    pendingLinkRef.current = { key: requestKey, keepId: item.id, mergeId: other.id };
+    setMergeSaving(true);
+    setMergeError('');
+    try {
+      await requestAvailable(MODULE_ROUTES.inventory.link, {
+        clienteId: clientId, keepDeviceId: item.id, mergeDeviceId: other.id,
+        expectedRevision: revision, requestKey,
+      }, sessionToken, { cache: 'no-store' });
+      pendingLinkRef.current = null;
+      onLinked?.(item.name, other.name);
+    } catch (cause) {
+      setMergeError(cause.message || 'No se pudo vincular. Recargue el inventario y compruebe los dispositivos.');
+    } finally { setMergeSaving(false); }
   }
 
   const sourceLoader = useCallback(async (photo) => {
@@ -173,6 +230,38 @@ function InventoryDetailModal({ clientId, items, index, onMove, onClose, session
               {current.details?.aliases?.length > 1 && <p className="client-inventory-aliases">
                 <Icon name="merge_type" /> <span><strong>Nombres consolidados:</strong> {current.details.aliases.join(' · ')}</span>
               </p>}
+              {isAdmin && <div className="client-inventory-manual-link">
+                <button type="button" className="button button--secondary"
+                  aria-expanded={mergeOpen} onClick={() => { setMergeOpen((open) => !open); setMergeError(''); }}>
+                  <Icon name="link" /> {mergeOpen ? 'Cancelar vinculación' : 'Vincular dispositivo duplicado'}
+                </button>
+                {mergeOpen && <div className="client-inventory-manual-link__panel">
+                  <p>Busque otro registro de <strong>este cliente</strong> que corresponda al mismo equipo.
+                    Se conservará <strong>{current.name}</strong> como ficha principal.</p>
+                  <label className="field-group">
+                    <span className="field-label">Buscar dispositivo para vincular</span>
+                    <input type="search" className="form-control" value={mergeQuery}
+                      onChange={(event) => { setMergeQuery(event.target.value); setMergeError(''); }}
+                      placeholder="Nombre, ubicación, modelo o serie..." disabled={mergeSaving}
+                      autoComplete="off" />
+                  </label>
+                  {mergeError && <div className="alert alert--error" role="alert">{mergeError}</div>}
+                  {mergeLoading && <p className="field-hint">Buscando coincidencias…</p>}
+                  {!mergeLoading && <div className="client-inventory-manual-link__results">
+                    {mergeItems.length === 0 && <p className="field-hint">No se encontraron otros equipos.</p>}
+                    {mergeItems.map((candidate) => <button type="button" key={candidate.id}
+                      disabled={mergeSaving} onClick={() => linkToDevice(candidate)}>
+                      <span><strong>{candidate.name}</strong>
+                        <small>{candidate.type || 'Sin tipo'} · {candidate.location || 'Sin ubicación'}
+                          {candidate.serial ? ' · Serie ' + candidate.serial : ''}</small></span>
+                      <Icon name="link" />
+                    </button>)}
+                  </div>}
+                  <small>Esta vinculación es manual, requiere confirmación y queda auditada.
+                    No se permiten tipos, números de serie ni MAC incompatibles.
+                    Los vínculos sobreviven a «Actualizar inventario».</small>
+                </div>}
+              </div>}
             </section>
             <section className="client-inventory-detail__section">
               <h3><Icon name="history" /> Historial de trabajos <span className="client-inventory-count">{data.events?.length || 0}{data.hasMoreEvents ? '+' : ''}</span></h3>
@@ -330,13 +419,14 @@ function ClientList({ sessionToken, isAdmin, navigate }) {
   </div>;
 }
 
-function InventoryClientTable({ clientId, sessionToken, navigate }) {
+function InventoryClientTable({ clientId, sessionToken, navigate, isAdmin }) {
   const [search, setSearch] = useState('');
   const [debouncedSearch, setDebouncedSearch] = useState('');
   const [page, setPage] = useState(1);
   const [result, setResult] = useState({ items: [] });
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState('');
+  const [success, setSuccess] = useState('');
   const [selected, setSelected] = useState(-1);
   const [version, setVersion] = useState(0);
   const pendingArrowRef = useRef('');
@@ -417,6 +507,7 @@ function InventoryClientTable({ clientId, sessionToken, navigate }) {
       </nav>}
     </div>
     {error && <div className="alert alert--error" role="alert">{error}</div>}
+    {success && <div className="alert alert--success" role="status"><Icon name="check_circle" /> {success}</div>}
     {loading && <div className="state-card state-card--loading"><Icon name="progress_activity" /> Cargando equipos...</div>}
     {!loading && !result.generated && <div className="empty-state">
       <Icon name="inventory_2" /><p>Este cliente aún no tiene inventario generado por un Administrador o Supervisor.</p></div>}
@@ -444,7 +535,13 @@ function InventoryClientTable({ clientId, sessionToken, navigate }) {
     </div>}
 
     {selected>=0 && <InventoryDetailModal clientId={clientId} items={result.items} index={selected}
-      sessionToken={sessionToken} onClose={()=>setSelected(-1)} onMove={moveDevice}/>}
+      sessionToken={sessionToken} isAdmin={isAdmin} revision={result.revision}
+      onLinked={(keptName, duplicateName) => {
+        setSelected(-1);
+        setSuccess('Se vinculó "' + duplicateName + '" con "' + keptName + '". Se conservaron sus historiales y fotografías.');
+        setVersion((value) => value + 1);
+      }}
+      onClose={()=>setSelected(-1)} onMove={moveDevice}/>}
   </div>;
 }
 
@@ -454,6 +551,6 @@ export default function ClientInventoryPage() {
   const navigate=useNavigate();
   const isAdmin=hasPermission('USUARIOS_GESTIONAR');
   return clienteId
-    ? <InventoryClientTable clientId={clienteId} sessionToken={sessionToken} navigate={navigate}/>
+    ? <InventoryClientTable clientId={clienteId} sessionToken={sessionToken} navigate={navigate} isAdmin={isAdmin}/>
     : <ClientList sessionToken={sessionToken} isAdmin={isAdmin} navigate={navigate}/>;
 }
