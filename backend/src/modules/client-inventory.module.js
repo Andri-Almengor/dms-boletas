@@ -71,7 +71,7 @@ async function loadSources(id) {
     + ' JOIN "Boletas" bx ON bx."BoletaUID"=a."BoletaUID" AND bx."ClienteID"=$1'
     + ' WHERE ' + active('a') + ' GROUP BY a."BoletaUID"'
     + ' ) ass ON ass."BoletaUID"=b."BoletaUID"'
-    + ' WHERE ' + active('b') + ' AND b."ClienteID"=$1'
+    + ' WHERE ' + 'b."__valid"=TRUE' + ' AND b."ClienteID"=$1'
     + ' AND UPPER(COALESCE(b."Estado",\'\')) NOT LIKE \'%ANUL%\''
     + ' ORDER BY b."Fecha" DESC NULLS LAST,b."BoletaUID" LIMIT $2',
     [id, MAX_SOURCE_TICKETS + 1], { label: 'inventory.source.tickets' }));
@@ -96,7 +96,7 @@ async function loadSources(id) {
     'SELECT e."EvidenciaID",e."BoletaUID",e."OrigenMantenimientoDispositivoID",'
     + ' e."ArchivoID",e."MimeType",e."TipoMedio",e."FechaCreacion"'
     + ' FROM "EvidenciasBoleta" e JOIN "Boletas" b ON b."BoletaUID"=e."BoletaUID"'
-    + ' WHERE ' + active('e') + ' AND ' + active('b') + ' AND b."ClienteID"=$1'
+    + ' WHERE ' + active('e') + ' AND ' + 'b."__valid"=TRUE' + ' AND b."ClienteID"=$1'
     + ' AND (e."MimeType" LIKE \'image/%\' OR COALESCE(e."MimeType",\'\')=\'\')'
     + ' ORDER BY e."EvidenciaID" LIMIT $2',
     [id, MAX_SOURCE_MEDIA + 1], { label: 'inventory.source.ticket.media' }));
@@ -150,7 +150,7 @@ export const clientInventoryHandlers = {
       + ' AND (EXISTS(SELECT 1 FROM "Mantenimiento" m'
       + ' WHERE ' + active('m') + ' AND m."ClienteID"=c."ClienteID")'
       + ' OR EXISTS(SELECT 1 FROM "Boletas" b'
-      + ' WHERE ' + active('b') + ' AND b."ClienteID"=c."ClienteID"))'
+      + ' WHERE ' + 'b."__valid"=TRUE' + ' AND b."ClienteID"=c."ClienteID"))'
       + ' ORDER BY c."Nombre",c."ClienteID" LIMIT $2 OFFSET $3',
       [term, pageSize + 1, (page - 1) * pageSize], { label: 'inventory.clients.list' }));
     return { items: result.slice(0,pageSize), page, pageSize, hasMore: result.length > pageSize };
