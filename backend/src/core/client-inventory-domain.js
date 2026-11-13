@@ -189,6 +189,20 @@ export function compatibleManualInventoryDevices(left, right) {
  * boletas y construir el snapshot. Así se agrupan también fotos y eventos.
  * Conserva como representante la evidencia de referencia elegida manualmente.
  */
+/**
+ * Revisa la identidad física de TODAS las evidencias de los dos grupos con
+ * una sola pasada. Nunca permitir seriales, MAC o tipos contradictorios.
+ * Los campos vacíos, ubicaciones, modelos y nombres antiguos no bloquean por
+ * sí solos una corrección manual expresamente confirmada.
+ */
+export function validateManualInventorySourceUnion(sources = []) {
+  if (sources.length < 2) return false;
+  const types = new Set(sources.map(category));
+  const serials = new Set(sources.map(serial).filter(Boolean));
+  const macs = new Set(sources.map(mac).filter(Boolean));
+  return types.size === 1 && !types.has('') && serials.size <= 1 && macs.size <= 1;
+}
+
 export function applyManualInventoryLinks(groups = [], manualLinks = []) {
   if (!manualLinks.length) return groups;
   const active = groups.map((g) => ({
