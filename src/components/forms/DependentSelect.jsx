@@ -41,6 +41,7 @@ export default function DependentSelect({
   const [open, setOpen] = useState(false);
   const [query, setQuery] = useState('');
   const [remoteLoading, setRemoteLoading] = useState(false);
+  const [activeIndex, setActiveIndex] = useState(-1);
 
   const canAddFromOperation = Boolean(onAdd) && (
     hasPermission('BOLETAS_CREAR')
@@ -112,6 +113,7 @@ export default function DependentSelect({
     emitChange(String(option.value));
     setQuery(option.label);
     setOpen(false);
+    setActiveIndex(-1);
     requestAnimationFrame(() => inputRef.current?.blur());
   }
 
@@ -121,20 +123,35 @@ export default function DependentSelect({
     emitChange('');
     setQuery('');
     setOpen(true);
+    setActiveIndex(-1);
     requestAnimationFrame(() => inputRef.current?.focus());
   }
 
   function handleKeyDown(event) {
     if (event.key === 'Escape') {
       setOpen(false);
+      setActiveIndex(-1);
       inputRef.current?.blur();
+      return;
+    }
+    if (allowCustomValue && open && filteredOptions.length
+      && (event.key === 'ArrowDown' || event.key === 'ArrowUp')) {
+      event.preventDefault();
+      setActiveIndex((index) => event.key === 'ArrowDown'
+        ? Math.min(index + 1, filteredOptions.length - 1)
+        : (index <= 0 ? filteredOptions.length - 1 : index - 1));
+      return;
     }
     if (event.key === 'Enter' && open) {
-      // Con texto libre Enter conserva exactamente lo escrito; nunca fuerza
-      // la primera sugerencia del inventario ni envía el formulario por error.
+      // En modo libre, solo una selección explícita (flechas+Enter o clic)
+      // escoge una sugerencia. Enter a secas conserva exactamente lo escrito.
       if (allowCustomValue) {
         event.preventDefault();
-        setOpen(false);
+        if (activeIndex >= 0 && filteredOptions[activeIndex]) {
+          chooseOption(filteredOptions[activeIndex]);
+        } else {
+          setOpen(false);
+        }
       } else if (filteredOptions.length) {
         event.preventDefault();
         chooseOption(filteredOptions[0]);
@@ -172,6 +189,8 @@ export default function DependentSelect({
             aria-autocomplete="list"
             aria-haspopup="listbox"
             aria-busy={remoteLoading}
+            aria-activedescendant={allowCustomValue && open && activeIndex >= 0
+              ? `${fieldId}-option-${activeIndex}` : undefined}
             role="combobox"
             onFocus={(event) => {
               setOpen(true);
@@ -181,6 +200,7 @@ export default function DependentSelect({
             onChange={(event) => {
               setQuery(event.target.value);
               setOpen(true);
+              setActiveIndex(-1);
               if (allowCustomValue) emitChange(event.target.value);
             }}
             onKeyDown={handleKeyDown}
@@ -196,15 +216,16 @@ export default function DependentSelect({
 
           {open && !disabled && !loading && (
             <div className="searchable-select__menu" id={`${fieldId}-options`} role="listbox">
-              {filteredOptions.length ? filteredOptions.map((option) => {
+              {filteredOptions.length ? filteredOptions.map((option, index) => {
                 const selected = String(option.value) === String(value || '');
                 return (
                   <button
                     key={option.value}
+                    id={`${fieldId}-option-${index}`}
                     type="button"
                     role="option"
                     aria-selected={selected}
-                    className={`searchable-select__option${selected ? ' is-selected' : ''}`}
+                    className={`searchable-select__option${selected ? ' is-selected' : ''}${allowCustomValue && index === activeIndex ? ' is-active' : ''}`}
                     onPointerDown={(event) => event.preventDefault()}
                     onClick={() => chooseOption(option)}
                   >
