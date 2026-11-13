@@ -6,6 +6,7 @@ import { suggestInventoryMerges, summarizeInventoryDeviceStatuses } from '../ser
 import {
   groupInventoryDevices, candidateInventoryAliases, mergeInventoryAliases,
   buildInventorySnapshot, verifiedInventoryCondition,
+  applyManualInventoryLinks, validateManualInventorySourceUnion,
 } from '../core/client-inventory-domain.js';
 
 const MAX_SOURCE_DEVICES = 20000;
@@ -113,6 +114,13 @@ async function bulkInsert(prefix, values, width, label) {
       + Array.from({ length: width }, (__, col) => '$' + (row * width + col + 1)).join(',') + ')');
     await query(prefix + placeholders.join(','), batch.flat(), { label, write: true });
   }
+}
+
+
+async function manualInventoryLinks(id) {
+  return rows(await query(
+    'SELECT source_id,canonical_source_id,preferred_device_name FROM dms_client_inventory_manual_links WHERE client_id=$1',
+    [id], { label: 'inventory.manualLinks.read' }));
 }
 
 async function previousIdMap(id) {
@@ -249,7 +257,18 @@ export const clientInventoryHandlers = {
     return { items: result.slice(0,pageSize), page, pageSize, hasMore: result.length > pageSize };
   },
   devices: async (ctx) => {
-    readGuard(ctx);
+    const namesOnly = ctx.payload?.namesOnly === true;
+    if (namesOnly) {
+      // La boleta solo necesita sugerencias de nombres. No elevar permisos
+      // para consultar el inventario completo, historiales ni identificadores.
+      const ticketRead = (ctx.permissions || []).some((permission) =>
+        ['BOLETAS_CREAR', 'BOLETAS_EDITAR'].includes(permission));
+      if (!ctx?.user?.UsuarioID || (!ticketRead && !canRead(ctx))) {
+        throw forbidden('No cuenta con acceso a las sugerencias de dispositivos.');
+      }
+    } else {
+      readGuard(ctx);
+    }
     const id = clientId(ctx);
     const page = cap(ctx.payload?.page, 100000, 1);
     const pageSize = cap(ctx.payload?.pageSize, 100, 25);
@@ -258,18 +277,48 @@ export const clientInventoryHandlers = {
       'SELECT client_id,generated_at,revision,device_count,ai_status FROM dms_client_inventory WHERE client_id=$1',
       [id], 'inventory.client.status');
     if (!summary) return { generated: false, items: [], page, pageSize, hasMore: false };
+    if (namesOnly) {
+      // No se ejecuta si el cliente no tiene inventario generado. El nombre se
+      // conserva tal cual, sin implicar asignación, vinculación o alta de equipo.
+      // Normalizar acentos para que "camara" encuentre "Cámara", sin depender
+      // de extensiones PostgreSQL o cargar las tablas completas.
+      const search = clean(ctx.payload?.search).slice(0, 120)
+        .normalize('NFD').replace(/[\u0300-\u036f]/g, '').toLowerCase();
+      const pattern = '%' + search.replace(/[\\%_]/g, '\\$&') + '%';
+      const limit = cap(ctx.payload?.pageSize, 30, 20);
+      const matches = rows(await query(
+        'SELECT DISTINCT device_name AS name FROM dms_client_inventory_devices'
+        + ' WHERE client_id=$1 AND TRIM(device_name)<>\'\''
+        + ' AND translate(lower(device_name),\'áéíóúüñ\',\'aeiouun\')'
+        + ' LIKE $2 ESCAPE \'\\\''
+        + ' ORDER BY name LIMIT $3',
+        [id, pattern, limit + 1], { label: 'inventory.devices.suggestNames' }));
+      return {
+        generated: true,
+        items: matches.slice(0, limit).map((item) => ({ name: item.name })),
+        hasMore: matches.length > limit,
+      };
+    }
+    const equipmentLocationId = clean(ctx.payload?.equipmentLocationId);
+    // El modal Agregar ubicación reutiliza esta lectura del inventario:
+    // filtra por ID estructurado y no por nombre de zona (potencialmente ambiguo).
     const filterSql = ' FROM dms_client_inventory_devices WHERE client_id=$1'
       + ' AND (device_name ILIKE $2 ESCAPE \'\\\' OR device_type ILIKE $2 ESCAPE \'\\\''
       + ' OR location_name ILIKE $2 ESCAPE \'\\\' OR manufacturer ILIKE $2 ESCAPE \'\\\''
-      + ' OR model ILIKE $2 ESCAPE \'\\\' OR serial ILIKE $2 ESCAPE \'\\\')';
+      + ' OR model ILIKE $2 ESCAPE \'\\\' OR serial ILIKE $2 ESCAPE \'\\\')'
+      + (equipmentLocationId ? ' AND details->>\'equipmentLocationId\'=$5' : '');
     // Conteo filtrado exacto para "Página 1/5" sin cargar todos los equipos.
     const [pageResult, countResult] = await Promise.all([
       query('SELECT device_id AS id,device_type AS type,device_name AS name,'
         + ' location_name AS location,manufacturer,model,serial,mac'
         + filterSql
         + ' ORDER BY device_type,location_name,device_name,device_id LIMIT $3 OFFSET $4',
-        [id, pattern, pageSize + 1, (page - 1) * pageSize], { label: 'inventory.devices.list' }),
-      query('SELECT COUNT(*)::integer AS count' + filterSql, [id, pattern],
+        equipmentLocationId
+          ? [id, pattern, pageSize + 1, (page - 1) * pageSize, equipmentLocationId]
+          : [id, pattern, pageSize + 1, (page - 1) * pageSize], { label: 'inventory.devices.list' }),
+      query('SELECT COUNT(*)::integer AS count'
+        + (equipmentLocationId ? filterSql.replace('=$5', '=$3') : filterSql),
+        equipmentLocationId ? [id, pattern, equipmentLocationId] : [id, pattern],
         { label: 'inventory.devices.count' }),
     ]);
     const result = rows(pageResult);
@@ -340,6 +389,145 @@ export const clientInventoryHandlers = {
       hasMoreEvents: events.length>100, hasMoreMedia: media.length>100,
     };
   },
+  /**
+   * Unión manual INMEDIATA de dos fichas del mismo cliente, persistida en
+   * vínculos históricos que sobreviven a la reconstrucción del inventario.
+   * Ninguna boleta, evidencia ni mantenimiento operativo se modifica.
+   */
+  link: async (ctx) => {
+    adminGuard(ctx); // Administrador y Supervisor comparten USUARIOS_GESTIONAR
+    const id = clientId(ctx);
+    const keepId = clean(ctx.payload?.keepDeviceId);
+    const mergeId = clean(ctx.payload?.mergeDeviceId);
+    const requestKey = clean(ctx.payload?.requestKey);
+    const expectedRevision = Number(ctx.payload?.expectedRevision);
+    if (!/^[a-f0-9]{32}$/.test(keepId) || !/^[a-f0-9]{32}$/.test(mergeId) || keepId === mergeId) {
+      throw badRequest('Seleccione dos dispositivos distintos del mismo inventario.');
+    }
+    if (!/^[a-zA-Z0-9_-]{16,100}$/.test(requestKey)) {
+      throw badRequest('La operación requiere una clave de idempotencia válida.');
+    }
+    if (!Number.isSafeInteger(expectedRevision) || expectedRevision < 1) {
+      throw badRequest('Falta la revisión del inventario. Recargue la lista antes de vincular.');
+    }
+    const userId = clean(ctx.user.UsuarioID);
+    let outcome;
+    await withTransaction(async () => {
+      await query('SELECT pg_advisory_xact_lock(hashtext($1))',
+        ['client-inventory:'+id], { label: 'inventory.link.lock' });
+      const repeated = await selectOne(
+        'SELECT kept_device_id,merged_device_id FROM dms_client_inventory_manual_link_requests'
+        + ' WHERE client_id=$1 AND request_key=$2',
+        [id, requestKey], 'inventory.link.idempotency');
+      if (repeated) {
+        if (repeated.kept_device_id !== keepId || repeated.merged_device_id !== mergeId) {
+          throw badRequest('La clave de operación ya se utilizó para otros equipos.');
+        }
+        outcome = { linked: true, alreadyLinked: true, keptDeviceId: keepId };
+        return;
+      }
+      const inventory = await selectOne(
+        'SELECT revision,device_count FROM dms_client_inventory WHERE client_id=$1 FOR UPDATE',
+        [id], 'inventory.link.version');
+      if (!inventory) throw notFound('Primero debe generar el inventario del cliente.');
+      if (Number(inventory.revision) !== expectedRevision) {
+        throw badRequest('El inventario cambió. Recargue la lista antes de vincular dispositivos.');
+      }
+      const devices = rows(await query(
+        'SELECT device_id,device_type,device_name,serial,mac,source_ids,details'
+        + ' FROM dms_client_inventory_devices WHERE client_id=$1'
+        + ' AND device_id IN ($2,$3) ORDER BY device_id FOR UPDATE',
+        [id,keepId,mergeId], { label: 'inventory.link.resolve' }));
+      const keep = devices.find((row) => row.device_id === keepId);
+      const remove = devices.find((row) => row.device_id === mergeId);
+      if (!keep || !remove) throw notFound('Uno de los dispositivos ya no existe. Recargue el inventario.');
+      const sourceIds = [...new Set([...(keep.source_ids || []),...(remove.source_ids || [])].map(clean).filter(Boolean))];
+      if (!sourceIds.length || sourceIds.length !== (keep.source_ids || []).length + (remove.source_ids || []).length) {
+        throw badRequest('No es posible vincular dispositivos con evidencias históricas repetidas o vacías.');
+      }
+      const original = rows(await query(
+        'SELECT d."EvidenciaMantenimientoID",d."TipoDispositivo",d."Serie",d."DireccionMAC"'
+        + ' FROM "Evidencia_Mantenimientos" d'
+        + ' JOIN "Mantenimiento" m ON m."MantenimientoID"=d."MantenimientoRef"'
+        + ' WHERE ' + active('m') + ' AND ' + active('d')
+        + ' AND m."ClienteID"=$1 AND d."EvidenciaMantenimientoID"=ANY($2::text[])',
+        [id,sourceIds], { label: 'inventory.link.sourceValidation' }));
+      if (original.length !== sourceIds.length || !validateManualInventorySourceUnion(original)) {
+        throw badRequest('No se pueden unir equipos con distinto tipo, serie o MAC, ni referencias históricas inválidas.');
+      }
+      // Conservar el nombre y atributos del equipo principal, y todos los
+      // nombres secundarios para búsquedas e identificación de la ficha.
+      const aliases = [...new Set([
+        ...(Array.isArray(keep.details?.aliases) ? keep.details.aliases : [keep.device_name]),
+        ...(Array.isArray(remove.details?.aliases) ? remove.details.aliases : [remove.device_name]),
+        keep.device_name,remove.device_name,
+      ].map(clean).filter(Boolean))];
+      const last = await selectOne(
+        'SELECT event_key AS key,event_type AS type,source_id AS "sourceId",'
+        + ' occurred_at AS date,title,summary FROM dms_client_inventory_events'
+        + ' WHERE client_id=$1 AND device_id IN ($2,$3)'
+        + ' ORDER BY occurred_at DESC,event_key DESC LIMIT 1',
+        [id,keepId,mergeId], 'inventory.link.lastEvent');
+      const details = {
+        ...(keep.details || {}),
+        aliases,
+        manualLinked: true,
+        currentStatus: recordedCurrentStatus({ latest: last || null }),
+      };
+      const anchor = clean((keep.source_ids || [])[0]);
+      if (!anchor) throw badRequest('El equipo principal no tiene una referencia histórica válida.');
+      // El mapa se escribe bajo el mismo lock de inventory.generate: nunca se
+      // perderá aunque se ejecute Actualizar inventario en otro servidor.
+      await query(
+        'INSERT INTO dms_client_inventory_manual_links'
+        + '(client_id,source_id,canonical_source_id,preferred_device_name,linked_by,linked_at)'
+        + ' SELECT $1,s.source_id,$3,$4,$5,NOW() FROM unnest($2::text[]) AS s(source_id)'
+        + ' ON CONFLICT(client_id,source_id) DO UPDATE SET'
+        + ' canonical_source_id=EXCLUDED.canonical_source_id,'
+        + ' preferred_device_name=EXCLUDED.preferred_device_name,'
+        + ' linked_by=EXCLUDED.linked_by,linked_at=EXCLUDED.linked_at',
+        [id,sourceIds,anchor,keep.device_name,userId], { label: 'inventory.link.persist', write: true });
+      await query(
+        'UPDATE dms_client_inventory_devices SET source_ids=$3,details=$4::jsonb'
+        + ' WHERE client_id=$1 AND device_id=$2',
+        [id,keepId,sourceIds,JSON.stringify(details)],
+        { label: 'inventory.link.updateKept', write: true });
+      await query(
+        'INSERT INTO dms_client_inventory_events'
+        + '(client_id,device_id,event_key,event_type,source_id,occurred_at,title,summary,technicians)'
+        + ' SELECT client_id,$2,event_key,event_type,source_id,occurred_at,title,summary,technicians'
+        + ' FROM dms_client_inventory_events WHERE client_id=$1 AND device_id=$3'
+        + ' ON CONFLICT(client_id,device_id,event_key) DO NOTHING',
+        [id,keepId,mergeId], { label: 'inventory.link.mergeEvents', write: true });
+      await query(
+        'INSERT INTO dms_client_inventory_media'
+        + '(client_id,device_id,media_key,media_type,source_id,evidence_id,occurred_at,label,mime_type,file_id)'
+        + ' SELECT client_id,$2,media_key,media_type,source_id,evidence_id,occurred_at,label,mime_type,file_id'
+        + ' FROM dms_client_inventory_media WHERE client_id=$1 AND device_id=$3'
+        + ' ON CONFLICT(client_id,device_id,media_key) DO NOTHING',
+        [id,keepId,mergeId], { label: 'inventory.link.mergeMedia', write: true });
+      await query('DELETE FROM dms_client_inventory_devices WHERE client_id=$1 AND device_id=$2',
+        [id,mergeId], { label: 'inventory.link.deleteDuplicate', write: true });
+      await query(
+        'UPDATE dms_client_inventory SET device_count=device_count-1,revision=revision+1 WHERE client_id=$1',
+        [id], { label: 'inventory.link.versionIncrement', write: true });
+      await query(
+        'INSERT INTO dms_client_inventory_manual_link_requests'
+        + '(client_id,request_key,kept_device_id,merged_device_id,linked_by) VALUES($1,$2,$3,$4,$5)',
+        [id,requestKey,keepId,mergeId,userId],
+        { label: 'inventory.link.request', write: true });
+      outcome = {
+        linked: true, alreadyLinked: false, keptDeviceId: keepId,
+        revision: expectedRevision + 1, deviceCount: Number(inventory.device_count) - 1,
+      };
+    });
+    if (!outcome.alreadyLinked) {
+      await audit(ctx, 'VINCULAR_DISPOSITIVOS_INVENTARIO', 'Clientes', id, null, {
+        principal: keepId, duplicado: mergeId, revision: outcome.revision,
+      });
+    }
+    return outcome;
+  },
   generate: async (ctx) => {
     adminGuard(ctx);
     const id = clientId(ctx);
@@ -369,10 +557,14 @@ export const clientInventoryHandlers = {
         aiStatus = 'gemini_no_disponible';
       }
     }
+    // La unión humana prevalece sobre el reconocimiento automático/Gemini.
+    // Leer antes para elaborar resúmenes fuera del lock; volver a consultar
+    // dentro de la transacción para no perder vínculos concurrentes.
+    const preparedGroups = applyManualInventoryLinks(groups, await manualInventoryLinks(id));
     // Solo se consulta Gemini al generar/actualizar, nunca al abrir el detalle.
     // Se prepara fuera de la transacción para no bloquear PostgreSQL.
     const preview = buildInventorySnapshot({
-      clientId: id, groups, tickets: source.tickets,
+      clientId: id, groups: preparedGroups, tickets: source.tickets,
       ticketEvidence: source.ticketEvidence, maintenanceImages: source.maintenanceImages,
     });
     const currentStates = await inventoryCurrentStatusBySource(preview);
@@ -383,13 +575,19 @@ export const clientInventoryHandlers = {
       // La asignación de IDs históricos se lee BAJO el lock; las generaciones
       // concurrentes no pueden calcular una versión con IDs ya reemplazados.
       const previous = await previousIdMap(id);
+      const currentGroups = applyManualInventoryLinks(groups, await manualInventoryLinks(id));
       snapshot = buildInventorySnapshot({
-        clientId: id, groups, previousSourceIds: previous,
+        clientId: id, groups: currentGroups, previousSourceIds: previous,
         tickets: source.tickets, ticketEvidence: source.ticketEvidence,
         maintenanceImages: source.maintenanceImages,
       });
+      const latestById = new Map(latestInventoryEvents(snapshot).map((item) => [item.id, item]));
       for (const device of snapshot.devices) {
-        device.details.currentStatus = currentStates.bySource.get(inventorySourcesKey(device)) || null;
+        // Si se vinculó otro registro mientras Gemini estaba procesando,
+        // el resumen calculado antes del lock no corresponde al nuevo grupo.
+        // En ese caso usar únicamente el registro más reciente, sin inventar.
+        device.details.currentStatus = currentStates.bySource.get(inventorySourcesKey(device))
+          || recordedCurrentStatus(latestById.get(device.deviceId) || { latest: null });
       }
       const prior = await selectOne('SELECT revision FROM dms_client_inventory WHERE client_id=$1 FOR UPDATE',
         [id], 'inventory.generate.prior');

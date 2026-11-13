@@ -130,7 +130,11 @@ test('el ajuste esperado ocurre solo en un alta real y dentro de la transacción
   assert.match(module, /withDeviceCreateLock\(\(\) => withTransaction\(async \(\) => \{/);
   assert.match(module, /SELECT "MantenimientoID" FROM "Mantenimiento"/);
   assert.match(module, /FOR UPDATE/);
-  assert.match(module, /if \(total <= planned\) return/);
+  // El helper compartido mantiene la misma condición para no reducir planes:
+  // en lote continúa con el siguiente tipo, en alta individual termina sin cambios.
+  assert.match(module, /if \(total <= target\.planned\) continue/);
+  assert.match(module, /if \(!changes\.length\) return/);
+  assert.match(module, /export async function raiseExpectedCountsForCreatedDevices/);
   assert.match(module, /await appendRow\('Evidencia_Mantenimientos', row\);[\s\S]*await raiseExpectedCountForCreatedDevice/);
   assert.match(module, /AJUSTAR_CANTIDAD_ESPERADA_AUTOMATICA/);
   assert.match(module, /SELECT "TipoDispositivoID", "TipoDispositivo", "Categoria", COUNT\(\*\)/);
@@ -170,7 +174,7 @@ test('el XLSX exporta los rangos de modelos con fórmula Excel dependiente de ca
     { name:'Cámara',rows:[['Nombre del dispositivo','Ubicación del equipo','Fabricante','Modelo']],
       inputRows:20, validations:[
         { column:2,list:'FABRICANTES_1' },
-        { column:3,formula:'=IFERROR(INDIRECT("MODELOS_1_"&MATCH($C2,FABRICANTES_1,0)),SIN_MODELOS)' },
+        { column:3,formula:'INDIRECT("MODELOS_1_"&IFERROR(MATCH($C2,FABRICANTES_1,0),0))' },
       ] },
     { name:'Listas',hidden:true,rows:[
       ['FABRICANTES_1','MODELOS_1_1','MODELOS_1_2','SIN_MODELOS'],
@@ -186,8 +190,8 @@ test('el XLSX exporta los rangos de modelos con fórmula Excel dependiente de ca
   const xml=new TextDecoder().decode(await createDeviceExcelWorkbook(sheets).arrayBuffer());
   assert.match(xml, /<definedName name="MODELOS_1_1">/);
   assert.match(xml, /Q6135/);
-  assert.match(xml, /<formula1>=FABRICANTES_1<\/formula1>/);
-  assert.match(xml, /<formula1>=IFERROR\(INDIRECT\(&quot;MODELOS_1_&quot;&amp;MATCH\(\$C2,FABRICANTES_1,0\)\),SIN_MODELOS\)<\/formula1>/);
+  assert.match(xml, /<formula1>FABRICANTES_1<\/formula1>/);
+  assert.match(xml, /<formula1>INDIRECT\(&quot;MODELOS_1_&quot;&amp;IFERROR\(MATCH\(\$C2,FABRICANTES_1,0\),0\)\)<\/formula1>/);
   assert.match(sourceTextOrFallback(), /MODELOS_/);
   function sourceTextOrFallback() { return source('src/features/maintenance/maintenanceDeviceExcel.js'); }
 });
@@ -217,4 +221,122 @@ test('cada descarga refresca el catálogo real de modelos y no usa una copia obs
   assert.match(hook,/loadCatalogResource\(/);
   assert.match(hook,/force,/);
   assert.match(creator,/excelDownloading \|\| !excelCatalogReady/);
+});
+
+
+// Inspección de las entradas XML reales del ZIP entregado al usuario.
+// No basta buscar texto en bytes: eso no demuestra que las validaciones estén
+// en la hoja correcta, enlazadas a rangos con nombre existentes.
+async function storedExcelEntries(blob) {
+  const bytes = new Uint8Array(await blob.arrayBuffer());
+  const view = new DataView(bytes.buffer, bytes.byteOffset, bytes.byteLength);
+  const textDecoder = new TextDecoder();
+  const entries = new Map();
+  for (let offset = 0; offset + 30 < bytes.length;) {
+    if (view.getUint32(offset, true) !== 0x04034b50) break;
+    const method = view.getUint16(offset + 8, true);
+    assert.equal(method, 0, 'Las plantillas actuales guardan XML ZIP sin comprimir');
+    const size = view.getUint32(offset + 18, true);
+    const nameSize = view.getUint16(offset + 26, true);
+    const extraSize = view.getUint16(offset + 28, true);
+    const nameStart = offset + 30;
+    const name = textDecoder.decode(bytes.subarray(nameStart, nameStart + nameSize));
+    const contents = nameStart + nameSize + extraSize;
+    entries.set(name, textDecoder.decode(bytes.subarray(contents, contents + size)));
+    offset = contents + size;
+  }
+  return entries;
+}
+
+test('regresión: todos los desplegables reales del Excel permanecen en el XLSX y tienen rangos definidos', async () => {
+  const sources = [
+    ['LOCACIONES', ['Oficina principal', 'Sala de control']],
+    ['FABRICANTES_1', ['Axis', 'Lenel']],
+    ['MODELOS_1_0', []],
+    ['MODELOS_1_1', ['Q6135', 'P3267']],
+    ['MODELOS_1_2', ['LNL-1320']],
+    ['FUNCIONAMIENTO', ['Sí', 'No', 'No aplica']],
+    ['EN_USO', ['Sí, en uso', 'No, está guardado', 'No']],
+    ['ESTADO', ['Pendiente', 'Correcto', 'Mal estado']],
+    ['RESPUESTA_SI_NO', ['Sí', 'No']],
+    ['OPCIONES_1_1', ['Realizado', 'Pendiente']],
+  ];
+  const table = Array.from({ length: 4 }, (_, i) =>
+    sources.map(([name, values]) => i === 0 ? name : values[i - 1] || ''));
+  const validationRules = [
+    { column: 1, list: 'LOCACIONES' },
+    { column: 2, list: 'FABRICANTES_1' },
+    { column: 3, formula: '=INDIRECT("MODELOS_1_"&IFERROR(MATCH($C2,FABRICANTES_1,0),0))' },
+    { column: 8, list: 'FUNCIONAMIENTO' },
+    { column: 9, list: 'EN_USO' },
+    { column: 10, list: 'ESTADO' },
+    { column: 12, list: 'RESPUESTA_SI_NO' },
+    { column: 13, list: 'OPCIONES_1_1' },
+  ];
+  const sheets = [
+    { name: 'Cámara', rows: [[
+      'Nombre del dispositivo', 'Ubicación del equipo', 'Fabricante', 'Modelo', 'Serie', 'Dirección MAC',
+      'Fecha de trabajo', 'Técnicos', 'Funcionamiento', 'En uso', 'Estado', 'Observación',
+      'Pregunta: Limpieza', 'Pregunta: Estado de la puerta',
+    ]], validations: validationRules, inputRows: 150 },
+    { name: 'Listas', hidden: true, rows: table },
+  ];
+  sheets.definedNames = sources.map(([name], column) => ({
+    name,
+    formula: "'Listas'!$" + String.fromCharCode(65 + column) + '$2:$'
+      + String.fromCharCode(65 + column) + '$4',
+  }));
+  const entries = await storedExcelEntries(createDeviceExcelWorkbook(sheets));
+  const sheetXml = entries.get('xl/worksheets/sheet1.xml');
+  const namesXml = entries.get('xl/workbook.xml');
+  const listsXml = entries.get('xl/worksheets/sheet2.xml');
+
+  assert.ok(sheetXml && namesXml && listsXml, 'El ZIP debe contener las hojas y el libro');
+  assert.match(namesXml, /sheet name="Listas"[^>]*state="hidden"/);
+  assert.match(sheetXml, /<dataValidations count="8">/);
+  assert.equal((sheetXml.match(/<dataValidation type="list"/g) || []).length, 8);
+  const expected = [
+    ['B', 'LOCACIONES'], ['C', 'FABRICANTES_1'],
+    ['D', 'INDIRECT(&quot;MODELOS_1_&quot;&amp;IFERROR(MATCH($C2,FABRICANTES_1,0),0))'],
+    ['I', 'FUNCIONAMIENTO'], ['J', 'EN_USO'], ['K', 'ESTADO'],
+    ['M', 'RESPUESTA_SI_NO'], ['N', 'OPCIONES_1_1'],
+  ];
+  for (const [column, formula] of expected) {
+    const rule = sheetXml.match(new RegExp('<dataValidation[^>]*sqref="' + column
+      + '2:' + column + '151"[^>]*><formula1>([^<]*)</formula1></dataValidation>'));
+    assert.ok(rule, 'Falta el desplegable de la columna ' + column);
+    assert.equal(rule[1], formula, 'La fuente de lista debe ser una fórmula OOXML sin prefijo =');
+    assert.doesNotMatch(rule[1], /^=/, 'Excel no debe recibir un = adicional en OOXML');
+  }
+  for (const [name] of sources) {
+    assert.ok(namesXml.includes('<definedName name="' + name + '">'),
+      'La validación referencia un nombre que no está en el libro: ' + name);
+  }
+  assert.match(listsXml, /Q6135/);
+  assert.match(listsXml, /Sala de control/);
+  assert.match(listsXml, /Realizado/);
+  const mapper = source('src/features/maintenance/maintenanceDeviceExcel.js');
+  for (const column of [1, 2, 3, 8, 9, 10]) {
+    assert.match(mapper, new RegExp('column: ' + column + ', (?:list|formula):'));
+  }
+  assert.match(mapper, /validations\.push\(\{ column: DEVICE_EXCEL_LABELS\.length \+ questionIndex/);
+});
+
+test('el serializador XLSX normaliza fórmulas de listas sin cambiar las reglas de importación', async () => {
+  const sheets = [
+    { name: 'Cámara', rows: [['Fabricante', 'Modelo']], inputRows: 10, validations: [
+      { column: 0, list: 'FABRICANTES_1' },
+      { column: 1, formula: '=INDIRECT("MODELOS_1_1")' },
+    ] },
+  ];
+  sheets.definedNames = [{ name: 'FABRICANTES_1', formula: "'Cámara'!$A$2:$A$2" }];
+  const entries = await storedExcelEntries(createDeviceExcelWorkbook(sheets));
+  const xml = entries.get('xl/worksheets/sheet1.xml');
+  assert.match(xml, /<formula1>FABRICANTES_1<\/formula1>/);
+  assert.match(xml, /<formula1>INDIRECT\(&quot;MODELOS_1_1&quot;\)<\/formula1>/);
+  assert.doesNotMatch(xml, /<formula1>=/);
+  const reader = source('src/utils/maintenanceExcelWorkbook.js');
+  assert.match(reader, /export async function readDeviceExcelWorkbook/);
+  const creator = source('src/components/maintenance/MaintenanceQuickDeviceCreator.jsx');
+  assert.match(creator, /validateDeviceExcelWorkbook/);
 });

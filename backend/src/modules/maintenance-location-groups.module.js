@@ -1,6 +1,9 @@
 import { badRequest, forbidden } from '../core/errors.js';
+import { createHash } from 'node:crypto';
 import { nowIso, pick } from '../core/utils.js';
-import { findById, readTable, updateRow } from '../infra/sheets.repository.js';
+import { query, withTransaction } from '../infra/postgres.js';
+import { expectedMaintenanceCountForDevice, raiseExpectedCountsForCreatedDevices } from './maintenance.module.js';
+import { appendRows, findById, readTable, updateRow } from '../infra/sheets.repository.js';
 import { audit } from '../services/audit.service.js';
 import { ensureSheetColumns } from '../services/sheet-columns.service.js';
 import { maintenanceAutomationHandlers as baseMaintenanceHandlers } from './maintenance-automation.module.js';
@@ -223,18 +226,144 @@ async function persistSelection(ctx, maintenance, groups, action) {
   return after;
 }
 
+
+const MAX_IMPORTED_INVENTORY_DEVICES = 2000;
+
+function sameImportIdentity(row = {}) {
+  const categoryKey = normalized(row.TipoDispositivoID || row.TipoDispositivo || row.Categoria);
+  const locationKey = clean(row.UbicacionEquipoID);
+  const serialKey = normalized(row.Serie);
+  const macKey = normalized(row.DireccionMAC);
+  const nameKey = normalized(row.NombreDispositivo);
+  if (!categoryKey || !locationKey || !(serialKey || macKey || nameKey)) return '';
+  return [locationKey,categoryKey,serialKey
+    ? 'serial:' + serialKey : macKey ? 'mac:' + macKey : 'name:' + nameKey].join('|');
+}
+
+function inventoryImportedDeviceId(maintenanceId, inventoryDeviceId) {
+  return 'inv-' + createHash('sha256')
+    .update(clean(maintenanceId) + '|inventory|' + clean(inventoryDeviceId))
+    .digest('hex').slice(0, 32);
+}
+
+/**
+ * Recicla únicamente características técnicas. Estado, fecha de trabajo,
+ * checklist, observaciones, imágenes y asignaciones NO pasan a una visita nueva.
+ */
+function inventoryDeviceToMaintenanceRow(item, { maintenanceId, equipmentLocationId, equipmentLocationName, actor }) {
+  const details = item.details && typeof item.details === 'object' && !Array.isArray(item.details)
+    ? item.details : {};
+  const category = clean(item.device_type);
+  const current = nowIso();
+  return {
+    EvidenciaMantenimientoID: inventoryImportedDeviceId(maintenanceId, item.device_id),
+    MantenimientoRef: maintenanceId,
+    UbicacionEquipoID: equipmentLocationId,
+    Zona: equipmentLocationName,
+    Categoria: category,
+    TipoDispositivo: category,
+    TipoDispositivoID: clean(details.typeId),
+    NombreDispositivo: clean(item.device_name),
+    FabricanteID: clean(details.manufacturerId),
+    Fabricante: clean(item.manufacturer),
+    ModeloID: clean(details.modelId),
+    Modelo: clean(item.model),
+    Serie: clean(item.serial),
+    DireccionMAC: clean(item.mac),
+    // Nueva visita: absolutamente ninguna evidencia/checklist cumplido.
+    Funcionamiento: '',
+    EnUso: '',
+    Estado: 'Pendiente',
+    Observacion: '',
+    RespuestasJSON: '{}',
+    TecnicoIDsJSON: '[]',
+    Tecnicos: '',
+    FechaTrabajo: '',
+    Activo: true,
+    CreadoPor: actor,
+    FechaCreacion: current,
+    ActualizadoPor: actor,
+    FechaActualizacion: current,
+  };
+}
+
+async function inventoryDevicesForEquipmentLocation(clientId, equipmentLocationId) {
+  const result = await query(
+    'SELECT d.device_id,d.device_type,d.device_name,d.manufacturer,d.model,'
+    + ' d.serial,d.mac,d.details FROM dms_client_inventory_devices d'
+    + ' JOIN dms_client_inventory inv ON inv.client_id=d.client_id'
+    + " WHERE d.client_id=$1 AND d.details->>'equipmentLocationId'=$2"
+    + ' ORDER BY d.device_id LIMIT $3',
+    [clientId,equipmentLocationId,MAX_IMPORTED_INVENTORY_DEVICES+1],
+    { label: 'maintenance.locations.inventory.source' },
+  );
+  if (result.rows.length > MAX_IMPORTED_INVENTORY_DEVICES) {
+    throw badRequest('La ubicación contiene demasiados equipos para importar de una vez. Divida la carga por etapas.');
+  }
+  return result.rows;
+}
+
+async function prepareInventoryLocationImport(ctx, maintenance, location, currentDevices) {
+  const source = await inventoryDevicesForEquipmentLocation(clean(maintenance.ClienteID), location.id);
+  if (!source.length) throw badRequest(
+    'La ubicación seleccionada no tiene dispositivos en el inventario generado de este cliente. Actualice el inventario o agregue solo la ubicación.');
+  const ids = new Set(currentDevices.map((device) => clean(device.EvidenciaMantenimientoID)));
+  const identities = new Set(currentDevices.filter((device) =>
+    device.Activo !== false && clean(device.Activo).toLowerCase() !== 'false')
+    .map(sameImportIdentity).filter(Boolean));
+  const rowsToCreate = [];
+  for (const item of source) {
+    const row = inventoryDeviceToMaintenanceRow(item, {
+      maintenanceId: clean(maintenance.MantenimientoID),
+      equipmentLocationId: location.id,
+      equipmentLocationName: location.name,
+      actor: clean(ctx.user.UsuarioID),
+    });
+    if (!row.NombreDispositivo || !row.Categoria) continue;
+    const identity = sameImportIdentity(row);
+    if (ids.has(row.EvidenciaMantenimientoID) || (identity && identities.has(identity))) continue;
+    ids.add(row.EvidenciaMantenimientoID);
+    if (identity) identities.add(identity);
+    rowsToCreate.push(row);
+  }
+  // Conserva el mismo requisito del alta de dispositivos: solo tipos
+  // planificados con cantidad mayor a cero se pueden agregar.
+  const forbiddenTypes = [...new Set(rowsToCreate.filter((row) =>
+    expectedMaintenanceCountForDevice(maintenance,row).planned <= 0)
+    .map((row) => row.TipoDispositivo))];
+  if (forbiddenTypes.length) {
+    throw badRequest('El inventario incluye tipos sin cantidad planificada: '
+      + forbiddenTypes.slice(0, 8).join(', ')
+      + '. Edite las cantidades esperadas del mantenimiento antes de importar.');
+  }
+  return { rowsToCreate, sourceCount: source.length };
+}
+
 async function locationsUpdate(ctx) {
   const maintenanceId = clean(pick(ctx.payload, ['maintenanceId', 'MantenimientoID', 'id']));
   if (!maintenanceId) throw badRequest('No se indicó el mantenimiento.');
 
-  return withLocationWrite(maintenanceId, async () => {
+  return withLocationWrite(maintenanceId, () => withTransaction(async () => {
+    // Misma fila que bloquea maintenance.deviceCreate en PostgreSQL; funciona
+    // con varias instancias de Render, sin confiar en writeTails en memoria.
+    const locked = await query(
+      'SELECT "MantenimientoID" FROM "Mantenimiento"'
+      + ' WHERE "__valid"=TRUE AND "MantenimientoID"=$1 FOR UPDATE',
+      [maintenanceId], { label: 'maintenance.locations.lock' });
+    if (!locked.rowCount) throw badRequest('El mantenimiento ya no está disponible.');
     const maintenance = await findById('Mantenimiento', maintenanceId);
     if (String(maintenance.Estado || 'PENDIENTE').toUpperCase() !== 'PENDIENTE') {
       throw badRequest('Las ubicaciones solo pueden modificarse mientras el mantenimiento está pendiente.');
     }
 
-    const devices = (await readTable('Evidencia_Mantenimientos'))
-      .filter((device) => clean(device.MantenimientoRef) === maintenanceId && device.Activo !== false);
+    const existing = await query(
+      'SELECT "EvidenciaMantenimientoID","UbicacionEquipoID","TipoDispositivoID",'
+      + ' "TipoDispositivo","Categoria","NombreDispositivo","Serie","DireccionMAC","Activo"'
+      + ' FROM "Evidencia_Mantenimientos" WHERE "__valid"=TRUE AND "MantenimientoRef"=$1',
+      [maintenanceId], { label: 'maintenance.locations.existingDevices' });
+    const allDevices = existing.rows || [];
+    const devices = allDevices.filter((device) =>
+      device.Activo !== false && clean(device.Activo).toLowerCase() !== 'false');
     const requestedIds = requestedGroupIds(ctx.payload);
     const requestedSet = new Set(requestedIds);
     const storedIds = parseStoredGroups(maintenance).map((group) => group.id).filter(Boolean);
@@ -251,9 +380,33 @@ async function locationsUpdate(ctx) {
     }
 
     const groups = await resolveRequestedGroups(maintenance, requestedIds, devices);
+    const importId = clean(ctx.payload?.importInventoryLocationId);
+    let imported = [];
+    if (importId) {
+      if (!requestedSet.has(importId)) {
+        throw badRequest('La ubicación a importar no forma parte de las ubicaciones seleccionadas.');
+      }
+      if (clean(maintenance.TipoMantenimiento).toUpperCase() === 'PROYECTO') {
+        throw badRequest('Los proyectos requieren su propio registro de equipos y checklist; no se importan automáticamente.');
+      }
+      const group = groups.find((item) => item.id === importId);
+      if (!group) throw badRequest('No se encontró la ubicación seleccionada para importar.');
+      const prepared = await prepareInventoryLocationImport(ctx, maintenance, group, allDevices);
+      imported = prepared.rowsToCreate;
+    }
     await persistSelection(ctx, maintenance, groups, 'ACTUALIZAR_UBICACIONES_MANTENIMIENTO');
-    return get({ ...ctx, payload: { maintenanceId } });
-  });
+    if (imported.length) {
+      // La misma API de persistencia PostgreSQL para altas normales,
+      // ahora con INSERT batch en la transacción del cambio de ubicación.
+      await appendRows('Evidencia_Mantenimientos', imported);
+      await raiseExpectedCountsForCreatedDevices(ctx, maintenance, imported);
+      await audit(ctx,'IMPORTAR_UBICACION_DESDE_INVENTARIO','Mantenimiento',maintenanceId,null,{
+        ubicacionEquipoId:importId, cantidad:imported.length,
+      });
+    }
+    const result = await get({ ...ctx, payload: { maintenanceId } });
+    return { ...result, importedInventoryDevices: imported.length };
+  }));
 }
 
 // Validate only a newly assigned location. Existing historical references

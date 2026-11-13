@@ -38,6 +38,7 @@ export const MODULE_ROUTES = {
     devices: ['inventory.devices.list'],
     detail: ['inventory.device.get'],
     generate: ['inventory.generate'],
+    link: ['inventory.devices.link'],
   },
   tickets: {
     list: ['boletas.list', 'tickets.list'],

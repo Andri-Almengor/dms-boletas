@@ -11,6 +11,7 @@ import InlineCreateModal from '../../components/forms/InlineCreateModal';
 import TechnicianMultiSelect from '../../components/forms/TechnicianMultiSelect';
 import SignaturePad from '../../components/tickets/SignaturePad';
 import TechnicalWritingAssistant from '../../components/tickets/TechnicalWritingAssistant';
+import TicketDeviceNameAutocomplete from '../../components/tickets/TicketDeviceNameAutocomplete';
 import useAgendaTicketContext from '../../features/agenda/useAgendaTicketContext';
 import {
   buildTicketFormOptions,
@@ -322,7 +323,7 @@ export default function TicketFormPage({ mode = 'create' }) {
 
           {step === 2 && <>
             <DependentSelect label="Tipo de dispositivo" name="tipoDispositivoId" value={form.tipoDispositivoId} options={opt.devices} required canAdd={manageCatalogs} onAdd={() => openModal('device')} onChange={(event) => choose(event, catalogs.devices, TICKET_FORM_IDS.devices, 'tipoDispositivoId', 'tipoDispositivo', ['Nombre'], { fabricanteId: '', fabricante: '', modeloId: '', modelo: '' })} />
-            <FormField label="Nombre del dispositivo" name="nombreDispositivo" value={form.nombreDispositivo} onChange={update} required />
+            <TicketDeviceNameAutocomplete clientId={form.clienteId} sessionToken={sessionToken} name="nombreDispositivo" value={form.nombreDispositivo} onChange={update} required />
             <div className="ticket-form-grid">
               <DependentSelect label="Fabricante" name="fabricanteId" value={form.fabricanteId} selectedLabel={form.fabricante} options={opt.manufacturers} loading={catalogLoading.manufacturers} disabled={!form.tipoDispositivoId} canAdd={manageCatalogs && Boolean(form.tipoDispositivoId)} onAdd={() => openModal('manufacturer')} onChange={(event) => choose(event, catalogs.manufacturers, TICKET_FORM_IDS.manufacturers, 'fabricanteId', 'fabricante', ['Nombre'], { modeloId: '', modelo: '' })} />
               <DependentSelect label="Modelo" name="modeloId" value={form.modeloId} selectedLabel={form.modelo} options={opt.models} loading={catalogLoading.models} disabled={!form.tipoDispositivoId || !form.fabricanteId} canAdd={manageCatalogs && Boolean(form.fabricanteId)} onAdd={() => openModal('model')} onChange={(event) => choose(event, catalogs.models, TICKET_FORM_IDS.models, 'modeloId', 'modelo', ['Nombre'])} />

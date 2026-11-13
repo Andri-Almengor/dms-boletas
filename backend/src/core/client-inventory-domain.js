@@ -171,6 +171,76 @@ export function mergeInventoryAliases(groups, pairs, approved = []) {
   return groups.filter((_, index) => find(index) === index);
 }
 
+
+/**
+ * Una unión manual requiere confirmación administrativa, pero nunca debe mezclar
+ * categorías ni equipos con serie/MAC contradictorios. Fabricante, modelo y
+ * ubicación pueden diferir entre mantenimientos históricos del mismo equipo.
+ */
+export function compatibleManualInventoryDevices(left, right) {
+  if (category(left) !== category(right)) return false;
+  if (serial(left) && serial(right) && serial(left) !== serial(right)) return false;
+  if (mac(left) && mac(right) && mac(left) !== mac(right)) return false;
+  return true;
+}
+
+/**
+ * Revisa la identidad física de TODAS las evidencias de los dos grupos con
+ * una sola pasada. Nunca permitir seriales, MAC o tipos contradictorios.
+ * Los campos vacíos, ubicaciones, modelos y nombres antiguos no bloquean por
+ * sí solos una corrección manual expresamente confirmada.
+ */
+export function validateManualInventorySourceUnion(sources = []) {
+  if (sources.length < 2) return false;
+  const types = new Set(sources.map(category));
+  const serials = new Set(sources.map(serial).filter(Boolean));
+  const macs = new Set(sources.map(mac).filter(Boolean));
+  return types.size === 1 && !types.has('') && serials.size <= 1 && macs.size <= 1;
+}
+
+/**
+ * Reaplica enlaces históricos ANTES de asociar boletas y generar historial.
+ * El nombre principal elegido no se pierde al regenerar desde mantenimientos.
+ */
+export function applyManualInventoryLinks(groups = [], manualLinks = []) {
+  if (!manualLinks.length) return groups;
+  const active = groups.map((g) => ({
+    representative: g.representative,
+    sources: [...g.sources],
+    aliases: [...g.aliases],
+  }));
+  const sourceToGroup = new Map();
+  const sourceMetadata = new Map(manualLinks.map((link) => [clean(link.source_id || link.sourceId),link]));
+  for (const group of active) {
+    for (const source of group.sources) sourceToGroup.set(clean(source.EvidenciaMantenimientoID), group);
+  }
+  const removed = new Set();
+  for (const link of manualLinks) {
+    const source = sourceToGroup.get(clean(link.source_id || link.sourceId));
+    const canonical = sourceToGroup.get(clean(link.canonical_source_id || link.canonicalSourceId));
+    // Registros eliminados o retirados dejan su vínculo guardado, pero no
+    // producen dispositivos inexistentes ni enlazan con otro cliente.
+    if (!source || !canonical || source === canonical) continue;
+    // O(total de evidencias), no O(n²) al enlazar equipos con años de historial.
+    const safe = validateManualInventorySourceUnion([...canonical.sources, ...source.sources]);
+    if (!safe) throw new Error('Un vínculo histórico manual ya no es compatible con el tipo, número de serie o MAC registrados.');
+    canonical.sources.push(...source.sources);
+    for (const alias of source.aliases) {
+      if (!canonical.aliases.includes(alias)) canonical.aliases.push(alias);
+    }
+    for (const entry of source.sources) sourceToGroup.set(clean(entry.EvidenciaMantenimientoID),canonical);
+    removed.add(source);
+  }
+  return active.filter((group) => !removed.has(group)).map((group) => {
+    const preferredName = group.sources.map((source) =>
+      clean(sourceMetadata.get(clean(source.EvidenciaMantenimientoID))?.preferred_device_name))
+      .find(Boolean);
+    if (!preferredName) return group;
+    // El nombre canónico de la ficha es una vista, no modifica la fuente.
+    return { ...group, representative: { ...group.representative, NombreDispositivo: preferredName } };
+  });
+}
+
 export function inventoryDeviceId(clientId, group, previousSourceIds = new Map()) {
   for (const source of group.sources) {
     const matched = previousSourceIds.get(clean(source.EvidenciaMantenimientoID));

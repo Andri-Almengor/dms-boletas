@@ -317,7 +317,7 @@ export default function MaintenanceDetailPage() {
     }));
   }
 
-  async function saveLocations(nextLocations, successMessage) {
+  async function saveLocations(nextLocations, successMessage, { importInventoryLocationId = '' } = {}) {
     setWorking('locations');
     setError('');
     setNotice('');
@@ -334,10 +334,14 @@ export default function MaintenanceDetailPage() {
           locationName: item.locationName || '',
         })),
         ubicacionesEquipoIds: nextLocations.map((item) => item.id),
+        ...(importInventoryLocationId ? { importInventoryLocationId } : {}),
       }, sessionToken);
       if (Array.isArray(result?.ubicacionesEquipo) || Array.isArray(result?.equipmentLocations)) setData(result);
       else if (navigator.onLine !== false) await load({ silent: true, forceSync: true });
-      setNotice(successMessage);
+      const count = Number(result?.importedInventoryDevices || 0);
+      setNotice(count
+        ? successMessage + ' Se agregaron ' + count + ' dispositivos del inventario, pendientes de revisar.'
+        : successMessage);
       return true;
     } catch (saveError) {
       optimisticLocations(previous);
@@ -348,9 +352,13 @@ export default function MaintenanceDetailPage() {
     }
   }
 
-  async function addLocation(location) {
+  async function addLocation(location, { importInventoryDevices = false } = {}) {
     if (!location?.id || maintenanceLocations.some((item) => item.id === location.id)) return false;
-    const saved = await saveLocations([...maintenanceLocations, location], `La ubicación “${location.name}” fue agregada al mantenimiento.`);
+    const saved = await saveLocations(
+      [...maintenanceLocations, location],
+      `La ubicación “${location.name}” fue agregada al mantenimiento.`,
+      { importInventoryLocationId: importInventoryDevices ? location.id : '' },
+    );
     if (saved) setLocationPickerOpen(false);
     return saved;
   }
@@ -535,7 +543,7 @@ export default function MaintenanceDetailPage() {
         {isAdmin && <button className="button button--danger" type="button" onClick={() => action('delete')} disabled={Boolean(working)}><Icon name="delete" />Eliminar</button>}
       </section>
 
-      <MaintenanceLocationPickerModal open={locationPickerOpen} clientId={String(pick(row, ['ClienteID', 'ClienteRef'], ''))} maintenanceLocationId={String(pick(row, ['UbicacionID'], ''))} existingLocations={maintenanceLocations} saving={working === 'locations'} onClose={() => setLocationPickerOpen(false)} onSave={addLocation} />
+      <MaintenanceLocationPickerModal open={locationPickerOpen} clientId={String(pick(row, ['ClienteID', 'ClienteRef'], ''))} maintenanceLocationId={String(pick(row, ['UbicacionID'], ''))} sessionToken={sessionToken} projectMode={projectMode} existingLocations={maintenanceLocations} saving={working === 'locations'} onClose={() => setLocationPickerOpen(false)} onSave={addLocation} />
       {quickDeviceLocation && <MaintenanceQuickDeviceCreator maintenanceId={maintenanceId} sessionToken={sessionToken} initialEquipmentLocation={quickDeviceLocation} bulk={quickDeviceBulk} availableDeviceTypes={maintenanceCatalogs.deviceTypes} onClose={() => setQuickDeviceLocation(null)} onCreated={(feedback) => {
         if (feedback?.bulk) {
           setNotice(`${feedback.count} dispositivos ${feedback.offlinePending ? 'guardados (pendientes de sincronizar)' : 'agregados'} en “${feedback.locationName}”.`);

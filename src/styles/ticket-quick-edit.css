@@ -148,3 +148,12 @@
     width: 100%;
   }
 }
+
+
+/* Sugerencias del nombre del dispositivo: reutiliza el selector compartido. */
+.searchable-select__option.is-active {
+  background: var(--primary-soft);
+  color: var(--text);
+  outline: 1px solid var(--primary);
+  outline-offset: -1px;
+}

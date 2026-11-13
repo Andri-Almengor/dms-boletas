@@ -30,6 +30,8 @@ export default function DependentSelect({
   onSearch,
   searchDelay = 300,
   searchMinLength = 0,
+  allowCustomValue = false,
+  hint = '',
 }) {
   const { hasPermission } = useAuth();
   const generatedId = useId();
@@ -39,6 +41,7 @@ export default function DependentSelect({
   const [open, setOpen] = useState(false);
   const [query, setQuery] = useState('');
   const [remoteLoading, setRemoteLoading] = useState(false);
+  const [activeIndex, setActiveIndex] = useState(-1);
 
   const canAddFromOperation = Boolean(onAdd) && (
     hasPermission('BOLETAS_CREAR')
@@ -50,13 +53,14 @@ export default function DependentSelect({
   const useSearchable = searchable ?? normalizedLabel === 'cliente';
   const displayedOptions = useMemo(() => sortOptionsNaturally(options), [options]);
   const selectedOption = displayedOptions.find((option) => String(option.value) === String(value || ''))
-    || (value && selectedLabel ? { value: String(value), label: String(selectedLabel) } : null);
+    || (value && selectedLabel ? { value: String(value), label: String(selectedLabel) } : null)
+    || (allowCustomValue && value ? { value: String(value), label: String(value) } : null);
 
   const filteredOptions = useMemo(() => {
     const term = normalizeSearch(query);
-    if (!term || term === normalizeSearch(selectedOption?.label)) return displayedOptions;
+    if (!term || (!allowCustomValue && term === normalizeSearch(selectedOption?.label))) return displayedOptions;
     return displayedOptions.filter((option) => normalizeSearch(option.label).includes(term));
-  }, [displayedOptions, query, selectedOption]);
+  }, [displayedOptions, query, selectedOption, allowCustomValue]);
 
   useEffect(() => {
     if (!open) setQuery(selectedOption?.label || '');
@@ -109,6 +113,7 @@ export default function DependentSelect({
     emitChange(String(option.value));
     setQuery(option.label);
     setOpen(false);
+    setActiveIndex(-1);
     requestAnimationFrame(() => inputRef.current?.blur());
   }
 
@@ -118,17 +123,39 @@ export default function DependentSelect({
     emitChange('');
     setQuery('');
     setOpen(true);
+    setActiveIndex(-1);
     requestAnimationFrame(() => inputRef.current?.focus());
   }
 
   function handleKeyDown(event) {
     if (event.key === 'Escape') {
       setOpen(false);
+      setActiveIndex(-1);
       inputRef.current?.blur();
+      return;
     }
-    if (event.key === 'Enter' && open && filteredOptions.length) {
+    if (allowCustomValue && open && filteredOptions.length
+      && (event.key === 'ArrowDown' || event.key === 'ArrowUp')) {
       event.preventDefault();
-      chooseOption(filteredOptions[0]);
+      setActiveIndex((index) => event.key === 'ArrowDown'
+        ? Math.min(index + 1, filteredOptions.length - 1)
+        : (index <= 0 ? filteredOptions.length - 1 : index - 1));
+      return;
+    }
+    if (event.key === 'Enter' && open) {
+      // En modo libre, solo una selección explícita (flechas+Enter o clic)
+      // escoge una sugerencia. Enter a secas conserva exactamente lo escrito.
+      if (allowCustomValue) {
+        event.preventDefault();
+        if (activeIndex >= 0 && filteredOptions[activeIndex]) {
+          chooseOption(filteredOptions[activeIndex]);
+        } else {
+          setOpen(false);
+        }
+      } else if (filteredOptions.length) {
+        event.preventDefault();
+        chooseOption(filteredOptions[0]);
+      }
     }
   }
 
@@ -162,6 +189,8 @@ export default function DependentSelect({
             aria-autocomplete="list"
             aria-haspopup="listbox"
             aria-busy={remoteLoading}
+            aria-activedescendant={allowCustomValue && open && activeIndex >= 0
+              ? `${fieldId}-option-${activeIndex}` : undefined}
             role="combobox"
             onFocus={(event) => {
               setOpen(true);
@@ -171,6 +200,8 @@ export default function DependentSelect({
             onChange={(event) => {
               setQuery(event.target.value);
               setOpen(true);
+              setActiveIndex(-1);
+              if (allowCustomValue) emitChange(event.target.value);
             }}
             onKeyDown={handleKeyDown}
           />
@@ -185,15 +216,16 @@ export default function DependentSelect({
 
           {open && !disabled && !loading && (
             <div className="searchable-select__menu" id={`${fieldId}-options`} role="listbox">
-              {filteredOptions.length ? filteredOptions.map((option) => {
+              {filteredOptions.length ? filteredOptions.map((option, index) => {
                 const selected = String(option.value) === String(value || '');
                 return (
                   <button
                     key={option.value}
+                    id={`${fieldId}-option-${index}`}
                     type="button"
                     role="option"
                     aria-selected={selected}
-                    className={`searchable-select__option${selected ? ' is-selected' : ''}`}
+                    className={`searchable-select__option${selected ? ' is-selected' : ''}${allowCustomValue && index === activeIndex ? ' is-active' : ''}`}
                     onPointerDown={(event) => event.preventDefault()}
                     onClick={() => chooseOption(option)}
                   >
@@ -202,7 +234,8 @@ export default function DependentSelect({
                   </button>
                 );
               }) : (
-                <div className="searchable-select__empty">{remoteLoading ? 'Buscando...' : 'No se encontraron coincidencias.'}</div>
+                <div className="searchable-select__empty">{remoteLoading ? 'Buscando...' : allowCustomValue
+                  ? 'Sin coincidencias. Puede conservar el nombre escrito.' : 'No se encontraron coincidencias.'}</div>
               )}
             </div>
           )}
@@ -216,6 +249,7 @@ export default function DependentSelect({
           <Icon name="expand_more" />
         </div>
       )}
+      {hint && <small className="field-hint">{hint}</small>}
     </div>
   );
 }
