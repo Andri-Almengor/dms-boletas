@@ -381,6 +381,144 @@ export const clientInventoryHandlers = {
       hasMoreEvents: events.length>100, hasMoreMedia: media.length>100,
     };
   },
+  /**
+   * Unión manual INMEDIATA de dos fichas del mismo cliente, persistida en
+   * vínculos históricos que sobreviven a la reconstrucción del inventario.
+   * Ninguna boleta, evidencia ni mantenimiento operativo se modifica.
+   */
+  link: async (ctx) => {
+    adminGuard(ctx); // Administrador y Supervisor comparten USUARIOS_GESTIONAR
+    const id = clientId(ctx);
+    const keepId = clean(ctx.payload?.keepDeviceId);
+    const mergeId = clean(ctx.payload?.mergeDeviceId);
+    const requestKey = clean(ctx.payload?.requestKey);
+    const expectedRevision = Number(ctx.payload?.expectedRevision);
+    if (!/^[a-f0-9]{32}$/.test(keepId) || !/^[a-f0-9]{32}$/.test(mergeId) || keepId === mergeId) {
+      throw badRequest('Seleccione dos dispositivos distintos del mismo inventario.');
+    }
+    if (!/^[a-zA-Z0-9_-]{16,100}$/.test(requestKey)) {
+      throw badRequest('La operación requiere una clave de idempotencia válida.');
+    }
+    if (!Number.isSafeInteger(expectedRevision) || expectedRevision < 1) {
+      throw badRequest('Falta la revisión del inventario. Recargue la lista antes de vincular.');
+    }
+    const userId = clean(ctx.user.UsuarioID);
+    let outcome;
+    await withTransaction(async () => {
+      await query('SELECT pg_advisory_xact_lock(hashtext($1))',
+        ['client-inventory:'+id], { label: 'inventory.link.lock' });
+      const repeated = await selectOne(
+        'SELECT kept_device_id,merged_device_id FROM dms_client_inventory_manual_link_requests'
+        + ' WHERE client_id=$1 AND request_key=$2',
+        [id, requestKey], 'inventory.link.idempotency');
+      if (repeated) {
+        if (repeated.kept_device_id !== keepId || repeated.merged_device_id !== mergeId) {
+          throw badRequest('La clave de operación ya se utilizó para otros equipos.');
+        }
+        outcome = { linked: true, alreadyLinked: true, keptDeviceId: keepId };
+        return;
+      }
+      const inventory = await selectOne(
+        'SELECT revision,device_count FROM dms_client_inventory WHERE client_id=$1 FOR UPDATE',
+        [id], 'inventory.link.version');
+      if (!inventory) throw notFound('Primero debe generar el inventario del cliente.');
+      if (Number(inventory.revision) !== expectedRevision) {
+        throw badRequest('El inventario cambió. Recargue la lista antes de vincular dispositivos.');
+      }
+      const devices = rows(await query(
+        'SELECT device_id,device_type,device_name,serial,mac,source_ids,details'
+        + ' FROM dms_client_inventory_devices WHERE client_id=$1'
+        + ' AND device_id IN ($2,$3) ORDER BY device_id FOR UPDATE',
+        [id,keepId,mergeId], { label: 'inventory.link.resolve' }));
+      const keep = devices.find((row) => row.device_id === keepId);
+      const remove = devices.find((row) => row.device_id === mergeId);
+      if (!keep || !remove) throw notFound('Uno de los dispositivos ya no existe. Recargue el inventario.');
+      const sourceIds = [...new Set([...(keep.source_ids || []),...(remove.source_ids || [])].map(clean).filter(Boolean))];
+      if (!sourceIds.length || sourceIds.length !== (keep.source_ids || []).length + (remove.source_ids || []).length) {
+        throw badRequest('No es posible vincular dispositivos con evidencias históricas repetidas o vacías.');
+      }
+      const original = rows(await query(
+        'SELECT d."EvidenciaMantenimientoID",d."TipoDispositivo",d."Serie",d."DireccionMAC"'
+        + ' FROM "Evidencia_Mantenimientos" d'
+        + ' JOIN "Mantenimiento" m ON m."MantenimientoID"=d."MantenimientoRef"'
+        + ' WHERE ' + active('m') + ' AND ' + active('d')
+        + ' AND m."ClienteID"=$1 AND d."EvidenciaMantenimientoID"=ANY($2::text[])',
+        [id,sourceIds], { label: 'inventory.link.sourceValidation' }));
+      if (original.length !== sourceIds.length || !validateManualInventorySourceUnion(original)) {
+        throw badRequest('No se pueden unir equipos con distinto tipo, serie o MAC, ni referencias históricas inválidas.');
+      }
+      // Conservar el nombre y atributos del equipo principal, y todos los
+      // nombres secundarios para búsquedas e identificación de la ficha.
+      const aliases = [...new Set([
+        ...(Array.isArray(keep.details?.aliases) ? keep.details.aliases : [keep.device_name]),
+        ...(Array.isArray(remove.details?.aliases) ? remove.details.aliases : [remove.device_name]),
+        keep.device_name,remove.device_name,
+      ].map(clean).filter(Boolean))];
+      const last = await selectOne(
+        'SELECT event_key AS key,event_type AS type,source_id AS "sourceId",'
+        + ' occurred_at AS date,title,summary FROM dms_client_inventory_events'
+        + ' WHERE client_id=$1 AND device_id IN ($2,$3)'
+        + ' ORDER BY occurred_at DESC,event_key DESC LIMIT 1',
+        [id,keepId,mergeId], 'inventory.link.lastEvent');
+      const details = {
+        ...(keep.details || {}),
+        aliases,
+        manualLinked: true,
+        currentStatus: recordedCurrentStatus({ latest: last || null }),
+      };
+      const anchor = clean((keep.source_ids || [])[0]);
+      if (!anchor) throw badRequest('El equipo principal no tiene una referencia histórica válida.');
+      // El mapa se escribe bajo el mismo lock de inventory.generate: nunca se
+      // perderá aunque se ejecute Actualizar inventario en otro servidor.
+      await query(
+        'INSERT INTO dms_client_inventory_manual_links'
+        + '(client_id,source_id,canonical_source_id,linked_by,linked_at)'
+        + ' SELECT $1,s.source_id,$3,$4,NOW() FROM unnest($2::text[]) AS s(source_id)'
+        + ' ON CONFLICT(client_id,source_id) DO UPDATE SET'
+        + ' canonical_source_id=EXCLUDED.canonical_source_id,'
+        + ' linked_by=EXCLUDED.linked_by,linked_at=EXCLUDED.linked_at',
+        [id,sourceIds,anchor,userId], { label: 'inventory.link.persist', write: true });
+      await query(
+        'UPDATE dms_client_inventory_devices SET source_ids=$3,details=$4::jsonb'
+        + ' WHERE client_id=$1 AND device_id=$2',
+        [id,keepId,sourceIds,JSON.stringify(details)],
+        { label: 'inventory.link.updateKept', write: true });
+      await query(
+        'INSERT INTO dms_client_inventory_events'
+        + '(client_id,device_id,event_key,event_type,source_id,occurred_at,title,summary,technicians)'
+        + ' SELECT client_id,$2,event_key,event_type,source_id,occurred_at,title,summary,technicians'
+        + ' FROM dms_client_inventory_events WHERE client_id=$1 AND device_id=$3'
+        + ' ON CONFLICT(client_id,device_id,event_key) DO NOTHING',
+        [id,keepId,mergeId], { label: 'inventory.link.mergeEvents', write: true });
+      await query(
+        'INSERT INTO dms_client_inventory_media'
+        + '(client_id,device_id,media_key,media_type,source_id,evidence_id,occurred_at,label,mime_type,file_id)'
+        + ' SELECT client_id,$2,media_key,media_type,source_id,evidence_id,occurred_at,label,mime_type,file_id'
+        + ' FROM dms_client_inventory_media WHERE client_id=$1 AND device_id=$3'
+        + ' ON CONFLICT(client_id,device_id,media_key) DO NOTHING',
+        [id,keepId,mergeId], { label: 'inventory.link.mergeMedia', write: true });
+      await query('DELETE FROM dms_client_inventory_devices WHERE client_id=$1 AND device_id=$2',
+        [id,mergeId], { label: 'inventory.link.deleteDuplicate', write: true });
+      await query(
+        'UPDATE dms_client_inventory SET device_count=device_count-1,revision=revision+1 WHERE client_id=$1',
+        [id], { label: 'inventory.link.versionIncrement', write: true });
+      await query(
+        'INSERT INTO dms_client_inventory_manual_link_requests'
+        + '(client_id,request_key,kept_device_id,merged_device_id,linked_by) VALUES($1,$2,$3,$4,$5)',
+        [id,requestKey,keepId,mergeId,userId],
+        { label: 'inventory.link.request', write: true });
+      outcome = {
+        linked: true, alreadyLinked: false, keptDeviceId: keepId,
+        revision: expectedRevision + 1, deviceCount: Number(inventory.device_count) - 1,
+      };
+    });
+    if (!outcome.alreadyLinked) {
+      await audit(ctx, 'VINCULAR_DISPOSITIVOS_INVENTARIO', 'Clientes', id, null, {
+        principal: keepId, duplicado: mergeId, revision: outcome.revision,
+      });
+    }
+    return outcome;
+  },
   generate: async (ctx) => {
     adminGuard(ctx);
     const id = clientId(ctx);
