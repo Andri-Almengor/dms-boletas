@@ -126,7 +126,7 @@ export async function runWithActionConcurrency(route, operation, { signal, assis
       // La transferencia de adjuntos ya utiliza los handlers existentes de
       // carga de archivos; no debe retener slots para respuestas Gemini.
       releaseDedicated = await uploadActions.acquire({ signal });
-    } else if ((isAssistantChatRoute(route) && !statusLookup) || isAiRewriteRoute(route)) {
+    } else if (normalizedRoute(route) === 'inventory.generate' || (isAssistantChatRoute(route) && !statusLookup) || isAiRewriteRoute(route)) {
       releaseDedicated = await aiActions.acquire({ signal });
     } else if (/evidence|images|imagenes|grande|attachments|adjuntos/.test(normalizedRoute(route))) {
       releaseDedicated = await uploadActions.acquire({ signal });
