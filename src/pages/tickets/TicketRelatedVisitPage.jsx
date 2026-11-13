@@ -9,6 +9,7 @@ import InlineCreateModal from '../../components/forms/InlineCreateModal';
 import TechnicianMultiSelect from '../../components/forms/TechnicianMultiSelect';
 import SignaturePad from '../../components/tickets/SignaturePad';
 import TechnicalWritingAssistant from '../../components/tickets/TechnicalWritingAssistant';
+import TicketDeviceNameAutocomplete from '../../components/tickets/TicketDeviceNameAutocomplete';
 import { createOfflineId } from '../../services/offlineStore';
 import {
   MODULE_ROUTES,
@@ -703,7 +704,7 @@ export default function TicketRelatedVisitPage() {
             onAdd={() => openModal('equipment')}
             onChange={(event) => choose(event, options.equipment, 'ubicacionEquipoId', 'ubicacionEquipo')}
           />
-          <Field label="Nombre del dispositivo" name="nombreDispositivo" value={form.nombreDispositivo} onChange={update} required />
+          <TicketDeviceNameAutocomplete clientId={parentClientId} sessionToken={sessionToken} name="nombreDispositivo" value={form.nombreDispositivo} onChange={update} required />
           <DependentSelect
             label="Tipo de dispositivo"
             name="tipoDispositivoId"
