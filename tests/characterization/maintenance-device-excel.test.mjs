@@ -170,7 +170,7 @@ test('el XLSX exporta los rangos de modelos con fórmula Excel dependiente de ca
     { name:'Cámara',rows:[['Nombre del dispositivo','Ubicación del equipo','Fabricante','Modelo']],
       inputRows:20, validations:[
         { column:2,list:'FABRICANTES_1' },
-        { column:3,formula:'=IFERROR(INDIRECT("MODELOS_1_"&MATCH($C2,FABRICANTES_1,0)),SIN_MODELOS)' },
+        { column:3,formula:'INDIRECT("MODELOS_1_"&IFERROR(MATCH($C2,FABRICANTES_1,0),0))' },
       ] },
     { name:'Listas',hidden:true,rows:[
       ['FABRICANTES_1','MODELOS_1_1','MODELOS_1_2','SIN_MODELOS'],
@@ -186,8 +186,8 @@ test('el XLSX exporta los rangos de modelos con fórmula Excel dependiente de ca
   const xml=new TextDecoder().decode(await createDeviceExcelWorkbook(sheets).arrayBuffer());
   assert.match(xml, /<definedName name="MODELOS_1_1">/);
   assert.match(xml, /Q6135/);
-  assert.match(xml, /<formula1>=FABRICANTES_1<\/formula1>/);
-  assert.match(xml, /<formula1>=IFERROR\(INDIRECT\(&quot;MODELOS_1_&quot;&amp;MATCH\(\$C2,FABRICANTES_1,0\)\),SIN_MODELOS\)<\/formula1>/);
+  assert.match(xml, /<formula1>FABRICANTES_1<\/formula1>/);
+  assert.match(xml, /<formula1>INDIRECT\(&quot;MODELOS_1_&quot;&amp;IFERROR\(MATCH\(\$C2,FABRICANTES_1,0\),0\)\)<\/formula1>/);
   assert.match(sourceTextOrFallback(), /MODELOS_/);
   function sourceTextOrFallback() { return source('src/features/maintenance/maintenanceDeviceExcel.js'); }
 });
