@@ -138,15 +138,36 @@ function sanitizeMaintenanceCounts(counts = {}, devices = [], deviceTypes = []) 
  * de la fila del mantenimiento, no con un lock en memoria de una instancia.
  * Una sola consulta agregada evita traer toda la tabla de dispositivos.
  */
-async function raiseExpectedCountForCreatedDevice(ctx, maintenance, created) {
+/**
+ * Reutiliza el mismo ajuste de cantidad esperada tanto para altas individuales
+ * como para importar en lote los equipos de una ubicación. Una sola consulta
+ * GROUP BY y un updateRow, aunque se agreguen centenares de equipos.
+ */
+export function expectedMaintenanceCountForDevice(maintenance, device) {
+  const fixedField = fixedCountFieldForDevice(device);
+  const typeId = String(device.TipoDispositivoID || '').trim();
+  const category = normalizedDynamicCountName(device.TipoDispositivo || device.Categoria);
+  const key = fixedField || (typeId ? 'TipoDispositivo:' + typeId
+    : category ? 'TipoDispositivoNombre:' + category : '');
+  let counts = {};
+  try {
+    counts = typeof maintenance.CantidadesJSON === 'string'
+      ? JSON.parse(maintenance.CantidadesJSON || '{}') : maintenance.CantidadesJSON || {};
+  } catch { counts = {}; }
+  const planned = Number(fixedField
+    ? (maintenance[fixedField] ?? counts[fixedField] ?? 0)
+    : (counts[key] || 0));
+  return { key, fixedField, typeId, category, planned: Number.isFinite(planned) ? planned : 0 };
+}
+
+export async function raiseExpectedCountsForCreatedDevices(ctx, maintenance, createdDevices = []) {
+  const targets = new Map();
+  for (const created of createdDevices) {
+    const target = expectedMaintenanceCountForDevice(maintenance, created);
+    if (target.key) targets.set(target.key, target);
+  }
+  if (!targets.size) return;
   const maintenanceId = String(maintenance.MantenimientoID);
-  const fixedField = fixedCountFieldForDevice(created);
-  const typeId = String(created.TipoDispositivoID || '').trim();
-  const category = normalizedDynamicCountName(created.TipoDispositivo || created.Categoria);
-  const countKey = fixedField || (typeId
-    ? 'TipoDispositivo:' + typeId
-    : 'TipoDispositivoNombre:' + category);
-  if (!countKey) return;
   const result = await query(
     'SELECT "TipoDispositivoID", "TipoDispositivo", "Categoria", COUNT(*)::integer AS total'
     + ' FROM "Evidencia_Mantenimientos"'
@@ -155,33 +176,42 @@ async function raiseExpectedCountForCreatedDevice(ctx, maintenance, created) {
     + ' GROUP BY "TipoDispositivoID", "TipoDispositivo", "Categoria"',
     [maintenanceId], { label: 'maintenance.devices.registered.byType' },
   );
-  const total = result.rows.reduce((sum, item) => {
-    if (fixedField) return sum + (fixedCountFieldForDevice(item) === fixedField ? Number(item.total || 0) : 0);
-    if (typeId) return sum + (String(item.TipoDispositivoID || '').trim() === typeId ? Number(item.total || 0) : 0);
-    return sum + (!String(item.TipoDispositivoID || '').trim()
-      && normalizedDynamicCountName(item.TipoDispositivo || item.Categoria) === category
-      ? Number(item.total || 0) : 0);
-  }, 0);
   let counts = {};
   try {
     counts = typeof maintenance.CantidadesJSON === 'string'
-      ? JSON.parse(maintenance.CantidadesJSON || '{}')
-      : maintenance.CantidadesJSON || {};
+      ? JSON.parse(maintenance.CantidadesJSON || '{}') : maintenance.CantidadesJSON || {};
   } catch { counts = {}; }
-  const planned = Number(fixedField
-    ? (maintenance[fixedField] ?? counts[fixedField] ?? 0)
-    : (counts[countKey] || 0));
-  if (total <= planned) return;
-  const nextCounts = { ...counts, [countKey]: total };
-  const patch = {
-    CantidadesJSON: JSON.stringify(nextCounts),
-    ...(fixedField ? { [fixedField]: total } : {}),
+  const patch = {};
+  const changes = [];
+  for (const target of targets.values()) {
+    const total = result.rows.reduce((sum, row) => {
+      if (target.fixedField) return sum + (fixedCountFieldForDevice(row) === target.fixedField ? Number(row.total || 0) : 0);
+      if (target.typeId) return sum + (String(row.TipoDispositivoID || '').trim() === target.typeId ? Number(row.total || 0) : 0);
+      return sum + (!String(row.TipoDispositivoID || '').trim()
+        && normalizedDynamicCountName(row.TipoDispositivo || row.Categoria) === target.category
+        ? Number(row.total || 0) : 0);
+    }, 0);
+    if (total <= target.planned) continue;
+    counts = { ...counts, [target.key]: total };
+    if (target.fixedField) patch[target.fixedField] = total;
+    changes.push({ campo: target.key, anterior: target.planned, esperado: total });
+  }
+  if (!changes.length) return;
+  await updateRow('Mantenimiento', maintenanceId, {
+    ...patch,
+    CantidadesJSON: JSON.stringify(counts),
     ActualizadoPor: ctx.user.UsuarioID,
     FechaActualizacion: nowIso(),
-  };
-  await updateRow('Mantenimiento', maintenanceId, patch);
-  await audit(ctx, 'AJUSTAR_CANTIDAD_ESPERADA_AUTOMATICA', 'Mantenimiento', maintenanceId,
-    { campo: countKey, anterior: planned }, { campo: countKey, esperado: total });
+  });
+  for (const change of changes) {
+    await audit(ctx, 'AJUSTAR_CANTIDAD_ESPERADA_AUTOMATICA', 'Mantenimiento', maintenanceId,
+      { campo: change.campo, anterior: change.anterior },
+      { campo: change.campo, esperado: change.esperado });
+  }
+}
+
+async function raiseExpectedCountForCreatedDevice(ctx, maintenance, created) {
+  return raiseExpectedCountsForCreatedDevices(ctx, maintenance, [created]);
 }
 
 function normalizeMaintenanceType(value, fallback = 'MANTENIMIENTO') {
