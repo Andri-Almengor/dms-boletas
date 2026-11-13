@@ -91,22 +91,23 @@ function numbers(row) {
   return [...new Set((normalizeInventoryText(name(row)).match(/\d+/g) || []))].sort().join(',');
 }
 export function candidateInventoryAliases(groups = [], limit = 120) {
-  const byCategoryLocation = new Map();
+  // Acota el costo incluso si miles de cámaras están en un mismo piso:
+  // antes de comparar nombres deben coincidir también sus identificadores numéricos.
+  const byIdentity = new Map();
   groups.forEach((group, index) => {
     const r = group.representative;
-    const key = category(r) + '|' + location(r);
-    const items = byCategoryLocation.get(key) || [];
-    items.push(index);
-    byCategoryLocation.set(key, items);
+    if (!hasDistinctName(r)) return;
+    const key = category(r) + '|' + location(r) + '|' + numbers(r);
+    if (!byIdentity.has(key)) byIdentity.set(key, []);
+    byIdentity.get(key).push(index);
   });
   const pairs = [];
-  for (const indices of byCategoryLocation.values()) {
+  for (const indices of byIdentity.values()) {
     for (let i = 0; i < indices.length; i++) {
       for (let j = i + 1; j < indices.length; j++) {
         const left = groups[indices[i]].representative;
         const right = groups[indices[j]].representative;
-        if (!compatibleInventoryDevices(left, right) || !hasDistinctName(left) || !hasDistinctName(right)) continue;
-        if (numbers(left) !== numbers(right)) continue;
+        if (!compatibleInventoryDevices(left, right)) continue;
         const a = tokens(name(left)), b = tokens(name(right));
         const intersection = a.filter((item) => b.includes(item)).length;
         if (intersection < 2 || intersection / Math.max(a.length, b.length) < 0.55) continue;
@@ -215,6 +216,22 @@ export function attachInventoryTickets(groups, tickets = [], ticketEvidence = []
   return ticketMatches;
 }
 
+
+function maintenanceChecklistSummary(raw = '') {
+  let answers = {};
+  try {
+    answers = typeof raw === 'string' ? JSON.parse(raw || '{}') : raw || {};
+  } catch { return ''; }
+  if (!answers || typeof answers !== 'object' || Array.isArray(answers)) return '';
+  const labels = new Map((Array.isArray(answers.__preguntas) ? answers.__preguntas : [])
+    .map((item) => [clean(item.key || item.Clave), clean(item.label || item.Pregunta)]));
+  const entries = Object.entries(answers)
+    .filter(([key, value]) => key !== '__preguntas' && value != null
+      && typeof value !== 'object' && clean(value))
+    .map(([key, value]) => clean(labels.get(key) || key).slice(0, 120) + ': ' + clean(value).slice(0, 120))
+    .slice(0, 12);
+  return entries.length ? 'Checklist: ' + entries.join('; ') : '';
+}
 function cut(value, max = 1500) { return clean(value).slice(0, max); }
 function uniqueByKey(rows, keyName) {
   return [...new Map(rows.map((row) => [row[keyName], row])).values()];
@@ -266,7 +283,8 @@ export function buildInventorySnapshot({
     for (const source of group.sources) {
       const maintenanceId = clean(source.MantenimientoRef);
       const date = cut(source.FechaTrabajo || source.maintenanceDate || source.maintenanceFinishedAt, 40);
-      const note = [source.Observacion, source.maintenanceDescription]
+      const note = [source.Observacion, maintenanceChecklistSummary(source.RespuestasJSON),
+        source.maintenanceDescription]
         .map((value) => cut(value, 600)).filter(Boolean).join(' · ');
       events.push({
         clientId, deviceId, key: 'M:' + clean(source.EvidenciaMantenimientoID),
