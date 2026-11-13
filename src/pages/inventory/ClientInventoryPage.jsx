@@ -353,6 +353,14 @@ function InventoryClientTable({ clientId, sessionToken, navigate }) {
     }
   },[selected,page,result.items.length,result.hasMore]);
 
+  const totalPages = Math.max(1, Math.ceil(Number(result.totalFiltered ?? result.total ?? 0) / 50));
+  const goToPage = (delta) => {
+    if (loading) return;
+    setSelected(-1);
+    pendingArrowRef.current = '';
+    setPage((current) => Math.min(totalPages, Math.max(1, current + delta)));
+  };
+
   return <div className="client-inventory-page client-inventory-page--table">
     <header className="client-inventory-page__header">
       <div><button type="button" className="button button--secondary" onClick={()=>navigate('/inventario')}>
@@ -367,10 +375,21 @@ function InventoryClientTable({ clientId, sessionToken, navigate }) {
       <div><strong>{result.total} dispositivos</strong><small>Inventario consolidado</small></div>
       <span className="client-inventory-summary__date"><Icon name="update" /> Actualizado: {readableDate(result.generatedAt)}</span>
     </div>}
-    <label className="field-group client-inventory-search"><span className="field-label">Buscar dispositivo</span>
+    <div className="client-inventory-table-tools">
+      <label className="field-group client-inventory-search"><span className="field-label">Buscar dispositivo</span>
       <span className="client-inventory-search__input"><Icon name="search" />
         <input className="form-control" type="search" value={search} onChange={(e)=>setSearch(e.target.value)}
           placeholder="Nombre, ubicación, fabricante, modelo, serie..." /></span></label>
+      {result.generated && <nav className="client-inventory-top-pager" aria-label="Páginas del inventario">
+        <button type="button" onClick={() => goToPage(-1)} disabled={loading || page <= 1}
+          aria-label="Página anterior"><Icon name="chevron_left" /></button>
+        <span aria-live="polite" aria-label={'Página ' + page + ' de ' + totalPages}>
+          <strong>{page}</strong><span>/</span>{totalPages}
+        </span>
+        <button type="button" onClick={() => goToPage(1)} disabled={loading || page >= totalPages}
+          aria-label="Página siguiente"><Icon name="chevron_right" /></button>
+      </nav>}
+    </div>
     {error && <div className="alert alert--error" role="alert">{error}</div>}
     {loading && <div className="state-card state-card--loading"><Icon name="progress_activity" /> Cargando equipos...</div>}
     {!loading && !result.generated && <div className="empty-state">
@@ -397,13 +416,7 @@ function InventoryClientTable({ clientId, sessionToken, navigate }) {
         </tr>)}</tbody>
       </table>
     </div>}
-    <footer className="client-inventory-pagination">
-      <button type="button" className="button button--secondary" onClick={()=>{setPage(n=>Math.max(1,n-1));setSelected(-1);}}
-        disabled={loading||page===1}>Anterior</button>
-      <span>Página {page}</span>
-      <button type="button" className="button button--secondary" disabled={loading||!result.hasMore}
-        onClick={()=>{setPage(n=>n+1);setSelected(-1);}}>Siguiente</button>
-    </footer>
+
     {selected>=0 && <InventoryDetailModal clientId={clientId} items={result.items} index={selected}
       sessionToken={sessionToken} onClose={()=>setSelected(-1)} onMove={moveDevice}/>}
   </div>;
