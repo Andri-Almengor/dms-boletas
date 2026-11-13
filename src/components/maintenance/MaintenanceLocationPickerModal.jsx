@@ -38,6 +38,7 @@ export default function MaintenanceLocationPickerModal({
     }, sessionToken, { signal: controller.signal, cache: 'no-store' })
       .then((result) => {
         if (!controller.signal.aborted) setInventoryPreview({
+          locationId: selection.id,
           generated: result?.generated === true,
           count: Number(result?.totalFiltered || 0),
         });
@@ -91,19 +92,23 @@ export default function MaintenanceLocationPickerModal({
             onCreated={handleCreated}
             value={selection?.id || ''}
             disabled={saving}
-            onChange={(id, name, locationId, locationName) => setSelection({
-              id: String(id || ''),
-              name: String(name || ''),
-              locationId: String(locationId || ''),
-              locationName: String(locationName || ''),
-              available: true,
-              active: true,
-              deviceCount: 0,
-            })}
+            onChange={(id, name, locationId, locationName) => {
+              setIncludeInventoryDevices(false);
+              setInventoryPreview(null);
+              setSelection({
+                id: String(id || ''),
+                name: String(name || ''),
+                locationId: String(locationId || ''),
+                locationName: String(locationName || ''),
+                available: true,
+                active: true,
+                deviceCount: 0,
+              });
+            }}
           />
 
           {duplicate && <div className="alert alert--warning"><Icon name="info" /><span>Esta ubicación ya forma parte del mantenimiento.</span></div>}
-          {!duplicate && inventoryPreview?.generated && !projectMode && <label className="maintenance-location-picker-modal__inventory-copy">
+          {!duplicate && inventoryPreview?.generated && inventoryPreview.locationId === selection?.id && !projectMode && <label className="maintenance-location-picker-modal__inventory-copy">
             <input type="checkbox" checked={includeInventoryDevices}
               disabled={saving || inventoryLoading || inventoryPreview.count < 1}
               onChange={(event) => setIncludeInventoryDevices(event.target.checked)} />
