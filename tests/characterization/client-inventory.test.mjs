@@ -169,3 +169,42 @@ test('consulta de boletas respeta el esquema existente sin columna Activo', () =
   assert.match(page,/Mostrar más fotografías/);
   assert.match(page,/pendingArrowRef/);
 });
+
+
+test('Supervisor y Administrador pueden generar y actualizar el inventario con los mismos permisos heredados', async () => {
+  const { calculateUserPermissions } = await import('../../backend/src/services/permissions.service.js');
+  const tables = {
+    Roles: [
+      { RolID: 'admin', Nombre: 'Administrador', EsAdministrador: 'true', Estado: 'ACTIVO' },
+      { RolID: 'supervisor', Nombre: 'Supervisor', EsAdministrador: 'true', Estado: 'ACTIVO' },
+      { RolID: 'tech', Nombre: 'Técnico', EsAdministrador: 'false', Estado: 'ACTIVO' },
+    ],
+    Permisos: [
+      { PermisoID: 'manage', Codigo: 'USUARIOS_GESTIONAR', Estado: 'ACTIVO' },
+      { PermisoID: 'read', Codigo: 'MANTENIMIENTOS_VER', Estado: 'ACTIVO' },
+    ],
+    RolPermisos: [{ RolID: 'tech', PermisoID: 'read', Permitido: true }],
+    UsuarioPermisos: [],
+  };
+  const adminPermissions = calculateUserPermissions({ RolID: 'admin', UsuarioID: 'admin-1' }, tables);
+  const supervisorPermissions = calculateUserPermissions({ RolID: 'supervisor', UsuarioID: 'supervisor-1' }, tables);
+  const technicianPermissions = calculateUserPermissions({ RolID: 'tech', UsuarioID: 'tech-1' }, tables);
+  assert.deepEqual(supervisorPermissions, adminPermissions);
+  assert.ok(supervisorPermissions.includes('USUARIOS_GESTIONAR'));
+  assert.ok(!technicianPermissions.includes('USUARIOS_GESTIONAR'));
+  assert.ok(technicianPermissions.includes('MANTENIMIENTOS_VER'));
+
+  const router = source('backend/src/core/action-router.js');
+  const module = source('backend/src/modules/client-inventory.module.js');
+  const page = source('src/pages/inventory/ClientInventoryPage.jsx');
+  const sql = source('backend/migrations/022_supervisor_role.sql');
+
+  assert.match(sql, /'Supervisor'/);
+  assert.match(sql, /'true', 'ACTIVO'/);
+  assert.match(router, /add\('inventory\.generate', clientInventoryHandlers\.generate, 'USUARIOS_GESTIONAR'\)/);
+  assert.match(module, /const canAdmin = \(ctx\) => ctx\.permissions\?\.includes\('USUARIOS_GESTIONAR'\)/);
+  assert.match(module, /if \(!canAdmin\(ctx\)\) throw forbidden/);
+  assert.match(page, /const isAdmin=hasPermission\('USUARIOS_GESTIONAR'\)/);
+  assert.match(page, /\{isAdmin && <button type="button" className="button button--primary"/);
+  assert.match(page, /Administrador o Supervisor/);
+});
