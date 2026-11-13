@@ -14,6 +14,7 @@ import { countRowsBy, groupRowsBy, indexRowsBy } from '../core/row-index.js';
 import { asArray, nowIso, pick, uuid } from '../core/utils.js';
 import { getConfig } from './config.module.js';
 import { audit } from '../services/audit.service.js';
+import { query, withTransaction } from '../infra/postgres.js';
 import { sheetsApi, slidesApi } from '../infra/google.js';
 import {
   loadMaintenanceEvidenceContext,
@@ -126,6 +127,61 @@ function sanitizeMaintenanceCounts(counts = {}, devices = [], deviceTypes = []) 
   });
 
   return cleaned;
+}
+
+
+/**
+ * Un dispositivo confirmado aumenta la cantidad esperada SOLO si supera la
+ * cantidad planificada. No disminuye los valores (bajarlos queda manual).
+ *
+ * Se ejecuta en la misma transacción que el INSERT, con bloqueo PostgreSQL
+ * de la fila del mantenimiento, no con un lock en memoria de una instancia.
+ * Una sola consulta agregada evita traer toda la tabla de dispositivos.
+ */
+async function raiseExpectedCountForCreatedDevice(ctx, maintenance, created) {
+  const maintenanceId = String(maintenance.MantenimientoID);
+  const fixedField = fixedCountFieldForDevice(created);
+  const typeId = String(created.TipoDispositivoID || '').trim();
+  const category = normalizedDynamicCountName(created.TipoDispositivo || created.Categoria);
+  const countKey = fixedField || (typeId
+    ? 'TipoDispositivo:' + typeId
+    : 'TipoDispositivoNombre:' + category);
+  if (!countKey) return;
+  const result = await query(
+    'SELECT "TipoDispositivoID", "TipoDispositivo", "Categoria", COUNT(*)::integer AS total'
+    + ' FROM "Evidencia_Mantenimientos"'
+    + ' WHERE "__valid"=TRUE AND "MantenimientoRef"=$1'
+    + ' AND LOWER(COALESCE("Activo", \'true\')) NOT IN (\'false\', \'0\', \'no\', \'inactivo\')'
+    + ' GROUP BY "TipoDispositivoID", "TipoDispositivo", "Categoria"',
+    [maintenanceId], { label: 'maintenance.devices.registered.byType' },
+  );
+  const total = result.rows.reduce((sum, item) => {
+    if (fixedField) return sum + (fixedCountFieldForDevice(item) === fixedField ? Number(item.total || 0) : 0);
+    if (typeId) return sum + (String(item.TipoDispositivoID || '').trim() === typeId ? Number(item.total || 0) : 0);
+    return sum + (!String(item.TipoDispositivoID || '').trim()
+      && normalizedDynamicCountName(item.TipoDispositivo || item.Categoria) === category
+      ? Number(item.total || 0) : 0);
+  }, 0);
+  let counts = {};
+  try {
+    counts = typeof maintenance.CantidadesJSON === 'string'
+      ? JSON.parse(maintenance.CantidadesJSON || '{}')
+      : maintenance.CantidadesJSON || {};
+  } catch { counts = {}; }
+  const planned = Number(fixedField
+    ? (maintenance[fixedField] ?? counts[fixedField] ?? 0)
+    : (counts[countKey] || 0));
+  if (total <= planned) return;
+  const nextCounts = { ...counts, [countKey]: total };
+  const patch = {
+    CantidadesJSON: JSON.stringify(nextCounts),
+    ...(fixedField ? { [fixedField]: total } : {}),
+    ActualizadoPor: ctx.user.UsuarioID,
+    FechaActualizacion: nowIso(),
+  };
+  await updateRow('Mantenimiento', maintenanceId, patch);
+  await audit(ctx, 'AJUSTAR_CANTIDAD_ESPERADA_AUTOMATICA', 'Mantenimiento', maintenanceId,
+    { campo: countKey, anterior: planned }, { campo: countKey, esperado: total });
 }
 
 function normalizeMaintenanceType(value, fallback = 'MANTENIMIENTO') {
@@ -407,11 +463,18 @@ export const maintenanceHandlers = {
     return softDelete('Mantenimiento', pick(ctx.payload, ['maintenanceId', 'MantenimientoID']), ctx.user.UsuarioID);
   },
 
-  deviceCreate: async (ctx) => withDeviceCreateLock(async () => {
+  deviceCreate: async (ctx) => withDeviceCreateLock(() => withTransaction(async () => {
     const maintenanceId = pick(ctx.payload, ['maintenanceId', 'MantenimientoID', 'MantenimientoRef']);
     const requestedId = String(pick(ctx.payload, ['deviceId', 'EvidenciaMantenimientoID'], '')).trim();
     if (requestedId && !validClientGeneratedId(requestedId)) throw badRequest('El identificador local del dispositivo no es válido.');
     if (!maintenanceId) throw badRequest('Falta el mantenimiento del dispositivo.');
+    // Serializa las altas del mismo mantenimiento ENTRE instancias de Render.
+    const locked = await query(
+      'SELECT "MantenimientoID" FROM "Mantenimiento"'
+      + ' WHERE "__valid"=TRUE AND "MantenimientoID"=$1 FOR UPDATE',
+      [String(maintenanceId)], { label: 'maintenance.deviceCreate.lock' },
+    );
+    if (!locked.rowCount) throw notFound('No se encontró el mantenimiento.');
     const maintenance = await findById('Mantenimiento', maintenanceId);
     const progressJson = validateProjectDeviceProgress({ maintenance, payload: ctx.payload });
     const progress = projectDeviceProgressSummary({ maintenance, payload: ctx.payload, progressJson });
@@ -441,8 +504,9 @@ export const maintenanceHandlers = {
       FechaActualizacion: nowIso(),
     };
     await appendRow('Evidencia_Mantenimientos', row);
+    await raiseExpectedCountForCreatedDevice(ctx, maintenance, row);
     return row;
-  }),
+  })),
 
   deviceUpdate: async (ctx) => {
     const id = pick(ctx.payload, ['deviceId', 'EvidenciaMantenimientoID']);
