@@ -53,26 +53,35 @@ function betterRepresentative(left, right) {
 }
 
 export function groupInventoryDevices(rows = []) {
-  const buckets = new Map();
   const groups = [];
+  const index = new Map();
   const sorted = [...rows].sort((a, b) =>
     clean(a.FechaTrabajo || a.maintenanceDate).localeCompare(clean(b.FechaTrabajo || b.maintenanceDate))
     || clean(a.EvidenciaMantenimientoID).localeCompare(clean(b.EvidenciaMantenimientoID)));
+  const keys = (row) => {
+    const type = category(row);
+    const result = [];
+    if (serial(row)) result.push(type + '|serial|' + serial(row));
+    if (mac(row)) result.push(type + '|mac|' + mac(row));
+    if (hasDistinctName(row)) result.push(type + '|name|' + location(row) + '|' + canonicalName(name(row)));
+    return result;
+  };
   for (const row of sorted) {
     if (!clean(row.EvidenciaMantenimientoID) || !name(row)) continue;
-    // Índice por tipo: no comparar todos los equipos de todos los clientes (sin N² global).
-    const key = category(row);
-    const siblings = buckets.get(key) || [];
-    const matched = siblings.find((g) => g.sources.every((other) => sameInventoryDevice(row, other)));
+    const aliases = keys(row);
+    const candidates = [...new Set(aliases.flatMap((key) => index.get(key) || []))];
+    const matched = candidates.find((g) => g.sources.every((other) => sameInventoryDevice(row, other)));
     if (matched) {
       matched.sources.push(row);
       matched.representative = betterRepresentative(matched.representative, row);
       if (!matched.aliases.includes(name(row))) matched.aliases.push(name(row));
     } else {
-      const group = { representative: row, sources: [row], aliases: [name(row)] };
-      groups.push(group);
-      siblings.push(group);
-      buckets.set(key, siblings);
+      groups.push({ representative: row, sources: [row], aliases: [name(row)] });
+    }
+    const target = matched || groups[groups.length - 1];
+    for (const key of aliases) {
+      if (!index.has(key)) index.set(key, []);
+      if (!index.get(key).includes(target)) index.get(key).push(target);
     }
   }
   return groups;
@@ -222,9 +231,15 @@ export function buildInventorySnapshot({
     imagesByDevice.get(id).push(image);
   }
   const devices = [], events = [], media = [];
+  const usedDeviceIds = new Set();
   for (const group of groups) {
     const representative = group.representative;
-    const deviceId = inventoryDeviceId(clientId, group, previousSourceIds);
+    let deviceId = inventoryDeviceId(clientId, group, previousSourceIds);
+    if (usedDeviceIds.has(deviceId)) {
+      const firstSource = [...group.sources].map((row) => clean(row.EvidenciaMantenimientoID)).sort()[0];
+      deviceId = createHash('sha256').update(clean(clientId) + '|split|' + firstSource).digest('hex').slice(0,32);
+    }
+    usedDeviceIds.add(deviceId);
     const sourceIds = [...new Set(group.sources.map((s) => clean(s.EvidenciaMantenimientoID)))];
     devices.push({
       clientId, deviceId,
@@ -299,7 +314,7 @@ export function buildInventorySnapshot({
   }
   return {
     devices: uniqueByKey(devices, 'deviceId'),
-    events: uniqueByKey(events, 'key').length === events.length ? events : events,
+    events,
     media,
   };
 }
