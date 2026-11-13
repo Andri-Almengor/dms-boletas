@@ -84,7 +84,9 @@ function zipStored(entries) {
   });
 }
 
-function worksheetXml(rows) {
+
+function worksheetXml(sheet) {
+  const rows = sheet.rows || [];
   const body = rows.map((row, index) =>
     '<row r="' + (index + 1) + '">' + row.map((value, col) => {
       if (value === null || value === undefined || value === '') return '';
@@ -93,18 +95,29 @@ function worksheetXml(rows) {
         + escapeXml(value) + '</t></is></c>';
     }).join('') + '</row>',
   ).join('');
+  const validations = (sheet.validations || []).map((rule) =>
+    '<dataValidation type="list" allowBlank="1" showErrorMessage="1" errorStyle="stop"'
+    + ' errorTitle="Seleccione un valor" error="Use una opción de la lista" sqref="'
+    + columnName(rule.column) + '2:' + columnName(rule.column)
+    + Math.max(2, Number(sheet.inputRows || 100) + 1) + '"><formula1>'
+    + escapeXml(rule.formula || rule.list || '') + '</formula1></dataValidation>').join('');
   return '<?xml version="1.0" encoding="UTF-8" standalone="yes"?>'
     + '<worksheet xmlns="http://schemas.openxmlformats.org/spreadsheetml/2006/main">'
     + '<sheetViews><sheetView workbookViewId="0"><pane ySplit="1" topLeftCell="A2" activePane="bottomLeft" state="frozen"/></sheetView></sheetViews>'
-    + '<sheetFormatPr defaultRowHeight="17"/>'
-    + '<cols><col min="1" max="2" width="26" customWidth="1"/><col min="3" max="100" width="23" customWidth="1"/></cols>'
-    + '<sheetData>' + body + '</sheetData></worksheet>';
+    + '<sheetFormatPr defaultRowHeight="19"/>'
+    + '<cols><col min="1" max="1" width="30" customWidth="1"/>'
+    + '<col min="2" max="4" width="26" customWidth="1"/>'
+    + '<col min="5" max="100" width="34" customWidth="1"/></cols>'
+    + '<sheetData>' + body + '</sheetData>'
+    + (validations ? '<dataValidations count="' + (sheet.validations || []).length
+      + '">' + validations + '</dataValidations>' : '')
+    + '</worksheet>';
 }
 
 export function createDeviceExcelWorkbook(sheets) {
   const work = sheets.map((sheet, index) =>
     '<sheet name="' + escapeXml(sheet.name) + '" sheetId="' + (index + 1)
-    + '" r:id="rId' + (index + 1) + '"/>').join('');
+    + '" r:id="rId' + (index + 1) + '"' + (sheet.hidden ? ' state="hidden"' : '') + '/>').join('');
   const types = sheets.map((_, index) =>
     '<Override PartName="/xl/worksheets/sheet' + (index + 1)
     + '.xml" ContentType="application/vnd.openxmlformats-officedocument.spreadsheetml.worksheet+xml"/>').join('');
@@ -127,7 +140,11 @@ export function createDeviceExcelWorkbook(sheets) {
     'xl/workbook.xml': '<?xml version="1.0" encoding="UTF-8"?>'
       + '<workbook xmlns="http://schemas.openxmlformats.org/spreadsheetml/2006/main" '
       + 'xmlns:r="http://schemas.openxmlformats.org/officeDocument/2006/relationships">'
-      + '<sheets>' + work + '</sheets></workbook>',
+      + '<sheets>' + work + '</sheets>' + (sheets.definedNames?.length
+        ? '<definedNames>' + sheets.definedNames.map((item) =>
+          '<definedName name="' + escapeXml(item.name) + '">' + escapeXml(item.formula)
+          + '</definedName>').join('') + '</definedNames>'
+        : '') + '</workbook>',
     'xl/_rels/workbook.xml.rels': '<?xml version="1.0" encoding="UTF-8"?>'
       + '<Relationships xmlns="http://schemas.openxmlformats.org/package/2006/relationships">'
       + relationships + '<Relationship Id="rIdStyles" '
@@ -144,7 +161,7 @@ export function createDeviceExcelWorkbook(sheets) {
       + '</styleSheet>',
   };
   sheets.forEach((sheet, index) => {
-    entries['xl/worksheets/sheet' + (index + 1) + '.xml'] = worksheetXml(sheet.rows);
+    entries['xl/worksheets/sheet' + (index + 1) + '.xml'] = worksheetXml(sheet);
   });
   return zipStored(entries);
 }
@@ -193,18 +210,9 @@ function parseXml(text) {
   return xml;
 }
 
-export async function readDeviceExcelWorkbook(file) {
-  if (!/\.xlsx$/i.test(file?.name || '')) throw new Error('Seleccione un archivo .xlsx (Excel).');
-  if (file.size > 5 * 1024 * 1024) throw new Error('El Excel no debe superar los 5 MB.');
-  const bytes = new Uint8Array(await file.arrayBuffer());
-  const sheet = await readZipEntry(bytes, 'xl/worksheets/sheet1.xml');
-  if (!sheet) throw new Error('No se encontró la hoja Dispositivos en la primera pestaña.');
-  const shared = await readZipEntry(bytes, 'xl/sharedStrings.xml');
-  const strings = shared
-    ? [...parseXml(shared).getElementsByTagName('si')].map((item) =>
-      [...item.getElementsByTagName('t')].map((t) => t.textContent || '').join(''))
-    : [];
-  const xml = parseXml(sheet);
+
+function parseWorksheet(sheetText, strings = []) {
+  const xml = parseXml(sheetText);
   const rows = [...xml.getElementsByTagName('row')].map((row) => {
     const cells = [];
     [...row.getElementsByTagName('c')].forEach((cell) => {
@@ -218,10 +226,49 @@ export async function readDeviceExcelWorkbook(file) {
     });
     return cells;
   });
-  if (!rows.length) throw new Error('La hoja Dispositivos está vacía.');
-  const headers = rows[0].map((value) => String(value || '').trim());
-  if (!headers.includes('NombreDispositivo') || !headers.includes('UbicacionEquipoID')) {
-    throw new Error('Encabezados incompatibles. Descargue la plantilla desde el mantenimiento.');
+  const header = rows[0]?.map((value) => String(value || '').trim()) || [];
+  return { headers: header, rows: rows.slice(1).filter((row) =>
+    row.some((value) => String(value ?? '').trim())) };
+}
+
+export async function readDeviceExcelWorkbook(file) {
+  if (!/\.xlsx$/i.test(file?.name || '')) throw new Error('Seleccione un archivo .xlsx (Excel).');
+  if (file.size > 5 * 1024 * 1024) throw new Error('El Excel no debe superar los 5 MB.');
+  const bytes = new Uint8Array(await file.arrayBuffer());
+  const workbookText = await readZipEntry(bytes, 'xl/workbook.xml');
+  const relationsText = await readZipEntry(bytes, 'xl/_rels/workbook.xml.rels');
+  if (!workbookText || !relationsText) throw new Error('El Excel no contiene las pestañas esperadas.');
+  const wb = parseXml(workbookText);
+  const relations = parseXml(relationsText);
+  const byId = new Map([...relations.getElementsByTagName('Relationship')].map((rel) =>
+    [rel.getAttribute('Id'), rel.getAttribute('Target')]));
+  const shared = await readZipEntry(bytes, 'xl/sharedStrings.xml');
+  const strings = shared
+    ? [...parseXml(shared).getElementsByTagName('si')].map((item) =>
+      [...item.getElementsByTagName('t')].map((t) => t.textContent || '').join(''))
+    : [];
+  const sheets = [];
+  for (const item of [...wb.getElementsByTagName('sheet')]) {
+    if (item.getAttribute('state') === 'hidden' || item.getAttribute('state') === 'veryHidden') continue;
+    const name = item.getAttribute('name') || '';
+    const target = byId.get(item.getAttribute('r:id')) || '';
+    const normalized = target.replace(/^\/?xl\//, '').replace(/^\/+/, '');
+    const entry = normalized.startsWith('worksheets/')
+      ? 'xl/' + normalized : normalized;
+    if (!/^xl\/worksheets\/[^/]+\.xml$/.test(entry)) {
+      throw new Error('El Excel contiene referencias de pestañas no admitidas.');
+    }
+    const xml = await readZipEntry(bytes, entry);
+    if (!xml) throw new Error('No fue posible leer la pestaña ' + name);
+    sheets.push({ name, ...parseWorksheet(xml, strings) });
   }
-  return { headers, rows: rows.slice(1).filter((row) => row.some((value) => String(value ?? '').trim())) };
+  if (!sheets.length) throw new Error('El Excel no contiene pestañas disponibles.');
+  const legacy = sheets.find((sheet) => sheet.name === 'Dispositivos');
+  if (legacy) {
+    if (!legacy.headers.includes('NombreDispositivo') || !legacy.headers.includes('UbicacionEquipoID')) {
+      throw new Error('Encabezados incompatibles. Descargue la plantilla desde el mantenimiento.');
+    }
+    return { ...legacy, sheets: [legacy] };
+  }
+  return { sheets };
 }
