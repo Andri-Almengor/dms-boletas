@@ -23,3 +23,8 @@ CREATE TABLE IF NOT EXISTS dms_client_inventory_manual_link_requests (
   linked_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
   PRIMARY KEY (client_id, request_key)
 );
+
+-- Reutiliza el catálogo generado en el modal Agregar ubicación y durante
+-- importaciones en lote; índice por cliente y ubicación exacta del dispositivo.
+CREATE INDEX IF NOT EXISTS ix_dms_client_inventory_devices_equipment_location
+  ON dms_client_inventory_devices(client_id, (details->>'equipmentLocationId'));
