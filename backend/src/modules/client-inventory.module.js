@@ -249,7 +249,18 @@ export const clientInventoryHandlers = {
     return { items: result.slice(0,pageSize), page, pageSize, hasMore: result.length > pageSize };
   },
   devices: async (ctx) => {
-    readGuard(ctx);
+    const namesOnly = ctx.payload?.namesOnly === true;
+    if (namesOnly) {
+      // La boleta solo necesita sugerencias de nombres. No elevar permisos
+      // para consultar el inventario completo, historiales ni identificadores.
+      const ticketRead = (ctx.permissions || []).some((permission) =>
+        ['BOLETAS_CREAR', 'BOLETAS_EDITAR'].includes(permission));
+      if (!ctx?.user?.UsuarioID || (!ticketRead && !canRead(ctx))) {
+        throw forbidden('No cuenta con acceso a las sugerencias de dispositivos.');
+      }
+    } else {
+      readGuard(ctx);
+    }
     const id = clientId(ctx);
     const page = cap(ctx.payload?.page, 100000, 1);
     const pageSize = cap(ctx.payload?.pageSize, 100, 25);
@@ -258,6 +269,29 @@ export const clientInventoryHandlers = {
       'SELECT client_id,generated_at,revision,device_count,ai_status FROM dms_client_inventory WHERE client_id=$1',
       [id], 'inventory.client.status');
     if (!summary) return { generated: false, items: [], page, pageSize, hasMore: false };
+    if (namesOnly) {
+      // No se ejecuta si el cliente no tiene inventario generado. El nombre se
+      // conserva tal cual, sin implicar asignación, vinculación o alta de equipo.
+      // Normalizar acentos para que "camara" encuentre "Cámara", sin depender
+      // de extensiones PostgreSQL o cargar las tablas completas.
+      const search = clean(ctx.payload?.search).slice(0, 120)
+        .normalize('NFD').replace(/[\u0300-\u036f]/g, '').toLowerCase();
+      const pattern = '%' + search.replace(/[\\%_]/g, '\\    if (!summary) return { generated: false, items: [], page, pageSize, hasMore: false };
+    const filterSql') + '%';
+      const limit = cap(ctx.payload?.pageSize, 30, 20);
+      const matches = rows(await query(
+        'SELECT DISTINCT device_name AS name FROM dms_client_inventory_devices'
+        + ' WHERE client_id=$1 AND TRIM(device_name)<>\'\''
+        + ' AND translate(lower(device_name),\'áéíóúüñ\',\'aeiouun\')'
+        + ' LIKE $2 ESCAPE \'\\\''
+        + ' ORDER BY name LIMIT $3',
+        [id, pattern, limit + 1], { label: 'inventory.devices.suggestNames' }));
+      return {
+        generated: true,
+        items: matches.slice(0, limit).map((item) => ({ name: item.name })),
+        hasMore: matches.length > limit,
+      };
+    }
     const filterSql = ' FROM dms_client_inventory_devices WHERE client_id=$1'
       + ' AND (device_name ILIKE $2 ESCAPE \'\\\' OR device_type ILIKE $2 ESCAPE \'\\\''
       + ' OR location_name ILIKE $2 ESCAPE \'\\\' OR manufacturer ILIKE $2 ESCAPE \'\\\''
