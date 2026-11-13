@@ -181,7 +181,10 @@ export function excelTemplateSheets({
     const validations = [
       { column: 1, list: 'LOCACIONES' },
       { column: 2, list: makerRange },
-      { column: 3, formula: '=IFERROR(INDIRECT("MODELOS_' + index + '_"&MATCH($C2,' + makerRange + ',0)),SIN_MODELOS)' },
+      // La validación debe resolver a una REFERENCIA de rango. MODELOS_n_0
+      // existe como lista vacía segura si aún no se eligió fabricante.
+      // $C fija columna (fabricante) y deja la fila relativa en D2:D... .
+      { column: 3, formula: 'INDIRECT("MODELOS_' + index + '_"&IFERROR(MATCH($C2,' + makerRange + ',0),0))' },
       { column: 8, list: 'FUNCIONAMIENTO' },
       { column: 9, list: 'EN_USO' },
       { column: 10, list: 'ESTADO' },
