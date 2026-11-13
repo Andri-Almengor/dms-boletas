@@ -110,11 +110,17 @@ function InventoryDetailModal({ clientId, items, index, onMove, onClose, session
       <section className="client-inventory-detail" role="dialog" aria-modal="true"
         aria-label={'Detalle: ' + current.name}>
         <header className="client-inventory-detail__header">
-          <div><span className="eyebrow">INVENTARIO · DISPOSITIVO</span>
-            <h2>{current.name}</h2>
-            <small>{current.type || 'Tipo sin especificar'} · {current.location || 'Sin ubicación'}</small>
+          <div className="client-inventory-detail__identity">
+            <span className="client-inventory-detail__symbol"><Icon name="devices" /></span>
+            <div><span className="eyebrow">FICHA DEL DISPOSITIVO</span>
+              <h2>{current.name}</h2>
+              <div className="client-inventory-detail__meta">
+                <span><Icon name="category" /> {current.type || 'Tipo sin especificar'}</span>
+                <span><Icon name="location_on" /> {current.location || 'Sin ubicación'}</span>
+              </div>
+            </div>
           </div>
-          <button type="button" className="icon-button" onClick={onClose} aria-label="Cerrar detalle"><Icon name="close" /></button>
+          <button type="button" className="icon-button client-inventory-detail__close" onClick={onClose} aria-label="Cerrar detalle"><Icon name="close" /></button>
         </header>
         <button type="button" className="client-inventory-detail__arrow client-inventory-detail__arrow--left"
           onClick={() => onMove(-1)} aria-label="Dispositivo anterior" title="Dispositivo anterior">
@@ -129,7 +135,7 @@ function InventoryDetailModal({ clientId, items, index, onMove, onClose, session
           {error && <div className="alert alert--error" role="alert">{error}</div>}
           {!loading && !error && data && <>
             <section className="client-inventory-detail__section">
-              <h3>Características del equipo</h3>
+              <h3><Icon name="tune" /> Características del equipo</h3>
               <dl className="client-inventory-features">
                 {[
                   ['Tipo',current.type],['Fabricante',current.manufacturer],['Modelo',current.model],
@@ -138,23 +144,24 @@ function InventoryDetailModal({ clientId, items, index, onMove, onClose, session
                   ['En uso',current.details?.inUse],['Estado',current.details?.state],
                 ].map(([label,value]) => <div key={label}><dt>{label}</dt><dd>{value || 'Sin registrar'}</dd></div>)}
               </dl>
-              {current.details?.aliases?.length > 1 && <p className="field-hint">
-                Nombres consolidados: {current.details.aliases.join(' · ')}
-              </p>}
+              {current.details?.aliases?.length > 1 && <p className="client-inventory-aliases">
+                <Icon name="merge_type" /> <span><strong>Nombres consolidados:</strong> {current.details.aliases.join(' · ')}</span>
+              </p>
             </section>
             <section className="client-inventory-detail__section">
-              <h3>Historial de trabajos <span>({data.events?.length || 0})</span></h3>
+              <h3><Icon name="history" /> Historial de trabajos <span className="client-inventory-count">{data.events?.length || 0}{data.hasMoreEvents ? '+' : ''}</span></h3>
               {!(data.events || []).length
                 ? <p className="field-hint">Todavía no hay trabajos relacionados de manera verificable con este dispositivo.</p>
                 : <div className="client-inventory-timeline">{data.events.map((entry) => (
                   <article key={entry.id} className="client-inventory-timeline__event">
-                    <div className="client-inventory-timeline__date">{readableDate(entry.date)}</div>
-                    <div><strong>{entry.title || sourceLabel(entry.type)}</strong>
-                      <small>{sourceLabel(entry.type)}</small>
+                    <div className="client-inventory-timeline__date"><Icon name="event" /> {readableDate(entry.date)}</div>
+                    <div className="client-inventory-timeline__content">
+                      <span className={'client-inventory-origin client-inventory-origin--' + entry.type.toLowerCase()}>{sourceLabel(entry.type)}</span>
+                      <strong>{entry.title || sourceLabel(entry.type)}</strong>
                       <p>{entry.summary || 'Registro de trabajo sin observaciones adicionales.'}</p>
-                      <p className="client-inventory-timeline__people"><Icon name="engineering" /> {entry.technicians || 'Técnicos sin registrar'}</p>
+                      <p className="client-inventory-timeline__people"><Icon name="group" /> {entry.technicians || 'Técnicos sin registrar'}</p>
                       <Link to={sourcePath(entry.type, entry.sourceId)} target="_blank" rel="noopener noreferrer">
-                        <Icon name="open_in_new" /> Ver {sourceLabel(entry.type).toLowerCase()}
+                        Ver {sourceLabel(entry.type).toLowerCase()} <Icon name="open_in_new" />
                       </Link>
                     </div>
                   </article>
@@ -165,19 +172,24 @@ function InventoryDetailModal({ clientId, items, index, onMove, onClose, session
               </button>}
             </section>
             <section className="client-inventory-detail__section">
-              <h3>Galería de evidencias <span>({photos.length})</span></h3>
+              <h3><Icon name="photo_library" /> Galería de evidencias <span className="client-inventory-count">{photos.length}{data.hasMoreMedia ? '+' : ''}</span></h3>
               {!photos.length
                 ? <p className="field-hint">No hay fotografías asociadas a los trabajos registrados.</p>
                 : <div className="client-inventory-gallery">
                   {photos.map((photo, i) => <button type="button" key={photo.id}
                     className="client-inventory-gallery__item" onClick={() => setLightboxIndex(i)}
-                    aria-label={'Abrir fotografía de ' + photo.label}>
-                    {photo.previewSource
-                      ? <img src={photo.previewSource} loading="lazy" alt="" referrerPolicy="no-referrer"
-                        onError={(event) => { event.currentTarget.style.display = 'none'; }} />
-                      : <Icon name="image" />}
-                    <strong>{photo.label}</strong>
-                    <small>{sourceLabel(photo.type)} · {readableDate(photo.date)}</small>
+                    aria-label={'Abrir fotografía de ' + photo.label + ', ' + readableDate(photo.date)}>
+                    <span className="client-inventory-gallery__preview">
+                      <Icon name="image" />
+                      {photo.previewSource && <img src={photo.previewSource} loading="lazy" alt="" referrerPolicy="no-referrer"
+                        onError={(event) => { event.currentTarget.style.display = 'none'; }} />}
+                      <span className="client-inventory-gallery__zoom"><Icon name="zoom_in" /></span>
+                    </span>
+                    <span className="client-inventory-gallery__info">
+                      <span className={'client-inventory-origin client-inventory-origin--' + photo.type.toLowerCase()}>{sourceLabel(photo.type)}</span>
+                      <strong title={photo.label}>{photo.label}</strong>
+                      <small><Icon name="event" /> {readableDate(photo.date)}</small>
+                    </span>
                   </button>)}
                 </div>}
               {data.hasMoreMedia && <button type="button" className="button button--secondary"
@@ -188,11 +200,11 @@ function InventoryDetailModal({ clientId, items, index, onMove, onClose, session
           </>}
         </div>
         <div className="client-inventory-detail__footer">
-          <span>Dispositivo {index+1} de {items.length} en esta página</span>
+          <span><Icon name="inventory_2" /> Dispositivo <strong>{index+1}</strong> de {items.length} en esta página</span>
           <div><button type="button" className="button button--secondary" onClick={() => onMove(-1)}
-            aria-label="Anterior">Anterior</button>
+            aria-label="Anterior"><Icon name="chevron_left" /> Anterior</button>
           <button type="button" className="button button--secondary" onClick={() => onMove(1)}
-            aria-label="Siguiente">Siguiente</button></div>
+            aria-label="Siguiente">Siguiente <Icon name="chevron_right" /></button></div>
         </div>
       </section>
     </div>
