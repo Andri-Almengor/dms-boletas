@@ -299,18 +299,26 @@ export const clientInventoryHandlers = {
         hasMore: matches.length > limit,
       };
     }
+    const equipmentLocationId = clean(ctx.payload?.equipmentLocationId);
+    // El modal Agregar ubicación reutiliza esta lectura del inventario:
+    // filtra por ID estructurado y no por nombre de zona (potencialmente ambiguo).
     const filterSql = ' FROM dms_client_inventory_devices WHERE client_id=$1'
       + ' AND (device_name ILIKE $2 ESCAPE \'\\\' OR device_type ILIKE $2 ESCAPE \'\\\''
       + ' OR location_name ILIKE $2 ESCAPE \'\\\' OR manufacturer ILIKE $2 ESCAPE \'\\\''
-      + ' OR model ILIKE $2 ESCAPE \'\\\' OR serial ILIKE $2 ESCAPE \'\\\')';
+      + ' OR model ILIKE $2 ESCAPE \'\\\' OR serial ILIKE $2 ESCAPE \'\\\')'
+      + (equipmentLocationId ? ' AND details->>\'equipmentLocationId\'=$5' : '');
     // Conteo filtrado exacto para "Página 1/5" sin cargar todos los equipos.
     const [pageResult, countResult] = await Promise.all([
       query('SELECT device_id AS id,device_type AS type,device_name AS name,'
         + ' location_name AS location,manufacturer,model,serial,mac'
         + filterSql
         + ' ORDER BY device_type,location_name,device_name,device_id LIMIT $3 OFFSET $4',
-        [id, pattern, pageSize + 1, (page - 1) * pageSize], { label: 'inventory.devices.list' }),
-      query('SELECT COUNT(*)::integer AS count' + filterSql, [id, pattern],
+        equipmentLocationId
+          ? [id, pattern, pageSize + 1, (page - 1) * pageSize, equipmentLocationId]
+          : [id, pattern, pageSize + 1, (page - 1) * pageSize], { label: 'inventory.devices.list' }),
+      query('SELECT COUNT(*)::integer AS count'
+        + (equipmentLocationId ? filterSql.replace('=$5', '=$3') : filterSql),
+        equipmentLocationId ? [id, pattern, equipmentLocationId] : [id, pattern],
         { label: 'inventory.devices.count' }),
     ]);
     const result = rows(pageResult);
