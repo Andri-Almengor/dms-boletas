@@ -119,7 +119,7 @@ async function bulkInsert(prefix, values, width, label) {
 
 async function manualInventoryLinks(id) {
   return rows(await query(
-    'SELECT source_id,canonical_source_id FROM dms_client_inventory_manual_links WHERE client_id=$1',
+    'SELECT source_id,canonical_source_id,preferred_device_name FROM dms_client_inventory_manual_links WHERE client_id=$1',
     [id], { label: 'inventory.manualLinks.read' }));
 }
 
@@ -472,12 +472,13 @@ export const clientInventoryHandlers = {
       // perderá aunque se ejecute Actualizar inventario en otro servidor.
       await query(
         'INSERT INTO dms_client_inventory_manual_links'
-        + '(client_id,source_id,canonical_source_id,linked_by,linked_at)'
-        + ' SELECT $1,s.source_id,$3,$4,NOW() FROM unnest($2::text[]) AS s(source_id)'
+        + '(client_id,source_id,canonical_source_id,preferred_device_name,linked_by,linked_at)'
+        + ' SELECT $1,s.source_id,$3,$4,$5,NOW() FROM unnest($2::text[]) AS s(source_id)'
         + ' ON CONFLICT(client_id,source_id) DO UPDATE SET'
         + ' canonical_source_id=EXCLUDED.canonical_source_id,'
+        + ' preferred_device_name=EXCLUDED.preferred_device_name,'
         + ' linked_by=EXCLUDED.linked_by,linked_at=EXCLUDED.linked_at',
-        [id,sourceIds,anchor,userId], { label: 'inventory.link.persist', write: true });
+        [id,sourceIds,anchor,keep.device_name,userId], { label: 'inventory.link.persist', write: true });
       await query(
         'UPDATE dms_client_inventory_devices SET source_ids=$3,details=$4::jsonb'
         + ' WHERE client_id=$1 AND device_id=$2',
