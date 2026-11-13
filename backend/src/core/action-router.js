@@ -225,6 +225,7 @@ add('inventory.devices.list', clientInventoryHandlers.devices,
   [...maintenanceReadPermissions, 'BOLETAS_CREAR', 'BOLETAS_EDITAR']);
 add('inventory.device.get', clientInventoryHandlers.detail, maintenanceReadPermissions);
 add('inventory.generate', clientInventoryHandlers.generate, 'USUARIOS_GESTIONAR');
+add('inventory.devices.link', clientInventoryHandlers.link, 'USUARIOS_GESTIONAR');
 add(['maintenance.images.large.init','mantenimientos.imagenes.grande.iniciar'], largeEvidenceUploadHandlers.maintenanceInit, maintenanceEditPermissions);
 add(['maintenance.images.large.chunk','mantenimientos.imagenes.grande.bloque'], largeEvidenceUploadHandlers.maintenanceChunk, maintenanceEditPermissions);
 
