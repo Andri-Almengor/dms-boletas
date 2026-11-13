@@ -33,6 +33,12 @@ import { isNetworkError, throwIfAborted } from './requestErrors';
 export { isNetworkError } from './requestErrors';
 
 export const MODULE_ROUTES = {
+  inventory: {
+    clients: ['inventory.clients.list'],
+    devices: ['inventory.devices.list'],
+    detail: ['inventory.device.get'],
+    generate: ['inventory.generate'],
+  },
   tickets: {
     list: ['boletas.list', 'tickets.list'],
     get: ['boletas.get', 'tickets.get'],
