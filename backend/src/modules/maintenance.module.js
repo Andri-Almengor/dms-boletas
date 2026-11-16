@@ -368,7 +368,12 @@ export const maintenanceHandlers = {
     if (!result.items.length) return result;
 
     const pageIds = new Set(result.items.map((row) => String(row.MantenimientoID)));
-    const devices = await readTable('Evidencia_Mantenimientos');
+    // El listado solo necesita contar los dispositivos de esta página.
+    // Evita leer todas las evidencias de todos los mantenimientos por cada
+    // refresco, sin modificar el mismo conteo histórico de registros activos.
+    const devices = await findRows(
+      'Evidencia_Mantenimientos', { MantenimientoRef: [...pageIds] }, { limit: 50_000 },
+    );
     const deviceCounts = countRowsBy(
       devices,
       (device) => device.MantenimientoRef,
