@@ -30,6 +30,8 @@ test('resuelve el modo directo de dispositivos sin cambiar sus par√°metros hist√
   });
 
   assert.equal(resolveMaintenanceDirectRequest(new URLSearchParams('step=devices'), false).requestedStep, 2);
+  assert.equal(resolveMaintenanceDirectRequest(new URLSearchParams('step=counts'), true).requestedStep, 1);
+  assert.equal(resolveMaintenanceDirectRequest(new URLSearchParams('directDevice=1&step=counts'), true).requestedStep, 2);
   assert.equal(resolveMaintenanceDirectRequest(params, false).directDeviceMode, false);
 });
 
