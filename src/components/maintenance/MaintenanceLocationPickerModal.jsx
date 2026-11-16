@@ -56,7 +56,7 @@ export default function MaintenanceLocationPickerModal({
 
   async function submit(event) {
     event.preventDefault();
-    if (!selection?.id || duplicate) return;
+    if (!selection?.id || (duplicate && !includeInventoryDevices)) return;
     const saved = await onSave?.(selection, { importInventoryDevices: includeInventoryDevices });
     if (saved) { setSelection(null); setIncludeInventoryDevices(false); }
   }
@@ -107,12 +107,12 @@ export default function MaintenanceLocationPickerModal({
             }}
           />
 
-          {duplicate && <div className="alert alert--warning"><Icon name="info" /><span>Esta ubicación ya forma parte del mantenimiento.</span></div>}
-          {!duplicate && inventoryPreview?.generated && inventoryPreview.locationId === selection?.id && !projectMode && <label className="maintenance-location-picker-modal__inventory-copy">
+          {duplicate && <div className="alert alert--warning"><Icon name="info" /><span>Esta ubicación ya pertenece al mantenimiento. Puede completar sus dispositivos desde el inventario sin duplicar los existentes.</span></div>}
+          {inventoryPreview?.generated && inventoryPreview.locationId === selection?.id && !projectMode && <label className="maintenance-location-picker-modal__inventory-copy">
             <input type="checkbox" checked={includeInventoryDevices}
               disabled={saving || inventoryLoading || inventoryPreview.count < 1}
               onChange={(event) => setIncludeInventoryDevices(event.target.checked)} />
-            <span><strong>Agregar también los dispositivos del inventario</strong>
+            <span><strong>{duplicate ? 'Completar dispositivos desde el inventario' : 'Agregar también los dispositivos del inventario'}</strong>
               <small>{inventoryPreview.count > 0
                 ? inventoryPreview.count + ' equipo(s) registrados en esta ubicación. Se copiarán nombre, tipo, fabricante, modelo, serie y MAC.'
                 : 'Esta ubicación todavía no tiene dispositivos en el inventario.'}</small>
@@ -124,7 +124,7 @@ export default function MaintenanceLocationPickerModal({
 
           <div className="form-actions">
             <button className="button button--secondary" type="button" onClick={close} disabled={saving}>Cancelar</button>
-            <button className="button button--primary" disabled={saving || !selection?.id || duplicate || (includeInventoryDevices && inventoryLoading)}><Icon name={saving ? 'progress_activity' : 'add'} />{saving ? 'Agregando...' : 'Agregar ubicación'}</button>
+            <button className="button button--primary" disabled={saving || !selection?.id || (duplicate && !includeInventoryDevices) || (includeInventoryDevices && inventoryLoading)}><Icon name={saving ? 'progress_activity' : 'add'} />{saving ? 'Guardando...' : duplicate ? 'Completar dispositivos' : 'Agregar ubicación'}</button>
           </div>
         </form>
       </section>
