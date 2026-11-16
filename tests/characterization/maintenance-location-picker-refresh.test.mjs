@@ -213,3 +213,32 @@ test('al completar una ubicación existente se reutiliza la ruta, el bloqueo y e
   assert.match(backend,/const receipt = await withLocationWrite[\s\S]*\}\)\);[\s\S]*const result = await get/);
   assert.match(detail,/result\?\.mantenimiento &&/);
 });
+
+test('los errores de planificación se ven dentro del modal y llevan a cantidades esperadas', () => {
+  const modal = source('src/components/maintenance/MaintenanceLocationPickerModal.jsx');
+  const detail = source('src/pages/maintenance/MaintenanceDetailPage.jsx');
+  const steps = source('src/features/maintenance/maintenanceFormOrchestration.js');
+  assert.match(modal,/error && <div className="alert alert--error" role="alert">/);
+  assert.match(modal,/tipos sin cantidad planificada/i);
+  assert.match(modal,/Editar cantidades esperadas/);
+  assert.match(modal,/onEditPlannedCounts/);
+  assert.match(detail,/error=\{error\}/);
+  assert.match(detail,/editar\?step=counts/);
+  assert.match(detail,/returnTo: detailUrl/);
+  assert.match(steps,/get\('step'\) === 'counts' \? 1 : 0/);
+});
+
+test('el detalle del mantenimiento recupera solo sus dispositivos e imágenes en lote', () => {
+  const backend = source('backend/src/modules/maintenance.module.js');
+  const repo = source('backend/src/infra/postgres.repository.core.js');
+  const from = backend.indexOf('async function enrichedMaintenanceById(id)');
+  const to = backend.indexOf('function isAdmin(ctx)', from);
+  const get = backend.slice(from, to);
+  assert.match(get,/findById\('Mantenimiento', id\)/);
+  assert.match(get,/findRows\([\s\S]*?'Evidencia_Mantenimientos', \{ MantenimientoRef: id \}/);
+  assert.match(get,/DispositivoMantenimientoRef: deviceIds/);
+  assert.match(get,/return enrich\(maintenance, \{/);
+  assert.doesNotMatch(get,/readTables\(/);
+  assert.match(repo,/export async function findRows\(/);
+  assert.match(repo,/\$\{_qi\(key\)\} = ANY\(/, 'se usa una consulta batch para imágenes');
+});
