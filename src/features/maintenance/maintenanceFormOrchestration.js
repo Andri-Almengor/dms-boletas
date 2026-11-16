@@ -45,7 +45,8 @@ export function resolveMaintenanceDirectRequest(searchParams, editing = false) {
   return {
     directDeviceMode,
     requestedNewDevice,
-    requestedStep: get('step') === 'devices' || directDeviceMode ? 2 : 0,
+    requestedStep: get('step') === 'devices' || directDeviceMode ? 2
+      : get('step') === 'counts' ? 1 : 0,
     requestedDeviceId: get('device'),
   };
 }

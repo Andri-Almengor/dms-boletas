@@ -15,6 +15,9 @@ export default function MaintenanceLocationPickerModal({
   onClose,
   onSave,
   saving = false,
+  error = '',
+  onEditPlannedCounts,
+  onClearError,
 }) {
   const [selection, setSelection] = useState(null);
   const [includeInventoryDevices, setIncludeInventoryDevices] = useState(false);
@@ -93,6 +96,7 @@ export default function MaintenanceLocationPickerModal({
             value={selection?.id || ''}
             disabled={saving}
             onChange={(id, name, locationId, locationName) => {
+              onClearError?.();
               setIncludeInventoryDevices(false);
               setInventoryPreview(null);
               setSelection({
@@ -107,6 +111,15 @@ export default function MaintenanceLocationPickerModal({
             }}
           />
 
+          {error && <div className="alert alert--error" role="alert">
+            <Icon name="error" />
+            <span>{error}</span>
+            {includeInventoryDevices && /tipos sin cantidad planificada/i.test(error) && onEditPlannedCounts && (
+              <button className="button button--secondary button--compact" type="button" disabled={saving} onClick={onEditPlannedCounts}>
+                <Icon name="edit" />Editar cantidades esperadas
+              </button>
+            )}
+          </div>}
           {duplicate && <div className="alert alert--warning"><Icon name="info" /><span>Esta ubicación ya pertenece al mantenimiento. Puede completar sus dispositivos desde el inventario sin duplicar los existentes.</span></div>}
           {inventoryPreview?.generated && inventoryPreview.locationId === selection?.id && !projectMode && <label className="maintenance-location-picker-modal__inventory-copy">
             <input type="checkbox" checked={includeInventoryDevices}

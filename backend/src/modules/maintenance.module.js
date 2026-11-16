@@ -3,6 +3,7 @@ import {
   appendRow,
   filterRows,
   findById,
+  findRows,
   readTable,
   readTables,
   softDelete,
@@ -336,8 +337,21 @@ async function enrich(row, providedTables = null) {
 }
 
 async function enrichedMaintenanceById(id) {
-  const tables = await readTables(['Mantenimiento', 'Evidencia_Mantenimientos', 'Mantenimiento imagenes']);
-  return enrich(maintenanceRow(tables, id), tables);
+  // Reutiliza la lectura PostgreSQL filtrada del repositorio. El detalle de
+  // UN mantenimiento no debe volver a leer todas las evidencias e imágenes
+  // históricas de todos los clientes.
+  const maintenance = await findById('Mantenimiento', id);
+  const devices = await findRows(
+    'Evidencia_Mantenimientos', { MantenimientoRef: id }, { limit: 50_000 },
+  );
+  const deviceIds = devices.map((device) => String(device.EvidenciaMantenimientoID || '')).filter(Boolean);
+  const images = deviceIds.length
+    ? await findRows('Mantenimiento imagenes', { DispositivoMantenimientoRef: deviceIds }, { limit: 50_000 })
+    : [];
+  return enrich(maintenance, {
+    Evidencia_Mantenimientos: devices,
+    'Mantenimiento imagenes': images,
+  });
 }
 
 function isAdmin(ctx) {
@@ -354,7 +368,12 @@ export const maintenanceHandlers = {
     if (!result.items.length) return result;
 
     const pageIds = new Set(result.items.map((row) => String(row.MantenimientoID)));
-    const devices = await readTable('Evidencia_Mantenimientos');
+    // El listado solo necesita contar los dispositivos de esta página.
+    // Evita leer todas las evidencias de todos los mantenimientos por cada
+    // refresco, sin modificar el mismo conteo histórico de registros activos.
+    const devices = await findRows(
+      'Evidencia_Mantenimientos', { MantenimientoRef: [...pageIds] }, { limit: 50_000 },
+    );
     const deviceCounts = countRowsBy(
       devices,
       (device) => device.MantenimientoRef,
