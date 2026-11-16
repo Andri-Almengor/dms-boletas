@@ -152,7 +152,7 @@ test('importación por ubicación conserva cada ficha del inventario y permite c
   const end = code.indexOf('async function inventoryDevicesForEquipmentLocation(', start);
   const clean = (value) => String(value ?? '').trim();
   const normalized = (value) => clean(value).normalize('NFD')
-    .replace(/[\\u0300-\\u036f]/g, '').toLowerCase().replace(/[^a-z0-9]+/g, '-')
+    .replace(/[\u0300-\u036f]/g, '').toLowerCase().replace(/[^a-z0-9]+/g, '-')
     .replace(/^-+|-+$/g, '');
   const build = (expected) => new Function(
     'createHash','nowIso','clean','normalized','badRequest','expectedMaintenanceCountForDevice',
@@ -206,10 +206,10 @@ test('al completar una ubicación existente se reutiliza la ruta, el bloqueo y e
   assert.match(modal,/Completar dispositivos desde el inventario/);
   assert.match(detail,/if \(alreadyAdded && !importInventoryDevices\) return false/);
   assert.match(detail,/alreadyAdded \? maintenanceLocations : \[\.\.\.maintenanceLocations, location\]/);
-  assert.match(backend,/SELECT "MantenimientoID"[\\s\\S]*FOR UPDATE/);
+  assert.match(backend,/SELECT "MantenimientoID"[\s\S]*FOR UPDATE/);
   assert.match(backend,/if \(inserted.length !== prepared.rowsToCreate.length\)/);
   assert.match(backend,/alreadyPresentInventoryDevices: prepared.alreadyPresent/);
   assert.match(backend,/inventorySourceCount: prepared.sourceCount/);
-  assert.match(backend,/const receipt = await withLocationWrite[\\s\\S]*\}\)\);[\\s\\S]*const result = await get/);
+  assert.match(backend,/const receipt = await withLocationWrite[\s\S]*\}\)\);[\s\S]*const result = await get/);
   assert.match(detail,/result\?\.mantenimiento &&/);
 });
