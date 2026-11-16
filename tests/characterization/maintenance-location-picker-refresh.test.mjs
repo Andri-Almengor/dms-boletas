@@ -222,6 +222,7 @@ test('los errores de planificación se ven dentro del modal y llevan a cantidade
   assert.match(modal,/tipos sin cantidad planificada/i);
   assert.match(modal,/Editar cantidades esperadas/);
   assert.match(modal,/onEditPlannedCounts/);
+  assert.match(modal,/onClearError\?\.\(\)/);
   assert.match(detail,/error=\{error\}/);
   assert.match(detail,/editar\?step=counts/);
   assert.match(detail,/returnTo: detailUrl/);
@@ -241,4 +242,14 @@ test('el detalle del mantenimiento recupera solo sus dispositivos e imágenes en
   assert.doesNotMatch(get,/readTables\(/);
   assert.match(repo,/export async function findRows\(/);
   assert.match(repo,/\$\{_qi\(key\)\} = ANY\(/, 'se usa una consulta batch para imágenes');
+});
+
+test('el listado solo cuenta dispositivos de la página seleccionada', () => {
+  const backend = source('backend/src/modules/maintenance.module.js');
+  const start = backend.indexOf('list: async ({ payload }) => {');
+  const end = backend.indexOf('get: async ({ payload })', start);
+  const list = backend.slice(start, end);
+  assert.match(list,/MantenimientoRef: \[\.\.\.pageIds\]/);
+  assert.match(list,/countRowsBy\(/);
+  assert.doesNotMatch(list,/readTable\('Evidencia_Mantenimientos'\)/);
 });
