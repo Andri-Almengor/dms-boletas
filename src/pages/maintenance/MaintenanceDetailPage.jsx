@@ -336,12 +336,17 @@ export default function MaintenanceDetailPage() {
         ubicacionesEquipoIds: nextLocations.map((item) => item.id),
         ...(importInventoryLocationId ? { importInventoryLocationId } : {}),
       }, sessionToken);
-      if (Array.isArray(result?.ubicacionesEquipo) || Array.isArray(result?.equipmentLocations)) setData(result);
+      if (result?.mantenimiento && (Array.isArray(result?.ubicacionesEquipo) || Array.isArray(result?.equipmentLocations))) setData(result);
       else if (navigator.onLine !== false) await load({ silent: true, forceSync: true });
-      const count = Number(result?.importedInventoryDevices || 0);
-      setNotice(count
-        ? successMessage + ' Se agregaron ' + count + ' dispositivos del inventario, pendientes de revisar.'
-        : successMessage);
+      const imported = Number(result?.importedInventoryDevices || 0);
+      const existing = Number(result?.alreadyPresentInventoryDevices || 0);
+      const found = Number(result?.inventorySourceCount || 0);
+      const inventorySummary = importInventoryLocationId
+        ? ' Inventario: ' + imported + ' agregados, ' + existing
+          + ' ya presentes, de ' + found + ' encontrados.'
+        : '';
+      setNotice(successMessage + inventorySummary
+        + (imported ? ' Los dispositivos nuevos quedan pendientes de revisar.' : ''));
       return true;
     } catch (saveError) {
       optimisticLocations(previous);
@@ -353,10 +358,14 @@ export default function MaintenanceDetailPage() {
   }
 
   async function addLocation(location, { importInventoryDevices = false } = {}) {
-    if (!location?.id || maintenanceLocations.some((item) => item.id === location.id)) return false;
+    if (!location?.id) return false;
+    const alreadyAdded = maintenanceLocations.some((item) => item.id === location.id);
+    if (alreadyAdded && !importInventoryDevices) return false;
     const saved = await saveLocations(
-      [...maintenanceLocations, location],
-      `La ubicación “${location.name}” fue agregada al mantenimiento.`,
+      alreadyAdded ? maintenanceLocations : [...maintenanceLocations, location],
+      alreadyAdded
+        ? `Se revisaron los dispositivos de “${location.name}”.`
+        : `La ubicación “${location.name}” fue agregada al mantenimiento.`,
       { importInventoryLocationId: importInventoryDevices ? location.id : '' },
     );
     if (saved) setLocationPickerOpen(false);

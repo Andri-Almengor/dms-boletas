@@ -232,12 +232,24 @@ const MAX_IMPORTED_INVENTORY_DEVICES = 2000;
 function sameImportIdentity(row = {}) {
   const categoryKey = normalized(row.TipoDispositivoID || row.TipoDispositivo || row.Categoria);
   const locationKey = clean(row.UbicacionEquipoID);
-  const serialKey = normalized(row.Serie);
-  const macKey = normalized(row.DireccionMAC);
+  const serialKey = meaningfulImportIdentifier(row.Serie);
+  const macKey = meaningfulImportIdentifier(row.DireccionMAC);
   const nameKey = normalized(row.NombreDispositivo);
   if (!categoryKey || !locationKey || !(serialKey || macKey || nameKey)) return '';
-  return [locationKey,categoryKey,serialKey
+  return [locationKey, categoryKey, serialKey
     ? 'serial:' + serialKey : macKey ? 'mac:' + macKey : 'name:' + nameKey].join('|');
+}
+
+// Un valor genérico no identifica físicamente a una cámara ni a otro equipo.
+// No agrupar veinte dispositivos cuya serie registrada sea "SIN SERIE".
+function meaningfulImportIdentifier(value) {
+  const key = normalized(value);
+  if (!key || new Set([
+    'n-a', 'na', 's-n', 'sn', 'no-aplica', 'no-indicado', 'no-disponible',
+    'no-registrado', 'sin-serie', 'sin-serial', 'sin-mac', 'sin-dato',
+    'sin-datos', 'desconocido', 'unknown', 'none', 'pendiente', 'por-definir',
+  ]).has(key) || /^0+$/.test(key)) return '';
+  return key;
 }
 
 function inventoryImportedDeviceId(maintenanceId, inventoryDeviceId) {
@@ -287,6 +299,65 @@ function inventoryDeviceToMaintenanceRow(item, { maintenanceId, equipmentLocatio
   };
 }
 
+/**
+ * Cada device_id del inventario representa una ficha distinta. La identidad
+ * física sirve SOLO para descontar registros que ya estaban en la visita,
+ * no para colapsar varias fichas de la misma importación.
+ * La comparación es un multiconjunto: si ya existe uno de tres equipos con
+ * la misma serie, todavía se crean los otros dos.
+ */
+function planInventoryLocationImportRows(source, ctx, maintenance, location, currentDevices) {
+  const rows = source.map((item) => inventoryDeviceToMaintenanceRow(item, {
+    maintenanceId: clean(maintenance.MantenimientoID),
+    equipmentLocationId: location.id,
+    equipmentLocationName: location.name,
+    actor: clean(ctx.user.UsuarioID),
+  }));
+  const invalid = rows.filter((row) => !row.NombreDispositivo || !row.Categoria);
+  if (invalid.length) {
+    throw badRequest('El inventario tiene ' + invalid.length
+      + ' dispositivo(s) sin nombre o tipo en esta ubicación. Corrija esos registros de origen y actualice el inventario antes de importar; no se guardó una carga parcial.');
+  }
+
+  const sourceIds = new Set(rows.map((row) => row.EvidenciaMantenimientoID));
+  const ids = new Set(currentDevices.map((device) => clean(device.EvidenciaMantenimientoID)));
+  const identities = new Map();
+  for (const device of currentDevices) {
+    if (device.Activo === false || clean(device.Activo).toLowerCase() === 'false'
+      || sourceIds.has(clean(device.EvidenciaMantenimientoID))) continue;
+    const identity = sameImportIdentity(device);
+    if (identity) identities.set(identity, (identities.get(identity) || 0) + 1);
+  }
+
+  const rowsToCreate = [];
+  let alreadyPresent = 0;
+  for (const row of rows) {
+    if (ids.has(row.EvidenciaMantenimientoID)) {
+      alreadyPresent++;
+      continue;
+    }
+    const identity = sameImportIdentity(row);
+    const available = identity ? (identities.get(identity) || 0) : 0;
+    if (available > 0) {
+      identities.set(identity, available - 1);
+      alreadyPresent++;
+      continue;
+    }
+    // No agregar la identidad a "identities": fichas diferentes del inventario
+    // no deben desaparecer porque comparten una serie, nombre o MAC histórico.
+    rowsToCreate.push(row);
+  }
+  const forbiddenTypes = [...new Set(rowsToCreate.filter((row) =>
+    expectedMaintenanceCountForDevice(maintenance,row).planned <= 0)
+    .map((row) => row.TipoDispositivo))];
+  if (forbiddenTypes.length) {
+    throw badRequest('El inventario incluye tipos sin cantidad planificada: '
+      + forbiddenTypes.slice(0, 8).join(', ')
+      + '. Edite las cantidades esperadas del mantenimiento antes de importar. No se guardó una carga parcial.');
+  }
+  return { rowsToCreate, sourceCount: source.length, alreadyPresent };
+}
+
 async function inventoryDevicesForEquipmentLocation(clientId, equipmentLocationId) {
   const result = await query(
     'SELECT d.device_id,d.device_type,d.device_name,d.manufacturer,d.model,'
@@ -307,43 +378,14 @@ async function prepareInventoryLocationImport(ctx, maintenance, location, curren
   const source = await inventoryDevicesForEquipmentLocation(clean(maintenance.ClienteID), location.id);
   if (!source.length) throw badRequest(
     'La ubicación seleccionada no tiene dispositivos en el inventario generado de este cliente. Actualice el inventario o agregue solo la ubicación.');
-  const ids = new Set(currentDevices.map((device) => clean(device.EvidenciaMantenimientoID)));
-  const identities = new Set(currentDevices.filter((device) =>
-    device.Activo !== false && clean(device.Activo).toLowerCase() !== 'false')
-    .map(sameImportIdentity).filter(Boolean));
-  const rowsToCreate = [];
-  for (const item of source) {
-    const row = inventoryDeviceToMaintenanceRow(item, {
-      maintenanceId: clean(maintenance.MantenimientoID),
-      equipmentLocationId: location.id,
-      equipmentLocationName: location.name,
-      actor: clean(ctx.user.UsuarioID),
-    });
-    if (!row.NombreDispositivo || !row.Categoria) continue;
-    const identity = sameImportIdentity(row);
-    if (ids.has(row.EvidenciaMantenimientoID) || (identity && identities.has(identity))) continue;
-    ids.add(row.EvidenciaMantenimientoID);
-    if (identity) identities.add(identity);
-    rowsToCreate.push(row);
-  }
-  // Conserva el mismo requisito del alta de dispositivos: solo tipos
-  // planificados con cantidad mayor a cero se pueden agregar.
-  const forbiddenTypes = [...new Set(rowsToCreate.filter((row) =>
-    expectedMaintenanceCountForDevice(maintenance,row).planned <= 0)
-    .map((row) => row.TipoDispositivo))];
-  if (forbiddenTypes.length) {
-    throw badRequest('El inventario incluye tipos sin cantidad planificada: '
-      + forbiddenTypes.slice(0, 8).join(', ')
-      + '. Edite las cantidades esperadas del mantenimiento antes de importar.');
-  }
-  return { rowsToCreate, sourceCount: source.length };
+  return planInventoryLocationImportRows(source, ctx, maintenance, location, currentDevices);
 }
 
 async function locationsUpdate(ctx) {
   const maintenanceId = clean(pick(ctx.payload, ['maintenanceId', 'MantenimientoID', 'id']));
   if (!maintenanceId) throw badRequest('No se indicó el mantenimiento.');
 
-  return withLocationWrite(maintenanceId, () => withTransaction(async () => {
+  const receipt = await withLocationWrite(maintenanceId, () => withTransaction(async () => {
     // Misma fila que bloquea maintenance.deviceCreate en PostgreSQL; funciona
     // con varias instancias de Render, sin confiar en writeTails en memoria.
     const locked = await query(
@@ -381,7 +423,7 @@ async function locationsUpdate(ctx) {
 
     const groups = await resolveRequestedGroups(maintenance, requestedIds, devices);
     const importId = clean(ctx.payload?.importInventoryLocationId);
-    let imported = [];
+    let prepared = { rowsToCreate: [], sourceCount: 0, alreadyPresent: 0 };
     if (importId) {
       if (!requestedSet.has(importId)) {
         throw badRequest('La ubicación a importar no forma parte de las ubicaciones seleccionadas.');
@@ -391,22 +433,42 @@ async function locationsUpdate(ctx) {
       }
       const group = groups.find((item) => item.id === importId);
       if (!group) throw badRequest('No se encontró la ubicación seleccionada para importar.');
-      const prepared = await prepareInventoryLocationImport(ctx, maintenance, group, allDevices);
-      imported = prepared.rowsToCreate;
+      prepared = await prepareInventoryLocationImport(ctx, maintenance, group, allDevices);
     }
     await persistSelection(ctx, maintenance, groups, 'ACTUALIZAR_UBICACIONES_MANTENIMIENTO');
-    if (imported.length) {
-      // La misma API de persistencia PostgreSQL para altas normales,
-      // ahora con INSERT batch en la transacción del cambio de ubicación.
-      await appendRows('Evidencia_Mantenimientos', imported);
-      await raiseExpectedCountsForCreatedDevices(ctx, maintenance, imported);
+    if (prepared.rowsToCreate.length) {
+      // Misma persistencia PostgreSQL que el alta manual: todos los lotes
+      // comparten esta transacción y se revierten enteros ante cualquier error.
+      const inserted = await appendRows('Evidencia_Mantenimientos', prepared.rowsToCreate);
+      if (inserted.length !== prepared.rowsToCreate.length) {
+        throw badRequest('No se confirmó la inserción completa del inventario. La operación se revirtió.');
+      }
+      await raiseExpectedCountsForCreatedDevices(ctx, maintenance, inserted);
+    }
+    if (importId) {
       await audit(ctx,'IMPORTAR_UBICACION_DESDE_INVENTARIO','Mantenimiento',maintenanceId,null,{
-        ubicacionEquipoId:importId, cantidad:imported.length,
+        ubicacionEquipoId:importId, encontrados:prepared.sourceCount,
+        agregados:prepared.rowsToCreate.length, yaPresentes:prepared.alreadyPresent,
       });
     }
-    const result = await get({ ...ctx, payload: { maintenanceId } });
-    return { ...result, importedInventoryDevices: imported.length };
+    return {
+      selectedLocations: groups,
+      importedInventoryDevices: prepared.rowsToCreate.length,
+      alreadyPresentInventoryDevices: prepared.alreadyPresent,
+      inventorySourceCount: prepared.sourceCount,
+    };
   }));
+  // El detalle completo puede requerir lecturas grandes. Nunca mantener el
+  // FOR UPDATE ni una transacción abierta durante ese refresco.
+  try {
+    const result = await get({ ...ctx, payload: { maintenanceId } });
+    return { ...result, ...receipt };
+  } catch (refreshError) {
+    // La escritura ya fue confirmada: un fallo de lectura no debe comunicar
+    // falsamente que la ubicación/importación no se guardó, provocando reintentos.
+    console.warn('[maintenance.locations.refresh] code=' + clean(refreshError?.code || 'READ_FAILED').slice(0, 50));
+    return { ...receipt, refreshRequired: true };
+  }
 }
 
 // Validate only a newly assigned location. Existing historical references

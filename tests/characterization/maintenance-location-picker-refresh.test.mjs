@@ -70,7 +70,7 @@ test('el backend copia solo datos técnicos con inserción batch, de forma atóm
   const inventory=source('backend/src/modules/client-inventory.module.js');
   const migration=source('backend/migrations/024_client_inventory_manual_links.sql');
   const router=source('backend/src/core/action-router.js');
-  assert.match(mod,/return withLocationWrite\(maintenanceId, \(\) => withTransaction\(async \(\) => \{/);
+  assert.match(mod,/const receipt = await withLocationWrite\(maintenanceId, \(\) => withTransaction\(async \(\) => \{/);
   assert.match(mod,/FOR UPDATE/);
   assert.match(mod,/prepareInventoryLocationImport\(ctx, maintenance, group, allDevices\)/);
   assert.match(mod,/details->>'equipmentLocationId'=\$2/);
@@ -78,13 +78,13 @@ test('el backend copia solo datos técnicos con inserción batch, de forma atóm
   assert.match(mod,/MAX_IMPORTED_INVENTORY_DEVICES/);
   assert.match(mod,/if \(!requestedSet\.has\(importId\)\)/);
   assert.match(mod,/expectedMaintenanceCountForDevice\(maintenance,row\)\.planned <= 0/);
-  assert.match(mod,/appendRows\('Evidencia_Mantenimientos', imported\)/);
-  assert.match(mod,/raiseExpectedCountsForCreatedDevices\(ctx, maintenance, imported\)/);
+  assert.match(mod,/appendRows\('Evidencia_Mantenimientos', prepared\.rowsToCreate\)/);
+  assert.match(mod,/raiseExpectedCountsForCreatedDevices\(ctx, maintenance, inserted\)/);
   assert.match(mod,/IMPORTAR_UBICACION_DESDE_INVENTARIO/);
-  assert.match(mod,/importedInventoryDevices: imported\.length/);
+  assert.match(mod,/importedInventoryDevices: prepared\.rowsToCreate\.length/);
   assert.match(mod,/inventoryImportedDeviceId\(maintenanceId, inventoryDeviceId\)/);
   assert.match(mod,/ids\.has\(row\.EvidenciaMantenimientoID\)/);
-  assert.match(mod,/identities\.has\(identity\)/);
+  assert.match(mod,/identities\.get\(identity\)/);
   assert.match(count,/export async function raiseExpectedCountsForCreatedDevices/);
   assert.match(count,/GROUP BY "TipoDispositivoID", "TipoDispositivo", "Categoria"/);
   assert.match(count,/return raiseExpectedCountsForCreatedDevices\(ctx, maintenance, \[created\]\)/);
@@ -143,4 +143,73 @@ test('nuevos dispositivos reciclados nunca conservan estados ni evidencias de un
     adapter.inventoryImportedDeviceId(details.maintenanceId,sourceRecord.device_id));
   assert.notEqual(adapter.inventoryImportedDeviceId('otro-mantenimiento',sourceRecord.device_id),fresh.EvidenciaMantenimientoID);
   assert.ok(adapter.sameImportIdentity(fresh));
+});
+
+test('importación por ubicación conserva cada ficha del inventario y permite completar sin duplicar', async () => {
+  const { createHash } = await import('node:crypto');
+  const code = source('backend/src/modules/maintenance-location-groups.module.js');
+  const start = code.indexOf('function sameImportIdentity(');
+  const end = code.indexOf('async function inventoryDevicesForEquipmentLocation(', start);
+  const clean = (value) => String(value ?? '').trim();
+  const normalized = (value) => clean(value).normalize('NFD')
+    .replace(/[\\u0300-\\u036f]/g, '').toLowerCase().replace(/[^a-z0-9]+/g, '-')
+    .replace(/^-+|-+$/g, '');
+  const build = (expected) => new Function(
+    'createHash','nowIso','clean','normalized','badRequest','expectedMaintenanceCountForDevice',
+    code.slice(start, end) + '\nreturn { planInventoryLocationImportRows, inventoryImportedDeviceId };',
+  )(createHash, () => '2026-11-16T12:00:00Z', clean, normalized,
+    (message) => new Error(message), expected);
+  const expected = () => ({ planned: 3 });
+  const module = build(expected);
+  const ctx = { user: { UsuarioID: 'tecnico-1' } };
+  const maintenance = { MantenimientoID: 'mto-123' };
+  const location = { id: 'piso-1', name: 'Piso 1' };
+  const devices = [
+    { device_id: 'cam-1', device_type: 'Cámara', device_name: 'Cámara 1', serial: 'SIN SERIE' },
+    { device_id: 'cam-2', device_type: 'Cámara', device_name: 'Cámara 2', serial: 'SIN SERIE' },
+    { device_id: 'cam-3', device_type: 'Cámara', device_name: 'Cámara 3', serial: 'S-123' },
+    { device_id: 'cam-4', device_type: 'Cámara', device_name: 'Cámara 4', serial: 'S-123' },
+  ];
+  const first = module.planInventoryLocationImportRows(devices, ctx, maintenance, location, []);
+  assert.equal(first.sourceCount, 4);
+  assert.equal(first.rowsToCreate.length, 4, 'la misma serie no elimina fichas distintas');
+  assert.equal(first.alreadyPresent, 0);
+  const second = module.planInventoryLocationImportRows(
+    devices, ctx, maintenance, location, first.rowsToCreate.slice(0, 2));
+  assert.equal(second.rowsToCreate.length, 2, 'completa una importación anterior incompleta');
+  assert.equal(second.alreadyPresent, 2);
+  const retry = module.planInventoryLocationImportRows(
+    devices, ctx, maintenance, location, first.rowsToCreate);
+  assert.equal(retry.rowsToCreate.length, 0, 'reintentar no crea duplicados');
+  assert.equal(retry.alreadyPresent, 4);
+  assert.notEqual(first.rowsToCreate[2].EvidenciaMantenimientoID,first.rowsToCreate[3].EvidenciaMantenimientoID);
+  assert.throws(
+    () => module.planInventoryLocationImportRows(
+      [{ device_id: 'sin-tipo', device_name: 'Equipo X', device_type: '' }],
+      ctx, maintenance, location, []),
+    /sin nombre o tipo/,
+    'no hay inserción parcial silenciosa con fichas incompletas',
+  );
+  assert.throws(
+    () => build(() => ({ planned: 0 })).planInventoryLocationImportRows(
+      devices, ctx, maintenance, location, []),
+    /sin cantidad planificada/,
+    'no se omite la regla del mantenimiento para las cantidades planificadas',
+  );
+});
+
+test('al completar una ubicación existente se reutiliza la ruta, el bloqueo y el recibo confirmado', () => {
+  const backend = source('backend/src/modules/maintenance-location-groups.module.js');
+  const modal = source('src/components/maintenance/MaintenanceLocationPickerModal.jsx');
+  const detail = source('src/pages/maintenance/MaintenanceDetailPage.jsx');
+  assert.match(modal,/duplicate && !includeInventoryDevices/);
+  assert.match(modal,/Completar dispositivos desde el inventario/);
+  assert.match(detail,/if \(alreadyAdded && !importInventoryDevices\) return false/);
+  assert.match(detail,/alreadyAdded \? maintenanceLocations : \[\.\.\.maintenanceLocations, location\]/);
+  assert.match(backend,/SELECT "MantenimientoID"[\\s\\S]*FOR UPDATE/);
+  assert.match(backend,/if \(inserted.length !== prepared.rowsToCreate.length\)/);
+  assert.match(backend,/alreadyPresentInventoryDevices: prepared.alreadyPresent/);
+  assert.match(backend,/inventorySourceCount: prepared.sourceCount/);
+  assert.match(backend,/const receipt = await withLocationWrite[\\s\\S]*\}\)\);[\\s\\S]*const result = await get/);
+  assert.match(detail,/result\?\.mantenimiento &&/);
 });
