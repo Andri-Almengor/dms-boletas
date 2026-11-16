@@ -30,11 +30,17 @@ const listEnd = maintenanceBackend.indexOf('\n\n  get: async', listStart);
 assert.ok(listStart >= 0 && listEnd > listStart, 'debe existir el handler maintenance.list');
 const maintenanceListHandler = maintenanceBackend.slice(listStart, listEnd);
 const paginationAt = maintenanceListHandler.indexOf('const result = filterRows(');
-const deviceReadAt = maintenanceListHandler.indexOf("readTable('Evidencia_Mantenimientos')");
+// La lectura de dispositivos sigue siendo posterior a la paginación, pero
+// ahora usa findRows con los IDs de la página en lugar de escanear toda la tabla.
+const deviceReadAt = maintenanceListHandler.indexOf("const devices = await findRows(");
 assert.match(maintenanceListHandler, /readTable\('Mantenimiento'\)/);
 assert.doesNotMatch(maintenanceListHandler, /readTables\(\['Mantenimiento', 'Evidencia_Mantenimientos'\]\)/);
 assert.ok(paginationAt >= 0, 'maintenance.list debe filtrar y paginar con filterRows');
 assert.ok(deviceReadAt > paginationAt, 'maintenance.list debe paginar antes de leer/enriquecer dispositivos');
+assert.match(maintenanceListHandler, /MantenimientoRef: \[\.\.\.pageIds\]/,
+  'la lectura batch debe limitarse a los mantenimientos de la página');
+assert.doesNotMatch(maintenanceListHandler, /readTable\('Evidencia_Mantenimientos'\)/,
+  'no se debe recorrer el histórico global de dispositivos');
 assert.match(maintenanceListHandler, /if \(!result\.items\.length\) return result/);
 assert.match(maintenanceListHandler, /const pageIds = new Set\(result\.items\.map/);
 assert.match(maintenanceListHandler, /pageIds\.has\(String\(device\.MantenimientoRef\)\)/);
