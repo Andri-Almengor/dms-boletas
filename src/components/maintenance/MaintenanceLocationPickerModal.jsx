@@ -17,6 +17,7 @@ export default function MaintenanceLocationPickerModal({
   saving = false,
   error = '',
   onEditPlannedCounts,
+  onClearError,
 }) {
   const [selection, setSelection] = useState(null);
   const [includeInventoryDevices, setIncludeInventoryDevices] = useState(false);
@@ -95,6 +96,7 @@ export default function MaintenanceLocationPickerModal({
             value={selection?.id || ''}
             disabled={saving}
             onChange={(id, name, locationId, locationName) => {
+              onClearError?.();
               setIncludeInventoryDevices(false);
               setInventoryPreview(null);
               setSelection({
