@@ -524,7 +524,7 @@ export function buildMaintenanceMetrics(tables, payload = {}) {
     // El reporte reutiliza el mantenimiento seleccionado; no inventa títulos ni ubicaciones.
     // Cuando cliente/fecha reúne varias visitas, se incluyen todas las referencias.
     reportContext: reportIncidents ? {
-      maintenimientos: selectedMaintenances.map((item) => ({
+      mantenimientos: selectedMaintenances.map((item) => ({
         id: clean(item.MantenimientoID),
         titulo: clean(item.TituloMantenimiento),
         ubicacion: clean(item.Ubicacion),
