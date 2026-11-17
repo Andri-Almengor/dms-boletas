@@ -83,7 +83,7 @@ test('métricas: pantalla consulta todos los equipos y PDF ofrece filtro indepen
   assert.match(dashboard, /<AdminEntityModal[\s\S]*?title="Configurar informe PDF"/);
   assert.match(dashboard, /onClick=\{openPdfOptions\}/);
   assert.match(dashboard, /detalleReporte: pdfDeviceFilter/);
-  assert.match(dashboard, /\['fallas', 'Solo dispositivos en mal estado'/);
+  assert.match(dashboard, /\['fallas', 'Solo averías confirmadas'/);
   assert.match(dashboard, /\['todos', 'Todos los dispositivos'/);
   assert.match(dashboard, /\['funcionales', 'Solo dispositivos funcionales'/);
   assert.match(dashboard, /<th>Responsable<\/th>/);
