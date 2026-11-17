@@ -113,3 +113,27 @@ test('métricas: PDF A4 apaisado compacta informes cortos y utiliza el logotipo 
   assert.doesNotMatch(print, /\.report-incidents \{[^}]*overflow: hidden/);
   assert.doesNotMatch(print, /\.report-table \{[^}]*height: [0-9]+(px|mm)/);
 });
+
+test('métricas: modal PDF móvil mantiene botones compactos y sin estiramiento', () => {
+  const styles = source('src/styles/metrics.css');
+  assert.match(styles, /admin-entity-modal-layer--metrics-report \.admin-entity-modal__footer \{[\s\S]*?display: grid;/);
+  assert.match(styles, /grid-template-columns: minmax\(0, 1fr\) minmax\(0, 1fr\)/);
+  assert.match(styles, /admin-entity-modal-layer--metrics-report \.admin-entity-modal__footer > \.button \{[\s\S]*?flex: none;[\s\S]*?height: 46px;[\s\S]*?max-height: 46px;/);
+  assert.doesNotMatch(styles, /admin-entity-modal-layer--metrics-report \.admin-entity-modal__footer > \.button \{\s*flex: 1 1 130px;/);
+});
+
+test('métricas: PDF no limita la tabla a cinco y conserva paginación de informes extensos', () => {
+  const printer = source('src/components/metrics/MaintenanceMetricsPrint.jsx');
+  const handler = source('backend/src/modules/metrics.module.js');
+  assert.match(handler, /reportDetailCount: reportIncidents \? reportRows\.length : null/);
+  assert.match(handler, /detailRows: reportIncidents \? reportRows : details\.slice\(0, 500\)/);
+  assert.match(printer, /report-page\$\{rows\.length <= 7 \? ' report-page--short' : ''\}/);
+  assert.match(printer, /assertCompleteMaintenanceReport\(data\)/);
+  assert.match(printer, /data\.reportDetailCount !== data\.detailRows\.length/);
+  assert.match(printer, /querySelectorAll\('\.report-table tbody tr'\)\.length/);
+  assert.match(printer, /report-table tbody tr \{ break-inside: avoid; page-break-inside: avoid; \}/);
+  assert.match(printer, /\.report-table \{ break-inside: auto !important; page-break-inside: auto !important; \}/);
+  assert.match(printer, /overflow: visible !important;/);
+  assert.match(printer, /popup\.document\.fonts\?\.ready/);
+  assert.doesNotMatch(printer, /popup\.setTimeout\(\(\) => \{ if \(!popup\.closed\) popup\.print\(\); \}, 300\)/);
+});
