@@ -330,7 +330,7 @@ export function buildMaintenanceMetrics(tables, payload = {}) {
   const reportIncidents = payload.reporteIncidencias === true || Boolean(reportModeInput);
   // Mantener compatibilidad con exportaciones antiguas (solo averías).
   const reportMode = reportModeInput || 'fallas';
-  if (reportIncidents && !['todos', 'fallas', 'funcionales'].includes(reportMode)) {
+  if (reportIncidents && !['todos', 'fallas', 'no_operativos', 'funcionales'].includes(reportMode)) {
     throw new Error('Seleccione un tipo válido de dispositivos para el informe PDF.');
   }
   if (reportIncidents && (!client || !date)) {
@@ -458,7 +458,8 @@ export function buildMaintenanceMetrics(tables, payload = {}) {
   // Solo el informe elige el tipo de detalle; nunca altera los agregados de métricas.
   const reportRows = reportMode === 'todos' ? details
     : reportMode === 'funcionales' ? details.filter((row) => row.operativo)
-      : details.filter((row) => row.averiado);
+      : reportMode === 'no_operativos' ? details.filter((row) => !row.operativo)
+        : details.filter((row) => row.averiado);
 
   return {
     filtersApplied: {
@@ -496,6 +497,8 @@ export function buildMaintenanceMetrics(tables, payload = {}) {
       porEnUso: mapRows(byUse),
       operating,
       failing,
+      // Aclarar la diferencia entre "Con falla / sin dato" y fallas confirmadas.
+      confirmedFailures: filteredDevices.filter((row) => hasDeviceFailure(row.Funcionamiento)).length,
       activeUse,
       stored: storedCount,
     },

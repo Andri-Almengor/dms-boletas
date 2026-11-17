@@ -32,11 +32,13 @@ function MaintenanceMetricsPrint({ data }) {
   const reportMode = data?.filtersApplied?.detalleReporte || 'fallas';
   const detailTitles = {
     todos: 'Detalle de todos los dispositivos',
-    fallas: 'Detalle de dispositivos con fallas',
+    no_operativos: 'Detalle de dispositivos con falla / sin dato',
+    fallas: 'Detalle de averías confirmadas',
     funcionales: 'Detalle de dispositivos funcionales',
   };
   const detailDescriptions = {
     todos: 'Se incluyen dispositivos funcionales, averiados y sin estado de funcionamiento registrado.',
+    no_operativos: 'Incluye equipos con fallas y sin datos de funcionamiento; los registros sin dato no son averías confirmadas.',
     fallas: 'Solo se incluyen dispositivos reportados como dañados o sin funcionamiento.',
     funcionales: 'Solo se incluyen dispositivos con funcionamiento positivo.',
   };
@@ -152,8 +154,13 @@ const REPORT_STYLES = `
   .report-status--ok { color: #06754c; background: #e3f8ee; }
   .report-status--unknown { color: #5b626d; background: #eceef2; }
   .report-empty { padding: 26px; text-align: center; border: 1px dashed #ccd0d8; border-radius: 10px; color: #596070; }
-  .print-controls { position: sticky; top: 0; z-index: 10; display: flex; justify-content: center; align-items: center; gap: 18px; padding: 10px; background: #26242a; color: #fff; }
-  .print-controls button { border: 0; border-radius: 8px; padding: 9px 18px; background: #b90d19; color: #fff; font-weight: bold; cursor: pointer; }
+  .print-controls { position: sticky; top: 0; z-index: 10; display: flex; flex-wrap: wrap; justify-content: space-between; align-items: center; gap: 12px; padding: 12px 16px; background: #26242a; color: #fff; }
+  .print-controls__instructions { display: grid; gap: 4px; min-width: 230px; flex: 1; line-height: 1.4; }
+  .print-controls__instructions strong { font-size: 13px; }
+  .print-controls__instructions span { font-size: 12px; color: #e4dfe0; }
+  .print-controls button { border: 0; border-radius: 8px; padding: 11px 16px; background: #b90d19; color: #fff; font-weight: bold; cursor: pointer; min-height: 42px; }
+  .print-controls button:disabled { opacity: .6; cursor: wait; }
+  @media (max-width: 600px) { .print-controls button { width: 100%; } }
   @media screen {
     body { background: #e7e8eb; }
     .report-page { max-width: 1160px; margin: 20px auto 36px; box-shadow: 0 8px 30px #0002; }
@@ -201,6 +208,18 @@ export function assertCompleteMaintenanceReport(data) {
       || data.reportDetailCount !== data.detailRows.length)) {
     throw new Error('El informe llegó incompleto. Vuelva a generarlo para incluir todos los dispositivos.');
   }
+  const mode = data?.filtersApplied?.detalleReporte;
+  const totalsByMode = {
+    no_operativos: data?.charts?.failing,
+    fallas: data?.charts?.confirmedFailures,
+    funcionales: data?.charts?.operating,
+    todos: data?.totals?.dispositivosFiltrados,
+  };
+  const expected = totalsByMode[mode];
+  if (expected !== undefined && (!Number.isSafeInteger(expected)
+    || expected !== data.detailRows.length)) {
+    throw new Error('El número de dispositivos del PDF no coincide con las métricas del filtro elegido. No se generó un informe incompleto.');
+  }
   return data.detailRows.length;
 }
 
@@ -214,20 +233,21 @@ export function renderMaintenanceReport(popup, data) {
     .replace(/[^\p{L}\p{N}_-]+/gu, '_').slice(0, 90);
   const reportMarkup = renderToStaticMarkup(<MaintenanceMetricsPrint data={data} />);
   popup.document.open();
-  popup.document.write(`<!doctype html><html lang="es"><head><meta charset="utf-8"><title>${filename}</title><style>${REPORT_STYLES}</style></head><body><div class="print-controls"><span>Vista previa del informe · Para obtener el PDF, elija «Guardar como PDF» al imprimir.</span><button id="print-report" type="button">Imprimir / Guardar PDF</button></div>${reportMarkup}</body></html>`);
+  popup.document.write(`<!doctype html><html lang="es"><head><meta charset="utf-8"><title>${filename}</title><style>${REPORT_STYLES}</style></head><body><div class="print-controls"><div class="print-controls__instructions"><strong>${expectedRows} dispositivos incluidos · Un único PDF con todas las páginas</strong><span>Pulse «Guardar PDF completo». En el diálogo seleccione Destino: Guardar como PDF y Páginas: Todas (no «Personalizadas» ni «Página actual»).</span></div><button id="print-report" type="button" disabled>Preparando documento completo...</button></div>${reportMarkup}</body></html>`);
   popup.document.close();
   const renderedRows = popup.document.querySelectorAll('.report-table tbody tr').length;
   if (renderedRows !== expectedRows) {
     throw new Error('No se dibujaron todos los dispositivos en el PDF. Vuelva a generar el informe.');
   }
-  let autoPrintPending = true;
-  popup.document.getElementById('print-report')?.addEventListener('click', () => {
-    autoPrintPending = false;
-    if (!popup.closed) popup.print();
+  const printButton = popup.document.getElementById('print-report');
+  let ready = false;
+  printButton?.addEventListener('click', () => {
+    // Una sola llamada a imprimir: la opción «Todas» reúne las páginas en el mismo PDF.
+    if (ready && !popup.closed) popup.print();
   });
   popup.focus();
-  // Esperar al layout, fuentes e imágenes: 300 ms fijos pueden abrir el diálogo
-  // antes de que el navegador termine de paginar un informe largo.
+  // El usuario confirma la impresión cuando la vista está lista; evita imprimir
+  // automáticamente una sola página o reutilizar sin darse cuenta un rango anterior.
   Promise.resolve(popup.document.fonts?.ready).then(async () => {
     await Promise.all(Array.from(popup.document.images, (img) => {
       if (img.complete) return Promise.resolve();
@@ -236,12 +256,23 @@ export function renderMaintenanceReport(popup, data) {
         img.addEventListener('error', resolve, { once: true });
       });
     }));
-    if (popup.closed || !autoPrintPending) return;
+    if (popup.closed) return;
     await new Promise((resolve) => {
       popup.requestAnimationFrame(() => popup.requestAnimationFrame(resolve));
     });
-    if (!popup.closed && autoPrintPending) popup.print();
+    if (popup.closed) return;
+    ready = true;
+    if (printButton) {
+      printButton.disabled = false;
+      printButton.textContent = 'Guardar PDF completo';
+    }
   }).catch(() => {
-    // Si falla una fuente/imagen, el botón manual permanece disponible.
+    // El botón se habilita incluso si una fuente/imágen no confirma su carga.
+    // Los datos ya están completos y el usuario puede imprimir manualmente.
+    ready = true;
+    if (printButton && !popup.closed) {
+      printButton.disabled = false;
+      printButton.textContent = 'Guardar PDF completo';
+    }
   });
 }

@@ -163,3 +163,61 @@ test('informes con 6, 12 o 40 averías muestran todas las filas y nunca un máxi
     assert.ok(report.detailRows.some((row) => row.deviceId === `falla-${size - 1}`));
   }
 });
+
+test('grupo rojo 208 de 522: exporta los 208 con falla/sin dato, no solo 5 averías confirmadas', () => {
+  const positiveDevices = Array.from({ length: 314 }, (_, index) => ({
+    EvidenciaMantenimientoID: `funcional-${index}`,
+    MantenimientoRef: 'm-522',
+    NombreDispositivo: `Funcional ${index}`,
+    Categoria: 'Cámaras',
+    Funcionamiento: 'Sí',
+  }));
+  const faultyDevices = Array.from({ length: 5 }, (_, index) => ({
+    EvidenciaMantenimientoID: `averia-${index}`,
+    MantenimientoRef: 'm-522',
+    NombreDispositivo: `Averiada ${index}`,
+    Categoria: 'Cámaras',
+    Funcionamiento: 'No',
+  }));
+  const unknownDevices = Array.from({ length: 203 }, (_, index) => ({
+    EvidenciaMantenimientoID: `sin-dato-${index}`,
+    MantenimientoRef: 'm-522',
+    NombreDispositivo: `Sin dato ${index}`,
+    Categoria: 'Cámaras',
+    Funcionamiento: '',
+  }));
+  const tables = {
+    Mantenimiento: [{ MantenimientoID: 'm-522', Cliente: client, Fecha: date }],
+    Evidencia_Mantenimientos: [...positiveDevices, ...faultyDevices, ...unknownDevices],
+    'Mantenimiento imagenes': [],
+    Usuarios: [],
+  };
+  const filters = { cliente: client, fecha: date, reporteIncidencias: true };
+  const group = buildMaintenanceMetrics(tables, { ...filters, detalleReporte: 'no_operativos' });
+  const confirmed = buildMaintenanceMetrics(tables, { ...filters, detalleReporte: 'fallas' });
+  const all = buildMaintenanceMetrics(tables, { ...filters, detalleReporte: 'todos' });
+  const working = buildMaintenanceMetrics(tables, { ...filters, detalleReporte: 'funcionales' });
+
+  assert.equal(group.charts.operating, 314);
+  assert.equal(group.charts.failing, 208);
+  assert.equal(group.charts.confirmedFailures, 5);
+  assert.equal(group.reportDetailCount, 208);
+  assert.equal(group.detailRows.length, 208);
+  assert.equal(group.detailRows.filter((row) => row.averiado).length, 5);
+  assert.equal(group.detailRows.filter((row) => !row.averiado).length, 203);
+  assert.equal(group.filtersApplied.detalleReporte, 'no_operativos');
+  assert.equal(confirmed.detailRows.length, 5);
+  assert.equal(confirmed.reportDetailCount, 5);
+  assert.equal(all.detailRows.length, 522);
+  assert.equal(all.reportDetailCount, 522);
+  assert.equal(working.detailRows.length, 314);
+  assert.equal(working.reportDetailCount, 314);
+  assert.ok(group.detailRows.some((row) => row.deviceId === 'sin-dato-202'));
+});
+
+test('el backend rechaza un modo de PDF desconocido sin alterar filtros existentes', () => {
+  assert.throws(
+    () => buildMaintenanceMetrics(sampleTables(), { cliente: client, fecha: date, detalleReporte: 'invalido' }),
+    /tipo válido/,
+  );
+});

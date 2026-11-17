@@ -83,7 +83,7 @@ test('métricas: pantalla consulta todos los equipos y PDF ofrece filtro indepen
   assert.match(dashboard, /<AdminEntityModal[\s\S]*?title="Configurar informe PDF"/);
   assert.match(dashboard, /onClick=\{openPdfOptions\}/);
   assert.match(dashboard, /detalleReporte: pdfDeviceFilter/);
-  assert.match(dashboard, /\['fallas', 'Solo dispositivos en mal estado'/);
+  assert.match(dashboard, /\['fallas', 'Solo averías confirmadas'/);
   assert.match(dashboard, /\['todos', 'Todos los dispositivos'/);
   assert.match(dashboard, /\['funcionales', 'Solo dispositivos funcionales'/);
   assert.match(dashboard, /<th>Responsable<\/th>/);
@@ -93,7 +93,7 @@ test('métricas: pantalla consulta todos los equipos y PDF ofrece filtro indepen
   assert.match(backend, /detailRows: reportIncidents \? reportRows : details\.slice\(0, 500\)/);
   assert.match(backend, /reportMode === 'funcionales'/);
   assert.match(backend, /reportMode === 'todos'/);
-  assert.match(backend, /!\['todos', 'fallas', 'funcionales'\]\.includes\(reportMode\)/);
+  assert.match(backend, /!\['todos', 'fallas', 'no_operativos', 'funcionales'\]\.includes\(reportMode\)/);
   assert.match(route, /admin-card-modals\.css/);
   assert.match(css, /\.admin-entity-modal-layer--metrics-report/);
 });
@@ -136,4 +136,27 @@ test('métricas: PDF no limita la tabla a cinco y conserva paginación de inform
   assert.match(printer, /overflow: visible !important;/);
   assert.match(printer, /popup\.document\.fonts\?\.ready/);
   assert.doesNotMatch(printer, /popup\.setTimeout\(\(\) => \{ if \(!popup\.closed\) popup\.print\(\); \}, 300\)/);
+});
+
+test('métricas: el PDF diferencia fallas reales y sin dato, y permite guardar todas las páginas juntas', () => {
+  const dashboard = source('src/components/metrics/MaintenanceMetricsDashboard.jsx');
+  const print = source('src/components/metrics/MaintenanceMetricsPrint.jsx');
+  const backend = source('backend/src/modules/metrics.module.js');
+  assert.match(dashboard, /\['no_operativos', 'Con falla o sin dato'/);
+  assert.match(dashboard, /\['fallas', 'Solo averías confirmadas'/);
+  assert.match(dashboard, /setPdfDeviceFilter\('no_operativos'\)/);
+  assert.match(backend, /reportMode === 'no_operativos' \? details\.filter\(\(row\) => !row\.operativo\)/);
+  assert.match(backend, /confirmedFailures: filteredDevices\.filter\(\(row\) => hasDeviceFailure\(row\.Funcionamiento\)\)\.length/);
+  assert.match(print, /no_operativos: 'Detalle de dispositivos con falla \/ sin dato'/);
+  assert.match(print, /Un único PDF con todas las páginas/);
+  assert.match(print, /Páginas: Todas/);
+  assert.match(print, /popup\.print\(\)/);
+  assert.match(print, /id="print-report" type="button" disabled/);
+  assert.match(print, /textContent = 'Guardar PDF completo'/);
+  assert.match(print, /no_operativos: data\?\.charts\?\.failing/);
+  assert.match(print, /fallas: data\?\.charts\?\.confirmedFailures/);
+  assert.match(print, /todos: data\?\.totals\?\.dispositivosFiltrados/);
+  assert.match(print, /expected !== data\.detailRows\.length/);
+  assert.doesNotMatch(print, /if \(!popup\.closed && autoPrintPending\) popup\.print\(\)/);
+  assert.doesNotMatch(print, /new jsPDF|document\.createElement\('canvas'\)/);
 });
