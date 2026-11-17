@@ -2,6 +2,7 @@ import React, { useCallback, useMemo, useState } from 'react';
 import { sortItemsNaturally } from '../../utils/naturalSort';
 import { useAuth } from '../../AuthContext';
 import Icon from '../common/Icon';
+import AdminEntityModal from '../forms/AdminEntityModal';
 import { requestAvailable } from '../../services/moduleApi';
 import useLatestResource from '../../hooks/useLatestResource';
 import {
@@ -37,8 +38,10 @@ function normal(value) {
   return String(value || '').normalize('NFD').replace(/[\u0300-\u036f]/g, '').toLowerCase().trim();
 }
 
-function statusTone(value) {
-  return normal(value).startsWith('si') ? 'metrics-status metrics-status--success' : 'metrics-status metrics-status--danger';
+function statusTone(row) {
+  return row.operativo ? 'metrics-status metrics-status--success'
+    : row.averiado ? 'metrics-status metrics-status--danger'
+      : 'metrics-status metrics-status--info';
 }
 
 function activateWithKeyboard(event, action) {
@@ -53,6 +56,8 @@ export default function MaintenanceMetricsDashboard() {
   const [search, setSearch] = useState('');
   const [exporting, setExporting] = useState(false);
   const [exportError, setExportError] = useState('');
+  const [reportOpen, setReportOpen] = useState(false);
+  const [pdfDeviceFilter, setPdfDeviceFilter] = useState('fallas');
   const fetchMetrics = useCallback((signal) => requestAvailable(
     MAINTENANCE_METRICS_ROUTES, filters, sessionToken, { signal },
   ), [filters, sessionToken]);
@@ -81,6 +86,12 @@ export default function MaintenanceMetricsDashboard() {
     setFilters((current) => applyFilter(current, key, String(current[key]) === String(value) ? '' : value));
   }
 
+  function openPdfOptions() {
+    setExportError('');
+    setPdfDeviceFilter('fallas');
+    setReportOpen(true);
+  }
+
   async function exportPdf() {
     // La consulta del PDF es independiente de los filtros interactivos del detalle.
     if (!filters.cliente || !filters.fecha || exporting) return;
@@ -95,10 +106,11 @@ export default function MaintenanceMetricsDashboard() {
     try {
       const report = await requestAvailable(
         MAINTENANCE_METRICS_ROUTES,
-        { cliente, fecha, reporteIncidencias: true },
+        { cliente, fecha, reporteIncidencias: true, detalleReporte: pdfDeviceFilter },
         sessionToken,
       );
       renderMaintenanceReport(popup, report);
+      setReportOpen(false);
     } catch (exportFailure) {
       const message = exportFailure?.message || 'No fue posible preparar el PDF de mantenimiento.';
       setExportError(message);
@@ -175,13 +187,12 @@ export default function MaintenanceMetricsDashboard() {
       <div><h2>Dashboard de mantenimientos</h2><p>Seleccione tarjetas, categorías, estados o datos del detalle para aplicar filtros.</p></div>
       <div className="metrics-dashboard__heading-actions">
         <button type="button" className="button button--secondary" onClick={load} disabled={loading}><Icon name="refresh" />Actualizar</button>
-        <button type="button" className="button button--primary" onClick={exportPdf} disabled={loading || exporting || !filters.cliente || !filters.fecha} title={!filters.cliente || !filters.fecha ? 'Seleccione un cliente y una fecha de mantenimiento para generar el PDF' : 'Preparar un PDF visual de las métricas y dispositivos con incidencias'}>
+        <button type="button" className="button button--primary" onClick={openPdfOptions} disabled={loading || exporting || !filters.cliente || !filters.fecha} title={!filters.cliente || !filters.fecha ? 'Seleccione un cliente y una fecha de mantenimiento para generar el PDF' : 'Configurar los dispositivos que incluirá el informe PDF'}>
           <Icon name="picture_as_pdf" />{exporting ? 'Preparando PDF...' : 'Exportar PDF'}
         </button>
       </div>
     </div>
 
-    {exportError && <p className="metrics-pdf-error" role="alert">{exportError}</p>}
     <section className="metrics-filters">
       <label><span>Cliente</span><select value={filters.cliente} onChange={(event) => updateFilter('cliente', event.target.value)} disabled={loading}><option value="">Todos los clientes</option>{sortItemsNaturally(options.clientes || []).map((item) => <option key={item} value={item}>{item}</option>)}</select></label>
       <label><span>Fecha de mantenimiento</span><select value={filters.fecha} onChange={(event) => updateFilter('fecha', event.target.value)} disabled={loading}><option value="">Todas las fechas</option>{(options.fechas || []).map((item) => <option key={item} value={item}>{item}</option>)}</select></label>
@@ -227,17 +238,59 @@ export default function MaintenanceMetricsDashboard() {
         </MetricsPanel>
       </div>
 
-      <MetricsPanel title="Detalle de dispositivos con incidencias" hint={`Mostrando ${detailRows.length} de ${(data.detailRows || []).length} dispositivos dañados o sin funcionamiento. Los datos subrayados funcionan como filtros.`}>
+      <MetricsPanel title="Detalle de dispositivos" hint={`Mostrando ${detailRows.length} de ${(data.detailRows || []).length} dispositivos. El filtro de funcionamiento permite ver funcionales, no operativos o todos.`}>
         <div className="metrics-search"><Icon name="search" /><input type="search" value={search} onChange={(event) => setSearch(event.target.value)} placeholder="Buscar dispositivo, zona, categoría u observación..." /></div>
         {detailRows.length ? <div className="metrics-table-wrap"><table className="metrics-table metrics-device-table"><thead><tr><th>Zona / dispositivo</th><th>Categoría</th><th>Funcionamiento</th><th>Uso</th><th>Responsable</th><th>Observaciones</th></tr></thead><tbody>{detailRows.map((row) => <tr key={row.deviceId}>
           <td><strong>{row.nombreDispositivo}</strong><small>{row.zona}</small></td>
           <td><button type="button" className="metrics-inline-filter" onClick={() => toggleFilter('categoria', row.categoria)}>{row.categoria}</button></td>
-          <td><button type="button" className={`${statusTone(row.funcionamiento)} metrics-inline-filter`} onClick={() => toggleFilter('funcionamiento', row.funcionamiento)}>{row.funcionamiento}</button></td>
+          <td><button type="button" className={`${statusTone(row)} metrics-inline-filter`} onClick={() => toggleFilter('funcionamiento', row.funcionamiento)}>{row.funcionamiento}</button></td>
           <td><button type="button" className="metrics-status metrics-status--info metrics-inline-filter" onClick={() => toggleFilter('enUso', row.enUso)}>{row.enUso}</button></td>
           <td><button type="button" className="metrics-inline-filter" onClick={() => toggleFilter('responsable', row.creador)}>{row.creador}</button></td>
           <td className="metrics-observation">{row.observacion || '-'}</td>
         </tr>)}</tbody></table></div> : <MetricsEmpty />}
       </MetricsPanel>
     </>}
+    <AdminEntityModal
+      open={reportOpen}
+      onClose={() => setReportOpen(false)}
+      busy={exporting}
+      className="admin-entity-modal-layer--metrics-report"
+      title="Configurar informe PDF"
+      subtitle="Elija los dispositivos que aparecerán en la tabla del informe."
+      eyebrow="Métricas de mantenimientos"
+      icon="picture_as_pdf"
+      footer={<>
+        <button type="button" className="button button--secondary" onClick={() => setReportOpen(false)} disabled={exporting}>Cancelar</button>
+        <button type="button" className="button button--primary" onClick={exportPdf} disabled={exporting || !filters.cliente || !filters.fecha}>
+          <Icon name="picture_as_pdf" />{exporting ? 'Preparando PDF...' : 'Generar PDF'}
+        </button>
+      </>}
+    >
+      <div className="metrics-report-context">
+        <span><strong>Cliente:</strong> {filters.cliente}</span>
+        <span><strong>Fecha:</strong> {filters.fecha}</span>
+      </div>
+      <fieldset className="metrics-report-options" disabled={exporting}>
+        <legend>Dispositivos incluidos en la tabla</legend>
+        {[
+          ['fallas', 'Solo dispositivos en mal estado', 'Incluye únicamente dispositivos averiados o que no funcionan.'],
+          ['todos', 'Todos los dispositivos', 'Incluye funcionales, averiados y dispositivos sin estado registrado.'],
+          ['funcionales', 'Solo dispositivos funcionales', 'Incluye únicamente los equipos reportados como funcionales.'],
+        ].map(([value, label, description]) => (
+          <label key={value} className={pdfDeviceFilter === value ? 'is-selected' : ''}>
+            <input
+              type="radio"
+              name="maintenance-pdf-devices"
+              value={value}
+              checked={pdfDeviceFilter === value}
+              onChange={() => setPdfDeviceFilter(value)}
+            />
+            <span><strong>{label}</strong><small>{description}</small></span>
+          </label>
+        ))}
+      </fieldset>
+      <p className="metrics-report-info"><Icon name="info" /> Las métricas y gráficas incluyen todos los equipos del cliente y la fecha seleccionados. Esta opción afecta únicamente la tabla del PDF, no los filtros del dashboard.</p>
+      {exportError && <p className="metrics-pdf-error" role="alert">{exportError}</p>}
+    </AdminEntityModal>
   </section>;
 }
