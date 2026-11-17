@@ -1,4 +1,10 @@
 import { readTables } from '../infra/sheets.repository.js';
+import { audit } from '../services/audit.service.js';
+import {
+  buildMaintenanceVisualReportModel,
+  createMaintenanceVisualDocs,
+  VISUAL_REPORT_FILTERS,
+} from '../services/maintenance-visual-docs.service.js';
 
 function clean(value, fallback = '') {
   const text = String(value ?? '').trim();
@@ -431,6 +437,7 @@ export function buildMaintenanceMetrics(tables, payload = {}) {
       enUso: row.EnUso || 'Sin dato',
       enUsoGrupo: activelyUsed(row.EnUso) ? 'en uso' : (stored(row.EnUso) ? 'almacenado' : ''),
       estado: row.Estado || '',
+      gravedadFalla: row.GravedadFalla || '',
       observacion: row.Observacion || '',
       fechaRegistro: dateOnly(row.FechaTrabajo || row.FechaCreacion),
       hora: clean(row.FechaCreacion).split('T')[1]?.slice(0, 5) || '',
@@ -519,7 +526,26 @@ async function maintenanceMetrics({ payload = {} }) {
   return buildMaintenanceMetrics(tables, payload);
 }
 
+async function maintenanceVisualDocs(ctx) {
+  const payload = ctx.payload || {};
+  const filter = clean(payload.detalleVisual);
+  if (!VISUAL_REPORT_FILTERS.includes(filter)) {
+    throw new Error('Seleccione todos, solo buenos o solo dañados para Google Docs.');
+  }
+  // Solo el backend autenticado construye el conjunto completo de datos.
+  const data = await maintenanceMetrics({
+    payload: { cliente: payload.cliente, fecha: payload.fecha, reporteIncidencias: true, detalleReporte: 'todos' },
+  });
+  const model = buildMaintenanceVisualReportModel(data, filter);
+  const result = await createMaintenanceVisualDocs({ model, actor: ctx.user });
+  await audit(ctx, 'GENERAR_INFORME_MANTENIMIENTO_DOCS', 'Mantenimiento', model.client, null, {
+    fecha: model.date, tipo: filter, incluidos: result.devices, documentoId: result.docsId,
+  }).catch(() => {});
+  return result;
+}
+
 export const metricsHandlers = {
   tickets: ticketMetrics,
   maintenance: maintenanceMetrics,
+  maintenanceVisualDocs,
 };
