@@ -72,3 +72,28 @@ test('métricas: filtros y actualización siguen ligados a sus rutas originales'
   assert.match(ticket, /metrics\.tickets\.get/);
   assert.match(maintenance, /metrics\.maintenance\.get/);
 });
+
+test('métricas: pantalla consulta todos los equipos y PDF ofrece filtro independiente con responsable', () => {
+  const dashboard = source('src/components/metrics/MaintenanceMetricsDashboard.jsx');
+  const print = source('src/components/metrics/MaintenanceMetricsPrint.jsx');
+  const backend = source('backend/src/modules/metrics.module.js');
+  const route = source('src/styles/routes/metrics.js');
+  const css = source('src/styles/metrics.css');
+
+  assert.match(dashboard, /<AdminEntityModal[\s\S]*?title="Configurar informe PDF"/);
+  assert.match(dashboard, /onClick=\{openPdfOptions\}/);
+  assert.match(dashboard, /detalleReporte: pdfDeviceFilter/);
+  assert.match(dashboard, /\['fallas', 'Solo dispositivos en mal estado'/);
+  assert.match(dashboard, /\['todos', 'Todos los dispositivos'/);
+  assert.match(dashboard, /\['funcionales', 'Solo dispositivos funcionales'/);
+  assert.match(dashboard, /<th>Responsable<\/th>/);
+  assert.match(print, /<th>Responsable<\/th>/);
+  assert.match(print, /row\.creador \|\| 'Sin responsable'/);
+  assert.match(print, /const rows = data\?\.detailRows \|\| \[\]/);
+  assert.match(backend, /detailRows: reportIncidents \? reportRows : details\.slice\(0, 500\)/);
+  assert.match(backend, /reportMode === 'funcionales'/);
+  assert.match(backend, /reportMode === 'todos'/);
+  assert.match(backend, /!\['todos', 'fallas', 'funcionales'\]\.includes\(reportMode\)/);
+  assert.match(route, /admin-card-modals\.css/);
+  assert.match(css, /\.admin-entity-modal-layer--metrics-report/);
+});
