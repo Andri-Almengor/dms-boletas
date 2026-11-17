@@ -603,3 +603,66 @@
   .metrics-page .metrics-kpi--interactive:hover { transform: none; }
   .metrics-date-chart__column > span { transition: none; }
 }
+
+
+/* Exportación e incidencias: continúa la línea gráfica del dashboard existente. */
+.metrics-dashboard__heading-actions {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  flex-wrap: wrap;
+}
+.metrics-dashboard__heading-actions > .button {
+  min-height: 42px;
+  padding-inline: 16px;
+  border-radius: 12px;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 7px;
+}
+.metrics-dashboard__heading-actions > .button--secondary {
+  border: 1px solid var(--metrics-border-strong);
+  background: var(--metrics-raised);
+  color: var(--metrics-ink);
+}
+.metrics-dashboard__heading-actions > .button--primary {
+  border: 1px solid #af101a;
+  background: #af101a;
+  color: #fff;
+}
+.metrics-dashboard__heading-actions > .button:disabled {
+  opacity: .55;
+  cursor: not-allowed;
+}
+.metrics-pdf-error {
+  margin: 0;
+  padding: 10px 13px;
+  border: 1px solid var(--danger);
+  border-radius: 10px;
+  color: var(--danger);
+  background: var(--danger-soft);
+}
+.metrics-page .metrics-device-table {
+  table-layout: fixed;
+  min-width: 800px;
+}
+.metrics-device-table th:nth-child(1) { width: 17%; }
+.metrics-device-table th:nth-child(2) { width: 12%; }
+.metrics-device-table th:nth-child(3) { width: 13%; }
+.metrics-device-table th:nth-child(4) { width: 13%; }
+.metrics-device-table th:nth-child(5) { width: 13%; }
+.metrics-device-table th:nth-child(6) { width: 32%; }
+.metrics-page .metrics-device-table .metrics-observation {
+  max-width: none;
+  overflow: visible;
+  text-overflow: clip;
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
+  line-height: 1.55;
+}
+.metrics-device-table td { overflow-wrap: anywhere; }
+@media (max-width: 680px) {
+  .metrics-dashboard__heading-actions { width: 100%; }
+  .metrics-dashboard__heading-actions > .button { flex: 1 1 150px; }
+}
