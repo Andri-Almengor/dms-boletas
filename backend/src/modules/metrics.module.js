@@ -289,6 +289,12 @@ function positive(value) {
   return text === 'si' || text.startsWith('si ') || text.includes('funciona') || text.includes('correcto');
 }
 
+function hasDeviceFailure(value) {
+  const text = normalized(value);
+  // "Sin dato" o "Pendiente" no son una avería confirmada.
+  return /^(no\b|sin funcionar|con falla|falla|danad|averiad|inoperativ|defectuos|fuera de servicio|mal funcionamiento|0$|false$)/.test(text);
+}
+
 function stored(value) {
   const text = normalized(value);
   return text.includes('guardad') || (text.startsWith('no') && !text.includes('uso'));
@@ -442,7 +448,7 @@ export function buildMaintenanceMetrics(tables, payload = {}) {
   const activeUse = filteredDevices.filter((row) => activelyUsed(row.EnUso)).length;
   const storedCount = filteredDevices.filter((row) => stored(row.EnUso)).length;
   // El detalle se limita a incidencias; las gráficas y totales incluyen TODOS los equipos.
-  const incidentRows = details.filter((row) => !row.operativo);
+  const incidentRows = details.filter((row) => hasDeviceFailure(row.funcionamiento));
 
   return {
     filtersApplied: {
