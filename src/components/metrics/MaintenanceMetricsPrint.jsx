@@ -160,9 +160,15 @@ const REPORT_STYLES = `
   }
   @media print {
     .print-controls { display: none !important; }
+    /* Nunca limitar la altura del informe ni ocultar filas para intentar que quepa en una página. */
+    html, body, .report-page, .report-incidents { height: auto !important; max-height: none !important; overflow: visible !important; }
     .report-page { box-shadow: none; margin: 0; }
     .report-header, .report-main-charts, .report-kpis { break-inside: avoid; page-break-inside: avoid; }
-    /* Los informes pequeños reducen aún más el espacio vertical, sin cortar observaciones. */
+    .report-table { break-inside: auto !important; page-break-inside: auto !important; }
+    .report-table thead { display: table-header-group; }
+    .report-table tbody { break-inside: auto; page-break-inside: auto; }
+    .report-table tbody tr { break-inside: avoid; page-break-inside: avoid; }
+    /* El formato compacto se usa solo en informes breves. Los largos fluyen a tantas páginas como requieran. */
     .report-page--short { padding: 6mm 8mm; }
     .report-page--short .report-main-charts { margin-bottom: 7px; }
     .report-page--short .report-kpis { margin-bottom: 8px; }
@@ -184,8 +190,23 @@ export function showMaintenanceReportError(popup, message) {
   if (popup && !popup.closed) popup.document.body.textContent = message;
 }
 
+export function assertCompleteMaintenanceReport(data) {
+  if (!Array.isArray(data?.detailRows)) {
+    throw new Error('La respuesta del informe no contiene una tabla de dispositivos válida.');
+  }
+  // El backend devuelve el total antes de serializar. No imprimir si el transporte truncó la lista.
+  if (data.reportDetailCount !== null && data.reportDetailCount !== undefined
+    && (!Number.isSafeInteger(data.reportDetailCount)
+      || data.reportDetailCount < 0
+      || data.reportDetailCount !== data.detailRows.length)) {
+    throw new Error('El informe llegó incompleto. Vuelva a generarlo para incluir todos los dispositivos.');
+  }
+  return data.detailRows.length;
+}
+
 export function renderMaintenanceReport(popup, data) {
   if (!popup || popup.closed) return;
+  const expectedRows = assertCompleteMaintenanceReport(data);
   const client = data?.filtersApplied?.cliente || 'Cliente';
   const date = data?.filtersApplied?.fecha || 'Fecha';
   const mode = data?.filtersApplied?.detalleReporte || 'fallas';
@@ -195,8 +216,32 @@ export function renderMaintenanceReport(popup, data) {
   popup.document.open();
   popup.document.write(`<!doctype html><html lang="es"><head><meta charset="utf-8"><title>${filename}</title><style>${REPORT_STYLES}</style></head><body><div class="print-controls"><span>Vista previa del informe · Para obtener el PDF, elija «Guardar como PDF» al imprimir.</span><button id="print-report" type="button">Imprimir / Guardar PDF</button></div>${reportMarkup}</body></html>`);
   popup.document.close();
-  popup.document.getElementById('print-report')?.addEventListener('click', () => popup.print());
+  const renderedRows = popup.document.querySelectorAll('.report-table tbody tr').length;
+  if (renderedRows !== expectedRows) {
+    throw new Error('No se dibujaron todos los dispositivos en el PDF. Vuelva a generar el informe.');
+  }
+  let autoPrintPending = true;
+  popup.document.getElementById('print-report')?.addEventListener('click', () => {
+    autoPrintPending = false;
+    if (!popup.closed) popup.print();
+  });
   popup.focus();
-  // Se intenta abrir el diálogo automáticamente; el botón permanece por compatibilidad móvil.
-  popup.setTimeout(() => { if (!popup.closed) popup.print(); }, 300);
+  // Esperar al layout, fuentes e imágenes: 300 ms fijos pueden abrir el diálogo
+  // antes de que el navegador termine de paginar un informe largo.
+  Promise.resolve(popup.document.fonts?.ready).then(async () => {
+    await Promise.all(Array.from(popup.document.images, (img) => {
+      if (img.complete) return Promise.resolve();
+      return new Promise((resolve) => {
+        img.addEventListener('load', resolve, { once: true });
+        img.addEventListener('error', resolve, { once: true });
+      });
+    }));
+    if (popup.closed || !autoPrintPending) return;
+    await new Promise((resolve) => {
+      popup.requestAnimationFrame(() => popup.requestAnimationFrame(resolve));
+    });
+    if (!popup.closed && autoPrintPending) popup.print();
+  }).catch(() => {
+    // Si falla una fuente/imagen, el botón manual permanece disponible.
+  });
 }

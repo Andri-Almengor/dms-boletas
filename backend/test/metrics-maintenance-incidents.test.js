@@ -89,6 +89,9 @@ test('la exportación permite solo fallas, todos o solo funcionales sin alterar 
   const functional = buildMaintenanceMetrics(tables, { ...exportBase, detalleReporte: 'funcionales' });
 
   assert.equal(failures.detailRows.length, 506);
+  assert.equal(failures.reportDetailCount, 506);
+  assert.equal(all.reportDetailCount, 508);
+  assert.equal(functional.reportDetailCount, 1);
   assert.equal(all.detailRows.length, 508); // No se limita a 500 para el PDF.
   assert.equal(functional.detailRows.length, 1);
   assert.equal(functional.detailRows[0].nombreDispositivo, 'Cámara funcional');
@@ -133,4 +136,30 @@ test('la selección del PDF se valida en backend aunque no se envíe el indicado
   );
   const all = buildMaintenanceMetrics(sampleTables(), { cliente: client, fecha: date, detalleReporte: 'todos' });
   assert.equal(all.detailRows.length, 508);
+});
+
+test('informes con 6, 12 o 40 averías muestran todas las filas y nunca un máximo artificial de 5', () => {
+  const base = sampleTables();
+  for (const size of [6, 12, 40]) {
+    const tables = {
+      ...base,
+      Evidencia_Mantenimientos: base.Evidencia_Mantenimientos.filter((row) => (
+        row.MantenimientoRef !== 'maintenance-1'
+        || (row.EvidenciaMantenimientoID.startsWith('falla-')
+          && Number(row.EvidenciaMantenimientoID.slice(6)) < size)
+      )),
+    };
+    const report = buildMaintenanceMetrics(tables, {
+      cliente: client,
+      fecha: date,
+      reporteIncidencias: true,
+      detalleReporte: 'fallas',
+    });
+    assert.equal(report.detailRows.length, size);
+    assert.equal(report.reportDetailCount, size);
+    assert.equal(report.totals.dispositivosFiltrados, size);
+    assert.equal(report.charts.failing, size);
+    assert.equal(report.detailRows[0].creador, 'Técnico Responsable');
+    assert.ok(report.detailRows.some((row) => row.deviceId === `falla-${size - 1}`));
+  }
 });

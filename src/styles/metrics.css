@@ -757,7 +757,38 @@
     padding: 14px;
     gap: 12px;
   }
+  .metrics-page .admin-entity-modal-layer--metrics-report .admin-entity-modal__footer {
+    display: grid;
+    grid-template-columns: minmax(0, 1fr) minmax(0, 1fr);
+    align-content: center;
+    align-items: center;
+    gap: 9px;
+    padding: 10px 14px max(10px, var(--safe-area-bottom));
+  }
   .metrics-page .admin-entity-modal-layer--metrics-report .admin-entity-modal__footer > .button {
-    flex: 1 1 130px;
+    flex: none;
+    width: 100%;
+    min-width: 0;
+    height: 46px;
+    min-height: 46px;
+    max-height: 46px;
+    padding: 0 9px;
+    border-radius: 12px;
+    font-size: 13px;
+    line-height: 1.2;
+    white-space: nowrap;
+  }
+  .metrics-page .admin-entity-modal-layer--metrics-report .admin-entity-modal__footer > .button .material-symbols-outlined {
+    font-size: 18px;
+  }
+}
+@media (max-width: 360px) {
+  .metrics-page .admin-entity-modal-layer--metrics-report .admin-entity-modal__footer {
+    gap: 7px;
+    padding-inline: 10px;
+  }
+  .metrics-page .admin-entity-modal-layer--metrics-report .admin-entity-modal__footer > .button {
+    font-size: 12px;
+    padding-inline: 5px;
   }
 }

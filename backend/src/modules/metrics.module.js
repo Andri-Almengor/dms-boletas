@@ -499,6 +499,9 @@ export function buildMaintenanceMetrics(tables, payload = {}) {
       activeUse,
       stored: storedCount,
     },
+    // En modo PDF no se aplica el límite visual de 500: todas las filas deben llegar completas.
+    // El conteo independiente permite detectar una respuesta truncada antes de imprimir.
+    reportDetailCount: reportIncidents ? reportRows.length : null,
     detailRows: reportIncidents ? reportRows : details.slice(0, 500),
   };
 }
