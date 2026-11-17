@@ -3,12 +3,13 @@ import { MAX_BULK_MAINTENANCE_DEVICES } from './maintenanceDeviceState.js';
 import { normalizeMacAddress, macAddressError } from '../../utils/macAddress.js';
 import { pick } from '../../services/moduleApi.js';
 import { projectQuestionRequired } from './maintenanceProjectRelations.js';
+import { MAINTENANCE_FAULT_SEVERITIES, normalizeMaintenanceFaultSeverity, validateMaintenanceFaultDetails } from '../../utils/maintenanceFaultSeverity.js';
 
 export const DEVICE_EXCEL_FIELDS = Object.freeze([
   'UbicacionEquipoID', 'UbicacionEquipo', 'TipoDispositivoID', 'TipoDispositivo',
   'NombreDispositivo', 'FabricanteID', 'Fabricante', 'ModeloID', 'Modelo',
   'Serie', 'DireccionMAC', 'FechaTrabajo', 'TecnicoIDs', 'Funcionamiento',
-  'EnUso', 'Estado', 'Observacion',
+  'EnUso', 'Estado', 'GravedadFalla', 'Observacion',
 ]);
 const clean = (value) => String(value ?? '').trim();
 const identity = (value) => clean(value).normalize('NFD')
@@ -80,7 +81,7 @@ export function excelQuestionColumns(questions = [], mode = 'MANTENIMIENTO') {
 export const DEVICE_EXCEL_LABELS = Object.freeze([
   'Nombre del dispositivo', 'Ubicación del equipo', 'Fabricante', 'Modelo',
   'Serie', 'Dirección MAC', 'Fecha de trabajo', 'Técnicos',
-  'Funcionamiento', 'En uso', 'Estado', 'Observación',
+  'Funcionamiento', 'En uso', 'Estado', 'Gravedad de falla', 'Observación',
 ]);
 
 export function excelDeviceSheetNames(deviceTypes = []) {
@@ -161,6 +162,7 @@ export function excelTemplateSheets({
   addList('FUNCIONAMIENTO', ['Sí', 'No', 'No aplica']);
   addList('EN_USO', ['Sí, en uso', 'No, está guardado', 'No']);
   addList('ESTADO', ['Pendiente', 'Correcto', 'Mal estado']);
+  addList('GRAVEDAD_FALLA', MAINTENANCE_FAULT_SEVERITIES);
   addList('SIN_MODELOS', ['']);
 
   const types = excelDeviceSheetNames(deviceTypes);
@@ -188,6 +190,7 @@ export function excelTemplateSheets({
       { column: 8, list: 'FUNCIONAMIENTO' },
       { column: 9, list: 'EN_USO' },
       { column: 10, list: 'ESTADO' },
+      { column: 11, list: 'GRAVEDAD_FALLA' },
     ];
     questions.forEach((question, questionIndex) => {
       const kind = clean(question.responseType || 'SI_NO').toUpperCase();
@@ -214,6 +217,7 @@ export function excelTemplateSheets({
     ['5', 'Las preguntas que se dejan en blanco quedan sin contestar. En proyectos se validan las respuestas obligatorias.'],
     ['6', 'Técnicos: nombres completos separados por punto y coma (;). Dejar vacío utiliza la selección de la aplicación.'],
     ['7', 'Fecha de trabajo: AAAA-MM-DD como texto. Dejar vacío utiliza la fecha actual de Costa Rica.'],
+    ['7a', 'Si el estado es Mal estado, elija la Gravedad de falla y escriba una Observación de al menos 20 caracteres.'],
     ['8', 'Para actualizar ubicaciones, modelos, fabricantes o preguntas nuevas, DESCARGUE de nuevo desde el mantenimiento.'],
     ['9', 'El Excel descargado no se sincroniza mientras está cerrado: PostgreSQL es la fuente de verdad, no Google Sheets.'],
     ['10', 'No cambie nombres de las pestañas ni los encabezados. La aplicación validará los datos antes de crear equipos.'],
@@ -327,6 +331,11 @@ export function validateDeviceExcelRows({
       if (!['pendiente', 'correcto', 'mal estado'].includes(identity(state))) issues.push('Estado no válido');
       else draft.estado = state;
     }
+    const rawSeverity = value(row, 'GravedadFalla');
+    draft.gravedadFalla = normalizeMaintenanceFaultSeverity(rawSeverity) || rawSeverity;
+    const faultValidation = validateMaintenanceFaultDetails(draft, { projectMode: maintenanceType === 'PROYECTO' });
+    if (faultValidation.severityError) issues.push(faultValidation.severityError);
+    if (faultValidation.observationError) issues.push(faultValidation.observationError);
     const questions = type ? questionsForDevice(draft, maintenanceType) : [];
     const valid = new Set(questions.map((q) => q.key));
     questions.forEach((q) => {
@@ -386,7 +395,9 @@ export function validateDeviceExcelWorkbook({
     }
     if (!sheet.rows.length) continue;
     const col = new Map(sheet.headers.map((header, index) => [clean(header), index]));
-    const required = DEVICE_EXCEL_LABELS.filter((name) => !col.has(name));
+    // Las plantillas anteriores pueden no tener esta columna: solo se exige
+    // al crear una fila con Estado=Mal estado.
+    const required = DEVICE_EXCEL_LABELS.filter((name) => name !== 'Gravedad de falla' && !col.has(name));
     if (required.length) {
       allErrors.push('Pestaña ' + sheet.name + ': faltan columnas ' + required.join(', '));
       continue;
@@ -410,7 +421,7 @@ export function validateDeviceExcelWorkbook({
         '', field('Fabricante'), '', field('Modelo'),
         field('Serie'), field('Dirección MAC'), field('Fecha de trabajo'),
         translateTechnicians(field('Técnicos'), issues),
-        field('Funcionamiento'), field('En uso'), field('Estado'), field('Observación'),
+        field('Funcionamiento'), field('En uso'), field('Estado'), field('Gravedad de falla'), field('Observación'),
         ...qs.map((q) => field(questionHeader(q))),
       ];
       return { translated, originalRow: offset + 2, issues };
