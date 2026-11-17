@@ -66,7 +66,7 @@ test('Google Docs: tablas visuales, logo DMS y recomendaciones editables; observ
   const documentHtml = buildMaintenanceVisualReportHtml(buildMaintenanceVisualReportModel(metrics()));
   assert.match(documentHtml, /dms-report-logo\.png/);
   assert.match(documentHtml, /Salud del sistema/);
-  assert.match(documentHtml, /Distribución por tipo/);
+  assert.match(documentHtml, /Dispositivos por tipo/);
   assert.match(documentHtml, /Recomendaciones/);
   assert.match(documentHtml, /Crítica → Moderada → Leve/);
   assert.match(documentHtml, /&lt;script&gt;alert\(&quot;hola&quot;\)&lt;\/script&gt;/);
@@ -110,7 +110,7 @@ test('Google Docs: el modelo conserva mantenimientos múltiples sin inventar sit
   const data = {
     ...original,
     reportContext: {
-      maintenimientos: [
+      mantenimientos: [
         { titulo: 'Visita inicial', ubicacion: 'Edificio 1' },
         { titulo: 'Visita seguimiento', ubicacion: 'Edificio 2' },
       ],
