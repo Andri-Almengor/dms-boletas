@@ -57,7 +57,7 @@ export default function MaintenanceMetricsDashboard() {
   const [exporting, setExporting] = useState(false);
   const [exportError, setExportError] = useState('');
   const [reportOpen, setReportOpen] = useState(false);
-  const [pdfDeviceFilter, setPdfDeviceFilter] = useState('fallas');
+  const [pdfDeviceFilter, setPdfDeviceFilter] = useState('no_operativos');
   const fetchMetrics = useCallback((signal) => requestAvailable(
     MAINTENANCE_METRICS_ROUTES, filters, sessionToken, { signal },
   ), [filters, sessionToken]);
@@ -88,7 +88,7 @@ export default function MaintenanceMetricsDashboard() {
 
   function openPdfOptions() {
     setExportError('');
-    setPdfDeviceFilter('fallas');
+    setPdfDeviceFilter('no_operativos');
     setReportOpen(true);
   }
 
@@ -273,7 +273,8 @@ export default function MaintenanceMetricsDashboard() {
       <fieldset className="metrics-report-options" disabled={exporting}>
         <legend>Dispositivos incluidos en la tabla</legend>
         {[
-          ['fallas', 'Solo dispositivos en mal estado', 'Incluye únicamente dispositivos averiados o que no funcionan.'],
+          ['no_operativos', 'Con falla o sin dato', 'Coincide con el grupo rojo de las métricas: incluye fallas y equipos sin información de funcionamiento.'],
+          ['fallas', 'Solo averías confirmadas', 'Incluye exclusivamente dispositivos reportados como averiados o que no funcionan.'],
           ['todos', 'Todos los dispositivos', 'Incluye funcionales, averiados y dispositivos sin estado registrado.'],
           ['funcionales', 'Solo dispositivos funcionales', 'Incluye únicamente los equipos reportados como funcionales.'],
         ].map(([value, label, description]) => (
@@ -289,7 +290,7 @@ export default function MaintenanceMetricsDashboard() {
           </label>
         ))}
       </fieldset>
-      <p className="metrics-report-info"><Icon name="info" /> Las métricas y gráficas incluyen todos los equipos del cliente y la fecha seleccionados. Esta opción afecta únicamente la tabla del PDF, no los filtros del dashboard.</p>
+      <p className="metrics-report-info"><Icon name="info" /> El grupo «Con falla / sin dato» también incluye equipos sin evaluación; no todos son averías confirmadas. Las métricas corresponden a todos los equipos del cliente y la fecha, y esta selección solo cambia la tabla del PDF.</p>
       {exportError && <p className="metrics-pdf-error" role="alert">{exportError}</p>}
     </AdminEntityModal>
   </section>;
