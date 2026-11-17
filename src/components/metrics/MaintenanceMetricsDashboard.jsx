@@ -5,6 +5,11 @@ import Icon from '../common/Icon';
 import { requestAvailable } from '../../services/moduleApi';
 import useLatestResource from '../../hooks/useLatestResource';
 import {
+  openMaintenanceReportPreview,
+  renderMaintenanceReport,
+  showMaintenanceReportError,
+} from './MaintenanceMetricsPrint';
+import {
   DonutBreakdown,
   FilterChip,
   formatMetric,
@@ -46,6 +51,8 @@ export default function MaintenanceMetricsDashboard() {
   const { sessionToken } = useAuth();
   const [filters, setFilters] = useState(INITIAL_FILTERS);
   const [search, setSearch] = useState('');
+  const [exporting, setExporting] = useState(false);
+  const [exportError, setExportError] = useState('');
   const fetchMetrics = useCallback((signal) => requestAvailable(
     MAINTENANCE_METRICS_ROUTES, filters, sessionToken, { signal },
   ), [filters, sessionToken]);
@@ -72,6 +79,33 @@ export default function MaintenanceMetricsDashboard() {
 
   function toggleFilter(key, value) {
     setFilters((current) => applyFilter(current, key, String(current[key]) === String(value) ? '' : value));
+  }
+
+  async function exportPdf() {
+    // La consulta del PDF es independiente de los filtros interactivos del detalle.
+    if (!filters.cliente || !filters.fecha || exporting) return;
+    const popup = openMaintenanceReportPreview(); // Gesto directo: evita bloqueo de ventanas emergentes.
+    if (!popup) {
+      setExportError('El navegador bloqueó la vista previa. Permita ventanas emergentes para descargar el PDF.');
+      return;
+    }
+    const { cliente, fecha } = filters;
+    setExporting(true);
+    setExportError('');
+    try {
+      const report = await requestAvailable(
+        MAINTENANCE_METRICS_ROUTES,
+        { cliente, fecha, reporteIncidencias: true },
+        sessionToken,
+      );
+      renderMaintenanceReport(popup, report);
+    } catch (exportFailure) {
+      const message = exportFailure?.message || 'No fue posible preparar el PDF de mantenimiento.';
+      setExportError(message);
+      showMaintenanceReportError(popup, message);
+    } finally {
+      setExporting(false);
+    }
   }
 
   function showAllMaintenances() {
@@ -139,9 +173,15 @@ export default function MaintenanceMetricsDashboard() {
   return <section className="metrics-dashboard" aria-label="Métricas de mantenimientos">
     <div className="metrics-dashboard__heading">
       <div><h2>Dashboard de mantenimientos</h2><p>Seleccione tarjetas, categorías, estados o datos del detalle para aplicar filtros.</p></div>
-      <button type="button" className="button button--secondary" onClick={load} disabled={loading}><Icon name="refresh" />Actualizar</button>
+      <div className="metrics-dashboard__heading-actions">
+        <button type="button" className="button button--secondary" onClick={load} disabled={loading}><Icon name="refresh" />Actualizar</button>
+        <button type="button" className="button button--primary" onClick={exportPdf} disabled={loading || exporting || !filters.cliente || !filters.fecha} title={!filters.cliente || !filters.fecha ? 'Seleccione un cliente y una fecha de mantenimiento para generar el PDF' : 'Preparar un PDF visual de las métricas y dispositivos con incidencias'}>
+          <Icon name="picture_as_pdf" />{exporting ? 'Preparando PDF...' : 'Exportar PDF'}
+        </button>
+      </div>
     </div>
 
+    {exportError && <p className="metrics-pdf-error" role="alert">{exportError}</p>}
     <section className="metrics-filters">
       <label><span>Cliente</span><select value={filters.cliente} onChange={(event) => updateFilter('cliente', event.target.value)} disabled={loading}><option value="">Todos los clientes</option>{sortItemsNaturally(options.clientes || []).map((item) => <option key={item} value={item}>{item}</option>)}</select></label>
       <label><span>Fecha de mantenimiento</span><select value={filters.fecha} onChange={(event) => updateFilter('fecha', event.target.value)} disabled={loading}><option value="">Todas las fechas</option>{(options.fechas || []).map((item) => <option key={item} value={item}>{item}</option>)}</select></label>
@@ -187,18 +227,15 @@ export default function MaintenanceMetricsDashboard() {
         </MetricsPanel>
       </div>
 
-      <MetricsPanel title="Detalle de evidencias y dispositivos" hint={`Mostrando ${detailRows.length} de ${(data.detailRows || []).length} registros. Los datos subrayados funcionan como filtros.`}>
-        <div className="metrics-search"><Icon name="search" /><input type="search" value={search} onChange={(event) => setSearch(event.target.value)} placeholder="Buscar dispositivo, zona, cliente o mantenimiento..." /></div>
-        {detailRows.length ? <div className="metrics-table-wrap"><table className="metrics-table metrics-device-table"><thead><tr><th>Zona / dispositivo</th><th>Categoría</th><th>Funcionamiento</th><th>Uso</th><th>Fecha</th><th>Responsable</th><th>Evidencias</th><th>Mantenimiento</th><th>Observación</th></tr></thead><tbody>{detailRows.map((row) => <tr key={row.deviceId}>
+      <MetricsPanel title="Detalle de dispositivos con incidencias" hint={`Mostrando ${detailRows.length} de ${(data.detailRows || []).length} dispositivos dañados o sin funcionamiento. Los datos subrayados funcionan como filtros.`}>
+        <div className="metrics-search"><Icon name="search" /><input type="search" value={search} onChange={(event) => setSearch(event.target.value)} placeholder="Buscar dispositivo, zona, categoría u observación..." /></div>
+        {detailRows.length ? <div className="metrics-table-wrap"><table className="metrics-table metrics-device-table"><thead><tr><th>Zona / dispositivo</th><th>Categoría</th><th>Funcionamiento</th><th>Uso</th><th>Responsable</th><th>Observaciones</th></tr></thead><tbody>{detailRows.map((row) => <tr key={row.deviceId}>
           <td><strong>{row.nombreDispositivo}</strong><small>{row.zona}</small></td>
           <td><button type="button" className="metrics-inline-filter" onClick={() => toggleFilter('categoria', row.categoria)}>{row.categoria}</button></td>
           <td><button type="button" className={`${statusTone(row.funcionamiento)} metrics-inline-filter`} onClick={() => toggleFilter('funcionamiento', row.funcionamiento)}>{row.funcionamiento}</button></td>
           <td><button type="button" className="metrics-status metrics-status--info metrics-inline-filter" onClick={() => toggleFilter('enUso', row.enUso)}>{row.enUso}</button></td>
-          <td><button type="button" className="metrics-inline-filter" onClick={() => toggleFilter('fecha', row.fechaMantenimiento || row.fechaRegistro)}>{row.fechaRegistro || row.fechaMantenimiento || '-'}</button></td>
           <td><button type="button" className="metrics-inline-filter" onClick={() => toggleFilter('responsable', row.creador)}>{row.creador}</button></td>
-          <td><button type="button" className="metrics-inline-filter" onClick={() => toggleFilter('evidencia', row.evidencias > 0 ? 'con' : 'sin')}>{row.evidencias}</button></td>
-          <td><strong>{row.tituloMantenimiento}</strong><small><button type="button" className="metrics-inline-filter" onClick={() => toggleFilter('cliente', row.cliente)}>{row.cliente}</button> · {row.estadoMantenimiento}</small></td>
-          <td className="metrics-observation" title={row.observacion}>{row.observacion || '-'}</td>
+          <td className="metrics-observation">{row.observacion || '-'}</td>
         </tr>)}</tbody></table></div> : <MetricsEmpty />}
       </MetricsPanel>
     </>}

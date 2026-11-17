@@ -49,7 +49,16 @@ test('CI conserva gate de producción y audita también paquetes de desarrollo',
   assert.match(wf, /run: npm ci --prefix backend/);
   assert.match(wf, /npm audit --json > \.artifacts\/npm-audit-frontend-all\.json/);
   assert.match(wf, /npm --prefix backend audit --json > \.artifacts\/npm-audit-backend-all\.json/);
-  assert.match(wf, /Number\(counts\.high \|\| 0\) \+ Number\(counts\.critical \|\| 0\) > 0/);
+  // La comprobación se externalizó a un módulo probado. Se mantiene el bloqueo de
+  // altas/críticas salvo una excepción dev-only, exacta y con vencimiento.
+  assert.match(wf, /node --test tests\/characterization\/npm-audit-security\.test\.mjs/);
+  assert.match(wf, /node scripts\/check-dependency-audit\.mjs/);
+  const gate = file('scripts/check-dependency-audit.mjs');
+  assert.match(gate, /isHighOrCritical\(value\.severity\)/);
+  assert.match(gate, /environment !== 'frontend'/);
+  assert.match(gate, /!declaredDevOnly\(lock, issue\)/);
+  assert.match(gate, /EXCEPTION\.expiresAt/);
+  assert.match(gate, /GHSA-fc5q-39xc-vjpf/);
   assert.match(wf, /run: npm run audit:security/);
   assert.match(wf, /actions\/upload-artifact@v4/);
 });
