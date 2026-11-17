@@ -1,8 +1,5 @@
 import { Readable } from 'node:stream';
 import { AppError } from '../core/errors.js';
-import { driveApi } from '../infra/google.js';
-import { trashFile } from '../infra/drive.repository.js';
-import { resolveBaseFolderId } from './maintenance-presentation.service.js';
 
 const DMS_LOGO_URL = 'https://raw.githubusercontent.com/Andri-Almengor/dms-boletas/main/src/assets/dms-report-logo.png';
 export const VISUAL_REPORT_FILTERS = Object.freeze(['todos', 'sanos', 'danados']);
@@ -162,6 +159,13 @@ export async function createMaintenanceVisualDocs({ model, actor }) {
   if (!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email)) {
     throw new AppError('REPORT_USER_EMAIL_MISSING', 'Su usuario necesita un correo válido para conceder acceso de edición al documento.', 400);
   }
+  // Las APIs de Google se cargan solo al ejecutar la acción; las pruebas puras
+  // y el dashboard no dependen de credenciales de Google al importarse.
+  const [{ driveApi }, { trashFile }, { resolveBaseFolderId }] = await Promise.all([
+    import('../infra/google.js'),
+    import('../infra/drive.repository.js'),
+    import('./maintenance-presentation.service.js'),
+  ]);
   const folderId = await resolveBaseFolderId();
   const documentName = `DMS - Salud de mantenimiento - ${model.client} - ${model.date} - ${model.filter}`.slice(0, 190);
   const content = buildMaintenanceVisualReportHtml(model);
