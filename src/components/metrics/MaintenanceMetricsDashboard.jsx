@@ -273,9 +273,10 @@ export default function MaintenanceMetricsDashboard() {
       <fieldset className="metrics-report-options" disabled={exporting}>
         <legend>Dispositivos incluidos en la tabla</legend>
         {[
-          ['fallas', 'Solo dispositivos en mal estado', 'Incluye únicamente dispositivos averiados o que no funcionan.'],
+          ['fallas', 'Con falla / sin dato', 'Mismos equipos que la sección roja del gráfico. Incluye fallas confirmadas y estados sin confirmar.'],
           ['todos', 'Todos los dispositivos', 'Incluye funcionales, averiados y dispositivos sin estado registrado.'],
           ['funcionales', 'Solo dispositivos funcionales', 'Incluye únicamente los equipos reportados como funcionales.'],
+          ['averiados', 'Solo fallas confirmadas', 'Incluye únicamente equipos cuyo funcionamiento se registró explícitamente como averiado o no operativo.'],
         ].map(([value, label, description]) => (
           <label key={value} className={pdfDeviceFilter === value ? 'is-selected' : ''}>
             <input
