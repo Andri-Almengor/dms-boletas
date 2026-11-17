@@ -24,6 +24,12 @@ function sampleTables() {
     Funcionamiento: 'SI',
     EnUso: 'NO, ESTÁ GUARDADO',
   }, {
+    EvidenciaMantenimientoID: 'unknown-1',
+    MantenimientoRef: 'maintenance-1',
+    NombreDispositivo: 'Cámara sin revisar',
+    Categoria: 'Cámaras',
+    Funcionamiento: '',
+  }, {
     EvidenciaMantenimientoID: 'other-client-failure',
     MantenimientoRef: 'maintenance-2',
     NombreDispositivo: 'No debe incluirse',
@@ -32,7 +38,7 @@ function sampleTables() {
   });
   return {
     Mantenimiento: [
-      { MantenimientoID: 'maintenance-1', Cliente: client, Fecha: date, CantCámaras: 507 },
+      { MantenimientoID: 'maintenance-1', Cliente: client, Fecha: date, CantCámaras: 508 },
       { MantenimientoID: 'maintenance-2', Cliente: 'Otro cliente', Fecha: date, CantCámaras: 1 },
     ],
     Evidencia_Mantenimientos: devices,
@@ -43,9 +49,9 @@ function sampleTables() {
 
 test('las métricas conservan los equipos funcionales y el detalle muestra solo incidencias', () => {
   const result = buildMaintenanceMetrics(sampleTables(), { cliente: client, fecha: date });
-  assert.equal(result.totals.dispositivosRegistrados, 507);
+  assert.equal(result.totals.dispositivosRegistrados, 508);
   assert.equal(result.charts.operating, 1);
-  assert.equal(result.charts.failing, 506);
+  assert.equal(result.charts.failing, 507);
   assert.equal(result.charts.activeUse, 506);
   assert.equal(result.charts.stored, 1);
   assert.equal(result.detailRows.length, 500);
@@ -60,9 +66,10 @@ test('la exportación recupera todas las incidencias y nunca mezcla clientes ni 
     reporteIncidencias: true,
   });
   assert.equal(result.detailRows.length, 506);
-  assert.equal(result.totals.dispositivosFiltrados, 507);
+  assert.equal(result.totals.dispositivosFiltrados, 508);
   assert.ok(result.detailRows.every((row) => row.cliente === client && row.fechaMantenimiento === date));
   assert.ok(!result.detailRows.some((row) => row.nombreDispositivo === 'Cámara funcional'));
+  assert.ok(!result.detailRows.some((row) => row.nombreDispositivo === 'Cámara sin revisar'));
 });
 
 test('la exportación exige cliente y fecha para evitar informes globales accidentales', () => {
