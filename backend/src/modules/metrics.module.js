@@ -284,6 +284,8 @@ function expectedCounts(maintenance = {}) {
 
 function positive(value) {
   const text = normalized(value);
+  // Una negación explícita nunca puede considerarse funcional por contener "funciona".
+  if (/(^|\s)(no|sin|falla|averiado|danado|inoperativo)\b/.test(text)) return false;
   return text === 'si' || text.startsWith('si ') || text.includes('funciona') || text.includes('correcto');
 }
 
@@ -309,13 +311,8 @@ function deviceResponsible(row, usersById) {
   );
 }
 
-async function maintenanceMetrics({ payload = {} }) {
-  const tables = await readTables([
-    'Mantenimiento',
-    'Evidencia_Mantenimientos',
-    'Mantenimiento imagenes',
-    'Usuarios',
-  ]);
+// Se comparte el cálculo entre el panel y la exportación; las lecturas siguen en el handler autenticado.
+export function buildMaintenanceMetrics(tables, payload = {}) {
   const allMaintenances = (tables.Mantenimiento || []).filter(active);
   const allDevices = (tables.Evidencia_Mantenimientos || []).filter(active);
   const allImages = (tables['Mantenimiento imagenes'] || []).filter(active);
@@ -323,6 +320,10 @@ async function maintenanceMetrics({ payload = {} }) {
 
   const client = clean(payload.cliente || payload.Cliente);
   const date = dateOnly(payload.fecha || payload.Fecha);
+  const reportIncidents = payload.reporteIncidencias === true;
+  if (reportIncidents && (!client || !date)) {
+    throw new Error('Seleccione un cliente y una fecha de mantenimiento para exportar el PDF.');
+  }
   const functioning = clean(payload.funcionamiento || payload.Funcionamiento);
   const inUse = clean(payload.enUso || payload.EnUso);
   const category = clean(payload.categoria || payload.Categoria);
@@ -440,6 +441,8 @@ async function maintenanceMetrics({ payload = {} }) {
   const failing = filteredDevices.length - operating;
   const activeUse = filteredDevices.filter((row) => activelyUsed(row.EnUso)).length;
   const storedCount = filteredDevices.filter((row) => stored(row.EnUso)).length;
+  // El detalle se limita a incidencias; las gráficas y totales incluyen TODOS los equipos.
+  const incidentRows = details.filter((row) => !row.operativo);
 
   return {
     filtersApplied: {
@@ -479,8 +482,18 @@ async function maintenanceMetrics({ payload = {} }) {
       activeUse,
       stored: storedCount,
     },
-    detailRows: details.slice(0, 500),
+    detailRows: reportIncidents ? incidentRows : incidentRows.slice(0, 500),
   };
+}
+
+async function maintenanceMetrics({ payload = {} }) {
+  const tables = await readTables([
+    'Mantenimiento',
+    'Evidencia_Mantenimientos',
+    'Mantenimiento imagenes',
+    'Usuarios',
+  ]);
+  return buildMaintenanceMetrics(tables, payload);
 }
 
 export const metricsHandlers = {
