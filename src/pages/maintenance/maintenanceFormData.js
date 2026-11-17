@@ -16,6 +16,7 @@ import { todayInCostaRica } from '../../utils/costaRicaDate';
 import { createLocalId } from '../../utils/localId';
 import { evidenceMediaKind } from '../../utils/evidenceMedia';
 import { normalizeMacAddress } from '../../utils/macAddress';
+import { normalizeMaintenanceFaultSeverity } from '../../utils/maintenanceFaultSeverity.js';
 import {
   AUTOMATIC_PENDING_STATE,
   effectiveMaintenanceDeviceState,
@@ -140,7 +141,7 @@ export function createMaintenanceDevice(category = 'Cámara', maintenanceType = 
     tipoDispositivoId: '', categoria: canonicalCategory,
     fabricanteId: '', fabricante: '', modeloId: '', modelo: '',
     nombre: '', serie: '', macAddress: '', funcionamiento: '', enUso: '',
-    estado: AUTOMATIC_PENDING_STATE, observacion: '',
+    estado: AUTOMATIC_PENDING_STATE, gravedadFalla: '', observacion: '',
     respuestas: createEmptyChecklist(canonicalCategory),
     questionDetails: [], images: [], newImages: [], syncBase: null,
   };
@@ -221,6 +222,7 @@ export function mapMaintenanceDevice(row = {}, maintenanceType = 'MANTENIMIENTO'
     funcionamiento: pick(row, ['Funcionamiento', 'funcionamiento']),
     enUso: pick(row, ['EnUso', 'enUso']),
     estado: pick(row, ['Estado', 'estado'], AUTOMATIC_PENDING_STATE),
+    gravedadFalla: normalizeMaintenanceFaultSeverity(pick(row, ['GravedadFalla', 'gravedadFalla'])),
     observacion: pick(row, ['Observacion', 'observacion']),
     respuestas: bundle.answers,
     questionDetails: bundle.questionDetails,
@@ -290,7 +292,9 @@ export function maintenanceDevicePayload(device, maintenanceId, maintenanceType 
     DireccionMAC: macAddress,
     macAddress,
     Funcionamiento: device.funcionamiento,
-    EnUso: device.enUso, Estado: effectiveState, Observacion: device.observacion,
+    EnUso: device.enUso, Estado: effectiveState,
+    GravedadFalla: normalizeMaintenanceFaultSeverity(device.gravedadFalla),
+    Observacion: device.observacion,
     questionDetails: device.questionDetails || [],
     respuestasDetalle: device.questionDetails || [],
     ProyectoProgresoJSON: JSON.stringify(normalizeProjectProgress(device.projectProgress)),

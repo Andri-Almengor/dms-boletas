@@ -287,6 +287,7 @@ export default function MaintenanceDeviceInventory({
         <div className={`maintenance-inventory-checklist${checklistPending ? ' is-pending' : ''}`}>
           <div className={stateClass(pick(device, ['Funcionamiento']))}><span>Funcionamiento</span><strong>{pick(device, ['Funcionamiento'], 'Sin responder')}</strong></div>
           <div className={stateClass(pick(device, ['EnUso']))}><span>En uso</span><strong>{pick(device, ['EnUso'], 'Sin responder')}</strong></div>
+          {pick(device, ['GravedadFalla']) && <div className="is-warning"><span>Falla</span><strong>{pick(device, ['GravedadFalla'])}</strong></div>}
           {config.questions.map(([key, label]) => (
             <div className={stateClass(answers[key])} key={key}><span>{label.replace(/^¿|\?$/g, '')}</span><strong>{answers[key] || 'Sin responder'}</strong></div>
           ))}

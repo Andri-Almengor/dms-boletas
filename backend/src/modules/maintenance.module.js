@@ -16,6 +16,7 @@ import { asArray, nowIso, pick, uuid } from '../core/utils.js';
 import { getConfig } from './config.module.js';
 import { audit } from '../services/audit.service.js';
 import { query, withTransaction } from '../infra/postgres.js';
+import { normalizeMaintenanceFaultSeverity, validateMaintenanceFaultDetails } from '../../../src/utils/maintenanceFaultSeverity.js';
 import { sheetsApi, slidesApi } from '../infra/google.js';
 import {
   loadMaintenanceEvidenceContext,
@@ -282,6 +283,7 @@ function devicePayload(payload, before = {}) {
     Funcionamiento: pick(payload, ['Funcionamiento', 'funcionamiento'], before.Funcionamiento),
     EnUso: pick(payload, ['EnUso', 'enUso'], before.EnUso),
     Estado: pick(payload, ['Estado', 'estado'], before.Estado || 'Correcto'),
+    GravedadFalla: normalizeMaintenanceFaultSeverity(pick(payload, ['GravedadFalla', 'gravedadFalla'], before.GravedadFalla)),
     Observacion: pick(payload, ['Observacion', 'observacion'], before.Observacion),
     ProyectoProgresoJSON: pick(payload, ['ProyectoProgresoJSON', 'projectProgress', 'proyectoProgreso'], before.ProyectoProgresoJSON || ''),
     RespuestasJSON: JSON.stringify(answers),
@@ -290,6 +292,13 @@ function devicePayload(payload, before = {}) {
       answerColumnValue(value),
     ])),
   };
+}
+
+function assertMaintenanceDeviceFaultDetails(maintenance, device) {
+  const result = validateMaintenanceFaultDetails(device, {
+    projectMode: normalizeMaintenanceType(maintenance.TipoMantenimiento) === 'PROYECTO',
+  });
+  if (!result.valid) throw badRequest([result.severityError, result.observationError].filter(Boolean).join(' '));
 }
 
 function changedDevicePatch(before, payload, userId) {
@@ -542,6 +551,7 @@ export const maintenanceHandlers = {
       }
     }
 
+    assertMaintenanceDeviceFaultDetails(maintenance, payload);
     const row = {
       EvidenciaMantenimientoID: requestedId || uuid(),
       MantenimientoRef: maintenanceId,
@@ -563,14 +573,18 @@ export const maintenanceHandlers = {
     const maintenance = await findById('Mantenimiento', pick(ctx.payload, ['maintenanceId', 'MantenimientoID', 'MantenimientoRef'], before.MantenimientoRef));
     const progressJson = validateProjectDeviceProgress({ maintenance, payload: ctx.payload, before });
     const progress = projectDeviceProgressSummary({ maintenance, payload: ctx.payload, before, progressJson });
-    const patch = changedDevicePatch(before, {
+    const nextPayload = {
       ...ctx.payload,
       ProyectoProgresoJSON: progressJson,
       ...(progress.hasChecklist && !progress.complete ? { Estado: 'Pendiente' } : {}),
-    }, ctx.user.UsuarioID);
+    };
+    assertMaintenanceDeviceFaultDetails(maintenance, devicePayload(nextPayload, before));
+    const patch = changedDevicePatch(before, nextPayload, ctx.user.UsuarioID);
     return Object.keys(patch).length ? updateRow('Evidencia_Mantenimientos', id, patch) : before;
   },
 
+  // Autosave persists a draft while the technician is typing. Confirmed
+  // deviceCreate/deviceUpdate operations always enforce the fault requirements.
   deviceAutosave: async (ctx) => {
     const id = String(pick(ctx.payload, ['deviceId', 'EvidenciaMantenimientoID']));
     if (!id) throw badRequest('Falta el identificador del dispositivo para autoguardar.');

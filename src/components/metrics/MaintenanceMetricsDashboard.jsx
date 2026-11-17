@@ -58,6 +58,10 @@ export default function MaintenanceMetricsDashboard() {
   const [exportError, setExportError] = useState('');
   const [reportOpen, setReportOpen] = useState(false);
   const [pdfDeviceFilter, setPdfDeviceFilter] = useState('no_operativos');
+  const [reportFormat, setReportFormat] = useState('pdf');
+  const [docsDeviceFilter, setDocsDeviceFilter] = useState('todos');
+  const [createdDocUrl, setCreatedDocUrl] = useState('');
+  const [docsRequestId, setDocsRequestId] = useState('');
   const fetchMetrics = useCallback((signal) => requestAvailable(
     MAINTENANCE_METRICS_ROUTES, filters, sessionToken, { signal },
   ), [filters, sessionToken]);
@@ -89,6 +93,10 @@ export default function MaintenanceMetricsDashboard() {
   function openPdfOptions() {
     setExportError('');
     setPdfDeviceFilter('no_operativos');
+    setDocsDeviceFilter('todos');
+    setReportFormat('pdf');
+    setCreatedDocUrl('');
+    setDocsRequestId(window.crypto.randomUUID());
     setReportOpen(true);
   }
 
@@ -115,6 +123,41 @@ export default function MaintenanceMetricsDashboard() {
       const message = exportFailure?.message || 'No fue posible preparar el PDF de mantenimiento.';
       setExportError(message);
       showMaintenanceReportError(popup, message);
+    } finally {
+      setExporting(false);
+    }
+  }
+
+  async function exportDocs() {
+    if (!filters.cliente || !filters.fecha || exporting) return;
+    const popup = window.open('about:blank', '_blank');
+    if (popup) {
+      popup.opener = null;
+      popup.document.body.textContent = 'Preparando Google Docs editable…';
+    }
+    setExporting(true);
+    setExportError('');
+    setCreatedDocUrl('');
+    try {
+      const { cliente, fecha } = filters;
+      const result = await requestAvailable(
+        ['metrics.maintenance.docs.create'],
+        { cliente, fecha, detalleVisual: docsDeviceFilter, requestId: docsRequestId },
+        sessionToken,
+      );
+      if (!/^https:\/\/docs\.google\.com\/document\/d\/[-\w]+\/edit$/.test(result?.docsUrl || '')) {
+        throw new Error('Drive no devolvió un enlace válido del documento editable.');
+      }
+      if (popup && !popup.closed) {
+        popup.location.replace(result.docsUrl);
+        setReportOpen(false);
+      } else {
+        setCreatedDocUrl(result.docsUrl);
+      }
+    } catch (error) {
+      const message = error?.message || 'No fue posible generar Google Docs del mantenimiento.';
+      setExportError(message);
+      if (popup && !popup.closed) popup.document.body.textContent = message;
     } finally {
       setExporting(false);
     }
@@ -255,14 +298,14 @@ export default function MaintenanceMetricsDashboard() {
       onClose={() => setReportOpen(false)}
       busy={exporting}
       className="admin-entity-modal-layer--metrics-report"
-      title="Configurar informe PDF"
-      subtitle="Elija los dispositivos que aparecerán en la tabla del informe."
+      title="Configurar informe"
+      subtitle="Seleccione el formato y los dispositivos que aparecerán en la tabla."
       eyebrow="Métricas de mantenimientos"
-      icon="picture_as_pdf"
+      icon="description"
       footer={<>
         <button type="button" className="button button--secondary" onClick={() => setReportOpen(false)} disabled={exporting}>Cancelar</button>
-        <button type="button" className="button button--primary" onClick={exportPdf} disabled={exporting || !filters.cliente || !filters.fecha}>
-          <Icon name="picture_as_pdf" />{exporting ? 'Preparando PDF...' : 'Generar PDF'}
+        <button type="button" className="button button--primary" onClick={reportFormat === 'pdf' ? exportPdf : exportDocs} disabled={exporting || !filters.cliente || !filters.fecha}>
+          <Icon name={reportFormat === 'pdf' ? 'picture_as_pdf' : 'description'} />{exporting ? 'Generando...' : reportFormat === 'pdf' ? 'Generar PDF' : 'Crear Google Docs'}
         </button>
       </>}
     >
@@ -271,26 +314,46 @@ export default function MaintenanceMetricsDashboard() {
         <span><strong>Fecha:</strong> {filters.fecha}</span>
       </div>
       <fieldset className="metrics-report-options" disabled={exporting}>
-        <legend>Dispositivos incluidos en la tabla</legend>
+        <legend>Tipo de informe</legend>
         {[
+          ['pdf', 'Informe actual (PDF)', 'Conserva el formato y la exportación multipágina que utiliza actualmente.'],
+          ['docs', 'Informe completo visual (Google Docs editable)', 'Salud general, gráficos por tipo, prioridades y recomendaciones editables.'],
+        ].map(([value, label, description]) => (
+          <label key={value} className={reportFormat === value ? 'is-selected' : ''}>
+            <input type="radio" name="maintenance-report-format" value={value}
+              checked={reportFormat === value} onChange={() => { setReportFormat(value); setExportError(''); }} />
+            <span><strong>{label}</strong><small>{description}</small></span>
+          </label>
+        ))}
+      </fieldset>
+      <fieldset className="metrics-report-options" disabled={exporting}>
+        <legend>Dispositivos incluidos en la tabla</legend>
+        {(reportFormat === 'pdf' ? [
           ['no_operativos', 'Con falla o sin dato', 'Coincide con el grupo rojo de las métricas: incluye fallas y equipos sin información de funcionamiento.'],
           ['fallas', 'Solo averías confirmadas', 'Incluye exclusivamente dispositivos reportados como averiados o que no funcionan.'],
           ['todos', 'Todos los dispositivos', 'Incluye funcionales, averiados y dispositivos sin estado registrado.'],
           ['funcionales', 'Solo dispositivos funcionales', 'Incluye únicamente los equipos reportados como funcionales.'],
-        ].map(([value, label, description]) => (
+        ] : [
+          ['todos', 'Todos los dispositivos', 'Incluye averiados, sanos y equipos sin evaluar, ordenados por prioridad.'],
+          ['sanos', 'Solo equipos buenos', 'Incluye únicamente equipos confirmados en buen estado.'],
+          ['danados', 'Solo equipos dañados', 'Incluye averías confirmadas, de críticas a leves.'],
+        ]).map(([value, label, description]) => (
           <label key={value} className={pdfDeviceFilter === value ? 'is-selected' : ''}>
             <input
               type="radio"
-              name="maintenance-pdf-devices"
+              name="maintenance-report-devices"
               value={value}
-              checked={pdfDeviceFilter === value}
-              onChange={() => setPdfDeviceFilter(value)}
+              checked={reportFormat === 'pdf' ? pdfDeviceFilter === value : docsDeviceFilter === value}
+              onChange={() => reportFormat === 'pdf' ? setPdfDeviceFilter(value) : setDocsDeviceFilter(value)}
             />
             <span><strong>{label}</strong><small>{description}</small></span>
           </label>
         ))}
       </fieldset>
-      <p className="metrics-report-info"><Icon name="info" /> El grupo «Con falla / sin dato» también incluye equipos sin evaluación; no todos son averías confirmadas. Las métricas corresponden a todos los equipos del cliente y la fecha, y esta selección solo cambia la tabla del PDF.</p>
+      <p className="metrics-report-info"><Icon name="info" /> {reportFormat === 'pdf'
+        ? 'El grupo «Con falla / sin dato» incluye equipos no evaluados, que no son averías confirmadas.'
+        : 'El porcentaje de salud considera únicamente los dispositivos evaluados. Las métricas generales usan todos los equipos y el filtro afecta solo a la tabla. Orden: Crítica, Moderada, Leve, sin clasificar y sanos.'}</p>
+      {createdDocUrl && <p className="metrics-report-info"><a href={createdDocUrl} target="_blank" rel="noopener noreferrer">Abrir Google Docs editable generado</a></p>}
       {exportError && <p className="metrics-pdf-error" role="alert">{exportError}</p>}
     </AdminEntityModal>
   </section>;

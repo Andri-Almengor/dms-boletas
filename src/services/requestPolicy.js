@@ -5,6 +5,8 @@ export function requestTimeoutMs(route) {
   if (value === 'auth.me') return 25_000;
   // Gemini + consulta de grandes mantenimientos: superior al presupuesto del backend.
   if (value === 'inventory.generate') return 240_000;
+  // La conversión HTML→Docs y permisos de Drive pueden superar la operación normal.
+  if (value === 'metrics.maintenance.docs.create') return 420_000;
   // Incluye el máximo del agente (180 s) y margen para cola, transporte y respuesta.
   // El navegador nunca debe abandonar antes que el presupuesto del backend.
   if (['assistant.chat','asistente.chat'].includes(value)) return 240_000;
