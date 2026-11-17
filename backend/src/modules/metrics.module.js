@@ -328,9 +328,11 @@ export function buildMaintenanceMetrics(tables, payload = {}) {
   const date = dateOnly(payload.fecha || payload.Fecha);
   const reportModeInput = clean(payload.detalleReporte);
   const reportIncidents = payload.reporteIncidencias === true || Boolean(reportModeInput);
-  // Mantener compatibilidad con exportaciones antiguas (solo averías).
-  const reportMode = reportModeInput || 'fallas';
-  if (reportIncidents && !['todos', 'fallas', 'funcionales'].includes(reportMode)) {
+  // Las exportaciones legadas sin detalleReporte mantienen solo averías confirmadas.
+  // La opción "fallas" del modal corresponde a la misma agrupación del gráfico:
+  // "Con falla / sin dato" (!positive), sin afirmar que todos están dañados.
+  const reportMode = reportModeInput || 'averiados';
+  if (reportIncidents && !['todos', 'fallas', 'funcionales', 'averiados'].includes(reportMode)) {
     throw new Error('Seleccione un tipo válido de dispositivos para el informe PDF.');
   }
   if (reportIncidents && (!client || !date)) {
@@ -454,11 +456,20 @@ export function buildMaintenanceMetrics(tables, payload = {}) {
   const failing = filteredDevices.length - operating;
   const activeUse = filteredDevices.filter((row) => activelyUsed(row.EnUso)).length;
   const storedCount = filteredDevices.filter((row) => stored(row.EnUso)).length;
-  // El dashboard siempre recibe todos los dispositivos, sujetos a sus filtros actuales.
-  // Solo el informe elige el tipo de detalle; nunca altera los agregados de métricas.
+  // El dashboard sigue consultando todos los equipos (máximo visual: 500).
+  // La exportación no se trunca y replica EXACTAMENTE la clasificación del gráfico.
+  // Solo "averiados" exige falla confirmada; "fallas" incluye también sin dato.
   const reportRows = reportMode === 'todos' ? details
     : reportMode === 'funcionales' ? details.filter((row) => row.operativo)
-      : details.filter((row) => row.averiado);
+      : reportMode === 'averiados' ? details.filter((row) => row.averiado)
+        : details.filter((row) => !row.operativo);
+  const reportExpectedCount = reportMode === 'todos' ? filteredDevices.length
+    : reportMode === 'funcionales' ? operating
+      : reportMode === 'fallas' ? failing
+        : reportRows.length;
+  if (reportIncidents && reportRows.length !== reportExpectedCount) {
+    throw new Error('El detalle de la exportación no coincide con las métricas del mantenimiento.');
+  }
 
   return {
     filtersApplied: {
@@ -502,6 +513,7 @@ export function buildMaintenanceMetrics(tables, payload = {}) {
     // En modo PDF no se aplica el límite visual de 500: todas las filas deben llegar completas.
     // El conteo independiente permite detectar una respuesta truncada antes de imprimir.
     reportDetailCount: reportIncidents ? reportRows.length : null,
+    reportExpectedCount: reportIncidents ? reportExpectedCount : null,
     detailRows: reportIncidents ? reportRows : details.slice(0, 500),
   };
 }
