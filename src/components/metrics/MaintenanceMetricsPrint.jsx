@@ -208,6 +208,18 @@ export function assertCompleteMaintenanceReport(data) {
       || data.reportDetailCount !== data.detailRows.length)) {
     throw new Error('El informe llegó incompleto. Vuelva a generarlo para incluir todos los dispositivos.');
   }
+  const mode = data?.filtersApplied?.detalleReporte;
+  const totalsByMode = {
+    no_operativos: data?.charts?.failing,
+    fallas: data?.charts?.confirmedFailures,
+    funcionales: data?.charts?.operating,
+    todos: data?.totals?.dispositivosFiltrados,
+  };
+  const expected = totalsByMode[mode];
+  if (expected !== undefined && (!Number.isSafeInteger(expected)
+    || expected !== data.detailRows.length)) {
+    throw new Error('El número de dispositivos del PDF no coincide con las métricas del filtro elegido. No se generó un informe incompleto.');
+  }
   return data.detailRows.length;
 }
 
