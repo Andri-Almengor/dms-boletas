@@ -30,6 +30,12 @@ function sampleTables() {
     Categoria: 'Cámaras',
     Funcionamiento: '',
   }, {
+    EvidenciaMantenimientoID: 'other-date-failure',
+    MantenimientoRef: 'maintenance-3',
+    NombreDispositivo: 'Fecha diferente',
+    Categoria: 'Cámaras',
+    Funcionamiento: 'NO',
+  }, {
     EvidenciaMantenimientoID: 'other-client-failure',
     MantenimientoRef: 'maintenance-2',
     NombreDispositivo: 'No debe incluirse',
@@ -40,6 +46,7 @@ function sampleTables() {
     Mantenimiento: [
       { MantenimientoID: 'maintenance-1', Cliente: client, Fecha: date, CantCámaras: 508 },
       { MantenimientoID: 'maintenance-2', Cliente: 'Otro cliente', Fecha: date, CantCámaras: 1 },
+      { MantenimientoID: 'maintenance-3', Cliente: client, Fecha: '2026-11-14', CantCámaras: 1 },
     ],
     Evidencia_Mantenimientos: devices,
     'Mantenimiento imagenes': [],
