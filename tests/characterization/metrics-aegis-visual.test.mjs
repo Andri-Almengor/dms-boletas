@@ -72,3 +72,44 @@ test('métricas: filtros y actualización siguen ligados a sus rutas originales'
   assert.match(ticket, /metrics\.tickets\.get/);
   assert.match(maintenance, /metrics\.maintenance\.get/);
 });
+
+test('métricas: pantalla consulta todos los equipos y PDF ofrece filtro independiente con responsable', () => {
+  const dashboard = source('src/components/metrics/MaintenanceMetricsDashboard.jsx');
+  const print = source('src/components/metrics/MaintenanceMetricsPrint.jsx');
+  const backend = source('backend/src/modules/metrics.module.js');
+  const route = source('src/styles/routes/metrics.js');
+  const css = source('src/styles/metrics.css');
+
+  assert.match(dashboard, /<AdminEntityModal[\s\S]*?title="Configurar informe PDF"/);
+  assert.match(dashboard, /onClick=\{openPdfOptions\}/);
+  assert.match(dashboard, /detalleReporte: pdfDeviceFilter/);
+  assert.match(dashboard, /\['fallas', 'Solo dispositivos en mal estado'/);
+  assert.match(dashboard, /\['todos', 'Todos los dispositivos'/);
+  assert.match(dashboard, /\['funcionales', 'Solo dispositivos funcionales'/);
+  assert.match(dashboard, /<th>Responsable<\/th>/);
+  assert.match(print, /<th>Responsable<\/th>/);
+  assert.match(print, /row\.creador \|\| 'Sin responsable'/);
+  assert.match(print, /const rows = data\?\.detailRows \|\| \[\]/);
+  assert.match(backend, /detailRows: reportIncidents \? reportRows : details\.slice\(0, 500\)/);
+  assert.match(backend, /reportMode === 'funcionales'/);
+  assert.match(backend, /reportMode === 'todos'/);
+  assert.match(backend, /!\['todos', 'fallas', 'funcionales'\]\.includes\(reportMode\)/);
+  assert.match(route, /admin-card-modals\.css/);
+  assert.match(css, /\.admin-entity-modal-layer--metrics-report/);
+});
+
+test('métricas: PDF A4 apaisado compacta informes cortos y utiliza el logotipo corporativo', () => {
+  const print = source('src/components/metrics/MaintenanceMetricsPrint.jsx');
+  assert.match(print, /import reportLogo from '\.\.\/\.\.\/assets\/dms-report-logo\.png\?inline'/);
+  assert.match(print, /className="report-logo" src=\{reportLogo\}/);
+  assert.match(print, /className="report-header"/);
+  assert.match(print, /rows\.length <= 7 \? ' report-page--short'/);
+  assert.match(print, /@page \{ size: A4 landscape; margin: 0; \}/);
+  assert.match(print, /\.report-page--short \{ padding: 6mm 8mm; \}/);
+  assert.match(print, /\.report-table tr \{ break-inside: avoid; page-break-inside: avoid; \}/);
+  assert.match(print, /\.report-table thead \{ display: table-header-group; \}/);
+  assert.match(print, /overflow-wrap: anywhere; white-space: pre-wrap;/);
+  // No introduce un alto fijo ni oculta el contenido: los informes largos siguen paginando.
+  assert.doesNotMatch(print, /\.report-incidents \{[^}]*overflow: hidden/);
+  assert.doesNotMatch(print, /\.report-table \{[^}]*height: [0-9]+(px|mm)/);
+});

@@ -666,3 +666,98 @@
   .metrics-dashboard__heading-actions { width: 100%; }
   .metrics-dashboard__heading-actions > .button { flex: 1 1 150px; }
 }
+
+
+/* Configuración compacta del PDF. Reutiliza AdminEntityModal y su manejo de foco/Escape. */
+.metrics-page .admin-entity-modal-layer--metrics-report .admin-entity-modal {
+  width: min(100%, 520px);
+  background: var(--metrics-card);
+  color: var(--metrics-ink);
+  border-color: var(--metrics-border);
+}
+.metrics-page .admin-entity-modal-layer--metrics-report .admin-entity-modal__header,
+.metrics-page .admin-entity-modal-layer--metrics-report .admin-entity-modal__footer {
+  border-color: var(--metrics-border);
+}
+.metrics-page .admin-entity-modal-layer--metrics-report .admin-entity-modal__footer {
+  background: var(--metrics-raised);
+}
+.metrics-page .admin-entity-modal-layer--metrics-report .admin-entity-modal__content {
+  background: var(--metrics-card);
+  gap: 15px;
+}
+.metrics-report-context {
+  display: grid;
+  gap: 5px;
+  padding: 12px 14px;
+  border: 1px solid var(--metrics-border);
+  border-radius: 12px;
+  background: var(--metrics-raised);
+  color: var(--metrics-subtle);
+  overflow-wrap: anywhere;
+}
+.metrics-report-context strong { color: var(--metrics-ink); }
+.metrics-report-options {
+  min-width: 0;
+  display: grid;
+  gap: 9px;
+  padding: 0;
+  margin: 0;
+  border: 0;
+}
+.metrics-report-options legend {
+  padding: 0 0 10px;
+  color: var(--metrics-ink);
+  font-size: 12px;
+  font-weight: 800;
+}
+.metrics-report-options label {
+  display: flex;
+  align-items: flex-start;
+  gap: 12px;
+  padding: 13px;
+  border: 1px solid var(--metrics-border);
+  border-radius: 12px;
+  background: var(--metrics-raised);
+  cursor: pointer;
+}
+.metrics-report-options label.is-selected {
+  border-color: var(--metrics-crimson);
+  background: var(--metrics-hover);
+}
+.metrics-report-options input[type="radio"] {
+  margin: 2px 0 0;
+  width: 18px;
+  height: 18px;
+  flex: 0 0 18px;
+  accent-color: var(--metrics-crimson);
+}
+.metrics-report-options label span { display: grid; gap: 4px; min-width: 0; }
+.metrics-report-options label strong { color: var(--metrics-ink); font-size: 13px; }
+.metrics-report-options label small { color: var(--metrics-subtle); font-size: 11px; line-height: 1.45; }
+.metrics-report-info {
+  margin: 0;
+  display: flex;
+  gap: 7px;
+  color: var(--metrics-subtle);
+  font-size: 11px;
+  line-height: 1.5;
+}
+.metrics-report-info .material-symbols-outlined { font-size: 17px; flex-shrink: 0; }
+@media (max-width: 680px) {
+  .metrics-page .admin-entity-modal-layer--metrics-report .admin-entity-modal {
+    max-height: calc(100dvh - 32px);
+  }
+  .metrics-page .admin-entity-modal-layer--metrics-report .admin-entity-modal__header {
+    padding: 13px;
+    grid-template-columns: 38px minmax(0, 1fr) 38px;
+    gap: 8px;
+  }
+  .metrics-page .admin-entity-modal-layer--metrics-report .admin-entity-modal__content {
+    padding: 14px;
+    gap: 12px;
+  }
+  .metrics-page .admin-entity-modal-layer--metrics-report .admin-entity-modal__footer > .button {
+    flex: 1 1 130px;
+  }
+}
