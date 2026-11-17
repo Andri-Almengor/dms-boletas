@@ -61,6 +61,7 @@ export default function MaintenanceMetricsDashboard() {
   const [reportFormat, setReportFormat] = useState('pdf');
   const [docsDeviceFilter, setDocsDeviceFilter] = useState('todos');
   const [createdDocUrl, setCreatedDocUrl] = useState('');
+  const [docsRequestId, setDocsRequestId] = useState('');
   const fetchMetrics = useCallback((signal) => requestAvailable(
     MAINTENANCE_METRICS_ROUTES, filters, sessionToken, { signal },
   ), [filters, sessionToken]);
@@ -95,6 +96,7 @@ export default function MaintenanceMetricsDashboard() {
     setDocsDeviceFilter('todos');
     setReportFormat('pdf');
     setCreatedDocUrl('');
+    setDocsRequestId(window.crypto.randomUUID());
     setReportOpen(true);
   }
 
@@ -140,7 +142,7 @@ export default function MaintenanceMetricsDashboard() {
       const { cliente, fecha } = filters;
       const result = await requestAvailable(
         ['metrics.maintenance.docs.create'],
-        { cliente, fecha, detalleVisual: docsDeviceFilter },
+        { cliente, fecha, detalleVisual: docsDeviceFilter, requestId: docsRequestId },
         sessionToken,
       );
       if (!/^https:\/\/docs\.google\.com\/document\/d\/[-\w]+\/edit$/.test(result?.docsUrl || '')) {
