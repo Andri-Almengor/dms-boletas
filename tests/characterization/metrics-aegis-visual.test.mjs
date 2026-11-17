@@ -97,3 +97,19 @@ test('métricas: pantalla consulta todos los equipos y PDF ofrece filtro indepen
   assert.match(route, /admin-card-modals\.css/);
   assert.match(css, /\.admin-entity-modal-layer--metrics-report/);
 });
+
+test('métricas: PDF A4 apaisado compacta informes cortos y utiliza el logotipo corporativo', () => {
+  const print = source('src/components/metrics/MaintenanceMetricsPrint.jsx');
+  assert.match(print, /import reportLogo from '\.\.\/\.\.\/assets\/dms-report-logo\.png\?inline'/);
+  assert.match(print, /className="report-logo" src=\{reportLogo\}/);
+  assert.match(print, /className="report-header"/);
+  assert.match(print, /rows\.length <= 7 \? ' report-page--short'/);
+  assert.match(print, /@page \{ size: A4 landscape; margin: 0; \}/);
+  assert.match(print, /\.report-page--short \{ padding: 6mm 8mm; \}/);
+  assert.match(print, /\.report-table tr \{ break-inside: avoid; page-break-inside: avoid; \}/);
+  assert.match(print, /\.report-table thead \{ display: table-header-group; \}/);
+  assert.match(print, /overflow-wrap: anywhere; white-space: pre-wrap;/);
+  // No introduce un alto fijo ni oculta el contenido: los informes largos siguen paginando.
+  assert.doesNotMatch(print, /\.report-incidents \{[^}]*overflow: hidden/);
+  assert.doesNotMatch(print, /\.report-table \{[^}]*height: [0-9]+(px|mm)/);
+});
