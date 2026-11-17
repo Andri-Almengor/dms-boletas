@@ -1,9 +1,12 @@
 import { readTables } from '../infra/sheets.repository.js';
+import { query } from '../infra/postgres.js';
+import { AppError } from '../core/errors.js';
 import { audit } from '../services/audit.service.js';
 import {
   buildMaintenanceVisualReportModel,
   createMaintenanceVisualDocs,
   VISUAL_REPORT_FILTERS,
+  visualDeviceState,
 } from '../services/maintenance-visual-docs.service.js';
 
 function clean(value, fallback = '') {
@@ -467,6 +470,13 @@ export function buildMaintenanceMetrics(tables, payload = {}) {
     : reportMode === 'funcionales' ? details.filter((row) => row.operativo)
       : reportMode === 'no_operativos' ? details.filter((row) => !row.operativo)
         : details.filter((row) => row.averiado);
+  // Ambos informes respetan la misma prioridad, sin cambiar la selección del PDF legado.
+  const orderedReportRows = reportRows.slice().sort((a, b) => (
+    visualDeviceState(a).rank - visualDeviceState(b).rank
+      || clean(a.categoria).localeCompare(clean(b.categoria), 'es')
+      || clean(a.zona).localeCompare(clean(b.zona), 'es')
+      || clean(a.nombreDispositivo).localeCompare(clean(b.nombreDispositivo), 'es')
+  ));
 
   return {
     filtersApplied: {
@@ -511,8 +521,8 @@ export function buildMaintenanceMetrics(tables, payload = {}) {
     },
     // En modo PDF no se aplica el límite visual de 500: todas las filas deben llegar completas.
     // El conteo independiente permite detectar una respuesta truncada antes de imprimir.
-    reportDetailCount: reportIncidents ? reportRows.length : null,
-    detailRows: reportIncidents ? reportRows : details.slice(0, 500),
+    reportDetailCount: reportIncidents ? orderedReportRows.length : null,
+    detailRows: reportIncidents ? orderedReportRows : details.slice(0, 500),
   };
 }
 
@@ -530,18 +540,59 @@ async function maintenanceVisualDocs(ctx) {
   const payload = ctx.payload || {};
   const filter = clean(payload.detalleVisual);
   if (!VISUAL_REPORT_FILTERS.includes(filter)) {
-    throw new Error('Seleccione todos, solo buenos o solo dañados para Google Docs.');
+    throw new AppError('INVALID_REPORT_FILTER', 'Seleccione todos, solo buenos o solo dañados.', 400);
   }
-  // Solo el backend autenticado construye el conjunto completo de datos.
+  const requestId = clean(payload.requestId);
+  if (!/^[0-9a-f]{8}-[0-9a-f]{4}-[1-8][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i.test(requestId)) {
+    throw new AppError('INVALID_REPORT_REQUEST_ID', 'La solicitud del informe no tiene un identificador válido.', 400);
+  }
+  const actorId = clean(ctx.user?.UsuarioID);
+  if (!actorId) throw new AppError('REPORT_ACTOR_MISSING', 'No se pudo identificar al usuario.', 403);
+  // Consulta completa y validada en backend, a partir de la fuente operativa PostgreSQL.
   const data = await maintenanceMetrics({
     payload: { cliente: payload.cliente, fecha: payload.fecha, reporteIncidencias: true, detalleReporte: 'todos' },
   });
   const model = buildMaintenanceVisualReportModel(data, filter);
-  const result = await createMaintenanceVisualDocs({ model, actor: ctx.user });
-  await audit(ctx, 'GENERAR_INFORME_MANTENIMIENTO_DOCS', 'Mantenimiento', model.client, null, {
-    fecha: model.date, tipo: filter, incluidos: result.devices, documentoId: result.docsId,
-  }).catch(() => {});
-  return result;
+  const args = [requestId, actorId, model.client, model.date, model.filter];
+  const claimed = await query(
+    `INSERT INTO "MantenimientoInformesVisuales" ("RequestKey","UsuarioID","Cliente","Fecha","Filtro")
+     VALUES ($1::uuid,$2,$3,$4,$5) ON CONFLICT ("RequestKey") DO NOTHING RETURNING "RequestKey"`,
+    args, { label: 'metrics.visual.claim', write: true },
+  );
+  if (!claimed.rowCount) {
+    const existing = await query(
+      `SELECT "UsuarioID","Cliente","Fecha","Filtro","Estado","DocumentoID","CantidadDispositivos"
+       FROM "MantenimientoInformesVisuales" WHERE "RequestKey" = $1::uuid`,
+      [requestId], { label: 'metrics.visual.existing' },
+    );
+    const entry = existing.rows[0];
+    if (!entry || entry.UsuarioID !== actorId || entry.Cliente !== model.client
+      || entry.Fecha !== model.date || entry.Filtro !== model.filter) {
+      throw new AppError('REPORT_REQUEST_CONFLICT', 'La solicitud de informe no corresponde a esta operación.', 409);
+    }
+    if (entry.Estado === 'CREATED' && entry.DocumentoID) {
+      return { docsId: entry.DocumentoID, docsUrl: `https://docs.google.com/document/d/${entry.DocumentoID}/edit`, devices: entry.CantidadDispositivos };
+    }
+    throw new AppError('REPORT_GENERATION_IN_PROGRESS', 'Este informe ya se está generando. Abra el documento cuando termine la solicitud anterior.', 409);
+  }
+  try {
+    const result = await createMaintenanceVisualDocs({ model, actor: ctx.user });
+    await query(
+      `UPDATE "MantenimientoInformesVisuales" SET "Estado"='CREATED',"DocumentoID"=$2,
+       "CantidadDispositivos"=$3,"ActualizadoEn"=NOW() WHERE "RequestKey"=$1::uuid`,
+      [requestId, result.docsId, result.devices], { label: 'metrics.visual.complete', write: true },
+    );
+    await audit(ctx, 'GENERAR_INFORME_MANTENIMIENTO_DOCS', 'Mantenimiento', model.client, null, {
+      fecha: model.date, tipo: filter, incluidos: result.devices, documentoId: result.docsId,
+    }).catch(() => {});
+    return result;
+  } catch (error) {
+    // Una generación fallida puede reintentarse con la misma clave. Si el fallo
+    // ocurre tras crear el archivo, el servicio de Drive lo envía a papelera.
+    await query('DELETE FROM "MantenimientoInformesVisuales" WHERE "RequestKey"=$1::uuid AND "Estado"=\'CREATING\'',
+      [requestId], { label: 'metrics.visual.release', write: true }).catch(() => {});
+    throw error;
+  }
 }
 
 export const metricsHandlers = {
