@@ -23,7 +23,7 @@ function isVideoEvidence(image = {}) {
   return mediaType === 'VIDEO' || mimeType.startsWith('video/');
 }
 
-async function resolveBaseFolderId(provided) {
+export async function resolveBaseFolderId(provided) {
   const direct = clean(provided);
   if (direct) return direct;
 
