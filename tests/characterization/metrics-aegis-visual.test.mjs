@@ -153,6 +153,10 @@ test('métricas: el PDF diferencia fallas reales y sin dato, y permite guardar t
   assert.match(print, /popup\.print\(\)/);
   assert.match(print, /id="print-report" type="button" disabled/);
   assert.match(print, /textContent = 'Guardar PDF completo'/);
+  assert.match(print, /no_operativos: data\?\.charts\?\.failing/);
+  assert.match(print, /fallas: data\?\.charts\?\.confirmedFailures/);
+  assert.match(print, /todos: data\?\.totals\?\.dispositivosFiltrados/);
+  assert.match(print, /expected !== data\.detailRows\.length/);
   assert.doesNotMatch(print, /if \(!popup\.closed && autoPrintPending\) popup\.print\(\)/);
   assert.doesNotMatch(print, /new jsPDF|document\.createElement\('canvas'\)/);
 });
