@@ -326,7 +326,13 @@ export function buildMaintenanceMetrics(tables, payload = {}) {
 
   const client = clean(payload.cliente || payload.Cliente);
   const date = dateOnly(payload.fecha || payload.Fecha);
-  const reportIncidents = payload.reporteIncidencias === true;
+  const reportModeInput = clean(payload.detalleReporte);
+  const reportIncidents = payload.reporteIncidencias === true || Boolean(reportModeInput);
+  // Mantener compatibilidad con exportaciones antiguas (solo averías).
+  const reportMode = reportModeInput || 'fallas';
+  if (reportIncidents && !['todos', 'fallas', 'funcionales'].includes(reportMode)) {
+    throw new Error('Seleccione un tipo válido de dispositivos para el informe PDF.');
+  }
   if (reportIncidents && (!client || !date)) {
     throw new Error('Seleccione un cliente y una fecha de mantenimiento para exportar el PDF.');
   }
@@ -436,6 +442,7 @@ export function buildMaintenanceMetrics(tables, payload = {}) {
       fechaMantenimiento: dateOnly(maintenance.Fecha),
       evidencias: number(imageCountByDevice.get(clean(row.EvidenciaMantenimientoID))),
       operativo: positive(row.Funcionamiento),
+      averiado: hasDeviceFailure(row.Funcionamiento),
       almacenado: stored(row.EnUso),
     };
   }).sort((left, right) => (
@@ -447,8 +454,11 @@ export function buildMaintenanceMetrics(tables, payload = {}) {
   const failing = filteredDevices.length - operating;
   const activeUse = filteredDevices.filter((row) => activelyUsed(row.EnUso)).length;
   const storedCount = filteredDevices.filter((row) => stored(row.EnUso)).length;
-  // El detalle se limita a incidencias; las gráficas y totales incluyen TODOS los equipos.
-  const incidentRows = details.filter((row) => hasDeviceFailure(row.funcionamiento));
+  // El dashboard siempre recibe todos los dispositivos, sujetos a sus filtros actuales.
+  // Solo el informe elige el tipo de detalle; nunca altera los agregados de métricas.
+  const reportRows = reportMode === 'todos' ? details
+    : reportMode === 'funcionales' ? details.filter((row) => row.operativo)
+      : details.filter((row) => row.averiado);
 
   return {
     filtersApplied: {
@@ -461,6 +471,7 @@ export function buildMaintenanceMetrics(tables, payload = {}) {
       enUsoGrupo: useGroup,
       evidencia: evidence,
       responsable: responsible,
+      detalleReporte: reportIncidents ? reportMode : '',
     },
     options: {
       clientes: uniqueSorted(allMaintenances.map((row) => row.Cliente)),
@@ -488,7 +499,7 @@ export function buildMaintenanceMetrics(tables, payload = {}) {
       activeUse,
       stored: storedCount,
     },
-    detailRows: reportIncidents ? incidentRows : incidentRows.slice(0, 500),
+    detailRows: reportIncidents ? reportRows : details.slice(0, 500),
   };
 }
 
