@@ -29,7 +29,7 @@ function sampleTables() {
     MantenimientoRef: 'maintenance-1',
     NombreDispositivo: 'Cámara sin revisar',
     Categoria: 'Cámaras',
-    Funcionamiento: '',
+    Funcionamiento: 'Sin dato',
   }, {
     EvidenciaMantenimientoID: 'other-date-failure',
     MantenimientoRef: 'maintenance-3',
