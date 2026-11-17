@@ -91,7 +91,7 @@ test('métricas: pantalla consulta todos los equipos y PDF ofrece filtro indepen
   assert.match(print, /<th>Responsable<\/th>/);
   assert.match(print, /row\.creador \|\| 'Sin responsable'/);
   assert.match(print, /const rows = data\?\.detailRows \|\| \[\]/);
-  assert.match(backend, /detailRows: reportIncidents \? reportRows : details\.slice\(0, 500\)/);
+  assert.match(backend, /detailRows: reportIncidents \? orderedReportRows : details\.slice\(0, 500\)/);
   assert.match(backend, /reportMode === 'funcionales'/);
   assert.match(backend, /reportMode === 'todos'/);
   assert.match(backend, /!\['todos', 'fallas', 'no_operativos', 'funcionales'\]\.includes\(reportMode\)/);
@@ -126,8 +126,8 @@ test('métricas: modal PDF móvil mantiene botones compactos y sin estiramiento'
 test('métricas: PDF no limita la tabla a cinco y conserva paginación de informes extensos', () => {
   const printer = source('src/components/metrics/MaintenanceMetricsPrint.jsx');
   const handler = source('backend/src/modules/metrics.module.js');
-  assert.match(handler, /reportDetailCount: reportIncidents \? reportRows\.length : null/);
-  assert.match(handler, /detailRows: reportIncidents \? reportRows : details\.slice\(0, 500\)/);
+  assert.match(handler, /reportDetailCount: reportIncidents \? orderedReportRows\.length : null/);
+  assert.match(handler, /detailRows: reportIncidents \? orderedReportRows : details\.slice\(0, 500\)/);
   assert.match(printer, /report-page\$\{rows\.length <= 7 \? ' report-page--short' : ''\}/);
   assert.match(printer, /assertCompleteMaintenanceReport\(data\)/);
   assert.match(printer, /data\.reportDetailCount !== data\.detailRows\.length/);
