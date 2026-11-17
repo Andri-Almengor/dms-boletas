@@ -56,9 +56,18 @@ export function buildMaintenanceVisualReportModel(data, filter = 'todos') {
       || a.categoria.localeCompare(b.categoria, 'es')
       || a.zona.localeCompare(b.zona, 'es')
       || a.nombreDispositivo.localeCompare(b.nombreDispositivo, 'es'));
+  const visits = Array.isArray(data.reportContext?.mantenimientos)
+    ? data.reportContext.mantenimientos : [];
+  const sites = [...new Set(visits.map((visit) => text(visit.ubicacion)).filter(Boolean))];
+  const maintenanceLabel = visits.length === 1
+    ? text(visits[0].titulo || visits[0].id)
+    : visits.length > 1 ? `${visits.length} mantenimientos` : '';
+  const siteLabel = sites.length === 1 ? sites[0] : sites.length > 1 ? 'Varias ubicaciones' : '';
   return {
     client: text(data.filtersApplied.cliente),
     date: text(data.filtersApplied.fecha),
+    maintenanceLabel,
+    siteLabel,
     filter,
     rows,
     total: all.length,
@@ -71,87 +80,243 @@ export function buildMaintenanceVisualReportModel(data, filter = 'todos') {
   };
 }
 
+
+// Google Docs convierte CSS moderno de forma parcial; los colores, tamaños y
+// bordes esenciales se indican también inline en tablas editables.
+const VISUAL = Object.freeze({
+  red: '#b90d19', darkRed: '#930b16', ink: '#1d2028', muted: '#636b79',
+  border: '#e2e3e8', ok: '#12805e', danger: '#bc1421', pending: '#89919e',
+  paleGreen: '#e7f6ec', paleRed: '#fde9eb', paleGray: '#f2f3f6',
+  amber: '#a56605',
+});
+
+function formatDate(value) {
+  if (!/^\d{4}-\d{2}-\d{2}$/.test(text(value))) return text(value);
+  const [year, month, day] = value.split('-');
+  return `${day}/${month}/${year}`;
+}
+
+function metricTile(title, count, color, background, symbol) {
+  return `<td width="25%" bgcolor="${background}" valign="top" style="background-color:${background};border:1px solid ${VISUAL.border};padding:13px 12px;text-align:center">
+    <p style="margin:0 0 5px;color:${color};font-size:11pt"><b>${symbol} ${html(title)}</b></p>
+    <p style="margin:0;color:${color};font-size:25pt"><b>${html(count)}</b></p>
+  </td>`;
+}
+
 function barSegment(value, total, background) {
   if (!value || !total) return '';
-  const width = Math.max(1, Math.round(100 * value / total));
-  return `<td bgcolor="${background}" width="${width}%" style="background-color:${background};font-size:10px;color:#ffffff;text-align:center;padding:6px 1px"><b>${value}</b></td>`;
+  const width = Math.max(0.1, Math.round(value / total * 1000) / 10);
+  return `<td width="${width}%" bgcolor="${background}" style="background-color:${background};padding:5px 0;color:white;text-align:center;font-size:9pt">
+    <b>${value}</b>
+  </td>`;
+}
+
+function stackedBar(values, total) {
+  if (!total) return '<p style="color:#89919e">Sin datos evaluados</p>';
+  return `<table width="100%" cellpadding="0" cellspacing="0" border="0" role="presentation" style="border-collapse:collapse">
+    <tr>${barSegment(values.sanos, total, VISUAL.ok)}${barSegment(values.danados, total, VISUAL.danger)}${barSegment(values.sinEvaluar || 0, total, VISUAL.pending)}</tr>
+  </table>`;
 }
 
 function categoryChart(item) {
-  return `<tr><td style="padding:5px 7px;font-size:10px"><b>${html(item.categoria)}</b></td>
-    <td><table width="100%" cellpadding="0" cellspacing="0" border="0"><tr>
-    ${barSegment(item.sanos, item.total, '#12805e')}
-    ${barSegment(item.danados, item.total, '#bc1421')}
-    ${barSegment(item.sinEvaluar, item.total, '#90949d')}
-    </tr></table></td><td align="right" style="padding:5px 7px"><b>${item.total}</b></td>
-    <td align="right" style="padding:5px 7px;color:#bc1421">${item.danados}</td></tr>`;
+  return `<tr>
+    <td><b>${html(item.categoria)}</b></td>
+    <td width="52%">${stackedBar(item, item.total)}</td>
+    <td align="right"><b>${item.total}</b></td>
+    <td align="right" style="color:${VISUAL.danger}"><b>${item.danados}</b></td>
+  </tr>`;
 }
 
 function statusChip(row) {
   const state = row.salud;
-  const color = state.kind === 'sano' ? '#12805e' : state.kind === 'sin_evaluar' ? '#777777'
-    : state.severity === 'Crítica' ? '#ae0c19' : state.severity === 'Moderada' ? '#b66d0c' : '#986d08';
-  const label = state.kind === 'sano' ? 'Sano' : state.kind === 'sin_evaluar' ? 'Sin evaluar' : state.severity;
-  return `<b style="color:${color}">${html(label)}</b>`;
+  const color = state.kind === 'sano' ? VISUAL.ok : state.kind === 'sin_evaluar' ? '#616977'
+    : state.severity === 'Crítica' ? VISUAL.darkRed
+      : state.severity === 'Moderada' ? VISUAL.amber : '#8b6608';
+  const background = state.kind === 'sano' ? VISUAL.paleGreen
+    : state.kind === 'sin_evaluar' ? VISUAL.paleGray
+      : state.severity === 'Crítica' ? VISUAL.paleRed : '#fff1d3';
+  const label = state.kind === 'sano' ? 'Sano' : state.kind === 'sin_evaluar'
+    ? 'Sin evaluar' : state.severity;
+  return `<span style="display:inline-block;border-radius:14px;padding:4px 8px;background-color:${background};color:${color};font-weight:bold">${html(label)}</span>`;
 }
 
+function detailRow(row, index) {
+  const background = index % 2 ? '#f8f9fb' : '#ffffff';
+  return `<tr bgcolor="${background}" style="background-color:${background}">
+    <td><b>${html(row.nombreDispositivo)}</b><br><small style="color:${VISUAL.muted}">${html(row.creador || 'Sin responsable')}</small></td>
+    <td>${html(row.categoria)}</td>
+    <td>${html(row.zona)}</td>
+    <td>${statusChip(row)}</td>
+    <td>${html(row.funcionamiento || 'Sin dato')}</td>
+    <td>${html(row.observacion || 'Sin observaciones')}</td>
+  </tr>`;
+}
+
+// Se conserva el modelo y los filtros anteriores: esta función solo da formato
+// a los datos que el backend ya autorizó y verificó (sin truncar las filas).
 export function buildMaintenanceVisualReportHtml(model) {
-  const date = /^\d{4}-\d{2}-\d{2}$/.test(model.date)
-    ? model.date.split('-').reverse().join('/') : model.date;
-  const healthText = model.health === null ? 'Sin evaluaciones' : `${model.health}%`;
-  const healthColor = model.health === null ? '#777777' : model.health >= 80 ? '#12805e' : model.health >= 50 ? '#b66d0c' : '#bc1421';
-  const chartRows = model.categories.map(categoryChart).join('');
-  const tableRows = model.rows.map((row) => `<tr>
-    <td>${html(row.nombreDispositivo)}</td><td>${html(row.categoria)}</td><td>${html(row.zona)}</td>
-    <td>${statusChip(row)}</td><td>${html(row.funcionamiento)}</td>
-    <td>${html(row.creador)}</td><td>${html(row.observacion || 'Sin observaciones')}</td>
-  </tr>`).join('');
-  const label = model.filter === 'todos' ? 'Todos los dispositivos'
-    : model.filter === 'sanos' ? 'Solo equipos en buen estado' : 'Solo equipos dañados';
+  const healthText = model.health === null ? 'Sin evaluación' : `${model.health}%`;
+  const healthColor = model.health === null ? VISUAL.pending
+    : model.health >= 80 ? VISUAL.ok : model.health >= 50 ? VISUAL.amber : VISUAL.danger;
+  const completion = model.evaluated ? Math.round(100 * model.evaluated / model.total) : 0;
+  const categories = model.categories.map(categoryChart).join('')
+    || '<tr><td colspan="4">No hay dispositivos registrados en este mantenimiento.</td></tr>';
+  const rows = model.rows.map(detailRow).join('')
+    || '<tr><td colspan="6">No hay dispositivos para el filtro seleccionado.</td></tr>';
+  const filterTitle = model.filter === 'todos' ? 'Todos los dispositivos'
+    : model.filter === 'sanos' ? 'Solo dispositivos sanos' : 'Solo dispositivos dañados';
+  const generatedAt = new Intl.DateTimeFormat('es-CR', {
+    day: 'numeric', month: 'short', year: 'numeric', timeZone: 'America/Costa_Rica',
+  }).format(new Date());
+  // Nunca sustituir el nombre del cliente por un título genérico de informe.
+  const title = html(model.client || 'Cliente sin nombre');
+  const maintenance = html(model.maintenanceLabel || 'No especificado');
+  const site = model.siteLabel
+    ? `<p style="margin:3px 0;font-size:9pt"><b>Sitio:</b> ${html(model.siteLabel)}</p>` : '';
+  const ringAngle = model.health === null ? 0 : Math.max(0, Math.min(360, model.health * 3.6));
+
   return `<!DOCTYPE html><html lang="es"><head><meta charset="utf-8">
-    <style>body{font-family:Arial,Helvetica,sans-serif;color:#202126;font-size:10pt}
-    h1{font-size:23pt;color:#17191d;margin:8px 0}h2{font-size:14pt;color:#a90b19;margin:22px 0 8px}
-    table{border-collapse:collapse}th,td{vertical-align:top}p{line-height:1.4}
-    .grid th{background-color:#25272f;color:#ffffff;padding:9px}
-    .grid td{border-bottom:1px solid #e4e4e8;padding:7px;font-size:9pt}
-    .tile{border:1px solid #dedee4;background-color:#f7f7f9;padding:10px}
-    .tile b{font-size:22pt}.sub{color:#646774}
-    </style></head><body>
-    <table width="100%"><tr><td bgcolor="#24262d" style="background-color:#24262d;color:white;padding:12px">
-    <img src="${DMS_LOGO_URL}" alt="DMS Solutions Provider" width="154" height="86"></td>
-    <td bgcolor="#b90d19" align="right" style="background-color:#b90d19;color:#ffffff;padding:12px"><b>INFORME COMPLETO DE MANTENIMIENTO</b></td></tr></table>
-    <h1>Estado de salud del sistema</h1><p class="sub"><b>Cliente:</b> ${html(model.client)}
-    &nbsp; | &nbsp; <b>Fecha de mantenimiento:</b> ${html(date)} &nbsp; | &nbsp; <b>Generado:</b> ${html(new Date().toLocaleDateString('es-CR',{timeZone:'America/Costa_Rica'}))}</p>
-    <h2>01 · Resumen general</h2>
-    <table width="100%" cellpadding="8"><tr>
-    <td class="tile" align="center">Total dispositivos<br><b>${model.total}</b></td>
-    <td class="tile" align="center">En buen estado<br><b style="color:#12805e">${model.healthy}</b></td>
-    <td class="tile" align="center">Dañados<br><b style="color:#bc1421">${model.damaged}</b></td>
-    <td class="tile" align="center">Sin evaluar<br><b style="color:#777777">${model.pending}</b></td>
+    <title>${title} · Resumen visual del estado del sistema · DMS</title>
+    <style>
+      body{font-family:Arial,Helvetica,sans-serif;color:#1d2028;font-size:10pt;line-height:1.3}
+      h1{font-size:25pt;color:#1d2028;margin:0} h2{font-size:14pt;color:#1d2028;margin:15px 0 7px}
+      p{margin:5px 0} table{border-collapse:collapse}
+      .data-grid{width:100%;border-collapse:collapse}
+      .data-grid th{background-color:#b90d19;color:white;font-size:9pt;padding:8px;text-align:left}
+      .data-grid td{padding:7px;border-bottom:1px solid #e2e3e8;font-size:9pt;vertical-align:top;word-wrap:break-word}
+      .keep{page-break-inside:avoid}
+    </style>
+    </head><body>
+    <!-- Reserva una posición válida para insertar el logo mediante Docs API cuando
+         el importador HTML omite la imagen externa. -->
+    <p style="margin:0;font-size:1pt">&nbsp;</p>
+    <table width="100%" cellpadding="0" cellspacing="0" role="presentation" style="margin:0 0 14px">
+      <tr><td bgcolor="#22252b" width="34%" style="background-color:#22252b;padding:8px 13px">
+        <img src="${DMS_LOGO_URL}" alt="DMS Solutions Provider" width="142" height="80">
+      </td><td bgcolor="#b90d19" align="right" style="background-color:#b90d19;color:white;padding:12px">
+        <p style="font-size:12pt;color:white;margin:0"><b>REPORTE DE MANTENIMIENTO</b></p>
+        <p style="font-size:9pt;color:white;margin:4px 0 0">DMS SOLUTIONS PROVIDER</p>
+      </td></tr>
+    </table>
+    <table width="100%" cellpadding="0" cellspacing="0" role="presentation" style="margin:0 0 15px">
+      <tr>
+        <td width="64%" valign="top" style="padding:0 15px 0 0">
+          <h1>${title}</h1>
+          <p style="font-size:13pt;color:#636b79;margin:4px 0 9px"><b>Resumen visual del estado del sistema</b></p>
+          <table width="72" cellpadding="0" cellspacing="0" role="presentation"><tr><td bgcolor="#b90d19" height="4" style="background-color:#b90d19">&nbsp;</td></tr></table>
+        </td>
+        <td valign="top" style="border-left:2px solid #e2e3e8;padding:0 0 0 12px">
+          <p style="margin:3px 0;font-size:9pt"><b>Fecha del informe:</b> ${html(generatedAt)}</p>
+          <p style="margin:3px 0;font-size:9pt"><b>Fecha mantenimiento:</b> ${html(formatDate(model.date))}</p>
+          <p style="margin:3px 0;font-size:9pt"><b>Mantenimiento:</b> ${maintenance}</p>
+          ${site}
+        </td>
+      </tr>
+    </table>
+    <h2 style="margin:14px 0 8px;border-left:4px solid #b90d19;padding-left:9px">▥ Resumen general</h2>
+    <table width="100%" cellpadding="5" cellspacing="0" role="presentation" class="keep">
+      <tr>
+        ${metricTile('Total dispositivos', model.total, VISUAL.ink, VISUAL.paleGray, '▣')}
+        ${metricTile('En buen estado', model.healthy, VISUAL.ok, VISUAL.paleGreen, '✓')}
+        ${metricTile('Dispositivos dañados', model.damaged, VISUAL.danger, VISUAL.paleRed, '⚠')}
+        ${metricTile('Salud general', healthText, healthColor, '#fff3f3', '♥')}
+      </tr>
+    </table>
+    <table width="100%" cellpadding="8" cellspacing="0" role="presentation" style="margin:8px 0 12px">
+      <tr><td width="40%" valign="top" style="border:1px solid #e2e3e8">
+        <h2 style="margin:2px 0 10px;border-left:4px solid #b90d19;padding-left:8px">♥ Salud del sistema</h2>
+        <table width="100%" role="presentation"><tr>
+          <td width="45%" align="center" valign="middle">
+            <div style="display:inline-block;background:conic-gradient(${healthColor} ${ringAngle}deg,#e7e8ec 0deg);border-radius:50%;padding:11px">
+              <div style="background-color:white;border-radius:50%;padding:19px 11px">
+                <span style="font-size:27pt;color:${healthColor}"><b>${html(healthText)}</b></span>
+              </div>
+            </div>
+            <p style="font-size:25pt;color:${healthColor};margin:3px 0"><b>${html(healthText)}</b></p>
+          </td>
+          <td valign="middle"><p style="font-size:9pt;color:#454d59"><b>Salud general del sistema</b></p>
+            <p style="font-size:9pt">${model.healthy} sanos de ${model.evaluated} evaluados.</p>
+            <p style="font-size:8pt;color:#636b79">${model.damaged} dañados · ${model.pending} sin evaluar.</p>
+          </td></tr></table>
+        ${stackedBar({ sanos: model.healthy, danados: model.damaged }, model.evaluated)}
+        <p style="font-size:8pt;color:#636b79">Salud = equipos sanos / equipos evaluados. El ${completion}% del inventario tiene evaluación.</p>
+      </td>
+      <td width="60%" valign="top" style="border:1px solid #e2e3e8">
+        <h2 style="margin:2px 0 9px;border-left:4px solid #b90d19;padding-left:8px">▥ Dispositivos por tipo</h2>
+        <p style="font-size:8pt;color:#636b79">● Verde: sanos &nbsp; ● Rojo: dañados &nbsp; ● Gris: sin evaluar</p>
+        <table class="data-grid" width="100%">
+          <tr><th>Tipo</th><th>Distribución visual</th><th>Total</th><th>Dañados</th></tr>
+          ${categories}
+        </table>
+      </td></tr>
+    </table>
+    <h2 style="margin:15px 0 6px;border-left:4px solid #b90d19;padding-left:8px">⚠ Detalle de dispositivos · ${html(filterTitle)}</h2>
+    <p style="font-size:9pt;color:#636b79">${model.rows.length} dispositivos incluidos. Prioridad: Crítica → Moderada → Leve → Sin clasificar → Sanos → Sin evaluar.</p>
+    <table class="data-grid" width="100%">
+      <thead><tr>
+        <th width="17%">Dispositivo</th><th width="13%">Tipo</th><th width="16%">Ubicación</th>
+        <th width="13%">Estado</th><th width="12%">Falla</th><th width="29%">Observación</th>
+      </tr></thead>
+      <tbody>${rows}</tbody>
+    </table>
+    <h2 style="margin:18px 0 9px;border-left:4px solid #b90d19;padding-left:8px">✎ Recomendaciones</h2>
+    <table width="100%" cellpadding="12" cellspacing="0" role="presentation" style="border:1px solid #bc1421">
+      <tr><td style="border:1px solid #bc1421">
+        <p style="font-size:10pt;color:#636b79"><i>Escriba aquí las recomendaciones del mantenimiento...</i></p>
+        <p>&nbsp;</p><p>&nbsp;</p><p>&nbsp;</p>
+      </td></tr>
+    </table>
+    <table width="100%" cellpadding="0" cellspacing="0" role="presentation" style="margin-top:18px"><tr>
+      <td bgcolor="#b90d19" height="7" style="background-color:#b90d19;font-size:5px">&nbsp;</td>
     </tr></table>
-    <h2>02 · Salud del sistema</h2>
-    <table width="100%" cellpadding="10"><tr>
-    <td width="31%" bgcolor="#f6f7f9" align="center"><span style="color:${healthColor};font-size:34pt"><b>${healthText}</b></span><br><b>Salud general</b></td>
-    <td><b>Salud = dispositivos sanos / dispositivos evaluados.</b><br>
-    ${model.healthy} sanos de ${model.evaluated} evaluados (${model.damaged} dañados).
-    ${model.pending ? `${model.pending} pendientes o sin datos se excluyen del porcentaje.` : 'Todos los dispositivos cuentan con evaluación.'}
-    <table width="100%" cellpadding="0" cellspacing="0"><tr>
-    ${barSegment(model.healthy, model.evaluated, '#12805e')}
-    ${barSegment(model.damaged, model.evaluated, '#bc1421')}
-    </tr></table></td></tr></table>
-    <h2>03 · Distribución por tipo de dispositivo</h2>
-    <p style="color:#646774">■ Verde: sanos &nbsp; ■ Rojo: dañados &nbsp; ■ Gris: sin evaluar. Se muestran todos los tipos registrados.</p>
-    <table class="grid" width="100%"><tr><th width="25%">Tipo</th><th>Distribución visual</th><th>Total</th><th>Dañados</th></tr>${chartRows}</table>
-    <h2>04 · Detalle de dispositivos · ${html(label)}</h2>
-    <p>${model.rows.length} equipo(s), ordenados por prioridad: Crítica → Moderada → Leve → Sin clasificar → Sanos → Sin evaluar.</p>
-    <table class="grid" width="100%"><tr><th>Dispositivo</th><th>Tipo</th><th>Ubicación</th><th>Prioridad</th><th>Funcionamiento</th><th>Responsable</th><th>Observación</th></tr>
-    ${tableRows || '<tr><td colspan="7">No hay dispositivos para este filtro.</td></tr>'}</table>
-    <h2>05 · Recomendaciones</h2>
-    <p>Complete y edite esta sección en Google Docs, de acuerdo con los hallazgos del mantenimiento.</p>
-    <p style="color:#6f7480"><i>Escriba aquí las recomendaciones del mantenimiento...</i></p>
-    <p>&nbsp;</p><p>&nbsp;</p>
-    <p style="color:#888888">DMS Solutions Provider · Informe editable</p>
+    <p align="right" style="font-size:8pt;color:#636b79">DMS Solutions Provider · Documento editable en Google Docs</p>
     </body></html>`;
+}
+
+/**
+ * El importador HTML de Drive no garantiza CSS circular ni imágenes remotas.
+ * Se fija A4 horizontal y se comprueba la presencia del logo mediante Docs API.
+ * Si la conversión omite el PNG corporativo se inserta usando su URL pública.
+ * El contenido, tablas y recomendaciones siguen siendo editables.
+ */
+export async function finalizeMaintenanceVisualDoc({ docsApi, documentId }) {
+  const doc = await docsApi.documents.get({
+    documentId,
+    fields: 'inlineObjects',
+  });
+  const logoImported = Object.keys(doc.data?.inlineObjects || {}).length > 0;
+  const requests = [{
+    updateDocumentStyle: {
+      documentStyle: {
+        pageSize: {
+          width: { magnitude: 841.9, unit: 'PT' },
+          height: { magnitude: 595.3, unit: 'PT' },
+        },
+        marginTop: { magnitude: 28, unit: 'PT' },
+        marginBottom: { magnitude: 28, unit: 'PT' },
+        marginLeft: { magnitude: 30, unit: 'PT' },
+        marginRight: { magnitude: 30, unit: 'PT' },
+      },
+      fields: 'pageSize,marginTop,marginBottom,marginLeft,marginRight',
+    },
+  }];
+  if (!logoImported) {
+    requests.push({
+      insertInlineImage: {
+        uri: DMS_LOGO_URL,
+        location: { index: 1 },
+        objectSize: {
+          width: { magnitude: 122, unit: 'PT' },
+          height: { magnitude: 68, unit: 'PT' },
+        },
+      },
+    });
+  }
+  await docsApi.documents.batchUpdate({
+    documentId,
+    requestBody: { requests },
+  });
+  return { logoImported, logoRestored: !logoImported };
 }
 
 export async function createMaintenanceVisualDocs({ model, actor }) {
@@ -161,7 +326,7 @@ export async function createMaintenanceVisualDocs({ model, actor }) {
   }
   // Las APIs de Google se cargan solo al ejecutar la acción; las pruebas puras
   // y el dashboard no dependen de credenciales de Google al importarse.
-  const [{ driveApi }, { trashFile }, { resolveBaseFolderId }] = await Promise.all([
+  const [{ driveApi, docsApi }, { trashFile }, { resolveBaseFolderId }] = await Promise.all([
     import('../infra/google.js'),
     import('../infra/drive.repository.js'),
     import('./maintenance-presentation.service.js'),
@@ -181,6 +346,8 @@ export async function createMaintenanceVisualDocs({ model, actor }) {
     if (!documentId || data?.mimeType !== 'application/vnd.google-apps.document') {
       throw new AppError('REPORT_DOCS_CONVERSION_FAILED', 'Drive no pudo convertir el informe a Google Docs editable.', 502);
     }
+    // Garantizar formato apaisado y logo real antes de otorgar el acceso.
+    await finalizeMaintenanceVisualDoc({ docsApi, documentId });
     await driveApi.permissions.create({
       fileId: documentId,
       requestBody: { type: 'user', role: 'writer', emailAddress: email },

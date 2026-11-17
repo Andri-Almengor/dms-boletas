@@ -3,6 +3,7 @@ import assert from 'node:assert/strict';
 import {
   buildMaintenanceVisualReportHtml,
   buildMaintenanceVisualReportModel,
+  finalizeMaintenanceVisualDoc,
   visualDeviceState,
 } from '../src/services/maintenance-visual-docs.service.js';
 import { buildMaintenanceMetrics } from '../src/modules/metrics.module.js';
@@ -17,7 +18,7 @@ function metrics() {
     { EvidenciaMantenimientoID: 'pending', NombreDispositivo: 'Equipo pendiente', Categoria: 'Sensores', Funcionamiento: 'Sin dato' },
   ].map((row) => ({ MantenimientoRef: 'm1', ...row }));
   const tables = {
-    Mantenimiento: [{ MantenimientoID: 'm1', Cliente: 'Cliente seguro', Fecha: '2026-11-17' }],
+    Mantenimiento: [{ MantenimientoID: 'm1', Cliente: 'Cliente seguro', Fecha: '2026-11-17', TituloMantenimiento: 'Revisión de videovigilancia', Ubicacion: 'Sede Central' }],
     Evidencia_Mantenimientos: devices,
     'Mantenimiento imagenes': [],
     Usuarios: [],
@@ -65,7 +66,7 @@ test('Google Docs: tablas visuales, logo DMS y recomendaciones editables; observ
   const documentHtml = buildMaintenanceVisualReportHtml(buildMaintenanceVisualReportModel(metrics()));
   assert.match(documentHtml, /dms-report-logo\.png/);
   assert.match(documentHtml, /Salud del sistema/);
-  assert.match(documentHtml, /Distribución por tipo/);
+  assert.match(documentHtml, /Dispositivos por tipo/);
   assert.match(documentHtml, /Recomendaciones/);
   assert.match(documentHtml, /Crítica → Moderada → Leve/);
   assert.match(documentHtml, /&lt;script&gt;alert\(&quot;hola&quot;\)&lt;\/script&gt;/);
@@ -78,4 +79,113 @@ test('PDF existente: la tabla exportada conserva todas las filas y prioridad', (
   assert.deepEqual(data.detailRows.map((r) => r.deviceId),
     ['critical', 'moderate', 'low', 'legacy', 'healthy', 'pending']);
   assert.equal(data.reportDetailCount, data.detailRows.length);
+});
+
+test('Google Docs: la portada lleva el cliente como título, ubicación real y logo corporativo', () => {
+  const data = metrics();
+  const report = buildMaintenanceVisualReportModel(data, 'todos');
+  assert.equal(report.client, 'Cliente seguro');
+  assert.equal(report.maintenanceLabel, 'Revisión de videovigilancia');
+  assert.equal(report.siteLabel, 'Sede Central');
+  const html = buildMaintenanceVisualReportHtml(report);
+  assert.match(html, /<h1>Cliente seguro<\/h1>/);
+  assert.match(html, /Resumen visual del estado del sistema/);
+  assert.match(html, /Fecha del informe/);
+  assert.match(html, /Mantenimiento:<\/b> Revisión de videovigilancia/);
+  assert.match(html, /Sitio:<\/b> Sede Central/);
+  assert.match(html, /img src="https:\/\/raw\.githubusercontent\.com\/Andri-Almengor\/dms-boletas\/main\/src\/assets\/dms-report-logo\.png"/);
+  assert.match(html, /Total dispositivos/);
+  assert.match(html, /En buen estado/);
+  assert.match(html, /Dispositivos dañados/);
+  assert.match(html, /Salud general/);
+  assert.match(html, /Dispositivos por tipo/);
+  assert.match(html, /Recomendaciones/);
+  assert.ok(html.indexOf('Cámara crítica') < html.indexOf('Cámara moderada'));
+  assert.ok(html.indexOf('Cámara moderada') < html.indexOf('Puerta leve'));
+  assert.ok(html.indexOf('Puerta leve') < html.indexOf('Cámara sana'));
+});
+
+test('Google Docs: el modelo conserva mantenimientos múltiples sin inventar sitio ni número', () => {
+  const original = metrics();
+  const data = {
+    ...original,
+    reportContext: {
+      mantenimientos: [
+        { titulo: 'Visita inicial', ubicacion: 'Edificio 1' },
+        { titulo: 'Visita seguimiento', ubicacion: 'Edificio 2' },
+      ],
+    },
+  };
+  const report = buildMaintenanceVisualReportModel(data);
+  assert.equal(report.maintenanceLabel, '2 mantenimientos');
+  assert.equal(report.siteLabel, 'Varias ubicaciones');
+  const html = buildMaintenanceVisualReportHtml(report);
+  assert.match(html, /2 mantenimientos/);
+  assert.match(html, /Varias ubicaciones/);
+  const zero = buildMaintenanceVisualReportModel({ ...data, reportContext: null });
+  assert.equal(zero.maintenanceLabel, '');
+  assert.equal(zero.siteLabel, '');
+  assert.doesNotMatch(buildMaintenanceVisualReportHtml(zero), /<b>Sitio:<\/b>/);
+});
+
+test('Google Docs: se establece A4 horizontal y se recupera el logo si faltó al convertir', async () => {
+  const calls = [];
+  const docsApi = {
+    documents: {
+      get: async () => ({ data: { inlineObjects: {} } }),
+      batchUpdate: async (payload) => { calls.push(payload); return { data: {} }; },
+    },
+  };
+  const result = await finalizeMaintenanceVisualDoc({ docsApi, documentId: 'document-123' });
+  assert.equal(result.logoRestored, true);
+  assert.equal(calls.length, 1);
+  assert.equal(calls[0].documentId, 'document-123');
+  const [format, logo] = calls[0].requestBody.requests;
+  assert.equal(format.updateDocumentStyle.documentStyle.pageSize.width.magnitude, 841.9);
+  assert.equal(format.updateDocumentStyle.documentStyle.pageSize.height.magnitude, 595.3);
+  assert.equal(logo.insertInlineImage.location.index, 1);
+  assert.match(logo.insertInlineImage.uri, /dms-report-logo\.png/);
+});
+
+test('Google Docs: no duplica el logotipo cuando la importación HTML lo conservó', async () => {
+  const requests = [];
+  const docsApi = {
+    documents: {
+      get: async () => ({ data: { inlineObjects: { image_1: {} } } }),
+      batchUpdate: async (payload) => { requests.push(...payload.requestBody.requests); },
+    },
+  };
+  const result = await finalizeMaintenanceVisualDoc({ docsApi, documentId: 'report-123' });
+  assert.equal(result.logoImported, true);
+  assert.equal(result.logoRestored, false);
+  assert.equal(requests.length, 1);
+  assert.ok(requests[0].updateDocumentStyle);
+});
+
+test('Google Docs: el cliente y la ubicación se escapan antes de convertir el documento', () => {
+  const base = buildMaintenanceVisualReportModel(metrics());
+  const html = buildMaintenanceVisualReportHtml({
+    ...base, client: '<script>Cliente</script>', siteLabel: 'Norte & Sur',
+  });
+  assert.match(html, /<h1>&lt;script&gt;Cliente&lt;\/script&gt;<\/h1>/);
+  assert.match(html, /Norte &amp; Sur/);
+  assert.doesNotMatch(html, /<script>/);
+});
+
+test('Google Docs: una tabla extensa conserva todos los dispositivos y no solo la primera página', () => {
+  const data = metrics();
+  const total = 250;
+  const detailRows = Array.from({ length: total }, (_, index) => ({
+    ...data.detailRows[0], deviceId: `dev-${index}`, nombreDispositivo: `Dispositivo ${index}`,
+  }));
+  const large = buildMaintenanceVisualReportModel({
+    ...data,
+    detailRows,
+    reportDetailCount: total,
+    totals: { ...data.totals, dispositivosFiltrados: total },
+  });
+  const html = buildMaintenanceVisualReportHtml(large);
+  assert.equal(large.rows.length, total);
+  assert.match(html, /Dispositivo 249/);
+  assert.equal((html.match(/<span style="display:inline-block;border-radius:14px/g) || []).length, total);
 });

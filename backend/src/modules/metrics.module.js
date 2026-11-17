@@ -521,6 +521,15 @@ export function buildMaintenanceMetrics(tables, payload = {}) {
     },
     // En modo PDF no se aplica el límite visual de 500: todas las filas deben llegar completas.
     // El conteo independiente permite detectar una respuesta truncada antes de imprimir.
+    // El reporte reutiliza el mantenimiento seleccionado; no inventa títulos ni ubicaciones.
+    // Cuando cliente/fecha reúne varias visitas, se incluyen todas las referencias.
+    reportContext: reportIncidents ? {
+      mantenimientos: selectedMaintenances.map((item) => ({
+        id: clean(item.MantenimientoID),
+        titulo: clean(item.TituloMantenimiento),
+        ubicacion: clean(item.Ubicacion),
+      })),
+    } : null,
     reportDetailCount: reportIncidents ? orderedReportRows.length : null,
     detailRows: reportIncidents ? orderedReportRows : details.slice(0, 500),
   };
