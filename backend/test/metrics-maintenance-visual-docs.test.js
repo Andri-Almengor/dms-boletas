@@ -37,7 +37,7 @@ test('Google Docs: resumen usa todos los equipos; solo la tabla obedece al filtr
   assert.equal(all.evaluated, 5);
   assert.equal(all.health, 20);
   assert.deepEqual(all.categories.map((row) => [row.categoria, row.total, row.danados]), [
-    ['Cámaras', 3, 2], ['Puertas', 2, 2], ['Sensores de movimiento', 1, 0],
+    ['Cámaras', 3, 2], ['Puertas', 2, 2], ['Sensores', 1, 0],
   ]);
   assert.deepEqual(all.rows.map((r) => r.deviceId), ['critical', 'moderate', 'low', 'legacy', 'healthy', 'pending']);
   const bad = buildMaintenanceVisualReportModel(data, 'danados');
