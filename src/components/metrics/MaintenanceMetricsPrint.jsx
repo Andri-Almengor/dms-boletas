@@ -26,7 +26,19 @@ function MaintenanceMetricsPrint({ data }) {
   const stored = Number(charts.stored || 0);
   const total = operating + failing;
   const useTotal = activeUse + stored;
-  const incidents = (data?.detailRows || []).filter((row) => row.operativo === false);
+  // El backend entrega las filas según la selección del informe (no filtrar otra vez aquí).
+  const rows = data?.detailRows || [];
+  const reportMode = data?.filtersApplied?.detalleReporte || 'fallas';
+  const detailTitles = {
+    todos: 'Detalle de todos los dispositivos',
+    fallas: 'Detalle de dispositivos con fallas',
+    funcionales: 'Detalle de dispositivos funcionales',
+  };
+  const detailDescriptions = {
+    todos: 'Se incluyen dispositivos funcionales, averiados y sin estado de funcionamiento registrado.',
+    fallas: 'Solo se incluyen dispositivos reportados como dañados o sin funcionamiento.',
+    funcionales: 'Solo se incluyen dispositivos con funcionamiento positivo.',
+  };
 
   return <main className="report-page">
     <div className="report-context">
@@ -68,20 +80,21 @@ function MaintenanceMetricsPrint({ data }) {
     </div>
 
     <section className="report-incidents">
-      <h2>Detalle de dispositivos con incidencias</h2>
-      <p>{formatMetric(incidents.length, 0)} dispositivo(s) con funcionamiento reportado como averiado o no operativo.</p>
-      {incidents.length ? <table className="report-table">
-        <colgroup><col style={{ width: '18%' }} /><col style={{ width: '15%' }} /><col style={{ width: '14%' }} /><col style={{ width: '11%' }} /><col style={{ width: '12%' }} /><col style={{ width: '30%' }} /></colgroup>
-        <thead><tr><th>Zona / ubicación</th><th>Dispositivo</th><th>Categoría</th><th>Funcionamiento</th><th>Uso</th><th>Observaciones</th></tr></thead>
-        <tbody>{incidents.map((row, index) => <tr key={row.deviceId || index}>
+      <h2>{detailTitles[reportMode] || detailTitles.fallas}</h2>
+      <p>{formatMetric(rows.length, 0)} dispositivo(s). {detailDescriptions[reportMode] || detailDescriptions.fallas}</p>
+      {rows.length ? <table className="report-table">
+        <colgroup><col style={{ width: '13%' }} /><col style={{ width: '14%' }} /><col style={{ width: '11%' }} /><col style={{ width: '10%' }} /><col style={{ width: '10%' }} /><col style={{ width: '14%' }} /><col style={{ width: '28%' }} /></colgroup>
+        <thead><tr><th>Zona / ubicación</th><th>Dispositivo</th><th>Categoría</th><th>Funcionamiento</th><th>Uso</th><th>Responsable</th><th>Observaciones</th></tr></thead>
+        <tbody>{rows.map((row, index) => <tr key={row.deviceId || index}>
           <td>{row.zona || 'Sin zona'}</td>
           <td><strong>{row.nombreDispositivo || 'Sin dispositivo'}</strong></td>
           <td>{row.categoria || 'Sin categoría'}</td>
-          <td><span className="report-status report-status--fault">{row.funcionamiento || 'No'}</span></td>
+          <td><span className={`report-status ${row.operativo ? 'report-status--ok' : row.averiado ? 'report-status--fault' : 'report-status--unknown'}`}>{row.funcionamiento || 'Sin dato'}</span></td>
           <td>{row.enUso || 'Sin dato'}</td>
+          <td>{row.creador || 'Sin responsable'}</td>
           <td className="report-observation">{row.observacion || 'Sin observaciones'}</td>
         </tr>)}</tbody>
-      </table> : <div className="report-empty">No se registraron dispositivos dañados o sin funcionamiento en esta fecha.</div>}
+      </table> : <div className="report-empty">No hay dispositivos para el tipo seleccionado en esta fecha.</div>}
     </section>
   </main>;
 }
@@ -128,7 +141,10 @@ const REPORT_STYLES = `
   .report-table thead { display: table-header-group; }
   .report-table tr { break-inside: avoid; page-break-inside: avoid; }
   .report-observation { white-space: pre-wrap; line-height: 1.5; }
-  .report-status--fault { display: inline-block; padding: 4px 6px; border-radius: 10px; color: #a50013; background: #ffe6e7; font-weight: bold; print-color-adjust: exact; -webkit-print-color-adjust: exact; }
+  .report-status { display: inline-block; padding: 4px 6px; border-radius: 10px; font-weight: bold; print-color-adjust: exact; -webkit-print-color-adjust: exact; }
+  .report-status--fault { color: #a50013; background: #ffe6e7; }
+  .report-status--ok { color: #06754c; background: #e3f8ee; }
+  .report-status--unknown { color: #5b626d; background: #eceef2; }
   .report-empty { padding: 26px; text-align: center; border: 1px dashed #ccd0d8; border-radius: 10px; color: #596070; }
   .print-controls { position: sticky; top: 0; z-index: 10; display: flex; justify-content: center; align-items: center; gap: 18px; padding: 10px; background: #26242a; color: #fff; }
   .print-controls button { border: 0; border-radius: 8px; padding: 9px 18px; background: #b90d19; color: #fff; font-weight: bold; cursor: pointer; }
@@ -160,7 +176,8 @@ export function renderMaintenanceReport(popup, data) {
   if (!popup || popup.closed) return;
   const client = data?.filtersApplied?.cliente || 'Cliente';
   const date = data?.filtersApplied?.fecha || 'Fecha';
-  const filename = `DMS-Mantenimiento-${client}-${date}`
+  const mode = data?.filtersApplied?.detalleReporte || 'fallas';
+  const filename = `DMS-Mantenimiento-${client}-${date}-${mode}`
     .replace(/[^\p{L}\p{N}_-]+/gu, '_').slice(0, 90);
   const reportMarkup = renderToStaticMarkup(<MaintenanceMetricsPrint data={data} />);
   popup.document.open();
