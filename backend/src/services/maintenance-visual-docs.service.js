@@ -187,6 +187,9 @@ export function buildMaintenanceVisualReportHtml(model) {
       .keep{page-break-inside:avoid}
     </style>
     </head><body>
+    <!-- Reserva una posición válida para insertar el logo mediante Docs API cuando
+         el importador HTML omite la imagen externa. -->
+    <p style="margin:0;font-size:1pt">&nbsp;</p>
     <table width="100%" cellpadding="0" cellspacing="0" role="presentation" style="margin:0 0 14px">
       <tr><td bgcolor="#22252b" width="34%" style="background-color:#22252b;padding:8px 13px">
         <img src="${DMS_LOGO_URL}" alt="DMS Solutions Provider" width="142" height="80">
@@ -270,6 +273,52 @@ export function buildMaintenanceVisualReportHtml(model) {
     </body></html>`;
 }
 
+/**
+ * El importador HTML de Drive no garantiza CSS circular ni imágenes remotas.
+ * Se fija A4 horizontal y se comprueba la presencia del logo mediante Docs API.
+ * Si la conversión omite el PNG corporativo se inserta usando su URL pública.
+ * El contenido, tablas y recomendaciones siguen siendo editables.
+ */
+export async function finalizeMaintenanceVisualDoc({ docsApi, documentId }) {
+  const doc = await docsApi.documents.get({
+    documentId,
+    fields: 'inlineObjects',
+  });
+  const logoImported = Object.keys(doc.data?.inlineObjects || {}).length > 0;
+  const requests = [{
+    updateDocumentStyle: {
+      documentStyle: {
+        pageSize: {
+          width: { magnitude: 841.9, unit: 'PT' },
+          height: { magnitude: 595.3, unit: 'PT' },
+        },
+        marginTop: { magnitude: 28, unit: 'PT' },
+        marginBottom: { magnitude: 28, unit: 'PT' },
+        marginLeft: { magnitude: 30, unit: 'PT' },
+        marginRight: { magnitude: 30, unit: 'PT' },
+      },
+      fields: 'pageSize,marginTop,marginBottom,marginLeft,marginRight',
+    },
+  }];
+  if (!logoImported) {
+    requests.push({
+      insertInlineImage: {
+        uri: DMS_LOGO_URL,
+        location: { index: 1 },
+        objectSize: {
+          width: { magnitude: 122, unit: 'PT' },
+          height: { magnitude: 68, unit: 'PT' },
+        },
+      },
+    });
+  }
+  await docsApi.documents.batchUpdate({
+    documentId,
+    requestBody: { requests },
+  });
+  return { logoImported, logoRestored: !logoImported };
+}
+
 export async function createMaintenanceVisualDocs({ model, actor }) {
   const email = text(actor?.Correo || actor?.Email || actor?.CorreoElectronico || actor?.email);
   if (!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email)) {
@@ -277,7 +326,7 @@ export async function createMaintenanceVisualDocs({ model, actor }) {
   }
   // Las APIs de Google se cargan solo al ejecutar la acción; las pruebas puras
   // y el dashboard no dependen de credenciales de Google al importarse.
-  const [{ driveApi }, { trashFile }, { resolveBaseFolderId }] = await Promise.all([
+  const [{ driveApi, docsApi }, { trashFile }, { resolveBaseFolderId }] = await Promise.all([
     import('../infra/google.js'),
     import('../infra/drive.repository.js'),
     import('./maintenance-presentation.service.js'),
@@ -297,6 +346,8 @@ export async function createMaintenanceVisualDocs({ model, actor }) {
     if (!documentId || data?.mimeType !== 'application/vnd.google-apps.document') {
       throw new AppError('REPORT_DOCS_CONVERSION_FAILED', 'Drive no pudo convertir el informe a Google Docs editable.', 502);
     }
+    // Garantizar formato apaisado y logo real antes de otorgar el acceso.
+    await finalizeMaintenanceVisualDoc({ docsApi, documentId });
     await driveApi.permissions.create({
       fileId: documentId,
       requestBody: { type: 'user', role: 'writer', emailAddress: email },
