@@ -95,7 +95,8 @@ function MaintenanceMetricsPrint({ data }) {
           <td>{row.zona || 'Sin zona'}</td>
           <td><strong>{row.nombreDispositivo || 'Sin dispositivo'}</strong></td>
           <td>{row.categoria || 'Sin categoría'}</td>
-          <td><span className={`report-status ${row.operativo ? 'report-status--ok' : row.averiado ? 'report-status--fault' : 'report-status--unknown'}`}>{row.funcionamiento || 'Sin dato'}</span></td>
+          <td><span className={`report-status ${row.operativo ? 'report-status--ok' : row.averiado ? 'report-status--fault' : 'report-status--unknown'}`}>{row.funcionamiento || 'Sin dato'}</span>
+            {row.gravedadFalla && (row.averiado || row.estado === 'Mal estado') && <small className="report-fault-severity">Prioridad: {row.gravedadFalla}</small>}</td>
           <td>{row.enUso || 'Sin dato'}</td>
           <td>{row.creador || 'Sin responsable'}</td>
           <td className="report-observation">{row.observacion || 'Sin observaciones'}</td>
@@ -153,6 +154,7 @@ const REPORT_STYLES = `
   .report-status--fault { color: #a50013; background: #ffe6e7; }
   .report-status--ok { color: #06754c; background: #e3f8ee; }
   .report-status--unknown { color: #5b626d; background: #eceef2; }
+  .report-fault-severity { display: block; margin-top: 3px; color: #9e111b; font-weight: bold; }
   .report-empty { padding: 26px; text-align: center; border: 1px dashed #ccd0d8; border-radius: 10px; color: #596070; }
   .print-controls { position: sticky; top: 0; z-index: 10; display: flex; flex-wrap: wrap; justify-content: space-between; align-items: center; gap: 12px; padding: 12px 16px; background: #26242a; color: #fff; }
   .print-controls__instructions { display: grid; gap: 4px; min-width: 230px; flex: 1; line-height: 1.4; }
