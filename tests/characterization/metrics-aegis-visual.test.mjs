@@ -80,7 +80,8 @@ test('métricas: pantalla consulta todos los equipos y PDF ofrece filtro indepen
   const route = source('src/styles/routes/metrics.js');
   const css = source('src/styles/metrics.css');
 
-  assert.match(dashboard, /<AdminEntityModal[\s\S]*?title="Configurar informe PDF"/);
+  assert.match(dashboard, /<AdminEntityModal[\s\S]*?title="Configurar informe"/);
+  assert.match(dashboard, /Informe completo visual/);
   assert.match(dashboard, /onClick=\{openPdfOptions\}/);
   assert.match(dashboard, /detalleReporte: pdfDeviceFilter/);
   assert.match(dashboard, /\['fallas', 'Solo averías confirmadas'/);
