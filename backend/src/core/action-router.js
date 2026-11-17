@@ -57,6 +57,7 @@ add(['config.get','app.config.get'],getClientConfig);
 add(['assistant.chat','asistente.chat'],assistantOperationalReportHandlers.chat);
 add(['metrics.tickets.get','metricas.boletas.get'],metricsHandlers.tickets,'USUARIOS_GESTIONAR');
 add(['metrics.maintenance.get','metricas.mantenimientos.get'],metricsHandlers.maintenance,'USUARIOS_GESTIONAR');
+add('metrics.maintenance.docs.create',metricsHandlers.maintenanceVisualDocs,'USUARIOS_GESTIONAR');
 add(['legacy.tickets.preview','migracion.boletas.previsualizar'],legacyTicketImportHandlers.preview,'USUARIOS_GESTIONAR');
 add(['legacy.tickets.commit','migracion.boletas.importar'],legacyTicketImportHandlers.commit,'USUARIOS_GESTIONAR');
 add(['ai.technicalRewrite','gemini.technicalRewrite','boletas.ai.rewrite'], async (ctx)=>rewriteTechnicalReport(ctx.payload), ['BOLETAS_CREAR','BOLETAS_EDITAR','MANTENIMIENTOS_CREAR','MANTENIMIENTOS_EDITAR','MANTENIMIENTOS_GESTIONAR']);
