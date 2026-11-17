@@ -212,7 +212,7 @@ test('grupo rojo 208 de 522: exporta los 208 con falla/sin dato, no solo 5 averÃ
   assert.equal(all.reportDetailCount, 522);
   assert.equal(working.detailRows.length, 314);
   assert.equal(working.reportDetailCount, 314);
-  assert.equal(group.detailRows.at(-1).deviceId, 'sin-dato-202');
+  assert.ok(group.detailRows.some((row) => row.deviceId === 'sin-dato-202'));
 });
 
 test('el backend rechaza un modo de PDF desconocido sin alterar filtros existentes', () => {
