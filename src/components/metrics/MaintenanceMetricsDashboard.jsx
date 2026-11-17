@@ -238,7 +238,7 @@ export default function MaintenanceMetricsDashboard() {
         </MetricsPanel>
       </div>
 
-      <MetricsPanel title="Detalle de dispositivos" hint={`Mostrando ${detailRows.length} de ${(data.detailRows || []).length} dispositivos. El filtro de funcionamiento permite ver funcionales, no operativos o todos.`}>
+      <MetricsPanel title="Detalle de dispositivos" hint={`Mostrando ${detailRows.length} de ${formatMetric(totals.dispositivosFiltrados, 0)} dispositivos. ${Number(totals.dispositivosFiltrados || 0) > (data.detailRows || []).length ? 'Se muestran los primeros 500 registros; puede usar los filtros para acotar el resultado. ' : ''}El filtro de funcionamiento permite ver funcionales, no operativos o todos.`}>
         <div className="metrics-search"><Icon name="search" /><input type="search" value={search} onChange={(event) => setSearch(event.target.value)} placeholder="Buscar dispositivo, zona, categoría u observación..." /></div>
         {detailRows.length ? <div className="metrics-table-wrap"><table className="metrics-table metrics-device-table"><thead><tr><th>Zona / dispositivo</th><th>Categoría</th><th>Funcionamiento</th><th>Uso</th><th>Responsable</th><th>Observaciones</th></tr></thead><tbody>{detailRows.map((row) => <tr key={row.deviceId}>
           <td><strong>{row.nombreDispositivo}</strong><small>{row.zona}</small></td>
