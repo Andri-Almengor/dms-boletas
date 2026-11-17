@@ -1,0 +1,173 @@
+import React from 'react';
+import { renderToStaticMarkup } from 'react-dom/server';
+import { DonutBreakdown, formatMetric, ProgressBar } from './MetricsPrimitives';
+
+function percentage(value, total) {
+  return total > 0 ? (Number(value || 0) / total) * 100 : 0;
+}
+
+function maintenanceDate(value) {
+  const date = /^\d{4}-\d{2}-\d{2}$/.test(String(value || ''))
+    ? new Date(`${value}T12:00:00`)
+    : new Date(value);
+  return Number.isNaN(date.getTime())
+    ? String(value || '')
+    : new Intl.DateTimeFormat('es-CR', { day: 'numeric', month: 'long', year: 'numeric' }).format(date);
+}
+
+// Este documento usa los mismos agregados y primitivas del dashboard, sin duplicar consultas.
+function MaintenanceMetricsPrint({ data }) {
+  const charts = data?.charts || {};
+  const client = data?.filtersApplied?.cliente || '';
+  const date = data?.filtersApplied?.fecha || '';
+  const operating = Number(charts.operating || 0);
+  const failing = Number(charts.failing || 0);
+  const activeUse = Number(charts.activeUse || 0);
+  const stored = Number(charts.stored || 0);
+  const total = operating + failing;
+  const useTotal = activeUse + stored;
+  const incidents = (data?.detailRows || []).filter((row) => row.operativo === false);
+
+  return <main className="report-page">
+    <div className="report-context">
+      <div className="report-context__item"><span>Cliente</span><strong>{client}</strong></div>
+      <div className="report-context__item"><span>Fecha del mantenimiento</span><strong>{maintenanceDate(date)}</strong></div>
+    </div>
+
+    <div className="report-main-charts">
+      <section className="report-panel report-panel--functioning">
+        <h2>Métricas del mantenimiento</h2>
+        <p>Resumen del estado de los dispositivos registrados.</p>
+        <DonutBreakdown total={total} items={[
+          { label: 'Funcional', value: operating, color: '#58d0a0' },
+          { label: 'Con falla / sin dato', value: failing, color: '#f1797c' },
+        ]} />
+      </section>
+      <section className="report-panel report-panel--usage">
+        <h2>Distribución de activos</h2>
+        <p>Dispositivos según su uso o almacenamiento.</p>
+        <div className="report-use-row">
+          <div><strong>En uso</strong><b>{formatMetric(activeUse, 0)} ({percentage(activeUse, useTotal).toFixed(1)}%)</b></div>
+          <ProgressBar value={percentage(activeUse, useTotal)} tone="primary" />
+        </div>
+        <div className="report-use-row">
+          <div><strong>Almacenados</strong><b>{formatMetric(stored, 0)} ({percentage(stored, useTotal).toFixed(1)}%)</b></div>
+          <ProgressBar value={percentage(stored, useTotal)} tone="muted" />
+        </div>
+      </section>
+    </div>
+
+    <div className="report-kpis">
+      {[
+        ['Total de dispositivos', total],
+        ['Funcionales', operating],
+        ['Con falla / sin dato', failing],
+        ['En uso', activeUse],
+        ['Almacenados', stored],
+      ].map(([label, value]) => <div className="report-kpi" key={label}><span>{label}</span><strong>{formatMetric(value, 0)}</strong></div>)}
+    </div>
+
+    <section className="report-incidents">
+      <h2>Detalle de dispositivos con incidencias</h2>
+      <p>{formatMetric(incidents.length, 0)} dispositivo(s) con funcionamiento reportado como averiado o no operativo.</p>
+      {incidents.length ? <table className="report-table">
+        <colgroup><col style={{ width: '18%' }} /><col style={{ width: '15%' }} /><col style={{ width: '14%' }} /><col style={{ width: '11%' }} /><col style={{ width: '12%' }} /><col style={{ width: '30%' }} /></colgroup>
+        <thead><tr><th>Zona / ubicación</th><th>Dispositivo</th><th>Categoría</th><th>Funcionamiento</th><th>Uso</th><th>Observaciones</th></tr></thead>
+        <tbody>{incidents.map((row, index) => <tr key={row.deviceId || index}>
+          <td>{row.zona || 'Sin zona'}</td>
+          <td><strong>{row.nombreDispositivo || 'Sin dispositivo'}</strong></td>
+          <td>{row.categoria || 'Sin categoría'}</td>
+          <td><span className="report-status report-status--fault">{row.funcionamiento || 'No'}</span></td>
+          <td>{row.enUso || 'Sin dato'}</td>
+          <td className="report-observation">{row.observacion || 'Sin observaciones'}</td>
+        </tr>)}</tbody>
+      </table> : <div className="report-empty">No se registraron dispositivos dañados o sin funcionamiento en esta fecha.</div>}
+    </section>
+  </main>;
+}
+
+const REPORT_STYLES = `
+  @page { size: A4 landscape; margin: 0; }
+  * { box-sizing: border-box; }
+  html, body { padding: 0; margin: 0; }
+  body { font-family: Arial, Helvetica, sans-serif; font-size: 12px; color: #202126; background: #fff; }
+  button { font: inherit; }
+  .report-page { padding: 12mm 11mm; background: #fff; }
+  .report-context { display: grid; grid-template-columns: 1.2fr 1fr; gap: 12px; margin-bottom: 14px; }
+  .report-context__item { padding: 14px 17px; border: 1px solid #cfd3dc; border-left: 4px solid #b90d19; border-radius: 11px; min-width: 0; }
+  .report-context__item span { display: block; font-size: 12px; color: #555d6d; margin-bottom: 5px; }
+  .report-context__item strong { font-size: 17px; color: #16171c; overflow-wrap: anywhere; }
+  .report-main-charts { display: grid; grid-template-columns: 1.4fr 1fr; gap: 13px; margin-bottom: 13px; }
+  .report-panel { border: 1px solid #cfd3dc; border-radius: 12px; padding: 15px; min-width: 0; }
+  h2 { margin: 0; font-size: 18px; line-height: 1.3; border-left: 4px solid #b90d19; padding-left: 10px; }
+  .report-panel > p, .report-incidents > p { margin: 5px 0 12px; color: #596070; font-size: 11px; }
+  .metrics-donut-layout { display: grid; grid-template-columns: 145px 1fr; align-items: center; gap: 20px; }
+  .metrics-donut { width: 145px; height: 145px; border-radius: 50%; display: grid; place-items: center; position: relative; print-color-adjust: exact; -webkit-print-color-adjust: exact; }
+  .metrics-donut::after { content: ''; position: absolute; inset: 25px; border-radius: 50%; background: #fff; }
+  .metrics-donut > div { z-index: 1; text-align: center; }
+  .metrics-donut strong { display: block; font-size: 27px; }
+  .metrics-donut span { display: block; font-size: 10px; color: #586071; text-transform: uppercase; }
+  .metrics-legend { display: grid; gap: 10px; }
+  .metrics-legend button { display: flex; justify-content: space-between; gap: 8px; align-items: center; width: 100%; padding: 11px 12px; border-radius: 9px; border: 1px solid #e1e3e9; background: #f8f9fb; color: #1b1b1e; text-align: left; print-color-adjust: exact; -webkit-print-color-adjust: exact; }
+  .metrics-legend button > span { display: flex; align-items: center; gap: 8px; }
+  .metrics-legend i { display: block; width: 10px; height: 10px; border-radius: 50%; }
+  .report-use-row { border: 1px solid #e1e3e9; border-radius: 9px; padding: 13px; margin-top: 11px; background: #f8f9fb; print-color-adjust: exact; -webkit-print-color-adjust: exact; }
+  .report-use-row > div:first-child { display: flex; justify-content: space-between; gap: 8px; font-size: 13px; margin-bottom: 9px; }
+  .metrics-progress { height: 8px; background: #e3e5ec; border-radius: 9px; overflow: hidden; }
+  .metrics-progress > span { display: block; height: 100%; border-radius: 9px; background: #e54456; print-color-adjust: exact; -webkit-print-color-adjust: exact; }
+  .metrics-progress--muted > span { background: #858b96; }
+  .report-kpis { display: grid; grid-template-columns: repeat(5, minmax(0, 1fr)); gap: 9px; margin: 0 0 18px; }
+  .report-kpi { padding: 12px 13px; border: 1px solid #d6d9e0; border-radius: 10px; background: #f6f7f9; print-color-adjust: exact; -webkit-print-color-adjust: exact; }
+  .report-kpi span { display: block; min-height: 28px; color: #555d6d; font-size: 11px; }
+  .report-kpi strong { display: block; font-size: 22px; margin-top: 4px; }
+  .report-incidents h2 { font-size: 18px; }
+  .report-table { width: 100%; border-collapse: collapse; table-layout: fixed; border: 1px solid #d4d8e0; }
+  .report-table th { padding: 9px 10px; background: #24262e; color: #fff; font-size: 10px; text-align: left; print-color-adjust: exact; -webkit-print-color-adjust: exact; }
+  .report-table td { padding: 9px 10px; border-bottom: 1px solid #d9dce3; font-size: 10px; vertical-align: top; overflow-wrap: anywhere; white-space: pre-wrap; }
+  .report-table tbody tr:nth-child(even) { background: #f7f8fa; print-color-adjust: exact; -webkit-print-color-adjust: exact; }
+  .report-table thead { display: table-header-group; }
+  .report-table tr { break-inside: avoid; page-break-inside: avoid; }
+  .report-observation { white-space: pre-wrap; line-height: 1.5; }
+  .report-status--fault { display: inline-block; padding: 4px 6px; border-radius: 10px; color: #a50013; background: #ffe6e7; font-weight: bold; print-color-adjust: exact; -webkit-print-color-adjust: exact; }
+  .report-empty { padding: 26px; text-align: center; border: 1px dashed #ccd0d8; border-radius: 10px; color: #596070; }
+  .print-controls { position: sticky; top: 0; z-index: 10; display: flex; justify-content: center; align-items: center; gap: 18px; padding: 10px; background: #26242a; color: #fff; }
+  .print-controls button { border: 0; border-radius: 8px; padding: 9px 18px; background: #b90d19; color: #fff; font-weight: bold; cursor: pointer; }
+  @media screen {
+    body { background: #e7e8eb; }
+    .report-page { max-width: 1160px; margin: 20px auto 36px; box-shadow: 0 8px 30px #0002; }
+  }
+  @media print {
+    .print-controls { display: none !important; }
+    .report-page { box-shadow: none; }
+    .report-main-charts, .report-context, .report-kpis { break-inside: avoid; page-break-inside: avoid; }
+  }
+`;
+
+export function openMaintenanceReportPreview() {
+  const popup = window.open('', '_blank');
+  if (!popup) return null;
+  popup.opener = null;
+  popup.document.title = 'Preparando métricas de mantenimiento';
+  popup.document.body.textContent = 'Preparando las métricas del mantenimiento seleccionado…';
+  return popup;
+}
+
+export function showMaintenanceReportError(popup, message) {
+  if (popup && !popup.closed) popup.document.body.textContent = message;
+}
+
+export function renderMaintenanceReport(popup, data) {
+  if (!popup || popup.closed) return;
+  const client = data?.filtersApplied?.cliente || 'Cliente';
+  const date = data?.filtersApplied?.fecha || 'Fecha';
+  const filename = `DMS-Mantenimiento-${client}-${date}`
+    .replace(/[^\p{L}\p{N}_-]+/gu, '_').slice(0, 90);
+  const reportMarkup = renderToStaticMarkup(<MaintenanceMetricsPrint data={data} />);
+  popup.document.open();
+  popup.document.write(`<!doctype html><html lang="es"><head><meta charset="utf-8"><title>${filename}</title><style>${REPORT_STYLES}</style></head><body><div class="print-controls"><span>Vista previa del informe · Para obtener el PDF, elija «Guardar como PDF» al imprimir.</span><button id="print-report" type="button">Imprimir / Guardar PDF</button></div>${reportMarkup}</body></html>`);
+  popup.document.close();
+  popup.document.getElementById('print-report')?.addEventListener('click', () => popup.print());
+  popup.focus();
+  // Se intenta abrir el diálogo automáticamente; el botón permanece por compatibilidad móvil.
+  popup.setTimeout(() => { if (!popup.closed) popup.print(); }, 300);
+}
