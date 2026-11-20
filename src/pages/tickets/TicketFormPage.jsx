@@ -173,6 +173,7 @@ export default function TicketFormPage({ mode = 'create' }) {
     clearDraft: draft.clearDraft,
     navigate,
     navigationState: returnState,
+    recoveryRoute: `${location.pathname}${location.search}`,
     setError,
   });
   const autosaveStatus = editing && serverStatus !== 'idle' ? serverStatus : draft.status;
