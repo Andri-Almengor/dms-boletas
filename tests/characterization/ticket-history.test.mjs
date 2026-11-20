@@ -19,15 +19,30 @@ test('ticket edits and autosaves share transactionally persisted snapshots under
   assert.match(read('backend/migrations/027_ticket_edit_audit_history_index.sql'), /CREATE INDEX IF NOT EXISTS/);
 });
 
-test('only management permission can request or view ticket history; previous versions stay read-only', () => {
+test('management-only ticket history opens in its own tab and stays read-only', () => {
   const router = read('backend/src/core/action-router.js');
+  const app = read('src/app/App.jsx');
   const detail = read('src/pages/tickets/TicketDetailPage.jsx');
-  const client = read('src/components/tickets/TicketHistoryPanel.jsx');
+  const page = read('src/pages/tickets/TicketHistoryPage.jsx');
+  const viewer = read('src/components/tickets/TicketHistoryPanel.jsx');
+  const styles = read('src/styles/ticket-history.css');
   assert.match(router, /ticketHandlers\.history, 'USUARIOS_GESTIONAR'/);
-  assert.match(detail, /hasPermission\('USUARIOS_GESTIONAR'\) && <TicketHistoryPanel/);
-  assert.match(client, /Ver cómo estaba toda la boleta antes de la edición/);
-  assert.match(client, /Consultar quién cambió la boleta/);
-  assert.match(client, /pageSize: 20/);
-  assert.doesNotMatch(client, /boletas\.update|tickets\.update|history\.restore/);
-  assert.match(read('src/styles/ticket-history.css'), /max-width: 600px/);
+  assert.match(app, /path="boletas\/:boletaUid\/historial" element=\{<PermissionRoute permission="USUARIOS_GESTIONAR">/);
+  assert.match(detail, /hasPermission\('USUARIOS_GESTIONAR'\) && \(/);
+  assert.match(detail, /to=\{`\/boletas\/\$\{encodeURIComponent\(boletaUid\)\}\/historial`\}/);
+  assert.match(detail, /target="_blank" rel="noopener noreferrer"/);
+  assert.match(detail, /ticket-history-launch__action/);
+  assert.doesNotMatch(detail, /<TicketHistoryPanel/);
+  assert.match(page, /<TicketHistoryPanel boletaUid=\{boletaUid\} sessionToken=\{sessionToken\}/);
+  assert.match(viewer, /void loadHistory\(1\)/);
+  assert.match(viewer, /Ver cómo estaba toda la boleta antes de la edición/);
+  assert.match(viewer, /campos modificados/);
+  assert.match(viewer, /pageSize: 20/);
+  assert.doesNotMatch(viewer, /boletas\.update|tickets\.update|history\.restore/);
+  assert.match(read('src/styles/routes/tickets.js'), /ticket-history.css/);
+  assert.match(styles, /\.ticket-history-launch:hover/);
+  assert.match(styles, /max-width: 760px/);
+  assert.match(styles, /max-width: 600px/);
+  assert.match(styles, /max-width: 390px/);
+  assert.match(styles, /prefers-reduced-motion/);
 });
