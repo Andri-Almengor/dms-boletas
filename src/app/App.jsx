@@ -72,6 +72,7 @@ const SurveyDetailPage = lazyPage(() => import('../pages/surveys/SurveyDetailPag
 const SurveysAdminPage = lazyPage(() => import('../pages/surveys/SurveysAdminPage'), routeStyles.surveys, routeStyles.admin);
 const PublicSignaturePage = lazyPage(() => import('../pages/tickets/PublicSignaturePage'), routeStyles.tickets);
 const TicketDetailWithQuickEdit = lazyPage(() => import('../pages/tickets/TicketDetailWithQuickEdit'), routeStyles.tickets);
+const TicketHistoryPage = lazyPage(() => import('../pages/tickets/TicketHistoryPage'), routeStyles.tickets);
 const TicketFormPage = lazyPage(() => import('../pages/tickets/TicketFormPage'), routeStyles.tickets);
 const TicketListPage = lazyPage(() => import('../pages/tickets/TicketListPage'), routeStyles.tickets);
 const TicketQuickEditPage = lazyPage(() => import('../pages/tickets/TicketQuickEditPage'), routeStyles.tickets);
@@ -166,6 +167,7 @@ export default function App() {
           <Route path="boletas/finalizadas" element={<PermissionRoute permission="BOLETAS_VER"><TicketListPage status="FINALIZADA" /></PermissionRoute>} />
           <Route path="boletas/nueva" element={<PermissionRoute permission="BOLETAS_CREAR"><TicketFormPage mode="create" /></PermissionRoute>} />
           <Route path="boletas/:boletaUid" element={<PermissionRoute permission="BOLETAS_VER"><TicketDetailWithQuickEdit /></PermissionRoute>} />
+          <Route path="boletas/:boletaUid/historial" element={<PermissionRoute permission="USUARIOS_GESTIONAR"><TicketHistoryPage /></PermissionRoute>} />
           <Route path="boletas/:boletaUid/nueva-visita" element={<PermissionRoute permission="BOLETAS_CREAR"><TicketRelatedVisitPage /></PermissionRoute>} />
           <Route path="boletas/:boletaUid/editar" element={<PermissionRoute permission="BOLETAS_EDITAR"><TicketFormPage mode="edit" /></PermissionRoute>} />
           <Route path="boletas/:boletaUid/editar-rapido/:section" element={<PermissionRoute permission="BOLETAS_EDITAR"><TicketQuickEditPage /></PermissionRoute>} />
