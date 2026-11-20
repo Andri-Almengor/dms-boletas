@@ -21,6 +21,7 @@ export default function useTicketPersistence({
   clearDraft,
   navigate,
   navigationState,
+  recoveryRoute,
   setError,
 }) {
   const { user } = useAuth();
@@ -30,8 +31,8 @@ export default function useTicketPersistence({
   const createTicketUidRef = useRef('');
   const createActionInFlightRef = useRef(false);
   const recoveryScope = String(user?.UsuarioID || user?.Correo || 'public');
-  const recoveryRoute = editing ? `/boletas/${boletaUid}/editar` : '/boletas/nueva';
-  const recoveryDraftKey = `${recoveryScope}:${recoveryRoute}`;
+  const recoveryPath = recoveryRoute || (editing ? `/boletas/${boletaUid}/editar` : '/boletas/nueva');
+  const recoveryDraftKey = `${recoveryScope}:${recoveryPath}`;
 
   // La creación conserva un único identificador durante toda la vida del
   // formulario. Así, incluso si una solicitud se repite por doble toque o por
@@ -104,7 +105,12 @@ export default function useTicketPersistence({
       // Esperar las eliminaciones evita que una nueva boleta alcance a leer el
       // borrador anterior mientras IndexedDB todavía lo está borrando.
       await clearDraft();
-      await deleteDraft(recoveryDraftKey);
+      // El recuperador global puede tener un saveDraft en curso. Avisarle
+      // primero cancela nuevas capturas y espera el borrado tras esa escritura.
+      const committedDraft = { key: recoveryDraftKey, cleanup: null };
+      window.dispatchEvent(new CustomEvent('dms-form-draft-committed', { detail: committedDraft }));
+      if (committedDraft.cleanup) await committedDraft.cleanup;
+      else await deleteDraft(recoveryDraftKey);
 
       completed = true;
       navigate(`/boletas/${encodeURIComponent(uid)}`, navigationState ? { state: navigationState } : undefined);

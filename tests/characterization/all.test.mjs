@@ -42,6 +42,7 @@ import './data-client.test.mjs';
 import './device-video-evidence-mac.test.mjs';
 import './evidence-memory.test.mjs';
 import './form-draft-lifecycle.test.mjs';
+import './ticket-draft-commit.test.mjs';
 import './form-inline-creation-invariant.test.mjs';
 import './gemini-model-rotation.test.mjs';
 import './indexeddb-version-recovery.test.mjs';

@@ -181,6 +181,8 @@ export default function FormRecoveryManager() {
   const submitResetTimerRef = useRef(0);
   const savingRef = useRef(Promise.resolve());
   const pendingSubmitRef = useRef(false);
+  const committedKeyRef = useRef('');
+  const saveGenerationRef = useRef(0);
   const restoredFilesRef = useRef(new Set());
   const restorationRef = useRef({ active: false, attempts: 0 });
   const routeRef = useRef(route);
@@ -195,7 +197,7 @@ export default function FormRecoveryManager() {
   }), []);
 
   const backupCurrent = useCallback(() => {
-    if (!enabled || !hasRecoverableData(dataRef.current)) return null;
+    if (!enabled || committedKeyRef.current === keyRef.current || !hasRecoverableData(dataRef.current)) return null;
     return saveDraftBackup(currentEntry());
   }, [currentEntry, enabled]);
 
@@ -238,15 +240,19 @@ export default function FormRecoveryManager() {
   }, [captureChoice, captureControl]);
 
   const persistNow = useCallback(async ({ quiet = false, fullCapture = true } = {}) => {
-    if (!enabled) return null;
+    if (!enabled || committedKeyRef.current === keyRef.current) return null;
     if (fullCapture) captureVisible();
     if (!hasRecoverableData(dataRef.current)) return null;
     if (!quiet) setStatus('saving');
     const entry = currentEntry();
     saveDraftBackup(entry);
-    savingRef.current = savingRef.current.catch(() => {}).then(() => saveDraft(entry));
+    const generation = saveGenerationRef.current;
+    savingRef.current = savingRef.current.catch(() => {}).then(() => (
+      generation === saveGenerationRef.current ? saveDraft(entry) : null
+    ));
     try {
       const saved = await savingRef.current;
+      if (!saved || generation !== saveGenerationRef.current) return null;
       setStatus('local');
       setNotice('');
       window.dispatchEvent(new CustomEvent('dms-form-draft-saved', {
@@ -268,7 +274,7 @@ export default function FormRecoveryManager() {
   }, [captureVisible, currentEntry, enabled]);
 
   const scheduleSave = useCallback(() => {
-    if (!enabled || restorationRef.current.active) return;
+    if (!enabled || restorationRef.current.active || committedKeyRef.current === keyRef.current) return;
     window.clearTimeout(timerRef.current);
     setStatus('saving');
     backupCurrent();
@@ -373,6 +379,8 @@ export default function FormRecoveryManager() {
   }, [scope]);
 
   useEffect(() => {
+    saveGenerationRef.current += 1;
+    committedKeyRef.current = '';
     routeRef.current = route;
     keyRef.current = draftKey;
     scopeRef.current = scope;
@@ -407,6 +415,7 @@ export default function FormRecoveryManager() {
       window.clearTimeout(restoreTimerRef.current);
       window.clearTimeout(submitResetTimerRef.current);
       restorationRef.current.active = false;
+      if (committedKeyRef.current === draftKey) return;
       if (pendingSubmitRef.current) {
         savingRef.current.catch(() => {}).then(() => deleteDraft(draftKey)).catch(() => {});
       } else {
@@ -424,6 +433,7 @@ export default function FormRecoveryManager() {
     if (!enabled) return undefined;
 
     const markChanged = (event) => {
+      if (committedKeyRef.current === keyRef.current) return;
       if (!(event.target instanceof Element) || event.target.closest('[data-no-draft]')) return;
       if (event.target.matches('input[type="password"]')) return;
       pendingSubmitRef.current = false;
@@ -462,6 +472,27 @@ export default function FormRecoveryManager() {
       submitResetTimerRef.current = window.setTimeout(() => { pendingSubmitRef.current = false; }, 30_000);
     };
 
+    // Una boleta confirmada por el backend no puede volver a convertirse en
+    // borrador por el guardado global ni por una escritura IndexedDB tardía.
+    const onDraftCommitted = (event) => {
+      if (event.detail?.key !== keyRef.current) return;
+      const committedKey = keyRef.current;
+      committedKeyRef.current = committedKey;
+      saveGenerationRef.current += 1;
+      pendingSubmitRef.current = true;
+      restorationRef.current.active = false;
+      window.clearTimeout(timerRef.current);
+      window.clearTimeout(restoreTimerRef.current);
+      window.clearTimeout(submitResetTimerRef.current);
+      window.clearTimeout(releaseTimerRef.current);
+      dataRef.current = emptyData();
+      setStatus('idle');
+      setNotice('');
+      const cleanup = savingRef.current.catch(() => {}).then(() => deleteDraft(committedKey));
+      savingRef.current = cleanup;
+      event.detail.cleanup = cleanup;
+    };
+
     const markClick = (event) => {
       if (isSaveAction(event.target)) markSubmit();
       const group = event.target instanceof Element ? event.target.closest('.maintenance-choice') : null;
@@ -483,6 +514,7 @@ export default function FormRecoveryManager() {
     document.addEventListener('click', markClick, true);
     document.addEventListener('submit', markSubmit, true);
     window.addEventListener('dms-signature-draft-change', captureSignature);
+    window.addEventListener('dms-form-draft-committed', onDraftCommitted);
     window.addEventListener('pagehide', flush);
     const visibility = () => { if (document.visibilityState === 'hidden') flush(); };
     document.addEventListener('visibilitychange', visibility);
@@ -493,6 +525,7 @@ export default function FormRecoveryManager() {
       document.removeEventListener('click', markClick, true);
       document.removeEventListener('submit', markSubmit, true);
       window.removeEventListener('dms-signature-draft-change', captureSignature);
+      window.removeEventListener('dms-form-draft-committed', onDraftCommitted);
       window.removeEventListener('pagehide', flush);
       document.removeEventListener('visibilitychange', visibility);
     };
