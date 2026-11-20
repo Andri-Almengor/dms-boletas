@@ -24,6 +24,39 @@ import {
 
 const autosaveWriteTimes = new Map();
 const AUTOSAVE_MIN_INTERVAL_MS = 6000;
+/* Fields safe to disclose in the administrator's ticket revision viewer.
+ * Excludes internal tokens, generated document URLs, and other audit metadata.
+ * The legacy Auditoria table is the source of truth for existing revisions. */
+export const TICKET_HISTORY_FIELDS = Object.freeze([
+  'Titulo', 'Estado', 'Fecha', 'HoraInicio', 'HoraFinal', 'HorasTotales',
+  'Cliente', 'Ubicacion', 'UbicacionEquipo', 'Supervisor',
+  'CorreoCliente', 'CorreoSupervisor', 'Categoria', 'TipoFalla',
+  'TipoDispositivo', 'Fabricante', 'Modelo', 'Serie', 'DireccionMAC',
+  'RazonVisita', 'Descripcion', 'PruebasRealizadas', 'Resultado',
+  'Recomendaciones', 'EnviarCorreoCliente', 'CorreosCC', 'AsignadoA',
+]);
+
+export function sanitizeTicketHistorySnapshot(raw) {
+  let parsed = raw;
+  if (typeof parsed === 'string') {
+    try { parsed = JSON.parse(parsed); } catch { return {}; }
+  }
+  if (!parsed || typeof parsed !== 'object' || Array.isArray(parsed)) return {};
+  const safe = {};
+  for (const key of TICKET_HISTORY_FIELDS) {
+    if (!Object.prototype.hasOwnProperty.call(parsed, key)) continue;
+    const value = parsed[key];
+    if (key === 'AsignadoA' && Array.isArray(value)) {
+      safe[key] = value.filter((item) => typeof item === 'string').map((item) => item.slice(0, 160)).slice(0, 200);
+    } else if (['string', 'number', 'boolean'].includes(typeof value)) {
+      safe[key] = typeof value === 'string' ? value.slice(0, 25000) : value;
+    } else if (value === null) {
+      safe[key] = '';
+    }
+  }
+  return safe;
+}
+
 let ticketCreateTail = Promise.resolve();
 let evidenceCreateTail = Promise.resolve();
 
@@ -220,6 +253,43 @@ async function resolveTicketMedia(payload = {}) {
   throw notFound('No se encontró el archivo asociado a la boleta.');
 }
 
+
+async function assignedTicketSnapshot(ticketId) {
+  const rows = await findRows('BoletaAsignados', { BoletaUID: ticketId }, { limit: 5000 });
+  return rows.filter((row) => row.Activo !== false)
+    .map((row) => String(row.NombreUsuarioSnapshot || row.UsuarioID || '').trim())
+    .filter(Boolean).sort((a, b) => a.localeCompare(b, 'es'));
+}
+
+// The ticket row lock covers the read/modify/write and its audit row on all
+// Render instances. If audit persistence fails, the ticket edit also rolls back.
+async function persistTicketEdit(ctx, autosave = false) {
+  const id = String(pick(ctx.payload, ['boletaUid', 'BoletaUID', 'id'], '')).trim();
+  if (!id) throw badRequest('Se requiere una boleta para registrar la edición.');
+  return withTransaction(async () => {
+    const locked = await query(
+      'SELECT "__db_id" FROM "Boletas" WHERE "BoletaUID"=$1 AND "__valid"=TRUE LIMIT 1 FOR UPDATE',
+      [id], { label: 'ticket.revision.lock' },
+    );
+    if (!locked.rowCount) throw notFound('No se encontró la boleta.');
+    const before = await findById('Boletas', id);
+    const assignedBefore = await assignedTicketSnapshot(id);
+    const patch = changedTicketPatch(before, ctx.payload, ctx.user.UsuarioID);
+    const after = Object.keys(patch).length ? await updateRow('Boletas', id, patch) : before;
+    const assignedChanged = hasAssignedPayload(ctx.payload)
+      ? await replaceAssigned(id, ctx.payload.AsignadoA || ctx.payload.asignados, ctx)
+      : false;
+    if (Object.keys(patch).length || assignedChanged) {
+      const assignedAfter = assignedChanged ? await assignedTicketSnapshot(id) : assignedBefore;
+      await audit(ctx, autosave ? 'AUTOGUARDAR_BOLETA' : 'EDITAR_BOLETA', 'Boletas', id,
+        { ...before, AsignadoA: assignedBefore },
+        { ...after, AsignadoA: assignedAfter },
+        { immediate: true });
+    }
+    return after;
+  });
+}
+
 export const ticketHandlers = {
   list: async ({ payload }) => {
     let rows = (await readTable('Boletas')).filter((row) => row.Activo !== false && String(row.Estado || '').toUpperCase() !== 'ANULADA');
@@ -230,6 +300,35 @@ export const ticketHandlers = {
   },
 
   get: async ({ payload }) => enrichTicket(await findById('Boletas', pick(payload, ['boletaUid', 'BoletaUID', 'id']))),
+
+  history: async (ctx) => {
+    const id = String(pick(ctx.payload, ['boletaUid', 'BoletaUID', 'id'], '')).trim();
+    if (!id) throw badRequest('Se requiere el identificador de la boleta.');
+    await findById('Boletas', id);
+    const page = Math.min(1000, Math.max(1, Math.trunc(Number(ctx.payload.page) || 1)));
+    const pageSize = Math.min(50, Math.max(1, Math.trunc(Number(ctx.payload.pageSize) || 20)));
+    const result = await query(
+      'SELECT "AuditoriaID", "UsuarioID", "UsuarioNombre", "Accion", "Fecha", "DatosAntesJSON", "DatosDespuesJSON" ' +
+      'FROM "Auditoria" WHERE "__valid"=TRUE AND "Entidad"=\'Boletas\' AND "EntidadID"=$1 ' +
+      'AND "Accion" IN (\'EDITAR_BOLETA\', \'AUTOGUARDAR_BOLETA\') ' +
+      'ORDER BY "Fecha" DESC, "__db_id" DESC LIMIT $2 OFFSET $3',
+      [id, pageSize + 1, (page - 1) * pageSize], { label: 'ticket.history.page' },
+    );
+    const hasMore = result.rows.length > pageSize;
+    return {
+      page, pageSize, hasMore,
+      items: result.rows.slice(0, pageSize).map((row) => ({
+        id: row.AuditoriaID,
+        usuarioId: row.UsuarioID,
+        usuario: row.UsuarioNombre || row.UsuarioID || 'Usuario desconocido',
+        accion: row.Accion,
+        fecha: row.Fecha,
+        antes: sanitizeTicketHistorySnapshot(row.DatosAntesJSON),
+        despues: sanitizeTicketHistorySnapshot(row.DatosDespuesJSON),
+      })),
+    };
+  },
+
 
   create: async (ctx) => withTicketCreateLock(() => withTransaction(async () => {
     // Serialización transaccional entre TODAS las instancias de Render, no solo en memoria.
@@ -271,15 +370,7 @@ export const ticketHandlers = {
     return enrichTicket(row);
   })),
 
-  update: async (ctx) => {
-    const id = pick(ctx.payload, ['boletaUid', 'BoletaUID', 'id']);
-    const before = await findById('Boletas', id);
-    const patch = changedTicketPatch(before, ctx.payload, ctx.user.UsuarioID);
-    const after = Object.keys(patch).length ? await updateRow('Boletas', id, patch) : before;
-    const assignedChanged = hasAssignedPayload(ctx.payload) ? await replaceAssigned(id, ctx.payload.AsignadoA || ctx.payload.asignados, ctx) : false;
-    if (Object.keys(patch).length || assignedChanged) await audit(ctx, 'EDITAR_BOLETA', 'Boletas', id, before, after);
-    return enrichTicket(after);
-  },
+  update: async (ctx) => enrichTicket(await persistTicketEdit(ctx)),
 
   autosave: async (ctx) => {
     const id = String(pick(ctx.payload, ['boletaUid', 'BoletaUID', 'id']));
@@ -287,10 +378,7 @@ export const ticketHandlers = {
     if (now - (autosaveWriteTimes.get(id) || 0) < AUTOSAVE_MIN_INTERVAL_MS) return { autosaved: false, throttled: true };
     autosaveWriteTimes.set(id, now);
     try {
-      const before = await findById('Boletas', id);
-      const patch = changedTicketPatch(before, ctx.payload, ctx.user.UsuarioID);
-      const after = Object.keys(patch).length ? await updateRow('Boletas', id, patch) : before;
-      if (hasAssignedPayload(ctx.payload)) await replaceAssigned(id, ctx.payload.AsignadoA || ctx.payload.asignados, ctx);
+      const after = await persistTicketEdit(ctx, true);
       return { boleta: after, autosaved: true };
     } catch (error) {
       autosaveWriteTimes.delete(id);

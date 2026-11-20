@@ -5,6 +5,7 @@ import Icon from '../../components/common/Icon';
 import ImageViewer from '../../components/tickets/ImageViewer';
 import MediaPreview from '../../components/tickets/MediaPreview';
 import SignaturePad from '../../components/tickets/SignaturePad';
+import TicketHistoryPanel from '../../components/tickets/TicketHistoryPanel';
 import { TicketStatusChip } from '../../components/tickets/TicketCard';
 import { MODULE_ROUTES, pick, requestAvailable } from '../../services/moduleApi';
 import {
@@ -448,6 +449,7 @@ export default function TicketDetailPage() {
       {finalized && canEdit && <div className="info-box"><Icon name="edit_note" /><p>Esta boleta está finalizada, pero puede corregir sus datos, firma y evidencias. Después use <strong>Reenviar correo</strong> y/o <strong>Reenviar a chats</strong> para generar y publicar el reporte actualizado.</p></div>}
 
       <section className="ticket-status-card"><div><span>Estado actual</span><TicketStatusChip status={status} /></div><div><span>Fecha de asignación</span><strong>{formatDate(pick(record, ['Fecha', 'FechaCreacion']))}</strong></div></section>
+      {hasPermission('USUARIOS_GESTIONAR') && <TicketHistoryPanel boletaUid={boletaUid} sessionToken={sessionToken} />}
 
       <DetailSection title="Información General" icon="description" open><InfoGrid items={[
         ['Título', pick(record, ['Titulo', 'Título']), true], ['Categoría', pick(record, ['Categoria', 'Categoría'])], ['Tipo de falla', pick(record, ['TipoFalla'])], ['Fecha', formatDate(pick(record, ['Fecha']))], ['Hora inicio', formatTime(pick(record, ['HoraInicio']))], ['Hora final', formatTime(pick(record, ['HoraFinal']))], ['Horas totales', pick(record, ['HorasTotales'], '0.00')],

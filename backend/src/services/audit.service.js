@@ -1,5 +1,5 @@
 import { env } from '../config/env.js';
-import { appendRows } from '../infra/sheets.repository.js';
+import { appendRow, appendRows } from '../infra/sheets.repository.js';
 import { uuid, nowIso } from '../core/utils.js';
 
 const queue = [];
@@ -61,7 +61,7 @@ export function auditQueueSnapshot() {
   };
 }
 
-export async function audit(ctx, action, entity, entityId, before = null, after = null) {
+export async function audit(ctx, action, entity, entityId, before = null, after = null, { immediate = false } = {}) {
   const row = {
     AuditoriaID: uuid(),
     UsuarioID: ctx?.user?.UsuarioID || 'SYSTEM',
@@ -76,6 +76,12 @@ export async function audit(ctx, action, entity, entityId, before = null, after 
     Fecha: nowIso(),
   };
 
+  // Edits requiring a reliable revision history are persisted inside the caller's
+  // PostgreSQL transaction. Other legacy audit events retain the batch queue.
+  if (immediate) {
+    await appendRow('Auditoria', row);
+    return { queued: false, auditoriaId: row.AuditoriaID };
+  }
   queue.push(row);
   while (queue.length > env.auditMaxBufferedRows) {
     queue.shift();
