@@ -23,11 +23,32 @@ function fieldLabel(key) {
   return FIELD_LABELS[key] || key;
 }
 
-function formatValue(value) {
-  if (typeof value === 'boolean') return value ? 'Sí' : 'No';
-  if (Array.isArray(value)) return value.length ? value.join(', ') : 'Ninguno';
-  if (value === undefined || value === null || value === '') return 'Sin dato';
-  return String(value);
+function TicketHistoryValue({ value, present }) {
+  if (!present) {
+    return <span className="ticket-history-value ticket-history-value--unknown"><Icon name="help_outline" /> No conservado en el registro</span>;
+  }
+  if (value === undefined || value === null || value === '' || (Array.isArray(value) && !value.length)) {
+    return <span className="ticket-history-value ticket-history-value--empty">Sin dato</span>;
+  }
+  if (typeof value === 'boolean') {
+    return <span className="ticket-history-value ticket-history-value--boolean">
+      <Icon name={value ? 'check_circle' : 'cancel'} />{value ? 'Sí' : 'No'}
+    </span>;
+  }
+  if (Array.isArray(value)) {
+    return <span className="ticket-history-value-list">
+      {value.map((item, index) => <span className="ticket-history-value-chip" key={`${index}-${item}`}>{String(item)}</span>)}
+    </span>;
+  }
+  return <span className="ticket-history-value">{String(value)}</span>;
+}
+
+function hasField(snapshot, field) {
+  return Object.prototype.hasOwnProperty.call(snapshot, field);
+}
+
+function hasChanged(before, after, field) {
+  return JSON.stringify(before[field]) !== JSON.stringify(after[field]);
 }
 
 function formatDate(value) {
@@ -38,26 +59,47 @@ function formatDate(value) {
   }).format(date);
 }
 
-function TicketSnapshot({ data }) {
-  const entries = Object.entries(data || {});
-  if (!entries.length) return <p>No se conservó una versión completa en este registro histórico.</p>;
+function TicketHistoryComparison({ before, after, fields }) {
+  if (!fields.length) {
+    return <p className="ticket-history-muted ticket-history-diff__empty">No se conservaron datos para comparar en esta edición.</p>;
+  }
   return (
-    <dl className="ticket-history-snapshot">
-      {entries.map(([field, value]) => (
-        <div key={field}>
-          <dt>{fieldLabel(field)}</dt>
-          <dd>{formatValue(value)}</dd>
-        </div>
-      ))}
-    </dl>
+    <div className="ticket-history-diff" aria-label="Comparación de versiones de la boleta">
+      <div className="ticket-history-diff__header" aria-hidden="true">
+        <span className="ticket-history-diff__header-field">Campo de la boleta</span>
+        <span className="ticket-history-diff__header-before"><Icon name="history" /> Antes <small>Versión anterior</small></span>
+        <span className="ticket-history-diff__header-after"><Icon name="task_alt" /> Después <small>Versión guardada</small></span>
+      </div>
+      {fields.map((field) => {
+        const changed = hasChanged(before, after, field);
+        const fieldName = fieldLabel(field);
+        return (
+          <div className={`ticket-history-diff__row${changed ? ' ticket-history-diff__row--changed' : ''}`} key={field}>
+            <div className="ticket-history-diff__field">
+              <strong>{fieldName}</strong>
+              {changed && <span>Modificado</span>}
+            </div>
+            <div className="ticket-history-diff__cell ticket-history-diff__cell--before" aria-label={`Antes: ${fieldName}`}>
+              <span className="ticket-history-diff__mobile-label"><Icon name="history" /> Antes</span>
+              <TicketHistoryValue value={before[field]} present={hasField(before, field)} />
+            </div>
+            <div className="ticket-history-diff__cell ticket-history-diff__cell--after" aria-label={`Después: ${fieldName}`}>
+              <span className="ticket-history-diff__mobile-label"><Icon name="task_alt" /> Después</span>
+              <TicketHistoryValue value={after[field]} present={hasField(after, field)} />
+            </div>
+          </div>
+        );
+      })}
+    </div>
   );
 }
 
 function HistoryEntry({ entry, index }) {
+  const [showAll, setShowAll] = useState(false);
   const before = entry.antes || {};
   const after = entry.despues || {};
-  const changed = [...new Set([...Object.keys(before), ...Object.keys(after)])]
-    .filter((field) => JSON.stringify(before[field]) !== JSON.stringify(after[field]));
+  const fields = [...new Set([...Object.keys(before), ...Object.keys(after)])];
+  const changed = fields.filter((field) => hasChanged(before, after, field));
   return (
     <details className="ticket-history-entry" open={index === 0}>
       <summary className="ticket-history-entry__heading">
@@ -72,29 +114,34 @@ function HistoryEntry({ entry, index }) {
         </span>
       </summary>
       <div className="ticket-history-entry__content">
-      {changed.length ? (
-        <div className="ticket-history-changes">
-          {changed.map((field) => (
-            <div className="ticket-history-change" key={field}>
-              <strong>{fieldLabel(field)}</strong>
-              <div className="ticket-history-compare">
-                <div><span>Antes</span><p>{formatValue(before[field])}</p></div>
-                <div><span>Después</span><p>{formatValue(after[field])}</p></div>
-              </div>
+        <div className="ticket-history-review">
+          <div className="ticket-history-review__intro">
+            <span className="ticket-history-review__icon"><Icon name="difference" /></span>
+            <div>
+              <strong>Comparación de versiones</strong>
+              <p>Identifique qué había antes de guardar y qué quedó registrado después de la edición.</p>
             </div>
-          ))}
+          </div>
+          <div className="ticket-history-review__switch" role="group" aria-label="Campos del historial a mostrar">
+            <button type="button" className={!showAll ? 'is-active' : ''}
+              aria-pressed={!showAll} onClick={() => setShowAll(false)}>
+              <Icon name="difference" /> Solo cambios
+            </button>
+            <button type="button" className={showAll ? 'is-active' : ''}
+              aria-pressed={showAll} onClick={() => setShowAll(true)}>
+              <Icon name="view_list" /> Todos los campos
+            </button>
+          </div>
         </div>
-      ) : (
-        <p className="ticket-history-muted">Esta edición histórica no conserva diferencias de campos visibles; pudo modificar asignaciones que antes no se registraban por separado.</p>
-      )}
-      <details className="ticket-history-revision">
-        <summary>Ver cómo estaba toda la boleta antes de la edición</summary>
-        <TicketSnapshot data={before} />
-      </details>
-      <details className="ticket-history-revision">
-        <summary>Ver la boleta después de la edición</summary>
-        <TicketSnapshot data={after} />
-      </details>
+        {changed.length === 0 && !showAll && (
+          <p className="ticket-history-muted ticket-history-review__note">
+            Esta edición histórica no conserva diferencias de campos visibles; puede incluir modificaciones o asignaciones que no se registraban en versiones anteriores.
+          </p>
+        )}
+        <TicketHistoryComparison before={before} after={after} fields={showAll ? fields : changed} />
+        <p className="ticket-history-review__help">
+          <Icon name="info" /> Los valores «No conservado en el registro» no equivalen a un campo vacío: la auditoría antigua puede contener información parcial.
+        </p>
       </div>
     </details>
   );
