@@ -43,6 +43,7 @@ export const MODULE_ROUTES = {
   tickets: {
     list: ['boletas.list', 'tickets.list'],
     get: ['boletas.get', 'tickets.get'],
+    history: ['boletas.history', 'tickets.history'],
     create: ['boletas.create', 'tickets.create'],
     update: ['boletas.update', 'tickets.update'],
     autosave: ['boletas.autosave', 'boletas.update', 'tickets.update'],
