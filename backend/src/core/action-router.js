@@ -185,6 +185,8 @@ for(const [key,names] of Object.entries(ticketAliases)) {
   const handler = ticketDeliveryHandlers[key] || ticketHandlers[key];
   add(names,handler,permission);
 }
+// Administrative and Supervisor roles share the existing management permission.
+add(['boletas.history','tickets.history'], ticketHandlers.history, 'USUARIOS_GESTIONAR');
 add(['boletas.evidence.uploadBatch','tickets.evidence.uploadBatch'], ticketScalableEvidenceHandlers.uploadBatch, ['BOLETAS_EVIDENCIAS','BOLETAS_EDITAR']);
 add(['boletas.evidence.large.init','tickets.evidence.large.init'], largeEvidenceUploadHandlers.ticketInit, ['BOLETAS_EVIDENCIAS','BOLETAS_EDITAR']);
 add(['boletas.evidence.large.chunk','tickets.evidence.large.chunk'], largeEvidenceUploadHandlers.ticketChunk, ['BOLETAS_EVIDENCIAS','BOLETAS_EDITAR']);
