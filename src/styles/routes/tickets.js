@@ -1,4 +1,5 @@
 import '../ticket-detail-enhancements.css';
+import '../ticket-history.css';
 import '../ticket-evidence-multi.css';
 import '../ticket-evidence-viewer.css';
 import '../ticket-quick-edit.css';
