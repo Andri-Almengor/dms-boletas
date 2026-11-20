@@ -77,7 +77,7 @@ function TicketHistoryComparison({ before, after, fields }) {
           <div className={`ticket-history-diff__row${changed ? ' ticket-history-diff__row--changed' : ''}`} key={field}>
             <div className="ticket-history-diff__field">
               <strong>{fieldName}</strong>
-              {changed && <span>Modificado</span>}
+              {changed && <span>{hasField(before, field) && hasField(after, field) ? 'Modificado' : 'Registro parcial'}</span>}
             </div>
             <div className="ticket-history-diff__cell ticket-history-diff__cell--before" aria-label={`Antes: ${fieldName}`}>
               <span className="ticket-history-diff__mobile-label"><Icon name="history" /> Antes</span>
@@ -138,7 +138,9 @@ function HistoryEntry({ entry, index }) {
             Esta edición histórica no conserva diferencias de campos visibles; puede incluir modificaciones o asignaciones que no se registraban en versiones anteriores.
           </p>
         )}
-        <TicketHistoryComparison before={before} after={after} fields={showAll ? fields : changed} />
+        {(changed.length > 0 || showAll) && (
+          <TicketHistoryComparison before={before} after={after} fields={showAll ? fields : changed} />
+        )}
         <p className="ticket-history-review__help">
           <Icon name="info" /> Los valores «No conservado en el registro» no equivalen a un campo vacío: la auditoría antigua puede contener información parcial.
         </p>
