@@ -53,20 +53,25 @@ function TicketSnapshot({ data }) {
   );
 }
 
-function HistoryEntry({ entry }) {
+function HistoryEntry({ entry, index }) {
   const before = entry.antes || {};
   const after = entry.despues || {};
   const changed = [...new Set([...Object.keys(before), ...Object.keys(after)])]
     .filter((field) => JSON.stringify(before[field]) !== JSON.stringify(after[field]));
   return (
-    <article className="ticket-history-entry">
-      <div className="ticket-history-entry__heading">
-        <div>
+    <details className="ticket-history-entry" open={index === 0}>
+      <summary className="ticket-history-entry__heading">
+        <span className="ticket-history-entry__marker"><Icon name={entry.accion === 'AUTOGUARDAR_BOLETA' ? 'save' : 'edit_note'} /></span>
+        <span className="ticket-history-entry__identity">
           <strong>{entry.usuario || 'Usuario desconocido'}</strong>
-          <span>{entry.accion === 'AUTOGUARDAR_BOLETA' ? 'Autoguardado' : 'Edición de boleta'}</span>
-        </div>
-        <time dateTime={entry.fecha}>{formatDate(entry.fecha)}</time>
-      </div>
+          <span>{entry.accion === 'AUTOGUARDAR_BOLETA' ? 'Autoguardado' : 'Edición de boleta'} · {formatDate(entry.fecha)}</span>
+        </span>
+        <span className="ticket-history-entry__count">
+          {changed.length} {changed.length === 1 ? 'campo modificado' : 'campos modificados'}
+          <Icon name="expand_more" />
+        </span>
+      </summary>
+      <div className="ticket-history-entry__content">
       {changed.length ? (
         <div className="ticket-history-changes">
           {changed.map((field) => (
@@ -90,14 +95,14 @@ function HistoryEntry({ entry }) {
         <summary>Ver la boleta después de la edición</summary>
         <TicketSnapshot data={after} />
       </details>
-    </article>
+      </div>
+    </details>
   );
 }
 
-// Rendered only for users with USUARIOS_GESTIONAR. The backend independently
-// checks the same permission on every history request.
+// Embedded in the independent management-only route. The backend revalidates
+// USUARIOS_GESTIONAR for every history request.
 export default function TicketHistoryPanel({ boletaUid, sessionToken }) {
-  const [open, setOpen] = useState(false);
   const [items, setItems] = useState([]);
   const [page, setPage] = useState(0);
   const [hasMore, setHasMore] = useState(false);
@@ -106,20 +111,8 @@ export default function TicketHistoryPanel({ boletaUid, sessionToken }) {
   const [error, setError] = useState('');
   const requestSequence = useRef(0);
 
-  useEffect(() => {
-    requestSequence.current += 1;
-    setOpen(false);
-    setItems([]);
-    setPage(0);
-    setHasMore(false);
-    setLoaded(false);
-    setError('');
-    setBusy(false);
-    return () => { requestSequence.current += 1; };
-  }, [boletaUid, sessionToken]);
-
   async function loadHistory(nextPage = 1) {
-    if (busy || !sessionToken || !boletaUid) return;
+    if (!sessionToken || !boletaUid) return;
     const sequence = ++requestSequence.current;
     setBusy(true);
     setError('');
@@ -144,39 +137,49 @@ export default function TicketHistoryPanel({ boletaUid, sessionToken }) {
     }
   }
 
-  function toggleHistory() {
-    const next = !open;
-    setOpen(next);
-    if (next && !loaded && !busy) void loadHistory();
-  }
+  // Fetch automatically when the dedicated window opens, with no extra click.
+  useEffect(() => {
+    requestSequence.current += 1;
+    setItems([]);
+    setPage(0);
+    setHasMore(false);
+    setLoaded(false);
+    setError('');
+    void loadHistory(1);
+    return () => { requestSequence.current += 1; };
+  }, [boletaUid, sessionToken]);
 
   return (
     <section className="ticket-history section-block" aria-label="Historial de ediciones de la boleta">
-      <button type="button" className="ticket-history-toggle" aria-expanded={open} onClick={toggleHistory}>
-        <Icon name="history" />
-        <span><strong>Historial de ediciones</strong><small>Consultar quién cambió la boleta y comparar versiones</small></span>
-        <Icon name={open ? 'expand_less' : 'expand_more'} />
-      </button>
-      {open && (
-        <div className="ticket-history-body">
-          <div className="ticket-history-toolbar">
-            <p>Registro de consulta exclusiva para Administrador y Supervisor.</p>
-            <button type="button" className="button button--secondary button--compact"
-              onClick={() => loadHistory(1)} disabled={busy}>
-              <Icon name="refresh" /> Actualizar
-            </button>
+      <div className="ticket-history-body">
+        <div className="ticket-history-toolbar">
+          <div>
+            <span className="ticket-history-kicker"><Icon name="manage_search" /> Registro de actividad</span>
+            <h2>Cambios registrados</h2>
+            <p>{loaded ? `${items.length} ${items.length === 1 ? 'edición cargada' : 'ediciones cargadas'}${hasMore ? ' · Hay más cambios por consultar' : ''}`
+              : 'Versiones anteriores y posteriores disponibles para su consulta.'}</p>
           </div>
-          {error && <div className="alert alert--error" role="alert">{error}</div>}
-          {busy && !items.length && <p role="status" className="ticket-history-muted">Consultando historial...</p>}
-          {loaded && !items.length && !busy && <p className="ticket-history-muted">Esta boleta todavía no tiene ediciones registradas en la auditoría.</p>}
-          <div className="ticket-history-list">{items.map((entry) => <HistoryEntry key={entry.id} entry={entry} />)}</div>
-          {hasMore && <button className="button button--secondary ticket-history-more" type="button"
-            disabled={busy} onClick={() => loadHistory(page + 1)}>
-            <Icon name="expand_more" /> {busy ? 'Cargando...' : 'Ver más cambios'}
-          </button>}
-          <p className="ticket-history-footnote">Las versiones muestran los datos conservados por la auditoría. Los autoguardados anteriores a la activación de esta función y los cambios no registrados históricamente no se pueden reconstruir.</p>
+          <button type="button" className="button button--secondary button--compact"
+            onClick={() => loadHistory(1)} disabled={busy}>
+            <Icon name="refresh" /> {busy ? 'Consultando…' : 'Actualizar'}
+          </button>
         </div>
-      )}
+        {error && <div className="alert alert--error" role="alert">{error}</div>}
+        {busy && !items.length && <div className="ticket-history-loading" role="status"><Icon name="progress_activity" /><span>Consultando el historial de ediciones...</span></div>}
+        {loaded && !items.length && !busy && (
+          <div className="ticket-history-empty">
+            <Icon name="history_toggle_off" />
+            <strong>Sin ediciones registradas</strong>
+            <p>Cuando se modifiquen los datos de esta boleta, los cambios aparecerán aquí.</p>
+          </div>
+        )}
+        <div className="ticket-history-list">{items.map((entry, index) => <HistoryEntry key={entry.id} entry={entry} index={index} />)}</div>
+        {hasMore && <button className="button button--secondary ticket-history-more" type="button"
+          disabled={busy} onClick={() => loadHistory(page + 1)}>
+          <Icon name="expand_more" /> {busy ? 'Cargando...' : 'Cargar más ediciones'}
+        </button>}
+        <p className="ticket-history-footnote"><Icon name="info" /> El historial es solo de lectura. Los autoguardados anteriores a la activación de esta función y los cambios que nunca se registraron no pueden reconstruirse.</p>
+      </div>
     </section>
   );
 }
