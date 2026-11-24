@@ -40,3 +40,19 @@ test('el Excel agrega lista desplegable y valida falla sin romper lectura de pla
   assert.match(excel, /name !== 'Gravedad de falla'/);
   assert.match(excel, /field\('Gravedad de falla'\)/);
 });
+
+
+test('el backend reevalúa el estado con la checklist y valida la gravedad resultante antes de persistir', () => {
+  const domain = source('src/utils/maintenanceChecklistStatus.js');
+  const backend = source('backend/src/modules/maintenance.module.js');
+  const editor = source('src/components/maintenance/MaintenanceDeviceEditor.jsx');
+  assert.match(domain, /export function maintenanceChecklistHealthFaults/);
+  assert.match(domain, /if \(maintenanceChecklistHealthFaults\(device, fallbackQuestions\)\.length\) return 'Mal estado'/);
+  assert.match(backend, /effectiveMaintenanceDeviceState\(\{/);
+  assert.match(backend, /Estado: deviceState/);
+  assert.match(backend, /assertMaintenanceDeviceFaultDetails\(maintenance, payload\)/);
+  assert.match(backend, /assertMaintenanceDeviceFaultDetails\(maintenance, devicePayload\(nextPayload, before\)\)/);
+  assert.match(editor, /disabledOptions=\{checklistHealthFaults\.length \? \['Correcto'\] : \[\]\}/);
+  assert.match(editor, /Para guardar:/);
+  assert.match(editor, /Gravedad seleccionada:/);
+});
