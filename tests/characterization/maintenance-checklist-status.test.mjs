@@ -12,6 +12,7 @@ import {
   isMaintenanceChecklistPending,
   isManualChecklistPending,
   maintenanceChecklistCompletion,
+  maintenanceChecklistHealthFaults,
   parseMaintenanceAnswers,
 } from '../../src/utils/maintenanceChecklistStatus.js';
 
@@ -227,3 +228,78 @@ function requireSourceContracts() {
   return { readFileSync: (file) => readFileSync(join(root, file), 'utf8') };
 }
 
+
+
+test('una sola prueba funcional negativa impide clasificar como sano un dispositivo con mayoría de Sí', () => {
+  const checks = [
+    ['limpieza', '¿Se realizó la limpieza?'],
+    ['alimentacion', '¿La alimentación funciona correctamente?'],
+    ['visualizacion', '¿La visualización y grabación son correctas?'],
+    ['montaje', '¿El montaje se encuentra firme y en buen estado?'],
+  ];
+  const device = {
+    estado: AUTOMATIC_PENDING_STATE,
+    funcionamiento: 'Sí',
+    enUso: 'Sí, en uso',
+    respuestas: { limpieza: 'Sí', alimentacion: 'Sí', visualizacion: 'No', montaje: 'Sí' },
+  };
+  assert.equal(maintenanceChecklistCompletion(device, checks).complete, true);
+  assert.deepEqual(maintenanceChecklistHealthFaults(device, checks), ['¿La visualización y grabación son correctas?']);
+  assert.equal(effectiveMaintenanceDeviceState(device, checks), 'Mal estado');
+  // Un estado Correcto enviado por un cliente viejo también debe corregirse.
+  assert.equal(effectiveMaintenanceDeviceState({ ...device, estado: 'Correcto' }, checks), 'Mal estado');
+});
+
+test('una respuesta No a una tarea de limpieza no equivale a una avería operativa', () => {
+  const device = {
+    estado: AUTOMATIC_PENDING_STATE,
+    funcionamiento: 'Sí',
+    enUso: 'Sí, en uso',
+    respuestas: { limpieza: 'No', alimentacion: 'Sí' },
+  };
+  assert.deepEqual(maintenanceChecklistHealthFaults(device, CAMERA_QUESTIONS), []);
+  assert.equal(effectiveMaintenanceDeviceState(device, CAMERA_QUESTIONS), 'Correcto');
+});
+
+test('funcionamiento No prevalece sobre todas las preguntas positivas', () => {
+  const device = {
+    estado: 'Correcto',
+    funcionamiento: 'No',
+    enUso: 'No, está guardado',
+    respuestas: { limpieza: 'Sí', alimentacion: 'Sí' },
+  };
+  assert.deepEqual(maintenanceChecklistHealthFaults(device, CAMERA_QUESTIONS), ['Funcionamiento']);
+  assert.equal(effectiveMaintenanceDeviceState(device, CAMERA_QUESTIONS), 'Mal estado');
+});
+
+test('una avería reportada y una pregunta personalizada de diagnóstico impiden un falso sano', () => {
+  const questions = [
+    { key: 'reportaAveria', label: '¿Se reporta avería en este equipo?', responseType: 'SI_NO', config: { required: false } },
+    { key: 'puerto', label: '¿Se inspeccionó el puerto?', responseType: 'SI_NO', config: { affectsDeviceHealth: true, required: true } },
+  ];
+  const device = {
+    estado: 'Correcto', funcionamiento: 'Sí', enUso: 'Sí, en uso',
+    respuestas: { reportaAveria: 'Sí', puerto: 'No' },
+  };
+  assert.equal(maintenanceChecklistHealthFaults(device, questions).length, 2);
+  assert.equal(effectiveMaintenanceDeviceState(device, questions), 'Mal estado');
+});
+
+test('preguntas históricas no activas y checklist incompleto respetan Pendiente', () => {
+  const questions = [
+    { key: 'video', label: '¿El video funciona correctamente?', historical: true, activeAtSave: false },
+    { key: 'alimentacion', label: '¿La alimentación funciona correctamente?', responseType: 'SI_NO' },
+  ];
+  const device = {
+    estado: AUTOMATIC_PENDING_STATE, funcionamiento: 'Sí', enUso: '',
+    respuestas: { video: 'No', alimentacion: 'Sí' },
+  };
+  assert.deepEqual(maintenanceChecklistHealthFaults(device, questions), []);
+  assert.equal(effectiveMaintenanceDeviceState(device, questions), AUTOMATIC_PENDING_STATE);
+  assert.equal(effectiveMaintenanceDeviceState({ ...device, enUso: 'Sí, en uso' }, questions), 'Correcto');
+});
+
+test('se respeta el Mal estado marcado manualmente aun cuando todas las pruebas sean positivas', () => {
+  const device = { estado: 'Mal estado', funcionamiento: 'Sí', enUso: 'Sí, en uso', respuestas: { limpieza: 'Sí', alimentacion: 'Sí' } };
+  assert.equal(effectiveMaintenanceDeviceState(device, CAMERA_QUESTIONS), 'Mal estado');
+});
