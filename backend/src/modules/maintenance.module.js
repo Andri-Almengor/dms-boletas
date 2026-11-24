@@ -17,6 +17,7 @@ import { getConfig } from './config.module.js';
 import { audit } from '../services/audit.service.js';
 import { query, withTransaction } from '../infra/postgres.js';
 import { normalizeMaintenanceFaultSeverity, validateMaintenanceFaultDetails } from '../../../src/utils/maintenanceFaultSeverity.js';
+import { effectiveMaintenanceDeviceState } from '../../../src/utils/maintenanceChecklistStatus.js';
 import { sheetsApi, slidesApi } from '../infra/google.js';
 import {
   loadMaintenanceEvidenceContext,
@@ -267,6 +268,23 @@ function devicePayload(payload, before = {}) {
     ['TipoDispositivo', 'Categoria', 'categoria'],
     before.TipoDispositivo || before.Categoria,
   ));
+  const funcionamiento = pick(payload, ['Funcionamiento', 'funcionamiento'], before.Funcionamiento);
+  const enUso = pick(payload, ['EnUso', 'enUso'], before.EnUso);
+  const requestedState = pick(payload, ['Estado', 'estado'], before.Estado || 'Correcto');
+  const questionDetails = payload.questionDetails || answers.__preguntas || [];
+  // El backend confirma el estado con las mismas reglas del editor y la
+  // importación. Una falla operativa nunca se guarda como equipo sano.
+  const deviceState = normalizeMaintenanceType(
+    pick(payload, ['TipoMantenimiento', 'tipoMantenimiento', 'maintenanceType'], 'MANTENIMIENTO'),
+  ) === 'PROYECTO'
+    ? requestedState
+    : effectiveMaintenanceDeviceState({
+      estado: requestedState,
+      funcionamiento,
+      enUso,
+      respuestas: answers,
+      questionDetails,
+    }, questionDetails);
   return {
     UbicacionEquipoID: pick(payload, ['UbicacionEquipoID', 'ubicacionEquipoId'], before.UbicacionEquipoID),
     Zona: pick(payload, ['Zona', 'zona'], before.Zona),
@@ -280,9 +298,9 @@ function devicePayload(payload, before = {}) {
     Modelo: pick(payload, ['Modelo', 'modelo'], before.Modelo),
     Serie: pick(payload, ['Serie', 'serie'], before.Serie),
     DireccionMAC: pick(payload, ['DireccionMAC', 'macAddress', 'mac'], before.DireccionMAC),
-    Funcionamiento: pick(payload, ['Funcionamiento', 'funcionamiento'], before.Funcionamiento),
-    EnUso: pick(payload, ['EnUso', 'enUso'], before.EnUso),
-    Estado: pick(payload, ['Estado', 'estado'], before.Estado || 'Correcto'),
+    Funcionamiento: funcionamiento,
+    EnUso: enUso,
+    Estado: deviceState,
     GravedadFalla: normalizeMaintenanceFaultSeverity(pick(payload, ['GravedadFalla', 'gravedadFalla'], before.GravedadFalla)),
     Observacion: pick(payload, ['Observacion', 'observacion'], before.Observacion),
     ProyectoProgresoJSON: pick(payload, ['ProyectoProgresoJSON', 'projectProgress', 'proyectoProgreso'], before.ProyectoProgresoJSON || ''),
