@@ -49,7 +49,10 @@ test('el toggle se aplica solo a preguntas dinámicas Sí/No, con borrado real d
   assert.match(editor, /allowClear \? toggleMaintenanceQuestionChoice\(value, option\) : option/);
   assert.match(editor, /funcionamiento: value \}\)} disabled=\{checklistLocked\} allowClear/);
   assert.match(editor, /enUso: value \}\)} options=\{\['Sí, en uso', 'No, está guardado', 'No'\]\} disabled=\{checklistLocked\} allowClear/);
-  assert.match(editor, /label="Estado"[\s\S]*?disabled=\{checklistLocked \|\| !checklistCompletion\.complete\}/);
+  // El estado funcional ya no tiene selector: se deriva de la checklist.
+  assert.doesNotMatch(editor, /label="Estado"/);
+  assert.match(editor, /Estado automático/);
+  assert.match(editor, /calculatedState/);
 });
 
 test('drag usa pointer events para móvil, asa visible y teclado accesible sin guardar cada pixel', () => {
