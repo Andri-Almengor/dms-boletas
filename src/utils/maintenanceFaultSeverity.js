@@ -16,12 +16,16 @@ export function normalizeMaintenanceFaultSeverity(value) {
   return MAINTENANCE_FAULT_SEVERITIES.find((item) => normalized(item) === normalized(value)) || '';
 }
 
+export function maintenanceFaultObservationLength(value) {
+  return Array.from(String(value ?? '').trim()).length;
+}
+
 export function validateMaintenanceFaultDetails(device = {}, { projectMode = false } = {}) {
   if (projectMode || !isMaintenanceDeviceFaulty(device)) {
     return { valid: true, severityError: '', observationError: '' };
   }
   const severity = device.gravedadFalla ?? device.GravedadFalla;
-  const observationLength = Array.from(String(device.observacion ?? device.Observacion ?? '').trim()).length;
+  const observationLength = maintenanceFaultObservationLength(device.observacion ?? device.Observacion);
   const severityError = normalizeMaintenanceFaultSeverity(severity)
     ? '' : 'Seleccione la gravedad de la falla: Leve, Moderada o Crítica.';
   const observationError = observationLength >= MIN_MAINTENANCE_FAULT_OBSERVATION_LENGTH

@@ -3,6 +3,8 @@ import assert from 'node:assert/strict';
 import {
   MAINTENANCE_FAULT_SEVERITIES,
   normalizeMaintenanceFaultSeverity,
+  maintenanceFaultObservationLength,
+  MIN_MAINTENANCE_FAULT_OBSERVATION_LENGTH,
   validateMaintenanceFaultDetails,
 } from '../../src/utils/maintenanceFaultSeverity.js';
 
@@ -34,4 +36,15 @@ test('no impone nueva regla a dispositivos correctos, pendientes ni proyectos', 
   assert.equal(validateMaintenanceFaultDetails({ Estado: 'Correcto' }).valid, true);
   assert.equal(validateMaintenanceFaultDetails({ Estado: 'PENDIENTE' }).valid, true);
   assert.equal(validateMaintenanceFaultDetails(faulty({ GravedadFalla: '', Observacion: '' }), { projectMode: true }).valid, true);
+});
+
+test('el contador visual usa la misma longitud que la validación de guardado', () => {
+  for (const observation of ['  ', 'Puerta sin Strike', 'x'.repeat(19), 'x'.repeat(20), '  ' + 'á'.repeat(20) + '  ', '😀'.repeat(19), '😀'.repeat(20)]) {
+    const count = maintenanceFaultObservationLength(observation);
+    const result = validateMaintenanceFaultDetails(faulty({ Observacion: observation }));
+    assert.equal(result.valid, count >= MIN_MAINTENANCE_FAULT_OBSERVATION_LENGTH);
+    if (!result.valid) assert.ok(result.observationError.includes(`(${count}/20)`));
+  }
+  assert.equal(maintenanceFaultObservationLength('Puerta sin Strike'), 17);
+  assert.equal(maintenanceFaultObservationLength('  😀  '), 1);
 });

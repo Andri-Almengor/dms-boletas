@@ -27,7 +27,7 @@ import {
   releaseEvidencePreviewUrl,
 } from '../../utils/evidenceMedia';
 import { formatMacAddressInput, macAddressError, normalizeMacAddress } from '../../utils/macAddress';
-import { MAINTENANCE_FAULT_SEVERITIES, isMaintenanceDeviceFaulty, validateMaintenanceFaultDetails } from '../../utils/maintenanceFaultSeverity.js';
+import { MAINTENANCE_FAULT_SEVERITIES, MIN_MAINTENANCE_FAULT_OBSERVATION_LENGTH, isMaintenanceDeviceFaulty, maintenanceFaultObservationLength, validateMaintenanceFaultDetails } from '../../utils/maintenanceFaultSeverity.js';
 import { isProjectMaintenance } from '../../features/maintenance/maintenanceType';
 import { projectChecklistProgressForDevice } from '../../features/maintenance/maintenanceProjectChecklist';
 import {
@@ -152,6 +152,8 @@ export default function MaintenanceDeviceEditor({
   const questionCatalog = useMaintenanceQuestionCatalog(sessionToken);
   const catalogData = useMaintenanceDeviceCatalogData(sessionToken);
   const locked = disabled || submitting;
+  const observationHintId = React.useId();
+  const saveValidationId = React.useId();
   const cancel = onCancel || onClose;
   const canDeleteEvidence = isAdmin
     || hasPermission('MANTENIMIENTOS_EDITAR')
@@ -545,6 +547,13 @@ export default function MaintenanceDeviceEditor({
   const validatedDevice = { ...device, estado: calculatedState };
   const faultDetails = validateMaintenanceFaultDetails(validatedDevice, { projectMode });
   const faultyDevice = !projectMode && isMaintenanceDeviceFaulty(validatedDevice);
+  const observationLength = maintenanceFaultObservationLength(device.observacion);
+  const observationMinimum = MIN_MAINTENANCE_FAULT_OBSERVATION_LENGTH;
+  const observationRemaining = Math.max(0, observationMinimum - observationLength);
+  const observationMissingText = observationRemaining === 1
+    ? 'Falta 1 carácter'
+    : `Faltan ${observationRemaining} caracteres`;
+  const saveValidationDescription = !faultDetails.valid && !locked ? saveValidationId : undefined;
   const showFaultSeverity = !projectMode && !manualPending && (faultyDevice || checklistHealthFaults.length > 0);
   const submitDisabled = locked
     || !onSubmit
@@ -564,7 +573,7 @@ export default function MaintenanceDeviceEditor({
       <div className="maintenance-device-editor__title"><span className="eyebrow">{projectMode ? 'Dispositivo del proyecto' : 'Dispositivo del mantenimiento'}</span><h2>{isNewDevice ? 'Nuevo dispositivo' : 'Editar dispositivo'}</h2></div>
       <div className="maintenance-device-editor__sync">
         <AutosaveIndicator status={autosaveStatus} />
-        <button className="button button--primary button--compact maintenance-device-editor__header-save" type="button" onClick={onSubmit} disabled={submitDisabled} aria-label={submitting ? 'Guardando dispositivo' : submitLabel}>
+        <button className="button button--primary button--compact maintenance-device-editor__header-save" type="button" onClick={onSubmit} disabled={submitDisabled} aria-describedby={saveValidationDescription} aria-label={submitting ? 'Guardando dispositivo' : submitLabel}>
           <Icon name={submitting ? 'progress_activity' : 'save'} />
           <span>{submitting ? 'Guardando...' : submitLabel}</span>
         </button>
@@ -648,7 +657,18 @@ export default function MaintenanceDeviceEditor({
         onChange={(projectProgressValue) => patch({ projectProgress: projectProgressValue })}
       />}
 
-      <section className="form-card maintenance-device-section-card"><div className="form-card__heading"><span className="section-marker" /><div><h3>Observaciones</h3><p>Registre hallazgos, fallas, trabajos realizados o recomendaciones.</p></div></div><Field label={faultyDevice ? "Observación *" : "Observación"} multiline value={device.observacion} onChange={(event) => patch({ observacion: event.target.value })} disabled={locked} aria-invalid={Boolean(faultDetails.observationError)} />{faultyDevice && <small className="field-hint" role={faultDetails.observationError ? "alert" : undefined}>{faultDetails.observationError || "Observación de la falla: mínimo 20 caracteres."}</small>}</section>
+      <section className="form-card maintenance-device-section-card maintenance-device-observations">
+        <div className="form-card__heading"><span className="section-marker" /><div><h3>Observaciones</h3><p>Registre hallazgos, fallas, trabajos realizados o recomendaciones.</p></div></div>
+        <Field label={faultyDevice ? "Observación *" : "Observación"} multiline value={device.observacion} onChange={(event) => patch({ observacion: event.target.value })} disabled={locked} aria-invalid={Boolean(faultDetails.observationError)} aria-describedby={faultyDevice ? observationHintId : undefined} />
+        {faultyDevice && <div id={observationHintId} className={`maintenance-device-observation-feedback ${faultDetails.observationError ? 'is-invalid' : 'is-valid'}`} role="status" aria-live="polite" aria-atomic="true">
+          <Icon name={faultDetails.observationError ? 'error' : 'check_circle'} />
+          <div className="maintenance-device-observation-feedback__copy">
+            <strong>{faultDetails.observationError ? `Observación obligatoria: ${observationMissingText.toLowerCase()}` : 'Longitud mínima cumplida'}</strong>
+            <span>{faultDetails.observationError ? `Describa la falla con al menos ${observationMinimum} caracteres para habilitar el guardado.` : `Mínimo requerido: ${observationMinimum} caracteres.`}</span>
+          </div>
+          <span className="maintenance-device-observation-feedback__count">{observationLength}/{observationMinimum}<small>caracteres</small></span>
+        </div>}
+      </section>
 
       {projectMode ? <section className="maintenance-image-section maintenance-device-section-card maintenance-project-evidence-section">
         <div className="form-card__heading"><span className="section-marker" /><div><h3>Evidencias del proyecto</h3><p>Sin Antes/Después. Cada archivo registra fecha y hora automáticamente y puede ligarse al dispositivo principal o a uno de sus componentes.</p></div><span className="maintenance-device-evidence-total">{totalEvidence}</span></div>
@@ -733,10 +753,16 @@ export default function MaintenanceDeviceEditor({
       </section>}
       <footer className="maintenance-device-editor__actions">
         <div className="maintenance-device-editor__actions-status"><AutosaveIndicator status={autosaveStatus} /></div>
-        {!faultDetails.valid && !locked && <p className="field-hint maintenance-device-editor__validation-hint" role="alert">Para guardar: {[faultDetails.severityError, faultDetails.observationError].filter(Boolean).join(' ')}</p>}
+        {!faultDetails.valid && !locked && <div id={saveValidationId} className="maintenance-device-editor__validation-hint" role="status" aria-live="polite">
+          <Icon name="error" />
+          <div><strong>No se puede guardar el dispositivo</strong>
+            {faultDetails.observationError && <span>Para guardar: {observationMissingText.toLowerCase()} en Observaciones (mínimo {observationMinimum}).</span>}
+            {faultDetails.severityError && <span>{faultDetails.severityError}</span>}
+          </div>
+        </div>}
         <button className="button button--ghost maintenance-device-cancel-button" type="button" onClick={cancel} disabled={submitting}><Icon name="close" />Cancelar</button>
-        {onSubmitAndContinue && isNewDevice && !locked && <button className="button button--secondary" type="button" onClick={onSubmitAndContinue} disabled={missingEquipmentLocation || Boolean(invalidMac) || !faultDetails.valid || (!projectMode && questionCatalog.loading) || (projectMode && (projectMissingQuestions.length > 0 || projectRelationErrors.length > 0 || projectEvidenceTargetErrors.length > 0))}><Icon name="add_circle" />Guardar y agregar otro</button>}
-        <button className="button button--primary" type="button" onClick={onSubmit} disabled={submitDisabled}><Icon name={submitting ? 'progress_activity' : 'check'} /> {submitting ? 'Guardando dispositivo...' : submitLabel}</button>
+        {onSubmitAndContinue && isNewDevice && !locked && <button className="button button--secondary" type="button" onClick={onSubmitAndContinue} aria-describedby={saveValidationDescription} disabled={missingEquipmentLocation || Boolean(invalidMac) || !faultDetails.valid || (!projectMode && questionCatalog.loading) || (projectMode && (projectMissingQuestions.length > 0 || projectRelationErrors.length > 0 || projectEvidenceTargetErrors.length > 0))}><Icon name="add_circle" />Guardar y agregar otro</button>}
+        <button className="button button--primary" type="button" onClick={onSubmit} disabled={submitDisabled} aria-describedby={saveValidationDescription}><Icon name={submitting ? 'progress_activity' : 'check'} /> {submitting ? 'Guardando dispositivo...' : submitLabel}</button>
       </footer>
     </div>
   </div>;
