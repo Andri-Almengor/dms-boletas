@@ -115,6 +115,9 @@ function isFunctionalHealthCheck(question) {
   const config = questionConfig(question);
   if (typeof config.affectsDeviceHealth === 'boolean') return config.affectsDeviceHealth;
   const label = normalized(Array.isArray(question) ? question[1] : (question.label ?? question.Pregunta));
+  // Una actividad aún no realizada no prueba una avería, incluso cuando
+  // la pregunta usa adverbios como "correctamente".
+  if (/^¿?\s*se (realiz|complet|ejecut|efectu|registr)/.test(label)) return false;
   return /\b(funciona\w*|correct\w*|satisfactori\w*|activ\w*|operativ\w*|disponible\w*|reportan|visualiza\w*|transmit\w*|graba\w*|responde\w*|firme|alinead\w*|buen estado)\b/.test(label)
     || /\blevanta (?:el )?video\b/.test(label);
 }
