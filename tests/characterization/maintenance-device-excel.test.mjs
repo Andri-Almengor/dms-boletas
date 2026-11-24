@@ -340,3 +340,10 @@ test('el serializador XLSX normaliza fórmulas de listas sin cambiar las reglas 
   const creator = source('src/components/maintenance/MaintenanceQuickDeviceCreator.jsx');
   assert.match(creator, /validateDeviceExcelWorkbook/);
 });
+
+test('importación Excel calcula estado después de leer respuestas y elimina el selector manual sano/averiado', () => {
+  const mapper = source('src/features/maintenance/maintenanceDeviceExcel.js');
+  assert.match(mapper, /addList\('ESTADO', mode === 'PROYECTO' \? \['Pendiente', 'Correcto', 'Mal estado'\] : \[MANUAL_PENDING_STATE\]\)/);
+  assert.match(mapper, /else if \(state === MANUAL_PENDING_STATE\) draft\.estado = MANUAL_PENDING_STATE/);
+  assert.match(mapper, /draft\.questionDetails = questions\.map[\s\S]*draft\.estado = effectiveMaintenanceDeviceState\(draft, questions\)[\s\S]*validateMaintenanceFaultDetails\(draft/);
+});

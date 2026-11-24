@@ -45,7 +45,9 @@ function questionConfig(question = {}) {
 function activeQuestion(question) {
   return question?.historical !== true
     && question?.activeAtSave !== false
-    && question?.Activo !== false;
+    && question?.active !== false
+    && !['false', '0', 'no'].includes(normalized(question?.Activo ?? true))
+    && normalized(question?.Estado ?? 'ACTIVO') !== 'inactivo';
 }
 
 function requiredQuestion(question) {
@@ -53,8 +55,23 @@ function requiredQuestion(question) {
   return config.required !== false;
 }
 
+export function normalizeMaintenanceBinaryAnswer(value) {
+  const answer = normalized(value);
+  if (['si', 'true', '1'].includes(answer)) return 'Sí';
+  if (['no', 'false', '0'].includes(answer)) return 'No';
+  return '';
+}
+
+function resolvedQuestionAnswer(device, answers, question) {
+  const key = questionKey(question);
+  const column = key.charAt(0).toUpperCase() + key.slice(1);
+  // Una respuesta vaciada explícitamente no se recupera de un snapshot viejo.
+  return answers[key] ?? device[key] ?? device[column] ?? question?.value ?? question?.Valor ?? '';
+}
+
 function answerHasValue(question, value) {
   const responseType = text(question?.responseType || question?.TipoRespuesta || 'SI_NO').toUpperCase();
+  if (responseType === 'SI_NO') return Boolean(normalizeMaintenanceBinaryAnswer(value));
   if (responseType === 'RELACION_DISPOSITIVO') {
     if (!value || typeof value !== 'object' || Array.isArray(value)) return false;
     const enabled = value.enabled === true || normalized(value.enabled) === 'true';
@@ -94,10 +111,16 @@ function resolvedMaintenanceQuestions(device = {}, fallbackQuestions = []) {
   const explicitQuestions = Array.isArray(device.questionDetails) ? device.questionDetails : [];
   // La definición vigente prevalece sobre los snapshots históricos.
   const questionsByKey = new Map();
+  const fallback = Array.isArray(fallbackQuestions) ? fallbackQuestions : [];
+  // Los arreglos [clave, etiqueta] son solo el catálogo legado. No pueden
+  // resucitar preguntas eliminadas ni sobrescribir la política del snapshot.
+  const legacyFallback = fallback.length > 0 && fallback.every(Array.isArray);
+  const definitions = legacyFallback && (metadataQuestions.length || explicitQuestions.length)
+    ? [] : fallback;
   for (const question of [
     ...metadataQuestions,
     ...explicitQuestions,
-    ...(Array.isArray(fallbackQuestions) ? fallbackQuestions : []),
+    ...definitions,
   ]) {
     const key = questionKey(question);
     if (!key) continue;
@@ -107,40 +130,46 @@ function resolvedMaintenanceQuestions(device = {}, fallbackQuestions = []) {
   return [...questionsByKey.values()].filter(activeQuestion);
 }
 
-// Las preguntas de trabajo (p. ej. limpieza pendiente) no indican por sí mismas
-// que un equipo esté averiado. Solo las verificaciones operativas positivas
-// y las preguntas configuradas explícitamente como críticas para su salud
-// pueden convertir una respuesta negativa en una falla del dispositivo.
-function isFunctionalHealthCheck(question) {
+// Regla conservadora para preguntas binarias sin configuración explícita:
+// una respuesta negativa es una falla, salvo tareas de ejecución (limpieza,
+// mediciones, etc.) o preguntas inequívocamente formuladas en sentido inverso.
+// El administrador puede fijar la polaridad o excluir preguntas informativas.
+export function maintenanceQuestionFailureAnswer(question) {
+  const key = questionKey(question);
+  const type = text(question?.responseType || question?.TipoRespuesta || 'SI_NO').toUpperCase();
+  if (type !== 'SI_NO') return '';
+  if (key === 'reportaAveria') return 'Sí';
   const config = questionConfig(question);
-  if (typeof config.affectsDeviceHealth === 'boolean') return config.affectsDeviceHealth;
+  if (config.affectsDeviceHealth === false) return '';
+  const configured = normalizeMaintenanceBinaryAnswer(config.healthFailureAnswer);
+  if (configured) return configured;
+  if (config.affectsDeviceHealth === true) return 'No';
   const label = normalized(Array.isArray(question) ? question[1] : (question.label ?? question.Pregunta));
-  // Una actividad aún no realizada no prueba una avería, incluso cuando
-  // la pregunta usa adverbios como "correctamente".
-  if (/^¿?\s*se (realiz|complet|ejecut|efectu|registr)/.test(label)) return false;
-  return /\b(funciona\w*|correct\w*|satisfactori\w*|activ\w*|operativ\w*|disponible\w*|reportan|visualiza\w*|transmit\w*|graba\w*|responde\w*|firme|alinead\w*|buen estado)\b/.test(label)
-    || /\blevanta (?:el )?video\b/.test(label);
+  if (/^¿?\s*se (realiz|complet|ejecut|efectu|registr)/.test(label)) return '';
+  if (/\b(presenta\w*|tiene|hay|existe\w*|reporta\w*|detecta\w*)\b[^?]*(?:\bfalla\w*|\baveria\w*|\bdano\w*|\bdefecto\w*|\bproblema\w*)/.test(label)
+      && !/\b(sin|ningun\w*|libre de|ausencia de)\b/.test(label)) return 'Sí';
+  return 'No';
 }
 
 export function maintenanceChecklistHealthFaults(device = {}, fallbackQuestions = []) {
   const { answers } = parseMaintenanceAnswers(device);
   const failures = [];
-  if (normalized(device.funcionamiento ?? device.Funcionamiento) === 'no') {
+  if (normalizeMaintenanceBinaryAnswer(device.funcionamiento ?? device.Funcionamiento) === 'No') {
     failures.push('Funcionamiento');
   }
-  for (const question of resolvedMaintenanceQuestions(device, fallbackQuestions)) {
-    const key = questionKey(question);
-    const type = text(question?.responseType || question?.TipoRespuesta || 'SI_NO').toUpperCase();
-    if (type !== 'SI_NO') continue;
-    const answer = normalized(answers[key] ?? question.value ?? question.Valor ?? '');
-    const config = questionConfig(question);
-    const adverse = normalized(config.healthFailureAnswer || '') || 'no';
-    const indicatesFault = key === 'reportaAveria'
-      ? answer === 'si'
-      : isFunctionalHealthCheck(question) && answer === adverse;
-    if (indicatesFault) {
-      failures.push(text(Array.isArray(question) ? question[1] : (question.label ?? question.Pregunta)) || key);
+  const questions = resolvedMaintenanceQuestions(device, fallbackQuestions);
+  for (const question of questions) {
+    const adverse = maintenanceQuestionFailureAnswer(question);
+    const answer = normalizeMaintenanceBinaryAnswer(resolvedQuestionAnswer(device, answers, question));
+    if (adverse && answer === adverse) {
+      failures.push(text(Array.isArray(question) ? question[1] : (question.label ?? question.Pregunta)) || questionKey(question));
     }
+  }
+  // La pregunta global es obligatoriamente interpretada como avería si se
+  // contestó Sí, aun en borradores legados que no traen su definición.
+  if (!questions.some((question) => questionKey(question) === 'reportaAveria')
+    && normalizeMaintenanceBinaryAnswer(answers.reportaAveria ?? device.reportaAveria ?? device.ReportaAveria) === 'Sí') {
+    failures.push('¿Se reporta avería en este equipo?');
   }
   return failures;
 }
@@ -155,11 +184,11 @@ export function maintenanceChecklistCompletion(device = {}, fallbackQuestions = 
   const requiredByKey = new Map(requiredQuestions.map((question) => [questionKey(question), question]));
   const missing = [];
 
-  if (!text(device.funcionamiento ?? device.Funcionamiento)) missing.push('Funcionamiento');
+  if (!normalizeMaintenanceBinaryAnswer(device.funcionamiento ?? device.Funcionamiento)) missing.push('Funcionamiento');
   if (!text(device.enUso ?? device.EnUso)) missing.push('En uso');
 
   requiredKeys.forEach((key) => {
-    const value = answers[key] ?? device[key] ?? device[`${key.charAt(0).toUpperCase()}${key.slice(1)}`];
+    const value = resolvedQuestionAnswer(device, answers, requiredByKey.get(key));
     if (!answerHasValue(requiredByKey.get(key), value)) missing.push(key);
   });
 
@@ -170,16 +199,20 @@ export function maintenanceChecklistCompletion(device = {}, fallbackQuestions = 
   };
 }
 
-export function effectiveMaintenanceDeviceState(device = {}, fallbackQuestions = []) {
+export function effectiveMaintenanceDeviceState(device = {}, fallbackQuestions = [], { preserveRecordedFault = false } = {}) {
+  if (normalized(device.maintenanceType ?? device.TipoMantenimiento ?? device.tipoMantenimiento) === 'proyecto') {
+    return text(stateValue(device)) || AUTOMATIC_PENDING_STATE;
+  }
   if (isManualChecklistPending(device)) return MANUAL_PENDING_STATE;
   const completion = maintenanceChecklistCompletion(device, fallbackQuestions);
   if (!completion.complete) return AUTOMATIC_PENDING_STATE;
 
   if (maintenanceChecklistHealthFaults(device, fallbackQuestions).length) return 'Mal estado';
 
-  const current = text(stateValue(device));
-  if (!current || normalized(current) === 'pendiente') return 'Correcto';
-  return current;
+  // Solo una lectura de un registro histórico puede conservar su diagnóstico
+  // anterior sin reinterpretarlo. En edición/guardado el estado se deriva.
+  if (preserveRecordedFault && normalized(stateValue(device)) === 'mal estado') return 'Mal estado';
+  return 'Correcto';
 }
 
 export function isMaintenanceChecklistPending(device = {}, fallbackQuestions = []) {

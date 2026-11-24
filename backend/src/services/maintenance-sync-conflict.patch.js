@@ -65,6 +65,7 @@ const DEVICE_FIELDS = Object.freeze({
   Funcionamiento: ['funcionamiento'],
   EnUso: ['enUso'],
   Estado: ['estado'],
+  GravedadFalla: ['gravedadFalla'],
   Observacion: ['observacion'],
   RespuestasJSON: ['respuestas', 'answers'],
   ProyectoProgresoJSON: ['projectProgress', 'proyectoProgreso'],

@@ -258,6 +258,13 @@ function answerColumnValue(value) {
   return value;
 }
 
+function deviceChecklistField(payload, keys, fallback = '') {
+  for (const key of keys) {
+    if (Object.prototype.hasOwnProperty.call(payload || {}, key)) return payload[key] ?? '';
+  }
+  return fallback ?? '';
+}
+
 function devicePayload(payload, before = {}) {
   let answers = payload.respuestas || payload.answers || payload.RespuestasJSON || before.RespuestasJSON || {};
   if (typeof answers === 'string') {
@@ -268,15 +275,16 @@ function devicePayload(payload, before = {}) {
     ['TipoDispositivo', 'Categoria', 'categoria'],
     before.TipoDispositivo || before.Categoria,
   ));
-  const funcionamiento = pick(payload, ['Funcionamiento', 'funcionamiento'], before.Funcionamiento);
-  const enUso = pick(payload, ['EnUso', 'enUso'], before.EnUso);
+  const funcionamiento = deviceChecklistField(payload, ['Funcionamiento', 'funcionamiento'], before.Funcionamiento);
+  const enUso = deviceChecklistField(payload, ['EnUso', 'enUso'], before.EnUso);
   const requestedState = pick(payload, ['Estado', 'estado'], before.Estado || 'Correcto');
   const questionDetails = payload.questionDetails || answers.__preguntas || [];
   // El backend confirma el estado con las mismas reglas del editor y la
   // importación. Una falla operativa nunca se guarda como equipo sano.
-  const deviceState = normalizeMaintenanceType(
+  const projectMode = normalizeMaintenanceType(
     pick(payload, ['TipoMantenimiento', 'tipoMantenimiento', 'maintenanceType'], 'MANTENIMIENTO'),
-  ) === 'PROYECTO'
+  ) === 'PROYECTO';
+  const deviceState = projectMode
     ? requestedState
     : effectiveMaintenanceDeviceState({
       estado: requestedState,
@@ -285,7 +293,13 @@ function devicePayload(payload, before = {}) {
       respuestas: answers,
       questionDetails,
     }, questionDetails);
+  const protectedColumns = new Set(['EvidenciaMantenimientoID', 'MantenimientoRef', 'Activo', 'CreadoPor', 'FechaCreacion', 'ActualizadoPor', 'FechaActualizacion', '__preguntas']);
+  const answerColumns = Object.fromEntries(Object.entries(answers).map(([key, value]) => [
+    key.charAt(0).toUpperCase() + key.slice(1),
+    answerColumnValue(value),
+  ]).filter(([key]) => !protectedColumns.has(key)));
   return {
+    ...answerColumns,
     UbicacionEquipoID: pick(payload, ['UbicacionEquipoID', 'ubicacionEquipoId'], before.UbicacionEquipoID),
     Zona: pick(payload, ['Zona', 'zona'], before.Zona),
     Categoria: category,
@@ -301,14 +315,10 @@ function devicePayload(payload, before = {}) {
     Funcionamiento: funcionamiento,
     EnUso: enUso,
     Estado: deviceState,
-    GravedadFalla: normalizeMaintenanceFaultSeverity(pick(payload, ['GravedadFalla', 'gravedadFalla'], before.GravedadFalla)),
-    Observacion: pick(payload, ['Observacion', 'observacion'], before.Observacion),
+    GravedadFalla: normalizeMaintenanceFaultSeverity(!projectMode && deviceState === 'Correcto' ? '' : deviceChecklistField(payload, ['GravedadFalla', 'gravedadFalla'], before.GravedadFalla)),
+    Observacion: deviceChecklistField(payload, ['Observacion', 'observacion'], before.Observacion),
     ProyectoProgresoJSON: pick(payload, ['ProyectoProgresoJSON', 'projectProgress', 'proyectoProgreso'], before.ProyectoProgresoJSON || ''),
     RespuestasJSON: JSON.stringify(answers),
-    ...Object.fromEntries(Object.entries(answers).map(([key, value]) => [
-      key.charAt(0).toUpperCase() + key.slice(1),
-      answerColumnValue(value),
-    ])),
   };
 }
 
@@ -556,6 +566,7 @@ export const maintenanceHandlers = {
     const progress = projectDeviceProgressSummary({ maintenance, payload: ctx.payload, progressJson });
     const payload = devicePayload({
       ...ctx.payload,
+      TipoMantenimiento: maintenance.TipoMantenimiento || 'MANTENIMIENTO',
       ProyectoProgresoJSON: progressJson,
       ...(progress.hasChecklist && !progress.complete ? { Estado: 'Pendiente' } : {}),
     });
@@ -593,6 +604,7 @@ export const maintenanceHandlers = {
     const progress = projectDeviceProgressSummary({ maintenance, payload: ctx.payload, before, progressJson });
     const nextPayload = {
       ...ctx.payload,
+      TipoMantenimiento: maintenance.TipoMantenimiento || 'MANTENIMIENTO',
       ProyectoProgresoJSON: progressJson,
       ...(progress.hasChecklist && !progress.complete ? { Estado: 'Pendiente' } : {}),
     };
@@ -618,6 +630,7 @@ export const maintenanceHandlers = {
       const progress = projectDeviceProgressSummary({ maintenance, payload: ctx.payload, before, progressJson });
       const patch = changedDevicePatch(before, {
         ...ctx.payload,
+        TipoMantenimiento: maintenance.TipoMantenimiento || 'MANTENIMIENTO',
         ProyectoProgresoJSON: progressJson,
         ...(progress.hasChecklist && !progress.complete ? { Estado: 'Pendiente' } : {}),
       }, ctx.user.UsuarioID);

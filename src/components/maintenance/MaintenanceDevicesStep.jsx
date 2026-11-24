@@ -31,7 +31,7 @@ function checklistQuestions(device) {
 }
 
 function deviceState(device) {
-  const state = effectiveMaintenanceDeviceState(device, checklistQuestions(device));
+  const state = effectiveMaintenanceDeviceState(device, checklistQuestions(device), { preserveRecordedFault: true });
   const text = normalized(state);
   if (!text) return 'SIN ESTADO';
   return text === 'correcto' || text.startsWith('si') ? 'CORRECTO' : String(state).toUpperCase();

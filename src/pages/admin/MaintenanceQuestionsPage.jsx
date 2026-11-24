@@ -93,6 +93,7 @@ function emptyValues(typeIdentifier = '') {
     camposRelacionados: ['cantidad', 'fabricante', 'modelo', 'serie'],
     opcionesTexto: '',
     obligatoria: true,
+    impactoEstado: 'AUTO',
   };
 }
 
@@ -153,6 +154,16 @@ function QuestionEditorFields({ values, setValues, deviceName, deviceTypes }) {
         required
       />
       <small className="field-hint">Escriba una opción por línea. En Proyecto se mostrará como un selector, no como texto libre.</small>
+    </label>}
+    {values.tipoRespuesta === 'SI_NO' && values.aplicaModo !== 'PROYECTO' && <label className="field-group">
+      <span className="field-label">Efecto en el estado automático</span>
+      <select className="form-control" name="impactoEstado" value={values.impactoEstado || 'AUTO'} onChange={change}>
+        <option value="AUTO">Automático según la pregunta</option>
+        <option value="NO">No = falla</option>
+        <option value="SI">Sí = falla</option>
+        <option value="NONE">Informativa / tarea (no afecta el estado)</option>
+      </select>
+      <small className="field-hint">Configure qué respuesta indica una avería. Los técnicos no pueden cambiar esta regla desde el dispositivo.</small>
     </label>}
     <label className="maintenance-question-required-toggle">
       <input type="checkbox" name="obligatoria" checked={Boolean(values.obligatoria)} onChange={change} />
@@ -427,6 +438,10 @@ export default function MaintenanceQuestionsPage() {
         orden: String(question.Orden ?? ''),
         aplicaModo: clean(question.AplicaModo || question.appliesTo || 'MANTENIMIENTO').toUpperCase(),
         tipoRespuesta: clean(question.TipoRespuesta || question.responseType || 'SI_NO').toUpperCase(),
+        impactoEstado: parseQuestionConfig(question).affectsDeviceHealth === false ? 'NONE'
+          : parseQuestionConfig(question).healthFailureAnswer === 'No' ? 'NO'
+            : ['Sí', 'Si'].includes(parseQuestionConfig(question).healthFailureAnswer) ? 'SI'
+              : parseQuestionConfig(question).affectsDeviceHealth === true ? 'NO' : 'AUTO',
         tipoDispositivoRelacionadoId: clean(question.TipoDispositivoRelacionadoID || question.relatedTypeId),
         camposRelacionados: Array.isArray(parseQuestionConfig(question).fields)
           ? parseQuestionConfig(question).fields
@@ -487,6 +502,12 @@ export default function MaintenanceQuestionsPage() {
             ? configuredOptions
             : [],
           required: Boolean(editor.values.obligatoria),
+          ...(editor.values.tipoRespuesta === 'SI_NO' && editor.values.aplicaModo !== 'PROYECTO'
+            ? editor.values.impactoEstado === 'NONE' ? { affectsDeviceHealth: false }
+              : editor.values.impactoEstado === 'NO' ? { affectsDeviceHealth: true, healthFailureAnswer: 'No' }
+                : editor.values.impactoEstado === 'SI' ? { affectsDeviceHealth: true, healthFailureAnswer: 'Sí' }
+                  : {}
+            : {}),
         }),
         ...(editor.values.orden !== '' ? { Orden: Number(editor.values.orden) } : {}),
       };

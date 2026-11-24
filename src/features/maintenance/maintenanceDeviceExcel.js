@@ -4,6 +4,7 @@ import { normalizeMacAddress, macAddressError } from '../../utils/macAddress.js'
 import { pick } from '../../services/moduleApi.js';
 import { projectQuestionRequired } from './maintenanceProjectRelations.js';
 import { MAINTENANCE_FAULT_SEVERITIES, normalizeMaintenanceFaultSeverity, validateMaintenanceFaultDetails } from '../../utils/maintenanceFaultSeverity.js';
+import { MANUAL_PENDING_STATE, effectiveMaintenanceDeviceState } from '../../utils/maintenanceChecklistStatus.js';
 
 export const DEVICE_EXCEL_FIELDS = Object.freeze([
   'UbicacionEquipoID', 'UbicacionEquipo', 'TipoDispositivoID', 'TipoDispositivo',
@@ -161,7 +162,7 @@ export function excelTemplateSheets({
   addList('RESPUESTA_SI_NO', ['Sí', 'No']);
   addList('FUNCIONAMIENTO', ['Sí', 'No', 'No aplica']);
   addList('EN_USO', ['Sí, en uso', 'No, está guardado', 'No']);
-  addList('ESTADO', ['Pendiente', 'Correcto', 'Mal estado']);
+  addList('ESTADO', mode === 'PROYECTO' ? ['Pendiente', 'Correcto', 'Mal estado'] : [MANUAL_PENDING_STATE]);
   addList('GRAVEDAD_FALLA', MAINTENANCE_FAULT_SEVERITIES);
   addList('SIN_MODELOS', ['']);
 
@@ -217,7 +218,7 @@ export function excelTemplateSheets({
     ['5', 'Las preguntas que se dejan en blanco quedan sin contestar. En proyectos se validan las respuestas obligatorias.'],
     ['6', 'Técnicos: nombres completos separados por punto y coma (;). Dejar vacío utiliza la selección de la aplicación.'],
     ['7', 'Fecha de trabajo: AAAA-MM-DD como texto. Dejar vacío utiliza la fecha actual de Costa Rica.'],
-    ['7a', 'Si el estado es Mal estado, elija la Gravedad de falla y escriba una Observación de al menos 20 caracteres.'],
+    ['7a', mode === 'PROYECTO' ? 'El estado del proyecto se calcula según sus campos y avance.' : 'Deje Estado vacío para calcularlo desde las respuestas. Seleccione PENDIENTE solo si desea pausar las pruebas manualmente. Si alguna prueba indica avería, elija la Gravedad de falla y escriba una Observación de al menos 20 caracteres.'],
     ['8', 'Para actualizar ubicaciones, modelos, fabricantes o preguntas nuevas, DESCARGUE de nuevo desde el mantenimiento.'],
     ['9', 'El Excel descargado no se sincroniza mientras está cerrado: PostgreSQL es la fuente de verdad, no Google Sheets.'],
     ['10', 'No cambie nombres de las pestañas ni los encabezados. La aplicación validará los datos antes de crear equipos.'],
@@ -329,13 +330,11 @@ export function validateDeviceExcelRows({
     const state = value(row, 'Estado');
     if (state) {
       if (!['pendiente', 'correcto', 'mal estado'].includes(identity(state))) issues.push('Estado no válido');
-      else draft.estado = state;
+      else if (maintenanceType === 'PROYECTO') draft.estado = state;
+      else if (state === MANUAL_PENDING_STATE) draft.estado = MANUAL_PENDING_STATE;
     }
     const rawSeverity = value(row, 'GravedadFalla');
     draft.gravedadFalla = normalizeMaintenanceFaultSeverity(rawSeverity) || rawSeverity;
-    const faultValidation = validateMaintenanceFaultDetails(draft, { projectMode: maintenanceType === 'PROYECTO' });
-    if (faultValidation.severityError) issues.push(faultValidation.severityError);
-    if (faultValidation.observationError) issues.push(faultValidation.observationError);
     const questions = type ? questionsForDevice(draft, maintenanceType) : [];
     const valid = new Set(questions.map((q) => q.key));
     questions.forEach((q) => {
@@ -347,6 +346,13 @@ export function validateDeviceExcelRows({
       if (value(row, h) && !valid.has(h.slice(9))) issues.push(h + ' no aplica a este tipo');
     });
     draft.questionDetails = questions.map((q) => ({ ...q, value: draft.respuestas[q.key] ?? '' }));
+    if (maintenanceType !== 'PROYECTO') {
+      draft.estado = effectiveMaintenanceDeviceState(draft, questions);
+      if (draft.estado === 'Correcto') draft.gravedadFalla = '';
+    }
+    const faultValidation = validateMaintenanceFaultDetails(draft, { projectMode: maintenanceType === 'PROYECTO' });
+    if (faultValidation.severityError) issues.push(faultValidation.severityError);
+    if (faultValidation.observationError) issues.push(faultValidation.observationError);
     return { rowNumber: index + 2, name, draft, locationName: location?.label || '', issues };
   });
   return { rows: prepared, errors: [...problems, ...prepared.flatMap((r) =>

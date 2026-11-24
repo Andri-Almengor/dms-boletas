@@ -59,6 +59,7 @@ export const MAINTENANCE_DEVICE_SYNC_FIELDS = Object.freeze({
   Funcionamiento: ['funcionamiento'],
   EnUso: ['enUso'],
   Estado: ['estado'],
+  GravedadFalla: ['gravedadFalla'],
   Observacion: ['observacion'],
   RespuestasJSON: ['respuestas', 'answers'],
   ProyectoProgresoJSON: ['projectProgress', 'proyectoProgreso'],

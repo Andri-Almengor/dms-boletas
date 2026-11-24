@@ -106,11 +106,13 @@ function parseAnswersBundle(row, categoryName) {
   const { __preguntas: _questionMetadata, ...plainAnswers } = parsed;
   const answers = { ...createEmptyChecklist(categoryName), ...plainAnswers };
   questionDetails.forEach((item) => {
-    if ((answers[item.key] === '' || answers[item.key] === undefined) && item.value !== '') answers[item.key] = item.value;
+    if (!Object.prototype.hasOwnProperty.call(plainAnswers, item.key) && item.value !== '') answers[item.key] = item.value;
   });
   getMaintenanceCategory(categoryName).questions.forEach(([key]) => {
     const explicit = answerValue(row, key);
-    if ((answers[key] === '' || answers[key] === undefined) && explicit !== '') answers[key] = explicit;
+    if (!Object.prototype.hasOwnProperty.call(plainAnswers, key)
+      && !questionDetails.some((item) => item.key === key)
+      && explicit !== '') answers[key] = explicit;
   });
   return { answers, questionDetails };
 }
@@ -235,7 +237,7 @@ export function mapMaintenanceDevice(row = {}, maintenanceType = 'MANTENIMIENTO'
     ...mapped,
     estado: normalizedType === 'PROYECTO'
       ? pick(row, ['Estado', 'estado'], AUTOMATIC_PENDING_STATE)
-      : effectiveMaintenanceDeviceState(mapped, getMaintenanceCategory(category).questions),
+      : effectiveMaintenanceDeviceState(mapped, getMaintenanceCategory(category).questions, { preserveRecordedFault: true }),
   };
 }
 
@@ -265,6 +267,7 @@ export function maintenanceDevicePayload(device, maintenanceId, maintenanceType 
     : effectiveMaintenanceDeviceState(device, getMaintenanceCategory(category).questions);
   const macAddress = normalizeMacAddress(device.macAddress);
   return withSyncBase({
+    ...device.respuestas,
     maintenanceId, MantenimientoID: maintenanceId, deviceId: device.id,
     TipoMantenimiento: normalizedType,
     tipoMantenimiento: normalizedType,
@@ -293,12 +296,12 @@ export function maintenanceDevicePayload(device, maintenanceId, maintenanceType 
     macAddress,
     Funcionamiento: device.funcionamiento,
     EnUso: device.enUso, Estado: effectiveState,
-    GravedadFalla: normalizeMaintenanceFaultSeverity(device.gravedadFalla),
+    GravedadFalla: normalizeMaintenanceFaultSeverity(normalizedType !== 'PROYECTO' && effectiveState === 'Correcto' ? '' : device.gravedadFalla),
     Observacion: device.observacion,
     questionDetails: device.questionDetails || [],
     respuestasDetalle: device.questionDetails || [],
     ProyectoProgresoJSON: JSON.stringify(normalizeProjectProgress(device.projectProgress)),
     projectProgress: normalizeProjectProgress(device.projectProgress),
-    RespuestasJSON: JSON.stringify(device.respuestas), ...device.respuestas,
+    RespuestasJSON: JSON.stringify(device.respuestas),
   }, device.syncBase);
 }
