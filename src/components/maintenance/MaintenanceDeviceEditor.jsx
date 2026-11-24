@@ -43,14 +43,15 @@ import {
   effectiveMaintenanceDeviceState,
   isManualChecklistPending,
   maintenanceChecklistCompletion,
+  maintenanceChecklistHealthFaults,
 } from '../../utils/maintenanceChecklistStatus';
 
 function Field({ label, multiline = false, ...props }) {
   return <label className="field-group"><span className="field-label">{label}</span>{multiline ? <textarea className="form-control ticket-textarea" rows="5" {...props} /> : <input className="form-control" {...props} />}</label>;
 }
 
-function Choice({ label, value, onChange, options = ['Sí', 'No'], disabled = false, note = '', allowClear = false }) {
-  return <div className="field-group maintenance-dynamic-question"><span className="field-label">{label}</span>{note && <small className="field-hint">{note}</small>}<div className="maintenance-choice">{options.map((option) => <button type="button" key={option} className={value === option ? 'is-selected' : ''} aria-pressed={value === option} onClick={() => onChange(allowClear ? toggleMaintenanceQuestionChoice(value, option) : option)} disabled={disabled}>{option}</button>)}</div></div>;
+function Choice({ label, value, onChange, options = ['Sí', 'No'], disabled = false, disabledOptions = [], note = '', allowClear = false }) {
+  return <div className="field-group maintenance-dynamic-question"><span className="field-label">{label}</span>{note && <small className="field-hint">{note}</small>}<div className="maintenance-choice">{options.map((option) => <button type="button" key={option} className={value === option ? 'is-selected' : ''} aria-pressed={value === option} onClick={() => onChange(allowClear ? toggleMaintenanceQuestionChoice(value, option) : option)} disabled={disabled || disabledOptions.includes(option)}>{option}</button>)}</div></div>;
 }
 
 function currentRoute() {
@@ -347,6 +348,10 @@ export default function MaintenanceDeviceEditor({
     { ...device, questionDetails: dynamicQuestions },
     dynamicQuestions,
   ), [device, dynamicQuestions]);
+  const checklistHealthFaults = useMemo(() => projectMode ? [] : maintenanceChecklistHealthFaults(
+    { ...device, questionDetails: dynamicQuestions },
+    dynamicQuestions,
+  ), [device, dynamicQuestions, projectMode]);
   const manualPending = !projectMode && isManualChecklistPending(device);
   const automaticPending = !projectMode && !manualPending && !checklistCompletion.complete;
   const checklistPending = manualPending || automaticPending;
@@ -380,7 +385,10 @@ export default function MaintenanceDeviceEditor({
     patch({
       estado: checked
         ? MANUAL_PENDING_STATE
-        : (checklistCompletion.complete ? 'Correcto' : AUTOMATIC_PENDING_STATE),
+        : effectiveMaintenanceDeviceState(
+          { ...device, estado: AUTOMATIC_PENDING_STATE, questionDetails: dynamicQuestions },
+          dynamicQuestions,
+        ),
     });
   }
 
@@ -594,9 +602,10 @@ export default function MaintenanceDeviceEditor({
         {dynamicQuestions.map((question) => <MaintenanceQuestionField key={`${question.questionId || question.key}-${question.key}`} question={question} value={device.respuestas?.[question.key] ?? question.value ?? ''} onChange={(value) => updateQuestion(question, value)} disabled={checklistLocked || question.historical} note={question.historical ? 'Pregunta histórica: fue eliminada o desactivada después de este mantenimiento.' : ''} />)}
         {!questionCatalog.loading && !dynamicQuestions.length && <div className="info-box"><Icon name="info" /><p>Este tipo no tiene preguntas específicas activas. Puede agregarlas desde Administración → Preguntas de mantenimiento.</p></div>}
         {questionCatalog.error && <div className="info-box maintenance-question-warning"><Icon name="cloud_off" /><p>No se pudo actualizar el catálogo de preguntas. Se muestran las preguntas compatibles disponibles en el dispositivo.</p></div>}
-        <Choice label="Estado" value={checklistPending ? '' : device.estado} onChange={(value) => patch({ estado: value, ...(value === 'Correcto' ? { gravedadFalla: '' } : {}) })} options={['Correcto', 'Mal estado']} disabled={checklistLocked || !checklistCompletion.complete} note={!checklistCompletion.complete ? 'El estado final se habilitará cuando todas las preguntas obligatorias estén respondidas.' : ''} />
+        {checklistHealthFaults.length > 0 && <div className="alert alert--warning" role="status"><Icon name="warning" /><span>Se detectaron verificaciones que indican una avería: {checklistHealthFaults.join('; ')}. El equipo quedará en «Mal estado» al completar la checklist, aunque las demás respuestas sean positivas.</span></div>}
+        <Choice label="Estado" value={checklistPending ? '' : device.estado} onChange={(value) => patch({ estado: value, ...(value === 'Correcto' ? { gravedadFalla: '' } : {}) })} options={['Correcto', 'Mal estado']} disabledOptions={checklistHealthFaults.length ? ['Correcto'] : []} disabled={checklistLocked || !checklistCompletion.complete} note={!checklistCompletion.complete ? 'El estado final se habilitará cuando todas las preguntas obligatorias estén respondidas.' : checklistHealthFaults.length ? 'Corrija las pruebas fallidas antes de clasificar el equipo como correcto.' : ''} />
         {faultyDevice && <div className="maintenance-device-fault-severity">
-          <Choice label="Falla *" value={device.gravedadFalla || ''} onChange={(value) => patch({ gravedadFalla: value })} options={MAINTENANCE_FAULT_SEVERITIES} disabled={checklistLocked} note="Seleccione la gravedad de la falla detectada." />
+          <Choice label="Falla *" value={device.gravedadFalla || ''} onChange={(value) => patch({ gravedadFalla: value })} options={MAINTENANCE_FAULT_SEVERITIES} disabled={checklistLocked} note={device.gravedadFalla ? `Gravedad seleccionada: ${device.gravedadFalla}.` : 'Seleccione la gravedad de la falla detectada.'} />
           {faultDetails.severityError && <small className="field-hint" role="alert">{faultDetails.severityError}</small>}
         </div>}
       </section>}
@@ -693,6 +702,7 @@ export default function MaintenanceDeviceEditor({
       </section>}
       <footer className="maintenance-device-editor__actions">
         <div className="maintenance-device-editor__actions-status"><AutosaveIndicator status={autosaveStatus} /></div>
+        {!faultDetails.valid && !locked && <p className="field-hint" role="alert">Para guardar: {[faultDetails.severityError, faultDetails.observationError].filter(Boolean).join(' ')}</p>}
         <button className="button button--ghost maintenance-device-cancel-button" type="button" onClick={cancel} disabled={submitting}><Icon name="close" />Cancelar</button>
         {onSubmitAndContinue && isNewDevice && !locked && <button className="button button--secondary" type="button" onClick={onSubmitAndContinue} disabled={missingEquipmentLocation || Boolean(invalidMac) || !faultDetails.valid || (projectMode && (projectMissingQuestions.length > 0 || projectRelationErrors.length > 0 || projectEvidenceTargetErrors.length > 0))}><Icon name="add_circle" />Guardar y agregar otro</button>}
         <button className="button button--primary" type="button" onClick={onSubmit} disabled={submitDisabled}><Icon name={submitting ? 'progress_activity' : 'check'} /> {submitting ? 'Guardando dispositivo...' : submitLabel}</button>
