@@ -81,3 +81,19 @@ test('el catálogo administrativo controla la polaridad; el snapshot activo no t
   assert.match(catalog, /config: parseMaintenanceQuestionConfig\(question\.ConfiguracionJSON\)/);
   assert.match(backend, /La respuesta de falla debe ser Sí o No/);
 });
+
+test('observaciones inválidas muestran contador accesible y bloqueo visible en el pie sin cambiar la regla', () => {
+  const editor = source('src/components/maintenance/MaintenanceDeviceEditor.jsx');
+  const css = source('src/styles/maintenance-device-mobile-ux.css');
+  assert.match(editor, /observationLength = maintenanceFaultObservationLength\(device\.observacion\)/);
+  assert.match(editor, /observationMinimum = MIN_MAINTENANCE_FAULT_OBSERVATION_LENGTH/);
+  assert.match(editor, /Math\.max\(0, observationMinimum - observationLength\)/);
+  assert.match(editor, /aria-describedby=\{faultyDevice \? observationHintId : undefined\}/);
+  assert.match(editor, /\{observationLength\}\/\{observationMinimum\}/);
+  assert.match(editor, /Longitud mínima cumplida/);
+  assert.match(editor, /No se puede guardar el dispositivo/);
+  assert.equal((editor.match(/aria-describedby=\{saveValidationDescription\}/g) || []).length, 3);
+  assert.match(css, /\.maintenance-device-observations \.form-control\[aria-invalid="true"\]/);
+  assert.match(css, /background: var\(--danger-soft\)/);
+  assert.match(css, /\.maintenance-device-observation-feedback\.is-valid/);
+});
