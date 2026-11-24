@@ -702,7 +702,7 @@ export default function MaintenanceDeviceEditor({
       </section>}
       <footer className="maintenance-device-editor__actions">
         <div className="maintenance-device-editor__actions-status"><AutosaveIndicator status={autosaveStatus} /></div>
-        {!faultDetails.valid && !locked && <p className="field-hint" role="alert">Para guardar: {[faultDetails.severityError, faultDetails.observationError].filter(Boolean).join(' ')}</p>}
+        {!faultDetails.valid && !locked && <p className="field-hint maintenance-device-editor__validation-hint" role="alert">Para guardar: {[faultDetails.severityError, faultDetails.observationError].filter(Boolean).join(' ')}</p>}
         <button className="button button--ghost maintenance-device-cancel-button" type="button" onClick={cancel} disabled={submitting}><Icon name="close" />Cancelar</button>
         {onSubmitAndContinue && isNewDevice && !locked && <button className="button button--secondary" type="button" onClick={onSubmitAndContinue} disabled={missingEquipmentLocation || Boolean(invalidMac) || !faultDetails.valid || (projectMode && (projectMissingQuestions.length > 0 || projectRelationErrors.length > 0 || projectEvidenceTargetErrors.length > 0))}><Icon name="add_circle" />Guardar y agregar otro</button>}
         <button className="button button--primary" type="button" onClick={onSubmit} disabled={submitDisabled}><Icon name={submitting ? 'progress_activity' : 'check'} /> {submitting ? 'Guardando dispositivo...' : submitLabel}</button>
