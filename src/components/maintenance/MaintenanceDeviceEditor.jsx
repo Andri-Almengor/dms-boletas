@@ -43,6 +43,7 @@ import {
   effectiveMaintenanceDeviceState,
   isManualChecklistPending,
   maintenanceChecklistCompletion,
+  maintenanceChecklistHealthFaults,
 } from '../../utils/maintenanceChecklistStatus';
 
 function Field({ label, multiline = false, ...props }) {
@@ -266,6 +267,11 @@ export default function MaintenanceDeviceEditor({
       .map(normalizeQuestion)
       .filter((item) => item.key && (!item.typeId || !currentTypeId || item.typeId === currentTypeId));
     const historicalByKey = new Map(historical.map((item) => [item.key, item]));
+    // Sin conexión o durante la carga, las definiciones guardadas no se
+    // convierten en históricas por el mero hecho de no haber recibido el catálogo.
+    if (!projectMode && (questionCatalog.loading || questionCatalog.error) && !catalogQuestions.length && historical.length) {
+      return historical.map((item) => ({ ...item, value: device.respuestas?.[item.key] ?? item.value ?? '' }));
+    }
     const activeKeys = new Set(catalogQuestions.map((item) => item.key));
 
     const active = catalogQuestions.map((question) => ({
@@ -347,13 +353,20 @@ export default function MaintenanceDeviceEditor({
     { ...device, questionDetails: dynamicQuestions },
     dynamicQuestions,
   ), [device, dynamicQuestions]);
+  const checklistHealthFaults = useMemo(() => projectMode ? [] : maintenanceChecklistHealthFaults(
+    { ...device, questionDetails: dynamicQuestions },
+    dynamicQuestions,
+  ), [device, dynamicQuestions, projectMode]);
   const manualPending = !projectMode && isManualChecklistPending(device);
   const automaticPending = !projectMode && !manualPending && !checklistCompletion.complete;
   const checklistPending = manualPending || automaticPending;
   const checklistLocked = locked || manualPending;
+  const calculatedState = projectMode ? device.estado : effectiveMaintenanceDeviceState(
+    { ...device, questionDetails: dynamicQuestions }, dynamicQuestions,
+  );
 
   useEffect(() => {
-    if (locked || manualPending) return;
+    if (locked || manualPending || (!projectMode && questionCatalog.loading)) return;
     if (projectMode) {
       const desiredState = projectMissingQuestions.length || (projectProgress?.total > 0 && !projectProgress.complete)
         ? AUTOMATIC_PENDING_STATE
@@ -366,21 +379,41 @@ export default function MaintenanceDeviceEditor({
       if (Object.keys(next).length) onChange({ ...device, ...next });
       return;
     }
-    const desiredState = effectiveMaintenanceDeviceState(
-      { ...device, questionDetails: dynamicQuestions },
-      dynamicQuestions,
-    );
-    if (String(device.estado || '') === desiredState) return;
-    onChange({ ...device, estado: desiredState });
-  }, [device, dynamicQuestions, locked, manualPending, onChange, projectMissingQuestions.length, projectMode, projectProgress?.complete, projectProgress?.total]);
+    const questionDetails = dynamicQuestions.map((question) => ({
+      ...question,
+      value: device.respuestas?.[question.key] ?? question.value ?? '',
+    }));
+    const desiredState = calculatedState;
+    const gravedadFalla = desiredState === 'Correcto' ? '' : (device.gravedadFalla || '');
+    if (String(device.estado || '') === desiredState
+      && gravedadFalla === (device.gravedadFalla || '')
+      && JSON.stringify(device.questionDetails || []) === JSON.stringify(questionDetails)) return;
+    onChange({ ...device, questionDetails, estado: desiredState, gravedadFalla });
+  }, [device, dynamicQuestions, locked, manualPending, onChange, projectMissingQuestions.length, projectMode, projectProgress?.complete, projectProgress?.total, questionCatalog.loading, calculatedState]);
 
-  function patch(values) { onChange({ ...device, ...values }); }
+  function patch(values) {
+    onChange((current) => {
+      if (!current) return current;
+      const next = { ...current, ...values };
+      if (projectMode || questionCatalog.loading) return next;
+      next.questionDetails = dynamicQuestions.map((question) => ({
+        ...question,
+        value: next.respuestas?.[question.key] ?? question.value ?? '',
+      }));
+      next.estado = effectiveMaintenanceDeviceState(next, next.questionDetails);
+      if (next.estado === 'Correcto') next.gravedadFalla = '';
+      return next;
+    });
+  }
 
   function toggleChecklistPending(checked) {
     patch({
       estado: checked
         ? MANUAL_PENDING_STATE
-        : (checklistCompletion.complete ? 'Correcto' : AUTOMATIC_PENDING_STATE),
+        : effectiveMaintenanceDeviceState(
+          { ...device, estado: AUTOMATIC_PENDING_STATE, questionDetails: dynamicQuestions },
+          dynamicQuestions,
+        ),
     });
   }
 
@@ -388,7 +421,7 @@ export default function MaintenanceDeviceEditor({
     const previousType = String(device.tipoDispositivoId || device.categoria || '');
     const nextType = String(nextDevice.tipoDispositivoId || nextDevice.categoria || '');
     if (previousType && nextType && previousType !== nextType) {
-      onChange({ ...nextDevice, respuestas: {}, questionDetails: [], projectProgress: { version: 1, answers: {} } });
+      onChange({ ...nextDevice, respuestas: {}, questionDetails: [], projectProgress: { version: 1, answers: {} }, ...(!projectMode ? { estado: isManualChecklistPending(nextDevice) ? MANUAL_PENDING_STATE : AUTOMATIC_PENDING_STATE, gravedadFalla: '' } : {}) });
       return;
     }
     onChange(nextDevice);
@@ -509,13 +542,16 @@ export default function MaintenanceDeviceEditor({
   const isNewDevice = startedAsNew;
   const missingEquipmentLocation = !String(device.ubicacionEquipoId || '').trim();
   const invalidMac = macAddressError(device.macAddress);
-  const faultDetails = validateMaintenanceFaultDetails(device, { projectMode });
-  const faultyDevice = !projectMode && isMaintenanceDeviceFaulty(device);
+  const validatedDevice = { ...device, estado: calculatedState };
+  const faultDetails = validateMaintenanceFaultDetails(validatedDevice, { projectMode });
+  const faultyDevice = !projectMode && isMaintenanceDeviceFaulty(validatedDevice);
+  const showFaultSeverity = !projectMode && !manualPending && (faultyDevice || checklistHealthFaults.length > 0);
   const submitDisabled = locked
     || !onSubmit
     || missingEquipmentLocation
     || Boolean(invalidMac)
     || !faultDetails.valid
+    || (!projectMode && questionCatalog.loading)
     || (projectMode && (
       projectMissingQuestions.length > 0
       || projectRelationErrors.length > 0
@@ -594,9 +630,13 @@ export default function MaintenanceDeviceEditor({
         {dynamicQuestions.map((question) => <MaintenanceQuestionField key={`${question.questionId || question.key}-${question.key}`} question={question} value={device.respuestas?.[question.key] ?? question.value ?? ''} onChange={(value) => updateQuestion(question, value)} disabled={checklistLocked || question.historical} note={question.historical ? 'Pregunta histórica: fue eliminada o desactivada después de este mantenimiento.' : ''} />)}
         {!questionCatalog.loading && !dynamicQuestions.length && <div className="info-box"><Icon name="info" /><p>Este tipo no tiene preguntas específicas activas. Puede agregarlas desde Administración → Preguntas de mantenimiento.</p></div>}
         {questionCatalog.error && <div className="info-box maintenance-question-warning"><Icon name="cloud_off" /><p>No se pudo actualizar el catálogo de preguntas. Se muestran las preguntas compatibles disponibles en el dispositivo.</p></div>}
-        <Choice label="Estado" value={checklistPending ? '' : device.estado} onChange={(value) => patch({ estado: value, ...(value === 'Correcto' ? { gravedadFalla: '' } : {}) })} options={['Correcto', 'Mal estado']} disabled={checklistLocked || !checklistCompletion.complete} note={!checklistCompletion.complete ? 'El estado final se habilitará cuando todas las preguntas obligatorias estén respondidas.' : ''} />
-        {faultyDevice && <div className="maintenance-device-fault-severity">
-          <Choice label="Falla *" value={device.gravedadFalla || ''} onChange={(value) => patch({ gravedadFalla: value })} options={MAINTENANCE_FAULT_SEVERITIES} disabled={checklistLocked} note="Seleccione la gravedad de la falla detectada." />
+        {checklistHealthFaults.length > 0 && <div className="alert alert--warning" role="status"><Icon name="warning" /><span>Se detectaron verificaciones que indican una avería: {checklistHealthFaults.join('; ')}. El equipo quedará en «Mal estado» al completar la checklist, aunque las demás respuestas sean positivas.</span></div>}
+        <div className="maintenance-device-automatic-state" role="status" aria-live="polite">
+          <div><span className="field-label">Estado automático del dispositivo</span><small className="field-hint">{manualPending ? 'Checklist pausada manualmente.' : questionCatalog.loading ? 'Verificando la configuración de las preguntas.' : checklistPending ? 'Complete las respuestas obligatorias para determinar el estado final.' : 'Calculado a partir de las respuestas. No se selecciona manualmente.'}</small></div>
+          <span className={`maintenance-device-state ${checklistPending || questionCatalog.loading ? '' : faultyDevice ? 'is-bad' : 'is-good'}`}><Icon name={checklistPending || questionCatalog.loading ? 'pending_actions' : faultyDevice ? 'warning' : 'check_circle'} />{questionCatalog.loading || checklistPending ? 'Pendiente' : calculatedState}</span>
+        </div>
+        {showFaultSeverity && <div className="maintenance-device-fault-severity">
+          <Choice label="Falla *" value={device.gravedadFalla || ''} onChange={(value) => patch({ gravedadFalla: value })} options={MAINTENANCE_FAULT_SEVERITIES} disabled={checklistLocked} note={device.gravedadFalla ? `Gravedad seleccionada: ${device.gravedadFalla}.` : 'Seleccione la gravedad de la falla detectada.'} />
           {faultDetails.severityError && <small className="field-hint" role="alert">{faultDetails.severityError}</small>}
         </div>}
       </section>}
@@ -693,8 +733,9 @@ export default function MaintenanceDeviceEditor({
       </section>}
       <footer className="maintenance-device-editor__actions">
         <div className="maintenance-device-editor__actions-status"><AutosaveIndicator status={autosaveStatus} /></div>
+        {!faultDetails.valid && !locked && <p className="field-hint maintenance-device-editor__validation-hint" role="alert">Para guardar: {[faultDetails.severityError, faultDetails.observationError].filter(Boolean).join(' ')}</p>}
         <button className="button button--ghost maintenance-device-cancel-button" type="button" onClick={cancel} disabled={submitting}><Icon name="close" />Cancelar</button>
-        {onSubmitAndContinue && isNewDevice && !locked && <button className="button button--secondary" type="button" onClick={onSubmitAndContinue} disabled={missingEquipmentLocation || Boolean(invalidMac) || !faultDetails.valid || (projectMode && (projectMissingQuestions.length > 0 || projectRelationErrors.length > 0 || projectEvidenceTargetErrors.length > 0))}><Icon name="add_circle" />Guardar y agregar otro</button>}
+        {onSubmitAndContinue && isNewDevice && !locked && <button className="button button--secondary" type="button" onClick={onSubmitAndContinue} disabled={missingEquipmentLocation || Boolean(invalidMac) || !faultDetails.valid || (!projectMode && questionCatalog.loading) || (projectMode && (projectMissingQuestions.length > 0 || projectRelationErrors.length > 0 || projectEvidenceTargetErrors.length > 0))}><Icon name="add_circle" />Guardar y agregar otro</button>}
         <button className="button button--primary" type="button" onClick={onSubmit} disabled={submitDisabled}><Icon name={submitting ? 'progress_activity' : 'check'} /> {submitting ? 'Guardando dispositivo...' : submitLabel}</button>
       </footer>
     </div>

@@ -25,9 +25,9 @@ test('la gravedad persiste en PostgreSQL, la conversión del dispositivo y SyncC
 
 test('se exige en ambos botones del editor, pero no en proyectos; observación indica regla', () => {
   const editor = source('src/components/maintenance/MaintenanceDeviceEditor.jsx');
-  assert.match(editor, /validateMaintenanceFaultDetails\(device, \{ projectMode \}\)/);
+  assert.match(editor, /validateMaintenanceFaultDetails\(validatedDevice, \{ projectMode \}\)/);
   assert.match(editor, /!faultDetails\.valid/g);
-  assert.match(editor, /faultyDevice && <div className="maintenance-device-fault-severity"/);
+  assert.match(editor, /showFaultSeverity && <div className="maintenance-device-fault-severity"/);
   assert.match(editor, /options=\{MAINTENANCE_FAULT_SEVERITIES\}/);
   assert.match(editor, /Observación \*/);
 });
@@ -39,4 +39,45 @@ test('el Excel agrega lista desplegable y valida falla sin romper lectura de pla
   assert.match(excel, /validateMaintenanceFaultDetails\(draft/);
   assert.match(excel, /name !== 'Gravedad de falla'/);
   assert.match(excel, /field\('Gravedad de falla'\)/);
+});
+
+
+test('el backend reevalúa el estado con la checklist y valida la gravedad resultante antes de persistir', () => {
+  const domain = source('src/utils/maintenanceChecklistStatus.js');
+  const backend = source('backend/src/modules/maintenance.module.js');
+  const editor = source('src/components/maintenance/MaintenanceDeviceEditor.jsx');
+  assert.match(domain, /export function maintenanceChecklistHealthFaults/);
+  assert.match(domain, /if \(maintenanceChecklistHealthFaults\(device, fallbackQuestions\)\.length\) return 'Mal estado'/);
+  assert.match(backend, /effectiveMaintenanceDeviceState\(\{/);
+  assert.match(backend, /Estado: deviceState/);
+  assert.match(backend, /assertMaintenanceDeviceFaultDetails\(maintenance, payload\)/);
+  assert.match(backend, /assertMaintenanceDeviceFaultDetails\(maintenance, devicePayload\(nextPayload, before\)\)/);
+  assert.doesNotMatch(editor, /<Choice label="Estado"/);
+  assert.match(editor, /Estado automático del dispositivo/);
+  assert.match(editor, /next\.estado = effectiveMaintenanceDeviceState/);
+  assert.match(editor, /if \(next\.estado === 'Correcto'\) next\.gravedadFalla = ''/);
+  assert.match(editor, /Para guardar:/);
+  assert.match(editor, /Gravedad seleccionada:/);
+});
+
+test('la gravedad participa en la resolución de conflictos y la confirmación usa el resultado del servidor', () => {
+  const syncBase = source('src/services/maintenanceSyncBase.js');
+  const syncBackend = source('backend/src/services/maintenance-sync-conflict.patch.js');
+  const persistence = source('src/services/maintenanceDevicePersistence.js');
+  assert.match(syncBase, /GravedadFalla: \['gravedadFalla'\]/);
+  assert.match(syncBackend, /GravedadFalla: \['gravedadFalla'\]/);
+  assert.match(persistence, /estado: saved\.Estado/);
+  assert.match(persistence, /gravedadFalla: saved\.GravedadFalla/);
+});
+
+test('el catálogo administrativo controla la polaridad; el snapshot activo no toma configuración del cliente', () => {
+  const admin = source('src/pages/admin/MaintenanceQuestionsPage.jsx');
+  const catalog = source('backend/src/services/maintenance-question-catalog.service.js');
+  const backend = source('backend/src/modules/maintenance-dynamic-questions.module.js');
+  assert.match(admin, /Efecto en el estado automático/);
+  assert.match(admin, /healthFailureAnswer: 'No'/);
+  assert.match(admin, /healthFailureAnswer: 'Sí'/);
+  assert.match(admin, /affectsDeviceHealth: false/);
+  assert.match(catalog, /config: parseMaintenanceQuestionConfig\(question\.ConfiguracionJSON\)/);
+  assert.match(backend, /La respuesta de falla debe ser Sí o No/);
 });

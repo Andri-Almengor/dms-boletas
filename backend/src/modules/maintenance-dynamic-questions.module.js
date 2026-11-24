@@ -109,6 +109,19 @@ async function validateQuestionMetadata(payload, before = {}) {
       ? rawConfig.required
       : responseType !== 'RELACION_DISPOSITIVO',
   };
+  if (responseType === 'SI_NO' && mode !== 'PROYECTO') {
+    if (rawConfig.affectsDeviceHealth !== undefined && typeof rawConfig.affectsDeviceHealth !== 'boolean') {
+      throw badRequest('La configuración del estado automático debe indicar si la pregunta afecta el dispositivo.');
+    }
+    if (rawConfig.healthFailureAnswer !== undefined) {
+      const answer = cleanMaintenanceQuestionValue(rawConfig.healthFailureAnswer);
+      if (!['Sí', 'Si', 'No'].includes(answer)) throw badRequest('La respuesta de falla debe ser Sí o No.');
+      config.healthFailureAnswer = answer === 'Si' ? 'Sí' : answer;
+    }
+  } else {
+    delete config.affectsDeviceHealth;
+    delete config.healthFailureAnswer;
+  }
   if (responseType === 'RELACION_DISPOSITIVO') {
     if (mode === 'MANTENIMIENTO') throw badRequest('Las relaciones con otros dispositivos deben aplicarse a Proyecto o Ambos.');
     if (!relatedTypeId) throw badRequest('Seleccione el tipo de dispositivo que se relacionará.');

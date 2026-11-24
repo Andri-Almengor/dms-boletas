@@ -61,6 +61,8 @@ export async function persistMaintenanceDevice({
   const confirmedDevice = {
     ...requestDevice,
     id: deviceId,
+    ...(saved?.Estado !== undefined ? { estado: saved.Estado } : {}),
+    ...(saved?.GravedadFalla !== undefined ? { gravedadFalla: saved.GravedadFalla || '' } : {}),
     syncBase: maintenanceDeviceSyncBase(saved, maintenanceId) || requestDevice.syncBase || null,
   };
   const state = buildMaintenanceDevicePersistenceState({

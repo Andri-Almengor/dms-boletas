@@ -470,7 +470,7 @@ export async function buildMaintenanceQuestionSnapshot(payload = {}, before = {}
       responseType: normalizeMaintenanceQuestionResponseType(question.TipoRespuesta || existing.responseType, 'SI_NO'),
       appliesTo: normalizeMaintenanceQuestionMode(question.AplicaModo || existing.appliesTo, maintenanceMode),
       relatedTypeId: cleanMaintenanceQuestionValue(question.TipoDispositivoRelacionadoID || existing.relatedTypeId),
-      config: parseMaintenanceQuestionConfig(question.ConfiguracionJSON || existing.config),
+      config: parseMaintenanceQuestionConfig(question.ConfiguracionJSON),
       value: maintenanceQuestionSnapshotValue(
         answers[key] ?? existing.value,
         question.TipoRespuesta || existing.responseType,

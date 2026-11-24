@@ -277,6 +277,40 @@
   gap: 9px;
 }
 
+.maintenance-device-editor__actions .maintenance-device-editor__validation-hint {
+  flex: 1 1 240px;
+  min-width: 0;
+  margin: 0 auto 0 0;
+  font-size: .72rem;
+  line-height: 1.35;
+}
+
+.maintenance-device-automatic-state {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px 16px;
+  border: 1px solid var(--outline-soft);
+  border-radius: 12px;
+  padding: 12px;
+  background: var(--surface-low);
+}
+.maintenance-device-automatic-state > div {
+  flex: 1 1 210px;
+  display: grid;
+  gap: 4px;
+}
+.maintenance-device-automatic-state .maintenance-device-state {
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  font-weight: 800;
+}
+.maintenance-device-automatic-state .maintenance-device-state .material-symbols-outlined {
+  font-size: 17px;
+}
+
 .maintenance-device-editor__actions-status {
   display: none;
   margin-right: auto;

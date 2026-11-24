@@ -95,7 +95,7 @@ function checklistQuestions(device) {
 }
 
 function effectiveState(device) {
-  return effectiveMaintenanceDeviceState(device, checklistQuestions(device));
+  return effectiveMaintenanceDeviceState(device, checklistQuestions(device), { preserveRecordedFault: true });
 }
 
 function isChecklistPending(device) {
