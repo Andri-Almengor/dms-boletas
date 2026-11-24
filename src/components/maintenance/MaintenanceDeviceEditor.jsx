@@ -358,7 +358,7 @@ export default function MaintenanceDeviceEditor({
   const checklistLocked = locked || manualPending;
 
   useEffect(() => {
-    if (locked || manualPending) return;
+    if (locked || manualPending || (!projectMode && questionCatalog.loading)) return;
     if (projectMode) {
       const desiredState = projectMissingQuestions.length || (projectProgress?.total > 0 && !projectProgress.complete)
         ? AUTOMATIC_PENDING_STATE
@@ -377,7 +377,7 @@ export default function MaintenanceDeviceEditor({
     );
     if (String(device.estado || '') === desiredState) return;
     onChange({ ...device, estado: desiredState });
-  }, [device, dynamicQuestions, locked, manualPending, onChange, projectMissingQuestions.length, projectMode, projectProgress?.complete, projectProgress?.total]);
+  }, [device, dynamicQuestions, locked, manualPending, onChange, projectMissingQuestions.length, projectMode, projectProgress?.complete, projectProgress?.total, questionCatalog.loading]);
 
   function patch(values) { onChange({ ...device, ...values }); }
 
