@@ -303,3 +303,17 @@ test('se respeta el Mal estado marcado manualmente aun cuando todas las pruebas 
   const device = { estado: 'Mal estado', funcionamiento: 'Sí', enUso: 'Sí, en uso', respuestas: { limpieza: 'Sí', alimentacion: 'Sí' } };
   assert.equal(effectiveMaintenanceDeviceState(device, CAMERA_QUESTIONS), 'Mal estado');
 });
+
+
+test('una actividad no realizada no se confunde con un diagnóstico funcional negativo', () => {
+  const device = {
+    estado: AUTOMATIC_PENDING_STATE, funcionamiento: 'Sí', enUso: 'Sí, en uso',
+    respuestas: { limpieza: 'No', visualizacion: 'Sí' },
+  };
+  const checks = [
+    ['limpieza', '¿Se realizó correctamente la limpieza?'],
+    ['visualizacion', '¿La visualización es correcta?'],
+  ];
+  assert.deepEqual(maintenanceChecklistHealthFaults(device, checks), []);
+  assert.equal(effectiveMaintenanceDeviceState(device, checks), 'Correcto');
+});
