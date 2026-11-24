@@ -89,12 +89,10 @@ export function activeMaintenanceQuestionView(question, saved) {
   return saved ? { ...question, value: saved.value ?? '' } : question;
 }
 
-export function maintenanceChecklistCompletion(device = {}, fallbackQuestions = []) {
-  const { answers, metadataQuestions } = parseMaintenanceAnswers(device);
+function resolvedMaintenanceQuestions(device = {}, fallbackQuestions = []) {
+  const { metadataQuestions } = parseMaintenanceAnswers(device);
   const explicitQuestions = Array.isArray(device.questionDetails) ? device.questionDetails : [];
-  // El catálogo vigente (fallbackQuestions) prevalece sobre los metadatos guardados
-  // para una misma clave. No se deben exigir preguntas antiguas ya desactivadas
-  // ni mantener la obligatoriedad anterior tras editar la configuración.
+  // La definición vigente prevalece sobre los snapshots históricos.
   const questionsByKey = new Map();
   for (const question of [
     ...metadataQuestions,
@@ -102,14 +100,51 @@ export function maintenanceChecklistCompletion(device = {}, fallbackQuestions = 
     ...(Array.isArray(fallbackQuestions) ? fallbackQuestions : []),
   ]) {
     const key = questionKey(question);
-    if (key) {
-      // Map.set no mueve una clave existente: reinsertar respeta el orden actual.
-      questionsByKey.delete(key);
-      questionsByKey.set(key, question);
+    if (!key) continue;
+    questionsByKey.delete(key);
+    questionsByKey.set(key, question);
+  }
+  return [...questionsByKey.values()].filter(activeQuestion);
+}
+
+// Las preguntas de trabajo (p. ej. limpieza pendiente) no indican por sí mismas
+// que un equipo esté averiado. Solo las verificaciones operativas positivas
+// y las preguntas configuradas explícitamente como críticas para su salud
+// pueden convertir una respuesta negativa en una falla del dispositivo.
+function isFunctionalHealthCheck(question) {
+  const config = questionConfig(question);
+  if (typeof config.affectsDeviceHealth === 'boolean') return config.affectsDeviceHealth;
+  const label = normalized(Array.isArray(question) ? question[1] : (question.label ?? question.Pregunta));
+  return /\b(funciona\w*|correct\w*|satisfactori\w*|activ\w*|operativ\w*|disponible\w*|reportan|visualiza\w*|transmit\w*|graba\w*|responde\w*|firme|alinead\w*|buen estado)\b/.test(label)
+    || /\blevanta (?:el )?video\b/.test(label);
+}
+
+export function maintenanceChecklistHealthFaults(device = {}, fallbackQuestions = []) {
+  const { answers } = parseMaintenanceAnswers(device);
+  const failures = [];
+  if (normalized(device.funcionamiento ?? device.Funcionamiento) === 'no') {
+    failures.push('Funcionamiento');
+  }
+  for (const question of resolvedMaintenanceQuestions(device, fallbackQuestions)) {
+    const key = questionKey(question);
+    const type = text(question?.responseType || question?.TipoRespuesta || 'SI_NO').toUpperCase();
+    if (type !== 'SI_NO') continue;
+    const answer = normalized(answers[key] ?? question.value ?? question.Valor ?? '');
+    const config = questionConfig(question);
+    const adverse = normalized(config.healthFailureAnswer || '') || 'no';
+    const indicatesFault = key === 'reportaAveria'
+      ? answer === 'si'
+      : isFunctionalHealthCheck(question) && answer === adverse;
+    if (indicatesFault) {
+      failures.push(text(Array.isArray(question) ? question[1] : (question.label ?? question.Pregunta)) || key);
     }
   }
-  const requiredQuestions = [...questionsByKey.values()]
-    .filter(activeQuestion)
+  return failures;
+}
+
+export function maintenanceChecklistCompletion(device = {}, fallbackQuestions = []) {
+  const { answers } = parseMaintenanceAnswers(device);
+  const requiredQuestions = resolvedMaintenanceQuestions(device, fallbackQuestions)
     .filter(requiredQuestion);
   const requiredKeys = [...new Set(requiredQuestions
     .map(questionKey)
@@ -136,6 +171,8 @@ export function effectiveMaintenanceDeviceState(device = {}, fallbackQuestions =
   if (isManualChecklistPending(device)) return MANUAL_PENDING_STATE;
   const completion = maintenanceChecklistCompletion(device, fallbackQuestions);
   if (!completion.complete) return AUTOMATIC_PENDING_STATE;
+
+  if (maintenanceChecklistHealthFaults(device, fallbackQuestions).length) return 'Mal estado';
 
   const current = text(stateValue(device));
   if (!current || normalized(current) === 'pendiente') return 'Correcto';
