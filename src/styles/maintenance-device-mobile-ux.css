@@ -277,6 +277,14 @@
   gap: 9px;
 }
 
+.maintenance-device-editor__actions .maintenance-device-editor__validation-hint {
+  flex: 1 1 240px;
+  min-width: 0;
+  margin: 0 auto 0 0;
+  font-size: .72rem;
+  line-height: 1.35;
+}
+
 .maintenance-device-editor__actions-status {
   display: none;
   margin-right: auto;
