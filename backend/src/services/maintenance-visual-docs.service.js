@@ -1,4 +1,5 @@
 import { Readable } from 'node:stream';
+import { deflateSync, crc32 } from 'node:zlib';
 import { AppError } from '../core/errors.js';
 
 const DMS_LOGO_URL = 'https://raw.githubusercontent.com/Andri-Almengor/dms-boletas/main/src/assets/dms-report-logo.png';
@@ -68,6 +69,8 @@ export function buildMaintenanceVisualReportModel(data, filter = 'todos') {
     date: text(data.filtersApplied.fecha),
     maintenanceLabel,
     siteLabel,
+    responsibleLabel: [...new Set(all.map((row) => text(row.creador)).filter((name) => name && name !== 'Sin responsable'))].sort((a, b) => a.localeCompare(b, 'es')).join(', '),
+    evidenceCount: Number(data.totals.evidencias || 0),
     filter,
     rows,
     total: all.length,
@@ -85,7 +88,7 @@ export function buildMaintenanceVisualReportModel(data, filter = 'todos') {
 // bordes esenciales se indican también inline en tablas editables.
 const VISUAL = Object.freeze({
   red: '#b90d19', darkRed: '#930b16', ink: '#1d2028', muted: '#636b79',
-  border: '#e2e3e8', ok: '#12805e', danger: '#bc1421', pending: '#89919e',
+  border: '#cfd3dc', ok: '#12805e', danger: '#bc1421', pending: '#89919e',
   paleGreen: '#e7f6ec', paleRed: '#fde9eb', paleGray: '#f2f3f6',
   amber: '#a56605',
 });
@@ -96,19 +99,73 @@ function formatDate(value) {
   return `${day}/${month}/${year}`;
 }
 
-function metricTile(title, count, color, background, symbol) {
-  return `<td width="25%" bgcolor="${background}" valign="top" style="background-color:${background};border:1px solid ${VISUAL.border};padding:13px 12px;text-align:center">
-    <p style="margin:0 0 5px;color:${color};font-size:11pt"><b>${symbol} ${html(title)}</b></p>
-    <p style="margin:0;color:${color};font-size:25pt"><b>${html(count)}</b></p>
+// The chart is generated locally; client metrics are never sent to an external
+// chart service. A PNG is used because Docs does not preserve CSS conic gradients.
+function pngChunk(type, data) {
+  const tag = Buffer.from(type, 'ascii');
+  const size = Buffer.alloc(4);
+  size.writeUInt32BE(data.length);
+  const checksum = Buffer.alloc(4);
+  checksum.writeUInt32BE(crc32(Buffer.concat([tag, data])));
+  return Buffer.concat([size, tag, data, checksum]);
+}
+
+export function buildHealthDonutPng(model) {
+  const size = 160;
+  const rgba = Buffer.alloc(size * (1 + size * 4));
+  const ratio = model.evaluated ? model.healthy / model.evaluated : 0;
+  const green = [18, 128, 94];
+  const red = [188, 20, 33];
+  const gray = [207, 211, 220];
+  // Supersampling keeps the ring smooth in print, including 0 and 100%.
+  for (let y = 0; y < size; y++) {
+    for (let x = 0; x < size; x++) {
+      const sums = [0, 0, 0];
+      let covered = 0;
+      for (const dy of [.25, .75]) for (const dx of [.25, .75]) {
+        const sx = x + dx - size / 2;
+        const sy = y + dy - size / 2;
+        const radius = Math.hypot(sx, sy);
+        if (radius < 47 || radius > 76) continue;
+        const angle = (Math.atan2(sx, -sy) + 2 * Math.PI) % (2 * Math.PI);
+        const color = !model.evaluated ? gray : angle < ratio * 2 * Math.PI ? green : red;
+        covered++;
+        color.forEach((value, index) => { sums[index] += value; });
+      }
+      const offset = y * (1 + size * 4) + 1 + x * 4;
+      if (covered) sums.forEach((value, index) => { rgba[offset + index] = Math.round(value / covered); });
+      rgba[offset + 3] = Math.round(255 * covered / 4);
+    }
+  }
+  const header = Buffer.alloc(13);
+  header.writeUInt32BE(size, 0);
+  header.writeUInt32BE(size, 4);
+  header[8] = 8;
+  header[9] = 6;
+  return Buffer.concat([
+    Buffer.from([137, 80, 78, 71, 13, 10, 26, 10]),
+    pngChunk('IHDR', header), pngChunk('IDAT', deflateSync(rgba)), pngChunk('IEND', Buffer.alloc(0)),
+  ]);
+}
+
+function sectionBand(title) {
+  return `<table class="section-band" width="100%" cellpadding="0" cellspacing="0" role="presentation" style="border-collapse:collapse;margin:9pt 0 5pt"><tr>
+    <td bgcolor="${VISUAL.red}" width="76%" style="background-color:${VISUAL.red};color:#ffffff;padding:5pt 8pt;font-size:12pt;font-weight:bold"><b>${html(title)}</b></td>
+    <td bgcolor="#e7e8eb" style="background-color:#e7e8eb;border-top:2pt solid ${VISUAL.red};font-size:1pt">&nbsp;</td>
+  </tr></table>`;
+}
+
+function metricTile(title, count, color) {
+  return `<td width="25%" bgcolor="#f6f7f9" valign="middle" style="background-color:#f6f7f9;border:1px solid ${VISUAL.border};padding:8pt 4pt;text-align:center">
+    <p style="margin:0 0 4pt;color:${VISUAL.muted};font-size:9pt"><b>${html(title)}</b></p>
+    <p style="margin:0;color:${color};font-size:23pt"><b>${html(count)}</b></p>
   </td>`;
 }
 
 function barSegment(value, total, background) {
   if (!value || !total) return '';
   const width = Math.max(0.1, Math.round(value / total * 1000) / 10);
-  return `<td width="${width}%" bgcolor="${background}" style="background-color:${background};padding:5px 0;color:white;text-align:center;font-size:9pt">
-    <b>${value}</b>
-  </td>`;
+  return `<td width="${width}%" bgcolor="${background}" style="background-color:${background};padding:3pt 0;color:white;text-align:center;font-size:8pt"><b>${value}</b></td>`;
 }
 
 function stackedBar(values, total) {
@@ -120,10 +177,10 @@ function stackedBar(values, total) {
 
 function categoryChart(item) {
   return `<tr>
-    <td><b>${html(item.categoria)}</b></td>
-    <td width="52%">${stackedBar(item, item.total)}</td>
-    <td align="right"><b>${item.total}</b></td>
-    <td align="right" style="color:${VISUAL.danger}"><b>${item.danados}</b></td>
+    <td style="padding:3pt;font-size:8pt"><b>${html(item.categoria)}</b></td>
+    <td width="45%" style="padding:3pt">${stackedBar(item, item.total)}</td>
+    <td align="right" style="padding:3pt;font-size:8pt"><b>${item.total}</b></td>
+    <td align="right" style="padding:3pt;font-size:8pt;color:${VISUAL.danger}"><b>${item.danados}</b></td>
   </tr>`;
 }
 
@@ -158,124 +215,115 @@ export function buildMaintenanceVisualReportHtml(model) {
   const healthText = model.health === null ? 'Sin evaluación' : `${model.health}%`;
   const healthColor = model.health === null ? VISUAL.pending
     : model.health >= 80 ? VISUAL.ok : model.health >= 50 ? VISUAL.amber : VISUAL.danger;
-  const completion = model.evaluated ? Math.round(100 * model.evaluated / model.total) : 0;
+  const completion = model.total ? Math.round(100 * model.evaluated / model.total) : 0;
   const categories = model.categories.map(categoryChart).join('')
-    || '<tr><td colspan="4">No hay dispositivos registrados en este mantenimiento.</td></tr>';
+    || '<tr><td colspan="4">No hay dispositivos registrados.</td></tr>';
   const rows = model.rows.map(detailRow).join('')
     || '<tr><td colspan="6">No hay dispositivos para el filtro seleccionado.</td></tr>';
-  const filterTitle = model.filter === 'todos' ? 'Todos los dispositivos'
-    : model.filter === 'sanos' ? 'Solo dispositivos sanos' : 'Solo dispositivos dañados';
+  const filterTitle = model.filter === 'todos' ? 'Detalle de todos los dispositivos'
+    : model.filter === 'sanos' ? 'Dispositivos en buen estado' : 'Dispositivos con fallas';
   const generatedAt = new Intl.DateTimeFormat('es-CR', {
     day: 'numeric', month: 'short', year: 'numeric', timeZone: 'America/Costa_Rica',
   }).format(new Date());
-  // Nunca sustituir el nombre del cliente por un título genérico de informe.
   const title = html(model.client || 'Cliente sin nombre');
   const maintenance = html(model.maintenanceLabel || 'No especificado');
   const site = model.siteLabel
-    ? `<p style="margin:3px 0;font-size:9pt"><b>Sitio:</b> ${html(model.siteLabel)}</p>` : '';
-  const ringAngle = model.health === null ? 0 : Math.max(0, Math.min(360, model.health * 3.6));
+    ? `<p style="margin:3pt 0"><b>Sitio:</b> ${html(model.siteLabel)}</p>` : '';
+  const donut = buildHealthDonutPng(model).toString('base64');
+  const pct = (value) => model.evaluated ? `${Math.round(value * 1000 / model.evaluated) / 10}%` : '—';
 
   return `<!DOCTYPE html><html lang="es"><head><meta charset="utf-8">
     <title>${title} · Resumen visual del estado del sistema · DMS</title>
     <style>
-      body{font-family:Arial,Helvetica,sans-serif;color:#1d2028;font-size:10pt;line-height:1.3}
-      h1{font-size:25pt;color:#1d2028;margin:0} h2{font-size:14pt;color:#1d2028;margin:15px 0 7px}
-      p{margin:5px 0} table{border-collapse:collapse}
+      body{font-family:Arial,Helvetica,sans-serif;color:#202126;font-size:10pt;line-height:1.25}
+      h1{font-size:23pt;color:#930b16;margin:0} p{margin:4pt 0}
+      table{border-collapse:collapse}
       .data-grid{width:100%;border-collapse:collapse}
-      .data-grid th{background-color:#b90d19;color:white;font-size:9pt;padding:8px;text-align:left}
-      .data-grid td{padding:7px;border-bottom:1px solid #e2e3e8;font-size:9pt;vertical-align:top;word-wrap:break-word}
+      .data-grid th{background-color:#24262e;color:white;font-size:8pt;padding:5pt;text-align:left;border:1px solid #cfd3dc}
+      .data-grid td{padding:5pt;border:1px solid #d9dce3;font-size:8pt;vertical-align:top;word-wrap:break-word;white-space:pre-wrap}
       .keep{page-break-inside:avoid}
+      .data-grid thead{display:table-header-group}
+      .data-grid tr{page-break-inside:avoid}
     </style>
     </head><body>
-    <!-- Reserva una posición válida para insertar el logo mediante Docs API cuando
-         el importador HTML omite la imagen externa. -->
     <p style="margin:0;font-size:1pt">&nbsp;</p>
-    <table width="100%" cellpadding="0" cellspacing="0" role="presentation" style="margin:0 0 14px">
-      <tr><td bgcolor="#22252b" width="34%" style="background-color:#22252b;padding:8px 13px">
-        <img src="${DMS_LOGO_URL}" alt="DMS Solutions Provider" width="142" height="80">
-      </td><td bgcolor="#b90d19" align="right" style="background-color:#b90d19;color:white;padding:12px">
-        <p style="font-size:12pt;color:white;margin:0"><b>REPORTE DE MANTENIMIENTO</b></p>
-        <p style="font-size:9pt;color:white;margin:4px 0 0">DMS SOLUTIONS PROVIDER</p>
+    <table width="100%" cellpadding="0" cellspacing="0" role="presentation"><tr>
+      <td align="left" valign="middle" style="padding:0 0 3pt"><img src="${DMS_LOGO_URL}" alt="DMS Solutions Provider" width="142" height="80"></td>
+      <td align="right" valign="middle" style="font-size:9pt;color:${VISUAL.muted}"><b>REPORTE DE MANTENIMIENTO</b></td>
+    </tr><tr><td bgcolor="${VISUAL.red}" height="4" style="background-color:${VISUAL.red};font-size:1pt">&nbsp;</td><td bgcolor="#e7e8eb" style="background-color:#e7e8eb;border-top:2pt solid ${VISUAL.red};font-size:1pt">&nbsp;</td></tr></table>
+    <h1>${title}</h1>
+    <p style="font-size:15pt;color:#636b79;margin:1pt 0 8pt"><b>Informe de mantenimiento</b></p>
+    <table width="100%" cellpadding="7" cellspacing="0" class="keep" role="presentation">
+      <tr><td width="50%" bgcolor="#f6f7f9" valign="top" style="background-color:#f6f7f9;border:1px solid ${VISUAL.border};font-size:9pt">
+        <p style="margin:3pt 0"><b>Fecha del informe:</b> ${html(generatedAt)}</p>
+        <p style="margin:3pt 0"><b>Fecha mantenimiento:</b> ${html(formatDate(model.date))}</p>
+        <p style="margin:3pt 0"><b>Mantenimiento:</b> ${maintenance}</p>
+        ${site}
+      </td><td bgcolor="#f6f7f9" valign="top" style="background-color:#f6f7f9;border:1px solid ${VISUAL.border};font-size:9pt">
+        <p style="margin:3pt 0"><b>Responsables / Técnicos:</b> ${html(model.responsibleLabel || 'Sin responsable registrado')}</p>
+        <p style="margin:3pt 0"><b>Total de dispositivos:</b> ${model.total}</p>
+        <p style="margin:3pt 0"><b>Evidencias:</b> ${model.evidenceCount}</p>
+        <p style="margin:3pt 0"><b>Salud general:</b> ${html(healthText)}</p>
       </td></tr>
     </table>
-    <table width="100%" cellpadding="0" cellspacing="0" role="presentation" style="margin:0 0 15px">
-      <tr>
-        <td width="64%" valign="top" style="padding:0 15px 0 0">
-          <h1>${title}</h1>
-          <p style="font-size:13pt;color:#636b79;margin:4px 0 9px"><b>Resumen visual del estado del sistema</b></p>
-          <table width="72" cellpadding="0" cellspacing="0" role="presentation"><tr><td bgcolor="#b90d19" height="4" style="background-color:#b90d19">&nbsp;</td></tr></table>
-        </td>
-        <td valign="top" style="border-left:2px solid #e2e3e8;padding:0 0 0 12px">
-          <p style="margin:3px 0;font-size:9pt"><b>Fecha del informe:</b> ${html(generatedAt)}</p>
-          <p style="margin:3px 0;font-size:9pt"><b>Fecha mantenimiento:</b> ${html(formatDate(model.date))}</p>
-          <p style="margin:3px 0;font-size:9pt"><b>Mantenimiento:</b> ${maintenance}</p>
-          ${site}
-        </td>
-      </tr>
-    </table>
-    <h2 style="margin:14px 0 8px;border-left:4px solid #b90d19;padding-left:9px">▥ Resumen general</h2>
-    <table width="100%" cellpadding="5" cellspacing="0" role="presentation" class="keep">
-      <tr>
-        ${metricTile('Total dispositivos', model.total, VISUAL.ink, VISUAL.paleGray, '▣')}
-        ${metricTile('En buen estado', model.healthy, VISUAL.ok, VISUAL.paleGreen, '✓')}
-        ${metricTile('Dispositivos dañados', model.damaged, VISUAL.danger, VISUAL.paleRed, '⚠')}
-        ${metricTile('Salud general', healthText, healthColor, '#fff3f3', '♥')}
-      </tr>
-    </table>
-    <table width="100%" cellpadding="8" cellspacing="0" role="presentation" style="margin:8px 0 12px">
-      <tr><td width="40%" valign="top" style="border:1px solid #e2e3e8">
-        <h2 style="margin:2px 0 10px;border-left:4px solid #b90d19;padding-left:8px">♥ Salud del sistema</h2>
-        <table width="100%" role="presentation"><tr>
-          <td width="45%" align="center" valign="middle">
-            <div style="display:inline-block;background:conic-gradient(${healthColor} ${ringAngle}deg,#e7e8ec 0deg);border-radius:50%;padding:11px">
-              <div style="background-color:white;border-radius:50%;padding:19px 11px">
-                <span style="font-size:27pt;color:${healthColor}"><b>${html(healthText)}</b></span>
-              </div>
-            </div>
-            <p style="font-size:25pt;color:${healthColor};margin:3px 0"><b>${html(healthText)}</b></p>
+    ${sectionBand('Resumen general')}
+    <table width="100%" cellpadding="5" cellspacing="0" role="presentation" class="keep"><tr>
+      ${metricTile('Total dispositivos', model.total, VISUAL.ink)}
+      ${metricTile('En buen estado', model.healthy, VISUAL.ok)}
+      ${metricTile('Dispositivos dañados', model.damaged, VISUAL.danger)}
+      ${metricTile('Salud general', healthText, healthColor)}
+    </tr></table>
+    <p style="font-size:9pt;color:${VISUAL.muted}">Evaluados: <b>${model.evaluated}</b> · Sin evaluar: <b>${model.pending}</b> · Cobertura de evaluación: <b>${completion}%</b>.</p>
+    <table width="100%" cellpadding="5" cellspacing="0" role="presentation"><tr>
+      <td width="42%" valign="top" style="border:1px solid ${VISUAL.border}">
+        ${sectionBand('Salud del sistema')}
+        <table width="100%" role="presentation" cellpadding="3"><tr>
+          <td width="46%" align="center" valign="middle">
+            <img src="data:image/png;base64,${donut}" alt="Gráfico de salud del sistema" width="108" height="108">
+            <p style="font-size:21pt;color:${healthColor};margin:1pt 0"><b>${html(healthText)}</b></p>
           </td>
-          <td valign="middle"><p style="font-size:9pt;color:#454d59"><b>Salud general del sistema</b></p>
-            <p style="font-size:9pt">${model.healthy} sanos de ${model.evaluated} evaluados.</p>
-            <p style="font-size:8pt;color:#636b79">${model.damaged} dañados · ${model.pending} sin evaluar.</p>
+          <td valign="middle" style="font-size:9pt">
+            <p style="color:${VISUAL.ok}"><b>Buenos:</b> ${model.healthy} (${pct(model.healthy)})</p>
+            <p style="color:${VISUAL.danger}"><b>Con fallas:</b> ${model.damaged} (${pct(model.damaged)})</p>
+            <p style="color:${VISUAL.muted}">Sin evaluar: ${model.pending}</p>
           </td></tr></table>
         ${stackedBar({ sanos: model.healthy, danados: model.damaged }, model.evaluated)}
-        <p style="font-size:8pt;color:#636b79">Salud = equipos sanos / equipos evaluados. El ${completion}% del inventario tiene evaluación.</p>
+        <p style="font-size:8pt;color:${VISUAL.muted}">Salud = equipos sanos / equipos evaluados.</p>
       </td>
-      <td width="60%" valign="top" style="border:1px solid #e2e3e8">
-        <h2 style="margin:2px 0 9px;border-left:4px solid #b90d19;padding-left:8px">▥ Dispositivos por tipo</h2>
-        <p style="font-size:8pt;color:#636b79">● Verde: sanos &nbsp; ● Rojo: dañados &nbsp; ● Gris: sin evaluar</p>
-        <table class="data-grid" width="100%">
-          <tr><th>Tipo</th><th>Distribución visual</th><th>Total</th><th>Dañados</th></tr>
+      <td width="58%" valign="top" style="border:1px solid ${VISUAL.border}">
+        ${sectionBand('Distribución por tipo de dispositivo')}
+        <p style="font-size:8pt;color:${VISUAL.muted}"><span style="color:${VISUAL.ok}">● Buenos</span> · <span style="color:${VISUAL.danger}">● Dañados</span> · ● Sin evaluar</p>
+        <table width="100%" cellpadding="3" cellspacing="0" style="border-collapse:collapse">
+          <tr bgcolor="#e7e8eb" style="background-color:#e7e8eb;font-size:8pt"><th>Tipo</th><th>Distribución</th><th>Total</th><th>Fallas</th></tr>
           ${categories}
         </table>
-      </td></tr>
-    </table>
-    <h2 style="margin:15px 0 6px;border-left:4px solid #b90d19;padding-left:8px">⚠ Detalle de dispositivos · ${html(filterTitle)}</h2>
-    <p style="font-size:9pt;color:#636b79">${model.rows.length} dispositivos incluidos. Prioridad: Crítica → Moderada → Leve → Sin clasificar → Sanos → Sin evaluar.</p>
-    <table class="data-grid" width="100%">
+      </td></tr></table>
+    ${sectionBand(filterTitle)}
+    <p style="font-size:8pt;color:${VISUAL.muted}">${model.rows.length} dispositivos incluidos. Prioridad: Crítica → Moderada → Leve → Sin clasificar → Sanos → Sin evaluar.</p>
+    <table class="data-grid" width="100%" cellpadding="5" cellspacing="0">
       <thead><tr>
-        <th width="17%">Dispositivo</th><th width="13%">Tipo</th><th width="16%">Ubicación</th>
-        <th width="13%">Estado</th><th width="12%">Falla</th><th width="29%">Observación</th>
+        <th width="19%">Dispositivo / Responsable</th><th width="12%">Tipo</th><th width="15%">Ubicación</th>
+        <th width="12%">Estado</th><th width="10%">Funcionamiento</th><th width="32%">Observaciones</th>
       </tr></thead>
       <tbody>${rows}</tbody>
     </table>
-    <h2 style="margin:18px 0 9px;border-left:4px solid #b90d19;padding-left:8px">✎ Recomendaciones</h2>
-    <table width="100%" cellpadding="12" cellspacing="0" role="presentation" style="border:1px solid #bc1421">
-      <tr><td style="border:1px solid #bc1421">
-        <p style="font-size:10pt;color:#636b79"><i>Escriba aquí las recomendaciones del mantenimiento...</i></p>
-        <p>&nbsp;</p><p>&nbsp;</p><p>&nbsp;</p>
-      </td></tr>
-    </table>
-    <table width="100%" cellpadding="0" cellspacing="0" role="presentation" style="margin-top:18px"><tr>
-      <td bgcolor="#b90d19" height="7" style="background-color:#b90d19;font-size:5px">&nbsp;</td>
+    ${sectionBand('Recomendaciones')}
+    <table width="100%" cellpadding="10" cellspacing="0" role="presentation"><tr>
+      <td bgcolor="#f6f7f9" style="background-color:#f6f7f9;border:1px solid ${VISUAL.border}">
+        <p style="font-size:10pt;color:${VISUAL.muted}"><i>Escriba aquí las recomendaciones del mantenimiento...</i></p>
+        <p>&nbsp;</p><p>&nbsp;</p>
+      </td>
     </tr></table>
-    <p align="right" style="font-size:8pt;color:#636b79">DMS Solutions Provider · Documento editable en Google Docs</p>
+    <table width="100%" cellpadding="0" cellspacing="0" role="presentation" style="margin-top:12pt"><tr>
+      <td bgcolor="${VISUAL.red}" height="4" style="background-color:${VISUAL.red};font-size:1pt">&nbsp;</td>
+    </tr></table>
+    <p align="right" style="font-size:8pt;color:${VISUAL.muted}">DMS Solutions Provider · Documento editable en Google Docs</p>
     </body></html>`;
 }
 
 /**
  * El importador HTML de Drive no garantiza CSS circular ni imágenes remotas.
- * Se fija A4 horizontal y se comprueba la presencia del logo mediante Docs API.
+ * Se fija A4 vertical y se comprueba la presencia del logo mediante Docs API.
  * Si la conversión omite el PNG corporativo se inserta usando su URL pública.
  * El contenido, tablas y recomendaciones siguen siendo editables.
  */
@@ -284,13 +332,23 @@ export async function finalizeMaintenanceVisualDoc({ docsApi, documentId }) {
     documentId,
     fields: 'inlineObjects',
   });
-  const logoImported = Object.keys(doc.data?.inlineObjects || {}).length > 0;
+  const embedded = Object.values(doc.data?.inlineObjects || {});
+  // El gráfico puede ser la única imagen conservada por Drive. No confundirlo con el logo.
+  const logoImported = embedded.some((object) => {
+    const image = object.inlineObjectProperties?.embeddedObject;
+    const source = image?.imageProperties?.sourceUri || '';
+    const alt = [image?.title, image?.description].filter(Boolean).join(' ');
+    const width = image?.size?.width?.magnitude;
+    const height = image?.size?.height?.magnitude;
+    return source === DMS_LOGO_URL || /DMS Solutions Provider/i.test(alt)
+      || (Number(width) > Number(height) * 1.4);
+  });
   const requests = [{
     updateDocumentStyle: {
       documentStyle: {
         pageSize: {
-          width: { magnitude: 841.9, unit: 'PT' },
-          height: { magnitude: 595.3, unit: 'PT' },
+          width: { magnitude: 595.3, unit: 'PT' },
+          height: { magnitude: 841.9, unit: 'PT' },
         },
         marginTop: { magnitude: 28, unit: 'PT' },
         marginBottom: { magnitude: 28, unit: 'PT' },
@@ -346,7 +404,7 @@ export async function createMaintenanceVisualDocs({ model, actor }) {
     if (!documentId || data?.mimeType !== 'application/vnd.google-apps.document') {
       throw new AppError('REPORT_DOCS_CONVERSION_FAILED', 'Drive no pudo convertir el informe a Google Docs editable.', 502);
     }
-    // Garantizar formato apaisado y logo real antes de otorgar el acceso.
+    // Garantizar formato vertical y logo real antes de otorgar el acceso.
     await finalizeMaintenanceVisualDoc({ docsApi, documentId });
     await driveApi.permissions.create({
       fileId: documentId,
