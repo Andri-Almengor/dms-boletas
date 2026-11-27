@@ -161,3 +161,22 @@ test('métricas: el PDF diferencia fallas reales y sin dato, y permite guardar t
   assert.doesNotMatch(print, /if \(!popup\.closed && autoPrintPending\) popup\.print\(\)/);
   assert.doesNotMatch(print, /new jsPDF|document\.createElement\('canvas'\)/);
 });
+
+
+test('PDF completo: usa el exportador actual y datos completos; no crea Docs ni guarda recomendaciones', () => {
+  const dashboard = source('src/components/metrics/MaintenanceMetricsDashboard.jsx');
+  const print = source('src/components/metrics/MaintenanceMetricsPrint.jsx');
+  assert.match(dashboard, /Informe completo visual \(PDF\)/);
+  assert.doesNotMatch(dashboard, /metrics\.maintenance\.docs\.create|exportDocs|Google Docs/);
+  assert.match(dashboard, /reporteIncidencias: true, detalleReporte: 'todos'/);
+  assert.match(dashboard, /setRecommendations\(''\)/);
+  assert.match(dashboard, /recommendations \}\);/);
+  assert.match(dashboard, /Recomendaciones \(opcional\)/);
+  assert.match(print, /buildMaintenanceVisualReportModel\(data, visualFilter\)/);
+  assert.match(print, /visual \? model\.rows\.length : completeRows/);
+  assert.match(print, /@page \{ size: A4 portrait;/);
+  assert.match(print, /\{recommendations && <section/);
+  assert.match(print, /<MaintenanceReportTable rows=\{model\.rows\} visual \/>/);
+  assert.match(print, /white-space: pre-wrap/);
+  assert.doesNotMatch(print, /dangerouslySetInnerHTML/);
+});

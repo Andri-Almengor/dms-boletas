@@ -59,9 +59,8 @@ export default function MaintenanceMetricsDashboard() {
   const [reportOpen, setReportOpen] = useState(false);
   const [pdfDeviceFilter, setPdfDeviceFilter] = useState('no_operativos');
   const [reportFormat, setReportFormat] = useState('pdf');
-  const [docsDeviceFilter, setDocsDeviceFilter] = useState('todos');
-  const [createdDocUrl, setCreatedDocUrl] = useState('');
-  const [docsRequestId, setDocsRequestId] = useState('');
+  const [visualDeviceFilter, setVisualDeviceFilter] = useState('todos');
+  const [recommendations, setRecommendations] = useState('');
   const fetchMetrics = useCallback((signal) => requestAvailable(
     MAINTENANCE_METRICS_ROUTES, filters, sessionToken, { signal },
   ), [filters, sessionToken]);
@@ -93,10 +92,9 @@ export default function MaintenanceMetricsDashboard() {
   function openPdfOptions() {
     setExportError('');
     setPdfDeviceFilter('no_operativos');
-    setDocsDeviceFilter('todos');
+    setVisualDeviceFilter('todos');
     setReportFormat('pdf');
-    setCreatedDocUrl('');
-    setDocsRequestId(window.crypto.randomUUID());
+    setRecommendations('');
     setReportOpen(true);
   }
 
@@ -114,50 +112,17 @@ export default function MaintenanceMetricsDashboard() {
     try {
       const report = await requestAvailable(
         MAINTENANCE_METRICS_ROUTES,
-        { cliente, fecha, reporteIncidencias: true, detalleReporte: pdfDeviceFilter },
+        reportFormat === 'visual'
+          ? { cliente, fecha, reporteIncidencias: true, detalleReporte: 'todos' }
+          : { cliente, fecha, reporteIncidencias: true, detalleReporte: pdfDeviceFilter },
         sessionToken,
       );
-      renderMaintenanceReport(popup, report);
+      renderMaintenanceReport(popup, report, { format: reportFormat, visualFilter: visualDeviceFilter, recommendations });
       setReportOpen(false);
     } catch (exportFailure) {
       const message = exportFailure?.message || 'No fue posible preparar el PDF de mantenimiento.';
       setExportError(message);
       showMaintenanceReportError(popup, message);
-    } finally {
-      setExporting(false);
-    }
-  }
-
-  async function exportDocs() {
-    if (!filters.cliente || !filters.fecha || exporting) return;
-    const popup = window.open('about:blank', '_blank');
-    if (popup) {
-      popup.opener = null;
-      popup.document.body.textContent = 'Preparando Google Docs editable…';
-    }
-    setExporting(true);
-    setExportError('');
-    setCreatedDocUrl('');
-    try {
-      const { cliente, fecha } = filters;
-      const result = await requestAvailable(
-        ['metrics.maintenance.docs.create'],
-        { cliente, fecha, detalleVisual: docsDeviceFilter, requestId: docsRequestId },
-        sessionToken,
-      );
-      if (!/^https:\/\/docs\.google\.com\/document\/d\/[-\w]+\/edit$/.test(result?.docsUrl || '')) {
-        throw new Error('Drive no devolvió un enlace válido del documento editable.');
-      }
-      if (popup && !popup.closed) {
-        popup.location.replace(result.docsUrl);
-        setReportOpen(false);
-      } else {
-        setCreatedDocUrl(result.docsUrl);
-      }
-    } catch (error) {
-      const message = error?.message || 'No fue posible generar Google Docs del mantenimiento.';
-      setExportError(message);
-      if (popup && !popup.closed) popup.document.body.textContent = message;
     } finally {
       setExporting(false);
     }
@@ -304,8 +269,8 @@ export default function MaintenanceMetricsDashboard() {
       icon="description"
       footer={<>
         <button type="button" className="button button--secondary" onClick={() => setReportOpen(false)} disabled={exporting}>Cancelar</button>
-        <button type="button" className="button button--primary" onClick={reportFormat === 'pdf' ? exportPdf : exportDocs} disabled={exporting || !filters.cliente || !filters.fecha}>
-          <Icon name={reportFormat === 'pdf' ? 'picture_as_pdf' : 'description'} />{exporting ? 'Generando...' : reportFormat === 'pdf' ? 'Generar PDF' : 'Crear Google Docs'}
+        <button type="button" className="button button--primary" onClick={exportPdf} disabled={exporting || !filters.cliente || !filters.fecha}>
+          <Icon name="picture_as_pdf" />{exporting ? 'Generando...' : 'Generar PDF'}
         </button>
       </>}
     >
@@ -317,7 +282,7 @@ export default function MaintenanceMetricsDashboard() {
         <legend>Tipo de informe</legend>
         {[
           ['pdf', 'Informe actual (PDF)', 'Conserva el formato y la exportación multipágina que utiliza actualmente.'],
-          ['docs', 'Informe completo visual (Google Docs editable)', 'Salud general, gráficos por tipo, prioridades y recomendaciones editables.'],
+          ['visual', 'Informe completo visual (PDF)', 'Salud general, gráficos por tipo, prioridades y recomendaciones opcionales.'],
         ].map(([value, label, description]) => (
           <label key={value} className={reportFormat === value ? 'is-selected' : ''}>
             <input type="radio" name="maintenance-report-format" value={value}
@@ -338,13 +303,13 @@ export default function MaintenanceMetricsDashboard() {
           ['sanos', 'Solo equipos buenos', 'Incluye únicamente equipos confirmados en buen estado.'],
           ['danados', 'Solo equipos dañados', 'Incluye averías confirmadas, de críticas a leves.'],
         ]).map(([value, label, description]) => (
-          <label key={value} className={pdfDeviceFilter === value ? 'is-selected' : ''}>
+          <label key={value} className={(reportFormat === 'pdf' ? pdfDeviceFilter : visualDeviceFilter) === value ? 'is-selected' : ''}>
             <input
               type="radio"
               name="maintenance-report-devices"
               value={value}
-              checked={reportFormat === 'pdf' ? pdfDeviceFilter === value : docsDeviceFilter === value}
-              onChange={() => reportFormat === 'pdf' ? setPdfDeviceFilter(value) : setDocsDeviceFilter(value)}
+              checked={reportFormat === 'pdf' ? pdfDeviceFilter === value : visualDeviceFilter === value}
+              onChange={() => reportFormat === 'pdf' ? setPdfDeviceFilter(value) : setVisualDeviceFilter(value)}
             />
             <span><strong>{label}</strong><small>{description}</small></span>
           </label>
@@ -353,7 +318,13 @@ export default function MaintenanceMetricsDashboard() {
       <p className="metrics-report-info"><Icon name="info" /> {reportFormat === 'pdf'
         ? 'El grupo «Con falla / sin dato» incluye equipos no evaluados, que no son averías confirmadas.'
         : 'El porcentaje de salud considera únicamente los dispositivos evaluados. Las métricas generales usan todos los equipos y el filtro afecta solo a la tabla. Orden: Crítica, Moderada, Leve, sin clasificar y sanos.'}</p>
-      {createdDocUrl && <p className="metrics-report-info"><a href={createdDocUrl} target="_blank" rel="noopener noreferrer">Abrir Google Docs editable generado</a></p>}
+      {reportFormat === 'visual' && <label className="field-group metrics-report-recommendations">
+        <span className="field-label">Recomendaciones (opcional)</span>
+        <textarea className="form-control" rows={5} maxLength={12000} value={recommendations}
+          disabled={exporting} onChange={(event) => setRecommendations(event.target.value)}
+          placeholder="Escriba las acciones sugeridas, reparaciones o prioridades para el cliente..." />
+        <small>Se incluirán al final del PDF. Si deja el campo vacío, la sección no aparecerá. {recommendations.length}/12000</small>
+      </label>}
       {exportError && <p className="metrics-pdf-error" role="alert">{exportError}</p>}
     </AdminEntityModal>
   </section>;

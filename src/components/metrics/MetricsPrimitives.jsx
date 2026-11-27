@@ -83,7 +83,7 @@ export function DateColumns({ rows = [], onSelect, selected = '' }) {
   </div>;
 }
 
-export function DonutBreakdown({ total = 0, items = [], onSelect, selected = '' }) {
+export function DonutBreakdown({ total = 0, items = [], onSelect, selected = '', centerValue, centerLabel = 'Total' }) {
   const colors = ['var(--warning)', 'var(--success)', 'var(--metrics-info)', 'var(--primary)', 'var(--muted)'];
   const safeTotal = Math.max(Number(total) || 0, items.reduce((sum, item) => sum + (Number(item.value) || 0), 0));
   let cursor = 0;
@@ -92,9 +92,9 @@ export function DonutBreakdown({ total = 0, items = [], onSelect, selected = '' 
     cursor += safeTotal ? ((Number(item.value) || 0) / safeTotal) * 100 : 0;
     return `${item.color || colors[index % colors.length]} ${start}% ${cursor}%`;
   });
-  const background = safeTotal && stops.length ? `conic-gradient(${stops.join(', ')})` : 'var(--surface-container)';
+  const background = safeTotal && stops.length ? `conic-gradient(${stops.join(', ')})` : 'var(--surface-container, #e7e8eb)';
   return <div className="metrics-donut-layout">
-    <div className="metrics-donut" style={{ background }}><div><strong>{formatMetric(safeTotal, 0)}</strong><span>Total</span></div></div>
+    <div className="metrics-donut" style={{ background }}><div><strong>{centerValue ?? formatMetric(safeTotal, 0)}</strong><span>{centerLabel}</span></div></div>
     <div className="metrics-legend">
       {items.map((item, index) => {
         const filterValue = item.filterValue || item.label;

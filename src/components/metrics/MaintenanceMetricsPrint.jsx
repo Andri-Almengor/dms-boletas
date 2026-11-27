@@ -2,6 +2,7 @@ import React from 'react';
 import { renderToStaticMarkup } from 'react-dom/server';
 import { DonutBreakdown, formatMetric, ProgressBar } from './MetricsPrimitives';
 import reportLogo from '../../assets/dms-report-logo.png?inline';
+import { buildMaintenanceVisualReportModel } from '../../../backend/src/services/maintenance-visual-report.model.js';
 
 function percentage(value, total) {
   return total > 0 ? (Number(value || 0) / total) * 100 : 0;
@@ -88,21 +89,106 @@ function MaintenanceMetricsPrint({ data }) {
     <section className="report-incidents">
       <h2>{detailTitles[reportMode] || detailTitles.fallas}</h2>
       <p>{formatMetric(rows.length, 0)} dispositivo(s). {detailDescriptions[reportMode] || detailDescriptions.fallas}</p>
-      {rows.length ? <table className="report-table">
+      <MaintenanceReportTable rows={rows} />
+    </section>
+  </main>;
+}
+
+function MaintenanceReportTable({ rows, visual = false }) {
+  return rows.length ? <table className="report-table">
         <colgroup><col style={{ width: '13%' }} /><col style={{ width: '14%' }} /><col style={{ width: '11%' }} /><col style={{ width: '10%' }} /><col style={{ width: '10%' }} /><col style={{ width: '14%' }} /><col style={{ width: '28%' }} /></colgroup>
         <thead><tr><th>Zona / ubicación</th><th>Dispositivo</th><th>Categoría</th><th>Funcionamiento</th><th>Uso</th><th>Responsable</th><th>Observaciones</th></tr></thead>
         <tbody>{rows.map((row, index) => <tr key={row.deviceId || index}>
           <td>{row.zona || 'Sin zona'}</td>
           <td><strong>{row.nombreDispositivo || 'Sin dispositivo'}</strong></td>
           <td>{row.categoria || 'Sin categoría'}</td>
-          <td><span className={`report-status ${row.operativo ? 'report-status--ok' : row.averiado ? 'report-status--fault' : 'report-status--unknown'}`}>{row.funcionamiento || 'Sin dato'}</span>
-            {row.gravedadFalla && (row.averiado || row.estado === 'Mal estado') && <small className="report-fault-severity">Prioridad: {row.gravedadFalla}</small>}</td>
+          <td><span className={`report-status ${visual ? (row.salud.kind === 'sano' ? 'report-status--ok' : row.salud.kind === 'danado' ? 'report-status--fault' : 'report-status--unknown') : row.operativo ? 'report-status--ok' : row.averiado ? 'report-status--fault' : 'report-status--unknown'}`}>{row.funcionamiento || 'Sin dato'}</span>
+            {visual ? <small className="report-fault-severity" data-severity={row.salud.rank}>{row.salud.kind === 'danado' ? row.salud.severity : row.salud.kind === 'sano' ? 'Sano' : 'Sin evaluar'}</small> : row.gravedadFalla && (row.averiado || row.estado === 'Mal estado') && <small className="report-fault-severity">Prioridad: {row.gravedadFalla}</small>}</td>
           <td>{row.enUso || 'Sin dato'}</td>
           <td>{row.creador || 'Sin responsable'}</td>
           <td className="report-observation">{row.observacion || 'Sin observaciones'}</td>
         </tr>)}</tbody>
-      </table> : <div className="report-empty">No hay dispositivos para el tipo seleccionado en esta fecha.</div>}
+      </table> : <div className="report-empty">No hay dispositivos para el tipo seleccionado en esta fecha.</div>;
+}
+
+function VisualReportBand({ children }) {
+  return <h2 className="visual-report-band"><span>{children}</span></h2>;
+}
+
+function VisualCategoryChart({ categories }) {
+  if (!categories.length) return <p>No hay dispositivos registrados.</p>;
+  const max = categories.reduce((largest, category) => Math.max(largest, category.total), 1);
+  const groups = [];
+  for (let start = 0; start < categories.length; start += 5) groups.push(categories.slice(start, start + 5));
+  return <div className="visual-category-groups">{groups.map((group, index) =>
+    <div className="visual-category-chart" key={index} style={{ gridTemplateColumns: `repeat(${group.length}, minmax(0, 1fr))` }}>
+      {group.map((category) => <div className="visual-category" key={category.categoria}>
+        <div className="visual-category-track">
+          <div className="visual-category-column" style={{ height: `${category.total / max * 100}%` }}>
+            <strong>{category.total}</strong>
+            {[['sanos', '#12805e'], ['danados', '#b90d19'], ['sinEvaluar', '#89919e']].map(([key, color]) => category[key] > 0 &&
+              <span key={key} style={{ background: color, flex: category[key] }} />)}
+          </div>
+        </div>
+        <b>{category.categoria}</b><small>{category.danados} fallas</small>
+      </div>)}
+    </div>)}</div>;
+}
+
+function MaintenanceVisualPrint({ model, recommendations }) {
+  const health = model.health === null ? '—' : `${formatMetric(model.health, 1)}%`;
+  const title = model.filter === 'danados' ? 'Dispositivos con fallas' : model.filter === 'sanos' ? 'Dispositivos en buen estado' : 'Detalle de dispositivos';
+  const generatedDate = new Intl.DateTimeFormat('es-CR', { dateStyle: 'long', timeZone: 'America/Costa_Rica' }).format(new Date());
+  return <main className="report-page report-page--visual">
+    <header className="visual-report-header">
+      <img className="report-logo" src={reportLogo} alt="DMS Solutions Provider" />
+      <span>REPORTE DE MANTENIMIENTO</span>
+    </header>
+    <div className="visual-brand-line" />
+    <h1>Cliente: {model.client}</h1>
+    <p className="visual-report-subtitle">Informe de mantenimiento</p>
+    <dl className="visual-report-context">
+      <div><dt>Fecha del informe</dt><dd>{generatedDate}</dd></div>
+      <div><dt>Responsables / Técnicos</dt><dd>{model.responsibleLabel || 'Sin responsable registrado'}</dd></div>
+      <div><dt>Fecha del mantenimiento</dt><dd>{maintenanceDate(model.date)}</dd></div>
+      <div><dt>Total de dispositivos</dt><dd>{model.total}</dd></div>
+      <div><dt>Mantenimiento</dt><dd>{model.maintenanceLabel || 'No especificado'}</dd></div>
+      <div><dt>Evidencias</dt><dd>{model.evidenceCount}</dd></div>
+      {model.siteLabel && <div><dt>Ubicación</dt><dd>{model.siteLabel}</dd></div>}
+    </dl>
+    <VisualReportBand>Resumen general</VisualReportBand>
+    <div className="report-kpis visual-report-kpis">{[
+      ['Total de dispositivos', model.total, 'total'],
+      ['En buen estado', model.healthy, 'ok'],
+      ['Dispositivos con fallas', model.damaged, 'fault'],
+      ['Salud general', health, 'health'],
+    ].map(([label, value, tone]) => <div className={`report-kpi visual-kpi--${tone}`} key={label}><span>{label}</span><strong>{value}</strong></div>)}</div>
+    <p className="visual-report-coverage">Evaluados: <b>{model.evaluated}</b> · Sin evaluar: <b>{model.pending}</b> · Cobertura: <b>{model.total ? formatMetric(model.evaluated / model.total * 100, 1) : '0'}%</b></p>
+    <div className="visual-report-charts">
+      <section className="report-panel visual-report-health">
+        <VisualReportBand>Salud del sistema</VisualReportBand>
+        <DonutBreakdown total={model.evaluated} centerValue={health} centerLabel="Salud" items={[
+          { label: 'Buenos', value: model.healthy, color: '#12805e' },
+          { label: 'Con fallas', value: model.damaged, color: '#b90d19' },
+        ]} />
+        <p>Salud = equipos sanos / evaluados. Los {model.pending} sin evaluar no se contabilizan como fallas.</p>
+      </section>
+      <section className="report-panel visual-report-types">
+        <VisualReportBand>Distribución por tipo de dispositivo</VisualReportBand>
+        <p className="visual-chart-legend"><span>● Buenos</span><span>● Con fallas</span><span>● Sin evaluar</span></p>
+        <VisualCategoryChart categories={model.categories} />
+      </section>
+    </div>
+    <section className="report-incidents">
+      <VisualReportBand>{title}</VisualReportBand>
+      <p>{model.rows.length} dispositivos incluidos · Orden: Crítica, Moderada, Leve, Sin clasificar, Sanos, Sin evaluar.</p>
+      <MaintenanceReportTable rows={model.rows} visual />
     </section>
+    {recommendations && <section className="visual-report-recommendations">
+      <VisualReportBand>Recomendaciones</VisualReportBand>
+      <div className="visual-recommendations-text">{recommendations}</div>
+    </section>}
+    <footer className="visual-report-footer"><div className="visual-brand-line" /><span>DMS Solutions Provider</span></footer>
   </main>;
 }
 
@@ -186,6 +272,70 @@ const REPORT_STYLES = `
   }
 `;
 
+const VISUAL_REPORT_STYLES = `
+  @page { size: A4 portrait; margin: 9mm 10mm; }
+  .report-page--visual { padding: 0; font-size: 11px; }
+  .visual-report-header { display: flex; justify-content: space-between; align-items: center; color: #555d6d; font-size: 10px; font-weight: bold; }
+  .visual-report-header .report-logo { width: 130px; }
+  .visual-brand-line { height: 5px; background: linear-gradient(135deg,#b90d19 0 73%,#e7e8eb 73%); margin: 6px 0 13px; }
+  .report-page--visual h1 { margin: 0; color: #930b16; font-size: 24px; line-height: 1.2; overflow-wrap: anywhere; }
+  .visual-report-subtitle { color: #555d6d; font-size: 17px; font-weight: bold; margin: 3px 0 10px; }
+  .visual-report-context { display: grid; grid-template-columns: repeat(2,minmax(0,1fr)); gap: 0 14px; margin: 0 0 10px; padding: 8px 12px; border: 1px solid #cfd3dc; border-radius: 9px; background: #f6f7f9; }
+  .visual-report-context div { display: grid; grid-template-columns: minmax(0,1fr) minmax(0,1fr); gap: 8px; padding: 5px 0; border-bottom: 1px solid #d9dce3; overflow-wrap: anywhere; }
+  .visual-report-context dt { font-weight: bold; }.visual-report-context dd { margin: 0; }
+  .visual-report-band { margin: 10px 0 7px; padding: 0; border: 0; border-top: 2px solid #b90d19; border-radius: 4px; background: #e7e8eb; color: #fff; font-size: 14px; line-height: 1.2; break-after: avoid; page-break-after: avoid; }
+  .visual-report-band span { display: inline-block; padding: 5px 23px 5px 9px; background: #b90d19; clip-path: polygon(0 0,100% 0,calc(100% - 14px) 100%,0 100%); }
+  .visual-report-kpis { grid-template-columns: repeat(4,minmax(0,1fr)); margin-bottom: 5px; text-align: center; }
+  .visual-report-kpis strong { font-size: 24px; color: #b90d19; }
+  .visual-kpi--ok strong { color: #12805e; }
+  .visual-report-coverage { margin: 5px 0 9px; color: #555d6d; }
+  .visual-report-charts { display: grid; grid-template-columns: minmax(0, .9fr) minmax(0,1.3fr); gap: 8px; align-items: start; }
+  .visual-report-charts .report-panel { padding: 0 8px 7px; }
+  .visual-report-charts .visual-report-band { margin: 0 -8px 8px; font-size: 12px; }
+  .visual-report-charts .visual-report-band span { padding-right: 17px; }
+  .visual-report-health .metrics-donut-layout { grid-template-columns: 92px minmax(0,1fr); gap: 8px; }
+  .visual-report-health .metrics-donut { width: 92px; height: 92px; }
+  .visual-report-health .metrics-donut::after { inset: 15px; }
+  .visual-report-health .metrics-donut strong { font-size: 17px; }
+  .visual-report-health .metrics-legend { gap: 5px; }
+  .visual-report-health .metrics-legend button { padding: 5px; font-size: 10px; }
+  .visual-report-health p { margin-top: 7px; }
+  .visual-chart-legend { display: flex; flex-wrap: wrap; gap: 6px; }
+  .visual-chart-legend span:nth-child(1) { color: #12805e; }
+  .visual-chart-legend span:nth-child(2) { color: #b90d19; }
+  .visual-chart-legend span:nth-child(3) { color: #626a77; }
+  .visual-category-groups { display: grid; gap: 8px; }
+  .visual-category-chart { display: grid; gap: 4px; break-inside: avoid; }
+  .visual-category { display: grid; grid-template-rows: 76px auto auto; text-align: center; min-width: 0; overflow-wrap: anywhere; font-size: 8px; }
+  .visual-category-track { display: flex; align-items: end; justify-content: center; border-bottom: 1px solid #cfd3dc; padding-top: 12px; }
+  .visual-category-column { display: flex; flex-direction: column-reverse; width: min(60%,24px); position: relative; }
+  .visual-category-column strong { position: absolute; bottom: 100%; left: 50%; transform: translateX(-50%); }
+  .visual-category-column span { min-height: 0; }
+  .visual-category b { margin-top: 3px; }
+  .visual-category small { color: #b90d19; font-size: 8px; }
+  .report-page--visual .report-table th, .report-page--visual .report-table td { padding: 5px 4px; font-size: 9px; }
+  .report-page--visual .report-table col:nth-child(3) { width: 10% !important; }
+  .report-page--visual .report-table col:nth-child(4) { width: 13% !important; }
+  .report-page--visual .report-table col:nth-child(5) { width: 6% !important; }
+  .report-page--visual .report-table col:nth-child(7) { width: 30% !important; }
+  .report-page--visual .report-fault-severity[data-severity="1"] { color: #a45d00; }
+  .report-page--visual .report-fault-severity[data-severity="2"] { color: #806000; }
+  .report-page--visual .report-fault-severity[data-severity="3"], .report-page--visual .report-fault-severity[data-severity="5"] { color: #5b626d; }
+  .report-page--visual .report-fault-severity[data-severity="4"] { color: #12805e; }
+  .visual-recommendations-text { padding: 10px; background: #f6f7f9; border: 1px solid #cfd3dc; border-radius: 8px; white-space: pre-wrap; overflow-wrap: anywhere; line-height: 1.5; }
+  .visual-report-footer { margin-top: 14px; text-align: right; color: #555d6d; font-size: 9px; }
+  .report-page--visual, .report-page--visual * { print-color-adjust: exact; -webkit-print-color-adjust: exact; }
+  @media screen { .report-page--visual { width: min(100%, 794px); padding: 9mm 10mm; } }
+  @media print {
+    .visual-report-header, .visual-report-context, .visual-report-kpis, .visual-report-health { break-inside: avoid; page-break-inside: avoid; }
+    /* Large category collections flow normally instead of forcing an oversized panel onto a page. */
+    .visual-report-charts { display: block; }
+    .visual-report-health { margin-bottom: 8px; }
+    .visual-report-charts:has(.visual-category-chart:only-child) { display: grid; break-inside: avoid; }
+    .visual-report-footer { break-inside: avoid; }
+  }
+`;
+
 export function openMaintenanceReportPreview() {
   const popup = window.open('', '_blank');
   if (!popup) return null;
@@ -225,17 +375,22 @@ export function assertCompleteMaintenanceReport(data) {
   return data.detailRows.length;
 }
 
-export function renderMaintenanceReport(popup, data) {
+export function renderMaintenanceReport(popup, data, { format = 'pdf', visualFilter = 'todos', recommendations = '' } = {}) {
   if (!popup || popup.closed) return;
-  const expectedRows = assertCompleteMaintenanceReport(data);
+  const completeRows = assertCompleteMaintenanceReport(data);
+  const visual = format === 'visual';
+  const model = visual ? buildMaintenanceVisualReportModel(data, visualFilter) : null;
+  const expectedRows = visual ? model.rows.length : completeRows;
   const client = data?.filtersApplied?.cliente || 'Cliente';
   const date = data?.filtersApplied?.fecha || 'Fecha';
-  const mode = data?.filtersApplied?.detalleReporte || 'fallas';
+  const mode = visual ? `visual-${visualFilter}` : data?.filtersApplied?.detalleReporte || 'fallas';
   const filename = `DMS-Mantenimiento-${client}-${date}-${mode}`
     .replace(/[^\p{L}\p{N}_-]+/gu, '_').slice(0, 90);
-  const reportMarkup = renderToStaticMarkup(<MaintenanceMetricsPrint data={data} />);
+  const reportMarkup = renderToStaticMarkup(visual
+    ? <MaintenanceVisualPrint model={model} recommendations={String(recommendations || '').trim()} />
+    : <MaintenanceMetricsPrint data={data} />);
   popup.document.open();
-  popup.document.write(`<!doctype html><html lang="es"><head><meta charset="utf-8"><title>${filename}</title><style>${REPORT_STYLES}</style></head><body><div class="print-controls"><div class="print-controls__instructions"><strong>${expectedRows} dispositivos incluidos · Un único PDF con todas las páginas</strong><span>Pulse «Guardar PDF completo». En el diálogo seleccione Destino: Guardar como PDF y Páginas: Todas (no «Personalizadas» ni «Página actual»).</span></div><button id="print-report" type="button" disabled>Preparando documento completo...</button></div>${reportMarkup}</body></html>`);
+  popup.document.write(`<!doctype html><html lang="es"><head><meta charset="utf-8"><title>${filename}</title><style>${REPORT_STYLES}${visual ? VISUAL_REPORT_STYLES : ''}</style></head><body><div class="print-controls"><div class="print-controls__instructions"><strong>${expectedRows} dispositivos incluidos · Un único PDF con todas las páginas</strong><span>Pulse «Guardar PDF completo». En el diálogo seleccione Destino: Guardar como PDF y Páginas: Todas (no «Personalizadas» ni «Página actual»).</span></div><button id="print-report" type="button" disabled>Preparando documento completo...</button></div>${reportMarkup}</body></html>`);
   popup.document.close();
   const renderedRows = popup.document.querySelectorAll('.report-table tbody tr').length;
   if (renderedRows !== expectedRows) {
