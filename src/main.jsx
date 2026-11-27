@@ -17,6 +17,31 @@ import './styles/index.css';
 
 initializePerformanceMode();
 initializeTheme();
+initializeLoadingFonts();
+
+// Font downloads are not a prerequisite for mounting the app or using cached data.
+function initializeLoadingFonts() {
+  const textLink = document.getElementById('dms-text-font');
+  const iconLink = document.getElementById('dms-icon-font');
+  if (textLink) textLink.rel = 'stylesheet';
+  if (!iconLink) return;
+
+  const root = document.documentElement;
+  root.classList.add('dms-icon-font-pending');
+  let timer;
+  const finish = () => {
+    window.clearTimeout(timer);
+    root.classList.remove('dms-icon-font-pending');
+  };
+  iconLink.addEventListener('load', () => {
+    if (!document.fonts?.load) return finish();
+    document.fonts.load('24px "Material Symbols Outlined"', 'home').then(finish, finish);
+  }, { once: true });
+  iconLink.addEventListener('error', finish, { once: true });
+  // A slow or unavailable third-party font must not hide icons indefinitely.
+  timer = window.setTimeout(finish, 4000);
+  iconLink.rel = 'stylesheet';
+}
 
 let deferredAutomaticReload = false;
 let reloadObserver = null;

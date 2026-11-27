@@ -157,3 +157,5 @@ import './incremental-sync-media-priority.test.mjs';
 import './drive-upload-session.test.mjs';
 
 import './client-inventory.test.mjs';
+
+import './loading-experience.test.mjs';

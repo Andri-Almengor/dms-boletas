@@ -2,6 +2,7 @@ import React, { useState } from 'react';
 import { Navigate, useLocation, useNavigate, useParams, useSearchParams } from 'react-router-dom';
 import { useAuth } from '../../AuthContext';
 import Icon from '../../components/common/Icon';
+import Loading from '../../components/common/Loading';
 import ProcessingOverlay from '../../components/feedback/ProcessingOverlay';
 import FormField from '../../components/forms/FormField';
 import InlineCreateModal from '../../components/forms/InlineCreateModal';
@@ -67,7 +68,7 @@ export default function MaintenanceFormPage({ mode = 'create' }) {
   }
 
   if (!state.allowed) return <Navigate to="/mantenimientos" replace />;
-  if (state.loading) return <div className="page"><div className="state-card state-card--loading"><Icon name="progress_activity" />Cargando mantenimiento...</div></div>;
+  if (state.loading) return <div className="page"><Loading label="Cargando mantenimiento..." variant="page" /></div>;
 
   if (state.activeDevice) {
     return <div className="page page--narrow maintenance-form-page maintenance-device-form-page">
@@ -106,7 +107,7 @@ export default function MaintenanceFormPage({ mode = 'create' }) {
     if (direct.requestedNewDevice && !canAddExpectedDevice) {
       return <div className="page"><div className="empty-state"><Icon name="rule" /><h2>Seleccione los tipos del mantenimiento</h2><p>Antes de agregar dispositivos, edite las cantidades esperadas y asigne un valor mayor que cero al menos a un tipo.</p><button className="button button--primary" type="button" onClick={() => navigate(`/mantenimientos/${encodeURIComponent(maintenanceId)}/editar`)}><Icon name="edit" />Editar cantidades</button><button className="button button--secondary" type="button" onClick={() => navigate(direct.detailUrl)}><Icon name="arrow_back" />Volver al detalle</button></div></div>;
     }
-    return <div className="page"><div className="state-card state-card--loading"><Icon name="progress_activity" />Abriendo formulario del dispositivo...</div></div>;
+    return <div className="page"><Loading label="Abriendo formulario del dispositivo..." variant="page" /></div>;
   }
 
   function addDevice() {

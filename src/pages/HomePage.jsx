@@ -2,6 +2,7 @@ import React, { useEffect, useState } from 'react';
 import { Link } from 'react-router-dom';
 import { useAuth } from '../AuthContext';
 import Icon from '../components/common/Icon';
+import Loading from '../components/common/Loading';
 import TicketCard from '../components/tickets/TicketCard';
 import { MODULE_ROUTES, normalizeItems } from '../services/moduleApi';
 import {
@@ -255,22 +256,22 @@ export default function HomePage() {
       {(canViewTickets || isAdmin) && <section className={`stats-grid${isAdmin ? ' stats-grid--admin' : ''}`}>
         {canViewTickets && <Link className="stat-card stat-card--warning" to="/boletas/pendientes">
           <Icon name="pending_actions" />
-          <strong>{loading || counts.pending === null ? '—' : counts.pending}</strong>
+          <strong>{loading ? <span className="dms-loading__number" aria-label="Cargando" /> : counts.pending === null ? '—' : counts.pending}</strong>
           <span>Boletas pendientes</span>
         </Link>}
         {canViewTickets && <Link className="stat-card stat-card--success" to="/boletas/finalizadas">
           <Icon name="task_alt" filled />
-          <strong>{loading || counts.finished === null ? '—' : counts.finished}</strong>
+          <strong>{loading ? <span className="dms-loading__number" aria-label="Cargando" /> : counts.finished === null ? '—' : counts.finished}</strong>
           <span>Boletas finalizadas</span>
         </Link>}
         {isAdmin && <Link className="stat-card stat-card--maintenance-pending" to="/mantenimientos?estado=PENDIENTE">
           <Icon name="engineering" />
-          <strong>{maintenanceLoading || maintenanceCounts.pending === null ? '—' : maintenanceCounts.pending}</strong>
+          <strong>{maintenanceLoading ? <span className="dms-loading__number" aria-label="Cargando" /> : maintenanceCounts.pending === null ? '—' : maintenanceCounts.pending}</strong>
           <span>Mantenimientos pendientes</span>
         </Link>}
         {isAdmin && <Link className="stat-card stat-card--maintenance-finished" to="/mantenimientos?estado=FINALIZADO">
           <Icon name="verified" filled />
-          <strong>{maintenanceLoading || maintenanceCounts.finished === null ? '—' : maintenanceCounts.finished}</strong>
+          <strong>{maintenanceLoading ? <span className="dms-loading__number" aria-label="Cargando" /> : maintenanceCounts.finished === null ? '—' : maintenanceCounts.finished}</strong>
           <span>Mantenimientos finalizados</span>
         </Link>}
       </section>}
@@ -287,7 +288,7 @@ export default function HomePage() {
         </div>
 
         {loading ? (
-          <div className="state-card state-card--loading"><Icon name="progress_activity" /><span>Cargando boletas...</span></div>
+          <Loading label="Cargando boletas..." variant="list" />
         ) : tickets.length ? (
           <div className="ticket-stack">
             {tickets.map((ticket, index) => <TicketCard compact ticket={ticket} key={getTicketId(ticket, index)} />)}
