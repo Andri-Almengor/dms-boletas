@@ -20,7 +20,7 @@ test('bootstrap is visible without external fonts and keeps the retry link', () 
 
 test('shared accessible skeleton is used for routes and primary data-loading branches', () => {
   const loading = source('src/components/common/Loading.jsx');
-  assert.match(loading, /role="status" aria-live="polite" aria-busy="true"/);
+  assert.match(loading, /role="status" aria-live="polite"/);
   assert.match(loading, /aria-hidden="true"/);
   assert.doesNotMatch(loading, /<Icon|setTimeout/);
   assert.match(source('src/components/layout/AppShell.jsx'), /<Suspense fallback=\{<Loading[^>]*>\}><Outlet \/><\/Suspense>/);
@@ -34,6 +34,8 @@ test('motion is staggered, limited, theme-aware and respects reduced motion', ()
   assert.match(source('src/styles/index.css'), /loading-experience\.css/);
   assert.match(css, /var\(--surface-high\)/);
   assert.match(css, /animation-delay: 210ms/);
+  assert.match(css, /dms-card-enter/);
+  assert.match(css, /agenda-calendar/);
   assert.match(css, /prefers-reduced-motion: reduce/);
   assert.match(css, /dms-low-resource-device/);
   assert.match(css, /dms-icon-font-pending/);

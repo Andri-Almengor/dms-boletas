@@ -3,7 +3,7 @@ import React from 'react';
 export default function Loading({ label = 'Cargando...', variant = 'list', className = '' }) {
   const page = variant === 'page';
   return (
-    <div className={`dms-loading dms-loading--${variant} ${className}`.trim()} role="status" aria-live="polite" aria-busy="true">
+    <div className={`dms-loading dms-loading--${variant} ${className}`.trim()} role="status" aria-live="polite">
       <span className="dms-loading__label">{label}</span>
       <div className="dms-loading__shapes" aria-hidden="true">
         {page && <div className="dms-loading__heading"><i /><i /></div>}

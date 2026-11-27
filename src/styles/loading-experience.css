@@ -56,33 +56,37 @@
 }
 
 /* Animate only mounted content, without remounts, artificial delays, or overlays. */
-.app-content .page > :is(.welcome-block, .page-header, .stats-grid, .primary-cta, .section-block, .form-card, .detail-card, .empty-state),
+.app-content .page > :is(.welcome-block, .page-header, .stats-grid, .primary-cta, .section-block, .form-card, .detail-card, .empty-state, .agenda-toolbar, .agenda-calendar, .agenda-mobile-list, .ticket-progress, .ticket-status-card, .maintenance-detail-summary, .document-links),
 .app-content .ticket-stack > .ticket-card,
 .app-content .maintenance-grid > .maintenance-card {
   animation: dms-content-enter 480ms ease-out backwards;
 }
-.app-content .page > :is(.welcome-block, .page-header, .stats-grid, .primary-cta, .section-block, .form-card, .detail-card, .empty-state):nth-child(2),
+.app-content .page > :is(.welcome-block, .page-header, .stats-grid, .primary-cta, .section-block, .form-card, .detail-card, .empty-state, .agenda-toolbar, .agenda-calendar, .agenda-mobile-list, .ticket-progress, .ticket-status-card, .maintenance-detail-summary, .document-links):nth-child(2),
 .app-content .ticket-stack > .ticket-card:nth-child(2),
 .app-content .maintenance-grid > .maintenance-card:nth-child(2) { animation-delay: 70ms; }
-.app-content .page > :is(.welcome-block, .page-header, .stats-grid, .primary-cta, .section-block, .form-card, .detail-card, .empty-state):nth-child(3),
+.app-content .page > :is(.welcome-block, .page-header, .stats-grid, .primary-cta, .section-block, .form-card, .detail-card, .empty-state, .agenda-toolbar, .agenda-calendar, .agenda-mobile-list, .ticket-progress, .ticket-status-card, .maintenance-detail-summary, .document-links):nth-child(3),
 .app-content .ticket-stack > .ticket-card:nth-child(3),
 .app-content .maintenance-grid > .maintenance-card:nth-child(3) { animation-delay: 140ms; }
-.app-content .page > :is(.welcome-block, .page-header, .stats-grid, .primary-cta, .section-block, .form-card, .detail-card, .empty-state):nth-child(n+4),
+.app-content .page > :is(.welcome-block, .page-header, .stats-grid, .primary-cta, .section-block, .form-card, .detail-card, .empty-state, .agenda-toolbar, .agenda-calendar, .agenda-mobile-list, .ticket-progress, .ticket-status-card, .maintenance-detail-summary, .document-links):nth-child(n+4),
 .app-content .ticket-stack > .ticket-card:nth-child(n+4),
 .app-content .maintenance-grid > .maintenance-card:nth-child(n+4) { animation-delay: 210ms; }
 @keyframes dms-content-enter { from { opacity: .35; } to { opacity: 1; } }
-.app-content .page > :focus-within,
+/* Movement is limited to cards, never a parent of a fixed/sticky workflow control. */
+.app-content .ticket-stack > .ticket-card,
+.app-content .maintenance-grid > .maintenance-card { animation-name: dms-card-enter; }
+@keyframes dms-card-enter { from { opacity: .35; translate: 0 6px; } to { opacity: 1; translate: 0 0; } }
+.app-content .page > :is(.welcome-block, .page-header, .stats-grid, .primary-cta, .section-block, .form-card, .detail-card, .empty-state, .agenda-toolbar, .agenda-calendar, .agenda-mobile-list, .ticket-progress, .ticket-status-card, .maintenance-detail-summary, .document-links):focus-within,
 .app-content .ticket-stack > .ticket-card:focus-within,
 .app-content .maintenance-grid > .maintenance-card:focus-within { animation: none; }
 
 @media (prefers-reduced-motion: reduce) {
   .dms-loading *, .dms-loading__number,
-  .app-content .page > *, .app-content .ticket-stack > .ticket-card,
+  .app-content .page > :is(.welcome-block, .page-header, .stats-grid, .primary-cta, .section-block, .form-card, .detail-card, .empty-state, .agenda-toolbar, .agenda-calendar, .agenda-mobile-list, .ticket-progress, .ticket-status-card, .maintenance-detail-summary, .document-links), .app-content .ticket-stack > .ticket-card,
   .app-content .maintenance-grid > .maintenance-card { animation: none; }
 }
 .dms-low-resource-device .dms-loading *,
 .dms-low-resource-device .dms-loading__number,
-.dms-low-resource-device .app-content .page > *,
+.dms-low-resource-device .app-content .page > :is(.welcome-block, .page-header, .stats-grid, .primary-cta, .section-block, .form-card, .detail-card, .empty-state, .agenda-toolbar, .agenda-calendar, .agenda-mobile-list, .ticket-progress, .ticket-status-card, .maintenance-detail-summary, .document-links),
 .dms-low-resource-device .app-content .ticket-stack > .ticket-card,
 .dms-low-resource-device .app-content .maintenance-grid > .maintenance-card,
 .dms-data-saver .dms-loading *,
