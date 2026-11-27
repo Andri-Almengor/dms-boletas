@@ -2,6 +2,7 @@ import React, { useEffect, useRef, useState } from 'react';
 import { Link, useLocation, useNavigate, useParams } from 'react-router-dom';
 import { useAuth } from '../../AuthContext';
 import Icon from '../../components/common/Icon';
+import Loading from '../../components/common/Loading';
 import ImageViewer from '../../components/tickets/ImageViewer';
 import MediaPreview from '../../components/tickets/MediaPreview';
 import SignaturePad from '../../components/tickets/SignaturePad';
@@ -420,7 +421,7 @@ export default function TicketDetailPage() {
     }
   }
 
-  if (loading) return <div className="page"><div className="state-card state-card--loading"><Icon name="progress_activity" /><span>Cargando boleta...</span></div></div>;
+  if (loading) return <div className="page"><Loading label="Cargando boleta..." variant="page" /></div>;
   if (!data) return <div className="page page--narrow"><div className="alert alert--error"><Icon name="error" /><span>{error || 'No se encontró la boleta.'}</span></div><button className="button button--secondary" type="button" onClick={() => navigate(validReturnTo || '/boletas/pendientes', { state: listReturnState })}><Icon name="arrow_back" /> Volver</button></div>;
 
   const evidences = data?.evidencias || data?.evidences || [];

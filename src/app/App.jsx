@@ -1,7 +1,7 @@
 import React, { Suspense, lazy, useEffect } from 'react';
 import { Navigate, Route, Routes, useLocation } from 'react-router-dom';
 import AppShell from '../components/layout/AppShell';
-import Icon from '../components/common/Icon';
+import Loading from '../components/common/Loading';
 import useOfflineMode from '../hooks/useOfflineMode';
 import PermissionRoute from '../routes/PermissionRoute';
 import ProtectedRoute from '../routes/ProtectedRoute';
@@ -89,7 +89,7 @@ const CATALOG_VIEW = ['CATALOGOS_VER','CATALOGOS_GESTIONAR','USUARIOS_GESTIONAR'
 const PASSWORD_VAULT_VIEW = ['CLIENTES_VER','BOLETAS_VER','MANTENIMIENTOS_VER','MANTENIMIENTOS_CREAR','MANTENIMIENTOS_EDITAR','MANTENIMIENTOS_GESTIONAR','USUARIOS_GESTIONAR'];
 
 function RouteLoading() {
-  return <div className="state-card state-card--loading app-route-loading" role="status"><Icon name="progress_activity" /><span>Abriendo módulo...</span></div>;
+  return <Loading label="Abriendo módulo..." variant="page" className="app-route-loading" />;
 }
 
 function isTicketWorkflow(pathname) {

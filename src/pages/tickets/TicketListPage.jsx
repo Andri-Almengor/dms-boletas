@@ -2,6 +2,7 @@ import React, { useEffect, useMemo, useRef, useState } from 'react';
 import { Link, useLocation, useNavigate } from 'react-router-dom';
 import { useAuth } from '../../AuthContext';
 import Icon from '../../components/common/Icon';
+import Loading from '../../components/common/Loading';
 import FilterDrawer from '../../components/forms/FilterDrawer';
 import TicketCard from '../../components/tickets/TicketCard';
 import { sortOptionsNaturally } from '../../utils/naturalSort';
@@ -280,7 +281,7 @@ export default function TicketListPage({ status }) {
         {(appliedSearch || appliedFilterCount > 0) && <button type="button" className="ticket-list-query-clear" onClick={clearAppliedQuery}><Icon name="close" />Limpiar</button>}
       </div>
     </div>}
-    {loading ? <div className="state-card state-card--loading"><Icon name="progress_activity" /><span>Cargando boletas...</span></div> : tickets.length ? <><div className="ticket-date-groups">{groups.map((group) => <section className="ticket-date-group" key={group.label}><h2>{group.label}</h2><div className="ticket-stack">{group.items.map((ticket, index) => <TicketCard key={getTicketId(ticket, index)} ticket={ticket} returnTo={currentListUrl} onDelete={isAdmin ? annulTicket : undefined} />)}</div></section>)}</div>{hasMore && <div className="ticket-list-load-more"><button type="button" className="button button--secondary" onClick={loadMore} disabled={loadingMore}><Icon name={loadingMore ? 'progress_activity' : 'expand_more'} />{loadingMore ? 'Cargando...' : 'Cargar más boletas'}</button></div>}</> : <div className="empty-state"><Icon name={isPending ? 'pending_actions' : 'task_alt'} /><h2>{isPending ? 'No hay boletas pendientes' : 'No hay boletas finalizadas'}</h2><p>{error ? 'Revisa la conexión con el backend.' : 'Los registros aparecerán aquí automáticamente.'}</p></div>}
+    {loading ? <Loading label="Cargando boletas..." variant="list" /> : tickets.length ? <><div className="ticket-date-groups">{groups.map((group) => <section className="ticket-date-group" key={group.label}><h2>{group.label}</h2><div className="ticket-stack">{group.items.map((ticket, index) => <TicketCard key={getTicketId(ticket, index)} ticket={ticket} returnTo={currentListUrl} onDelete={isAdmin ? annulTicket : undefined} />)}</div></section>)}</div>{hasMore && <div className="ticket-list-load-more"><button type="button" className="button button--secondary" onClick={loadMore} disabled={loadingMore}><Icon name={loadingMore ? 'progress_activity' : 'expand_more'} />{loadingMore ? 'Cargando...' : 'Cargar más boletas'}</button></div>}</> : <div className="empty-state"><Icon name={isPending ? 'pending_actions' : 'task_alt'} /><h2>{isPending ? 'No hay boletas pendientes' : 'No hay boletas finalizadas'}</h2><p>{error ? 'Revisa la conexión con el backend.' : 'Los registros aparecerán aquí automáticamente.'}</p></div>}
     <FilterDrawer open={filterOpen} title="Filtros de boletas" onClose={() => setFilterOpen(false)} onApply={applyFilters} onClear={clearFilters}>{filterFields}</FilterDrawer>
   </div>;
 }

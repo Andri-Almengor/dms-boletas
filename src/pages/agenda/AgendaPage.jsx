@@ -3,6 +3,7 @@ import { Link, useSearchParams } from 'react-router-dom';
 import { apiRequest } from '../../api';
 import { useAuth } from '../../AuthContext';
 import Icon from '../../components/common/Icon';
+import Loading from '../../components/common/Loading';
 import {
   agendaRequiresTicket,
   calendarDays,
@@ -552,7 +553,7 @@ export default function AgendaPage() {
 
     {!loading && <AgendaCalendarSummary items={filtered} month={month} searching={Boolean(search.trim())} />}
 
-    {loading ? <div className="state-card state-card--loading"><Icon name="progress_activity" /><span>Cargando agenda...</span></div> : <>
+    {loading ? <Loading label="Cargando agenda..." variant="list" /> : <>
       <section className="agenda-calendar" aria-label={`Calendario de ${monthLabel(month)}`}>
         <div className="agenda-calendar__weekdays">{WEEKDAYS.map((day) => <strong key={day}>{day}</strong>)}</div>
         <div className="agenda-calendar__grid">{days.map((date) => {

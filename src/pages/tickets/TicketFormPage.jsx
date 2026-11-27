@@ -2,6 +2,7 @@ import React, { useCallback, useEffect, useState } from 'react';
 import { Navigate, useLocation, useNavigate, useParams, useSearchParams } from 'react-router-dom';
 import { useAuth } from '../../AuthContext';
 import Icon from '../../components/common/Icon';
+import Loading from '../../components/common/Loading';
 import AutosaveIndicator from '../../components/feedback/AutosaveIndicator';
 import ProcessingOverlay from '../../components/feedback/ProcessingOverlay';
 import DependentSelect from '../../components/forms/DependentSelect';
@@ -252,7 +253,7 @@ export default function TicketFormPage({ mode = 'create' }) {
     return <Navigate to={`/boletas/${encodeURIComponent(agenda.boleta.BoletaUID)}`} replace />;
   }
   if (loading || agendaLoading) {
-    return <div className="page"><div className="state-card state-card--loading"><Icon name="progress_activity" /> Cargando formulario...</div></div>;
+    return <div className="page"><Loading label="Cargando formulario..." variant="page" /></div>;
   }
 
   const progress = Math.round(((step + 1) / TICKET_FORM_STEPS.length) * 100);

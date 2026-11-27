@@ -2,6 +2,7 @@ import React, { useEffect, useMemo, useState } from 'react';
 import { Link, useLocation, useNavigate, useParams } from 'react-router-dom';
 import { useAuth } from '../../AuthContext';
 import Icon from '../../components/common/Icon';
+import Loading from '../../components/common/Loading';
 import MaintenanceDeviceProgressSummary from '../../components/maintenance/MaintenanceDeviceProgressSummary';
 import MaintenanceLocationInventory from '../../components/maintenance/MaintenanceLocationInventory';
 import MaintenanceLocationPickerModal from '../../components/maintenance/MaintenanceLocationPickerModal';
@@ -408,7 +409,7 @@ export default function MaintenanceDetailPage() {
     });
   }
 
-  if (loading) return <div className="page"><div className="state-card state-card--loading"><Icon name="progress_activity" />Cargando mantenimiento...</div></div>;
+  if (loading) return <div className="page"><Loading label="Cargando mantenimiento..." variant="page" /></div>;
   if (!data) return <div className="page"><div className="empty-state"><Icon name="error" /><h2>No se encontró el mantenimiento</h2><p>{error}</p></div></div>;
 
   return (

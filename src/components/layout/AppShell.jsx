@@ -3,6 +3,7 @@ import { NavLink, Outlet, useLocation, useNavigate } from 'react-router-dom';
 import { useAuth } from '../../AuthContext';
 import useOfflineMode from '../../hooks/useOfflineMode';
 import Icon from '../common/Icon';
+import Loading from '../common/Loading';
 import useOverlaySurface from '../../hooks/useOverlaySurface';
 
 const OfflineSyncManager = lazy(() => import('../offline/OfflineSyncRuntime'));
@@ -88,7 +89,7 @@ export default function AppShell() {
       </nav>
       <button type="button" className="drawer-logout" onClick={handleLogout}><Icon name="logout" /> Cerrar sesión</button>
     </aside>
-    <main className="app-content"><Outlet /></main>
+    <main className="app-content"><Suspense fallback={<Loading label="Abriendo módulo..." variant="page" className="app-route-loading" />}><Outlet /></Suspense></main>
     {showAssistantFab && <NavLink className={`assistant-fab${isWorkflowForm ? ' assistant-fab--workflow' : ''}`} to={assistantUrl} aria-label="Abrir Asistente DMS" title="Preguntar al Asistente DMS"><span className="assistant-fab__icon"><Icon name="smart_toy" filled /></span><span className="assistant-fab__label">Preguntar</span></NavLink>}
     {!isWorkflowForm && !isAssistantPage && <nav className="bottom-nav" aria-label="Navegación principal"><NavigationItem to="/" icon="home" label="Inicio" end />{canViewTickets && <NavigationItem to="/boletas/pendientes" icon="pending_actions" label="Pendientes" />}{canCreateTickets && <NavigationItem to="/boletas/nueva" icon="add" label="Crear" prominent />}{canViewTickets && <NavigationItem to="/boletas/finalizadas" icon="task_alt" label="Finalizadas" />}<NavigationItem to="/mas" icon="more_horiz" label="Más" /></nav>}
   </div>;

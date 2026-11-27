@@ -1,0 +1,93 @@
+/* Shared first-load placeholders: no layout changes to actual operational views. */
+.dms-loading {
+  width: 100%;
+  min-width: 0;
+  display: grid;
+  gap: var(--space-sm);
+  color: var(--muted);
+}
+.dms-loading.app-route-loading {
+  width: min(100% - 32px, var(--page-max-width));
+  margin: var(--space-lg) auto;
+}
+.screen-center > .dms-loading { max-width: var(--page-narrow-max-width); }
+.dms-loading__label { font-size: .82rem; }
+.dms-loading__shapes { display: grid; gap: var(--space-sm); }
+.dms-loading__heading, .dms-loading__card { display: grid; gap: var(--space-sm); }
+.dms-loading__heading { padding: var(--space-xs) 0; }
+.dms-loading__card {
+  padding: var(--space-md);
+  background: var(--surface-card);
+  border: 1px solid var(--surface-high);
+  border-radius: var(--radius-md);
+}
+.dms-loading__row { display: flex; justify-content: space-between; gap: var(--space-sm); }
+.dms-loading__shapes i, .dms-loading__number {
+  display: block;
+  height: 12px;
+  border-radius: var(--radius-sm);
+  background: var(--surface-high);
+  animation: dms-skeleton-pulse 1.7s ease-in-out infinite alternate;
+}
+.dms-loading__row i:first-child { width: 55%; height: 22px; }
+.dms-loading__row i:last-child { width: 20%; height: 22px; }
+.dms-loading__card > i:last-child { width: 72%; }
+.dms-loading__heading i:first-child { width: min(60%, 320px); height: 26px; }
+.dms-loading__heading i:last-child { width: min(42%, 200px); }
+.dms-loading__number { width: 2ch; height: .85em; margin: .15em 0; }
+.dms-loading__card:nth-child(2) i { animation-delay: 120ms; }
+.dms-loading__card:nth-child(3) i { animation-delay: 240ms; }
+@keyframes dms-skeleton-pulse { to { opacity: .48; } }
+
+/* Font-independent icon geometry while Material Symbols is loading. */
+.material-symbols-outlined {
+  font-family: 'Material Symbols Outlined', sans-serif;
+  font-feature-settings: 'liga';
+  white-space: nowrap;
+}
+.dms-icon-font-pending .material-symbols-outlined {
+  color: transparent !important;
+  inline-size: 1em;
+  block-size: 1em;
+  flex-shrink: 0;
+  overflow: hidden;
+  background: var(--surface-high);
+  border-radius: 4px;
+}
+
+/* Animate only mounted content, without remounts, artificial delays, or overlays. */
+.app-content .page > :is(.welcome-block, .page-header, .stats-grid, .primary-cta, .section-block, .form-card, .detail-card, .empty-state, .agenda-toolbar, .agenda-calendar, .agenda-mobile-list, .ticket-progress, .ticket-status-card, .maintenance-detail-summary, .document-links),
+.app-content .ticket-stack > .ticket-card,
+.app-content .maintenance-grid > .maintenance-card {
+  animation: dms-content-enter 480ms ease-out backwards;
+}
+.app-content .page > :is(.welcome-block, .page-header, .stats-grid, .primary-cta, .section-block, .form-card, .detail-card, .empty-state, .agenda-toolbar, .agenda-calendar, .agenda-mobile-list, .ticket-progress, .ticket-status-card, .maintenance-detail-summary, .document-links):nth-child(2),
+.app-content .ticket-stack > .ticket-card:nth-child(2),
+.app-content .maintenance-grid > .maintenance-card:nth-child(2) { animation-delay: 70ms; }
+.app-content .page > :is(.welcome-block, .page-header, .stats-grid, .primary-cta, .section-block, .form-card, .detail-card, .empty-state, .agenda-toolbar, .agenda-calendar, .agenda-mobile-list, .ticket-progress, .ticket-status-card, .maintenance-detail-summary, .document-links):nth-child(3),
+.app-content .ticket-stack > .ticket-card:nth-child(3),
+.app-content .maintenance-grid > .maintenance-card:nth-child(3) { animation-delay: 140ms; }
+.app-content .page > :is(.welcome-block, .page-header, .stats-grid, .primary-cta, .section-block, .form-card, .detail-card, .empty-state, .agenda-toolbar, .agenda-calendar, .agenda-mobile-list, .ticket-progress, .ticket-status-card, .maintenance-detail-summary, .document-links):nth-child(n+4),
+.app-content .ticket-stack > .ticket-card:nth-child(n+4),
+.app-content .maintenance-grid > .maintenance-card:nth-child(n+4) { animation-delay: 210ms; }
+@keyframes dms-content-enter { from { opacity: .35; } to { opacity: 1; } }
+/* Movement is limited to cards, never a parent of a fixed/sticky workflow control. */
+.app-content .ticket-stack > .ticket-card,
+.app-content .maintenance-grid > .maintenance-card { animation-name: dms-card-enter; }
+@keyframes dms-card-enter { from { opacity: .35; translate: 0 6px; } to { opacity: 1; translate: 0 0; } }
+.app-content .page > :is(.welcome-block, .page-header, .stats-grid, .primary-cta, .section-block, .form-card, .detail-card, .empty-state, .agenda-toolbar, .agenda-calendar, .agenda-mobile-list, .ticket-progress, .ticket-status-card, .maintenance-detail-summary, .document-links):focus-within,
+.app-content .ticket-stack > .ticket-card:focus-within,
+.app-content .maintenance-grid > .maintenance-card:focus-within { animation: none; }
+
+@media (prefers-reduced-motion: reduce) {
+  .dms-loading *, .dms-loading__number,
+  .app-content .page > :is(.welcome-block, .page-header, .stats-grid, .primary-cta, .section-block, .form-card, .detail-card, .empty-state, .agenda-toolbar, .agenda-calendar, .agenda-mobile-list, .ticket-progress, .ticket-status-card, .maintenance-detail-summary, .document-links), .app-content .ticket-stack > .ticket-card,
+  .app-content .maintenance-grid > .maintenance-card { animation: none; }
+}
+.dms-low-resource-device .dms-loading *,
+.dms-low-resource-device .dms-loading__number,
+.dms-low-resource-device .app-content .page > :is(.welcome-block, .page-header, .stats-grid, .primary-cta, .section-block, .form-card, .detail-card, .empty-state, .agenda-toolbar, .agenda-calendar, .agenda-mobile-list, .ticket-progress, .ticket-status-card, .maintenance-detail-summary, .document-links),
+.dms-low-resource-device .app-content .ticket-stack > .ticket-card,
+.dms-low-resource-device .app-content .maintenance-grid > .maintenance-card,
+.dms-data-saver .dms-loading *,
+.dms-data-saver .dms-loading__number { animation: none; }

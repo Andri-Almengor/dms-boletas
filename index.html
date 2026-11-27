@@ -14,17 +14,33 @@
     <link rel="apple-touch-icon" href="/icons/dms-icon.svg" />
     <link rel="preconnect" href="https://fonts.googleapis.com" />
     <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
-    <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800&display=swap" rel="stylesheet" />
-    <link href="https://fonts.googleapis.com/css2?family=Material+Symbols+Outlined:wght,FILL@100..700,0..1&display=swap" rel="stylesheet" />
+    <link id="dms-text-font" href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800&display=optional" rel="preload" as="style" />
+    <link id="dms-icon-font" href="https://fonts.googleapis.com/css2?family=Material+Symbols+Outlined:wght,FILL@100..700,0..1&display=block" rel="preload" as="style" />
     <title>DMS Boletas</title>
+    <style>
+      .dms-bootstrap { max-width: 52rem; margin: 0 auto; padding: clamp(18px, 5vw, 40px); font: 16px system-ui, sans-serif; color: #5f5e5e; }
+      .dms-bootstrap h1 { color: #af101a; font-size: 1.5rem; margin: 0 0 20px; }
+      .dms-bootstrap-card { padding: 20px; margin: 12px 0; border: 1px solid #eadfdf; border-radius: 14px; background: #fff; }
+      .dms-bootstrap-card i { display: block; height: 13px; margin: 12px 0; border-radius: 8px; background: #eae7e7; animation: dms-bootstrap-pulse 1.8s ease-in-out infinite alternate; }
+      .dms-bootstrap-card i:first-child { width: 55%; height: 22px; }
+      .dms-bootstrap-card i:last-child { width: 72%; }
+      .dms-bootstrap a { color: #af101a; }
+      @keyframes dms-bootstrap-pulse { to { opacity: .48; } }
+      @media (prefers-reduced-motion: reduce) { .dms-bootstrap-card i { animation: none; } }
+      :root[data-theme="dark"] .dms-bootstrap, :root[data-theme="dark"] .dms-bootstrap h1 { color: #f6eeee; }
+      :root[data-theme="dark"] .dms-bootstrap-card { background: #211d1d; border-color: #342e2e; }
+      :root[data-theme="dark"] .dms-bootstrap-card i { background: #342e2e; }
+      :root[data-theme="dark"] .dms-bootstrap a { color: #ffb4ac; }
+    </style>
   </head>
   <body>
     <div id="root">
-      <main style="font-family:Inter,Arial,sans-serif;max-width:32rem;margin:15vh auto;padding:24px">
+      <main class="dms-bootstrap">
         <h1>DMS Boletas</h1>
         <p role="status">Cargando la aplicación…</p>
+        <div aria-hidden="true"><div class="dms-bootstrap-card"><i></i><i></i><i></i></div><div class="dms-bootstrap-card"><i></i><i></i><i></i></div></div>
         <p>Si la pantalla no avanza, el servidor puede estar reconectándose.</p>
-        <a href="" style="color:#af101a">Reintentar</a>
+        <a href="">Reintentar</a>
       </main>
     </div>
     <script type="module" src="/src/main.jsx"></script>
