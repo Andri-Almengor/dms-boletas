@@ -2,6 +2,7 @@ import test from 'node:test';
 import assert from 'node:assert/strict';
 import {
   buildMaintenanceVisualReportHtml,
+  buildHealthDonutPng,
   buildMaintenanceVisualReportModel,
   finalizeMaintenanceVisualDoc,
   visualDeviceState,
@@ -66,7 +67,7 @@ test('Google Docs: tablas visuales, logo DMS y recomendaciones editables; observ
   const documentHtml = buildMaintenanceVisualReportHtml(buildMaintenanceVisualReportModel(metrics()));
   assert.match(documentHtml, /dms-report-logo\.png/);
   assert.match(documentHtml, /Salud del sistema/);
-  assert.match(documentHtml, /Dispositivos por tipo/);
+  assert.match(documentHtml, /Distribución por tipo de dispositivo/);
   assert.match(documentHtml, /Recomendaciones/);
   assert.match(documentHtml, /Crítica → Moderada → Leve/);
   assert.match(documentHtml, /&lt;script&gt;alert\(&quot;hola&quot;\)&lt;\/script&gt;/);
@@ -88,7 +89,7 @@ test('Google Docs: la portada lleva el cliente como título, ubicación real y l
   assert.equal(report.maintenanceLabel, 'Revisión de videovigilancia');
   assert.equal(report.siteLabel, 'Sede Central');
   const html = buildMaintenanceVisualReportHtml(report);
-  assert.match(html, /<h1>Cliente seguro<\/h1>/);
+  assert.match(html, /<h1>Cliente: Cliente seguro<\/h1>/);
   assert.match(html, /Resumen visual del estado del sistema/);
   assert.match(html, /Fecha del informe/);
   assert.match(html, /Mantenimiento:<\/b> Revisión de videovigilancia/);
@@ -98,7 +99,7 @@ test('Google Docs: la portada lleva el cliente como título, ubicación real y l
   assert.match(html, /En buen estado/);
   assert.match(html, /Dispositivos dañados/);
   assert.match(html, /Salud general/);
-  assert.match(html, /Dispositivos por tipo/);
+  assert.match(html, /Distribución por tipo de dispositivo/);
   assert.match(html, /Recomendaciones/);
   assert.ok(html.indexOf('Cámara crítica') < html.indexOf('Cámara moderada'));
   assert.ok(html.indexOf('Cámara moderada') < html.indexOf('Puerta leve'));
@@ -128,7 +129,7 @@ test('Google Docs: el modelo conserva mantenimientos múltiples sin inventar sit
   assert.doesNotMatch(buildMaintenanceVisualReportHtml(zero), /<b>Sitio:<\/b>/);
 });
 
-test('Google Docs: se establece A4 horizontal y se recupera el logo si faltó al convertir', async () => {
+test('Google Docs: se establece A4 vertical y se recupera el logo si faltó al convertir', async () => {
   const calls = [];
   const docsApi = {
     documents: {
@@ -141,8 +142,8 @@ test('Google Docs: se establece A4 horizontal y se recupera el logo si faltó al
   assert.equal(calls.length, 1);
   assert.equal(calls[0].documentId, 'document-123');
   const [format, logo] = calls[0].requestBody.requests;
-  assert.equal(format.updateDocumentStyle.documentStyle.pageSize.width.magnitude, 841.9);
-  assert.equal(format.updateDocumentStyle.documentStyle.pageSize.height.magnitude, 595.3);
+  assert.equal(format.updateDocumentStyle.documentStyle.pageSize.width.magnitude, 595.3);
+  assert.equal(format.updateDocumentStyle.documentStyle.pageSize.height.magnitude, 841.9);
   assert.equal(logo.insertInlineImage.location.index, 1);
   assert.match(logo.insertInlineImage.uri, /dms-report-logo\.png/);
 });
@@ -151,7 +152,7 @@ test('Google Docs: no duplica el logotipo cuando la importación HTML lo conserv
   const requests = [];
   const docsApi = {
     documents: {
-      get: async () => ({ data: { inlineObjects: { image_1: {} } } }),
+      get: async () => ({ data: { inlineObjects: { image_1: { inlineObjectProperties: { embeddedObject: { title: 'DMS Solutions Provider' } } } } } }),
       batchUpdate: async (payload) => { requests.push(...payload.requestBody.requests); },
     },
   };
@@ -167,7 +168,7 @@ test('Google Docs: el cliente y la ubicación se escapan antes de convertir el d
   const html = buildMaintenanceVisualReportHtml({
     ...base, client: '<script>Cliente</script>', siteLabel: 'Norte & Sur',
   });
-  assert.match(html, /<h1>&lt;script&gt;Cliente&lt;\/script&gt;<\/h1>/);
+  assert.match(html, /<h1>Cliente: &lt;script&gt;Cliente&lt;\/script&gt;<\/h1>/);
   assert.match(html, /Norte &amp; Sur/);
   assert.doesNotMatch(html, /<script>/);
 });
@@ -188,4 +189,42 @@ test('Google Docs: una tabla extensa conserva todos los dispositivos y no solo l
   assert.equal(large.rows.length, total);
   assert.match(html, /Dispositivo 249/);
   assert.equal((html.match(/<span style="display:inline-block;border-radius:14px/g) || []).length, total);
+});
+
+test('diseño aprobado: bandas rojas, contexto, resumen y gráficos en el orden solicitado', () => {
+  const report = buildMaintenanceVisualReportModel(metrics(), 'danados');
+  const html = buildMaintenanceVisualReportHtml(report);
+  const sections = ['Informe de mantenimiento', 'Responsables / Técnicos', 'Resumen general', 'Salud del sistema', 'Distribución por tipo de dispositivo', 'Dispositivos con fallas', 'Recomendaciones'];
+  for (let index = 1; index < sections.length; index++) {
+    assert.ok(html.indexOf(sections[index]) > html.indexOf(sections[index - 1]), sections[index]);
+  }
+  assert.match(html, /class="section-band"/);
+  assert.match(html, /class="category-chart"/);
+  assert.match(html, /2 fallas/);
+  assert.match(html, /data:image\/png;base64,/);
+  assert.match(html, /Evidencias:/);
+  assert.match(html, /Sin evaluar: 1/);
+  assert.equal(report.rows.length, 4);
+  assert.equal(report.total, 6);
+});
+
+test('dona PNG local: formato válido para importación y extremos de salud', () => {
+  for (const model of [{ evaluated: 0, healthy: 0 }, { evaluated: 5, healthy: 0 }, { evaluated: 5, healthy: 5 }]) {
+    const png = buildHealthDonutPng(model);
+    assert.deepEqual([...png.subarray(0, 8)], [137, 80, 78, 71, 13, 10, 26, 10]);
+    assert.equal(png.readUInt32BE(16), 160);
+    assert.equal(png.readUInt32BE(20), 160);
+    assert.ok(png.length > 100);
+  }
+});
+
+test('una dona importada sin logo no impide restaurar el logo corporativo', async () => {
+  const requests = [];
+  const docsApi = { documents: {
+    get: async () => ({ data: { inlineObjects: { chart: { inlineObjectProperties: { embeddedObject: { title: 'Gráfico de salud del sistema', size: { width: { magnitude: 81 }, height: { magnitude: 81 } } } } } } } }),
+    batchUpdate: async (payload) => { requests.push(...payload.requestBody.requests); },
+  } };
+  const result = await finalizeMaintenanceVisualDoc({ docsApi, documentId: 'chart-only' });
+  assert.equal(result.logoRestored, true);
+  assert.ok(requests[1].insertInlineImage);
 });
