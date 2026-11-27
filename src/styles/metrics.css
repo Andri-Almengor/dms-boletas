@@ -792,3 +792,7 @@
     padding-inline: 5px;
   }
 }
+
+.metrics-report-recommendations { min-width: 0; }
+.metrics-report-recommendations textarea { width: 100%; min-height: 120px; resize: vertical; padding: 12px; color: var(--metrics-ink); background: var(--metrics-card); border-color: var(--metrics-border, var(--outline-soft)); font-size: 16px; line-height: 1.5; }
+.metrics-report-recommendations small { color: var(--metrics-subtle); font-size: 11px; line-height: 1.45; overflow-wrap: anywhere; }
