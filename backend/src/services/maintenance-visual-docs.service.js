@@ -175,13 +175,36 @@ function stackedBar(values, total) {
   </table>`;
 }
 
-function categoryChart(item) {
-  return `<tr>
-    <td style="padding:3pt;font-size:8pt"><b>${html(item.categoria)}</b></td>
-    <td width="45%" style="padding:3pt">${stackedBar(item, item.total)}</td>
-    <td align="right" style="padding:3pt;font-size:8pt"><b>${item.total}</b></td>
-    <td align="right" style="padding:3pt;font-size:8pt;color:${VISUAL.danger}"><b>${item.danados}</b></td>
-  </tr>`;
+// Table cells retain their colors and numeric labels after HTML conversion.
+// Groups of four keep long category names readable in the portrait document.
+function categoryChart(categories) {
+  if (!categories.length) return '<p>No hay dispositivos registrados.</p>';
+  const max = Math.max(...categories.map((item) => item.total));
+  const chartHeight = 64;
+  const groups = [];
+  for (let offset = 0; offset < categories.length; offset += 4) {
+    const items = categories.slice(offset, offset + 4);
+    const columns = items.map((item) => {
+      const segments = [
+        [item.sinEvaluar, VISUAL.pending],
+        [item.danados, VISUAL.danger],
+        [item.sanos, VISUAL.ok],
+      ].filter(([count]) => count > 0);
+      const segmentRows = segments.map(([count, color]) => {
+        const height = Math.max(2, Math.round(chartHeight * count / max));
+        return `<tr><td bgcolor="${color}" height="${height}" style="height:${height}px;background-color:${color};padding:0;font-size:1pt;line-height:1pt">&nbsp;</td></tr>`;
+      }).join('');
+      return `<td width="${100 / items.length}%" valign="bottom" align="center" style="padding:1pt;text-align:center">
+        <p style="font-size:9pt;margin:0"><b>${item.total}</b></p>
+        <table align="center" width="18" cellspacing="0" cellpadding="0" role="presentation" style="width:18px;border-collapse:collapse">${segmentRows}</table>
+      </td>`;
+    }).join('');
+    const labels = items.map((item) => `<td align="center" valign="top" style="border-top:1pt solid ${VISUAL.border};padding:3pt 1pt;font-size:7pt;text-align:center">
+      <b>${html(item.categoria)}</b><br><span style="color:${VISUAL.danger}">${item.danados} fallas</span>
+    </td>`).join('');
+    groups.push(`<table class="category-chart" width="100%" cellpadding="0" cellspacing="0" role="presentation"><tr>${columns}</tr><tr>${labels}</tr></table>`);
+  }
+  return groups.join('');
 }
 
 function statusChip(row) {
@@ -216,8 +239,7 @@ export function buildMaintenanceVisualReportHtml(model) {
   const healthColor = model.health === null ? VISUAL.pending
     : model.health >= 80 ? VISUAL.ok : model.health >= 50 ? VISUAL.amber : VISUAL.danger;
   const completion = model.total ? Math.round(100 * model.evaluated / model.total) : 0;
-  const categories = model.categories.map(categoryChart).join('')
-    || '<tr><td colspan="4">No hay dispositivos registrados.</td></tr>';
+  const categories = categoryChart(model.categories);
   const rows = model.rows.map(detailRow).join('')
     || '<tr><td colspan="6">No hay dispositivos para el filtro seleccionado.</td></tr>';
   const filterTitle = model.filter === 'todos' ? 'Detalle de todos los dispositivos'
@@ -251,7 +273,7 @@ export function buildMaintenanceVisualReportHtml(model) {
       <td align="left" valign="middle" style="padding:0 0 3pt"><img src="${DMS_LOGO_URL}" alt="DMS Solutions Provider" width="142" height="80"></td>
       <td align="right" valign="middle" style="font-size:9pt;color:${VISUAL.muted}"><b>REPORTE DE MANTENIMIENTO</b></td>
     </tr><tr><td bgcolor="${VISUAL.red}" height="4" style="background-color:${VISUAL.red};font-size:1pt">&nbsp;</td><td bgcolor="#e7e8eb" style="background-color:#e7e8eb;border-top:2pt solid ${VISUAL.red};font-size:1pt">&nbsp;</td></tr></table>
-    <h1>${title}</h1>
+    <h1>Cliente: ${title}</h1>
     <p style="font-size:15pt;color:#636b79;margin:1pt 0 8pt"><b>Informe de mantenimiento</b></p>
     <table width="100%" cellpadding="7" cellspacing="0" class="keep" role="presentation">
       <tr><td width="50%" bgcolor="#f6f7f9" valign="top" style="background-color:#f6f7f9;border:1px solid ${VISUAL.border};font-size:9pt">
@@ -293,10 +315,8 @@ export function buildMaintenanceVisualReportHtml(model) {
       <td width="58%" valign="top" style="border:1px solid ${VISUAL.border}">
         ${sectionBand('Distribución por tipo de dispositivo')}
         <p style="font-size:8pt;color:${VISUAL.muted}"><span style="color:${VISUAL.ok}">● Buenos</span> · <span style="color:${VISUAL.danger}">● Dañados</span> · ● Sin evaluar</p>
-        <table width="100%" cellpadding="3" cellspacing="0" style="border-collapse:collapse">
-          <tr bgcolor="#e7e8eb" style="background-color:#e7e8eb;font-size:8pt"><th>Tipo</th><th>Distribución</th><th>Total</th><th>Fallas</th></tr>
-          ${categories}
-        </table>
+        ${categories}
+        <p style="font-size:7pt;color:${VISUAL.muted}">Total por tipo arriba de cada barra; cantidad con fallas debajo.</p>
       </td></tr></table>
     ${sectionBand(filterTitle)}
     <p style="font-size:8pt;color:${VISUAL.muted}">${model.rows.length} dispositivos incluidos. Prioridad: Crítica → Moderada → Leve → Sin clasificar → Sanos → Sin evaluar.</p>

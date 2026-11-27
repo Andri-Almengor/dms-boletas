@@ -89,7 +89,7 @@ test('Google Docs: la portada lleva el cliente como título, ubicación real y l
   assert.equal(report.maintenanceLabel, 'Revisión de videovigilancia');
   assert.equal(report.siteLabel, 'Sede Central');
   const html = buildMaintenanceVisualReportHtml(report);
-  assert.match(html, /<h1>Cliente seguro<\/h1>/);
+  assert.match(html, /<h1>Cliente: Cliente seguro<\/h1>/);
   assert.match(html, /Resumen visual del estado del sistema/);
   assert.match(html, /Fecha del informe/);
   assert.match(html, /Mantenimiento:<\/b> Revisión de videovigilancia/);
@@ -168,7 +168,7 @@ test('Google Docs: el cliente y la ubicación se escapan antes de convertir el d
   const html = buildMaintenanceVisualReportHtml({
     ...base, client: '<script>Cliente</script>', siteLabel: 'Norte & Sur',
   });
-  assert.match(html, /<h1>&lt;script&gt;Cliente&lt;\/script&gt;<\/h1>/);
+  assert.match(html, /<h1>Cliente: &lt;script&gt;Cliente&lt;\/script&gt;<\/h1>/);
   assert.match(html, /Norte &amp; Sur/);
   assert.doesNotMatch(html, /<script>/);
 });
@@ -199,6 +199,8 @@ test('diseño aprobado: bandas rojas, contexto, resumen y gráficos en el orden 
     assert.ok(html.indexOf(sections[index]) > html.indexOf(sections[index - 1]), sections[index]);
   }
   assert.match(html, /class="section-band"/);
+  assert.match(html, /class="category-chart"/);
+  assert.match(html, /2 fallas/);
   assert.match(html, /data:image\/png;base64,/);
   assert.match(html, /Evidencias:/);
   assert.match(html, /Sin evaluar: 1/);
