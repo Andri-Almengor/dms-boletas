@@ -228,3 +228,20 @@ test('una dona importada sin logo no impide restaurar el logo corporativo', asyn
   assert.equal(result.logoRestored, true);
   assert.ok(requests[1].insertInlineImage);
 });
+
+
+test('PDF visual comparte exactamente el modelo de Docs y conserva las 250 filas en la selección', async () => {
+  const { buildMaintenanceVisualReportModel: sharedModel } = await import('../src/services/maintenance-visual-report.model.js');
+  assert.equal(sharedModel, buildMaintenanceVisualReportModel);
+  const original = metrics();
+  const rows = Array.from({ length: 250 }, (_, index) => ({
+    ...original.detailRows[0], deviceId: 'pdf-' + index, nombreDispositivo: 'Equipo ' + index,
+  }));
+  const data = { ...original, detailRows: rows, reportDetailCount: rows.length,
+    totals: { ...original.totals, dispositivosFiltrados: rows.length } };
+  const report = sharedModel(data, 'danados');
+  assert.equal(report.rows.length, 250);
+  assert.equal(report.total, 250);
+  assert.equal(report.health, 0);
+  assert.throws(() => sharedModel({ ...data, reportDetailCount: 249 }, 'todos'), /incompletos/);
+});

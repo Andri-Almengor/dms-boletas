@@ -314,6 +314,10 @@ const VISUAL_REPORT_STYLES = `
   .visual-category b { margin-top: 3px; }
   .visual-category small { color: #b90d19; font-size: 8px; }
   .report-page--visual .report-table th, .report-page--visual .report-table td { padding: 5px 4px; font-size: 9px; }
+  .report-page--visual .report-table col:nth-child(3) { width: 10% !important; }
+  .report-page--visual .report-table col:nth-child(4) { width: 13% !important; }
+  .report-page--visual .report-table col:nth-child(5) { width: 6% !important; }
+  .report-page--visual .report-table col:nth-child(7) { width: 30% !important; }
   .report-page--visual .report-fault-severity[data-severity="1"] { color: #a45d00; }
   .report-page--visual .report-fault-severity[data-severity="2"] { color: #806000; }
   .report-page--visual .report-fault-severity[data-severity="3"], .report-page--visual .report-fault-severity[data-severity="5"] { color: #5b626d; }

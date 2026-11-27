@@ -3,7 +3,6 @@ import { deflateSync, crc32 } from 'node:zlib';
 import { AppError } from '../core/errors.js';
 
 const DMS_LOGO_URL = 'https://raw.githubusercontent.com/Andri-Almengor/dms-boletas/main/src/assets/dms-report-logo.png';
-import { buildMaintenanceVisualReportModel } from './maintenance-visual-report.model.js';
 export { VISUAL_REPORT_FILTERS, visualDeviceState, buildMaintenanceVisualReportModel } from './maintenance-visual-report.model.js';
 
 function text(value) { return String(value ?? '').trim(); }
